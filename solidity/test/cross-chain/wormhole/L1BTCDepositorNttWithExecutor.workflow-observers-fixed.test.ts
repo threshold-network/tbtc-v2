@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -88,15 +88,15 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
   describe("Workflow Observer Functions", () => {
     it("should provide initial workflow status", async () => {
       const [hasWorkflow, nonce, timestamp] =
-        await depositor.getUserWorkflowStatus(ethers.constants.AddressZero)
+        await depositor.getUserWorkflowStatus(ethers.ZeroAddress)
       expect(hasWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
     })
 
     it("should allow user to start new workflow initially", async () => {
       const canStart = await depositor.canUserStartNewWorkflow(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
       expect(canStart).to.be.true
     })
@@ -110,7 +110,7 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
       const [hasActiveWorkflow, nonce, timestamp, timeRemaining] =
         await depositor.getUserWorkflowInfo(user)
       expect(hasActiveWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
       expect(timeRemaining).to.equal(0)
       // canStartNew and reason were removed to reduce contract size
@@ -164,7 +164,7 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
       // Test the new signature that returns (bool, bytes32)
       const [isSet, nonce] = await depositor.areExecutorParametersSet()
       expect(isSet).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
     })
 
     it("should maintain existing getStoredExecutorValue behavior", async () => {

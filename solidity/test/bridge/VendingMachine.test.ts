@@ -11,7 +11,7 @@ import {
 } from "../helpers/contract-test-helpers"
 import bridgeFixture from "../fixtures/bridge"
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -485,7 +485,7 @@ describe("VendingMachine", () => {
 
   describe("withdrawFees", () => {
     const unmintAmount = to1e18(4)
-    let unmintFee: BigNumber
+    let unmintFee: bigint
 
     before(async () => {
       await createSnapshot()
@@ -513,7 +513,7 @@ describe("VendingMachine", () => {
     })
 
     context("when caller is the owner", () => {
-      let withdrawnFee: BigNumber
+      let withdrawnFee: bigint
 
       before(async () => {
         await createSnapshot()
@@ -737,7 +737,7 @@ describe("VendingMachine", () => {
         tbtcV2.address,
         constants.unmintFee
       )
-      await newVendingMachine.deployed()
+      await newVendingMachine.waitForDeployment()
     })
 
     after(async () => {
@@ -879,7 +879,7 @@ describe("VendingMachine", () => {
             tbtcV2.address,
             constants.unmintFee
           )
-          await newVendingMachine.deployed()
+          await newVendingMachine.waitForDeployment()
 
           await tbtcV1
             .connect(tokenHolder)

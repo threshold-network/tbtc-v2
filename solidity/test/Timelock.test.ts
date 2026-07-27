@@ -1,5 +1,5 @@
 import { helpers, waffle, upgrades } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type { Bridge, TBTCVault, Timelock, ProxyAdmin } from "../typechain"
 
@@ -8,8 +8,8 @@ import bridgeFixture from "./fixtures/bridge"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 describe("Timelock", () => {
-  let governance: SignerWithAddress
-  let governanceSigner: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let governanceSigner: HardhatEthersSigner
 
   let bridge: Bridge
   let tbtcVault: TBTCVault

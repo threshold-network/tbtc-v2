@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {ContractTransactionResponse} from "ethers"
 import {
   IWormholeGateway,
   IWormholeRelayer,
@@ -68,8 +68,8 @@ describe("L2BTCDepositorWormhole", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
 
   let wormholeRelayer: Mock<IWormholeRelayer>
   let l2WormholeGateway: Mock<IWormholeGateway>
@@ -126,7 +126,7 @@ describe("L2BTCDepositorWormhole", () => {
             await expect(
               l2BtcDepositor
                 .connect(governance)
-                .attachL1BtcDepositor(ethers.constants.AddressZero)
+                .attachL1BtcDepositor(ethers.ZeroAddress)
             ).to.be.revertedWith("L1 Bitcoin Depositor must not be 0x0")
           })
         })
@@ -155,7 +155,7 @@ describe("L2BTCDepositorWormhole", () => {
   })
 
   describe("initializeDeposit", () => {
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -165,7 +165,7 @@ describe("L2BTCDepositorWormhole", () => {
         .initializeDeposit(
           initializeDepositFixture.fundingTx,
           initializeDepositFixture.reveal,
-          ethers.utils.hexDataSlice(
+          ethers.hexDataSlice(
             initializeDepositFixture.destinationChainDepositOwner,
             12
           )
@@ -179,7 +179,7 @@ describe("L2BTCDepositorWormhole", () => {
     it("should emit DepositInitialized event", async () => {
       const { fundingTx, reveal, destinationChainDepositOwner } =
         initializeDepositFixture
-      const l2DepositOwnerInEthereumAddress = ethers.utils.hexDataSlice(
+      const l2DepositOwnerInEthereumAddress = ethers.hexDataSlice(
         destinationChainDepositOwner,
         12
       )
@@ -234,18 +234,18 @@ describe("L2BTCDepositorWormhole", () => {
             .connect(relayer)
             // Parameters don't matter as the call should revert before.
             .receiveWormholeMessages(
-              ethers.constants.HashZero,
+              ethers.ZeroHash,
               [],
-              ethers.constants.HashZero,
+              ethers.ZeroHash,
               0,
-              ethers.constants.HashZero
+              ethers.ZeroHash
             )
         ).to.be.revertedWith("Caller is not Wormhole Relayer")
       })
     })
 
     context("when the caller is the WormholeRelayer", () => {
-      let wormholeRelayerSigner: SignerWithAddress
+      let wormholeRelayerSigner: HardhatEthersSigner
 
       before(async () => {
         await createSnapshot()
@@ -269,11 +269,11 @@ describe("L2BTCDepositorWormhole", () => {
             l2BtcDepositor
               .connect(wormholeRelayerSigner)
               .receiveWormholeMessages(
-                ethers.constants.HashZero,
+                ethers.ZeroHash,
                 [],
-                ethers.constants.HashZero,
+                ethers.ZeroHash,
                 0,
-                ethers.constants.HashZero
+                ethers.ZeroHash
               )
           ).to.be.revertedWith("Source chain is not the expected L1 chain")
         })
@@ -288,11 +288,11 @@ describe("L2BTCDepositorWormhole", () => {
                 l2BtcDepositor
                   .connect(wormholeRelayerSigner)
                   .receiveWormholeMessages(
-                    ethers.constants.HashZero,
+                    ethers.ZeroHash,
                     [],
                     toWormholeAddress(relayer.address),
                     await l2BtcDepositor.l1ChainId(),
-                    ethers.constants.HashZero
+                    ethers.ZeroHash
                   )
               ).to.be.revertedWith(
                 "Source address is not the expected L1 Bitcoin depositor"
@@ -308,11 +308,11 @@ describe("L2BTCDepositorWormhole", () => {
                 l2BtcDepositor
                   .connect(wormholeRelayerSigner)
                   .receiveWormholeMessages(
-                    ethers.constants.HashZero,
+                    ethers.ZeroHash,
                     [],
                     toWormholeAddress(l1BtcDepositor),
                     await l2BtcDepositor.l1ChainId(),
-                    ethers.constants.HashZero
+                    ethers.ZeroHash
                   )
               ).to.be.revertedWith(
                 "Expected 1 additional VAA key for token transfer"
@@ -329,11 +329,11 @@ describe("L2BTCDepositorWormhole", () => {
               await l2BtcDepositor
                 .connect(wormholeRelayerSigner)
                 .receiveWormholeMessages(
-                  ethers.constants.HashZero,
+                  ethers.ZeroHash,
                   ["0x1234"],
                   toWormholeAddress(l1BtcDepositor),
                   await l2BtcDepositor.l1ChainId(),
-                  ethers.constants.HashZero
+                  ethers.ZeroHash
                 )
             })
 

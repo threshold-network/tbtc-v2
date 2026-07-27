@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -20,9 +20,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
-  let owner: SignerWithAddress
-  let user1: SignerWithAddress
-  let user2: SignerWithAddress
+  let owner: HardhatEthersSigner
+  let user1: HardhatEthersSigner
+  let user2: HardhatEthersSigner
 
   before(async () => {
     // Deploy mock contracts following working pattern
@@ -51,7 +51,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
@@ -85,16 +85,16 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   describe("Auto-Nonce Basic Functionality", () => {
     it("should allow multiple users to set parameters in parallel", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.formatBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -123,8 +123,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
       // Nonces should be different
       expect(nonce1).to.not.equal(nonce2)
-      expect(nonce1).to.not.equal(ethers.constants.HashZero)
-      expect(nonce2).to.not.equal(ethers.constants.HashZero)
+      expect(nonce1).to.not.equal(ethers.ZeroHash)
+      expect(nonce2).to.not.equal(ethers.ZeroHash)
 
       // Both users should have parameters set
       const [user1Set, user1Nonce] = await depositor
@@ -142,9 +142,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     it("should track nonce sequences per user", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.formatBytes32String("quote"),
         instructions: "0x",
       }
 
@@ -181,9 +181,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     it("should provide workflow status information", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.formatBytes32String("quote"),
         instructions: "0x",
       }
 
@@ -196,7 +196,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       const [hasWorkflow, nonce, timestamp] =
         await depositor.getUserWorkflowStatus(user1.address)
       expect(hasWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
 
       // Set parameters
@@ -218,9 +218,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     it("should allow users to clear their own parameters", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.formatBytes32String("quote"),
         instructions: "0x",
       }
 

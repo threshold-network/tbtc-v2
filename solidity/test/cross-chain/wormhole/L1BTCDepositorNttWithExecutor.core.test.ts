@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -47,7 +47,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
@@ -87,7 +87,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       expect(await depositor.defaultDestinationGasLimit()).to.equal(500000)
       expect(await depositor.defaultExecutorFeeBps()).to.equal(0)
       expect(await depositor.defaultExecutorFeeRecipient()).to.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
     })
 
@@ -141,7 +141,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
         50, // executorFeeBps
         user.address, // executorFeeRecipient
         0, // platformFeeBps
-        ethers.constants.AddressZero // platformFeeRecipient
+        ethers.ZeroAddress // platformFeeRecipient
       )
 
       // Non-owner cannot update
@@ -153,7 +153,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
             50,
             user.address,
             0,
-            ethers.constants.AddressZero
+            ethers.ZeroAddress
           )
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
@@ -178,7 +178,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       const [, , user] = await ethers.getSigners()
 
       // Send some tokens to the contract
-      const amount = ethers.utils.parseEther("1")
+      const amount = ethers.parseEther("1")
       await tbtcToken.mint(depositor.address, amount)
 
       const initialBalance = await tbtcToken.balanceOf(user.address)
@@ -199,7 +199,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       // For testing purposes, we'll just verify the function doesn't revert
       // when called with zero amount (no ETH to retrieve)
       await expect(
-        depositor.retrieveTokens(ethers.constants.AddressZero, user.address, 0)
+        depositor.retrieveTokens(ethers.ZeroAddress, user.address, 0)
       ).to.not.be.reverted
     })
 

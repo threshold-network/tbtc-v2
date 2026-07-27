@@ -2,8 +2,8 @@
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers, waffle } from "hardhat"
 import type { BigNumberish } from "ethers"
-import { utils } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import {utils} from "ethers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type { Mock } from "../helpers/mock"
 import type {
@@ -48,9 +48,9 @@ describeFn("Integration Test - Full flow", async () => {
   let walletRegistry: WalletRegistry
   let randomBeacon: Mock<IRandomBeacon>
   let relay: Mock<IRelay>
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
 
   const dkgResultChallengePeriodLength = 10
 
@@ -151,7 +151,7 @@ describeFn("Integration Test - Full flow", async () => {
           // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
           // Use the deposit transaction hash as little endian and the transaction
           // output index.
-          const depositKey = ethers.utils.solidityKeccak256(
+          const depositKey = ethers.solidityKeccak256(
             ["bytes32", "uint32"],
             [
               "0x6fc25b8ebd5fcfdf6de60c39dbaa46cfb0d0e792c671edac4112cabb11fb72c8",
@@ -200,7 +200,7 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should update the main UTXO of the wallet", async () => {
-          const expectedMainUtxo = ethers.utils.solidityKeccak256(
+          const expectedMainUtxo = ethers.solidityKeccak256(
             ["bytes32", "uint32", "uint64"],
             [depositSweepData.sweepTx.hash, 0, 98400]
           )
@@ -235,7 +235,7 @@ describeFn("Integration Test - Full flow", async () => {
             .approveAndCall(
               tbtcVault.address,
               redemptionAmount,
-              ethers.utils.defaultAbiCoder.encode(
+              ethers.defaultAbiCoder.encode(
                 ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
                 [
                   redeemer.address,
@@ -319,7 +319,7 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should update the main UTXO of the wallet", async () => {
-          const expectedMainUtxo = ethers.utils.solidityKeccak256(
+          const expectedMainUtxo = ethers.solidityKeccak256(
             ["bytes32", "uint32", "uint64"],
             [redemptionData.redemptionTx.hash, 1, 48425]
           )

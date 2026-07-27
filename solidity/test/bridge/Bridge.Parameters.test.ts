@@ -1,18 +1,18 @@
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import {ContractTransactionResponse} from "ethers"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 describe("Bridge - Parameters", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
 
@@ -32,10 +32,10 @@ describe("Bridge - Parameters", () => {
         const newDepositRevealAheadPeriod =
           constants.depositRevealAheadPeriod * 2
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -269,13 +269,13 @@ describe("Bridge - Parameters", () => {
         const newRedemptionTimeoutNotifierRewardMultiplier =
           constants.redemptionTimeoutNotifierRewardMultiplier / 4
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
-        let tx5: ContractTransaction
-        let tx6: ContractTransaction
-        let tx7: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
+        let tx5: ContractTransactionResponse
+        let tx6: ContractTransactionResponse
+        let tx7: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -753,17 +753,17 @@ describe("Bridge - Parameters", () => {
         const newMovedFundsSweepTimeoutNotifierRewardMultiplier =
           constants.movedFundsSweepTimeoutNotifierRewardMultiplier / 4
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
-        let tx5: ContractTransaction
-        let tx6: ContractTransaction
-        let tx7: ContractTransaction
-        let tx8: ContractTransaction
-        let tx9: ContractTransaction
-        let tx10: ContractTransaction
-        let tx11: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
+        let tx5: ContractTransactionResponse
+        let tx6: ContractTransactionResponse
+        let tx7: ContractTransactionResponse
+        let tx8: ContractTransactionResponse
+        let tx9: ContractTransactionResponse
+        let tx10: ContractTransactionResponse
+        let tx11: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1294,13 +1294,13 @@ describe("Bridge - Parameters", () => {
         const newWalletMaxBtcTransfer = constants.walletMaxBtcTransfer.add(1000)
         const newWalletClosingPeriod = constants.walletClosingPeriod * 2
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
-        let tx5: ContractTransaction
-        let tx6: ContractTransaction
-        let tx7: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
+        let tx5: ContractTransactionResponse
+        let tx6: ContractTransactionResponse
+        let tx7: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1585,10 +1585,10 @@ describe("Bridge - Parameters", () => {
         const newFraudNotifierRewardMultiplier =
           constants.fraudNotifierRewardMultiplier / 4
 
-        let tx1: ContractTransaction
-        let tx2: ContractTransaction
-        let tx3: ContractTransaction
-        let tx4: ContractTransaction
+        let tx1: ContractTransactionResponse
+        let tx2: ContractTransactionResponse
+        let tx3: ContractTransactionResponse
+        let tx4: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1779,7 +1779,7 @@ describe("Bridge - Parameters", () => {
       })
 
       context("when the new treasury address is non-zero", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1884,7 +1884,7 @@ describe("Bridge - Parameters", () => {
         })
 
         context("when the watchtower address is non-zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -1974,7 +1974,7 @@ describe("Bridge - Parameters", () => {
         })
 
         context("when the rebate staking address is non-zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()

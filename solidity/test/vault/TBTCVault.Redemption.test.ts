@@ -1,7 +1,7 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumberish, ContractTransaction } from "ethers"
+import {BigNumberish, ContractTransactionResponse} from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
 
 import { constants, walletState } from "../fixtures"
@@ -36,9 +36,9 @@ describe("TBTCVault - Redemption", () => {
   let tbtc: TBTC
   let tbtcVault: TBTCVault
 
-  let deployer: SignerWithAddress
-  let account1: SignerWithAddress
-  let account2: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let account1: HardhatEthersSigner
+  let account2: HardhatEthersSigner
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -63,25 +63,25 @@ describe("TBTCVault - Redemption", () => {
       .approveBalance(tbtcVault.address, initialBankBalance)
 
     await bridge.setWallet(walletPubKeyHash, {
-      ecdsaWalletID: ethers.constants.HashZero,
-      mainUtxoHash: ethers.constants.HashZero,
+      ecdsaWalletID: ethers.ZeroHash,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Live,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
     await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
   })
 
   describe("unmintAndRedeem", () => {
     const requestRedemption = async (
-      redeemer: SignerWithAddress,
+      redeemer: HardhatEthersSigner,
       redeemerOutputScript: string,
       amount: BigNumberish
-    ): Promise<ContractTransaction> => {
+    ): Promise<ContractTransactionResponse> => {
       const data = defaultAbiCoder.encode(
         ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
         [
@@ -159,7 +159,7 @@ describe("TBTCVault - Redemption", () => {
         .add(redeemedAmount4)
       const notRedeemedAmount = mintedAmount.sub(totalRedeemedAmount)
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -273,10 +273,10 @@ describe("TBTCVault - Redemption", () => {
 
       const mintedAmount = to1e18(20)
       // Amount is 3 Bitcoin in 1e18 precision plus 0.1 satoshi in 1e18 precision
-      const redeemedAmount = ethers.BigNumber.from("3000000001000000000")
+      const redeemedAmount = BigInt("3000000001000000000")
       const notRedeemedAmount = to1e18(17) // 20 - 3; remainder should be ignored
 
-      let transaction: ContractTransaction
+      let transaction: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -341,7 +341,7 @@ describe("TBTCVault - Redemption", () => {
       const totalRedeemedAmount = redeemedAmount1.add(redeemedAmount2)
       const totalNotRedeemedAmount = totalMintedAmount.sub(totalRedeemedAmount)
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -425,10 +425,10 @@ describe("TBTCVault - Redemption", () => {
 
   describe("receiveApproval", () => {
     const requestRedemption = async (
-      redeemer: SignerWithAddress,
+      redeemer: HardhatEthersSigner,
       redeemerOutputScript: string,
       amount: BigNumberish
-    ): Promise<ContractTransaction> => {
+    ): Promise<ContractTransactionResponse> => {
       const data = defaultAbiCoder.encode(
         ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
         [
@@ -469,7 +469,7 @@ describe("TBTCVault - Redemption", () => {
             .add(redeemedAmount4)
           const notRedeemedAmount = mintedAmount.sub(totalRedeemedAmount)
 
-          const transactions: ContractTransaction[] = []
+          const transactions: ContractTransactionResponse[] = []
 
           before(async () => {
             await createSnapshot()
@@ -592,7 +592,7 @@ describe("TBTCVault - Redemption", () => {
           const totalNotRedeemedAmount =
             totalMintedAmount.sub(totalRedeemedAmount)
 
-          const transactions: ContractTransaction[] = []
+          const transactions: ContractTransactionResponse[] = []
 
           before(async () => {
             await createSnapshot()
@@ -675,10 +675,10 @@ function buildRedemptionKey(
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ): string {
-  return ethers.utils.solidityKeccak256(
+  return ethers.solidityKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

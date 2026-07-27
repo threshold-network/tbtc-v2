@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   StarkNetBitcoinDepositor,
   MockTBTCBridgeWithSweep,
@@ -54,10 +54,10 @@ describe("StarkNetBitcoinDepositor", () => {
     expectedDepositKey: string
   }
 
-  const INITIAL_MESSAGE_FEE = ethers.utils.parseEther("0.01")
+  const INITIAL_MESSAGE_FEE = ethers.parseEther("0.01")
   const STARKNET_RECIPIENT =
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
-  const STARKNET_TBTC_TOKEN = ethers.BigNumber.from("0x12345") // Mock StarkNet tBTC token address
+  const STARKNET_TBTC_TOKEN = BigInt("0x12345") // Mock StarkNet tBTC token address
 
   before(async () => {
     // Deploy mock contracts
@@ -123,7 +123,7 @@ describe("StarkNetBitcoinDepositor", () => {
       const initData = depositorImpl.interface.encodeFunctionData(
         "initialize",
         [
-          ethers.constants.AddressZero,
+          ethers.ZeroAddress,
           tbtcVault.address,
           starkGateBridge.address,
         ]
@@ -143,7 +143,7 @@ describe("StarkNetBitcoinDepositor", () => {
       const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
       const initData = depositorImpl.interface.encodeFunctionData(
         "initialize",
-        [bridge.address, ethers.constants.AddressZero, starkGateBridge.address]
+        [bridge.address, ethers.ZeroAddress, starkGateBridge.address]
       )
 
       await expect(
@@ -160,7 +160,7 @@ describe("StarkNetBitcoinDepositor", () => {
       const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
       const initData = depositorImpl.interface.encodeFunctionData(
         "initialize",
-        [bridge.address, tbtcVault.address, ethers.constants.AddressZero]
+        [bridge.address, tbtcVault.address, ethers.ZeroAddress]
       )
 
       await expect(
@@ -170,7 +170,7 @@ describe("StarkNetBitcoinDepositor", () => {
   })
 
   describe("initializeDeposit", () => {
-    const l2DepositOwner = ethers.utils.hexZeroPad(STARKNET_RECIPIENT, 32)
+    const l2DepositOwner = ethers.hexZeroPad(STARKNET_RECIPIENT, 32)
 
     beforeEach(async () => {
       await createSnapshot()
@@ -210,13 +210,13 @@ describe("StarkNetBitcoinDepositor", () => {
         depositor.initializeDeposit(
           fixture.fundingTx,
           fixture.reveal,
-          ethers.constants.HashZero
+          ethers.ZeroHash
         )
       ).to.be.revertedWith("L2 deposit owner must not be 0x0")
     })
 
     it("should revert when vault address mismatch", async () => {
-      const badFixture = loadFixture(ethers.constants.AddressZero)
+      const badFixture = loadFixture(ethers.ZeroAddress)
 
       await expect(
         depositor.initializeDeposit(
@@ -229,7 +229,7 @@ describe("StarkNetBitcoinDepositor", () => {
   })
 
   describe("finalizeDeposit", () => {
-    const expectedTbtcAmount = BigNumber.from("868140980000000000") // Actual calculated amount after fees (88800000 - 898000) * 1e10 * 0.999, without tx max fee reimbursement
+    const expectedTbtcAmount = BigInt("868140980000000000") // Actual calculated amount after fees (88800000 - 898000) * 1e10 * 0.999, without tx max fee reimbursement
     const depositKey =
       "0xebff13c2304229ab4a97bfbfabeac82c9c0704e4aae2acf022252ac8dc1101d1"
 
@@ -240,7 +240,7 @@ describe("StarkNetBitcoinDepositor", () => {
       await bridge.setNextDepositKey(fixture.expectedDepositKey)
 
       // Initialize deposit first
-      const l2DepositOwner = ethers.utils.hexZeroPad(STARKNET_RECIPIENT, 32)
+      const l2DepositOwner = ethers.hexZeroPad(STARKNET_RECIPIENT, 32)
       await depositor.initializeDeposit(
         fixture.fundingTx,
         fixture.reveal,
@@ -286,7 +286,7 @@ describe("StarkNetBitcoinDepositor", () => {
       const lastCall = await starkGateBridge.getLastDepositCall()
       expect(lastCall.token).to.equal(tbtcToken.address)
       expect(lastCall.amount).to.equal(expectedTbtcAmount)
-      expect(lastCall.l2Recipient).to.equal(BigNumber.from(STARKNET_RECIPIENT))
+      expect(lastCall.l2Recipient).to.equal(BigInt(STARKNET_RECIPIENT))
       expect(lastCall.messageFee).to.equal(INITIAL_MESSAGE_FEE)
     })
 

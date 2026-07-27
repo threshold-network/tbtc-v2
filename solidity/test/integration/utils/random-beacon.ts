@@ -2,7 +2,7 @@
 
 import type { BigNumber, Contract } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import {
   governanceDelay,
   dkgResultChallengePeriodLength,
@@ -10,11 +10,11 @@ import {
 import type { SortitionPool } from "../../../typechain"
 
 export type OperatorID = number
-export type Operator = { id: OperatorID; signer: SignerWithAddress }
+export type Operator = { id: OperatorID; signer: HardhatEthersSigner }
 
 export async function updateDkgResultChallengePeriodLength(
   hre: HardhatRuntimeEnvironment,
-  governance: SignerWithAddress,
+  governance: HardhatEthersSigner,
   randomBeaconGovernance: Contract
 ): Promise<void> {
   const { helpers } = hre
@@ -33,11 +33,11 @@ export async function updateDkgResultChallengePeriodLength(
 export async function getGenesisSeed(
   hre: HardhatRuntimeEnvironment,
   genesisBlock: number
-): Promise<BigNumber> {
+): Promise<bigint> {
   const { ethers } = hre
-  return ethers.BigNumber.from(
-    ethers.utils.keccak256(
-      ethers.utils.solidityPack(
+  return BigInt(
+    ethers.keccak256(
+      ethers.solidityPack(
         ["uint256", "uint256"],
         [
           "31415926535897932384626433832795028841971693993751058209749445923078164062862",
@@ -51,12 +51,12 @@ export async function getGenesisSeed(
 export async function selectGroup(
   hre: HardhatRuntimeEnvironment,
   sortitionPool: SortitionPool,
-  seed: BigNumber
+  seed: bigint
 ): Promise<Operator[]> {
   const { ethers } = hre
   const identifiers = await sortitionPool.selectGroup(
     64,
-    ethers.utils.hexZeroPad(seed.toHexString(), 32)
+    ethers.hexZeroPad(seed.toHexString(), 32)
   )
   const addresses = await sortitionPool.getIDOperators(identifiers)
 
@@ -85,8 +85,8 @@ export async function signDkgResult(
   const { ethers } = hre
   const hardhatNetworkId = 31337
 
-  const resultHash = ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(
+  const resultHash = ethers.keccak256(
+    ethers.defaultAbiCoder.encode(
       ["uint256", "bytes", "uint8[]", "uint256"],
       [hardhatNetworkId, groupPublicKey, misbehavedMembersIndices, startBlock]
     )
@@ -109,13 +109,13 @@ export async function signDkgResult(
     signingMembersIndices.push(signerIndex)
 
     const signature = await ethersSigner.signMessage(
-      ethers.utils.arrayify(resultHash)
+      ethers.arrayify(resultHash)
     )
 
     signatures.push(signature)
   }
 
-  const signaturesBytes: string = ethers.utils.hexConcat(signatures)
+  const signaturesBytes: string = ethers.hexConcat(signatures)
 
   return { members, signingMembersIndices, signaturesBytes }
 }
@@ -135,12 +135,12 @@ export function hashDKGMembers(
       }
     }
 
-    return ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(["uint32[]"], [activeDkgMembers])
+    return ethers.keccak256(
+      ethers.defaultAbiCoder.encode(["uint32[]"], [activeDkgMembers])
     )
   }
 
-  return ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(["uint32[]"], [members])
+  return ethers.keccak256(
+    ethers.defaultAbiCoder.encode(["uint32[]"], [members])
   )
 }

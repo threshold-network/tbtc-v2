@@ -1,7 +1,7 @@
 /* eslint-disable no-await-in-loop */
 
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { Contract } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {Contract} from "ethers"
 import hre, { deployments, ethers, helpers } from "hardhat"
 import {
   TBTC,
@@ -30,9 +30,9 @@ const stakeAmount = to1e18(40_000)
 // eslint-disable-next-line import/prefer-default-export
 export const fixture = deployments.createFixture(
   async (): Promise<{
-    deployer: SignerWithAddress
-    governance: SignerWithAddress
-    spvMaintainer: SignerWithAddress
+    deployer: HardhatEthersSigner
+    governance: HardhatEthersSigner
+    spvMaintainer: HardhatEthersSigner
     tbtc: TBTC
     bridge: Bridge
     bridgeGovernance: BridgeGovernance
@@ -89,12 +89,12 @@ export const fixture = deployments.createFixture(
     }
 
     for (let i = 0; i < numberOfOperators; i++) {
-      const owner: SignerWithAddress = signers[i]
-      const stakingProvider: SignerWithAddress =
+      const owner: HardhatEthersSigner = signers[i]
+      const stakingProvider: HardhatEthersSigner =
         signers[1 * numberOfOperators + i]
-      const operator: SignerWithAddress = signers[2 * numberOfOperators + i]
-      const beneficiary: SignerWithAddress = signers[3 * numberOfOperators + i]
-      const authorizer: SignerWithAddress = signers[4 * numberOfOperators + i]
+      const operator: HardhatEthersSigner = signers[2 * numberOfOperators + i]
+      const beneficiary: HardhatEthersSigner = signers[3 * numberOfOperators + i]
+      const authorizer: HardhatEthersSigner = signers[4 * numberOfOperators + i]
 
       await stake(
         hre,

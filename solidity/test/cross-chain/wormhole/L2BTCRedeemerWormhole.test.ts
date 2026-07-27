@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {ContractTransactionResponse} from "ethers"
 import {
   IL2WormholeGateway,
   L2TBTC,
@@ -17,12 +17,12 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Returns hexString padded on the left with zeros to 32 bytes.
 const toWormholeFormat = (address: string): string =>
-  ethers.utils.hexlify(ethers.utils.zeroPad(address, 32))
+  ethers.hexlify(ethers.zeroPad(address, 32))
 
 describe("L2BTCRedeemerWormhole", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let user: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let user: HardhatEthersSigner
 
   let l2BtcRedeemer: L2BTCRedeemerWormhole
   let tbtc: L2TBTC
@@ -33,7 +33,7 @@ describe("L2BTCRedeemerWormhole", () => {
   const l1BtcRedeemerWormholeAddress =
     "0x0000000000000000000000000000000000000001"
 
-  const exampleAmount = ethers.utils.parseUnits("1", 18)
+  const exampleAmount = ethers.parseUnits("1", 18)
   // Use a raw 25-byte P2PKH script structure, consistent with how L2BTCRedeemerWormhole uses BTCUtils.extractHashAt
   // prefix with 0x19 (25 bytes length)
   const exampleRedeemerOutputScript =
@@ -64,7 +64,7 @@ describe("L2BTCRedeemerWormhole", () => {
     )
     const _testBTCUtilsHelper =
       (await TestBTCUtilsHelperFactory.deploy()) as TestBTCUtilsHelper
-    await _testBTCUtilsHelper.deployed()
+    await _testBTCUtilsHelper.waitForDeployment()
 
     // Deploy L2TBTC using the project's deployProxy helper structure
     const tbtcDeployment = await helpers.upgrades.deployProxy(
@@ -155,7 +155,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
     it("should set the default minimum redemption amount", async () => {
       expect(await l2BtcRedeemer.minimumRedemptionAmount()).to.equal(
-        ethers.BigNumber.from("10000000000000000")
+        BigInt("10000000000000000")
       )
     })
 
@@ -175,7 +175,7 @@ describe("L2BTCRedeemerWormhole", () => {
         // Ensure approval, though parent beforeEach should handle it if snapshots are perfect
         await tbtc
           .connect(user)
-          .approve(l2BtcRedeemer.address, ethers.constants.MaxUint256)
+          .approve(l2BtcRedeemer.address, ethers.MaxUint256)
       })
 
       afterEach(async () => {
@@ -200,7 +200,7 @@ describe("L2BTCRedeemerWormhole", () => {
   })
 
   describe("updateMinimumRedemptionAmount", () => {
-    const newMinAmount = ethers.utils.parseUnits("0.05", 18)
+    const newMinAmount = ethers.parseUnits("0.05", 18)
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
@@ -217,13 +217,13 @@ describe("L2BTCRedeemerWormhole", () => {
         await expect(
           l2BtcRedeemer
             .connect(governance)
-            .updateMinimumRedemptionAmount(ethers.constants.Zero)
+            .updateMinimumRedemptionAmount(0n)
         ).to.be.revertedWith("MinimumRedemptionAmountZero")
       })
     })
 
     context("when the caller is the owner and amount is valid", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       before(async () => {
         await createSnapshot()
         tx = await l2BtcRedeemer
@@ -252,7 +252,7 @@ describe("L2BTCRedeemerWormhole", () => {
   describe("requestRedemption", () => {
     const SATOSHI_MULTIPLIER_PRECISION = 10
     const normalizedExampleAmount = exampleAmount.div(
-      BigNumber.from(10).pow(18 - SATOSHI_MULTIPLIER_PRECISION)
+      BigInt(10).pow(18 - SATOSHI_MULTIPLIER_PRECISION)
     )
 
     beforeEach(async () => {
@@ -260,7 +260,7 @@ describe("L2BTCRedeemerWormhole", () => {
       await gateway.sendTbtcWithPayloadToNativeChain.reset()
       await tbtc
         .connect(user)
-        .approve(l2BtcRedeemer.address, ethers.constants.MaxUint256)
+        .approve(l2BtcRedeemer.address, ethers.MaxUint256)
 
       // Reset user's balance to 0 before minting to ensure consistent test state
       const currentUserBalance = await tbtc.balanceOf(user.address)
@@ -271,7 +271,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
       await l2BtcRedeemer
         .connect(governance)
-        .updateMinimumRedemptionAmount(ethers.utils.parseUnits("0.001", 18))
+        .updateMinimumRedemptionAmount(ethers.parseUnits("0.001", 18))
     })
 
     afterEach(async () => {
@@ -279,8 +279,8 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when redemption is successful", () => {
-      let tx: ContractTransaction
-      const expectedGatewaySequence = BigNumber.from(789)
+      let tx: ContractTransactionResponse
+      const expectedGatewaySequence = BigInt(789)
 
       beforeEach(async () => {
         await createSnapshot()
@@ -364,8 +364,8 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when redeemerOutputScript is P2WPKH (successful)", () => {
-      let tx: ContractTransaction
-      const expectedGatewaySequence = BigNumber.from(790) // Use a different sequence
+      let tx: ContractTransactionResponse
+      const expectedGatewaySequence = BigInt(790) // Use a different sequence
 
       beforeEach(async () => {
         await createSnapshot()
@@ -416,8 +416,8 @@ describe("L2BTCRedeemerWormhole", () => {
     })
 
     context("when redeemerOutputScript is P2SH (successful)", () => {
-      let tx: ContractTransaction
-      const expectedGatewaySequence = BigNumber.from(791) // Use a different sequence
+      let tx: ContractTransactionResponse
+      const expectedGatewaySequence = BigInt(791) // Use a different sequence
 
       beforeEach(async () => {
         await createSnapshot()
@@ -470,8 +470,8 @@ describe("L2BTCRedeemerWormhole", () => {
     context(
       "when redeemerOutputScript is P2WSH (should be successful if BTCUtils truncates/handles 32-byte hash)",
       () => {
-        let tx: ContractTransaction
-        const expectedGatewaySequence = BigNumber.from(792) // Use a different sequence
+        let tx: ContractTransactionResponse
+        const expectedGatewaySequence = BigInt(792) // Use a different sequence
 
         beforeEach(async () => {
           await createSnapshot()
@@ -542,7 +542,7 @@ describe("L2BTCRedeemerWormhole", () => {
       beforeEach(async () => {
         await l2BtcRedeemer
           .connect(governance)
-          .updateMinimumRedemptionAmount(ethers.utils.parseUnits("2", 18))
+          .updateMinimumRedemptionAmount(ethers.parseUnits("2", 18))
       })
       it("should revert", async () => {
         await expect(
@@ -560,7 +560,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
     context("when normalized amount is zero (dust)", () => {
       it("should revert", async () => {
-        const dustAmount = BigNumber.from(100)
+        const dustAmount = BigInt(100)
         await expect(
           l2BtcRedeemer
             .connect(user)

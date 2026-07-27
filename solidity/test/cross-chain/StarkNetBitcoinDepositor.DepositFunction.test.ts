@@ -18,8 +18,8 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   let tbtcToken: MockTBTCToken
   let starkGateBridge: MockStarkGateBridge
 
-  const INITIAL_MESSAGE_FEE = ethers.utils.parseEther("0.01")
-  const STARKNET_TBTC_TOKEN = ethers.BigNumber.from("0x12345")
+  const INITIAL_MESSAGE_FEE = ethers.parseEther("0.01")
+  const STARKNET_TBTC_TOKEN = BigInt("0x12345")
 
   // Test fixture data
   const loadFixture = (vault: string) => ({
@@ -112,7 +112,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       // RED: This test will fail because implementation still uses depositWithMessage
       const fixture = loadFixture(tbtcVault.address)
       const depositAmount = to1ePrecision(10000, 10) // 0.0001 BTC
-      // const starkNetRecipient = ethers.BigNumber.from(fixture.extraData)
+      // const starkNetRecipient = BigInt(fixture.extraData)
 
       // Initialize deposit
       await bridge.revealDepositWithExtraData(
@@ -169,8 +169,8 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
       const netSatoshis = satoshiAmount - treasuryFee
-      const depositAmount = ethers.BigNumber.from(netSatoshis).mul(
-        ethers.BigNumber.from(10).pow(10)
+      const depositAmount = BigInt(netSatoshis).mul(
+        BigInt(10).pow(10)
       ) // Convert to 18 decimals
 
       // Initialize and finalize deposit
@@ -219,8 +219,8 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
       const netSatoshis = satoshiAmount - treasuryFee
-      const depositAmount = ethers.BigNumber.from(netSatoshis).mul(
-        ethers.BigNumber.from(10).pow(10)
+      const depositAmount = BigInt(netSatoshis).mul(
+        BigInt(10).pow(10)
       ) // Convert to 18 decimals
 
       // Initialize deposit
@@ -262,10 +262,10 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
       const netSatoshis = satoshiAmount - treasuryFee
-      const depositAmount = ethers.BigNumber.from(netSatoshis).mul(
-        ethers.BigNumber.from(10).pow(10)
+      const depositAmount = BigInt(netSatoshis).mul(
+        BigInt(10).pow(10)
       ) // Convert to 18 decimals
-      const starkNetRecipient = ethers.BigNumber.from(fixture.extraData)
+      const starkNetRecipient = BigInt(fixture.extraData)
 
       // Initialize deposit
       await bridge.revealDepositWithExtraData(
@@ -316,7 +316,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       // This test verifies that the implementation uses deposit() not depositWithMessage()
       // by checking the contract code directly
       const [signer] = await ethers.getSigners()
-      const testAmount = ethers.utils.parseEther("1")
+      const testAmount = ethers.parseEther("1")
 
       // Setup: mint tokens to the signer and approve the bridge
       await tbtcToken.mint(signer.address, testAmount)
@@ -327,7 +327,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
         tbtcToken.address,
         testAmount,
         123,
-        { value: ethers.utils.parseEther("0.1") }
+        { value: ethers.parseEther("0.1") }
       )
       await mockTx.wait()
 

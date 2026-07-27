@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   StarkNetBitcoinDepositor,
   MockBridgeForStarkNet,
@@ -19,11 +19,11 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
   let tbtcVault: MockTBTCVault
   let tbtcToken: MockTBTCToken
   let starkGateBridge: MockStarkGateBridge
-  let signer: SignerWithAddress
+  let signer: HardhatEthersSigner
 
-  const INITIAL_MESSAGE_FEE = ethers.utils.parseEther("0.01")
+  const INITIAL_MESSAGE_FEE = ethers.parseEther("0.01")
   const DEPOSIT_AMOUNT = to1ePrecision(100000000, 10) // 1 BTC (100M satoshis) converted to 18-decimal precision
-  const TREASURY_FEE = BigNumber.from("12098000000000") // Example treasury fee
+  const TREASURY_FEE = BigInt("12098000000000") // Example treasury fee
 
   // Helper to initialize deposit and get key
   const initializeDepositAndGetKey = async (depositData: {
@@ -44,7 +44,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       (e) => e.event === "DepositInitialized"
     )
     const bytes32 = depositInitEvent?.args?.depositKey
-    const uint256 = BigNumber.from(bytes32)
+    const uint256 = BigInt(bytes32)
 
     return {
       uint256,
@@ -81,7 +81,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         refundLocktime: "0x60bcea61",
         vault: "",
       },
-      l2Receiver: ethers.utils.hexZeroPad(
+      l2Receiver: ethers.hexZeroPad(
         `0x${(1000 + index).toString(16)}`,
         32
       ),
@@ -123,7 +123,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
-    const STARKNET_TBTC_TOKEN = ethers.BigNumber.from("0x12345")
+    const STARKNET_TBTC_TOKEN = BigInt("0x12345")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
       bridge.address,
       tbtcVault.address,
@@ -161,7 +161,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         (e) => e.event === "DepositInitialized"
       )
       const depositKeyBytes32 = depositInitEvent?.args?.depositKey
-      const depositKey = BigNumber.from(depositKeyBytes32)
+      const depositKey = BigInt(depositKeyBytes32)
 
       // Verify initialization events
       await expect(initTx)
@@ -381,7 +381,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       await bridge.sweepDeposit(keys.uint256)
 
       // Don't mint enough tBTC (insufficient balance)
-      const insufficientAmount = BigNumber.from("1000") // Very small amount
+      const insufficientAmount = BigInt("1000") // Very small amount
       await tbtcToken.mint(depositor.address, insufficientAmount)
 
       // Check balance after minting
@@ -515,7 +515,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         (e) => e.event === "DepositInitialized"
       )
       const depositKeyBytes32 = depositInitEvent?.args?.depositKey
-      const depositKey = BigNumber.from(depositKeyBytes32)
+      const depositKey = BigInt(depositKeyBytes32)
 
       // Prepare for finalization
       await bridge.sweepDeposit(depositKey)

@@ -1,8 +1,8 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
 
-import { ContractTransaction } from "ethers"
+import {ContractTransactionResponse} from "ethers"
 import type { Bank, DonationVault } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -12,13 +12,13 @@ const fixture = async () => {
 
   const Bank = await ethers.getContractFactory("Bank")
   const bank = await Bank.deploy()
-  await bank.deployed()
+  await bank.waitForDeployment()
 
   await bank.connect(deployer).updateBridge(bridge.address)
 
   const DonationVault = await ethers.getContractFactory("DonationVault")
   const vault = await DonationVault.deploy(bank.address)
-  await vault.deployed()
+  await vault.waitForDeployment()
 
   return {
     bridge,
@@ -30,9 +30,9 @@ const fixture = async () => {
 }
 
 describe("DonationVault", () => {
-  let bridge: SignerWithAddress
-  let account1: SignerWithAddress
-  let account2: SignerWithAddress
+  let bridge: HardhatEthersSigner
+  let account1: HardhatEthersSigner
+  let account2: HardhatEthersSigner
   let bank: Bank
   let vault: DonationVault
 
@@ -48,7 +48,7 @@ describe("DonationVault", () => {
       it("should revert", async () => {
         const DonationVault = await ethers.getContractFactory("DonationVault")
         await expect(
-          DonationVault.deploy(ethers.constants.AddressZero)
+          DonationVault.deploy(ethers.ZeroAddress)
         ).to.be.revertedWith("Bank can not be the zero address")
       })
     })
@@ -104,7 +104,7 @@ describe("DonationVault", () => {
     )
 
     context("when called with correct parameters", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -173,7 +173,7 @@ describe("DonationVault", () => {
     })
 
     context("when called with correct parameters", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -231,7 +231,7 @@ describe("DonationVault", () => {
     })
 
     context("when called with correct parameters", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()

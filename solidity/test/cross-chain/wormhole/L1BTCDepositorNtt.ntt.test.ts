@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {ContractTransactionResponse} from "ethers"
 import {
   IBridge,
   ITBTCVault,
@@ -24,21 +24,21 @@ const WORMHOLE_CHAIN_BASE = 30
 // Mock NTT Manager interface
 interface INttManager {
   transfer(
-    amount: BigNumber,
+    amount: bigint,
     recipientChain: number,
     recipient: string
-  ): Promise<ContractTransaction>
+  ): Promise<ContractTransactionResponse>
 
   quoteDeliveryPrice(
     recipientChain: number,
     transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
+  ): Promise<{ priceQuotes: bigint[]; totalPrice: bigint }>
 }
 
 describe("L1BTCDepositorNtt NTT Integration", () => {
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
-  let user: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
+  let user: HardhatEthersSigner
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: Mock<ITBTCVault>
@@ -76,7 +76,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
         recipientChain: number,
         transceiverInstructions?: string
       ): Promise<[unknown[], BigNumber]> {
-        return [[], BigNumber.from(50000)]
+        return [[], BigInt(50000)]
       },
     } as Record<string, unknown>
     // Add mock methods to the functions
@@ -273,14 +273,14 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
               await expect(
                 l1BtcDepositorNtt
                   .connect(governance)
-                  .updateNttManager(ethers.constants.AddressZero)
+                  .updateNttManager(ethers.ZeroAddress)
               ).to.be.revertedWith("NTT Manager address cannot be zero")
             })
           })
 
           context("when new NTT Manager is valid", () => {
             let newNttManager: Record<string, unknown>
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               newNttManager = {
@@ -289,7 +289,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
                   return 123
                 },
                 async quoteDeliveryPrice(): Promise<[unknown[], BigNumber]> {
-                  return [[], BigNumber.from(50000)]
+                  return [[], BigInt(50000)]
                 },
               } as Record<string, unknown>
               newNttManager.transfer.returns = (): void => {}

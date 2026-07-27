@@ -1,7 +1,7 @@
 import { ethers, waffle, helpers, getUnnamedAccounts } from "hardhat"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {ContractTransactionResponse} from "ethers"
 import bridgeFixture from "../fixtures/bridge"
 
 import type { TestERC20, TBTC, VendingMachineV2 } from "../../typechain"
@@ -14,10 +14,10 @@ describe("VendingMachineV2", () => {
   let tbtcV2: TBTC
   let vendingMachineV2: VendingMachineV2
 
-  let deployer: SignerWithAddress
-  let v1Redeemer: SignerWithAddress
-  let exchanger: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let v1Redeemer: HardhatEthersSigner
+  let exchanger: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   // 50 tBTC v2 deposited into the VendingMachineV2
   const initialV2Balance = to1e18(50)
@@ -88,7 +88,7 @@ describe("VendingMachineV2", () => {
       // unit tests; we take v1 balance to not revert the TX with
       // "Not enough tBTC v2 available in the Vending Machine"
       const amount = initialV2Balance
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -125,7 +125,7 @@ describe("VendingMachineV2", () => {
       // unit tests; we take v1 balance to not revert the TX with
       // "Not enough tBTC v2 available in the Vending Machine"
       const amount = initialV2Balance.sub(to1e18(1))
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -181,7 +181,7 @@ describe("VendingMachineV2", () => {
 
     context("when called via approveAndCall", () => {
       const amount = to1e18(2)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -217,7 +217,7 @@ describe("VendingMachineV2", () => {
   describe("depositTBTCV2", () => {
     context("when depositing entire allowance", () => {
       const amount = to1e18(21)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -249,7 +249,7 @@ describe("VendingMachineV2", () => {
 
     context("when depositing part of the allowance", () => {
       const amount = to1e18(21)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -299,7 +299,7 @@ describe("VendingMachineV2", () => {
     context("when called by the owner", () => {
       context("when withdrawing tBTC v1 tokens", () => {
         const amount = to1e18(10)
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -324,7 +324,7 @@ describe("VendingMachineV2", () => {
 
       context("when withdrawing tBTC v2 tokens", () => {
         const amount = to1e18(11)
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()

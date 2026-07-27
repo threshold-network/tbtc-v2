@@ -4,12 +4,12 @@ import hre, { ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
 
 import type {
-  ContractTransaction,
+  ContractTransactionResponse,
   Contract,
   BigNumberish,
   BytesLike,
 } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type { Mock } from "../helpers/mock"
 
 import type {
@@ -57,10 +57,10 @@ describeFn("Integration Test - Slashing", async () => {
   let walletRegistry: WalletRegistry
   let randomBeacon: Mock<IRandomBeacon>
   let relay: Mock<IRelay>
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   const dkgResultChallengePeriodLength = 10
 
@@ -119,7 +119,7 @@ describeFn("Integration Test - Slashing", async () => {
 
       before("create a wallet", async () => {
         expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-          ethers.constants.AddressZero
+          ethers.ZeroAddress
         )
 
         const requestNewWalletTx = await bridge.requestNewWallet(NO_MAIN_UTXO)
@@ -135,7 +135,7 @@ describeFn("Integration Test - Slashing", async () => {
 
       describe("when a fraud is reported", async () => {
         const fraudulentBtcTx = nonWitnessSignSingleInputTx
-        let notifyFraudChallengeDefeatTimeoutTx: ContractTransaction
+        let notifyFraudChallengeDefeatTimeoutTx: ContractTransactionResponse
 
         before(async () => {
           const { fraudChallengeDepositAmount, fraudChallengeDefeatTimeout } =
@@ -297,7 +297,7 @@ describeFn("Integration Test - Slashing", async () => {
           .approveAndCall(
             tbtcVault.address,
             redemptionAmount,
-            ethers.utils.defaultAbiCoder.encode(
+            ethers.defaultAbiCoder.encode(
               ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
               [
                 redeemer.address,
@@ -317,7 +317,7 @@ describeFn("Integration Test - Slashing", async () => {
       })
 
       describe("when a redemption timeout is reported", async () => {
-        let notifyRedemptionTimeoutTx: ContractTransaction
+        let notifyRedemptionTimeoutTx: ContractTransactionResponse
 
         before(async () => {
           const { redemptionTimeout } = await bridge.redemptionParameters()
@@ -462,7 +462,7 @@ describeFn("Integration Test - Slashing", async () => {
       })
 
       describe("when moving funds timeout is reported", async () => {
-        let notifyMovingFundsTimeoutTx: ContractTransaction
+        let notifyMovingFundsTimeoutTx: ContractTransactionResponse
 
         before(async () => {
           expect(

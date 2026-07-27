@@ -1,4 +1,4 @@
-import { BytesLike } from "ethers"
+import {BytesLike} from "ethers"
 
 /**
  * Represents a set of data used for given fraud scenario.

@@ -1,4 +1,4 @@
-import { BigNumberish, BytesLike } from "ethers"
+import {BigNumberish, BytesLike} from "ethers"
 import { walletState } from "../fixtures"
 import { NO_MAIN_UTXO } from "./deposit-sweep"
 

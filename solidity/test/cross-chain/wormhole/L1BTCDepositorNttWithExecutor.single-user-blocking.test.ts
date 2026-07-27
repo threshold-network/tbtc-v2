@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -22,8 +22,8 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: TestERC20
-  let owner: SignerWithAddress
-  let user1: SignerWithAddress
+  let owner: HardhatEthersSigner
+  let user1: HardhatEthersSigner
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -94,9 +94,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
   describe("Single User Workflow Blocking", () => {
     it("should allow user to set parameters initially", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
@@ -115,21 +115,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
         .connect(user1)
         .areExecutorParametersSet()
       expect(isSet).to.be.true
-      expect(nonce).to.not.equal(ethers.constants.HashZero)
+      expect(nonce).to.not.equal(ethers.ZeroHash)
     })
 
     it("should allow user to refresh parameters when first workflow is active", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.formatBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -162,7 +162,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       expect(event2?.args?.sender).to.equal(user1.address)
       expect(event2?.args?.nonce).to.equal(initialNonce) // Same nonce
       expect(event2?.args?.executorValue).to.equal(
-        ethers.utils.parseEther("0.02")
+        ethers.parseEther("0.02")
       )
 
       // Parameters should still be set
@@ -173,21 +173,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const storedValue = await depositor
         .connect(user1)
         .getStoredExecutorValue()
-      expect(storedValue).to.equal(ethers.utils.parseEther("0.02"))
+      expect(storedValue).to.equal(ethers.parseEther("0.02"))
     })
 
     it("should allow user to start new workflow after clearing previous one", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.formatBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -214,21 +214,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
         .connect(user1)
         .areExecutorParametersSet()
       expect(isSet).to.be.true
-      expect(nonce).to.not.equal(ethers.constants.HashZero)
+      expect(nonce).to.not.equal(ethers.ZeroHash)
     })
 
     it("should allow user to start new workflow after expiration", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.formatBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -256,30 +256,30 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
         .connect(user1)
         .areExecutorParametersSet()
       expect(isSet).to.be.true
-      expect(nonce).to.not.equal(ethers.constants.HashZero)
+      expect(nonce).to.not.equal(ethers.ZeroHash)
     })
 
     it("should allow multiple users to work in parallel", async () => {
       const [, , user2, user3] = await ethers.getSigners()
 
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.formatBytes32String("quote2"),
         instructions: "0x",
       }
 
       const executorArgs3 = {
-        value: ethers.utils.parseEther("0.03"),
+        value: ethers.parseEther("0.03"),
         refundAddress: user3.address,
-        signedQuote: ethers.utils.formatBytes32String("quote3"),
+        signedQuote: ethers.formatBytes32String("quote3"),
         instructions: "0x",
       }
 
@@ -324,16 +324,16 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
     it("should emit ExecutorParametersRefreshed event when refreshing parameters", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.formatBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.formatBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -367,7 +367,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       expect(event2?.args?.nonce).to.equal(initialNonce)
       expect(event2?.args?.signedQuoteLength).to.equal(32) // formatBytes32String creates 32 bytes
       expect(event2?.args?.executorValue).to.equal(
-        ethers.utils.parseEther("0.02")
+        ethers.parseEther("0.02")
       )
     })
   })

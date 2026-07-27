@@ -1,7 +1,7 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import {ContractTransactionResponse} from "ethers"
 import { constants } from "../fixtures"
 import { toSatoshis } from "../helpers/contract-test-helpers"
 
@@ -20,7 +20,7 @@ const { to1e18 } = helpers.number
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 const fixture = async () => {
   const [deployer, governance] = await ethers.getSigners()
@@ -30,18 +30,18 @@ const fixture = async () => {
   // from it.
   await deployer.sendTransaction({
     to: bridge.address,
-    value: ethers.utils.parseEther("100"),
+    value: ethers.parseEther("100"),
   })
 
   const Bank = await ethers.getContractFactory("Bank")
   const bank = await Bank.deploy()
-  await bank.deployed()
+  await bank.waitForDeployment()
 
   await bank.connect(deployer).updateBridge(bridge.address)
 
   const TBTC = await ethers.getContractFactory("TBTC")
   const tbtc = await TBTC.deploy()
-  await tbtc.deployed()
+  await tbtc.waitForDeployment()
 
   const TBTCVault = await ethers.getContractFactory("TBTCVault")
   const vault = await TBTCVault.deploy(
@@ -49,7 +49,7 @@ const fixture = async () => {
     tbtc.address,
     bridge.address
   )
-  await vault.deployed()
+  await vault.waitForDeployment()
 
   await tbtc.connect(deployer).transferOwnership(vault.address)
   await vault.connect(deployer).transferOwnership(governance.address)
@@ -65,7 +65,7 @@ const fixture = async () => {
 
 describe("TBTCVault", () => {
   let bridge: Mock<Bridge>
-  let governance: SignerWithAddress
+  let governance: HardhatEthersSigner
   let bank: Bank
   let vault: TBTCVault
   let tbtc: TBTC
@@ -74,8 +74,8 @@ describe("TBTCVault", () => {
   // Bank balance is denominated in satoshi.
   const initialBalance = toSatoshis(100)
 
-  let account1: SignerWithAddress
-  let account2: SignerWithAddress
+  let account1: HardhatEthersSigner
+  let account2: HardhatEthersSigner
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -145,7 +145,7 @@ describe("TBTCVault", () => {
 
       const TestToken = await ethers.getContractFactory("TestERC20")
       testToken = await TestToken.deploy()
-      await testToken.deployed()
+      await testToken.waitForDeployment()
     })
 
     after(async () => {
@@ -202,7 +202,7 @@ describe("TBTCVault", () => {
 
       const TestToken = await ethers.getContractFactory("TestERC721")
       testToken = await TestToken.deploy()
-      await testToken.deployed()
+      await testToken.waitForDeployment()
     })
 
     after(async () => {
@@ -259,7 +259,7 @@ describe("TBTCVault", () => {
 
       const TestToken = await ethers.getContractFactory("TestERC20")
       testToken = await TestToken.deploy()
-      await testToken.deployed()
+      await testToken.waitForDeployment()
     })
 
     after(async () => {
@@ -309,7 +309,7 @@ describe("TBTCVault", () => {
 
       const TestToken = await ethers.getContractFactory("TestERC721")
       testToken = await TestToken.deploy()
-      await testToken.deployed()
+      await testToken.waitForDeployment()
     })
 
     after(async () => {
@@ -374,7 +374,7 @@ describe("TBTCVault", () => {
     context("when there is a single minter", () => {
       const amount = to1e18(13) // 3 + 1 + 9
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -415,9 +415,9 @@ describe("TBTCVault", () => {
 
     context("when amount is not fully convertible to satoshis", () => {
       // Amount is 2 Bitcoin in 1e18 precision plus 0.1 satoshi in 1e18 precision
-      const amount = ethers.BigNumber.from("2000000001000000000")
+      const amount = BigInt("2000000001000000000")
 
-      let transaction: ContractTransaction
+      let transaction: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -454,7 +454,7 @@ describe("TBTCVault", () => {
       const amount1 = to1e18(13) // 3 + 1 + 9
       const amount2 = to1e18(3) // 1 + 2
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -555,7 +555,7 @@ describe("TBTCVault", () => {
       const unmintedAmount = to1e18(12) // 1 + 3 + 8
       const notUnmintedAmount = mintedAmount.sub(unmintedAmount) // 20 - 12
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -601,10 +601,10 @@ describe("TBTCVault", () => {
     context("when amount is not fully convertible to satoshis", () => {
       const mintedAmount = to1e18(20)
       // Amount is 2 Bitcoin in 1e18 precision plus 0.1 satoshi in 1e18 precision
-      const unmintedAmount = ethers.BigNumber.from("2000000001000000000")
+      const unmintedAmount = BigInt("2000000001000000000")
       const notUnmintedAmount = to1e18(18) // 20 - 2; remainder should be ignored
 
-      let transaction: ContractTransaction
+      let transaction: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -650,7 +650,7 @@ describe("TBTCVault", () => {
       const unmintedAmount2 = to1e18(30) // 20 + 10 = 30
       const notUnmintedAmount2 = mintedAmount2.sub(unmintedAmount2) // 41 - 30
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -741,7 +741,7 @@ describe("TBTCVault", () => {
         const unmintedAmount = to1e18(4)
         const notUnmintedAmount = mintedAmount.sub(unmintedAmount) // 10 - 4 = 6
 
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -780,10 +780,10 @@ describe("TBTCVault", () => {
       context("when amount is not fully convertible to satoshis", () => {
         const mintedAmount = to1e18(20)
         // Amount is 3 Bitcoin in 1e18 precision plus 0.1 satoshi in 1e18 precision
-        const unmintedAmount = ethers.BigNumber.from("3000000001000000000")
+        const unmintedAmount = BigInt("3000000001000000000")
         const notUnmintedAmount = to1e18(17) // 20 - 3; remainder should be ignored
 
-        let transaction: ContractTransaction
+        let transaction: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -856,7 +856,7 @@ describe("TBTCVault", () => {
     context("when there is a single caller", () => {
       const amount = toSatoshis(19) // 4 + 10 + 5
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -911,7 +911,7 @@ describe("TBTCVault", () => {
       const amount1 = toSatoshis(4) // 2 + 1 + 1
       const amount2 = toSatoshis(5) // 4 + 1
 
-      const transactions: ContractTransaction[] = []
+      const transactions: ContractTransactionResponse[] = []
 
       before(async () => {
         await createSnapshot()
@@ -1023,7 +1023,7 @@ describe("TBTCVault", () => {
     })
 
     context("with single depositor", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1054,7 +1054,7 @@ describe("TBTCVault", () => {
     })
 
     context("with multiple depositors", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1114,7 +1114,7 @@ describe("TBTCVault", () => {
       })
 
       context("when called with a non-zero-address new vault", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1204,7 +1204,7 @@ describe("TBTCVault", () => {
         })
 
         context("when the governance delay passed", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -1253,29 +1253,29 @@ describe("TBTCVault", () => {
       // 1000000000 in 1e18 precision
       //
       // Amount is 1 Bitcoin in 1e18 precision plus 0.1 satoshi in 1e18 precision
-      const amount = ethers.BigNumber.from("1000000001000000000")
+      const amount = BigInt("1000000001000000000")
 
       it("should calculate correct convertible amount", async () => {
         const { convertibleAmount } = await vault.amountToSatoshis(amount)
         expect(convertibleAmount).to.equal(
-          ethers.BigNumber.from("1000000000000000000")
+          BigInt("1000000000000000000")
         )
       })
 
       it("should calculate correct remainder", async () => {
         const { remainder } = await vault.amountToSatoshis(amount)
-        expect(remainder).to.equal(ethers.BigNumber.from("1000000000"))
+        expect(remainder).to.equal(BigInt("1000000000"))
       })
 
       it("should calculate correct satoshi amount", async () => {
         const { satoshis } = await vault.amountToSatoshis(amount)
-        expect(satoshis).to.equal(ethers.BigNumber.from("100000000")) // 1 BTC in satoshi
+        expect(satoshis).to.equal(BigInt("100000000")) // 1 BTC in satoshi
       })
     })
 
     context("when the amount is convertible without a remainder", () => {
       // Amount is 1.1 Bitcoin in 1e18 precision
-      const amount = ethers.BigNumber.from("1100000000000000000")
+      const amount = BigInt("1100000000000000000")
 
       it("should calculate correct convertible amount", async () => {
         const { convertibleAmount } = await vault.amountToSatoshis(amount)
@@ -1289,7 +1289,7 @@ describe("TBTCVault", () => {
 
       it("should calculate correct satoshi amount", async () => {
         const { satoshis } = await vault.amountToSatoshis(amount)
-        expect(satoshis).to.equal(ethers.BigNumber.from("110000000")) // 1.1 BTC in satoshi
+        expect(satoshis).to.equal(BigInt("110000000")) // 1.1 BTC in satoshi
       })
     })
   })

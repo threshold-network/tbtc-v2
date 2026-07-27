@@ -8,10 +8,10 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
   let starkGateBridge: MockStarkGateBridge
   let tbtcToken: MockTBTCToken
 
-  const TEST_AMOUNT = ethers.utils.parseEther("1.0")
+  const TEST_AMOUNT = ethers.parseEther("1.0")
   // StarkNet addresses are uint256 - use a valid StarkNet address
-  const TEST_RECIPIENT = ethers.BigNumber.from("0x12345") // Simplified for testing
-  const MESSAGE_FEE = ethers.utils.parseEther("0.01")
+  const TEST_RECIPIENT = BigInt("0x12345") // Simplified for testing
+  const MESSAGE_FEE = ethers.parseEther("0.01")
 
   before(async () => {
     // Deploy mock contracts for research
@@ -127,7 +127,7 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
 
       // console.log("\n=== Fee Analysis ===")
       // console.log(
-      //   `Base message fee: ${ethers.utils.formatEther(feeEstimate)} ETH`
+      //   `Base message fee: ${ethers.formatEther(feeEstimate)} ETH`
       // )
       // console.log("Fee structure findings:")
       // console.log(

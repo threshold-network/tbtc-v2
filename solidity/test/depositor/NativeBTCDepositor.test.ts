@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {ContractTransactionResponse} from "ethers"
 import {
   IBridge,
   ITBTCVault,
@@ -81,8 +81,8 @@ describe("NativeBTCDepositor", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
 
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
@@ -203,7 +203,7 @@ describe("NativeBTCDepositor", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -241,7 +241,7 @@ describe("NativeBTCDepositor", () => {
             .initializeDeposit(
               initializeDepositFixture.fundingTx,
               initializeDepositFixture.reveal,
-              ethers.constants.HashZero
+              ethers.ZeroHash
             )
         ).to.be.revertedWith("L2 deposit owner must not be 0x0")
       })
@@ -256,7 +256,7 @@ describe("NativeBTCDepositor", () => {
 
           // Set another vault address deliberately. This value must be
           // different from the tbtcVaultAddress constant used in the fixture.
-          corruptedReveal.vault = ethers.constants.AddressZero
+          corruptedReveal.vault = ethers.ZeroAddress
 
           await expect(
             nativeBtcDepositor
@@ -324,10 +324,10 @@ describe("NativeBTCDepositor", () => {
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
                   depositor: nativeBtcDepositor.address,
-                  amount: BigNumber.from(100000),
+                  amount: BigInt(100000),
                   revealedAt,
                   vault: initializeDepositFixture.reveal.vault,
-                  treasuryFee: BigNumber.from(0),
+                  treasuryFee: BigInt(0),
                   sweptAt: finalizedAt,
                   extraData: initializeDepositFixture.ethereumReceiverBytes32,
                 })
@@ -375,7 +375,7 @@ describe("NativeBTCDepositor", () => {
 
         context("when the deposit state is Unknown", () => {
           context("when the reimbursement pool is not set", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -454,15 +454,15 @@ describe("NativeBTCDepositor", () => {
               const gr = await nativeBtcDepositor.gasReimbursements(
                 initializeDepositFixture.depositKey
               )
-              expect(gr.receiver).to.equal(ethers.constants.AddressZero)
-              expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
+              expect(gr.receiver).to.equal(ethers.ZeroAddress)
+              expect(BigInt(gr.gasSpent).eq(0)).to.be.true
             })
           })
 
           context(
             "when the reimbursement pool is set and caller is authorized",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -569,7 +569,7 @@ describe("NativeBTCDepositor", () => {
           context(
             "when the reimbursement pool is set and caller is not authorized",
             () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
@@ -658,8 +658,8 @@ describe("NativeBTCDepositor", () => {
                 const gr = await nativeBtcDepositor.gasReimbursements(
                   initializeDepositFixture.depositKey
                 )
-                expect(gr.receiver).to.equal(ethers.constants.AddressZero)
-                expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
+                expect(gr.receiver).to.equal(ethers.ZeroAddress)
+                expect(BigInt(gr.gasSpent).eq(0)).to.be.true
               })
             }
           )
@@ -708,10 +708,10 @@ describe("NativeBTCDepositor", () => {
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
               depositor: nativeBtcDepositor.address,
-              amount: BigNumber.from(100000),
+              amount: BigInt(100000),
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
-              treasuryFee: BigNumber.from(0),
+              treasuryFee: BigInt(0),
               sweptAt: finalizedAt,
               extraData: initializeDepositFixture.ethereumReceiverBytes32,
             })
@@ -773,10 +773,10 @@ describe("NativeBTCDepositor", () => {
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
               depositor: nativeBtcDepositor.address,
-              amount: BigNumber.from(100000),
+              amount: BigInt(100000),
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
-              treasuryFee: BigNumber.from(0),
+              treasuryFee: BigInt(0),
               sweptAt: 0,
               extraData: initializeDepositFixture.ethereumReceiverBytes32,
             })
@@ -827,10 +827,10 @@ describe("NativeBTCDepositor", () => {
               .whenCalledWith(initializeDepositFixture.depositKey)
               .returns({
                 depositor: nativeBtcDepositor.address,
-                amount: BigNumber.from(0),
+                amount: BigInt(0),
                 revealedAt,
                 vault: initializeDepositFixture.reveal.vault,
-                treasuryFee: BigNumber.from(0),
+                treasuryFee: BigInt(0),
                 sweptAt: finalizedAt,
                 extraData: initializeDepositFixture.ethereumReceiverBytes32,
               })
@@ -861,10 +861,10 @@ describe("NativeBTCDepositor", () => {
 
         context("when normalized amount is not too low to transfer", () => {
           const satoshiMultiplier = to1ePrecision(1, 10)
-          const depositAmount = BigNumber.from(100000)
-          const treasuryFee = BigNumber.from(500)
+          const depositAmount = BigInt(100000)
+          const treasuryFee = BigInt(500)
           const optimisticMintingFeeDivisor = 20 // 5%
-          const depositTxMaxFee = BigNumber.from(1000)
+          const depositTxMaxFee = BigInt(1000)
 
           // amountSubTreasury = (depositAmount - treasuryFee) * satoshiMultiplier = 99500 * 1e10
           // omFee = amountSubTreasury / optimisticMintingFeeDivisor = 4975 * 1e10
@@ -872,7 +872,7 @@ describe("NativeBTCDepositor", () => {
           // tbtcAmount = amountSubTreasury - omFee - txMaxFee = 93525 * 1e10
           const expectedTbtcAmount = to1ePrecision(93525, 10)
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           context("when the reimbursement pool is not set", () => {
             before(async () => {
@@ -963,7 +963,7 @@ describe("NativeBTCDepositor", () => {
             })
 
             it("should transfer tBTC to the ethereum receiver", async () => {
-              const receiverAddress = ethers.utils.getAddress(
+              const receiverAddress = ethers.getAddress(
                 `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
                   -40
                 )}`
@@ -985,10 +985,10 @@ describe("NativeBTCDepositor", () => {
               // Use 1Gwei to make sure it's smaller than default gas price
               // used by Hardhat (200 Gwei) and this value will be used
               // for msgValueOffset calculation.
-              const reimbursementPoolMaxGasPrice = BigNumber.from(1000000000)
+              const reimbursementPoolMaxGasPrice = BigInt(1000000000)
               const reimbursementPoolStaticGas = 10000 // Just an arbitrary value.
 
-              let initializeDepositGasSpent: BigNumber
+              let initializeDepositGasSpent: bigint
 
               before(async () => {
                 await createSnapshot()
@@ -1104,7 +1104,7 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should transfer tBTC to the ethereum receiver", async () => {
-                const receiverAddress = ethers.utils.getAddress(
+                const receiverAddress = ethers.getAddress(
                   `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
                     -40
                   )}`
@@ -1133,7 +1133,7 @@ describe("NativeBTCDepositor", () => {
                 // that the reimbursement is greater than zero which means
                 // the reimbursement has been recorded properly.
                 expect(
-                  BigNumber.from(call2.args[0]).toNumber()
+                  BigInt(call2.args[0]).toNumber()
                 ).to.be.greaterThan(0)
                 expect(call2.args[1]).to.equal(relayer.address)
               })
@@ -1146,10 +1146,10 @@ describe("NativeBTCDepositor", () => {
               // Use 1Gwei to make sure it's smaller than default gas price
               // used by Hardhat (200 Gwei) and this value will be used
               // for msgValueOffset calculation.
-              const reimbursementPoolMaxGasPrice = BigNumber.from(1000000000)
+              const reimbursementPoolMaxGasPrice = BigInt(1000000000)
               const reimbursementPoolStaticGas = 10000 // Just an arbitrary value.
 
-              let initializeDepositGasSpent: BigNumber
+              let initializeDepositGasSpent: bigint
 
               before(async () => {
                 await createSnapshot()
@@ -1271,7 +1271,7 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should transfer tBTC to the ethereum receiver", async () => {
-                const receiverAddress = ethers.utils.getAddress(
+                const receiverAddress = ethers.getAddress(
                   `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
                     -40
                   )}`
@@ -1309,9 +1309,9 @@ describe("NativeBTCDepositor", () => {
 
   context("when reimburseTxMaxFee is true", () => {
     const satoshiMultiplier = to1ePrecision(1, 10)
-    const depositTxMaxFee = BigNumber.from(1000)
-    const depositAmount = BigNumber.from(100000)
-    const treasuryFee = BigNumber.from(500)
+    const depositTxMaxFee = BigInt(1000)
+    const depositAmount = BigInt(100000)
+    const treasuryFee = BigInt(500)
     const optimisticMintingFeeDivisor = 20
 
     // For depositAmount=100000 & treasuryFee=500:
@@ -1477,7 +1477,7 @@ describe("NativeBTCDepositor", () => {
           expectedTbtcAmountBase
         )
 
-      const receiverAddress = ethers.utils.getAddress(
+      const receiverAddress = ethers.getAddress(
         `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
       )
       expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(

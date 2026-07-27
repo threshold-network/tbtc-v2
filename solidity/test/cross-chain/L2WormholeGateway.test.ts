@@ -1,9 +1,9 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
-import { ContractTransaction } from "ethers"
+import {ContractTransactionResponse} from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
 
 import type {
@@ -15,7 +15,7 @@ import type {
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 describe("L2WormholeGateway", () => {
   const fixture = async () => {
@@ -45,7 +45,7 @@ describe("L2WormholeGateway", () => {
     //
     const TestERC20 = await ethers.getContractFactory("TestERC20")
     const wormholeTbtc = await TestERC20.deploy()
-    await wormholeTbtc.deployed()
+    await wormholeTbtc.waitForDeployment()
 
     //
     // Deploy stub of the Wormhole Bridge contract.
@@ -58,7 +58,7 @@ describe("L2WormholeGateway", () => {
     const wormholeBridgeStub = await WormholeBridgeStub.deploy(
       wormholeTbtc.address
     )
-    await wormholeBridgeStub.deployed()
+    await wormholeBridgeStub.waitForDeployment()
 
     //
     // Deploy the L2WormholeGateway.
@@ -110,9 +110,9 @@ describe("L2WormholeGateway", () => {
   const encodedVm =
     "0x1230000000000000000000000000000000000000000000000000000000000321"
 
-  let governance: SignerWithAddress
-  let depositor1: SignerWithAddress
-  let depositor2: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let depositor1: HardhatEthersSigner
+  let depositor2: HardhatEthersSigner
   let wormholeTbtc: TestERC20
   let canonicalTbtc: L2TBTC
   let wormholeBridgeStub: WormholeBridgeStub
@@ -132,7 +132,7 @@ describe("L2WormholeGateway", () => {
   })
 
   // Returns hexString padded on the left with zeros to 32 bytes.
-  const padTo32Bytes = (hex: string) => ethers.utils.hexZeroPad(hex, 32)
+  const padTo32Bytes = (hex: string) => ethers.hexZeroPad(hex, 32)
 
   describe("initialization", () => {
     it("should set the wormhole bridge address", async () => {
@@ -193,7 +193,7 @@ describe("L2WormholeGateway", () => {
       context("when the minting limit was not reached", () => {
         const transferAmount = 13373
 
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -381,7 +381,7 @@ describe("L2WormholeGateway", () => {
         context("when the target chain has no tBTC gateway", () => {
           const amount = to1e18(11)
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -441,7 +441,7 @@ describe("L2WormholeGateway", () => {
           const amount = to1e18(998)
           const targetGateway = "0x4c810fe802d68c6ef0e1291b52fca5812bbc97c9"
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -505,7 +505,7 @@ describe("L2WormholeGateway", () => {
         })
 
         context("when the amount is below dust", async () => {
-          const amount = ethers.BigNumber.from(10000000000).sub(1) // 10^10 - 1
+          const amount = BigInt(10000000000).sub(1) // 10^10 - 1
 
           it("should revert", async () => {
             await expect(
@@ -523,9 +523,9 @@ describe("L2WormholeGateway", () => {
         })
 
         context("when the amount is just above the dust", () => {
-          const amount = ethers.BigNumber.from(10000000000) // 10^10
+          const amount = BigInt(10000000000) // 10^10
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -569,10 +569,10 @@ describe("L2WormholeGateway", () => {
         })
 
         context("when the amount has a small dust", () => {
-          const amount = ethers.BigNumber.from(10000000001) // 10^10 + 1
-          const amountToTake = ethers.BigNumber.from(10000000000)
+          const amount = BigInt(10000000001) // 10^10 + 1
+          const amountToTake = BigInt(10000000000)
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -616,10 +616,10 @@ describe("L2WormholeGateway", () => {
         })
 
         context("when the amount has a lot of dust", () => {
-          const amount = ethers.BigNumber.from(19999999999) // 2* 10^10 - 1
-          const amountToTake = ethers.BigNumber.from(10000000000)
+          const amount = BigInt(19999999999) // 2* 10^10 - 1
+          const amountToTake = BigInt(10000000000)
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -685,8 +685,8 @@ describe("L2WormholeGateway", () => {
       const gatewayAddress1 = "0xc0ffee254729296a45a3885639ac7e10f9d54979"
       const gatewayAddress2 = "0x999999cf1046e68e36e1aa2e0e07105eddd1f08e"
 
-      let tx1: ContractTransaction
-      let tx2: ContractTransaction
+      let tx1: ContractTransactionResponse
+      let tx2: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -727,7 +727,7 @@ describe("L2WormholeGateway", () => {
       const chainId = 17
       const gatewayAddress = "0xc0ffee254729296a45a3885639ac7e10f9d54979"
 
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -769,7 +769,7 @@ describe("L2WormholeGateway", () => {
     })
 
     context("when called by the governance", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()

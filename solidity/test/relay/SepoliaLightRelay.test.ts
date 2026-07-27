@@ -1,19 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Bitcoin minimum-difficulty target: compact bits 0x1d00ffff.
 // Matches the constant in SepoliaLightRelay.sol and BitcoinTx.sol.
-const MIN_DIFFICULTY_TARGET = BigNumber.from(
+const MIN_DIFFICULTY_TARGET = BigInt(
   "0xffff0000000000000000000000000000000000000000000000000000"
 )
 
 // Arbitrary non-minimum target used to represent a real epoch target.
-const SOME_TARGET = BigNumber.from(12345)
+const SOME_TARGET = BigInt(12345)
 
 // 80-byte synthetic header whose nBits (LE bytes 72-75) = ff ff 00 1d,
 // producing MIN_DIFFICULTY_TARGET and difficulty = 1.
@@ -31,8 +30,8 @@ const NORMAL_HEADER =
 const NORMAL_DIFFICULTY = 7019199231177
 
 describe("SepoliaLightRelay", () => {
-  let governance: SignerWithAddress
-  let other: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let other: HardhatEthersSigner
   let relay: any
 
   before(async () => {
@@ -41,7 +40,7 @@ describe("SepoliaLightRelay", () => {
     other = o
     const Factory = await ethers.getContractFactory("TestSepoliaLightRelay")
     relay = await Factory.deploy()
-    await relay.deployed()
+    await relay.waitForDeployment()
     await relay.transferOwnership(governance.address)
   })
 

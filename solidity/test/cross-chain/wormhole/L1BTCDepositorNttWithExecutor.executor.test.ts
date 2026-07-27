@@ -1,8 +1,8 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import { randomBytes } from "crypto"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -30,14 +30,14 @@ const WORMHOLE_CHAIN_ARBITRUM = 23
 // Helper function to create properly structured ExecutorArgs
 function createExecutorArgs(
   overrides: Partial<{
-    value: BigNumber | string | number
+    value: bigint | string | number
     refundAddress: string
     signedQuote: string
     instructions: string
   }> = {}
 ) {
   return {
-    value: BigNumber.from(overrides.value || EXECUTOR_ARGS_REAL_QUOTE.value),
+    value: BigInt(overrides.value || EXECUTOR_ARGS_REAL_QUOTE.value),
     refundAddress: (overrides.refundAddress ||
       EXECUTOR_ARGS_REAL_QUOTE.refundAddress) as string,
     signedQuote: (overrides.signedQuote ||
@@ -54,7 +54,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: MockNttManager // Mock NTT manager for testing
-  let owner: SignerWithAddress
+  let owner: HardhatEthersSigner
 
   before(async () => {
     // Get signers
@@ -149,7 +149,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should have default platform fee of 0", async () => {
       expect(await depositor.defaultPlatformFeeBps()).to.equal(0)
       expect(await depositor.defaultPlatformFeeRecipient()).to.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
     })
 
@@ -169,7 +169,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(depositor.setDefaultPlatformFeeRecipient(newRecipient))
         .to.emit(depositor, "DefaultPlatformFeeRecipientUpdated")
-        .withArgs(ethers.constants.AddressZero, newRecipient)
+        .withArgs(ethers.ZeroAddress, newRecipient)
 
       expect(await depositor.defaultPlatformFeeRecipient()).to.equal(
         newRecipient
@@ -187,7 +187,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
 
       await expect(
-        depositor.setDefaultPlatformFeeRecipient(ethers.constants.AddressZero)
+        depositor.setDefaultPlatformFeeRecipient(ethers.ZeroAddress)
       ).to.be.revertedWith(
         "Recipient address cannot be zero when platform fee is set"
       )
@@ -199,7 +199,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Then setting zero recipient should work
       await expect(
-        depositor.setDefaultPlatformFeeRecipient(ethers.constants.AddressZero)
+        depositor.setDefaultPlatformFeeRecipient(ethers.ZeroAddress)
       ).to.not.be.reverted
     })
 
@@ -240,7 +240,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should accept valid signed quote", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: owner.address,
         signedQuote: `0x${"a".repeat(64)}`, // 32 bytes (64 hex chars) - meets minimum requirement
         instructions: `0x${"b".repeat(32)}`, // 16 bytes (32 hex chars)
@@ -303,20 +303,20 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   describe("Fee Parameter Validation", () => {
     it("should handle zero fee values", async () => {
       const feeArgs = {
-        gasLimit: BigNumber.from(0),
-        feeBps: BigNumber.from(0),
-        feeRecipient: ethers.constants.AddressZero,
+        gasLimit: BigInt(0),
+        feeBps: BigInt(0),
+        feeRecipient: ethers.ZeroAddress,
       }
 
       // These should be valid values
       expect(feeArgs.gasLimit).to.equal(0)
       expect(feeArgs.feeBps).to.equal(0)
-      expect(feeArgs.feeRecipient).to.equal(ethers.constants.AddressZero)
+      expect(feeArgs.feeRecipient).to.equal(ethers.ZeroAddress)
     })
 
     it("should handle maximum fee values", async () => {
-      const maxGasLimit = BigNumber.from(2).pow(32).sub(1) // Max uint32
-      const maxFeeBps = BigNumber.from(10000) // 100% in basis points
+      const maxGasLimit = BigInt(2).pow(32).sub(1) // Max uint32
+      const maxFeeBps = BigInt(10000) // 100% in basis points
 
       const feeArgs = {
         gasLimit: maxGasLimit,
@@ -327,19 +327,19 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // These should be valid values
       expect(feeArgs.gasLimit).to.equal(maxGasLimit)
       expect(feeArgs.feeBps).to.equal(maxFeeBps)
-      expect(feeArgs.feeRecipient).to.not.equal(ethers.constants.AddressZero)
+      expect(feeArgs.feeRecipient).to.not.equal(ethers.ZeroAddress)
     })
 
     it("should handle edge case fee values", async () => {
       const feeArgs = {
-        gasLimit: BigNumber.from(1), // Minimum non-zero
-        feeBps: BigNumber.from(1), // 0.01%
+        gasLimit: BigInt(1), // Minimum non-zero
+        feeBps: BigInt(1), // 0.01%
         feeRecipient: ethers.Wallet.createRandom().address,
       }
 
       expect(feeArgs.gasLimit).to.equal(1)
       expect(feeArgs.feeBps).to.equal(1)
-      expect(feeArgs.feeRecipient).to.not.equal(ethers.constants.AddressZero)
+      expect(feeArgs.feeRecipient).to.not.equal(ethers.ZeroAddress)
     })
   })
 
@@ -379,7 +379,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           10001, // feeBps exceeds 10% (10001/100000)
           ethers.Wallet.createRandom().address, // feeRecipient
           0, // platformFeeBps 0%
-          ethers.constants.AddressZero // platformFeeRecipient
+          ethers.ZeroAddress // platformFeeRecipient
         )
       ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
     })
@@ -393,7 +393,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           10000, // feeBps exactly 10% (10000/100000)
           ethers.Wallet.createRandom().address, // feeRecipient
           0, // platformFeeBps 0%
-          ethers.constants.AddressZero // platformFeeRecipient
+          ethers.ZeroAddress // platformFeeRecipient
         )
       ).to.not.be.reverted
     })
@@ -405,9 +405,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         depositor.connect(owner).setDefaultParameters(
           500000, // gasLimit
           0, // feeBps 0%
-          ethers.constants.AddressZero, // feeRecipient can be zero when fee is 0
+          ethers.ZeroAddress, // feeRecipient can be zero when fee is 0
           0, // platformFeeBps 0%
-          ethers.constants.AddressZero // platformFeeRecipient can be zero when fee is 0
+          ethers.ZeroAddress // platformFeeRecipient can be zero when fee is 0
         )
       ).to.not.be.reverted
     })
@@ -462,7 +462,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = createExecutorArgs()
       const validFeeArgs = {
         dbps: 0, // 0% - should work when default is also 0
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs))
@@ -525,14 +525,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   describe("Native Token Transfer Security", () => {
     it("should handle insufficient balance gracefully", async () => {
       const [owner, recipient] = await ethers.getSigners()
-      const amount = ethers.utils.parseEther("1")
+      const amount = ethers.parseEther("1")
 
       // Don't fund the contract - it should have zero balance
       await expect(
         depositor
           .connect(owner)
           .retrieveTokens(
-            ethers.constants.AddressZero,
+            ethers.ZeroAddress,
             recipient.address,
             amount
           )
@@ -541,14 +541,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should reject zero address recipient", async () => {
       const [owner] = await ethers.getSigners()
-      const amount = ethers.utils.parseEther("0.1")
+      const amount = ethers.parseEther("0.1")
 
       await expect(
         depositor
           .connect(owner)
           .retrieveTokens(
-            ethers.constants.AddressZero,
-            ethers.constants.AddressZero,
+            ethers.ZeroAddress,
+            ethers.ZeroAddress,
             amount
           )
       ).to.be.revertedWith("Cannot retrieve tokens to the zero address")
@@ -556,13 +556,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should only allow owner to retrieve tokens", async () => {
       const [, nonOwner, recipient] = await ethers.getSigners()
-      const amount = ethers.utils.parseEther("0.1")
+      const amount = ethers.parseEther("0.1")
 
       await expect(
         depositor
           .connect(nonOwner)
           .retrieveTokens(
-            ethers.constants.AddressZero,
+            ethers.ZeroAddress,
             recipient.address,
             amount
           )
@@ -571,7 +571,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should successfully transfer ERC20 tokens", async () => {
       const [owner, recipient] = await ethers.getSigners()
-      const amount = ethers.utils.parseEther("100")
+      const amount = ethers.parseEther("100")
 
       // Mint tokens to the depositor contract
       await tbtcToken.mint(depositor.address, amount)
@@ -590,7 +590,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should demonstrate improved error handling vs old transfer method", async () => {
       const [owner, recipient] = await ethers.getSigners()
-      const amount = ethers.utils.parseEther("0.1")
+      const amount = ethers.parseEther("0.1")
 
       // Test that our new implementation provides clear error messages
       // when attempting to transfer non-existent native tokens
@@ -598,7 +598,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         depositor
           .connect(owner)
           .retrieveTokens(
-            ethers.constants.AddressZero,
+            ethers.ZeroAddress,
             recipient.address,
             amount
           )
@@ -615,13 +615,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
 
     it("should handle zero executor value", async () => {
-      const zeroValue = BigNumber.from(0)
+      const zeroValue = BigInt(0)
       expect(await depositor.getStoredExecutorValue()).to.equal(zeroValue)
     })
 
     it("should handle large executor values", async () => {
       // Test that we can work with large values conceptually
-      const largeValue = ethers.utils.parseEther("1000")
+      const largeValue = ethers.parseEther("1000")
       expect(largeValue).to.be.gt(0)
     })
   })
@@ -702,7 +702,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(await depositor.defaultDestinationGasLimit()).to.equal(500000)
       expect(await depositor.defaultExecutorFeeBps()).to.equal(0)
       expect(await depositor.defaultExecutorFeeRecipient()).to.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
     })
 
@@ -720,7 +720,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should work with mock NTT manager", async () => {
       // Test that mock has been configured properly
       expect(nttManagerWithExecutor.address).to.not.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       // Test that we can call quote functions on the mock
@@ -786,7 +786,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Set up executor parameters first
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"), // 0.01 ETH executor cost
+        value: ethers.parseEther("0.01"), // 0.01 ETH executor cost
         refundAddress: user.address,
         signedQuote: `0x${"a".repeat(64)}`, // Mock signed quote
         instructions: `0x${"b".repeat(32)}`, // Mock instructions
@@ -806,23 +806,23 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Verify the breakdown
       expect(nttDeliveryPrice).to.be.gt(0) // NTT delivery price should be positive
-      expect(executorCost).to.equal(ethers.utils.parseEther("0.01")) // Should match executor value
+      expect(executorCost).to.equal(ethers.parseEther("0.01")) // Should match executor value
       expect(totalCost).to.equal(nttDeliveryPrice.add(executorCost)) // Should be sum of both
 
       console.log(
-        `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
+        `NTT delivery: ${ethers.formatEther(nttDeliveryPrice)} ETH`
       )
       console.log(
-        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+        `Executor cost: ${ethers.formatEther(executorCost)} ETH`
       )
-      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+      console.log(`Total required: ${ethers.formatEther(totalCost)} ETH`)
     })
 
     it("should return different costs for different chains", async () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.005"), // 0.005 ETH executor cost
+        value: ethers.parseEther("0.005"), // 0.005 ETH executor cost
         refundAddress: user.address,
         signedQuote: `0x${"c".repeat(64)}`,
         instructions: `0x${"d".repeat(32)}`,
@@ -847,7 +847,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Executor cost should be the same (from stored parameters)
       expect(destinationExecutorCost).to.equal(baseExecutorCost)
-      expect(destinationExecutorCost).to.equal(ethers.utils.parseEther("0.005"))
+      expect(destinationExecutorCost).to.equal(ethers.parseEther("0.005"))
 
       // NTT prices might be different for different chains
       expect(destinationNttPrice).to.be.gt(0)
@@ -860,14 +860,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(baseTotal).to.equal(baseNttPrice.add(baseExecutorCost))
 
       console.log(
-        `Destination chain - NTT: ${ethers.utils.formatEther(
+        `Destination chain - NTT: ${ethers.formatEther(
           destinationNttPrice
-        )} ETH, Total: ${ethers.utils.formatEther(destinationTotal)} ETH`
+        )} ETH, Total: ${ethers.formatEther(destinationTotal)} ETH`
       )
       console.log(
-        `Base chain - NTT: ${ethers.utils.formatEther(
+        `Base chain - NTT: ${ethers.formatEther(
           baseNttPrice
-        )} ETH, Total: ${ethers.utils.formatEther(baseTotal)} ETH`
+        )} ETH, Total: ${ethers.formatEther(baseTotal)} ETH`
       )
     })
 
@@ -885,7 +885,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"e".repeat(64)}`,
         instructions: `0x${"f".repeat(32)}`,
@@ -893,7 +893,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
@@ -916,7 +916,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
@@ -930,16 +930,16 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(nttDeliveryPrice).to.be.gt(0) // NTT price should still be positive
 
       console.log(
-        `Zero executor cost - NTT: ${ethers.utils.formatEther(
+        `Zero executor cost - NTT: ${ethers.formatEther(
           nttDeliveryPrice
-        )} ETH, Total: ${ethers.utils.formatEther(totalCost)} ETH`
+        )} ETH, Total: ${ethers.formatEther(totalCost)} ETH`
       )
     })
 
     it("should handle high executor cost", async () => {
       const [, , user] = await ethers.getSigners()
 
-      const highExecutorCost = ethers.utils.parseEther("0.1") // 0.1 ETH executor cost
+      const highExecutorCost = ethers.parseEther("0.1") // 0.1 ETH executor cost
 
       const executorArgs = {
         value: highExecutorCost,
@@ -964,11 +964,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(totalCost).to.be.gt(nttDeliveryPrice) // Total should be higher than NTT price
 
       console.log(
-        `High executor cost - NTT: ${ethers.utils.formatEther(
+        `High executor cost - NTT: ${ethers.formatEther(
           nttDeliveryPrice
-        )} ETH, Executor: ${ethers.utils.formatEther(
+        )} ETH, Executor: ${ethers.formatEther(
           executorCost
-        )} ETH, Total: ${ethers.utils.formatEther(totalCost)} ETH`
+        )} ETH, Total: ${ethers.formatEther(totalCost)} ETH`
       )
     })
 
@@ -977,7 +977,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // User 1 sets parameters
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
         signedQuote: `0x${"1".repeat(64)}`,
         instructions: `0x${"1".repeat(32)}`,
@@ -994,7 +994,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // User 2 sets different parameters
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.03"),
+        value: ethers.parseEther("0.03"),
         refundAddress: user2.address,
         signedQuote: `0x${"2".repeat(64)}`,
         instructions: `0x${"2".repeat(32)}`,
@@ -1022,8 +1022,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(user1Ntt).to.equal(user2Ntt)
 
       // Executor costs should be different (different user parameters)
-      expect(user1Executor).to.equal(ethers.utils.parseEther("0.02"))
-      expect(user2Executor).to.equal(ethers.utils.parseEther("0.03"))
+      expect(user1Executor).to.equal(ethers.parseEther("0.02"))
+      expect(user2Executor).to.equal(ethers.parseEther("0.03"))
 
       // Total costs should be different
       expect(user1Total).to.equal(user1Ntt.add(user1Executor))
@@ -1031,18 +1031,18 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(user2Total).to.be.gt(user1Total) // User 2 should have higher total cost
 
       console.log(
-        `User 1 - NTT: ${ethers.utils.formatEther(
+        `User 1 - NTT: ${ethers.formatEther(
           user1Ntt
-        )} ETH, Executor: ${ethers.utils.formatEther(
+        )} ETH, Executor: ${ethers.formatEther(
           user1Executor
-        )} ETH, Total: ${ethers.utils.formatEther(user1Total)} ETH`
+        )} ETH, Total: ${ethers.formatEther(user1Total)} ETH`
       )
       console.log(
-        `User 2 - NTT: ${ethers.utils.formatEther(
+        `User 2 - NTT: ${ethers.formatEther(
           user2Ntt
-        )} ETH, Executor: ${ethers.utils.formatEther(
+        )} ETH, Executor: ${ethers.formatEther(
           user2Executor
-        )} ETH, Total: ${ethers.utils.formatEther(user2Total)} ETH`
+        )} ETH, Total: ${ethers.formatEther(user2Total)} ETH`
       )
     })
 
@@ -1050,7 +1050,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.05"), // 0.05 ETH executor cost
+        value: ethers.parseEther("0.05"), // 0.05 ETH executor cost
         refundAddress: user.address,
         signedQuote:
           "0x3456789012cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
@@ -1070,24 +1070,24 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       // Simulate frontend validation
-      const userEthBalance = ethers.utils.parseEther("0.1") // User has 0.1 ETH
+      const userEthBalance = ethers.parseEther("0.1") // User has 0.1 ETH
 
       console.log("Frontend validation:")
       console.log(
-        `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
+        `NTT delivery: ${ethers.formatEther(nttDeliveryPrice)} ETH`
       )
       console.log(
-        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+        `Executor cost: ${ethers.formatEther(executorCost)} ETH`
       )
-      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+      console.log(`Total required: ${ethers.formatEther(totalCost)} ETH`)
       console.log(
-        `User balance: ${ethers.utils.formatEther(userEthBalance)} ETH`
+        `User balance: ${ethers.formatEther(userEthBalance)} ETH`
       )
 
       // Frontend validation logic
       if (userEthBalance.lt(totalCost)) {
         throw new Error(
-          `Insufficient ETH. Need ${ethers.utils.formatEther(totalCost)} ETH`
+          `Insufficient ETH. Need ${ethers.formatEther(totalCost)} ETH`
         )
       }
 
@@ -1100,7 +1100,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.2"), // High executor cost
+        value: ethers.parseEther("0.2"), // High executor cost
         refundAddress: user.address,
         signedQuote: REAL_SIGNED_QUOTE.signedQuote,
         instructions: REAL_SIGNED_QUOTE.relayInstructions,
@@ -1119,18 +1119,18 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       // Simulate user with insufficient balance
-      const userEthBalance = ethers.utils.parseEther("0.1") // User only has 0.1 ETH
+      const userEthBalance = ethers.parseEther("0.1") // User only has 0.1 ETH
 
       console.log("Frontend validation (insufficient balance):")
       console.log(
-        `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
+        `NTT delivery: ${ethers.formatEther(nttDeliveryPrice)} ETH`
       )
       console.log(
-        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+        `Executor cost: ${ethers.formatEther(executorCost)} ETH`
       )
-      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+      console.log(`Total required: ${ethers.formatEther(totalCost)} ETH`)
       console.log(
-        `User balance: ${ethers.utils.formatEther(userEthBalance)} ETH`
+        `User balance: ${ethers.formatEther(userEthBalance)} ETH`
       )
 
       // This should fail validation
@@ -1153,7 +1153,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       // Should accept the relay instructions with gas limit
@@ -1202,7 +1202,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       // Both should be accepted

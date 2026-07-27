@@ -1,4 +1,4 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -27,14 +27,14 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Test covering `VendingMachine` -> `TBTCVault` upgrade process.
 describe("VendingMachine - Upgrade", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let keepTechnicalWalletTeam: SignerWithAddress
-  let keepCommunityMultiSig: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let keepTechnicalWalletTeam: HardhatEthersSigner
+  let keepCommunityMultiSig: HardhatEthersSigner
 
-  let account1: SignerWithAddress
-  let account2: SignerWithAddress
+  let account1: HardhatEthersSigner
+  let account2: HardhatEthersSigner
 
   let tbtcV1: TestERC20
   let tbtc: TBTC
@@ -157,15 +157,15 @@ describe("VendingMachine - Upgrade", () => {
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
-          mainUtxoHash: ethers.constants.HashZero,
+          ecdsaWalletID: ethers.ZeroHash,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
 
         const depositorSigner = await impersonateAccount(depositor, {
@@ -297,7 +297,7 @@ describe("VendingMachine - Upgrade", () => {
     const totalTbtcV1Balance = to1e18(20)
 
     let depositData: DepositSweepTestData
-    let redeemer: SignerWithAddress
+    let redeemer: HardhatEthersSigner
 
     before(async () => {
       await createSnapshot()
@@ -357,15 +357,15 @@ describe("VendingMachine - Upgrade", () => {
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
-          mainUtxoHash: ethers.constants.HashZero,
+          ecdsaWalletID: ethers.ZeroHash,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
 
         await bridge.connect(redeemer).revealDeposit(fundingTx, reveal)

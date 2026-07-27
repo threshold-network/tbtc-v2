@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -52,7 +52,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
@@ -63,7 +63,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       underlyingNttManager.address,
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
-    await proxy.deployed()
+    await proxy.waitForDeployment()
 
     depositor = L1BTCDepositorFactory.attach(
       proxy.address
@@ -125,7 +125,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
 
       // Set initial parameters
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -147,7 +147,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
 
       // Update parameters
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user.address,
         signedQuote: `0x${"3".repeat(128)}`,
         instructions: `0x${"4".repeat(64)}`,
@@ -186,7 +186,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: "0x", // Empty signed quote
         instructions: `0x${"2".repeat(64)}`,
@@ -208,7 +208,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -241,7 +241,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         150, // 1.5% fee
         user.address, // fee recipient
         0, // platform fee bps
-        ethers.constants.AddressZero // platform fee recipient
+        ethers.ZeroAddress // platform fee recipient
       )
 
       expect(await depositor.defaultDestinationGasLimit()).to.equal(600000)
@@ -256,7 +256,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         200, // 2% fee
         user.address, // fee recipient
         0, // platform fee bps
-        ethers.constants.AddressZero // platform fee recipient
+        ethers.ZeroAddress // platform fee recipient
       )
 
       expect(await depositor.defaultDestinationGasLimit()).to.equal(700000)
@@ -267,7 +267,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`, // 64 hex chars = 32 bytes
         instructions: `0x${"2".repeat(64)}`,
@@ -291,7 +291,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       expect(event?.args?.sender).to.equal(user.address)
       expect(event?.args?.signedQuoteLength).to.equal(64)
       expect(event?.args?.executorValue).to.equal(
-        ethers.utils.parseEther("0.01")
+        ethers.parseEther("0.01")
       )
     })
   })

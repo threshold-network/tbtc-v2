@@ -1,5 +1,5 @@
 import { BytesLike } from "@ethersproject/bytes"
-import { BigNumberish } from "ethers"
+import {BigNumberish} from "ethers"
 
 // TODO: Add some test data which contains a reference to a deposit with
 //       `fundingOutputIndex` other than `0`.

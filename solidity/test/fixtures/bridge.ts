@@ -1,6 +1,6 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bank,
   BankStub,
@@ -26,13 +26,13 @@ import type { Mock } from "../helpers/mock"
  * Common fixture for tests suites targeting the Bridge contract.
  */
 async function bridgeFixture(): Promise<{
-  deployer: SignerWithAddress
-  governance: SignerWithAddress
-  spvMaintainer: SignerWithAddress
-  thirdParty: SignerWithAddress
-  treasury: SignerWithAddress
-  redemptionWatchtowerManager: SignerWithAddress
-  guardians: SignerWithAddress[]
+  deployer: HardhatEthersSigner
+  governance: HardhatEthersSigner
+  spvMaintainer: HardhatEthersSigner
+  thirdParty: HardhatEthersSigner
+  treasury: HardhatEthersSigner
+  redemptionWatchtowerManager: HardhatEthersSigner
+  guardians: HardhatEthersSigner[]
   tbtc: TBTC
   vendingMachine: VendingMachine
   tbtcVault: TBTCVault
@@ -91,7 +91,7 @@ async function bridgeFixture(): Promise<{
   // from it.
   await deployer.sendTransaction({
     to: walletRegistry.address,
-    value: ethers.utils.parseEther("100"),
+    value: ethers.parseEther("100"),
   })
 
   const reimbursementPool: ReimbursementPool =

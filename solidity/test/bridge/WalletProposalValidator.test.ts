@@ -1,7 +1,7 @@
 import crypto from "crypto"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
+import {BigNumberish, BytesLike} from "ethers"
 import type {
   Bridge,
   IRedemptionWatchtower,
@@ -2862,7 +2862,7 @@ const depositKey = (
   fundingTxHash: BytesLike,
   fundingOutputIndex: BigNumberish
 ) =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityKeccak256(
     ["bytes32", "uint32"],
     [fundingTxHash, fundingOutputIndex]
   )
@@ -2886,7 +2886,7 @@ const createTestDeposit = (
   const refundableAt = resolvedRevealedAt + depositLocktime
 
   const refundLocktime = `0x${Buffer.from(
-    BigNumber.from(refundableAt).toHexString().substring(2),
+    BigInt(refundableAt).toHexString().substring(2),
     "hex"
   )
     .reverse()
@@ -2931,8 +2931,8 @@ const createTestDeposit = (
       .sha256(depositScript)
       .substring(2)}`
   } else {
-    const sha256Hash = ethers.utils.sha256(depositScript)
-    const ripemd160Hash = ethers.utils.ripemd160(sha256Hash).substring(2)
+    const sha256Hash = ethers.sha256(depositScript)
+    const ripemd160Hash = ethers.ripemd160(sha256Hash).substring(2)
     depositScriptHash = `17a914${ripemd160Hash}87`
   }
 
@@ -2946,8 +2946,8 @@ const createTestDeposit = (
     locktime: "0x00000000",
   }
 
-  const fundingTxHash = ethers.utils.sha256(
-    ethers.utils.sha256(
+  const fundingTxHash = ethers.sha256(
+    ethers.sha256(
       `0x${fundingTx.version.substring(2)}` +
         `${fundingTx.inputVector.substring(2)}` +
         `${fundingTx.outputVector.substring(2)}` +
@@ -2967,7 +2967,7 @@ const createTestDeposit = (
       vault,
       treasuryFee: 0, // not relevant
       sweptAt: 0, // important to pass the validation
-      extraData: extraData ?? ethers.constants.HashZero,
+      extraData: extraData ?? ethers.ZeroHash,
     },
     extraInfo: {
       fundingTx,
@@ -2983,12 +2983,12 @@ const redemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ) => {
-  const scriptHash = ethers.utils.solidityKeccak256(
+  const scriptHash = ethers.solidityKeccak256(
     ["bytes"],
     [redeemerOutputScript]
   )
 
-  return ethers.utils.solidityKeccak256(
+  return ethers.solidityKeccak256(
     ["bytes32", "bytes20"],
     [scriptHash, walletPubKeyHash]
   )
@@ -3031,7 +3031,7 @@ const movedFundsSweepRequestKey = (
   movingFundsTxHash: BytesLike,
   movingFundsTxOutputIndex: number
 ) =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityKeccak256(
     ["bytes32", "uint32"],
     [movingFundsTxHash, movingFundsTxOutputIndex]
   )
@@ -3040,10 +3040,10 @@ const buildRedemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ): string =>
-  ethers.utils.solidityKeccak256(
+  ethers.solidityKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

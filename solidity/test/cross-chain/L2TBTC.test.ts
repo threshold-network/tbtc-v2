@@ -1,15 +1,15 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { randomBytes } from "crypto"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { expect } from "chai"
-import { ContractTransaction, Wallet } from "ethers"
+import {ContractTransactionResponse, Wallet} from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
 
 import type { L2TBTC, TestERC20, TestERC721 } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 // Only the functions defined in L2TBTC are fully covered with tests.
 // L2TBTC contract inherits from OpenZeppelin contracts and we do not want
@@ -59,11 +59,11 @@ describe("L2TBTC", () => {
 
   let token: L2TBTC
 
-  let governance: SignerWithAddress
-  let minter: SignerWithAddress
-  let guardian: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let tokenHolder: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let minter: HardhatEthersSigner
+  let guardian: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let tokenHolder: HardhatEthersSigner
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -82,7 +82,7 @@ describe("L2TBTC", () => {
 
     context("when called by the owner", () => {
       context("when address is a new minter", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -169,7 +169,7 @@ describe("L2TBTC", () => {
       })
 
       context("when a minter address is removed", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -288,7 +288,7 @@ describe("L2TBTC", () => {
 
     context("when called by the owner", () => {
       context("when address is a new guardian", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -375,7 +375,7 @@ describe("L2TBTC", () => {
       })
 
       context("when a guardian address is removed", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -493,7 +493,7 @@ describe("L2TBTC", () => {
 
       const TestERC20 = await ethers.getContractFactory("TestERC20")
       randomERC20 = await TestERC20.deploy()
-      await randomERC20.deployed()
+      await randomERC20.waitForDeployment()
 
       await randomERC20.mint(token.address, amount)
     })
@@ -541,7 +541,7 @@ describe("L2TBTC", () => {
 
       const TestERC721 = await ethers.getContractFactory("TestERC721")
       randomERC721 = await TestERC721.deploy()
-      await randomERC721.deployed()
+      await randomERC721.waitForDeployment()
 
       await randomERC721.mint(token.address, tokenId)
     })
@@ -612,7 +612,7 @@ describe("L2TBTC", () => {
     })
 
     context("when called by a guardian", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -685,7 +685,7 @@ describe("L2TBTC", () => {
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -748,7 +748,7 @@ describe("L2TBTC", () => {
       })
 
       context("for a non-zero account", () => {
-        let mintTx: ContractTransaction
+        let mintTx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -861,7 +861,7 @@ describe("L2TBTC", () => {
   describe("transfer", () => {
     const initialHolderBalance = to1e18(70)
     const transferAmount = to1e18(5)
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -897,7 +897,7 @@ describe("L2TBTC", () => {
   describe("transferFrom", () => {
     const initialHolderBalance = to1e18(70)
     const transferAmount = to1e18(9)
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -934,7 +934,7 @@ describe("L2TBTC", () => {
   })
 
   describe("approve", () => {
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
     const allowance = to1e18(888)
 
     before(async () => {
@@ -966,7 +966,7 @@ describe("L2TBTC", () => {
     const initialBalance = to1e18(18)
     const burnedAmount = to1e18(5)
 
-    let burnTx: ContractTransaction
+    let burnTx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -1005,7 +1005,7 @@ describe("L2TBTC", () => {
     const initialBalance = to1e18(18)
     const burnedAmount = to1e18(9)
 
-    let burnTx: ContractTransaction
+    let burnTx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -1058,36 +1058,36 @@ describe("L2TBTC", () => {
 
     let deadline: number
 
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     const getApproval = async (amount, spender) => {
-      // We use ethers.utils.SigningKey for a Wallet instead of
+      // We use ethers.SigningKey for a Wallet instead of
       // Signer.signMessage to do not add '\x19Ethereum Signed Message:\n'
       // prefix to the signed message. The '\x19` protection (see EIP191 for
       // more details on '\x19' rationale and format) is already included in
       // EIP2612 permit signed message and '\x19Ethereum Signed Message:\n'
       // should not be used there.
-      const signingKey = new ethers.utils.SigningKey(
+      const signingKey = new ethers.SigningKey(
         permittingHolder.privateKey
       )
 
       const domainSeparator = await token.DOMAIN_SEPARATOR()
-      const permitTypehash = ethers.utils.keccak256(
-        ethers.utils.toUtf8Bytes(
+      const permitTypehash = ethers.keccak256(
+        ethers.toUtf8Bytes(
           "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
         )
       )
       const nonce = await token.nonces(permittingHolder.address)
 
-      const approvalDigest = ethers.utils.keccak256(
-        ethers.utils.solidityPack(
+      const approvalDigest = ethers.keccak256(
+        ethers.solidityPack(
           ["bytes1", "bytes1", "bytes32", "bytes32"],
           [
             "0x19",
             "0x01",
             domainSeparator,
-            ethers.utils.keccak256(
-              ethers.utils.defaultAbiCoder.encode(
+            ethers.keccak256(
+              ethers.defaultAbiCoder.encode(
                 [
                   "bytes32",
                   "address",
@@ -1110,7 +1110,7 @@ describe("L2TBTC", () => {
         )
       )
 
-      return ethers.utils.splitSignature(
+      return ethers.splitSignature(
         await signingKey.signDigest(approvalDigest)
       )
     }

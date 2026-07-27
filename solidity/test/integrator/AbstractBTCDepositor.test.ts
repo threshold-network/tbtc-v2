@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, ContractTransaction } from "ethers"
+import {ContractTransactionResponse} from "ethers"
 import type {
   MockBridge,
   MockTBTCVault,
@@ -69,7 +69,7 @@ describe("AbstractBTCDepositor", () => {
       it("should revert", async () => {
         // Load the fixture with a different vault address.
         const { fundingTx, reveal, extraData } = loadFixture(
-          ethers.constants.AddressZero
+          ethers.ZeroAddress
         )
 
         await expect(
@@ -110,7 +110,7 @@ describe("AbstractBTCDepositor", () => {
       context("when deposit is accepted by the Bridge", () => {
         const expectedInitialDepositAmount = to1ePrecision(10000, 10)
 
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -212,7 +212,7 @@ describe("AbstractBTCDepositor", () => {
         const expectedTbtcAmount = to1ePrecision(8702, 10).toString()
 
         context("when the deposit is swept", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -240,7 +240,7 @@ describe("AbstractBTCDepositor", () => {
         })
 
         context("when the deposit is optimistically minted", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -325,7 +325,7 @@ describe("AbstractBTCDepositor", () => {
 
       it("should return the correct amount", async () => {
         const depositAmount = to1ePrecision(10, 8) // 10 BTC
-        const treasuryFee = BigNumber.from(0)
+        const treasuryFee = BigInt(0)
 
         // The expected tbtcAmount is calculated as follows:
         //
@@ -347,7 +347,7 @@ describe("AbstractBTCDepositor", () => {
       context("when treasury fee is zero", () => {
         it("should return the correct amount", async () => {
           const depositAmount = to1ePrecision(10, 8) // 10 BTC
-          const treasuryFee = BigNumber.from(0)
+          const treasuryFee = BigInt(0)
 
           // The expected tbtcAmount is calculated as follows:
           //

@@ -1,7 +1,7 @@
 import { helpers, waffle, ethers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { BigNumber, BigNumberish, BytesLike, ContractTransaction } from "ethers"
+import {BigNumberish, BytesLike, ContractTransactionResponse} from "ethers"
 import type {
   Bank,
   BankStub,
@@ -30,21 +30,21 @@ function assertVetoProposalTuple(
     objectionsCount: number
   }
 ) {
-  expect(ethers.utils.getAddress(actual.redeemer)).to.equal(
-    ethers.utils.getAddress(expected.redeemer)
+  expect(ethers.getAddress(actual.redeemer)).to.equal(
+    ethers.getAddress(expected.redeemer)
   )
   expect(
-    BigNumber.from(actual.withdrawableAmount).eq(expected.withdrawableAmount)
+    BigInt(actual.withdrawableAmount).eq(expected.withdrawableAmount)
   ).to.be.true
-  expect(BigNumber.from(actual.finalizedAt).eq(expected.finalizedAt)).to.be.true
+  expect(BigInt(actual.finalizedAt).eq(expected.finalizedAt)).to.be.true
   expect(Number(actual.objectionsCount)).to.equal(expected.objectionsCount)
 }
 
 describe("RedemptionWatchtower", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let redemptionWatchtowerManager: SignerWithAddress
-  let guardians: SignerWithAddress[]
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let redemptionWatchtowerManager: HardhatEthersSigner
+  let guardians: HardhatEthersSigner[]
 
   let bridgeGovernance: BridgeGovernance
   let bridge: Bridge & BridgeStub
@@ -124,7 +124,7 @@ describe("RedemptionWatchtower", () => {
           it("should revert", async () => {
             await expect(
               redemptionWatchtower.connect(governance).enableWatchtower(
-                ethers.constants.AddressZero,
+                ethers.ZeroAddress,
                 guardians.map((g) => g.address)
               )
             ).to.be.revertedWith("Manager address must not be 0x0")
@@ -132,7 +132,7 @@ describe("RedemptionWatchtower", () => {
         })
 
         context("when manager address is non-zero", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -276,7 +276,7 @@ describe("RedemptionWatchtower", () => {
         })
 
         context("when the watchtower lifetime is expired", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -364,7 +364,7 @@ describe("RedemptionWatchtower", () => {
         })
 
         context("when guardian does not exist", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -430,7 +430,7 @@ describe("RedemptionWatchtower", () => {
       })
 
       context("when guardian exists", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -897,7 +897,7 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 context("when the raised objection is the first one", () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -958,7 +958,7 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 context("when the raised objection is the second one", () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -1027,10 +1027,10 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 context("when the raised objection is the third one", () => {
-                  let tx: ContractTransaction
-                  let initialWalletPendingRedemptionsValue: BigNumber
-                  let initialBridgeBalance: BigNumber
-                  let initialWatchtowerBalance: BigNumber
+                  let tx: ContractTransactionResponse
+                  let initialWalletPendingRedemptionsValue: bigint
+                  let initialBridgeBalance: bigint
+                  let initialWatchtowerBalance: bigint
 
                   before(async () => {
                     await createSnapshot()
@@ -1239,7 +1239,7 @@ describe("RedemptionWatchtower", () => {
               context(
                 "when the raised objection is the first one",
                 async () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -1308,7 +1308,7 @@ describe("RedemptionWatchtower", () => {
               )
 
               context("when the raised objection is the second one", () => {
-                let tx: ContractTransaction
+                let tx: ContractTransactionResponse
 
                 before(async () => {
                   await createSnapshot()
@@ -1384,10 +1384,10 @@ describe("RedemptionWatchtower", () => {
               })
 
               context("when the raised objection is the third one", () => {
-                let tx: ContractTransaction
-                let initialWalletPendingRedemptionsValue: BigNumber
-                let initialBridgeBalance: BigNumber
-                let initialWatchtowerBalance: BigNumber
+                let tx: ContractTransactionResponse
+                let initialWalletPendingRedemptionsValue: bigint
+                let initialBridgeBalance: bigint
+                let initialWatchtowerBalance: bigint
 
                 before(async () => {
                   await createSnapshot()
@@ -1827,7 +1827,7 @@ describe("RedemptionWatchtower", () => {
     let defaultDelay: number
     let levelOneDelay: number
     let levelTwoDelay: number
-    let waivedAmountLimit: BigNumber
+    let waivedAmountLimit: bigint
 
     before(async () => {
       await createSnapshot()
@@ -1964,7 +1964,7 @@ describe("RedemptionWatchtower", () => {
           newDefaultDelay?: number
           newLevelOneDelay?: number
           newLevelTwoDelay?: number
-          newWaivedAmountLimit?: BigNumber
+          newWaivedAmountLimit?: bigint
         }[] = [
           {
             testName: "when watchtower lifetime is increased",
@@ -2006,7 +2006,7 @@ describe("RedemptionWatchtower", () => {
           },
           {
             testName: "when waived amount limit is changed to a non-zero value",
-            newWaivedAmountLimit: BigNumber.from(50_000_000),
+            newWaivedAmountLimit: BigInt(50_000_000),
           },
         ]
 
@@ -2017,10 +2017,10 @@ describe("RedemptionWatchtower", () => {
           let newDefaultDelay: number
           let newLevelOneDelay: number
           let newLevelTwoDelay: number
-          let newWaivedAmountLimit: BigNumber
+          let newWaivedAmountLimit: bigint
 
           context(test.testName, async () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -2292,7 +2292,7 @@ describe("RedemptionWatchtower", () => {
       })
 
       context("when the redeemer is banned", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         let redemption: RedemptionData
 
         before(async () => {
@@ -2350,7 +2350,7 @@ describe("RedemptionWatchtower", () => {
 
   describe("withdrawVetoedFunds", () => {
     let redemption: RedemptionData
-    let redeemerSigner: SignerWithAddress
+    let redeemerSigner: HardhatEthersSigner
 
     before(async () => {
       await createSnapshot()
@@ -2423,7 +2423,7 @@ describe("RedemptionWatchtower", () => {
     context(
       "when the veto is finalized and the penalty fee is lesser than 100%",
       () => {
-        let withdrawableAmount: BigNumber
+        let withdrawableAmount: bigint
 
         before(async () => {
           await createSnapshot()
@@ -2564,9 +2564,9 @@ describe("RedemptionWatchtower", () => {
             })
 
             context("when there are funds to withdraw", () => {
-              let tx: ContractTransaction
-              let initialWatchtowerBalance: BigNumber
-              let initialRedeemerBalance: BigNumber
+              let tx: ContractTransactionResponse
+              let initialWatchtowerBalance: bigint
+              let initialRedeemerBalance: bigint
 
               before(async () => {
                 await createSnapshot()
@@ -2644,7 +2644,7 @@ describe("RedemptionWatchtower", () => {
     )
 
     context("when the veto is finalized and the penalty fee is 100%", () => {
-      let withdrawableAmount: BigNumber
+      let withdrawableAmount: bigint
 
       before(async () => {
         await createSnapshot()
@@ -2670,7 +2670,7 @@ describe("RedemptionWatchtower", () => {
           )
 
         // Withdrawable amount is 0 as the default penalty fee is 100%.
-        withdrawableAmount = BigNumber.from(0)
+        withdrawableAmount = BigInt(0)
         expect(withdrawableAmount).to.be.equal(
           (await redemptionWatchtower.vetoProposals(redemption.redemptionKey))
             .withdrawableAmount
@@ -2766,8 +2766,8 @@ describe("RedemptionWatchtower", () => {
     redeemerOutputScript: string
     redeemer: string
     requestedAt: number
-    amount: BigNumber
-    treasuryFee: BigNumber
+    amount: bigint
+    treasuryFee: bigint
   }
 
   async function createRedemptionRequests(
@@ -2776,14 +2776,14 @@ describe("RedemptionWatchtower", () => {
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
       ecdsaWalletID: data.wallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: ethers.ZeroHash,
       pendingRedemptionsValue: data.wallet.pendingRedemptionsValue,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: data.wallet.state,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
     })
 
     // Simulate the prepared main UTXO belongs to the wallet.
@@ -2828,7 +2828,7 @@ describe("RedemptionWatchtower", () => {
         redeemerOutputScript: redeemerOutputScript.toString(),
         redeemer,
         requestedAt,
-        amount: BigNumber.from(amount),
+        amount: BigInt(amount),
         treasuryFee,
       })
     }
@@ -2837,7 +2837,7 @@ describe("RedemptionWatchtower", () => {
   }
 
   async function makeRedemptionAllowance(
-    redeemer: SignerWithAddress,
+    redeemer: HardhatEthersSigner,
     amount: BigNumberish
   ) {
     // Simulate the redeemer has a Bank balance allowing to make the request.
@@ -2852,17 +2852,17 @@ describe("RedemptionWatchtower", () => {
     walletPubKeyHash: BytesLike,
     redeemerOutputScript: BytesLike
   ): string {
-    return ethers.utils.solidityKeccak256(
+    return ethers.solidityKeccak256(
       ["bytes32", "bytes20"],
       [
-        ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+        ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
         walletPubKeyHash,
       ]
     )
   }
 
   function buildObjectionKey(redemptionKey: string, guardian: string): string {
-    return ethers.utils.solidityKeccak256(
+    return ethers.solidityKeccak256(
       ["uint256", "address"],
       [redemptionKey, guardian]
     )

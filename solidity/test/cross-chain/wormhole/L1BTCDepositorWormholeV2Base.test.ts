@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import {ContractTransactionResponse} from "ethers"
 import {
   IBridge,
   IWormholeGateway,
@@ -103,11 +103,11 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
   // The TestERC20 token is deployed via the factory's default signer
   // (the first hardhat account). That account owns the token and can mint.
-  let tokenOwner: SignerWithAddress
+  let tokenOwner: HardhatEthersSigner
 
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
@@ -163,10 +163,10 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     //                   = 100000 * 1e10 = 1e15
     const messageFee = 1000
     const transferSequence = 555
-    const depositAmount = BigNumber.from(100000)
-    const treasuryFee = BigNumber.from(500)
+    const depositAmount = BigInt(100000)
+    const treasuryFee = BigInt(500)
     const optimisticMintingFeeDivisor = 20
-    const depositTxMaxFee = BigNumber.from(1000)
+    const depositTxMaxFee = BigInt(1000)
     const baseTbtcAmount = to1ePrecision(93525, 10)
     const txMaxFeeScaled = to1ePrecision(1000, 10)
     const reimbursedAmount = baseTbtcAmount.add(txMaxFeeScaled)
@@ -226,7 +226,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     }
 
     context("when reimburseTxMaxFee is false", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -263,7 +263,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     context(
       "when reimburseTxMaxFee is true and balance covers reimbursedAmount",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -323,7 +323,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     context(
       "when reimburseTxMaxFee is true and balance is below reimbursedAmount",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         // Available balance is exactly one wei short of reimbursedAmount,
         // which is sufficient to pay the base tbtcAmount but not the full
         // reimbursement.
@@ -399,7 +399,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     context(
       "when reimburseTxMaxFee is true and balance equals baseTbtcAmount",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -458,7 +458,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
         it("should preserve the L2 receiver payload through the skip branch", async () => {
           const call =
             await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
-          const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
+          const [l2Receiver] = ethers.defaultAbiCoder.decode(
             ["bytes32"],
             call.args[5]
           )

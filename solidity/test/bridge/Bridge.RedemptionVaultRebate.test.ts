@@ -2,9 +2,9 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { BigNumber, Contract, ContractTransaction } from "ethers"
+import {Contract, ContractTransactionResponse} from "ethers"
 import type { Mock } from "../helpers/mock"
 import type {
   Bank,
@@ -36,7 +36,7 @@ function encodeRedemptionData(
   utxo: { txHash: string; txOutputIndex: number; txOutputValue: number },
   outputScript: string
 ): string {
-  return ethers.utils.defaultAbiCoder.encode(
+  return ethers.defaultAbiCoder.encode(
     ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
     [
       redeemer,
@@ -57,18 +57,18 @@ async function setupWallet(
   bridge: Bridge & BridgeStub,
   pubKeyHash: string,
   utxo: { txHash: string; txOutputIndex: number; txOutputValue: number },
-  ecdsaWalletID: string = ethers.constants.HashZero
+  ecdsaWalletID: string = ethers.ZeroHash
 ): Promise<void> {
   await bridge.setWallet(pubKeyHash, {
     ecdsaWalletID,
-    mainUtxoHash: ethers.constants.HashZero,
+    mainUtxoHash: ethers.ZeroHash,
     pendingRedemptionsValue: 0,
     createdAt: await lastBlockTime(),
     movingFundsRequestedAt: 0,
     closingStartedAt: 0,
     pendingMovedFundsSweepRequestsCount: 0,
     state: walletState.Live,
-    movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
   })
   await bridge.setWalletMainUtxo(pubKeyHash, utxo)
 }
@@ -79,9 +79,9 @@ async function setupWallet(
 async function stakeTokens(
   t: Contract,
   rebateStaking: RebateStaking,
-  minter: SignerWithAddress,
-  staker: SignerWithAddress,
-  amount: BigNumber = stakeAmount
+  minter: HardhatEthersSigner,
+  staker: HardhatEthersSigner,
+  amount: bigint = stakeAmount
 ): Promise<void> {
   await t.connect(minter).mint(staker.address, amount)
   await t.connect(staker).approve(rebateStaking.address, amount)
@@ -89,9 +89,9 @@ async function stakeTokens(
 }
 
 describe("Bridge - Vault-Path Redemption Rebate", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
-  let deployer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
+  let deployer: HardhatEthersSigner
 
   let bank: Bank & BankStub
   let bridge: Bridge & BridgeStub
@@ -146,15 +146,15 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   describe("receiveBalanceApproval with rebate staking", () => {
     const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
     // Requested amount is 1901000 satoshi.
-    const requestedAmount = BigNumber.from(1901000)
+    const requestedAmount = BigInt(1901000)
     // Treasury fee is requestedAmount / redemptionTreasuryFeeDivisor
     // where the divisor is 2000 initially: 1901000 / 2000 = 950.5
     // Solidity truncates to 950.
     const treasuryFee = 950
 
-    let balanceOwner: SignerWithAddress
+    let balanceOwner: HardhatEthersSigner
     let redeemerAddress: string
-    let redeemerSigner: SignerWithAddress
+    let redeemerSigner: HardhatEthersSigner
 
     const redeemerOutputScript =
       "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
@@ -194,7 +194,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         bridge,
         walletPubKeyHash,
         mainUtxo,
-        ethers.utils.keccak256("0x01")
+        ethers.keccak256("0x01")
       )
       await bridge.setActiveWallet(walletPubKeyHash)
 
@@ -208,7 +208,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when redeemer has stake but balanceOwner does not", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -271,9 +271,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when vault-path redemption times out", () => {
-      let tx: ContractTransaction
-      let initialRedeemerBalance: BigNumber
-      let availableRebateBeforeTimeout: BigNumber
+      let tx: ContractTransactionResponse
+      let initialRedeemerBalance: bigint
+      let availableRebateBeforeTimeout: bigint
 
       const walletMembersIDs = [1, 2, 3, 4, 5]
 
@@ -357,7 +357,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when redeemer has no stake", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       // Use a different output script to avoid collision with scenario 1.
       const nonStakedOutputScript =
@@ -417,7 +417,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when balanceOwner equals redeemer (direct path)", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       // Use a different output script to avoid key collision.
       const directOutputScript =
         "0x160014b1c2d3e4f5a6071829304a5b6c7d8e9f0a1b2c3d"
@@ -485,10 +485,10 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     context("when redeemer is a delegatee of a staker", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
       let delegateeRedeemerAddress: string
       let stakerAddress: string
-      let stakerSigner: SignerWithAddress
+      let stakerSigner: HardhatEthersSigner
 
       // Use a different output script for delegation scenario.
       const delegateeOutputScript =
@@ -590,10 +590,10 @@ function buildRedemptionKey(
   walletPubKeyHash: string,
   redeemerOutputScript: string
 ): string {
-  return ethers.utils.solidityKeccak256(
+  return ethers.solidityKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

@@ -3,7 +3,7 @@ import { deployments, ethers, helpers, upgrades } from "hardhat"
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   ProxyAdmin,
   Bridge,
@@ -23,11 +23,11 @@ chai.use(chaiAsPromised)
 const { AddressZero } = ethers.constants
 
 describe("Deployment", async () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let esdm: SignerWithAddress
-  let keepTechnicalWalletTeam: SignerWithAddress
-  let keepCommunityMultiSig: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let esdm: HardhatEthersSigner
+  let keepTechnicalWalletTeam: HardhatEthersSigner
+  let keepCommunityMultiSig: HardhatEthersSigner
 
   let bridge: Bridge
   let bridgeGovernance: BridgeGovernance
@@ -85,7 +85,7 @@ describe("Deployment", async () => {
       // To let a non-proxy-admin read the admin we have to read it directly from
       // the storage slot, see: https://docs.openzeppelin.com/contracts/4.x/api/proxy#TransparentUpgradeableProxy-admin--
       expect(
-        ethers.utils.defaultAbiCoder.decode(
+        ethers.defaultAbiCoder.decode(
           ["address"],
           await ethers.provider.getStorageAt(
             bridge.address,
@@ -113,7 +113,7 @@ describe("Deployment", async () => {
       // To let a non-proxy-admin read the implementation we have to read it directly from
       // the storage slot, see: https://docs.openzeppelin.com/contracts/4.x/api/proxy#TransparentUpgradeableProxy-implementation--
       expect(
-        ethers.utils.defaultAbiCoder.decode(
+        ethers.defaultAbiCoder.decode(
           ["address"],
           await ethers.provider.getStorageAt(
             bridge.address,

@@ -1,5 +1,5 @@
 /* eslint-disable import/prefer-default-export */
-import { BytesLike } from "ethers"
+import {BytesLike} from "ethers"
 
 export const ecdsaWalletTestData = {
   // private key

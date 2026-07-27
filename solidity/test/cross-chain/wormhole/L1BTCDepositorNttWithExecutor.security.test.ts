@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -47,7 +47,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
@@ -90,7 +90,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
             50,
             user.address,
             0,
-            ethers.constants.AddressZero
+            ethers.ZeroAddress
           )
       ).to.be.revertedWith("Ownable: caller is not the owner")
 
@@ -114,7 +114,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       // Send some tokens to the contract
-      const amount = ethers.utils.parseEther("1")
+      const amount = ethers.parseEther("1")
       await tbtcToken.mint(depositor.address, amount)
 
       // Non-owner cannot retrieve tokens
@@ -142,7 +142,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       // Empty signed quote should be rejected
       const invalidExecutorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: "0x", // Empty quote
         instructions: `0x${"2".repeat(64)}`,
@@ -166,7 +166,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -197,7 +197,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       // Set parameters
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -233,7 +233,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       // eslint-disable-next-line no-plusplus
       for (let i = 0; i < 3; i++) {
         const executorArgs = {
-          value: ethers.utils.parseEther(`${i + 1}`),
+          value: ethers.parseEther(`${i + 1}`),
           refundAddress: user.address,
           signedQuote: `0x${"1".repeat(128)}`,
           instructions: `0x${"2".repeat(64)}`,
@@ -254,7 +254,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         expect(isSet).to.be.true
         // eslint-disable-next-line no-await-in-loop
         expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
-          ethers.utils.parseEther(`${i + 1}`)
+          ethers.parseEther(`${i + 1}`)
         )
       }
     })
@@ -265,7 +265,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       // Test with maximum possible amount
-      const maxAmount = BigNumber.from(2).pow(256).sub(1)
+      const maxAmount = BigInt(2).pow(256).sub(1)
       const executorArgs = {
         value: maxAmount,
         refundAddress: user.address,
@@ -291,7 +291,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       const executorArgs = {
-        value: BigNumber.from(0),
+        value: BigInt(0),
         refundAddress: user.address,
         signedQuote: `0x${"1".repeat(128)}`,
         instructions: `0x${"2".repeat(64)}`,
@@ -299,7 +299,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       const feeArgs = {
         dbps: 0, // 0% fee
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       await expect(

@@ -7,7 +7,6 @@
 /* eslint-disable no-underscore-dangle */
 import { ethers, artifacts } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
 
 import type { BigNumberish, Contract, Signer } from "ethers"
 import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
@@ -67,7 +66,7 @@ export interface MockCall {
   /** Decoded arguments, in declaration order. */
   args: unknown[]
   /** `msg.value` the call carried, as smock's `getCall(n).value` did. */
-  value: BigNumber
+  value: bigint
 }
 
 /** Configuration and inspection handle for one function of a mock. */
@@ -216,7 +215,7 @@ function zeroValueFor(type: ParamType): unknown {
   }
 
   if (type.baseType === "address") {
-    return ethers.constants.AddressZero
+    return ethers.ZeroAddress
   }
 
   if (type.baseType === "bool") {
@@ -273,7 +272,7 @@ function encodeReturn(fragment: FunctionFragment, value: unknown): string {
     return "0x"
   }
 
-  return ethers.utils.defaultAbiCoder.encode(
+  return ethers.defaultAbiCoder.encode(
     fragment.outputs,
     toPositional(fragment.outputs, value)
   )
@@ -285,8 +284,8 @@ function encodeRevert(reason?: string): string {
   }
 
   return (
-    ethers.utils.id("Error(string)").slice(0, 10) +
-    ethers.utils.defaultAbiCoder.encode(["string"], [reason]).slice(2)
+    ethers.id("Error(string)").slice(0, 10) +
+    ethers.defaultAbiCoder.encode(["string"], [reason]).slice(2)
   )
 }
 
@@ -305,13 +304,13 @@ export async function createMock<T>(
   options: { address?: string } = {}
 ): Promise<Mock<T>> {
   const targetArtifact = await artifacts.readArtifact(target)
-  const targetInterface = new ethers.utils.Interface(targetArtifact.abi)
+  const targetInterface = new ethers.Interface(targetArtifact.abi)
 
   const mockFactory = await ethers.getContractFactory("MockContract")
   // Deploying is a transaction too, and a mock is routinely created inside a
   // `before` hook after the test has already captured a baseline timestamp.
   let mockContract = await withoutAdvancingTime(() => mockFactory.deploy())
-  await mockContract.deployed()
+  await mockContract.waitForDeployment()
 
   assertNoSelectorCollision(targetInterface, mockContract.interface, target)
 
@@ -335,7 +334,7 @@ export async function createMock<T>(
   const baseReturns = baseFragments.map((fragment) =>
     fragment.outputs === null || fragment.outputs.length === 0
       ? "0x"
-      : ethers.utils.defaultAbiCoder.encode(
+      : ethers.defaultAbiCoder.encode(
           fragment.outputs,
           fragment.outputs.map((output) => zeroValueFor(output))
         )
@@ -433,7 +432,7 @@ export async function createMock<T>(
       )
     }
 
-    const decodeCall = (callData: string, value: BigNumber): MockCall => ({
+    const decodeCall = (callData: string, value: bigint): MockCall => ({
       args: Array.from(
         targetInterface.decodeFunctionData(fragment, callData)
       ) as unknown[],

@@ -1,7 +1,7 @@
 import { helpers, waffle, ethers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { Contract, ContractTransaction } from "ethers"
+import {Contract, ContractTransactionResponse} from "ethers"
 import type {
   Bridge,
   BridgeGovernance,
@@ -19,16 +19,16 @@ const rebateTreasuryFeeMode = {
   redemptionOnly: 2,
 }
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+const ZERO_ADDRESS = ethers.ZeroAddress
 
 describe("RebateStaking", () => {
-  let governance: SignerWithAddress
+  let governance: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
-  let deployer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   const defaultStakeAmount = to1e18(100000000)
 
   before(async () => {
@@ -93,7 +93,7 @@ describe("RebateStaking", () => {
       })
 
       context("when all new parameters are valid", () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
         context("when updating rolling window", () => {
           it("should update parameter", async () => {
             tx = await rebateStaking
@@ -196,7 +196,7 @@ describe("RebateStaking", () => {
 
   describe("setDelegatee", () => {
     const stakeAmount = defaultStakeAmount
-    let tx: ContractTransaction
+    let tx: ContractTransactionResponse
 
     before(async () => {
       await createSnapshot()
@@ -349,7 +349,7 @@ describe("RebateStaking", () => {
   })
 
   describe("applyForRebate", () => {
-    const treasuryFee = ethers.BigNumber.from(950)
+    const treasuryFee = BigInt(950)
 
     before(async () => {
       await createSnapshot()
@@ -401,7 +401,7 @@ describe("RebateStaking", () => {
       context("when user has a stake", () => {
         const stakeAmount = defaultStakeAmount
         const rebateCap = to1e18(1)
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -748,7 +748,7 @@ describe("RebateStaking", () => {
   })
 
   describe("cancelRebate", () => {
-    const treasuryFee = ethers.BigNumber.from(950)
+    const treasuryFee = BigInt(950)
 
     before(async () => {
       await createSnapshot()
@@ -796,7 +796,7 @@ describe("RebateStaking", () => {
       context("when user has a stake", () => {
         const stakeAmount = defaultStakeAmount
         const rebateCap = to1e18(1)
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1022,7 +1022,7 @@ describe("RebateStaking", () => {
     context("when user didn't have previous stake", () => {
       const stakeAmount = defaultStakeAmount
       const rebateCap = to1e18(1)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1067,7 +1067,7 @@ describe("RebateStaking", () => {
       const stakeAmount2 = to1e18(400000000)
       const stakeAmount = stakeAmount1.add(stakeAmount2)
       const rebateCap = to1e18(14)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1122,7 +1122,7 @@ describe("RebateStaking", () => {
     context("when someone's delegatee create new stake", () => {
       const stakeAmount = defaultStakeAmount
       const rebateCap = to1e18(1)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1236,7 +1236,7 @@ describe("RebateStaking", () => {
       const unstakeAmount = to1e18(400000000)
       const rebateCap = to1e18(10)
       const newRebateCap = to1e18(6)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1298,7 +1298,7 @@ describe("RebateStaking", () => {
         await expect(
           rebateStaking
             .connect(thirdParty)
-            .finalizeUnstaking(ethers.constants.AddressZero)
+            .finalizeUnstaking(ethers.ZeroAddress)
         ).to.be.revertedWith("ZeroAddress")
       })
     })
@@ -1341,7 +1341,7 @@ describe("RebateStaking", () => {
       const unstakeAmount = to1e18(300000000)
       const expectedStake = stakeAmount.sub(unstakeAmount)
       const rebateCap = to1e18(7)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1405,7 +1405,7 @@ describe("RebateStaking", () => {
 
     context("when user finishes full unstaking process", () => {
       const stakeAmount = defaultStakeAmount.mul(10)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1485,8 +1485,8 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(governance)
             .forceStakeTransfer(
-              ethers.constants.AddressZero,
-              ethers.constants.AddressZero
+              ethers.ZeroAddress,
+              ethers.ZeroAddress
             )
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
@@ -1498,7 +1498,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(deployer)
             .forceStakeTransfer(
-              ethers.constants.AddressZero,
+              ethers.ZeroAddress,
               governance.address
             )
         ).to.be.revertedWith("ZeroAddress")
@@ -1512,7 +1512,7 @@ describe("RebateStaking", () => {
             .connect(deployer)
             .forceStakeTransfer(
               thirdParty.address,
-              ethers.constants.AddressZero
+              ethers.ZeroAddress
             )
         ).to.be.revertedWith("ZeroAddress")
       })
@@ -1559,7 +1559,7 @@ describe("RebateStaking", () => {
     })
 
     context("when there is no delegatee", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1608,7 +1608,7 @@ describe("RebateStaking", () => {
     })
 
     context("when rebateTreasuryFeeMode is non-default", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1640,7 +1640,7 @@ describe("RebateStaking", () => {
 
     context("when unstaking is in progress", () => {
       let unstakingTimestamp: number
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1696,7 +1696,7 @@ describe("RebateStaking", () => {
     })
 
     context("when there is delegatee", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
