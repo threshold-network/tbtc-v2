@@ -124,7 +124,9 @@ describe("BTCDepositorWormhole", () => {
   let wormholeTokenBridge: Mock<IWormholeTokenBridge>
   let destinationChainWormholeGateway: string
   let reimbursementPool: Mock<ReimbursementPool>
-  let NonEvmBtcDepositor: NonEvmBtcDepositor
+  // Annotated explicitly: this local shadows the imported type of the same
+  // name, so an unannotated declaration resolves the type to the value itself.
+  let NonEvmBtcDepositor: BTCDepositorWormhole
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi

@@ -1,3 +1,4 @@
+import type { BytesLike } from "@ethersproject/bytes"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -460,7 +461,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
             await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
           const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
             ["bytes32"],
-            call.args[5]
+            call.args[5] as BytesLike
           )
           expect(l2Receiver.toLowerCase()).to.equal(
             initializeDepositFixture.destinationChainDepositOwner.toLowerCase()

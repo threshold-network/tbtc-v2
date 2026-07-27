@@ -34,7 +34,7 @@ const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
  */
 function etherBalanceAccount(
   address: string,
-  provider: ethers.providers.Provider
+  provider: typeof ethers.provider
 ) {
   return {
     provider,

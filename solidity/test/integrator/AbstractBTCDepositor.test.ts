@@ -1,11 +1,20 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
-import type {
-  MockBridge,
-  MockTBTCVault,
-  TestBTCDepositor,
-} from "../../typechain"
+import type { MockBridge, TestBTCDepositor } from "../../typechain"
+import type { Contract } from "ethers"
+
+/**
+ * `MockTBTCVault` is declared twice in this tree -- once in
+ * `contracts/test/MockTBTCVault.sol` and once inside
+ * `contracts/test/TestBTCDepositor.sol` -- so typechain emits a single
+ * `MockTBTCVault` binding for the clashing name and it is not the one this
+ * suite deploys. The fully qualified name on the factory below picks the right
+ * contract at runtime; there is simply no generated type that matches it.
+ * Renaming one of the two contracts is the durable fix and is deliberately not
+ * done here, since it changes compiled artifact names.
+ */
+type TestBTCDepositorMockTBTCVault = Contract
 import { to1ePrecision } from "../helpers/contract-test-helpers"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -38,7 +47,7 @@ const loadFixture = (vault: string) => ({
 
 describe("AbstractBTCDepositor", () => {
   let bridge: MockBridge
-  let tbtcVault: MockTBTCVault
+  let tbtcVault: TestBTCDepositorMockTBTCVault
   let depositor: TestBTCDepositor
 
   let fixture
@@ -50,7 +59,7 @@ describe("AbstractBTCDepositor", () => {
     const MockTBTCVault = await ethers.getContractFactory(
       "contracts/test/TestBTCDepositor.sol:MockTBTCVault"
     )
-    tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
+    tbtcVault = (await MockTBTCVault.deploy()) as TestBTCDepositorMockTBTCVault
 
     fixture = loadFixture(tbtcVault.address)
 

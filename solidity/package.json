@@ -15,6 +15,7 @@
     "postinstall": "bash scripts/apply-solidity-contracts-export-deploy-patch.sh && bash scripts/patch-hardhat-undici-connect-timeout.sh",
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "deploy": "hardhat deploy --export export.json",
     "deploy:test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat deploy",
     "format": "npm run lint && prettier --check .",

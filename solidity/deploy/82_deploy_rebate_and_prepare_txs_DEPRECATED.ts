@@ -353,7 +353,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("    rebateStaking:", rebateStaking.address)
   console.log(
     "\nNOTE: Governance action has a",
-    hre.network.name === "sepolia" ? "60 second" : "48-hour",
+    (hre.network.name as string) === "sepolia" ? "60 second" : "48-hour",
     "timelock"
   )
 

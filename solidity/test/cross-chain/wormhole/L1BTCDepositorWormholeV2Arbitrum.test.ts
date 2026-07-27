@@ -1,3 +1,4 @@
+import type { BytesLike } from "@ethersproject/bytes"
 import { ethers, getUnnamedAccounts, helpers, upgrades, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -772,9 +773,11 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         const payload = (
           await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
         ).args[5]
+        // A recorded call's arguments are decoded against the mocked ABI and
+        // handed back as `unknown[]`; the mock cannot know this one is bytes.
         const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
           ["bytes32"],
-          payload
+          payload as BytesLike
         )
 
         expect(l2Receiver.toLowerCase()).to.equal(
@@ -1188,7 +1191,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
             await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
           const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
             ["bytes32"],
-            call.args[5]
+            call.args[5] as BytesLike
           )
           expect(l2Receiver.toLowerCase()).to.equal(
             initializeDepositFixture.destinationChainDepositOwner.toLowerCase()
@@ -1239,7 +1242,10 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           }
         )
 
-        if (!ethers.utils.isAddress(implementationAddress)) {
+        // `prepareUpgrade` returns an address only when it deploys; with
+        // `getTxResponse` unset that is the case, but the declared type is the
+        // union of both outcomes.
+        if (!ethers.utils.isAddress(implementationAddress as string)) {
           throw new Error(
             `prepareUpgrade returned invalid address ${implementationAddress}`
           )

@@ -1,3 +1,4 @@
+import type { FakeNttManager } from "./fake-ntt-manager"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -78,7 +79,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         // Simulate the quoteDeliveryPrice function that returns (uint256[], uint256)
         return [[], BigNumber.from(50000)]
       },
-    } as Record<string, unknown>
+    } as unknown as FakeNttManager
 
     // Add mock methods to the functions
     nttManager.transfer.returns = (value: unknown): void => {}
@@ -150,7 +151,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: Mock<ITBTCVault>
-  let nttManager: Record<string, unknown>
+  let nttManager: FakeNttManager
   let reimbursementPool: Mock<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 

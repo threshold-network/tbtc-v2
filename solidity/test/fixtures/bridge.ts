@@ -44,6 +44,8 @@ async function bridgeFixture(): Promise<{
   maintainerProxy: MaintainerProxy
   bridgeGovernance: BridgeGovernance
   redemptionWatchtower: RedemptionWatchtower
+  t: IERC20
+  rebateStaking: RebateStaking
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }> {
   await deployments.fixture()

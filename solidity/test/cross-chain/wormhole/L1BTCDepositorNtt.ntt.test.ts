@@ -1,3 +1,4 @@
+import type { FakeNttManager } from "./fake-ntt-manager"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -42,7 +43,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: Mock<ITBTCVault>
-  let nttManager: Record<string, unknown>
+  let nttManager: FakeNttManager
   let reimbursementPool: Mock<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
@@ -78,7 +79,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
       ): Promise<[unknown[], BigNumber]> {
         return [[], BigNumber.from(50000)]
       },
-    } as Record<string, unknown>
+    } as unknown as FakeNttManager
     // Add mock methods to the functions
     nttManager.transfer.returns = (value: unknown): void => {}
     nttManager.transfer.reset = (): void => {}
@@ -279,7 +280,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
           })
 
           context("when new NTT Manager is valid", () => {
-            let newNttManager: Record<string, unknown>
+            let newNttManager: FakeNttManager
             let tx: ContractTransaction
 
             before(async () => {
@@ -291,7 +292,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
                 async quoteDeliveryPrice(): Promise<[unknown[], BigNumber]> {
                   return [[], BigNumber.from(50000)]
                 },
-              } as Record<string, unknown>
+              } as unknown as FakeNttManager
               newNttManager.transfer.returns = (): void => {}
               newNttManager.transfer.reset = (): void => {}
               newNttManager.quoteDeliveryPrice.returns = (): void => {}

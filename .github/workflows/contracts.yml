@@ -92,6 +92,9 @@ jobs:
 
       # We don't want to execute the tests for dapp-friendly contracts (either
       # when deploying from `dapp-development` or during PR checks on that branch).
+      - name: Typecheck
+        run: yarn typecheck
+
       - name: Run tests
         if: github.ref != 'refs/heads/dapp-development' && github.head_ref != 'dapp-development'
         run: yarn test
