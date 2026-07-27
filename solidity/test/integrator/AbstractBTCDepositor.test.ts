@@ -1,8 +1,9 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
+import type { BigNumberish } from "ethers"
 import type { MockBridge, TestBTCDepositor } from "../../typechain"
-import type { Contract } from "ethers"
+import { to1ePrecision } from "../helpers/contract-test-helpers"
 
 /**
  * `MockTBTCVault` is declared twice in this tree -- once in
@@ -13,9 +14,23 @@ import type { Contract } from "ethers"
  * contract at runtime; there is simply no generated type that matches it.
  * Renaming one of the two contracts is the durable fix and is deliberately not
  * done here, since it changes compiled artifact names.
+ *
+ * Rather than fall back to `Contract` -- whose string index signature would
+ * type every call below as `any` -- this declares the four members the suite
+ * actually touches, so typos in them are still caught.
  */
-type TestBTCDepositorMockTBTCVault = Contract
-import { to1ePrecision } from "../helpers/contract-test-helpers"
+type TestBTCDepositorMockTBTCVault = {
+  address: string
+  createOptimisticMintingRequest(
+    depositKey: BigNumberish
+  ): Promise<ContractTransaction>
+  finalizeOptimisticMintingRequest(
+    depositKey: BigNumberish
+  ): Promise<ContractTransaction>
+  setOptimisticMintingFeeDivisor(
+    divisor: BigNumberish
+  ): Promise<ContractTransaction>
+}
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -59,7 +74,11 @@ describe("AbstractBTCDepositor", () => {
     const MockTBTCVault = await ethers.getContractFactory(
       "contracts/test/TestBTCDepositor.sol:MockTBTCVault"
     )
-    tbtcVault = (await MockTBTCVault.deploy()) as TestBTCDepositorMockTBTCVault
+    // `deploy()` is typed `Contract`, which declares none of the members below,
+    // so the assertion has to go through `unknown`. The fully qualified name
+    // above is what actually selects the right contract.
+    tbtcVault =
+      (await MockTBTCVault.deploy()) as unknown as TestBTCDepositorMockTBTCVault
 
     fixture = loadFixture(tbtcVault.address)
 
