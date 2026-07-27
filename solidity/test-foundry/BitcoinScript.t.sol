@@ -13,7 +13,11 @@ import {BridgeState} from "../contracts/bridge/BridgeState.sol";
 contract BitcoinScriptHarness {
     BridgeState.Storage internal state;
 
-    function makeP2PKHScript(bytes20 pubKeyHash) external pure returns (bytes26) {
+    function makeP2PKHScript(bytes20 pubKeyHash)
+        external
+        pure
+        returns (bytes26)
+    {
         return BitcoinTx.makeP2PKHScript(pubKeyHash);
     }
 
@@ -72,7 +76,9 @@ contract BitcoinScriptTest is Test {
         assertEq(harness.extractPubKeyHash(output), pubKeyHash);
     }
 
-    function testFuzz_p2wpkhRoundTrips(bytes20 pubKeyHash, uint64 value) public {
+    function testFuzz_p2wpkhRoundTrips(bytes20 pubKeyHash, uint64 value)
+        public
+    {
         bytes memory output = _output(
             value,
             bytes.concat(harness.makeP2WPKHScript(pubKeyHash))
@@ -100,10 +106,10 @@ contract BitcoinScriptTest is Test {
     /// @dev Distinct key hashes must not collide into one script. A masking or
     ///      shifting error in the builders would show up here and nowhere in a
     ///      fixed-vector test.
-    function testFuzz_distinctKeyHashesGiveDistinctScripts(
-        bytes20 a,
-        bytes20 b
-    ) public view {
+    function testFuzz_distinctKeyHashesGiveDistinctScripts(bytes20 a, bytes20 b)
+        public
+        view
+    {
         vm.assume(a != b);
 
         assertTrue(harness.makeP2PKHScript(a) != harness.makeP2PKHScript(b));
@@ -126,7 +132,9 @@ contract BitcoinScriptTest is Test {
 
     /// @dev P2WPKH is <0x160014> <20-byte PKH>.
     function testFuzz_p2wpkhFraming(bytes20 pubKeyHash) public view {
-        bytes memory script = bytes.concat(harness.makeP2WPKHScript(pubKeyHash));
+        bytes memory script = bytes.concat(
+            harness.makeP2WPKHScript(pubKeyHash)
+        );
 
         assertEq(script.length, 23);
         assertEq(uint8(script[0]), 0x16); // total length
