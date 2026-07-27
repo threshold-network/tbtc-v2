@@ -322,7 +322,7 @@ describeFn("Integration Test - Slashing", async () => {
         before(async () => {
           const { redemptionTimeout } = await bridge.redemptionParameters()
 
-          await helpers.time.increaseTime(redemptionTimeout)
+          await helpers.time.increaseTime(redemptionTimeout + 1)
 
           notifyRedemptionTimeoutTx = await bridge
             .connect(thirdParty)
@@ -473,7 +473,7 @@ describeFn("Integration Test - Slashing", async () => {
 
           const { movingFundsTimeout } = await bridge.movingFundsParameters()
 
-          await helpers.time.increaseTime(movingFundsTimeout)
+          await helpers.time.increaseTime(movingFundsTimeout + 1)
 
           notifyMovingFundsTimeoutTx = await bridge
             .connect(thirdParty)

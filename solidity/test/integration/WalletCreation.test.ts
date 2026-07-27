@@ -62,6 +62,13 @@ describeFn("Integration Test - Wallet Creation", async () => {
         ethers.constants.AddressZero
       )
 
+      // `requestNewWallet` reaches the beacon, and this suite asserts on the
+      // gas it costs. Recording a call SSTOREs its calldata, which smock did
+      // not have to pay for, so leaving it on measures the mock rather than
+      // the Bridge — it is worth ~130k here. Nothing below inspects the
+      // beacon's calls.
+      await randomBeacon.setRecording(false)
+
       requestNewWalletTx = await bridge.requestNewWallet(NO_MAIN_UTXO)
       const startBlock = requestNewWalletTx.blockNumber
 
@@ -107,8 +114,14 @@ describeFn("Integration Test - Wallet Creation", async () => {
       )
     })
 
-    it("should consume around 94 000 gas for Bridge.requestNewWallet transaction", async () => {
-      await assertGasUsed(requestNewWalletTx, 94_000)
+    it("should consume around 107 000 gas for Bridge.requestNewWallet transaction", async () => {
+      // Was 94 000 while the beacon was a smock fake, which cost nothing to
+      // call. It is a `MockContract` now, so the dispatch through its fallback
+      // is real work: ~13k with recording already switched off above. The
+      // remaining budget still guards the Bridge against a regression of more
+      // than the usual 1000, it is just measured from a higher floor. In
+      // production the beacon is a real contract and costs more than either.
+      await assertGasUsed(requestNewWalletTx, 107_000)
     })
 
     it("should consume around 341 000 gas for WalletRegistry.approveDkgResult transaction", async () => {
