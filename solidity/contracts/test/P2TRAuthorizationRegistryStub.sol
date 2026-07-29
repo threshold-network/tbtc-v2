@@ -29,6 +29,7 @@ contract P2TRAuthorizationRegistryStub {
 
     mapping(bytes32 => Variant) private variants;
     mapping(bytes32 => Reservation) private reservations;
+    mapping(bytes32 => bytes32) private resourceReservations;
 
     constructor(address _bridge) {
         bridge = _bridge;
@@ -72,6 +73,16 @@ contract P2TRAuthorizationRegistryStub {
             true
         );
         reservations[reservationID] = Reservation(walletPubKeyHash, action, 2);
+    }
+
+    function setConflictingReservation(
+        bytes32 resourceID,
+        bytes32 reservationID,
+        bytes20 walletPubKeyHash,
+        uint8 action
+    ) external {
+        resourceReservations[resourceID] = reservationID;
+        reservations[reservationID] = Reservation(walletPubKeyHash, action, 1);
     }
 
     function getAuthorizedVariant(bytes32 transactionHash)
@@ -130,7 +141,33 @@ contract P2TRAuthorizationRegistryStub {
         return false;
     }
 
-    function isResourceReserved(bytes32) external pure returns (bool) {
-        return false;
+    function reservationForResource(bytes32 resourceID)
+        external
+        view
+        returns (bytes32)
+    {
+        return resourceReservations[resourceID];
+    }
+
+    function settleConflictingProof(
+        bytes32,
+        bytes32 spentResourceID
+    ) external returns (bytes32 reservationID, bytes20 walletPubKeyHash) {
+        require(msg.sender == bridge, "Caller is not Bridge");
+        reservationID = resourceReservations[spentResourceID];
+        require(reservationID != bytes32(0), "Resource is not reserved");
+        Reservation storage reservation = reservations[reservationID];
+        require(reservation.status == 1, "Reservation is not active");
+        walletPubKeyHash = reservation.walletPubKeyHash;
+        reservation.status = 3;
+        delete resourceReservations[spentResourceID];
+    }
+
+    function isResourceReserved(bytes32 resourceID)
+        external
+        view
+        returns (bool)
+    {
+        return resourceReservations[resourceID] != bytes32(0);
     }
 }

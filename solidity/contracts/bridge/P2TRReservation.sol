@@ -1197,7 +1197,7 @@ library P2TRReservation {
     /// @notice Compact Bridge callback dispatcher. Payload is
     ///         abi.encode(action, actionData): 0=quarantine(bytes20),
     ///         1=restore(bytes20,uint8,bool),
-    ///         2=quarantined timeout(bytes20,uint32[],address),
+    ///         2=non-archived timeout(bytes20,uint32[],address),
     ///         3=archived timeout(bytes20,uint32[],address).
     function processWalletLifecycle(
         BridgeState.Storage storage self,
@@ -1326,9 +1326,11 @@ library P2TRReservation {
         Wallets.Wallet storage wallet = self.registeredWallets[
             walletPubKeyHash
         ];
+        Wallets.WalletState walletState = wallet.state;
         require(
-            wallet.state == Wallets.WalletState.Quarantined,
-            "Wallet must be quarantined"
+            walletState == Wallets.WalletState.Quarantined ||
+                walletState == Wallets.WalletState.RecoveryRequired,
+            "Wallet must be quarantined or in recovery"
         );
         _seizeWalletForFraud(
             self,
@@ -1336,8 +1338,10 @@ library P2TRReservation {
             walletMembersIDs,
             challenger
         );
-        wallet.state = Wallets.WalletState.RecoveryRequired;
-        emit WalletRecoveryRequired(walletPubKeyHash);
+        if (walletState == Wallets.WalletState.Quarantined) {
+            wallet.state = Wallets.WalletState.RecoveryRequired;
+            emit WalletRecoveryRequired(walletPubKeyHash);
+        }
     }
 
     function _notifyArchivedFraudTimeout(

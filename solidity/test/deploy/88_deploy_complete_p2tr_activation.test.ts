@@ -34,6 +34,7 @@ import deployCompleteP2TRActivation, {
   buildAuthorityEnvelope,
   bridgeGovernanceTransferNotBefore,
   classifyAuthority,
+  coverageEntriesMatchReadback,
   deriveCoverageInventory,
   immutableFrostPrerequisiteBinding,
   inspectRecordedPhaseTransaction,
@@ -924,6 +925,70 @@ describe("Deploy Script 88: COMPLETE_V2 activation", () => {
         entries: [{ ...manifest.entries[0], index: 1 }],
       })
     ).to.throw("contiguous positional indices")
+  })
+
+  it("accepts terminal coverage leaves whose output-key storage remains zero", () => {
+    const [entry] = deriveCoverageInventory({
+      entries: [
+        {
+          index: 0,
+          depositKey: "1",
+          walletID: `0x${"11".repeat(32)}`,
+          outputKey: `0x${"21".repeat(32)}`,
+        },
+      ],
+    }).entries
+
+    expect(
+      coverageEntriesMatchReadback(
+        {
+          leaves: { "0": true },
+          outputKeys: { "1": entry.outputKey },
+        },
+        [entry]
+      )
+    ).to.equal(true)
+    expect(
+      coverageEntriesMatchReadback(
+        {
+          leaves: { "0": true },
+          outputKeys: { "1": constants.HashZero },
+        },
+        [entry]
+      )
+    ).to.equal(true)
+  })
+
+  it("rejects incomplete or mismatched nonterminal coverage readback", () => {
+    const [entry] = deriveCoverageInventory({
+      entries: [
+        {
+          index: 0,
+          depositKey: "1",
+          walletID: `0x${"11".repeat(32)}`,
+          outputKey: `0x${"21".repeat(32)}`,
+        },
+      ],
+    }).entries
+
+    expect(
+      coverageEntriesMatchReadback(
+        {
+          leaves: { "0": false },
+          outputKeys: { "1": entry.outputKey },
+        },
+        [entry]
+      )
+    ).to.equal(false)
+    expect(
+      coverageEntriesMatchReadback(
+        {
+          leaves: { "0": true },
+          outputKeys: { "1": `0x${"31".repeat(32)}` },
+        },
+        [entry]
+      )
+    ).to.equal(false)
   })
 })
 

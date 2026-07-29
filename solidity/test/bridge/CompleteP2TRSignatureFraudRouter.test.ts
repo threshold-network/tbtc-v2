@@ -357,6 +357,87 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     )
   })
 
+  it("seizes after a reservation conflict put the wallet in recovery before challenge admission", async () => {
+    const evidence = evidenceFor(defaultVector)
+    const walletPubKeyHash = await registerFrostWallet(evidence.walletID)
+    const resourceID = keccak256(toUtf8Bytes("pre-challenge-conflict-resource"))
+    const reservationID = keccak256(
+      toUtf8Bytes("pre-challenge-conflict-reservation")
+    )
+    await registry.setConflictingReservation(
+      resourceID,
+      reservationID,
+      walletPubKeyHash,
+      1
+    )
+    await bridge.settleP2TRProofForTest(
+      keccak256(toUtf8Bytes("pre-challenge-conflict-proof")),
+      1,
+      walletPubKeyHash,
+      [resourceID]
+    )
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      recoveryRequiredWalletState
+    )
+
+    await submit(evidence)
+    await increaseTime(challengeTimeout)
+    await router.notifyP2TRSignatureFraudChallengeDefeatTimeout(
+      identityFor(evidence),
+      []
+    )
+
+    expect(lifecycleRouter.seize).to.have.been.calledOnce
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      recoveryRequiredWalletState
+    )
+  })
+
+  it("seizes once after a reservation conflict put a quarantined wallet in recovery", async () => {
+    const firstEvidence = evidenceFor(defaultMultiVector)
+    const secondEvidence = evidenceFor(noneMultiVector)
+    const walletPubKeyHash = await registerFrostWallet(firstEvidence.walletID)
+    await submit(firstEvidence)
+    await submit(secondEvidence)
+
+    const resourceID = keccak256(
+      toUtf8Bytes("open-challenge-conflict-resource")
+    )
+    const reservationID = keccak256(
+      toUtf8Bytes("open-challenge-conflict-reservation")
+    )
+    await registry.setConflictingReservation(
+      resourceID,
+      reservationID,
+      walletPubKeyHash,
+      1
+    )
+    await bridge.settleP2TRProofForTest(
+      keccak256(toUtf8Bytes("open-challenge-conflict-proof")),
+      1,
+      walletPubKeyHash,
+      [resourceID]
+    )
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      recoveryRequiredWalletState
+    )
+
+    await increaseTime(challengeTimeout)
+    await router.notifyP2TRSignatureFraudChallengeDefeatTimeout(
+      identityFor(firstEvidence),
+      []
+    )
+    await router.notifyP2TRSignatureFraudChallengeDefeatTimeout(
+      identityFor(secondEvidence),
+      []
+    )
+
+    expect(lifecycleRouter.seize).to.have.been.calledOnce
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      recoveryRequiredWalletState
+    )
+  })
+
   it("reconciles an exact late-authorized moving-funds proof without clearing quarantine", async () => {
     const evidence = evidenceFor(defaultVector)
     const targetWalletsHash = keccak256(toUtf8Bytes("targets"))

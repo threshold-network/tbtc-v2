@@ -84,6 +84,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
         bool initialized;
         bool recoveryRequired;
         bool archived;
+        bool fraudSeized;
     }
 
     mapping(bytes20 => QuarantineContext) private quarantineContexts;
@@ -287,7 +288,8 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
 
     /// @notice Synchronizes a Bridge-detected reservation conflict with an
     ///         already-open fraud quarantine so later challenge resolution
-    ///         cannot restore the wallet or attempt a second recovery change.
+    ///         cannot restore the wallet. Reservation recovery does not imply
+    ///         that the fraud seizure has already occurred.
     function reconcileReservationConflict(bytes20 walletPubKeyHash) external {
         require(msg.sender == bridge, "Caller is not Bridge");
         if (openFraudChallengeCountByWallet[walletPubKeyHash] != 0) {
@@ -362,6 +364,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
                     false,
                     true,
                     true,
+                    false,
                     false
                 );
             } else if (
@@ -373,7 +376,8 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
                     false,
                     true,
                     false,
-                    true
+                    true,
+                    false
                 );
             } else {
                 (uint8 previousState, bool wasActive) = abi.decode(
@@ -386,6 +390,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
                     previousState,
                     wasActive,
                     true,
+                    false,
                     false,
                     false
                 );
@@ -498,9 +503,10 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
         QuarantineContext storage quarantine = quarantineContexts[
             walletPubKeyHash
         ];
-        if (!quarantine.recoveryRequired) {
+        if (!quarantine.fraudSeized) {
             // Effects precede the callback so same-wallet reentrancy cannot
-            // execute the recovery transition twice.
+            // execute the fraud seizure twice.
+            quarantine.fraudSeized = true;
             quarantine.recoveryRequired = true;
             b.processP2TRWalletLifecycle(
                 abi.encode(

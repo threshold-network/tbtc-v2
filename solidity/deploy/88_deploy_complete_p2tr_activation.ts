@@ -272,6 +272,26 @@ export interface DerivedCoverageInventory {
   initializationPayload: string
 }
 
+export interface CoverageEntryReadback {
+  leaves: Record<string, boolean>
+  outputKeys: Record<string, string>
+}
+
+export const coverageEntriesMatchReadback = (
+  observed: CoverageEntryReadback,
+  entries: DerivedCoverageEntry[]
+): boolean =>
+  entries.every(({ index, depositKey, outputKey }) => {
+    const storedOutputKey = observed.outputKeys[depositKey]?.toLowerCase()
+    // A migrated leaf with zero storage is the on-chain terminal marker:
+    // action 1 writes the nonzero key atomically, while action 6 leaves zero.
+    return (
+      observed.leaves[index] === true &&
+      (storedOutputKey === outputKey.toLowerCase() ||
+        storedOutputKey === constants.HashZero)
+    )
+  })
+
 export interface RuntimeReceipt {
   address: string
   runtimeBytes: number
@@ -4334,23 +4354,12 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     observed.authorization.linkedLibrariesCommitment.toLowerCase() ===
       librariesCommitment.toLowerCase()
 
-  const entriesMatchCoverage = (
-    observed: Awaited<ReturnType<typeof readCoverage>>,
-    entries: DerivedCoverageEntry[]
-  ): boolean =>
-    entries.every(
-      ({ index, depositKey, outputKey }) =>
-        observed.leaves[index] === true &&
-        observed.outputKeys[depositKey]?.toLowerCase() ===
-          outputKey.toLowerCase()
-    )
-
   const coverageIsComplete = (
     observed: Awaited<ReturnType<typeof readCoverage>>
   ): boolean =>
     coverageMatchesAuthorization(observed) &&
     observed.migratedCount === inventory.count.toString() &&
-    entriesMatchCoverage(observed, inventory.entries)
+    coverageEntriesMatchReadback(observed, inventory.entries)
 
   const coverageBatchAppliedExactly = async (
     indices: number[]
@@ -4369,7 +4378,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     )
     return (
       coverageMatchesAuthorization(observed) &&
-      entriesMatchCoverage(observed, batchEntries)
+      coverageEntriesMatchReadback(observed, batchEntries)
     )
   }
 
