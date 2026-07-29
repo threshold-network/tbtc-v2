@@ -126,12 +126,35 @@ contract SeatAllocator is
     ///         Cleared on refresh.
     mapping(address => bool) public weightDirty;
 
+    /// @notice Exposure epoch floor captured for a staking provider when the
+    ///         registry approves one of its authorization decreases. A
+    ///         decrease can only be approved after the sortition pool has
+    ///         been re-synced to the reduced weight — the registry lifts the
+    ///         decrease clock off `type(uint64).max` only inside the pool
+    ///         sync — so any wallet that a still-stale pool leaf could have
+    ///         been selected into was registered at an exposure epoch at or
+    ///         below this floor. `canFinalizeUndelegate` gates on the floor
+    ///         as well as the request epoch, closing the window where an exit
+    ///         requested while the pool leaf was still stale could finalize
+    ///         while a wallet its weight influenced during the pre-sync
+    ///         window is still live.
+    /// @dev Residual (accepted, documented in the design's §5 weight model):
+    ///      when the provider's raw weight sits above the leverage or
+    ///      absolute cap, subtracting a pending exit may not move the
+    ///      min()-clamped synced weight, so no decrease is filed and the
+    ///      floor is not advanced by this path. The §5 weight invariant is
+    ///      intact — the exiting stake contributed zero marginal selection
+    ///      weight while capped — leaving only a bounded reduction of a
+    ///      post-request wallet's slashable delegated capacity, with the
+    ///      self-bond first-loss tranche unaffected.
+    mapping(address => uint64) public exposureFloorEpoch;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[47] private __gap;
+    uint256[46] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -147,6 +170,10 @@ contract SeatAllocator is
         address indexed stakingProvider,
         uint96 oldWeight,
         uint96 newWeight
+    );
+    event ExposureFloorAdvanced(
+        address indexed stakingProvider,
+        uint64 floorEpoch
     );
     event MaliciousBehaviorReported(
         address indexed notifier,
@@ -514,10 +541,16 @@ contract SeatAllocator is
 
     /// @notice Finalizes a previously requested authorization decrease.
     ///         Called by the registry once its authorization decrease delay
-    ///         elapsed.
+    ///         elapsed. Captures the provider's current exposure epoch as the
+    ///         exposure floor: the decrease's approval is proof the sortition
+    ///         pool has already been re-synced to the reduced weight, so every
+    ///         wallet a still-stale pool leaf could have been selected into is
+    ///         registered at an epoch at or below this floor and the exit gate
+    ///         can no longer be escaped by such a wallet.
     /// @dev Can only be called by the FROST wallet registry. Reverting here
     ///      is safe — this sits on an exit path, not on the Bridge
-    ///      lifecycle path.
+    ///      lifecycle path. The exposure epoch counter is monotonic, so the
+    ///      captured floor never decreases across successive approvals.
     /// @return The new (decreased) authorization weight.
     function approveAuthorizationDecrease(address stakingProvider)
         external
@@ -536,7 +569,11 @@ contract SeatAllocator is
         decreasePending[stakingProvider] = false;
         delete pendingDecreaseTarget[stakingProvider];
 
+        uint64 floorEpoch = walletExposureLedger.currentEpoch(stakingProvider);
+        exposureFloorEpoch[stakingProvider] = floorEpoch;
+
         emit WeightDecreaseFinalized(stakingProvider, oldWeight, newWeight);
+        emit ExposureFloorAdvanced(stakingProvider, floorEpoch);
         return newWeight;
     }
 
@@ -607,18 +644,46 @@ contract SeatAllocator is
         }
     }
 
-    /// @notice See {ISeatAllocator-canFinalizeUndelegate}. True if the
-    ///         staking provider has no live wallet whose exposure epoch is
-    ///         at or before `epochAtRequest` — i.e. every wallet the exited
-    ///         stake could have backed is closed or terminated.
+    /// @notice See {ISeatAllocator-canFinalizeUndelegate}. True only if the
+    ///         staking provider has no live wallet whose exposure epoch is at
+    ///         or before `max(epochAtRequest, exposureFloorEpoch)` AND no
+    ///         authorization decrease is still awaiting registry approval —
+    ///         i.e. every wallet the exiting stake could have influenced,
+    ///         including any selected during the pre-sync window on a stale
+    ///         pool leaf, is closed or terminated.
+    /// @dev Two load-bearing gates close the phantom-weight window:
+    ///      - `decreasePending == false`: a requested-but-unapproved decrease
+    ///        means the sortition pool may not yet reflect the reduced weight,
+    ///        so a wallet could still be selecting this provider at a stale
+    ///        leaf. The exit is held until the registry approves the decrease
+    ///        — approval guarantees the pool was re-synced first and captures
+    ///        the exposure floor. (`decreasePending` clears only via
+    ///        `approveAuthorizationDecrease`, which the registry permits only
+    ///        after the pool sync, so this can never lock an exit
+    ///        permanently: a permissionless refresh + registry approval always
+    ///        clears it.)
+    ///      - `exposureFloorEpoch`: any wallet selected during the pre-sync
+    ///        window was registered before the approval that captured the
+    ///        floor, so its epoch is at or below the floor. Gating on
+    ///        `max(epochAtRequest, exposureFloorEpoch)` forces the exit to
+    ///        wait for such a wallet to close.
     function canFinalizeUndelegate(
         address stakingProvider,
         uint64 epochAtRequest
     ) external view override returns (bool) {
+        if (decreasePending[stakingProvider]) {
+            return false;
+        }
+
+        uint64 floorEpoch = exposureFloorEpoch[stakingProvider];
+        uint64 gateEpoch = epochAtRequest > floorEpoch
+            ? epochAtRequest
+            : floorEpoch;
+
         return
             !walletExposureLedger.hasLiveExposureAtOrBefore(
                 stakingProvider,
-                epochAtRequest
+                gateEpoch
             );
     }
 }

@@ -17,6 +17,7 @@ pragma solidity 0.8.17;
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 
 import "../api/IFrostAuthorizationSource.sol";
+import "./FrostRegistryWallets.sol";
 import "../../staking/api/IWalletExposureLedger.sol";
 
 /// @title FROST wallet exposure notification
@@ -45,10 +46,34 @@ library FrostWalletExposure {
     ///         log is attributed to the `FrostWalletRegistry` address.
     event WalletExposureLedgerCallFailed(bytes32 indexed walletID);
 
+    /// @notice Emitted when a swallowed `onWalletRegistered` hook is repaired
+    ///         by `reconcile`: a wallet the registry still confirms as
+    ///         registered, but that the ledger never recorded, is re-recorded
+    ///         as live. Emitted via delegatecall, so the log is attributed to
+    ///         the `FrostWalletRegistry` address.
+    event WalletExposureReconciledRegistered(bytes32 indexed walletID);
+
+    /// @notice Emitted when a swallowed `onWalletClosed` hook is repaired by
+    ///         `reconcile`: a wallet the registry no longer knows, but that
+    ///         the ledger still marks live, has its closure replayed. Emitted
+    ///         via delegatecall, so the log is attributed to the
+    ///         `FrostWalletRegistry` address.
+    event WalletExposureReconciledClosed(bytes32 indexed walletID);
+
     /// @notice Raised when `setLedger` is called after the ledger address
     ///         has already been set. The ledger wiring is one-shot;
     ///         migrating to a new ledger is upgrade-only.
     error WalletExposureLedgerAlreadySet();
+
+    /// @notice Raised when `reconcile` is called before the ledger has been
+    ///         wired: there is nothing to reconcile against.
+    error WalletExposureLedgerNotSet();
+
+    /// @notice Raised when `reconcile` finds the ledger already consistent
+    ///         with the registry's authoritative wallet state — there is no
+    ///         swallowed hook to repair. Also the idempotency barrier: a
+    ///         second reconcile of the same wallet reverts here.
+    error WalletExposureInSync();
 
     /// @notice Raised when `setLedger` is called with the zero address.
     error WalletExposureLedgerAddressZero();
@@ -116,18 +141,65 @@ library FrostWalletExposure {
             return;
         }
 
+        (
+            address[] memory uniqueProviders,
+            uint32[] memory uniqueSeatCounts
+        ) = _resolveUniqueProviders(
+                sortitionPool,
+                operatorToStakingProvider,
+                walletMembersIDs
+            );
+
+        try
+            walletExposureLedger.onWalletRegistered(
+                walletID,
+                uniqueProviders,
+                uniqueSeatCounts
+            )
+        // solhint-disable-next-line no-empty-blocks
+        {
+
+        } catch {
+            emit WalletExposureLedgerCallFailed(walletID);
+        }
+    }
+
+    /// @notice Resolves the wallet signing group member IDs to their staking
+    ///         providers (member ID -> operator -> staking provider) and
+    ///         aggregates them into aligned, first-occurrence-ordered unique
+    ///         provider / seat-count arrays truncated to the number of
+    ///         distinct providers. Shared verbatim by `notifyWalletRegistered`
+    ///         and `reconcile` so both build identical exposure payloads.
+    /// @param sortitionPool Sortition pool resolving member IDs to operator
+    ///        addresses.
+    /// @param operatorToStakingProvider Registry mapping from operator
+    ///        address to staking provider address.
+    /// @param walletMembersIDs Sortition pool IDs of the wallet signing group
+    ///        members.
+    /// @return uniqueProviders Distinct staking providers, first-occurrence
+    ///         ordered.
+    /// @return uniqueSeatCounts Seat count per provider, aligned with
+    ///         `uniqueProviders`.
+    function _resolveUniqueProviders(
+        SortitionPool sortitionPool,
+        mapping(address => address) storage operatorToStakingProvider,
+        uint32[] calldata walletMembersIDs
+    )
+        private
+        view
+        returns (
+            address[] memory uniqueProviders,
+            uint32[] memory uniqueSeatCounts
+        )
+    {
         address[] memory groupMembersAddresses = sortitionPool.getIDOperators(
             walletMembersIDs
         );
 
         // Scratch arrays sized for the worst case (all members unique);
         // `uniqueCount` tracks the filled prefix.
-        address[] memory uniqueProviders = new address[](
-            groupMembersAddresses.length
-        );
-        uint32[] memory uniqueSeatCounts = new uint32[](
-            groupMembersAddresses.length
-        );
+        uniqueProviders = new address[](groupMembersAddresses.length);
+        uniqueSeatCounts = new uint32[](groupMembersAddresses.length);
         uint256 uniqueCount = 0;
 
         for (uint256 i = 0; i < groupMembersAddresses.length; i++) {
@@ -154,25 +226,119 @@ library FrostWalletExposure {
         // Truncate the scratch arrays to the filled prefix; the ledger
         // interface expects `stakingProviders` and `seatCounts` to be
         // aligned and to contain unique providers only. Safe because the
-        // arrays are only shrunk and are not used again after the external
-        // call below.
+        // arrays are only shrunk and are not used again after they are
+        // returned to the caller.
         // solhint-disable-next-line no-inline-assembly
         assembly {
             mstore(uniqueProviders, uniqueCount)
             mstore(uniqueSeatCounts, uniqueCount)
         }
+    }
 
-        try
+    /// @notice Permissionless repair of a wallet exposure ledger desynced by a
+    ///         swallowed lifecycle hook (surfaced earlier as
+    ///         `WalletExposureLedgerCallFailed`). Both directions are driven
+    ///         purely from authoritative registry state — a caller can never
+    ///         assert exposure the registry does not corroborate:
+    ///
+    ///         - Under-counted (premature-unlock, UNSAFE) direction
+    ///           (`registeredInRegistry == true`): the registry still knows
+    ///           the wallet but the ledger has no record — the
+    ///           `onWalletRegistered` hook was swallowed. The caller-supplied
+    ///           member IDs are verified against the registry's stored
+    ///           `membersIdsHash` (same check as `seize`) before being
+    ///           resolved to staking providers and recorded live, restoring
+    ///           the exit gate so a would-be premature exit is blocked.
+    ///         - Over-locked (SAFE) direction
+    ///           (`registeredInRegistry == false`): the registry no longer
+    ///           knows the wallet (closed or terminated) but the ledger still
+    ///           marks it live — the `onWalletClosed` hook was swallowed. The
+    ///           closure is replayed from the ledger's own stored record; no
+    ///           caller input is trusted and `walletMembersIDs` is ignored.
+    ///
+    ///         Idempotent: once the ledger matches the registry there is
+    ///         nothing to repair and the call reverts `WalletExposureInSync`.
+    ///         The ledger's own `WalletAlreadyRegistered` guard is a second
+    ///         barrier against double-counting.
+    /// @dev Unlike the two lifecycle hooks this is NOT wrapped in try/catch:
+    ///      it is a standalone maintenance entrypoint off the Bridge
+    ///      lifecycle, so a failed repair must surface (revert) and be
+    ///      retried rather than be silently swallowed.
+    /// @param wallets Registry wallet storage — read for the authoritative
+    ///        `isWalletRegistered` verdict and the stored members hash.
+    /// @param sortitionPool Sortition pool resolving member IDs to operator
+    ///        addresses.
+    /// @param operatorToStakingProvider Registry mapping from operator
+    ///        address to staking provider address.
+    /// @param walletID ID of the wallet to reconcile.
+    /// @param walletMembersIDs Identifiers of the wallet signing group members
+    ///        — required and hash-verified in the register direction, ignored
+    ///        (may be empty) in the close direction.
+    function reconcile(
+        Data storage self,
+        FrostRegistryWallets.Data storage wallets,
+        SortitionPool sortitionPool,
+        mapping(address => address) storage operatorToStakingProvider,
+        bytes32 walletID,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        IWalletExposureLedger walletExposureLedger = self.ledger;
+        if (address(walletExposureLedger) == address(0)) {
+            revert WalletExposureLedgerNotSet();
+        }
+
+        (, uint64[] memory epochs, , bool live) = walletExposureLedger
+            .getWalletExposure(walletID);
+        bool ledgerHasRecord = epochs.length != 0;
+
+        // Authoritative registry verdict — reconcile only ever acts on state
+        // the registry itself corroborates.
+        if (FrostRegistryWallets.isWalletRegistered(wallets, walletID)) {
+            // Under-counted direction: the registry knows the wallet but the
+            // ledger does not. Rebuild exposure from verified, authoritative
+            // state. `ledgerHasRecord` is the divergence gate — a wallet is
+            // recorded in the ledger at most once, so a present record means
+            // there is nothing to repair (and re-recording would revert
+            // `WalletAlreadyRegistered` in the ledger anyway).
+            if (ledgerHasRecord) {
+                revert WalletExposureInSync();
+            }
+            require(
+                FrostRegistryWallets.getWalletMembersIdsHash(
+                    wallets,
+                    walletID
+                ) == keccak256(abi.encode(walletMembersIDs)),
+                "Invalid wallet members identifiers"
+            );
+
+            (
+                address[] memory uniqueProviders,
+                uint32[] memory uniqueSeatCounts
+            ) = _resolveUniqueProviders(
+                    sortitionPool,
+                    operatorToStakingProvider,
+                    walletMembersIDs
+                );
+
             walletExposureLedger.onWalletRegistered(
                 walletID,
                 uniqueProviders,
                 uniqueSeatCounts
-            )
-        // solhint-disable-next-line no-empty-blocks
-        {
+            );
 
-        } catch {
-            emit WalletExposureLedgerCallFailed(walletID);
+            emit WalletExposureReconciledRegistered(walletID);
+        } else {
+            // Over-locked direction: the registry dropped the wallet but the
+            // ledger still marks it live. Replay the closure from the
+            // ledger's own record; a non-live (or absent) record means there
+            // is nothing to repair.
+            if (!live) {
+                revert WalletExposureInSync();
+            }
+
+            walletExposureLedger.onWalletClosed(walletID);
+
+            emit WalletExposureReconciledClosed(walletID);
         }
     }
 

@@ -698,6 +698,66 @@ describe("StakeVault", () => {
         )
       })
     })
+
+    context("guardian movement pause does not freeze exits", () => {
+      it("clears the exit gate on maturation while the seized-T movement stays paused", async () => {
+        await increaseTime(UNDELEGATION_DELAY)
+
+        // The offense is reported: the haircut is booked atomically at
+        // report time (share price drops in the same tx).
+        await reportSlash(operator.address, to1e18(250))
+        expect(await vault.delegatedAssetsOf(operator.address)).to.equal(
+          to1e18(750)
+        )
+        expect(
+          await slashingModule.pendingSlashCount(operator.address)
+        ).to.equal(1)
+
+        // The exit is blocked while the slash is pending.
+        await expect(
+          vault.connect(delegator1).finalizeUndelegate(0)
+        ).to.be.revertedWith("PendingSlashExists")
+
+        // The guardian pauses the T-movement leg — previously this would
+        // freeze the exit indefinitely because the pending slash count only
+        // dropped inside executeSlash.
+        await slashingModule.connect(deployer).pauseMovement()
+        await increaseTime(MOVEMENT_DELAY)
+
+        // The seized-fund movement itself stays paused...
+        await expect(
+          slashingModule.connect(thirdParty).executeSlash(0)
+        ).to.be.revertedWith("MovementIsPaused")
+
+        // ...but the slash matures permissionlessly regardless of the pause,
+        // dropping the exit gate to zero within the movement delay.
+        await slashingModule.connect(thirdParty).matureSlash(0)
+        expect(
+          await slashingModule.pendingSlashCount(operator.address)
+        ).to.equal(0)
+
+        // The delegator now exits — at the already-haircut share price, so
+        // the escape race stays closed — while the seized funds are frozen.
+        const balanceBefore = await tToken.balanceOf(delegator1.address)
+        await vault.connect(delegator1).finalizeUndelegate(0)
+        // 400 shares * 750 T / 1000 shares = 300 T (post-haircut price).
+        expect(await tToken.balanceOf(delegator1.address)).to.equal(
+          balanceBefore.add(to1e18(300))
+        )
+
+        // The seized T is still segregated and paused — invariant #2 intact.
+        expect(await vault.seizedBalance()).to.equal(to1e18(250))
+
+        // Unpausing lets the T movement finally settle without a double
+        // decrement of the (already-zero) pending slash count.
+        await slashingModule.connect(deployer).unpauseMovement()
+        await slashingModule.connect(thirdParty).executeSlash(0)
+        expect(await vault.seizedBalance()).to.equal(0)
+        expect(
+          await slashingModule.pendingSlashCount(operator.address)
+        ).to.equal(0)
+      })
+    })
   })
 
   describe("self-bond withdrawal", () => {

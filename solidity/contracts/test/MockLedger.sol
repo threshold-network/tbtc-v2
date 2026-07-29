@@ -50,4 +50,18 @@ contract MockLedger is IWalletExposureLedger {
     {
         return exposureForAllEpochs[stakingProvider];
     }
+
+    function getWalletExposure(bytes32)
+        external
+        pure
+        override
+        returns (
+            address[] memory,
+            uint64[] memory,
+            uint32[] memory,
+            bool
+        )
+    {
+        return (new address[](0), new uint64[](0), new uint32[](0), false);
+    }
 }

@@ -54,6 +54,13 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         // Reserved for a potential future cancellation path; never set in
         // v1 — objective offenses have no veto.
         bool cancelled;
+        // Set once the movement delay has elapsed, decrementing the
+        // provider's pending slash count exactly once. Decoupled from the
+        // guardian movement pause so a paused T-movement leg never freezes
+        // exit finalization: the haircut is already booked at report time
+        // and the seized T is segregated, so the exit gate can clear on the
+        // delay while the actual payout stays paused.
+        bool matured;
     }
 
     /// @notice Upper bound on the number of report entries processed in a
@@ -126,6 +133,10 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         uint96 rewardMultiplier,
         uint64 executableAt
     );
+    event SlashMatured(
+        uint256 indexed slashId,
+        address indexed stakingProvider
+    );
     event SlashExecuted(
         uint256 indexed slashId,
         address indexed stakingProvider,
@@ -143,6 +154,7 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     error CallerNotGuardian();
     error InvalidSlashId();
     error SlashAlreadyExecuted();
+    error SlashAlreadyMatured();
     error SlashIsCancelled();
     error MovementDelayNotElapsed();
     error MovementIsPaused();
@@ -377,7 +389,8 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
                 rewardMultiplier: multiplier,
                 executableAt: executableAt,
                 executed: false,
-                cancelled: false
+                cancelled: false,
+                matured: false
             })
         );
         pendingSlashCount[stakingProvider] += 1;
@@ -394,11 +407,43 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         );
     }
 
+    /// @notice Marks a booked slash matured once its movement delay elapses,
+    ///         decrementing the provider's pending slash count exactly once.
+    ///         Permissionless and, crucially, NOT gated by the guardian
+    ///         movement pause: the economic haircut was booked atomically at
+    ///         report time and the seized T is already segregated in the
+    ///         vault, so clearing the exit gate here can never let a delegator
+    ///         escape the haircut. Decoupling maturation from the pause means
+    ///         a guardian pause on the T-movement leg (`executeSlash`) no
+    ///         longer freezes exit finalization indefinitely — the exit gate
+    ///         clears within the movement delay while the actual seized-fund
+    ///         movement stays paused.
+    /// @param slashId Identifier of the pending slash (its index).
+    function matureSlash(uint256 slashId) external {
+        if (slashId >= pendingSlashes.length) revert InvalidSlashId();
+        PendingSlash storage slash = pendingSlashes[slashId];
+        // `executed` implies `matured`, so `matured` alone covers both.
+        if (slash.matured) revert SlashAlreadyMatured();
+        if (slash.cancelled) revert SlashIsCancelled();
+        /* solhint-disable-next-line not-rely-on-time */
+        if (block.timestamp < slash.executableAt) {
+            revert MovementDelayNotElapsed();
+        }
+
+        slash.matured = true;
+        pendingSlashCount[slash.stakingProvider] -= 1;
+
+        emit SlashMatured(slashId, slash.stakingProvider);
+    }
+
     /// @notice Moves the seized funds of a booked slash after the movement
     ///         delay: the notifier reward first (`rewardMultiplier` percent
     ///         of the seized amount), then the executor cut
     ///         (`executorRewardBps` of the remainder) to the caller, and the
-    ///         rest to the restitution reserve. Permissionless.
+    ///         rest to the restitution reserve. Permissionless. Matures the
+    ///         slash inline if `matureSlash` was not called first, so the
+    ///         happy path stays a single call; the pending slash count is
+    ///         decremented at most once across the two entrypoints.
     /// @param slashId Identifier of the pending slash (its index).
     function executeSlash(uint256 slashId) external {
         if (slashId >= pendingSlashes.length) revert InvalidSlashId();
@@ -412,7 +457,13 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         if (movementPaused) revert MovementIsPaused();
 
         slash.executed = true;
-        pendingSlashCount[slash.stakingProvider] -= 1;
+        // Decrement the exit gate only if maturation has not already done so
+        // (a preceding `matureSlash` during a pause). This keeps the count
+        // decremented exactly once per slash and avoids underflow.
+        if (!slash.matured) {
+            slash.matured = true;
+            pendingSlashCount[slash.stakingProvider] -= 1;
+        }
 
         uint96 seized = slash.seizedAmount;
         uint96 notifierReward = 0;

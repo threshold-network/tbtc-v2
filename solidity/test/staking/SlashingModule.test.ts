@@ -735,6 +735,93 @@ describe("SlashingModule", () => {
     })
   })
 
+  describe("matureSlash (pause-independent exit gate)", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+      await slashingModule
+        .connect(deployer)
+        .setRestitutionReserve(reserve.address)
+      await vault.connect(operator).depositSelfBond(to1e18(50000))
+      await report([operator.address], to1e18(10000), 5)
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should revert for an unknown slash id", async () => {
+      await expect(
+        slashingModule.connect(executor).matureSlash(99)
+      ).to.be.revertedWith("InvalidSlashId")
+    })
+
+    it("should revert before the movement delay elapsed", async () => {
+      await expect(
+        slashingModule.connect(executor).matureSlash(0)
+      ).to.be.revertedWith("MovementDelayNotElapsed")
+    })
+
+    it("should clear the exit gate after the delay even while movement is paused", async () => {
+      // The guardian pauses the T-movement leg BEFORE the delay elapses.
+      await slashingModule.connect(deployer).pauseMovement()
+      await increaseTime(MOVEMENT_DELAY)
+
+      // The actual movement of seized funds stays paused...
+      await expect(
+        slashingModule.connect(executor).executeSlash(0)
+      ).to.be.revertedWith("MovementIsPaused")
+
+      // ...but maturation clears the exit gate regardless of the pause: the
+      // haircut was already booked at report time and the seized T is
+      // segregated, so releasing the gate cannot let anyone escape it.
+      const tx = await slashingModule.connect(executor).matureSlash(0)
+      await expect(tx)
+        .to.emit(slashingModule, "SlashMatured")
+        .withArgs(0, operator.address)
+      expect(await slashingModule.pendingSlashCount(operator.address)).to.equal(
+        0
+      )
+
+      // The seized T is still held by the vault, still frozen — the pause
+      // did its only job.
+      expect(await vault.seizedBalance()).to.equal(to1e18(10000))
+    })
+
+    it("should revert maturing twice", async () => {
+      await increaseTime(MOVEMENT_DELAY)
+      await slashingModule.connect(executor).matureSlash(0)
+      await expect(
+        slashingModule.connect(executor).matureSlash(0)
+      ).to.be.revertedWith("SlashAlreadyMatured")
+    })
+
+    it("should reject maturing an already-executed slash", async () => {
+      await increaseTime(MOVEMENT_DELAY)
+      await slashingModule.connect(executor).executeSlash(0)
+      await expect(
+        slashingModule.connect(executor).matureSlash(0)
+      ).to.be.revertedWith("SlashAlreadyMatured")
+    })
+
+    it("should not double-decrement when matureSlash precedes executeSlash", async () => {
+      await slashingModule.connect(deployer).pauseMovement()
+      await increaseTime(MOVEMENT_DELAY)
+      await slashingModule.connect(executor).matureSlash(0)
+      expect(await slashingModule.pendingSlashCount(operator.address)).to.equal(
+        0
+      )
+
+      // Unpausing lets the movement finally happen; the count stays 0 (no
+      // second decrement, no underflow) and the seized T is paid out.
+      await slashingModule.connect(deployer).unpauseMovement()
+      await slashingModule.connect(executor).executeSlash(0)
+      expect(await slashingModule.pendingSlashCount(operator.address)).to.equal(
+        0
+      )
+      expect(await vault.seizedBalance()).to.equal(0)
+    })
+  })
+
   describe("pending slash lifecycle (vault exit gate)", () => {
     before(async () => {
       await createSnapshot()

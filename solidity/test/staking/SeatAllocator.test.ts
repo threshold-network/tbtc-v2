@@ -774,6 +774,137 @@ describe("SeatAllocator", () => {
     })
   })
 
+  // The sortition pool selects at the STORED (stale) leaf weight until
+  // someone re-syncs it, and the registry lifts an authorization decrease's
+  // clock off type(uint64).max only inside that pool sync — so a wallet
+  // whose DKG starts between requestUndelegate and the first pool sync can
+  // be selected at the pre-exit weight. Such a phantom wallet is registered
+  // at an epoch strictly greater than epochAtRequest, so gating solely on
+  // epochAtRequest would let the exiting stake finalize while a wallet it
+  // still slashably backs is live. The allocator closes this by (a) holding
+  // the exit while an authorization decrease is unapproved and (b) lifting
+  // the exposure gate to the epoch captured when the registry approves the
+  // decrease (proof the pool re-synced first).
+  describe("phantom-weight exit gate", () => {
+    async function syncTwoHundredK(): Promise<void> {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(100_000))
+      await stakeVault.setDelegatedAssets(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider) // synced weight 200k
+    }
+
+    it("blocks finalize for a wallet created during the pre-sync window", async () => {
+      await syncTwoHundredK()
+
+      // The operator backs walletA (epoch 1); the delegator's exit is
+      // requested against epoch 1.
+      const walletA = ethers.utils.id("phantom-A")
+      await exposureLedger
+        .connect(ledgerRegistrySigner)
+        .onWalletRegistered(walletA, [provider], [1])
+      const epochAtRequest = await exposureLedger.currentEpoch(provider)
+      expect(epochAtRequest).to.equal(1)
+
+      // The delegator queues an undelegation: the live weight drops and the
+      // permissionless refresh files an authorization decrease request.
+      await stakeVault.setPendingUndelegationAssets(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.decreasePending(provider)).to.be.true
+
+      // PHANTOM WINDOW: the pool leaf has not re-synced to the reduced
+      // weight, so a DKG selects the operator at the stale (higher) weight
+      // into walletB (epoch 2).
+      const walletB = ethers.utils.id("phantom-B")
+      await exposureLedger
+        .connect(ledgerRegistrySigner)
+        .onWalletRegistered(walletB, [provider], [1])
+
+      // walletA retires; only the phantom walletB remains live.
+      await exposureLedger.connect(ledgerRegistrySigner).onWalletClosed(walletA)
+
+      // The bug, made explicit: a gate reading exposure at or before the
+      // request epoch alone would already unlock here — walletB sits at
+      // epoch 2 > epochAtRequest 1.
+      expect(
+        await exposureLedger.hasLiveExposureAtOrBefore(provider, epochAtRequest)
+      ).to.be.false
+
+      // The fixed gate holds the exit while the decrease is unapproved.
+      expect(await allocator.canFinalizeUndelegate(provider, epochAtRequest)).to
+        .be.false
+
+      // Registry approves the decrease: the exposure floor is captured at the
+      // current epoch (2), which is at or above the phantom walletB's epoch.
+      await mockRegistry.callApproveAuthorizationDecrease(
+        allocator.address,
+        provider
+      )
+      expect(await allocator.exposureFloorEpoch(provider)).to.equal(2)
+
+      // Still blocked: the floor lifts the gate to epoch 2 and walletB
+      // (epoch 2 <= floor 2) is live.
+      expect(await allocator.canFinalizeUndelegate(provider, epochAtRequest)).to
+        .be.false
+
+      // Once the phantom wallet retires the exit finally unlocks.
+      await exposureLedger.connect(ledgerRegistrySigner).onWalletClosed(walletB)
+      expect(await allocator.canFinalizeUndelegate(provider, epochAtRequest)).to
+        .be.true
+    })
+
+    it("allows finalize once the decrease is settled and every backed wallet is closed", async () => {
+      await syncTwoHundredK()
+
+      const walletA = ethers.utils.id("settled-A")
+      await exposureLedger
+        .connect(ledgerRegistrySigner)
+        .onWalletRegistered(walletA, [provider], [1])
+      const epochAtRequest = await exposureLedger.currentEpoch(provider)
+
+      await stakeVault.setPendingUndelegationAssets(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.decreasePending(provider)).to.be.true
+
+      // No phantom wallet was created: the only backed wallet retires, then
+      // the registry approves the decrease (floor captured at epoch 1).
+      await exposureLedger.connect(ledgerRegistrySigner).onWalletClosed(walletA)
+      await mockRegistry.callApproveAuthorizationDecrease(
+        allocator.address,
+        provider
+      )
+      expect(await allocator.exposureFloorEpoch(provider)).to.equal(1)
+      expect(await allocator.decreasePending(provider)).to.be.false
+
+      expect(await allocator.canFinalizeUndelegate(provider, epochAtRequest)).to
+        .be.true
+    })
+
+    it("never permanently locks an exit: a pending decrease clears via permissionless approval", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider) // synced weight 100k
+
+      // The weight drops; a refresh files a decrease that never syncs on its
+      // own — modelling an operator whose pool leaf nobody re-syncs.
+      await stakeVault.setSelfBond(provider, to18(40_000))
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.decreasePending(provider)).to.be.true
+
+      // While the decrease is unapproved the exit is held even with zero
+      // live exposure — the safe direction, but NOT permanent.
+      expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.false
+
+      // Approval is permissionless (anyone can sync the pool and drive the
+      // registry): once it lands the exit unlocks.
+      await mockRegistry.callApproveAuthorizationDecrease(
+        allocator.address,
+        provider
+      )
+      expect(await allocator.decreasePending(provider)).to.be.false
+      expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.true
+    })
+  })
+
   describe("governed parameters", () => {
     it("updates the delegation factor via the two-step process", async () => {
       await expect(

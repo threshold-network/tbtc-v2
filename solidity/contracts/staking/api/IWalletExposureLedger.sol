@@ -87,4 +87,26 @@ interface IWalletExposureLedger {
         external
         view
         returns (bool);
+
+    /// @notice Returns the stored exposure record of the given wallet. Used
+    ///         by the registry's permissionless reconcile path to detect
+    ///         divergence between the registry's authoritative wallet state
+    ///         and the ledger's recorded exposure: an empty record
+    ///         (`epochs.length == 0`) means the wallet was never recorded,
+    ///         while `live` reports whether a recorded wallet is still open.
+    /// @param walletID Identifier of the wallet.
+    /// @return stakingProviders Unique staking providers holding seats in the
+    ///         wallet at registration.
+    /// @return epochs Per-provider exposure epochs assigned at registration.
+    /// @return seatCounts Seat count per provider.
+    /// @return live True while the wallet is registered and not yet closed.
+    function getWalletExposure(bytes32 walletID)
+        external
+        view
+        returns (
+            address[] memory stakingProviders,
+            uint64[] memory epochs,
+            uint32[] memory seatCounts,
+            bool live
+        );
 }

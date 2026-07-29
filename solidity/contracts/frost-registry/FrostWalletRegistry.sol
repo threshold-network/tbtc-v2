@@ -338,6 +338,18 @@ contract FrostWalletRegistry is
         );
     }
 
+    /// @notice Refunds `msg.sender` the given amount of gas through the
+    ///         reimbursement pool.
+    /// @dev Extracted so the four gas-metered entrypoints share a single
+    ///      external-call site instead of inlining it each — the registry
+    ///      runs close to the contract size limit. `gasSpent` is computed by
+    ///      each caller (from its own `gasStart`/offset) before this call, so
+    ///      the refund accounting is unchanged.
+    /// @param gasSpent Gas amount to reimburse.
+    function _refundGas(uint256 gasSpent) internal {
+        reimbursementPool.refund(gasSpent, msg.sender);
+    }
+
     /// @notice Reverts if called not by the Wallet Owner.
     /// @dev Used by `requestNewWallet` — Bridge calls directly.
     modifier onlyWalletOwner() {
@@ -1058,11 +1070,10 @@ contract FrostWalletRegistry is
         dkg.complete();
 
         // Refund msg.sender's ETH for DKG result submission and result approval
-        reimbursementPool.refund(
+        _refundGas(
             _dkgResultSubmissionGas +
                 (gasStart - gasleft()) +
-                _dkgResultApprovalGasOffset,
-            msg.sender
+                _dkgResultApprovalGasOffset
         );
     }
 
@@ -1074,10 +1085,7 @@ contract FrostWalletRegistry is
 
         dkg.notifySeedTimeout();
 
-        reimbursementPool.refund(
-            (gasStart - gasleft()) + _notifySeedTimeoutGasOffset,
-            msg.sender
-        );
+        _refundGas((gasStart - gasleft()) + _notifySeedTimeoutGasOffset);
     }
 
     /// @notice Notifies about DKG timeout.
@@ -1089,10 +1097,7 @@ contract FrostWalletRegistry is
         // Note that the offset is subtracted as it is expected that the cleanup
         // performed on DKG timeout notification removes data from the storage
         // which is recovering gas for the transaction.
-        reimbursementPool.refund(
-            (gasStart - gasleft()) - _notifyDkgTimeoutNegativeGasOffset,
-            msg.sender
-        );
+        _refundGas((gasStart - gasleft()) - _notifyDkgTimeoutNegativeGasOffset);
     }
 
     /// @notice Challenges DKG result. If the submitted result is proved to be
@@ -1224,10 +1229,7 @@ contract FrostWalletRegistry is
         // diagnostics; the on-chain effect is limited to the
         // sortition-pool reward ineligibility set above.
 
-        reimbursementPool.refund(
-            (gasStart - gasleft()) + _notifyOperatorInactivityGasOffset,
-            msg.sender
-        );
+        _refundGas((gasStart - gasleft()) + _notifyOperatorInactivityGasOffset);
     }
 
     /// @notice Allows the wallet owner to report all signing group members of
@@ -1271,6 +1273,59 @@ contract FrostWalletRegistry is
             amount,
             rewardMultiplier,
             notifier,
+            walletMembersIDs
+        );
+    }
+
+    /// @notice Permissionless repair of the wallet exposure ledger after a
+    ///         lifecycle notification was swallowed (a ledger revert during
+    ///         `approveDkgResult` or `closeWallet`, or a ledger wired after
+    ///         wallets already existed — both surfaced as
+    ///         `WalletExposureLedgerCallFailed` or simply skipped while
+    ///         unwired). Reconciles the ledger with this registry's
+    ///         authoritative wallet state in either direction:
+    ///
+    ///         - If the wallet is still registered here but the ledger has no
+    ///           record of it (a swallowed `onWalletRegistered`), the caller
+    ///           supplies the wallet's member IDs — verified against the
+    ///           stored `membersIdsHash` exactly as `seize` does — and the
+    ///           ledger records the wallet as live, restoring the exit gate.
+    ///         - If the wallet is no longer registered here but the ledger
+    ///           still marks it live (a swallowed `onWalletClosed`), the
+    ///           closure is replayed from the ledger's own record and
+    ///           `walletMembersIDs` is ignored (may be empty).
+    ///
+    ///         Idempotent — once the ledger matches this registry the call
+    ///         reverts `WalletExposureInSync`.
+    /// @dev Requirements:
+    ///      - The ledger must be wired (`setWalletExposureLedger`), otherwise
+    ///        reverts `WalletExposureLedgerNotSet`.
+    ///      - In the register direction,
+    ///        `keccak256(abi.encode(walletMembersIDs))` must equal the hash
+    ///        stored under `membersIdsHash` for the given `walletID`.
+    ///      - Reverts `WalletExposureInSync` when there is no divergence to
+    ///        repair.
+    /// @param walletID ID of the wallet to reconcile.
+    /// @param walletMembersIDs Identifiers of the wallet signing group members
+    ///        (required and hash-verified only when re-recording a still
+    ///        registered wallet; ignored otherwise).
+    function reconcileWalletExposure(
+        bytes32 walletID,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        // The reconcile body lives in the externally linked
+        // `FrostWalletExposure` library (registry-state reads, member-ID
+        // resolution and encoding) to keep this contract under the bytecode
+        // size limit. The library is handed the wallet storage directly so
+        // it reads the authoritative `isWalletRegistered` verdict and stored
+        // members hash itself — it can never act on exposure the registry
+        // does not corroborate.
+        WalletExposure.reconcile(
+            walletExposureData,
+            wallets,
+            sortitionPool,
+            authorization.operatorToStakingProvider,
+            walletID,
             walletMembersIDs
         );
     }

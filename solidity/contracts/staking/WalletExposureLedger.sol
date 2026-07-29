@@ -290,6 +290,7 @@ contract WalletExposureLedger is
     function getWalletExposure(bytes32 walletID)
         external
         view
+        override
         returns (
             address[] memory stakingProviders,
             uint64[] memory epochs,
