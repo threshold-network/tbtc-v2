@@ -967,6 +967,27 @@ describe("Bridge - Redemption", () => {
                       "Redeemer output script must not point to the wallet PKH"
                     )
 
+                    // FROST wallet ID hidden under P2TR.
+                    const walletID =
+                      "0x93fd799256287638b1589bc4c8db1b11fcf873796aabeac9edf4cf238f38e596"
+                    await (bridge as any).setWalletIDForWalletPubKeyHash(
+                      walletPubKeyHash,
+                      walletID
+                    )
+
+                    await expect(
+                      bridge
+                        .connect(thirdParty)
+                        .requestRedemption(
+                          walletPubKeyHash,
+                          mainUtxo,
+                          `0x225120${walletID.substring(2)}`,
+                          100000
+                        )
+                    ).to.be.revertedWith(
+                      "Redeemer output script must not point to the wallet P2TR script"
+                    )
+
                     // There is no need to check for P2WSH since that type
                     // uses 32-byte hashes. Because wallet public key hash is
                     // always 20-byte, there is no possibility those hashes
@@ -1450,6 +1471,133 @@ describe("Bridge - Redemption", () => {
             .receiveBalanceApproval(thirdParty.address, 1, [])
         ).to.be.revertedWith("Caller is not the bank")
       })
+    })
+  })
+
+  describe("processRedemptionTxOutputs", () => {
+    context("when a FROST wallet has a P2TR change output", () => {
+      const walletPubKeyHash = "0x2a621226d6f9916a929c0ab8cc7d3252c1485708"
+      const walletID =
+        "0x93fd799256287638b1589bc4c8db1b11fcf873796aabeac9edf4cf238f38e596"
+      const mainUtxo = {
+        txHash:
+          "0xe079a5526d692f10b4a3d4df48d7db2b20f02b5e204fc9c041b9dab19da5d1a2",
+        txOutputIndex: 0,
+        txOutputValue: 799790,
+      }
+      const redeemerOutputScript =
+        "0x160014e3395778bb7f567e5a527ced184320018e59b4de"
+      const redemptionAmount = 200000
+      const changeValue = 799
+
+      let outputsInfo: {
+        outputsTotalValue: BigNumber
+        totalBurnableValue: BigNumber
+        totalTreasuryFee: BigNumber
+        changeIndex: number
+        changeValue: BigNumber
+      }
+
+      before(async () => {
+        await createSnapshot()
+
+        await bridge.setRedemptionTreasuryFeeDivisor(0)
+        await bridge.setWallet(walletPubKeyHash, {
+          ecdsaWalletID: ethers.constants.HashZero,
+          mainUtxoHash: ethers.constants.HashZero,
+          pendingRedemptionsValue: 0,
+          createdAt: await lastBlockTime(),
+          movingFundsRequestedAt: 0,
+          closingStartedAt: 0,
+          pendingMovedFundsSweepRequestsCount: 0,
+          state: walletState.Live,
+          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+        })
+        await (bridge as any).setWalletIDForWalletPubKeyHash(
+          walletPubKeyHash,
+          walletID
+        )
+        await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
+
+        await makeRedemptionAllowance(thirdParty, redemptionAmount)
+        await bridge
+          .connect(thirdParty)
+          .requestRedemption(
+            walletPubKeyHash,
+            mainUtxo,
+            redeemerOutputScript,
+            redemptionAmount
+          )
+
+        const p2trChangeScript = `0x225120${walletID.substring(2)}`
+        const outputVector = buildOutputVector([
+          {
+            value: changeValue,
+            script: p2trChangeScript,
+          },
+          {
+            value: redemptionAmount,
+            script: redeemerOutputScript,
+          },
+        ])
+
+        outputsInfo = (await (
+          bridge.callStatic as any
+        ).processRedemptionTxOutputsForTest(
+          outputVector,
+          walletPubKeyHash
+        )) as typeof outputsInfo
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should recognize the P2TR wallet output as change", async () => {
+        expect(outputsInfo.changeIndex).to.equal(0)
+        expect(outputsInfo.changeValue).to.equal(changeValue)
+      })
+
+      it("should process the non-change redemption output", async () => {
+        expect(outputsInfo.totalBurnableValue).to.equal(redemptionAmount)
+        expect(outputsInfo.totalTreasuryFee).to.equal(0)
+        expect(outputsInfo.outputsTotalValue).to.equal(
+          redemptionAmount + changeValue
+        )
+      })
+
+      const legacyChangeScripts = [
+        {
+          type: "P2PKH",
+          script: `0x1976a914${walletPubKeyHash.substring(2)}88ac`,
+        },
+        {
+          type: "P2WPKH",
+          script: `0x160014${walletPubKeyHash.substring(2)}`,
+        },
+      ]
+
+      for (const legacyChangeScript of legacyChangeScripts) {
+        it(`should reject a ${legacyChangeScript.type} change output`, async () => {
+          const outputVector = buildOutputVector([
+            {
+              value: changeValue,
+              script: legacyChangeScript.script,
+            },
+            {
+              value: redemptionAmount,
+              script: redeemerOutputScript,
+            },
+          ])
+
+          await expect(
+            bridge.callStatic.processRedemptionTxOutputsForTest(
+              outputVector,
+              walletPubKeyHash
+            )
+          ).to.be.revertedWith("Output is a non-requested redemption")
+        })
+      }
     })
   })
 
@@ -5580,6 +5728,27 @@ describe("Bridge - Redemption", () => {
         walletPubKeyHash,
       ]
     )
+  }
+
+  function buildOutputVector(
+    outputs: { value: BigNumberish; script: string }[]
+  ): string {
+    if (outputs.length > 252) {
+      throw new Error("test helper supports only compact output vectors")
+    }
+
+    return `0x${outputs.length.toString(16).padStart(2, "0")}${outputs
+      .map(({ value, script }) => `${encodeUint64LE(value)}${script.slice(2)}`)
+      .join("")}`
+  }
+
+  function encodeUint64LE(value: BigNumberish): string {
+    const bigEndian = ethers.utils.hexZeroPad(
+      BigNumber.from(value).toHexString(),
+      8
+    )
+
+    return bigEndian.slice(2).match(/../g)!.reverse().join("")
   }
 
   function buildMainUtxoHash(

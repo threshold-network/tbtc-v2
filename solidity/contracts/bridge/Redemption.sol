@@ -225,10 +225,16 @@ library Redemption {
         uint256 outputStartingIndex;
         // The number of outputs in the transaction.
         uint256 outputsCount;
+        // True if the wallet uses the FROST signing scheme and can spend only
+        // P2TR change outputs.
+        bool isFrostWallet;
         // P2PKH script for the wallet. Needed to determine the change output.
         bytes32 walletP2PKHScriptKeccak;
         // P2WPKH script for the wallet. Needed to determine the change output.
         bytes32 walletP2WPKHScriptKeccak;
+        // P2TR script for a FROST wallet. Needed to determine the change
+        // output.
+        bytes32 walletP2TRScriptKeccak;
         // This struct doesn't contain `__gap` property as the structure is not
         // stored, it is used as a function's memory argument.
     }
@@ -444,10 +450,7 @@ library Redemption {
         bytes memory redeemerOutputScript,
         uint64 amount
     ) internal {
-        require(
-            redeemer != address(0),
-            "Redeemer must not be the zero address"
-        );
+        require(redeemer != address(0), "Redeemer must not be zero address");
 
         if (self.redemptionWatchtower != address(0)) {
             require(
@@ -488,13 +491,14 @@ library Redemption {
         );
 
         // Validate if redeemer output script is a correct standard type
-        // (P2PKH, P2WPKH, P2SH or P2WSH). This is done by using
-        // `BTCUtils.extractHashAt` on it. Such a function extracts the payload
-        // properly only from standard outputs so if it succeeds, we have a
-        // guarantee the redeemer output script is proper. The underlying way
-        // of validation is the same as in tBTC v1.
-        bytes memory redeemerOutputScriptPayload = redeemerOutputScript
-            .extractHashAt(0, redeemerOutputScript.length);
+        // (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR). This is done by using
+        // `BitcoinTx.extractStandardOutputScriptPayload`, which returns a
+        // non-empty payload only for the supported standard formats. P2TR
+        // is included so users with Taproot wallets can redeem to their
+        // native destination, matching the wallet-identity-compatibility
+        // readiness manifest.
+        bytes memory redeemerOutputScriptPayload = BitcoinTx
+            .extractStandardOutputScriptPayload(redeemerOutputScript);
 
         require(
             redeemerOutputScriptPayload.length > 0,
@@ -506,6 +510,13 @@ library Redemption {
             redeemerOutputScriptPayload.length != 20 ||
                 walletPubKeyHash != redeemerOutputScriptPayload.slice20(0),
             "Redeemer output script must not point to the wallet PKH"
+        );
+        bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
+        require(
+            walletID == bytes32(0) ||
+                keccak256(redeemerOutputScript) !=
+                keccak256(BitcoinTx.makeP2TRScript(walletID)),
+            "Redeemer output script must not point to the wallet P2TR script"
         );
 
         require(
@@ -790,9 +801,9 @@ library Redemption {
         // docs in `BitcoinTx` library for more details.
         uint256 outputStartingIndex = 1 + outputsCompactSizeUintLength;
 
-        // Calculate the keccak256 for two possible wallet's P2PKH or P2WPKH
-        // scripts that can be used to lock the change. This is done upfront to
-        // save on gas. Both scripts have a strict format defined by Bitcoin.
+        // Calculate the keccak256 for possible wallet scripts that can be used
+        // to lock the change. This is done upfront to save on gas. The scripts
+        // have strict formats defined by Bitcoin.
         //
         // The P2PKH script has the byte format: <0x1976a914> <20-byte PKH> <0x88ac>.
         // According to https://en.bitcoin.it/wiki/Script#Opcodes this translates to:
@@ -818,6 +829,19 @@ library Redemption {
             abi.encodePacked(BitcoinTx.makeP2WPKHScript(walletPubKeyHash))
         );
 
+        bytes32 walletP2TRScriptKeccak;
+        bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
+        bool isFrostWallet = walletID != bytes32(0);
+        if (isFrostWallet) {
+            // FROST wallets store their x-only Taproot output key as the
+            // canonical wallet ID. That key is not derivable from the
+            // 20-byte compatibility wallet public key hash, so use the
+            // reverse mapping populated at FROST wallet registration time.
+            walletP2TRScriptKeccak = keccak256(
+                BitcoinTx.makeP2TRScript(walletID)
+            );
+        }
+
         return
             processRedemptionTxOutputs(
                 self,
@@ -826,8 +850,10 @@ library Redemption {
                 RedemptionTxOutputsProcessingInfo(
                     outputStartingIndex,
                     outputsCount,
+                    isFrostWallet,
                     walletP2PKHScriptKeccak,
-                    walletP2WPKHScriptKeccak
+                    walletP2WPKHScriptKeccak,
+                    walletP2TRScriptKeccak
                 )
             );
     }
@@ -845,8 +871,8 @@ library Redemption {
     ///        HASH160 over the compressed ECDSA public key) of the wallet which
     ///        performed the redemption transaction.
     /// @param processInfo RedemptionTxOutputsProcessingInfo identifying output
-    ///        starting index, the number of outputs and possible wallet change
-    ///        P2PKH and P2WPKH scripts.
+    ///        starting index, the number of outputs, the wallet scheme, and
+    ///        possible wallet change P2PKH, P2WPKH, and P2TR scripts.
     function processRedemptionTxOutputs(
         BridgeState.Storage storage self,
         bytes memory redemptionTxOutputVector,
@@ -890,8 +916,14 @@ library Redemption {
 
             if (
                 resultInfo.changeValue == 0 &&
-                (outputScriptHash == processInfo.walletP2PKHScriptKeccak ||
-                    outputScriptHash == processInfo.walletP2WPKHScriptKeccak) &&
+                (
+                    processInfo.isFrostWallet
+                        ? outputScriptHash == processInfo.walletP2TRScriptKeccak
+                        : outputScriptHash ==
+                            processInfo.walletP2PKHScriptKeccak ||
+                            outputScriptHash ==
+                            processInfo.walletP2WPKHScriptKeccak
+                ) &&
                 outputValue > 0
             ) {
                 // If we entered here, that means the change output with a

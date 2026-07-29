@@ -3,6 +3,12 @@
 Interface for communication with the BitcoinDepositor on-chain contract
 deployed on the given destination chain.
 
+## Hierarchy
+
+- [`TaprootDepositorCapability`](TaprootDepositorCapability.md)
+
+  ↳ **`BitcoinDepositor`**
+
 ## Implemented by
 
 - [`ArbitrumBitcoinDepositor`](../classes/ArbitrumBitcoinDepositor.md)
@@ -18,6 +24,7 @@ deployed on the given destination chain.
 - [getDepositOwner](BitcoinDepositor.md#getdepositowner)
 - [initializeDeposit](BitcoinDepositor.md#initializedeposit)
 - [setDepositOwner](BitcoinDepositor.md#setdepositowner)
+- [supportsTaprootDeposits](BitcoinDepositor.md#supportstaprootdeposits)
 
 ## Methods
 
@@ -34,7 +41,7 @@ encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:99](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L99)
+[src/lib/contracts/cross-chain.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L100)
 
 ___
 
@@ -51,7 +58,7 @@ Optional method - may not be available for off-chain implementations.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L79)
+[src/lib/contracts/cross-chain.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L80)
 
 ___
 
@@ -70,7 +77,7 @@ The identifier of the deposit owner or undefined if not set.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:86](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L86)
+[src/lib/contracts/cross-chain.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L87)
 
 ___
 
@@ -97,7 +104,7 @@ Transaction hash of the reveal deposit transaction or full transaction receipt.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L111)
+[src/lib/contracts/cross-chain.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L112)
 
 ___
 
@@ -120,4 +127,25 @@ issued by this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L93)
+[src/lib/contracts/cross-chain.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L94)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+True only when the complete reveal path preserves both x-only
+         public keys required by a Taproot deposit.
+
+#### Inherited from
+
+[TaprootDepositorCapability](TaprootDepositorCapability.md).[supportsTaprootDeposits](TaprootDepositorCapability.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/lib/contracts/depositor-proxy.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L16)

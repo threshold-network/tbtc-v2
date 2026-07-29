@@ -1,4 +1,6 @@
-import { Chains } from "../contracts"
+// Import directly from the leaf module to avoid a contracts barrel circular
+// initialization path when SDK consumers load `lib/contracts` first.
+import { Chains } from "../contracts/chain"
 
 /**
  * Mapping of chain identifiers to their corresponding Wormhole chain IDs.

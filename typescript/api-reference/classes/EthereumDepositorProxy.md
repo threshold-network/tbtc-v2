@@ -27,6 +27,7 @@ for reference.
 - [getChainIdentifier](EthereumDepositorProxy.md#getchainidentifier)
 - [packRevealDepositParameters](EthereumDepositorProxy.md#packrevealdepositparameters)
 - [revealDeposit](EthereumDepositorProxy.md#revealdeposit)
+- [supportsTaprootDeposits](EthereumDepositorProxy.md#supportstaprootdeposits)
 
 ## Constructors
 
@@ -46,7 +47,7 @@ for reference.
 
 #### Defined in
 
-[lib/ethereum/depositor-proxy.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L16)
+[src/lib/ethereum/depositor-proxy.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L16)
 
 ## Properties
 
@@ -56,7 +57,7 @@ for reference.
 
 #### Defined in
 
-[lib/ethereum/depositor-proxy.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L14)
+[src/lib/ethereum/depositor-proxy.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L14)
 
 ## Methods
 
@@ -76,7 +77,7 @@ for reference.
 
 #### Defined in
 
-[lib/ethereum/depositor-proxy.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L28)
+[src/lib/ethereum/depositor-proxy.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L28)
 
 ___
 
@@ -110,17 +111,19 @@ Packed parameters.
 | `fundingTx.locktime` | `string` |
 | `fundingTx.outputVector` | `string` |
 | `fundingTx.version` | `string` |
-| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string`  } |
+| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `refundXOnlyPublicKey?`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string` ; `walletXOnlyPublicKey?`: `string`  } |
 | `reveal.blindingFactor` | `string` |
 | `reveal.fundingOutputIndex` | `number` |
 | `reveal.refundLocktime` | `string` |
 | `reveal.refundPubKeyHash` | `string` |
+| `reveal.refundXOnlyPublicKey?` | `string` |
 | `reveal.vault` | `string` |
 | `reveal.walletPubKeyHash` | `string` |
+| `reveal.walletXOnlyPublicKey?` | `string` |
 
 #### Defined in
 
-[lib/ethereum/depositor-proxy.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L44)
+[src/lib/ethereum/depositor-proxy.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L54)
 
 ___
 
@@ -149,4 +152,29 @@ ___
 
 #### Defined in
 
-[lib/ethereum/depositor-proxy.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L62)
+[src/lib/ethereum/depositor-proxy.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L72)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+Legacy Ethereum depositor proxies do not preserve the x-only keys required
+by Taproot deposit reveals. Capable subclasses must override this method.
+
+#### Returns
+
+`boolean`
+
+False by default.
+
+**`See`**
+
+#### Implementation of
+
+[DepositorProxy](../interfaces/DepositorProxy.md).[supportsTaprootDeposits](../interfaces/DepositorProxy.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/lib/ethereum/depositor-proxy.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L38)

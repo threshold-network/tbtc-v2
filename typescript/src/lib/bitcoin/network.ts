@@ -15,7 +15,8 @@ export enum BitcoinNetwork {
    */
   Testnet = "testnet",
   /**
-   * Bitcoin Testnet4.
+   * Bitcoin Testnet4. Shares testnet3's address parameters (same `tb` bech32
+   * HRP and base58 versions); only the chain and genesis block differ.
    */
   Testnet4 = "testnet4",
   /**
@@ -68,6 +69,9 @@ export function toBitcoinJsLibNetwork(
     }
     case BitcoinNetwork.Testnet:
     case BitcoinNetwork.Testnet4: {
+      // Testnet4 shares testnet3's address parameters; `bitcoinjs-lib` has no
+      // separate testnet4 network, so reuse the testnet parameters for address
+      // and script encoding.
       return networks.testnet
     }
     default: {

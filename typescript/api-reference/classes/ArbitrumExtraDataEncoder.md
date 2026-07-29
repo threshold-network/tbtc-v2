@@ -55,7 +55,7 @@ for reference.
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L142)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L153)
 
 ___
 
@@ -81,4 +81,4 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:128](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L128)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L139)

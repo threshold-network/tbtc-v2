@@ -9,10 +9,15 @@ import type {
   Bridge,
   BridgeGovernance,
   BridgeStub,
+  EcdsaFraudRouter,
   IWalletRegistry,
 } from "../../typechain"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { ecdsaWalletTestData } from "../data/ecdsa"
+import {
+  wallet as fraudWallet,
+  nonWitnessSignSingleInputTx,
+} from "../data/fraud"
 import { constants, ecdsaDkgState, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
@@ -28,11 +33,18 @@ describe("Bridge - Wallets", () => {
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
+  let ecdsaFraudRouter: EcdsaFraudRouter
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({
+      governance,
+      thirdParty,
+      walletRegistry,
+      bridge,
+      bridgeGovernance,
+      ecdsaFraudRouter,
+    } = await waffle.loadFixture(bridgeFixture))
   })
 
   describe("requestNewWallet", () => {
@@ -61,27 +73,17 @@ describe("Bridge - Wallets", () => {
         })
 
         context("when active wallet is not set", () => {
-          let tx: ContractTransaction
-
-          before(async () => {
-            await createSnapshot()
-
-            tx = await bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
-          })
-
-          after(async () => {
-            walletRegistry.requestNewWallet.reset()
-
-            await restoreSnapshot()
-          })
-
-          it("should emit NewWalletRequested event", async () => {
-            await expect(tx).to.emit(bridge, "NewWalletRequested")
-          })
-
-          it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
+          // D-2: scheme=Ecdsa dispatch unconditionally reverts.
+          // The previous "should emit + should call registry"
+          // pair has been collapsed into a single revert
+          // assertion since neither downstream effect can
+          // happen.
+          it("should revert (FROST registry unwired post-slice-3)", async () => {
+            await expect(
+              bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
+            ).to.be.reverted // D-2.2 slice 3: FrostWalletRegistryNotSet
             // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-            expect(walletRegistry.requestNewWallet).to.have.been.calledOnce
+            expect(walletRegistry.requestNewWallet).to.not.have.been.called
           })
         })
 
@@ -136,8 +138,6 @@ describe("Bridge - Wallets", () => {
                         ecdsaWalletTestData.pubKeyHash160,
                         activeWalletMainUtxo
                       )
-
-                      tx = await bridge.requestNewWallet(activeWalletMainUtxo)
                     })
 
                     after(async () => {
@@ -146,14 +146,22 @@ describe("Bridge - Wallets", () => {
                       await restoreSnapshot()
                     })
 
-                    it("should emit NewWalletRequested event", async () => {
-                      await expect(tx).to.emit(bridge, "NewWalletRequested")
-                    })
-
-                    it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
+                    // D-2: scheme=Ecdsa dispatch unconditionally
+                    // reverts; the prior emit + registry-call
+                    // assertions collapsed into a single revert
+                    // pin.
+                    it("should revert (FROST registry unwired post-slice-3)", async () => {
+                      await expect(
+                        bridge.requestNewWallet({
+                          txHash:
+                            "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
+                          txOutputIndex: 1,
+                          txOutputValue: constants.walletCreationMinBtcBalance,
+                        })
+                      ).to.be.reverted // D-2.2 slice 3: FrostWalletRegistryNotSet
                       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                      expect(walletRegistry.requestNewWallet).to.have.been
-                        .calledOnce
+                      expect(walletRegistry.requestNewWallet).to.not.have.been
+                        .called
                     })
                   }
                 )
@@ -161,16 +169,12 @@ describe("Bridge - Wallets", () => {
                 context(
                   "when active wallet is not old enough but its balance is greater or equal the maximum BTC balance threshold",
                   () => {
-                    let tx: ContractTransaction
-
                     before(async () => {
                       await createSnapshot()
 
                       // Simulate the wallet has a BTC balance equal to the
                       // maximum BTC amount threshold by preparing the wallet's
-                      // main UTXO accordingly. Note that the time is not
-                      // increased at all so the wallet is not old enough
-                      // for sure.
+                      // main UTXO accordingly.
                       const activeWalletMainUtxo = {
                         txHash:
                           "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
@@ -182,8 +186,6 @@ describe("Bridge - Wallets", () => {
                         ecdsaWalletTestData.pubKeyHash160,
                         activeWalletMainUtxo
                       )
-
-                      tx = await bridge.requestNewWallet(activeWalletMainUtxo)
                     })
 
                     after(async () => {
@@ -192,14 +194,18 @@ describe("Bridge - Wallets", () => {
                       await restoreSnapshot()
                     })
 
-                    it("should emit NewWalletRequested event", async () => {
-                      await expect(tx).to.emit(bridge, "NewWalletRequested")
-                    })
-
-                    it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
+                    it("should revert (FROST registry unwired post-slice-3)", async () => {
+                      await expect(
+                        bridge.requestNewWallet({
+                          txHash:
+                            "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
+                          txOutputIndex: 1,
+                          txOutputValue: constants.walletCreationMaxBtcBalance,
+                        })
+                      ).to.be.reverted // D-2.2 slice 3: FrostWalletRegistryNotSet
                       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                      expect(walletRegistry.requestNewWallet).to.have.been
-                        .calledOnce
+                      expect(walletRegistry.requestNewWallet).to.not.have.been
+                        .called
                     })
                   }
                 )
@@ -363,8 +369,6 @@ describe("Bridge - Wallets", () => {
 
             context("when the minimum BTC balance threshold is zero", () => {
               context("when wallet creation conditions are met", () => {
-                let tx: ContractTransaction
-
                 before(async () => {
                   await createSnapshot()
 
@@ -381,8 +385,6 @@ describe("Bridge - Wallets", () => {
                   // possible that after the governance delay passed, the wallet
                   // is already old enough.
                   await increaseTime(constants.walletCreationPeriod)
-
-                  tx = await bridge.requestNewWallet(NO_MAIN_UTXO)
                 })
 
                 after(async () => {
@@ -391,14 +393,12 @@ describe("Bridge - Wallets", () => {
                   await restoreSnapshot()
                 })
 
-                it("should emit NewWalletRequested event", async () => {
-                  await expect(tx).to.emit(bridge, "NewWalletRequested")
-                })
-
-                it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
+                it("should revert (FROST registry unwired post-slice-3)", async () => {
+                  await expect(bridge.requestNewWallet(NO_MAIN_UTXO)).to.be
+                    .reverted // D-2.2 slice 3: FrostWalletRegistryNotSet
                   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                  expect(walletRegistry.requestNewWallet).to.have.been
-                    .calledOnce
+                  expect(walletRegistry.requestNewWallet).to.not.have.been
+                    .called
                 })
               })
             })
@@ -406,72 +406,193 @@ describe("Bridge - Wallets", () => {
         })
       })
 
-      context("when wallet creation is already in progress", () => {
-        const testData = [
-          {
-            testName: "when wallet creation state is AWAITING_SEED",
-            walletCreationState: ecdsaDkgState.AWAITING_SEED,
-          },
-          {
-            testName: "when wallet creation state is AWAITING_RESULT",
-            walletCreationState: ecdsaDkgState.AWAITING_RESULT,
-          },
-          {
-            testName: "when wallet creation state is CHALLENGE",
-            walletCreationState: ecdsaDkgState.CHALLENGE,
-          },
-        ]
-
-        testData.forEach((test) => {
-          context(test.testName, () => {
-            before(async () => {
-              await createSnapshot()
-
-              walletRegistry.getWalletCreationState.returns(
-                test.walletCreationState
-              )
-            })
-
-            after(async () => {
-              walletRegistry.getWalletCreationState.reset()
-
-              await restoreSnapshot()
-            })
-
-            it("should revert", async () => {
-              await expect(
-                bridge.requestNewWallet(NO_MAIN_UTXO)
-              ).to.be.revertedWith("Wallet creation already in progress")
-            })
-          })
-        })
-      })
+      // The Bridge no longer gates FROST wallet creation on the LEGACY ECDSA
+      // wallet registry's DKG state. That gate read
+      // `ecdsaWalletRegistry.getWalletCreationState() == IDLE`; with ECDSA wallet
+      // creation retired, a stuck ECDSA DKG must not permanently block FROST
+      // wallet creation. The callback remains only to drain pre-upgrade DKGs.
+      // The "one creation at a time" guarantee is now enforced by the FROST
+      // registry itself — FrostWalletRegistry.requestNewWallet() calls
+      // dkg.lockState(), which reverts ("Current state is not IDLE") unless the
+      // FROST DKG is IDLE — so the former "when wallet creation is already in
+      // progress" cases that asserted a revert based on the ECDSA registry's
+      // creation state are removed here (covered at the FROST registry layer).
     })
   })
 
   describe("__ecdsaWalletCreatedCallback", () => {
-    context("when called by a third party", async () => {
-      it("should revert", async () => {
-        await expect(
-          bridge
-            .connect(thirdParty)
-            .__ecdsaWalletCreatedCallback(
-              ecdsaWalletTestData.walletID,
-              ecdsaWalletTestData.publicKeyX,
-              ecdsaWalletTestData.publicKeyY
-            )
-        ).to.be.revertedWith("Caller is not the ECDSA Wallet Registry")
+    context("when called with a valid ECDSA Wallet details", async () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await bridge
+          .connect(walletRegistry.wallet)
+          .__ecdsaWalletCreatedCallback(
+            ecdsaWalletTestData.walletID,
+            ecdsaWalletTestData.publicKeyX,
+            ecdsaWalletTestData.publicKeyY
+          )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should register ECDSA wallet reference", async () => {
+        expect(
+          (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160))
+            .ecdsaWalletID
+        ).equals(ecdsaWalletTestData.walletID)
+      })
+
+      it("should transition wallet to Live state", async () => {
+        expect(
+          (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)).state
+        ).equals(walletState.Live)
+      })
+
+      it("should set the created at timestamp", async () => {
+        expect(
+          (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)).createdAt
+        ).equals(await lastBlockTime())
+      })
+
+      it("should set the wallet as the active one", async () => {
+        expect(await bridge.activeWalletPubKeyHash()).equals(
+          ecdsaWalletTestData.pubKeyHash160
+        )
+      })
+
+      it("should emit NewWalletRegistered event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "NewWalletRegistered")
+          .withArgs(
+            ecdsaWalletTestData.walletID,
+            ecdsaWalletTestData.pubKeyHash160
+          )
+      })
+
+      it("should emit NewWalletRegisteredV2 event", async () => {
+        const expectedWalletID = ethers.utils.hexZeroPad(
+          ecdsaWalletTestData.pubKeyHash160,
+          32
+        )
+
+        await expect(tx)
+          .to.emit(bridge, "NewWalletRegisteredV2")
+          .withArgs(
+            expectedWalletID,
+            ecdsaWalletTestData.walletID,
+            ecdsaWalletTestData.pubKeyHash160
+          )
+      })
+
+      it("should expose canonical wallet ID mapping", async () => {
+        const expectedWalletID = ethers.utils.hexZeroPad(
+          ecdsaWalletTestData.pubKeyHash160,
+          32
+        )
+
+        expect(
+          await bridge.walletPubKeyHashForWalletID(expectedWalletID)
+        ).to.equal(ecdsaWalletTestData.pubKeyHash160)
+
+        const walletByID = await bridge.walletsByWalletID(expectedWalletID)
+        const walletByPKH = await bridge.wallets(
+          ecdsaWalletTestData.pubKeyHash160
+        )
+
+        expect(walletByID.ecdsaWalletID).to.equal(walletByPKH.ecdsaWalletID)
+        expect(walletByID.state).to.equal(walletByPKH.state)
+        expect(walletByID.createdAt).to.equal(walletByPKH.createdAt)
+      })
+
+      it("should expose active wallet canonical ID", async () => {
+        const expectedWalletID = ethers.utils.hexZeroPad(
+          ecdsaWalletTestData.pubKeyHash160,
+          32
+        )
+
+        expect(await bridge.activeWalletID()).to.equal(expectedWalletID)
+        expect(
+          await bridge.walletID(ecdsaWalletTestData.pubKeyHash160)
+        ).to.equal(expectedWalletID)
+      })
+
+      it("should increase the live wallets counter", async () => {
+        expect(await bridge.liveWalletsCount()).to.be.equal(1)
       })
     })
 
-    context("when called by the ECDSA Wallet Registry", async () => {
-      context("when called with a valid ECDSA Wallet details", async () => {
+    context(
+      "when registry reports a non-legacy 32-byte wallet identifier",
+      async () => {
+        const registryWalletID =
+          "0x1234123412341234123412341234123412341234123412341234123412341234"
         let tx: ContractTransaction
 
         before(async () => {
           await createSnapshot()
 
           tx = await bridge
+            .connect(walletRegistry.wallet)
+            .__ecdsaWalletCreatedCallback(
+              registryWalletID,
+              ecdsaWalletTestData.publicKeyX,
+              ecdsaWalletTestData.publicKeyY
+            )
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should store the registry ID only as the ECDSA wallet reference", async () => {
+          expect(
+            (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160))
+              .ecdsaWalletID
+          ).equals(registryWalletID)
+        })
+
+        it("should emit canonical wallet ID derived from the ECDSA public key hash", async () => {
+          const expectedWalletID = ethers.utils.hexZeroPad(
+            ecdsaWalletTestData.pubKeyHash160,
+            32
+          )
+
+          await expect(tx)
+            .to.emit(bridge, "NewWalletRegisteredV2")
+            .withArgs(
+              expectedWalletID,
+              registryWalletID,
+              ecdsaWalletTestData.pubKeyHash160
+            )
+        })
+
+        it("should not activate the registry ID as a canonical wallet ID", async () => {
+          const expectedWalletID = ethers.utils.hexZeroPad(
+            ecdsaWalletTestData.pubKeyHash160,
+            32
+          )
+
+          expect(await bridge.activeWalletID()).to.equal(expectedWalletID)
+          expect(await bridge.activeWalletID()).to.not.equal(registryWalletID)
+          expect(
+            await bridge.walletPubKeyHashForWalletID(registryWalletID)
+          ).to.equal(ethers.constants.AddressZero)
+        })
+      }
+    )
+
+    context(
+      "when called with the ECDSA Wallet already registered",
+      async () => {
+        before(async () => {
+          await createSnapshot()
+
+          await bridge
             .connect(walletRegistry.wallet)
             .__ecdsaWalletCreatedCallback(
               ecdsaWalletTestData.walletID,
@@ -484,144 +605,207 @@ describe("Bridge - Wallets", () => {
           await restoreSnapshot()
         })
 
-        it("should register ECDSA wallet reference", async () => {
-          expect(
-            (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160))
-              .ecdsaWalletID
-          ).equals(ecdsaWalletTestData.walletID)
-        })
+        const testData = [
+          {
+            testName: "with unique wallet ID and unique public key",
+            walletID: ethers.utils.randomBytes(32),
+            publicKeyX: ethers.utils.randomBytes(32),
+            publicKeyY: ethers.utils.randomBytes(32),
+            expectedError: undefined,
+          },
+          {
+            testName: "with duplicated wallet ID and unique public key",
+            walletID: ecdsaWalletTestData.walletID,
+            publicKeyX: ethers.utils.randomBytes(32),
+            publicKeyY: ethers.utils.randomBytes(32),
+            expectedError: undefined,
+          },
+          {
+            testName:
+              "with unique wallet ID, unique public key X and duplicated public key Y",
+            walletID: ethers.utils.randomBytes(32),
+            publicKeyX: ethers.utils.randomBytes(32),
+            publicKeyY: ecdsaWalletTestData.publicKeyY,
+            expectedError: undefined,
+          },
+          {
+            testName:
+              "with unique wallet ID, unique public key Y and duplicated public key X",
+            walletID: ethers.utils.randomBytes(32),
+            publicKeyX: ecdsaWalletTestData.publicKeyY,
+            publicKeyY: ethers.utils.randomBytes(32),
+            expectedError: undefined,
+          },
+          {
+            testName: "with unique wallet ID and duplicated public key",
+            walletID: ethers.utils.randomBytes(32),
+            publicKeyX: ecdsaWalletTestData.publicKeyX,
+            publicKeyY: ecdsaWalletTestData.publicKeyY,
+            expectedError: "ECDSA wallet has been already registered",
+          },
+          {
+            testName: "with duplicated wallet ID and duplicated public key",
+            walletID: ecdsaWalletTestData.walletID,
+            publicKeyX: ecdsaWalletTestData.publicKeyX,
+            publicKeyY: ecdsaWalletTestData.publicKeyY,
+            expectedError: "ECDSA wallet has been already registered",
+          },
+        ]
 
-        it("should transition wallet to Live state", async () => {
-          expect(
-            (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)).state
-          ).equals(walletState.Live)
-        })
+        testData.forEach((test) => {
+          context(test.testName, async () => {
+            beforeEach(async () => {
+              await createSnapshot()
+            })
 
-        it("should set the created at timestamp", async () => {
-          expect(
-            (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)).createdAt
-          ).equals(await lastBlockTime())
-        })
+            afterEach(async () => {
+              await restoreSnapshot()
+            })
 
-        it("should set the wallet as the active one", async () => {
-          expect(await bridge.activeWalletPubKeyHash()).equals(
-            ecdsaWalletTestData.pubKeyHash160
-          )
-        })
+            it(
+              test.expectedError ? "should revert" : "should not revert",
+              async () => {
+                const tx: Promise<ContractTransaction> = bridge
+                  .connect(walletRegistry.wallet)
+                  .__ecdsaWalletCreatedCallback(
+                    test.walletID,
+                    test.publicKeyX,
+                    test.publicKeyY
+                  )
 
-        it("should emit NewWalletRegistered event", async () => {
-          await expect(tx)
-            .to.emit(bridge, "NewWalletRegistered")
-            .withArgs(
-              ecdsaWalletTestData.walletID,
-              ecdsaWalletTestData.pubKeyHash160
+                if (test.expectedError) {
+                  await expect(tx).to.be.revertedWith(test.expectedError)
+                } else {
+                  await expect(tx).not.to.be.reverted
+                }
+              }
             )
+          })
         })
+      }
+    )
 
-        it("should increase the live wallets counter", async () => {
-          expect(await bridge.liveWalletsCount()).to.be.equal(1)
-        })
+    context("when called by a third party", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .__ecdsaWalletCreatedCallback(
+              ecdsaWalletTestData.walletID,
+              ecdsaWalletTestData.publicKeyX,
+              ecdsaWalletTestData.publicKeyY
+            )
+        ).to.be.revertedWith("Caller is not the ECDSA Wallet Registry")
+      })
+    })
+  })
+
+  describe("activeWalletID", () => {
+    context("when active wallet has a stored canonical ID", () => {
+      const nonLegacyWalletID =
+        "0x1234123412341234123412341234123412341234123412341234123412341234"
+
+      before(async () => {
+        await createSnapshot()
+
+        await bridge.setActiveWalletWithID(
+          ecdsaWalletTestData.pubKeyHash160,
+          nonLegacyWalletID
+        )
       })
 
-      context(
-        "when called with the ECDSA Wallet already registered",
-        async () => {
-          before(async () => {
-            await createSnapshot()
+      after(async () => {
+        await restoreSnapshot()
+      })
 
-            await bridge
-              .connect(walletRegistry.wallet)
-              .__ecdsaWalletCreatedCallback(
-                ecdsaWalletTestData.walletID,
-                ecdsaWalletTestData.publicKeyX,
-                ecdsaWalletTestData.publicKeyY
-              )
-          })
-
-          after(async () => {
-            await restoreSnapshot()
-          })
-
-          const testData = [
-            {
-              testName: "with unique wallet ID and unique public key",
-              walletID: ethers.utils.randomBytes(32),
-              publicKeyX: ethers.utils.randomBytes(32),
-              publicKeyY: ethers.utils.randomBytes(32),
-              expectedError: undefined,
-            },
-            {
-              testName: "with duplicated wallet ID and unique public key",
-              walletID: ecdsaWalletTestData.walletID,
-              publicKeyX: ethers.utils.randomBytes(32),
-              publicKeyY: ethers.utils.randomBytes(32),
-              expectedError: undefined,
-            },
-            {
-              testName:
-                "with unique wallet ID, unique public key X and duplicated public key Y",
-              walletID: ethers.utils.randomBytes(32),
-              publicKeyX: ethers.utils.randomBytes(32),
-              publicKeyY: ecdsaWalletTestData.publicKeyY,
-              expectedError: undefined,
-            },
-            {
-              testName:
-                "with unique wallet ID, unique public key Y and duplicated public key X",
-              walletID: ethers.utils.randomBytes(32),
-              publicKeyX: ecdsaWalletTestData.publicKeyY,
-              publicKeyY: ethers.utils.randomBytes(32),
-              expectedError: undefined,
-            },
-            {
-              testName: "with unique wallet ID and duplicated public key",
-              walletID: ethers.utils.randomBytes(32),
-              publicKeyX: ecdsaWalletTestData.publicKeyX,
-              publicKeyY: ecdsaWalletTestData.publicKeyY,
-              expectedError: "ECDSA wallet has been already registered",
-            },
-            {
-              testName: "with duplicated wallet ID and duplicated public key",
-              walletID: ecdsaWalletTestData.walletID,
-              publicKeyX: ecdsaWalletTestData.publicKeyX,
-              publicKeyY: ecdsaWalletTestData.publicKeyY,
-              expectedError: "ECDSA wallet has been already registered",
-            },
-          ]
-
-          testData.forEach((test) => {
-            context(test.testName, async () => {
-              beforeEach(async () => {
-                await createSnapshot()
-              })
-
-              afterEach(async () => {
-                await restoreSnapshot()
-              })
-
-              it(
-                test.expectedError ? "should revert" : "should not revert",
-                async () => {
-                  const tx: Promise<ContractTransaction> = bridge
-                    .connect(walletRegistry.wallet)
-                    .__ecdsaWalletCreatedCallback(
-                      test.walletID,
-                      test.publicKeyX,
-                      test.publicKeyY
-                    )
-
-                  if (test.expectedError) {
-                    await expect(tx).to.be.revertedWith(test.expectedError)
-                  } else {
-                    await expect(tx).not.to.be.reverted
-                  }
-                }
-              )
-            })
-          })
-        }
-      )
+      it("should return stored canonical wallet ID", async () => {
+        expect(await bridge.activeWalletID()).to.equal(nonLegacyWalletID)
+      })
     })
+
+    context("when active wallet has no stored canonical ID", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridge.setActiveWalletWithID(
+          ecdsaWalletTestData.pubKeyHash160,
+          ethers.constants.HashZero
+        )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should derive legacy canonical wallet ID from wallet public key hash", async () => {
+        const expectedWalletID = ethers.utils.hexZeroPad(
+          ecdsaWalletTestData.pubKeyHash160,
+          32
+        )
+
+        expect(await bridge.activeWalletID()).to.equal(expectedWalletID)
+      })
+    })
+
+    context(
+      "when migrated legacy wallet has no stored canonical ID mapping",
+      () => {
+        let expectedWalletID: string
+
+        before(async () => {
+          await createSnapshot()
+
+          expectedWalletID = ethers.utils.hexZeroPad(
+            ecdsaWalletTestData.pubKeyHash160,
+            32
+          )
+
+          await bridge.setActiveWalletWithID(
+            ecdsaWalletTestData.pubKeyHash160,
+            ethers.constants.HashZero
+          )
+          await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
+            ecdsaWalletID: ecdsaWalletTestData.walletID,
+            mainUtxoHash: ethers.constants.HashZero,
+            pendingRedemptionsValue: 0,
+            createdAt: await lastBlockTime(),
+            movingFundsRequestedAt: 0,
+            closingStartedAt: 0,
+            pendingMovedFundsSweepRequestsCount: 0,
+            state: walletState.Live,
+            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          })
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should resolve wallet public key hash from legacy canonical wallet ID", async () => {
+          expect(
+            await bridge.walletPubKeyHashForWalletID(expectedWalletID)
+          ).to.equal(ecdsaWalletTestData.pubKeyHash160)
+        })
+
+        it("should expose the migrated wallet through walletsByWalletID", async () => {
+          const walletByID = await bridge.walletsByWalletID(expectedWalletID)
+
+          expect(walletByID.ecdsaWalletID).to.equal(
+            ecdsaWalletTestData.walletID
+          )
+          expect(walletByID.state).to.equal(walletState.Live)
+        })
+
+        it("should keep activeWalletID round-trippable through wallet ID views", async () => {
+          const activeWalletID = await bridge.activeWalletID()
+
+          expect(activeWalletID).to.equal(expectedWalletID)
+          expect(
+            await bridge.walletPubKeyHashForWalletID(activeWalletID)
+          ).to.equal(ecdsaWalletTestData.pubKeyHash160)
+        })
+      }
+    )
   })
 
   describe("__ecdsaWalletHeartbeatFailedCallback", () => {
@@ -697,6 +881,12 @@ describe("Bridge - Wallets", () => {
             it("should unset the active wallet", async () => {
               expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
                 "0x0000000000000000000000000000000000000000"
+              )
+            })
+
+            it("should unset the active wallet canonical ID", async () => {
+              expect(await bridge.activeWalletID()).to.be.equal(
+                ethers.constants.HashZero
               )
             })
 
@@ -831,6 +1021,12 @@ describe("Bridge - Wallets", () => {
             it("should unset the active wallet", async () => {
               expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
                 "0x0000000000000000000000000000000000000000"
+              )
+            })
+
+            it("should unset the active wallet canonical ID", async () => {
+              expect(await bridge.activeWalletID()).to.be.equal(
+                ethers.constants.HashZero
               )
             })
 
@@ -1571,6 +1767,141 @@ describe("Bridge - Wallets", () => {
           })
         })
       })
+    })
+  })
+
+  describe("slashWalletForFraud", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      walletRegistry.seize.reset()
+      walletRegistry.closeWallet.reset()
+
+      await restoreSnapshot()
+    })
+
+    it("is reached by EcdsaFraudRouter timeout and terminates the wallet", async () => {
+      const data = nonWitnessSignSingleInputTx
+      const walletMembersIDs = [1, 2, 3]
+
+      await bridge.setWallet(fraudWallet.pubKeyHash160, {
+        ecdsaWalletID: fraudWallet.ecdsaWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          {
+            value: constants.fraudChallengeDepositAmount,
+          }
+        )
+      await increaseTime(constants.fraudChallengeDefeatTimeout)
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .notifyFraudChallengeDefeatTimeout(
+          fraudWallet.publicKey,
+          walletMembersIDs,
+          data.preimageSha256
+        )
+
+      expect(walletRegistry.seize).to.have.been.calledWith(
+        constants.fraudSlashingAmount,
+        constants.fraudNotifierRewardMultiplier,
+        thirdParty.address,
+        fraudWallet.ecdsaWalletID,
+        walletMembersIDs
+      )
+      expect(walletRegistry.closeWallet).to.have.been.calledWith(
+        fraudWallet.ecdsaWalletID
+      )
+      expect((await bridge.wallets(fraudWallet.pubKeyHash160)).state).to.equal(
+        walletState.Terminated
+      )
+    })
+  })
+
+  describe("slashWalletForFraud when slashing is inactive", () => {
+    before(async () => {
+      await createSnapshot()
+
+      // The contract default is slashingActive=false; the shared fixture
+      // turns it on so the legacy seize assertions hold. Turn it back off
+      // here to exercise the gate-off path: the inert slashing economics
+      // must be skipped while wallet termination is preserved.
+      await bridgeGovernance.connect(governance).setSlashingActive(false)
+
+      walletRegistry.seize.reset()
+      walletRegistry.closeWallet.reset()
+    })
+
+    after(async () => {
+      walletRegistry.seize.reset()
+      walletRegistry.closeWallet.reset()
+
+      await restoreSnapshot()
+    })
+
+    it("terminates the wallet without seizing", async () => {
+      const data = nonWitnessSignSingleInputTx
+      const walletMembersIDs = [1, 2, 3]
+
+      await bridge.setWallet(fraudWallet.pubKeyHash160, {
+        ecdsaWalletID: fraudWallet.ecdsaWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          {
+            value: constants.fraudChallengeDepositAmount,
+          }
+        )
+      await increaseTime(constants.fraudChallengeDefeatTimeout)
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .notifyFraudChallengeDefeatTimeout(
+          fraudWallet.publicKey,
+          walletMembersIDs,
+          data.preimageSha256
+        )
+
+      // Slashing is gated off: `seize` must not be invoked.
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      expect(walletRegistry.seize).not.to.have.been.called
+      // Termination is unconditional: the wallet is still closed in the
+      // registry and transitions to Terminated regardless of the gate.
+      expect(walletRegistry.closeWallet).to.have.been.calledWith(
+        fraudWallet.ecdsaWalletID
+      )
+      expect((await bridge.wallets(fraudWallet.pubKeyHash160)).state).to.equal(
+        walletState.Terminated
+      )
     })
   })
 })

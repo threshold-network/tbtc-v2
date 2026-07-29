@@ -12,6 +12,7 @@ import {
   DepositState,
   L1BitcoinDepositor,
   DestinationChainName,
+  assertTaprootDepositSupported,
 } from "../contracts"
 import { EthereumAddress, packRevealDepositParameters } from "./index"
 import { BitcoinRawTxVectors } from "../bitcoin"
@@ -142,6 +143,14 @@ export class EthereumL1BitcoinDepositor
     return this.#extraDataEncoder
   }
 
+  /**
+   * @see {BitcoinDepositor#supportsTaprootDeposits}
+   * @returns False because the deployed contract uses the legacy reveal tuple.
+   */
+  supportsTaprootDeposits(): boolean {
+    return false
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {L1BitcoinDepositor#initializeDeposit}
@@ -152,6 +161,8 @@ export class EthereumL1BitcoinDepositor
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
+    assertTaprootDepositSupported(this, deposit)
+
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,

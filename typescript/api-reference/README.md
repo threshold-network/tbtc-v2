@@ -45,6 +45,11 @@
 - [Hex](classes/Hex.md)
 - [MaintenanceService](classes/MaintenanceService.md)
 - [OptimisticMinting](classes/OptimisticMinting.md)
+- [P2TRSignatureFraudBridgeChallengeSubmitter](classes/P2TRSignatureFraudBridgeChallengeSubmitter.md)
+- [P2TRSignatureFraudWatchtower](classes/P2TRSignatureFraudWatchtower.md)
+- [P2TRSignatureFraudWatchtowerRunner](classes/P2TRSignatureFraudWatchtowerRunner.md)
+- [P2TRWatchtowerSerializedChallengeStore](classes/P2TRWatchtowerSerializedChallengeStore.md)
+- [P2TRWitnessSignatureError](classes/P2TRWitnessSignatureError.md)
 - [RedemptionsService](classes/RedemptionsService.md)
 - [SolanaAddress](classes/SolanaAddress.md)
 - [SolanaExtraDataEncoder](classes/SolanaExtraDataEncoder.md)
@@ -82,6 +87,15 @@
 - [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
 - [L1BitcoinRedeemer](interfaces/L1BitcoinRedeemer.md)
 - [L2BitcoinRedeemer](interfaces/L2BitcoinRedeemer.md)
+- [P2TRSignatureFraudBridgeChallengeContract](interfaces/P2TRSignatureFraudBridgeChallengeContract.md)
+- [P2TRSignatureFraudChallengeSubmissionOptions](interfaces/P2TRSignatureFraudChallengeSubmissionOptions.md)
+- [P2TRSignatureFraudChallengeSubmitter](interfaces/P2TRSignatureFraudChallengeSubmitter.md)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource](interfaces/P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource.md)
+- [P2TRSignatureFraudWatchtowerTransactionSource](interfaces/P2TRSignatureFraudWatchtowerTransactionSource.md)
+- [P2TRWatchtowerChallengeRecordPersistence](interfaces/P2TRWatchtowerChallengeRecordPersistence.md)
+- [P2TRWatchtowerChallengeRecordSource](interfaces/P2TRWatchtowerChallengeRecordSource.md)
+- [P2TRWatchtowerChallengeReplayStore](interfaces/P2TRWatchtowerChallengeReplayStore.md)
+- [P2TRWatchtowerChallengeStore](interfaces/P2TRWatchtowerChallengeStore.md)
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
 - [RedemptionRequest](interfaces/RedemptionRequest.md)
 - [RedemptionWallet](interfaces/RedemptionWallet.md)
@@ -90,6 +104,7 @@
 - [StarkNetTBTCTokenConfig](interfaces/StarkNetTBTCTokenConfig.md)
 - [TBTCToken](interfaces/TBTCToken.md)
 - [TBTCVault](interfaces/TBTCVault.md)
+- [TaprootDepositorCapability](interfaces/TaprootDepositorCapability.md)
 - [ValidRedemptionWallet](interfaces/ValidRedemptionWallet.md)
 - [Wallet](interfaces/Wallet.md)
 - [WalletRegistry](interfaces/WalletRegistry.md)
@@ -104,6 +119,8 @@
 - [CrossChainExtraDataEncoder](README.md#crosschainextradataencoder)
 - [CrossChainInterfaces](README.md#crosschaininterfaces)
 - [DepositRevealedEvent](README.md#depositrevealedevent)
+- [DepositScriptOptions](README.md#depositscriptoptions)
+- [DepositScriptType](README.md#depositscripttype)
 - [DestinationChainInterfaces](README.md#destinationchaininterfaces)
 - [DestinationChainName](README.md#destinationchainname)
 - [DkgResultApprovedEvent](README.md#dkgresultapprovedevent)
@@ -124,11 +141,77 @@
 - [OptimisticMintingFinalizedEvent](README.md#optimisticmintingfinalizedevent)
 - [OptimisticMintingRequest](README.md#optimisticmintingrequest)
 - [OptimisticMintingRequestedEvent](README.md#optimisticmintingrequestedevent)
+- [P2TRKeyPathInputWitnessSignature](README.md#p2trkeypathinputwitnesssignature)
+- [P2TRKeyPathWitnessSignature](README.md#p2trkeypathwitnesssignature)
+- [P2TRSignatureFraudBridgeChallengeDomain](README.md#p2trsignaturefraudbridgechallengedomain)
+- [P2TRSignatureFraudBridgeChallengeIdentity](README.md#p2trsignaturefraudbridgechallengeidentity)
+- [P2TRSignatureFraudBridgeChallengeKey](README.md#p2trsignaturefraudbridgechallengekey)
+- [P2TRSignatureFraudBridgeChallengePayload](README.md#p2trsignaturefraudbridgechallengepayload)
+- [P2TRSignatureFraudBridgeChallengePayloadInput](README.md#p2trsignaturefraudbridgechallengepayloadinput)
+- [P2TRSignatureFraudBridgeChallengePayloadOutput](README.md#p2trsignaturefraudbridgechallengepayloadoutput)
+- [P2TRSignatureFraudBridgeChallengePayloadPrevout](README.md#p2trsignaturefraudbridgechallengepayloadprevout)
+- [P2TRSignatureFraudBridgeChallengeSubmitterOptions](README.md#p2trsignaturefraudbridgechallengesubmitteroptions)
+- [P2TRSignatureFraudBridgeFraudParameters](README.md#p2trsignaturefraudbridgefraudparameters)
+- [P2TRSignatureFraudBridgeTransaction](README.md#p2trsignaturefraudbridgetransaction)
+- [P2TRSignatureFraudBridgeTransactionReceipt](README.md#p2trsignaturefraudbridgetransactionreceipt)
+- [P2TRSignatureFraudChallengeSubmissionPolicy](README.md#p2trsignaturefraudchallengesubmissionpolicy)
+- [P2TRSignatureFraudDraftChallenge](README.md#p2trsignaturefrauddraftchallenge)
+- [P2TRSignatureFraudPayloadBounds](README.md#p2trsignaturefraudpayloadbounds)
+- [P2TRSignatureFraudSpendType](README.md#p2trsignaturefraudspendtype)
+- [P2TRSignatureFraudSpendTypeClassifier](README.md#p2trsignaturefraudspendtypeclassifier)
+- [P2TRSignatureFraudSpendTypeClassifierContext](README.md#p2trsignaturefraudspendtypeclassifiercontext)
+- [P2TRSignatureFraudSpendTypeClassifierRule](README.md#p2trsignaturefraudspendtypeclassifierrule)
+- [P2TRSignatureFraudWatchtowerBatchResult](README.md#p2trsignaturefraudwatchtowerbatchresult)
+- [P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget](README.md#p2trsignaturefraudwatchtowerbridgechallengelifecycleeventtarget)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleBatchResult](README.md#p2trsignaturefraudwatchtowerbridgelifecyclebatchresult)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleCycleResult](README.md#p2trsignaturefraudwatchtowerbridgelifecyclecycleresult)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleEvent](README.md#p2trsignaturefraudwatchtowerbridgelifecycleevent)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleEventTarget](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventtarget)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleFailure](README.md#p2trsignaturefraudwatchtowerbridgelifecyclefailure)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleIgnored](README.md#p2trsignaturefraudwatchtowerbridgelifecycleignored)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleResult](README.md#p2trsignaturefraudwatchtowerbridgelifecycleresult)
+- [P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure](README.md#p2trsignaturefraudwatchtowerbridgelifecyclesourcefailure)
+- [P2TRSignatureFraudWatchtowerBridgeProofLifecycleEventTarget](README.md#p2trsignaturefraudwatchtowerbridgeprooflifecycleeventtarget)
+- [P2TRSignatureFraudWatchtowerCycleResult](README.md#p2trsignaturefraudwatchtowercycleresult)
+- [P2TRSignatureFraudWatchtowerIntegratedCycleResult](README.md#p2trsignaturefraudwatchtowerintegratedcycleresult)
+- [P2TRSignatureFraudWatchtowerIntegratedSourceFailure](README.md#p2trsignaturefraudwatchtowerintegratedsourcefailure)
+- [P2TRSignatureFraudWatchtowerObservationResult](README.md#p2trsignaturefraudwatchtowerobservationresult)
+- [P2TRSignatureFraudWatchtowerProcessingFailure](README.md#p2trsignaturefraudwatchtowerprocessingfailure)
+- [P2TRSignatureFraudWatchtowerRunnerOptions](README.md#p2trsignaturefraudwatchtowerrunneroptions)
+- [P2TRSignatureFraudWatchtowerSourceFailure](README.md#p2trsignaturefraudwatchtowersourcefailure)
+- [P2TRSignatureFraudWatchtowerSubmissionResult](README.md#p2trsignaturefraudwatchtowersubmissionresult)
+- [P2TRSignatureFraudWatchtowerTransactionSourceName](README.md#p2trsignaturefraudwatchtowertransactionsourcename)
+- [P2TRSignatureFraudWitnessObservation](README.md#p2trsignaturefraudwitnessobservation)
+- [P2TRSignatureFraudWitnessObservationConsistencyContext](README.md#p2trsignaturefraudwitnessobservationconsistencycontext)
+- [P2TRSignatureFraudWitnessObservationJSON](README.md#p2trsignaturefraudwitnessobservationjson)
+- [P2TRSupportedSighashType](README.md#p2trsupportedsighashtype)
+- [P2TRWalletInputKeyBinding](README.md#p2trwalletinputkeybinding)
+- [P2TRWalletInputObservationPrevout](README.md#p2trwalletinputobservationprevout)
+- [P2TRWalletInputObservationPrevoutJSON](README.md#p2trwalletinputobservationprevoutjson)
+- [P2TRWalletInputPrevout](README.md#p2trwalletinputprevout)
+- [P2TRWalletInputWitnessCandidate](README.md#p2trwalletinputwitnesscandidate)
+- [P2TRWalletInputWitnessObservation](README.md#p2trwalletinputwitnessobservation)
+- [P2TRWatchtowerBitcoinProofAlias](README.md#p2trwatchtowerbitcoinproofalias)
+- [P2TRWatchtowerBitcoinProofAliasJSON](README.md#p2trwatchtowerbitcoinproofaliasjson)
+- [P2TRWatchtowerBitcoinStatus](README.md#p2trwatchtowerbitcoinstatus)
+- [P2TRWatchtowerChallengeEvent](README.md#p2trwatchtowerchallengeevent)
+- [P2TRWatchtowerChallengeRecord](README.md#p2trwatchtowerchallengerecord)
+- [P2TRWatchtowerChallengeRecordJSON](README.md#p2trwatchtowerchallengerecordjson)
+- [P2TRWatchtowerChallengeRecordSummary](README.md#p2trwatchtowerchallengerecordsummary)
+- [P2TRWatchtowerChallengeStatus](README.md#p2trwatchtowerchallengestatus)
+- [P2TRWatchtowerConfirmedTransaction](README.md#p2trwatchtowerconfirmedtransaction)
+- [P2TRWatchtowerMempoolTransaction](README.md#p2trwatchtowermempooltransaction)
+- [P2TRWatchtowerOperatorAlert](README.md#p2trwatchtoweroperatoralert)
+- [P2TRWatchtowerOperatorAlertStatus](README.md#p2trwatchtoweroperatoralertstatus)
+- [P2TRWitnessSignatureErrorCode](README.md#p2trwitnesssignatureerrorcode)
 - [RedemptionRequestedEvent](README.md#redemptionrequestedevent)
 - [RetrierFn](README.md#retrierfn)
 - [StarkNetDepositorConfig](README.md#starknetdepositorconfig)
 - [StarkNetProvider](README.md#starknetprovider)
 - [TBTCContracts](README.md#tbtccontracts)
+- [TaprootDepositReceipt](README.md#taprootdepositreceipt)
+- [TaprootDepositRevealedEvent](README.md#taprootdepositrevealedevent)
 
 ### Variables
 
@@ -145,9 +228,32 @@
 - [BitcoinPrivateKeyUtils](README.md#bitcoinprivatekeyutils)
 - [BitcoinPublicKeyUtils](README.md#bitcoinpublickeyutils)
 - [BitcoinScriptUtils](README.md#bitcoinscriptutils)
+- [BitcoinTaprootUtils](README.md#bitcointaprootutils)
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
+- [DepositScriptType](README.md#depositscripttype-1)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [P2TR\_SIGHASH\_ALL](README.md#p2tr_sighash_all)
+- [P2TR\_SIGHASH\_ANYONECANPAY\_ALL](README.md#p2tr_sighash_anyonecanpay_all)
+- [P2TR\_SIGHASH\_ANYONECANPAY\_FLAG](README.md#p2tr_sighash_anyonecanpay_flag)
+- [P2TR\_SIGHASH\_ANYONECANPAY\_NONE](README.md#p2tr_sighash_anyonecanpay_none)
+- [P2TR\_SIGHASH\_ANYONECANPAY\_SINGLE](README.md#p2tr_sighash_anyonecanpay_single)
+- [P2TR\_SIGHASH\_DEFAULT](README.md#p2tr_sighash_default)
+- [P2TR\_SIGHASH\_NONE](README.md#p2tr_sighash_none)
+- [P2TR\_SIGHASH\_SINGLE](README.md#p2tr_sighash_single)
+- [P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_ACTION\_SUBMIT](README.md#p2tr_signature_fraud_bridge_action_submit)
+- [P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_ID\_DOMAIN](README.md#p2tr_signature_fraud_bridge_challenge_id_domain)
+- [P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_KEY\_DOMAIN](README.md#p2tr_signature_fraud_bridge_challenge_key_domain)
+- [P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_PAYLOAD\_ABI\_TYPE](README.md#p2tr_signature_fraud_bridge_challenge_payload_abi_type)
+- [P2TR\_SIGNATURE\_FRAUD\_DRAFT\_CHALLENGE\_ID\_DOMAIN](README.md#p2tr_signature_fraud_draft_challenge_id_domain)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_DEPOSIT\_SWEEP](README.md#p2tr_signature_fraud_spend_type_deposit_sweep)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_HEARTBEAT](README.md#p2tr_signature_fraud_spend_type_heartbeat)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_MOVED\_FUNDS\_SWEEP](README.md#p2tr_signature_fraud_spend_type_moved_funds_sweep)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_MOVING\_FUNDS](README.md#p2tr_signature_fraud_spend_type_moving_funds)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_REDEMPTION](README.md#p2tr_signature_fraud_spend_type_redemption)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_UNCLASSIFIED](README.md#p2tr_signature_fraud_spend_type_unclassified)
+- [P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_WALLET\_CLOSING](README.md#p2tr_signature_fraud_spend_type_wallet_closing)
+- [P2TR\_WATCHTOWER\_OBSERVATION\_ID\_DOMAIN](README.md#p2tr_watchtower_observation_id_domain)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
@@ -157,18 +263,36 @@
 ### Functions
 
 - [amountToSatoshi](README.md#amounttosatoshi)
+- [applyP2TRWatchtowerChallengeEvent](README.md#applyp2trwatchtowerchallengeevent)
 - [assembleBitcoinSpvProof](README.md#assemblebitcoinspvproof)
+- [assertTaprootDepositSupported](README.md#asserttaprootdepositsupported)
 - [backoffRetrier](README.md#backoffretrier)
+- [buildP2TRSignatureFraudBridgeChallengePayload](README.md#buildp2trsignaturefraudbridgechallengepayload)
 - [chainIdFromSigner](README.md#chainidfromsigner)
 - [computeElectrumScriptHash](README.md#computeelectrumscripthash)
+- [computeP2TRKeyPathSighash](README.md#computep2trkeypathsighash)
+- [computeP2TRSignatureFraudBridgeChallengeIdentity](README.md#computep2trsignaturefraudbridgechallengeidentity)
+- [computeP2TRSignatureFraudBridgeChallengeKey](README.md#computep2trsignaturefraudbridgechallengekey)
+- [computeP2TRSignatureFraudDraftChallengeIdentity](README.md#computep2trsignaturefrauddraftchallengeidentity)
+- [computeP2TRWalletInputWitnessObservationID](README.md#computep2trwalletinputwitnessobservationid)
+- [createP2TRSignatureFraudSpendTypeClassifier](README.md#createp2trsignaturefraudspendtypeclassifier)
+- [createP2TRWatchtowerChallengeRecord](README.md#createp2trwatchtowerchallengerecord)
 - [decodeDestinationReceiver](README.md#decodedestinationreceiver)
+- [deserializeP2TRSignatureFraudWitnessObservation](README.md#deserializep2trsignaturefraudwitnessobservation)
+- [deserializeP2TRWatchtowerChallengeRecord](README.md#deserializep2trwatchtowerchallengerecord)
 - [encodeDestinationReceiver](README.md#encodedestinationreceiver)
+- [encodeP2TRSignatureFraudBridgeChallengePayload](README.md#encodep2trsignaturefraudbridgechallengepayload)
 - [ethereumAddressFromSigner](README.md#ethereumaddressfromsigner)
 - [ethereumCrossChainContractsLoader](README.md#ethereumcrosschaincontractsloader)
 - [extractBitcoinRawTxVectors](README.md#extractbitcoinrawtxvectors)
+- [extractP2TRKeyPathInputWitnessSignature](README.md#extractp2trkeypathinputwitnesssignature)
+- [extractP2TRSignatureFraudWitnessObservations](README.md#extractp2trsignaturefraudwitnessobservations)
+- [extractP2TRWalletIDFromScriptPubKey](README.md#extractp2trwalletidfromscriptpubkey)
+- [extractP2TRWalletInputWitnessCandidates](README.md#extractp2trwalletinputwitnesscandidates)
 - [getChainIdFromEncodedReceiver](README.md#getchainidfromencodedreceiver)
 - [getRecipientFromEncodedReceiver](README.md#getrecipientfromencodedreceiver)
 - [isValidEncodedReceiver](README.md#isvalidencodedreceiver)
+- [listP2TRWatchtowerUnresolvedOperatorAlerts](README.md#listp2trwatchtowerunresolvedoperatoralerts)
 - [loadArbitrumCrossChainContracts](README.md#loadarbitrumcrosschaincontracts)
 - [loadArbitrumCrossChainInterfaces](README.md#loadarbitrumcrosschaininterfaces)
 - [loadBaseCrossChainContracts](README.md#loadbasecrosschaincontracts)
@@ -178,12 +302,25 @@
 - [loadStarkNetCrossChainContracts](README.md#loadstarknetcrosschaincontracts)
 - [loadStarkNetCrossChainInterfaces](README.md#loadstarknetcrosschaininterfaces)
 - [packRevealDepositParameters](README.md#packrevealdepositparameters)
+- [parseP2TRKeyPathWitnessSignature](README.md#parsep2trkeypathwitnesssignature)
+- [recordP2TRWatchtowerChallengeEvent](README.md#recordp2trwatchtowerchallengeevent)
+- [recordP2TRWatchtowerChallengeEventWithRetry](README.md#recordp2trwatchtowerchallengeeventwithretry)
+- [resolveP2TRInputPrevouts](README.md#resolvep2trinputprevouts)
+- [resolveP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType](README.md#resolvep2trwatchtowerobservationidforbitcointxhashandspendtype)
+- [resolveP2TRWatchtowerObservationIDForBridgeChallengeKey](README.md#resolvep2trwatchtowerobservationidforbridgechallengekey)
 - [retryAll](README.md#retryall)
+- [serializeP2TRSignatureFraudWitnessObservation](README.md#serializep2trsignaturefraudwitnessobservation)
+- [serializeP2TRWatchtowerChallengeRecord](README.md#serializep2trwatchtowerchallengerecord)
 - [skipRetryWhenMatched](README.md#skipretrywhenmatched)
+- [stripWitnessesFromBitcoinRawTransaction](README.md#stripwitnessesfrombitcoinrawtransaction)
+- [summarizeP2TRWatchtowerChallengeRecords](README.md#summarizep2trwatchtowerchallengerecords)
+- [supportsTaprootDeposits](README.md#supportstaprootdeposits)
 - [toBitcoinJsLibNetwork](README.md#tobitcoinjslibnetwork)
 - [validateBitcoinHeadersChain](README.md#validatebitcoinheaderschain)
 - [validateBitcoinSpvProof](README.md#validatebitcoinspvproof)
 - [validateDepositReceipt](README.md#validatedepositreceipt)
+- [validateP2TRSignatureFraudPayloadBounds](README.md#validatep2trsignaturefraudpayloadbounds)
+- [validateP2TRSignatureFraudWitnessObservationConsistency](README.md#validatep2trsignaturefraudwitnessobservationconsistency)
 
 ## Type Aliases
 
@@ -195,7 +332,7 @@ Data about a Bitcoin transaction input.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L63)
+[src/lib/bitcoin/tx.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L63)
 
 ___
 
@@ -207,7 +344,7 @@ Data about a Bitcoin unspent transaction output.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L93)
+[src/lib/bitcoin/tx.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L93)
 
 ___
 
@@ -230,7 +367,7 @@ Type representing a mapping between specific L1 and L2 chains.
 
 #### Defined in
 
-[lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
+[src/lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
 
 ___
 
@@ -244,7 +381,7 @@ Use CrossChainInterfaces instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L252)
+[src/lib/contracts/cross-chain.ts:253](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L253)
 
 ___
 
@@ -261,7 +398,7 @@ Mode of operation for the cross-chain depositor proxy:
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L21)
+[src/services/deposits/cross-chain.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L23)
 
 ___
 
@@ -275,7 +412,7 @@ Use ExtraDataEncoder instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L272)
+[src/lib/contracts/cross-chain.ts:273](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L273)
 
 ___
 
@@ -288,7 +425,7 @@ between TBTC L1 ledger chain and a specific supported destination chain.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L13)
+[src/lib/contracts/cross-chain.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L14)
 
 ___
 
@@ -300,7 +437,29 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:307](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L307)
+[src/lib/contracts/bridge.ts:403](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L403)
+
+___
+
+### DepositScriptOptions
+
+Ƭ **DepositScriptOptions**: `boolean` \| [`DepositScriptType`](README.md#depositscripttype) \| \{ `scriptType?`: [`DepositScriptType`](README.md#depositscripttype)  }
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L32)
+
+___
+
+### DepositScriptType
+
+Ƭ **DepositScriptType**: typeof [`DepositScriptType`](README.md#depositscripttype-1)[keyof typeof [`DepositScriptType`](README.md#depositscripttype-1)]
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L23)
+
+[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
 
 ___
 
@@ -320,7 +479,7 @@ Aggregates destination chain-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L19)
+[src/lib/contracts/cross-chain.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L20)
 
 ___
 
@@ -333,7 +492,7 @@ These are chains other than the main Ethereum L1 chain.
 
 #### Defined in
 
-[lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
+[src/lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
 
 ___
 
@@ -346,7 +505,7 @@ wallet registry.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L64)
+[src/lib/contracts/wallet-registry.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L64)
 
 ___
 
@@ -359,7 +518,7 @@ wallet registry.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L79)
+[src/lib/contracts/wallet-registry.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L79)
 
 ___
 
@@ -372,7 +531,7 @@ wallet registry.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L45)
+[src/lib/contracts/wallet-registry.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L45)
 
 ___
 
@@ -384,7 +543,7 @@ Additional options used by the Electrum server.
 
 #### Defined in
 
-[lib/electrum/client.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L54)
+[src/lib/electrum/client.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L54)
 
 ___
 
@@ -408,7 +567,7 @@ ___
 
 #### Defined in
 
-[lib/utils/backoff.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L42)
+[src/lib/utils/backoff.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L42)
 
 ___
 
@@ -422,7 +581,7 @@ or a Provider that works only in the read-only mode.
 
 #### Defined in
 
-[lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
+[src/lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
 
 ___
 
@@ -448,7 +607,7 @@ A function that is called with execution status messages.
 
 #### Defined in
 
-[lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
+[src/lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
 
 ___
 
@@ -461,7 +620,7 @@ specific to the given L2 chain, deployed on the L1 chain.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L163)
+[src/lib/contracts/cross-chain.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L164)
 
 ___
 
@@ -480,7 +639,7 @@ Aggregates L1-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L28)
+[src/lib/contracts/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L29)
 
 ___
 
@@ -494,7 +653,7 @@ Use BitcoinDepositor instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L267)
+[src/lib/contracts/cross-chain.ts:268](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L268)
 
 ___
 
@@ -508,7 +667,7 @@ Use DestinationChainName instead
 
 #### Defined in
 
-[lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
+[src/lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
 
 ___
 
@@ -522,7 +681,7 @@ Use DestinationChainInterfaces instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L257)
+[src/lib/contracts/cross-chain.ts:258](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L258)
 
 ___
 
@@ -536,19 +695,19 @@ Use DestinationChainTBTCToken instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L262)
+[src/lib/contracts/cross-chain.ts:263](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L263)
 
 ___
 
 ### NewWalletRegisteredEvent
 
-Ƭ **NewWalletRegisteredEvent**: \{ `ecdsaWalletID`: [`Hex`](classes/Hex.md) ; `walletPublicKeyHash`: [`Hex`](classes/Hex.md)  } & [`ChainEvent`](interfaces/ChainEvent.md)
+Ƭ **NewWalletRegisteredEvent**: \{ `ecdsaWalletID`: [`Hex`](classes/Hex.md) ; `walletID?`: [`Hex`](classes/Hex.md) ; `walletPublicKeyHash`: [`Hex`](classes/Hex.md)  } & [`ChainEvent`](interfaces/ChainEvent.md)
 
 Represents an event emitted when new wallet is registered on the on-chain bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:471](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L471)
+[src/lib/contracts/bridge.ts:581](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L581)
 
 ___
 
@@ -561,7 +720,7 @@ is cancelled on chain.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L170)
+[src/lib/contracts/tbtc-vault.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L170)
 
 ___
 
@@ -574,7 +733,7 @@ is finalized on chain.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L186)
+[src/lib/contracts/tbtc-vault.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L186)
 
 ___
 
@@ -594,7 +753,7 @@ Bridge.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L120)
+[src/lib/contracts/tbtc-vault.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L120)
 
 ___
 
@@ -607,7 +766,1086 @@ on chain.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L136)
+[src/lib/contracts/tbtc-vault.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L136)
+
+___
+
+### P2TRKeyPathInputWitnessSignature
+
+Ƭ **P2TRKeyPathInputWitnessSignature**: [`P2TRKeyPathWitnessSignature`](README.md#p2trkeypathwitnesssignature) & \{ `inputIndex`: `number`  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L74)
+
+___
+
+### P2TRKeyPathWitnessSignature
+
+Ƭ **P2TRKeyPathWitnessSignature**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `sighashType` | [`P2TRSupportedSighashType`](README.md#p2trsupportedsighashtype) |
+| `signature` | [`Hex`](classes/Hex.md) |
+| `witnessSignature` | [`Hex`](classes/Hex.md) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L68)
+
+___
+
+### P2TRSignatureFraudBridgeChallengeDomain
+
+Ƭ **P2TRSignatureFraudBridgeChallengeDomain**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeAddress` | `string` |
+| `chainID` | `BigNumberish` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:147](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L147)
+
+___
+
+### P2TRSignatureFraudBridgeChallengeIdentity
+
+Ƭ **P2TRSignatureFraudBridgeChallengeIdentity**: `Object`
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `annex?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` | **`Deprecated`** The canonical identity is derived from `sighash`; ignored. |
+| `inputPrevouts?` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] | **`Deprecated`** The canonical identity is derived from `sighash`; ignored. |
+| `sighash` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` | - |
+| `sighashType` | [`P2TRSupportedSighashType`](README.md#p2trsupportedsighashtype) | - |
+| `signature` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` | - |
+| `signedInputIndex?` | `number` | **`Deprecated`** The canonical identity is derived from `sighash`; ignored. |
+| `unsignedTransaction?` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | **`Deprecated`** The canonical identity is derived from `sighash`; ignored. |
+| `walletID` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` | - |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:126](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L126)
+
+___
+
+### P2TRSignatureFraudBridgeChallengeKey
+
+Ƭ **P2TRSignatureFraudBridgeChallengeKey**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeAddress` | `string` |
+| `bridgeChallengeIdentity` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `chainID` | `BigNumberish` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L141)
+
+___
+
+### P2TRSignatureFraudBridgeChallengePayload
+
+Ƭ **P2TRSignatureFraudBridgeChallengePayload**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `annex` | `string` |
+| `inputs` | [`P2TRSignatureFraudBridgeChallengePayloadInput`](README.md#p2trsignaturefraudbridgechallengepayloadinput)[] |
+| `locktime` | `number` |
+| `outputs` | [`P2TRSignatureFraudBridgeChallengePayloadOutput`](README.md#p2trsignaturefraudbridgechallengepayloadoutput)[] |
+| `prevouts` | [`P2TRSignatureFraudBridgeChallengePayloadPrevout`](README.md#p2trsignaturefraudbridgechallengepayloadprevout)[] |
+| `signedInputIndex` | `number` |
+| `version` | `number` |
+| `walletID` | `string` |
+| `witnessSignature` | `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:439](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L439)
+
+___
+
+### P2TRSignatureFraudBridgeChallengePayloadInput
+
+Ƭ **P2TRSignatureFraudBridgeChallengePayloadInput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `sequence` | `number` |
+| `txid` | `string` |
+| `vout` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:423](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L423)
+
+___
+
+### P2TRSignatureFraudBridgeChallengePayloadOutput
+
+Ƭ **P2TRSignatureFraudBridgeChallengePayloadOutput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `scriptPubKey` | `string` |
+| `valueSats` | `BigNumberish` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:434](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L434)
+
+___
+
+### P2TRSignatureFraudBridgeChallengePayloadPrevout
+
+Ƭ **P2TRSignatureFraudBridgeChallengePayloadPrevout**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `scriptPubKey` | `string` |
+| `valueSats` | `BigNumberish` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:429](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L429)
+
+___
+
+### P2TRSignatureFraudBridgeChallengeSubmitterOptions
+
+Ƭ **P2TRSignatureFraudBridgeChallengeSubmitterOptions**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `challengeDepositAmount?` | `BigNumberish` |
+| `confirmations?` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:502](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L502)
+
+___
+
+### P2TRSignatureFraudBridgeFraudParameters
+
+Ƭ **P2TRSignatureFraudBridgeFraudParameters**: `Object`
+
+#### Index signature
+
+▪ [index: `number`]: `unknown`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `fraudChallengeDepositAmount?` | `BigNumberish` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:454](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L454)
+
+___
+
+### P2TRSignatureFraudBridgeTransaction
+
+Ƭ **P2TRSignatureFraudBridgeTransaction**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `hash` | `string` |
+| `wait?` | (`confirmations?`: `number`) => `Promise`\<[`P2TRSignatureFraudBridgeTransactionReceipt`](README.md#p2trsignaturefraudbridgetransactionreceipt)\> |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:463](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L463)
+
+___
+
+### P2TRSignatureFraudBridgeTransactionReceipt
+
+Ƭ **P2TRSignatureFraudBridgeTransactionReceipt**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `status?` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:459](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L459)
+
+___
+
+### P2TRSignatureFraudChallengeSubmissionPolicy
+
+Ƭ **P2TRSignatureFraudChallengeSubmissionPolicy**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `allowedSpendTypes?` | [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:507](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L507)
+
+___
+
+### P2TRSignatureFraudDraftChallenge
+
+Ƭ **P2TRSignatureFraudDraftChallenge**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
+| `sighash` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `sighashType` | [`P2TRSupportedSighashType`](README.md#p2trsupportedsighashtype) |
+| `signature` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `signedInputIndex` | `number` |
+| `unsignedTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `walletID` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:116](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L116)
+
+___
+
+### P2TRSignatureFraudPayloadBounds
+
+Ƭ **P2TRSignatureFraudPayloadBounds**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `maxInputs?` | `number` |
+| `maxOutputs?` | `number` |
+| `maxRawTransactionBytes?` | `number` |
+| `maxScriptPubKeyBytes?` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L152)
+
+___
+
+### P2TRSignatureFraudSpendType
+
+Ƭ **P2TRSignatureFraudSpendType**: typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED`](README.md#p2tr_signature_fraud_spend_type_unclassified) \| typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP`](README.md#p2tr_signature_fraud_spend_type_deposit_sweep) \| typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS`](README.md#p2tr_signature_fraud_spend_type_moving_funds) \| typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVED_FUNDS_SWEEP`](README.md#p2tr_signature_fraud_spend_type_moved_funds_sweep) \| typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION`](README.md#p2tr_signature_fraud_spend_type_redemption) \| typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING`](README.md#p2tr_signature_fraud_spend_type_wallet_closing) \| typeof [`P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT`](README.md#p2tr_signature_fraud_spend_type_heartbeat)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L38)
+
+___
+
+### P2TRSignatureFraudSpendTypeClassifier
+
+Ƭ **P2TRSignatureFraudSpendTypeClassifier**: (`context`: [`P2TRSignatureFraudSpendTypeClassifierContext`](README.md#p2trsignaturefraudspendtypeclassifiercontext)) => [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype)
+
+#### Type declaration
+
+▸ (`context`): [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype)
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `context` | [`P2TRSignatureFraudSpendTypeClassifierContext`](README.md#p2trsignaturefraudspendtypeclassifiercontext) |
+
+##### Returns
+
+[`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:519](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L519)
+
+___
+
+### P2TRSignatureFraudSpendTypeClassifierContext
+
+Ƭ **P2TRSignatureFraudSpendTypeClassifierContext**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeIdentifier?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `candidate` | [`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate) |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `unsignedTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:511](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L511)
+
+___
+
+### P2TRSignatureFraudSpendTypeClassifierRule
+
+Ƭ **P2TRSignatureFraudSpendTypeClassifierRule**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `spendType` | [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype) |
+| `matches` | (`context`: [`P2TRSignatureFraudSpendTypeClassifierContext`](README.md#p2trsignaturefraudspendtypeclassifiercontext)) => `boolean` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:523](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L523)
+
+___
+
+### P2TRSignatureFraudWatchtowerBatchResult
+
+Ƭ **P2TRSignatureFraudWatchtowerBatchResult**\<`T`\>: `Object`
+
+#### Type parameters
+
+| Name |
+| :------ |
+| `T` |
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `failures` | [`P2TRSignatureFraudWatchtowerProcessingFailure`](README.md#p2trsignaturefraudwatchtowerprocessingfailure)\<`T`\>[] |
+| `submissions` | [`P2TRSignatureFraudWatchtowerSubmissionResult`](README.md#p2trsignaturefraudwatchtowersubmissionresult)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:224](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L224)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget**: \{ `bitcoinTxHash?`: `never` ; `bridgeChallengeKey?`: `never` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `spendType?`: `never`  } \| \{ `bitcoinTxHash?`: `never` ; `bridgeChallengeKey`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observationID?`: `never` ; `spendType?`: `never`  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L252)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleBatchResult
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleBatchResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `failures` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleFailure`](README.md#p2trsignaturefraudwatchtowerbridgelifecyclefailure)[] |
+| `ignored` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleIgnored`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleignored)[] |
+| `records` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleResult`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleresult)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:336](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L336)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleCycleResult
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleCycleResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeLifecycle` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleBatchResult`](README.md#p2trsignaturefraudwatchtowerbridgelifecyclebatchresult) |
+| `sourceFailures` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure`](README.md#p2trsignaturefraudwatchtowerbridgelifecyclesourcefailure)[] |
+| `summary` | [`P2TRWatchtowerChallengeRecordSummary`](README.md#p2trwatchtowerchallengerecordsummary) |
+| `unresolvedOperatorAlerts` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:347](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L347)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleEvent
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleEvent**: \{ `defeatTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"defeated"``  } & [`P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgechallengelifecycleeventtarget) & [`P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence) \| \{ `type`: ``"honest-spend-proven"``  } & [`P2TRSignatureFraudWatchtowerBridgeProofLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgeprooflifecycleeventtarget) & [`P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence) \| \{ `type`: ``"timeout-eligible"``  } & [`P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgechallengelifecycleeventtarget) & [`P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence) \| \{ `slashingTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"slashed"``  } & [`P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgechallengelifecycleeventtarget) & [`P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence) \| \{ `rewardTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"rewarded"``  } & [`P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgechallengelifecycleeventtarget) & [`P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:290](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L290)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeChallengeIdentity?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `sighash?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `walletID?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:284](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L284)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleEventTarget
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleEventTarget**: [`P2TRSignatureFraudWatchtowerBridgeChallengeLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgechallengelifecycleeventtarget) \| [`P2TRSignatureFraudWatchtowerBridgeProofLifecycleEventTarget`](README.md#p2trsignaturefraudwatchtowerbridgeprooflifecycleeventtarget)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:280](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L280)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleFailure
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleFailure**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `error` | `string` |
+| `event` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleEvent`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleevent) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:326](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L326)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleIgnored
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleIgnored**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `event` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleEvent`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleevent) |
+| `reason` | `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:331](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L331)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleResult
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `event` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleEvent`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleevent) |
+| `record` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:321](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L321)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `error` | `string` |
+| `source` | ``"bridge-lifecycle"`` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:342](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L342)
+
+___
+
+### P2TRSignatureFraudWatchtowerBridgeProofLifecycleEventTarget
+
+Ƭ **P2TRSignatureFraudWatchtowerBridgeProofLifecycleEventTarget**: \{ `bitcoinTxHash?`: `never` ; `bridgeChallengeKey?`: `never` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `spendType?`: `never`  } \| \{ `bitcoinTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `bridgeChallengeKey?`: `never` ; `observationID?`: `never` ; `spendType`: [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype)  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:266](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L266)
+
+___
+
+### P2TRSignatureFraudWatchtowerCycleResult
+
+Ƭ **P2TRSignatureFraudWatchtowerCycleResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `confirmed` | [`P2TRSignatureFraudWatchtowerBatchResult`](README.md#p2trsignaturefraudwatchtowerbatchresult)\<[`P2TRWatchtowerConfirmedTransaction`](README.md#p2trwatchtowerconfirmedtransaction)\> |
+| `mempool` | [`P2TRSignatureFraudWatchtowerBatchResult`](README.md#p2trsignaturefraudwatchtowerbatchresult)\<[`P2TRWatchtowerMempoolTransaction`](README.md#p2trwatchtowermempooltransaction)\> |
+| `replayed` | [`P2TRSignatureFraudWatchtowerSubmissionResult`](README.md#p2trsignaturefraudwatchtowersubmissionresult)[] |
+| `sourceFailures` | [`P2TRSignatureFraudWatchtowerSourceFailure`](README.md#p2trsignaturefraudwatchtowersourcefailure)[] |
+| `summary` | [`P2TRWatchtowerChallengeRecordSummary`](README.md#p2trwatchtowerchallengerecordsummary) |
+| `unresolvedOperatorAlerts` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:243](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L243)
+
+___
+
+### P2TRSignatureFraudWatchtowerIntegratedCycleResult
+
+Ƭ **P2TRSignatureFraudWatchtowerIntegratedCycleResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeLifecycle` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleBatchResult`](README.md#p2trsignaturefraudwatchtowerbridgelifecyclebatchresult) |
+| `confirmed` | [`P2TRSignatureFraudWatchtowerBatchResult`](README.md#p2trsignaturefraudwatchtowerbatchresult)\<[`P2TRWatchtowerConfirmedTransaction`](README.md#p2trwatchtowerconfirmedtransaction)\> |
+| `mempool` | [`P2TRSignatureFraudWatchtowerBatchResult`](README.md#p2trsignaturefraudwatchtowerbatchresult)\<[`P2TRWatchtowerMempoolTransaction`](README.md#p2trwatchtowermempooltransaction)\> |
+| `replayed` | [`P2TRSignatureFraudWatchtowerSubmissionResult`](README.md#p2trsignaturefraudwatchtowersubmissionresult)[] |
+| `sourceFailures` | [`P2TRSignatureFraudWatchtowerIntegratedSourceFailure`](README.md#p2trsignaturefraudwatchtowerintegratedsourcefailure)[] |
+| `summary` | [`P2TRWatchtowerChallengeRecordSummary`](README.md#p2trwatchtowerchallengerecordsummary) |
+| `unresolvedOperatorAlerts` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L358)
+
+___
+
+### P2TRSignatureFraudWatchtowerIntegratedSourceFailure
+
+Ƭ **P2TRSignatureFraudWatchtowerIntegratedSourceFailure**: [`P2TRSignatureFraudWatchtowerSourceFailure`](README.md#p2trsignaturefraudwatchtowersourcefailure) \| [`P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure`](README.md#p2trsignaturefraudwatchtowerbridgelifecyclesourcefailure)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:354](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L354)
+
+___
+
+### P2TRSignatureFraudWatchtowerObservationResult
+
+Ƭ **P2TRSignatureFraudWatchtowerObservationResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `observation` | [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) |
+| `record` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:197](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L197)
+
+___
+
+### P2TRSignatureFraudWatchtowerProcessingFailure
+
+Ƭ **P2TRSignatureFraudWatchtowerProcessingFailure**\<`T`\>: `Object`
+
+#### Type parameters
+
+| Name |
+| :------ |
+| `T` |
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `error` | `string` |
+| `transaction` | `T` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L219)
+
+___
+
+### P2TRSignatureFraudWatchtowerRunnerOptions
+
+Ƭ **P2TRSignatureFraudWatchtowerRunnerOptions**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `maxSubmissionAttempts?` | `number` |
+| `submissionAttemptLimitAlert?` | [`P2TRWatchtowerOperatorAlert`](README.md#p2trwatchtoweroperatoralert) |
+| `submissionPolicy?` | [`P2TRSignatureFraudChallengeSubmissionPolicy`](README.md#p2trsignaturefraudchallengesubmissionpolicy) |
+| `submitChallenges?` | `boolean` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L212)
+
+___
+
+### P2TRSignatureFraudWatchtowerSourceFailure
+
+Ƭ **P2TRSignatureFraudWatchtowerSourceFailure**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `error` | `string` |
+| `source` | [`P2TRSignatureFraudWatchtowerTransactionSourceName`](README.md#p2trsignaturefraudwatchtowertransactionsourcename) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:233](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L233)
+
+___
+
+### P2TRSignatureFraudWatchtowerSubmissionResult
+
+Ƭ **P2TRSignatureFraudWatchtowerSubmissionResult**: [`P2TRSignatureFraudWatchtowerObservationResult`](README.md#p2trsignaturefraudwatchtowerobservationresult) & \{ `submissionRecord`: [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:202](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L202)
+
+___
+
+### P2TRSignatureFraudWatchtowerTransactionSourceName
+
+Ƭ **P2TRSignatureFraudWatchtowerTransactionSourceName**: ``"mempool"`` \| ``"confirmed"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L229)
+
+___
+
+### P2TRSignatureFraudWitnessObservation
+
+Ƭ **P2TRSignatureFraudWitnessObservation**: [`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate) & \{ `bridgeChallengeIdentity`: [`Hex`](classes/Hex.md) ; `bridgeChallengeKey?`: [`Hex`](classes/Hex.md) ; `draftChallengeIdentity`: [`Hex`](classes/Hex.md) ; `inputPrevouts`: [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] ; `observationID`: [`Hex`](classes/Hex.md) ; `rawTransaction`: [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) ; `sighash`: [`Hex`](classes/Hex.md) ; `spendType`: [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype) ; `unsignedTransaction`: [`BitcoinRawTx`](interfaces/BitcoinRawTx.md)  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L159)
+
+___
+
+### P2TRSignatureFraudWitnessObservationConsistencyContext
+
+Ƭ **P2TRSignatureFraudWitnessObservationConsistencyContext**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeChallengeDomain?` | [`P2TRSignatureFraudBridgeChallengeDomain`](README.md#p2trsignaturefraudbridgechallengedomain) |
+| `bridgeIdentifier?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `payloadBounds?` | [`P2TRSignatureFraudPayloadBounds`](README.md#p2trsignaturefraudpayloadbounds) |
+| `spendTypeClassifier?` | [`P2TRSignatureFraudSpendTypeClassifier`](README.md#p2trsignaturefraudspendtypeclassifier) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:528](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L528)
+
+___
+
+### P2TRSignatureFraudWitnessObservationJSON
+
+Ƭ **P2TRSignatureFraudWitnessObservationJSON**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeChallengeIdentity?` | `string` |
+| `bridgeChallengeKey?` | `string` |
+| `draftChallengeIdentity` | `string` |
+| `inputIndex` | `number` |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevoutJSON`](README.md#p2trwalletinputobservationprevoutjson)[] |
+| `observationID` | `string` |
+| `rawTransactionHex` | `string` |
+| `scriptPubKey` | `string` |
+| `sighash` | `string` |
+| `sighashType` | [`P2TRSupportedSighashType`](README.md#p2trsupportedsighashtype) |
+| `signature` | `string` |
+| `spendType?` | [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype) |
+| `unsignedTransactionHex` | `string` |
+| `walletID` | `string` |
+| `witnessSignature` | `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:179](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L179)
+
+___
+
+### P2TRSupportedSighashType
+
+Ƭ **P2TRSupportedSighashType**: typeof [`P2TR_SIGHASH_DEFAULT`](README.md#p2tr_sighash_default) \| typeof [`P2TR_SIGHASH_ALL`](README.md#p2tr_sighash_all) \| typeof [`P2TR_SIGHASH_NONE`](README.md#p2tr_sighash_none) \| typeof [`P2TR_SIGHASH_SINGLE`](README.md#p2tr_sighash_single) \| typeof [`P2TR_SIGHASH_ANYONECANPAY_ALL`](README.md#p2tr_sighash_anyonecanpay_all) \| typeof [`P2TR_SIGHASH_ANYONECANPAY_NONE`](README.md#p2tr_sighash_anyonecanpay_none) \| typeof [`P2TR_SIGHASH_ANYONECANPAY_SINGLE`](README.md#p2tr_sighash_anyonecanpay_single)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L20)
+
+___
+
+### P2TRWalletInputKeyBinding
+
+Ƭ **P2TRWalletInputKeyBinding**: `Object`
+
+Binds a Taproot output key used by a revealed deposit back to the registered
+FROST wallet that controls its key path. The funding outpoint is part of the
+binding so an output key learned from one deposit cannot authorize an
+unrelated input.
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `outputKey` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `txid` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `vout` | `number` |
+| `walletID` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L94)
+
+___
+
+### P2TRWalletInputObservationPrevout
+
+Ƭ **P2TRWalletInputObservationPrevout**: [`P2TRWalletInputPrevout`](README.md#p2trwalletinputprevout) & \{ `txid`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `valueSats`: `BigNumberish` ; `vout`: `number`  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L82)
+
+___
+
+### P2TRWalletInputObservationPrevoutJSON
+
+Ƭ **P2TRWalletInputObservationPrevoutJSON**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `scriptPubKey` | `string` |
+| `txid` | `string` |
+| `valueSats` | `string` |
+| `vout` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:172](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L172)
+
+___
+
+### P2TRWalletInputPrevout
+
+Ƭ **P2TRWalletInputPrevout**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `scriptPubKey` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L78)
+
+___
+
+### P2TRWalletInputWitnessCandidate
+
+Ƭ **P2TRWalletInputWitnessCandidate**: [`P2TRKeyPathInputWitnessSignature`](README.md#p2trkeypathinputwitnesssignature) & \{ `scriptPubKey`: [`Hex`](classes/Hex.md) ; `walletID`: [`Hex`](classes/Hex.md)  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:101](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L101)
+
+___
+
+### P2TRWalletInputWitnessObservation
+
+Ƭ **P2TRWalletInputWitnessObservation**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bridgeIdentifier?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `inputIndex` | `number` |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `walletID` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `witnessSignature` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:107](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L107)
+
+___
+
+### P2TRWatchtowerBitcoinProofAlias
+
+Ƭ **P2TRWatchtowerBitcoinProofAlias**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bitcoinTxHash` | [`Hex`](classes/Hex.md) |
+| `spendType` | [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:570](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L570)
+
+___
+
+### P2TRWatchtowerBitcoinProofAliasJSON
+
+Ƭ **P2TRWatchtowerBitcoinProofAliasJSON**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bitcoinTxHash` | `string` |
+| `spendType` | [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype) |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:575](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L575)
+
+___
+
+### P2TRWatchtowerBitcoinStatus
+
+Ƭ **P2TRWatchtowerBitcoinStatus**: ``"mempool"`` \| ``"confirmed"`` \| ``"evicted"`` \| ``"reorged"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:559](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L559)
+
+___
+
+### P2TRWatchtowerChallengeEvent
+
+Ƭ **P2TRWatchtowerChallengeEvent**: \{ `observation?`: [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"observed"``  } \| \{ `bitcoinTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observation?`: [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"mempool-observed"``  } \| \{ `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"mempool-evicted"``  } \| \{ `bitcoinBlockHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `bitcoinBlockHeight`: `number` ; `bitcoinTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observation?`: [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"bitcoin-confirmed"``  } \| \{ `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"bitcoin-reorged"``  } \| \{ `observation?`: [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"submission-started"``  } \| \{ `challengeTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"submission-broadcast"``  } \| \{ `challengeTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"submission-accepted"``  } \| \{ `error`: `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"submission-rejected"``  } \| \{ `defeatTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"defeated"``  } \| \{ `bitcoinTxHash?`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"honest-spend-proven"``  } \| \{ `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"timeout-eligible"``  } \| \{ `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `slashingTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"slashed"``  } \| \{ `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `rewardTxHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"rewarded"``  } \| \{ `code`: `string` ; `message`: `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"operator-alert-raised"``  } \| \{ `acknowledgedBy`: `string` ; `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"operator-alert-acknowledged"``  } \| \{ `observationID`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `type`: ``"operator-alert-cleared"``  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:652](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L652)
+
+___
+
+### P2TRWatchtowerChallengeRecord
+
+Ƭ **P2TRWatchtowerChallengeRecord**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bitcoinBlockHash?` | [`Hex`](classes/Hex.md) |
+| `bitcoinBlockHeight?` | `number` |
+| `bitcoinProofAliases?` | [`P2TRWatchtowerBitcoinProofAlias`](README.md#p2trwatchtowerbitcoinproofalias)[] |
+| `bitcoinStatus?` | [`P2TRWatchtowerBitcoinStatus`](README.md#p2trwatchtowerbitcoinstatus) |
+| `bitcoinTxHash?` | [`Hex`](classes/Hex.md) |
+| `challengeTxHash?` | [`Hex`](classes/Hex.md) |
+| `defeatTxHash?` | [`Hex`](classes/Hex.md) |
+| `lastError?` | `string` |
+| `observation?` | [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) |
+| `observationID` | [`Hex`](classes/Hex.md) |
+| `operatorAlertAcknowledgedBy?` | `string` |
+| `operatorAlertCode?` | `string` |
+| `operatorAlertMessage?` | `string` |
+| `operatorAlertStatus?` | [`P2TRWatchtowerOperatorAlertStatus`](README.md#p2trwatchtoweroperatoralertstatus) |
+| `rewardTxHash?` | [`Hex`](classes/Hex.md) |
+| `slashingTxHash?` | [`Hex`](classes/Hex.md) |
+| `status` | [`P2TRWatchtowerChallengeStatus`](README.md#p2trwatchtowerchallengestatus) |
+| `submissionAttempts` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:580](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L580)
+
+___
+
+### P2TRWatchtowerChallengeRecordJSON
+
+Ƭ **P2TRWatchtowerChallengeRecordJSON**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bitcoinBlockHash?` | `string` |
+| `bitcoinBlockHeight?` | `number` |
+| `bitcoinProofAliases?` | [`P2TRWatchtowerBitcoinProofAliasJSON`](README.md#p2trwatchtowerbitcoinproofaliasjson)[] |
+| `bitcoinStatus?` | [`P2TRWatchtowerBitcoinStatus`](README.md#p2trwatchtowerbitcoinstatus) |
+| `bitcoinTxHash?` | `string` |
+| `challengeTxHash?` | `string` |
+| `defeatTxHash?` | `string` |
+| `lastError?` | `string` |
+| `observation?` | [`P2TRSignatureFraudWitnessObservationJSON`](README.md#p2trsignaturefraudwitnessobservationjson) |
+| `observationID` | `string` |
+| `operatorAlertAcknowledgedBy?` | `string` |
+| `operatorAlertCode?` | `string` |
+| `operatorAlertMessage?` | `string` |
+| `operatorAlertStatus?` | [`P2TRWatchtowerOperatorAlertStatus`](README.md#p2trwatchtoweroperatoralertstatus) |
+| `rewardTxHash?` | `string` |
+| `slashingTxHash?` | `string` |
+| `status` | [`P2TRWatchtowerChallengeStatus`](README.md#p2trwatchtowerchallengestatus) |
+| `submissionAttempts` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:601](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L601)
+
+___
+
+### P2TRWatchtowerChallengeRecordSummary
+
+Ƭ **P2TRWatchtowerChallengeRecordSummary**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `byBitcoinStatus` | `Record`\<[`P2TRWatchtowerBitcoinStatus`](README.md#p2trwatchtowerbitcoinstatus), `number`\> |
+| `byOperatorAlertStatus` | `Record`\<[`P2TRWatchtowerOperatorAlertStatus`](README.md#p2trwatchtoweroperatoralertstatus), `number`\> |
+| `byStatus` | `Record`\<[`P2TRWatchtowerChallengeStatus`](README.md#p2trwatchtowerchallengestatus), `number`\> |
+| `total` | `number` |
+| `unresolvedOperatorAlerts` | `number` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:622](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L622)
+
+___
+
+### P2TRWatchtowerChallengeStatus
+
+Ƭ **P2TRWatchtowerChallengeStatus**: ``"observed"`` \| ``"submitting"`` \| ``"broadcast-pending"`` \| ``"submitted"`` \| ``"rejected"`` \| ``"defeat-eligible"`` \| ``"defeated"`` \| ``"timeout-eligible"`` \| ``"slashed"`` \| ``"rewarded"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:547](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L547)
+
+___
+
+### P2TRWatchtowerConfirmedTransaction
+
+Ƭ **P2TRWatchtowerConfirmedTransaction**: [`P2TRWatchtowerMempoolTransaction`](README.md#p2trwatchtowermempooltransaction) & \{ `bitcoinBlockHash`: [`Hex`](classes/Hex.md) \| `Buffer` \| `string` ; `bitcoinBlockHeight`: `number`  }
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:398](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L398)
+
+___
+
+### P2TRWatchtowerMempoolTransaction
+
+Ƭ **P2TRWatchtowerMempoolTransaction**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `bitcoinTxHash` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `walletInputKeyBindings?` | [`P2TRWalletInputKeyBinding`](README.md#p2trwalletinputkeybinding)[] |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:392](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L392)
+
+___
+
+### P2TRWatchtowerOperatorAlert
+
+Ƭ **P2TRWatchtowerOperatorAlert**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `code` | `string` |
+| `message` | `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:207](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L207)
+
+___
+
+### P2TRWatchtowerOperatorAlertStatus
+
+Ƭ **P2TRWatchtowerOperatorAlertStatus**: ``"open"`` \| ``"acknowledged"`` \| ``"cleared"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:565](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L565)
+
+___
+
+### P2TRWitnessSignatureErrorCode
+
+Ƭ **P2TRWitnessSignatureErrorCode**: ``"invalid-observation-payload"`` \| ``"invalid-input-index"`` \| ``"invalid-length"`` \| ``"invalid-prevout-map"`` \| ``"invalid-watchtower-state"`` \| ``"missing-witness"`` \| ``"unsupported-sighash"`` \| ``"unsupported-witness-form"`` \| ``"challenge-transaction-reverted"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L47)
 
 ___
 
@@ -619,7 +1857,7 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L358)
+[src/lib/contracts/bridge.ts:464](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L464)
 
 ___
 
@@ -649,7 +1887,7 @@ ___
 
 #### Defined in
 
-[lib/utils/backoff.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L51)
+[src/lib/utils/backoff.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L51)
 
 ___
 
@@ -663,7 +1901,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L67)
+[src/lib/starknet/starknet-depositor.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L68)
 
 ___
 
@@ -679,7 +1917,7 @@ This follows the pattern similar to Solana's Connection type.
 
 #### Defined in
 
-[lib/starknet/types.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/types.ts#L10)
+[src/lib/starknet/types.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/types.ts#L10)
 
 ___
 
@@ -700,7 +1938,33 @@ Convenience type aggregating all TBTC core contracts.
 
 #### Defined in
 
-[lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
+[src/lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
+
+___
+
+### TaprootDepositReceipt
+
+Ƭ **TaprootDepositReceipt**: [`DepositReceipt`](interfaces/DepositReceipt.md) & \{ `refundXOnlyPublicKey`: [`Hex`](classes/Hex.md) ; `walletXOnlyPublicKey`: [`Hex`](classes/Hex.md)  }
+
+Represents a Taproot-native deposit receipt. The receipt holds all
+information required to build a unique P2TR deposit address on Bitcoin chain.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:309](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L309)
+
+___
+
+### TaprootDepositRevealedEvent
+
+Ƭ **TaprootDepositRevealedEvent**: [`TaprootDepositReceipt`](README.md#taprootdepositreceipt) & `Pick`\<[`DepositRequest`](interfaces/DepositRequest.md), ``"amount"`` \| ``"vault"``\> & \{ `fundingOutputIndex`: `number` ; `fundingTxHash`: [`BitcoinTxHash`](classes/BitcoinTxHash.md)  } & [`ChainEvent`](interfaces/ChainEvent.md)
+
+Represents an event emitted on Taproot-native deposit reveal to the on-chain
+bridge.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:413](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L413)
 
 ## Variables
 
@@ -714,7 +1978,7 @@ Use ArbitrumExtraDataEncoder instead
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L159)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L170)
 
 ___
 
@@ -728,7 +1992,7 @@ Use ArbitrumBitcoinDepositor instead
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L154)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L165)
 
 ___
 
@@ -742,7 +2006,7 @@ Use ArbitrumTBTCToken instead
 
 #### Defined in
 
-[lib/arbitrum/l2-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L63)
+[src/lib/arbitrum/l2-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L63)
 
 ___
 
@@ -756,7 +2020,7 @@ Use BaseBitcoinDepositor instead
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L124)
+[src/lib/base/l2-bitcoin-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L135)
 
 ___
 
@@ -770,7 +2034,7 @@ Use BaseTBTCToken instead
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L64)
+[src/lib/base/l2-tbtc-token.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L64)
 
 ___
 
@@ -786,13 +2050,16 @@ Utility functions allowing to perform Bitcoin address conversions.
 | :------ | :------ |
 | `addressToOutputScript` | (`address`: `string`, `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md)) => [`Hex`](classes/Hex.md) |
 | `addressToPublicKeyHash` | (`address`: `string`, `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md)) => [`Hex`](classes/Hex.md) |
+| `addressToTaprootOutputKey` | (`address`: `string`, `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md)) => [`Hex`](classes/Hex.md) |
 | `outputScriptToAddress` | (`script`: [`Hex`](classes/Hex.md), `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md)) => `string` |
 | `publicKeyHashToAddress` | (`publicKeyHash`: [`Hex`](classes/Hex.md), `witness`: `boolean`, `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md)) => `string` |
 | `publicKeyToAddress` | (`publicKey`: [`Hex`](classes/Hex.md), `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md), `witness`: `boolean`) => `string` |
+| `taprootOutputKeyToAddress` | (`outputKey`: [`Hex`](classes/Hex.md), `bitcoinNetwork`: [`BitcoinNetwork`](enums/BitcoinNetwork-1.md)) => `string` |
+| `taprootOutputKeyToWalletPublicKeyHash` | (`outputKey`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
 
 #### Defined in
 
-[lib/bitcoin/address.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/address.ts#L112)
+[src/lib/bitcoin/address.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/address.ts#L206)
 
 ___
 
@@ -810,7 +2077,7 @@ Utility functions allowing to deal with Bitcoin compact size uints.
 
 #### Defined in
 
-[lib/bitcoin/csuint.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/csuint.ts#L50)
+[src/lib/bitcoin/csuint.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/csuint.ts#L50)
 
 ___
 
@@ -831,7 +2098,7 @@ Utility functions allowing to deal with Bitcoin hashes.
 
 #### Defined in
 
-[lib/bitcoin/hash.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/hash.ts#L52)
+[src/lib/bitcoin/hash.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/hash.ts#L52)
 
 ___
 
@@ -851,7 +2118,7 @@ Utility functions allowing to serialize and deserialize Bitcoin block headers.
 
 #### Defined in
 
-[lib/bitcoin/header.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L109)
+[src/lib/bitcoin/header.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L109)
 
 ___
 
@@ -870,7 +2137,7 @@ Utility functions allowing to deal with Bitcoin locktime.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L234)
+[src/lib/bitcoin/tx.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L234)
 
 ___
 
@@ -888,7 +2155,7 @@ Utility functions allowing to perform operations on Bitcoin ECDSA private keys.
 
 #### Defined in
 
-[lib/bitcoin/ecdsa-key.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L77)
+[src/lib/bitcoin/ecdsa-key.ts:118](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L118)
 
 ___
 
@@ -904,10 +2171,12 @@ Utility functions allowing to perform operations on Bitcoin ECDSA public keys.
 | :------ | :------ |
 | `compressPublicKey` | (`publicKey`: [`Hex`](classes/Hex.md)) => `string` |
 | `isCompressedPublicKey` | (`publicKey`: [`Hex`](classes/Hex.md)) => `boolean` |
+| `walletKeyToPublicKeyHash` | (`walletKey`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
+| `xOnlyToCompressedPublicKey` | (`walletID`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
 
 #### Defined in
 
-[lib/bitcoin/ecdsa-key.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L51)
+[src/lib/bitcoin/ecdsa-key.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L90)
 
 ___
 
@@ -923,12 +2192,37 @@ Utility functions allowing to deal with Bitcoin scripts.
 | :------ | :------ |
 | `isP2PKHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 | `isP2SHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
+| `isP2TRScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 | `isP2WPKHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 | `isP2WSHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 
 #### Defined in
 
-[lib/bitcoin/script.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/script.ts#L63)
+[src/lib/bitcoin/script.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/script.ts#L78)
+
+___
+
+### BitcoinTaprootUtils
+
+• `Const` **BitcoinTaprootUtils**: `Object`
+
+Utility functions for BIP-341 Taproot key and script tree derivation.
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `TAPROOT_LEAF_VERSION` | `number` |
+| `compactSizeUint` | (`value`: `number`) => `Buffer` |
+| `deriveTaprootOutputKey` | (`internalKey`: [`Hex`](classes/Hex.md), `merkleRoot?`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
+| `deriveTaprootOutputKeyWithParity` | (`internalKey`: [`Hex`](classes/Hex.md), `merkleRoot?`: [`Hex`](classes/Hex.md)) => \{ `outputKey`: [`Hex`](classes/Hex.md) ; `parity`: `number`  } |
+| `taggedHash` | (`tag`: `string`, `payload`: `Buffer`\<`ArrayBufferLike`\>) => `Buffer` |
+| `tapLeafHash` | (`script`: [`Hex`](classes/Hex.md), `leafVersion`: `number`) => [`Hex`](classes/Hex.md) |
+| `tapTweak` | (`internalKey`: [`Hex`](classes/Hex.md), `merkleRoot?`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
+
+#### Defined in
+
+[src/lib/bitcoin/taproot.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/taproot.ts#L140)
 
 ___
 
@@ -947,7 +2241,7 @@ Utility functions allowing to perform Bitcoin target conversions.
 
 #### Defined in
 
-[lib/bitcoin/header.ts:268](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L268)
+[src/lib/bitcoin/header.ts:268](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L268)
 
 ___
 
@@ -959,7 +2253,27 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
+[src/lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
+
+___
+
+### DepositScriptType
+
+• `Const` **DepositScriptType**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `P2SH` | ``"p2sh"`` |
+| `P2TR` | ``"p2tr"`` |
+| `P2WSH` | ``"p2wsh"`` |
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L23)
+
+[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
 
 ___
 
@@ -973,7 +2287,217 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L215)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:226](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L226)
+
+___
+
+### P2TR\_SIGHASH\_ALL
+
+• `Const` **P2TR\_SIGHASH\_ALL**: ``1``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L8)
+
+___
+
+### P2TR\_SIGHASH\_ANYONECANPAY\_ALL
+
+• `Const` **P2TR\_SIGHASH\_ANYONECANPAY\_ALL**: ``129``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L12)
+
+___
+
+### P2TR\_SIGHASH\_ANYONECANPAY\_FLAG
+
+• `Const` **P2TR\_SIGHASH\_ANYONECANPAY\_FLAG**: ``128``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:11](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L11)
+
+___
+
+### P2TR\_SIGHASH\_ANYONECANPAY\_NONE
+
+• `Const` **P2TR\_SIGHASH\_ANYONECANPAY\_NONE**: ``130``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L13)
+
+___
+
+### P2TR\_SIGHASH\_ANYONECANPAY\_SINGLE
+
+• `Const` **P2TR\_SIGHASH\_ANYONECANPAY\_SINGLE**: ``131``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L14)
+
+___
+
+### P2TR\_SIGHASH\_DEFAULT
+
+• `Const` **P2TR\_SIGHASH\_DEFAULT**: ``0``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:7](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L7)
+
+___
+
+### P2TR\_SIGHASH\_NONE
+
+• `Const` **P2TR\_SIGHASH\_NONE**: ``2``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L9)
+
+___
+
+### P2TR\_SIGHASH\_SINGLE
+
+• `Const` **P2TR\_SIGHASH\_SINGLE**: ``3``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L10)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_ACTION\_SUBMIT
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_ACTION\_SUBMIT**: ``0``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:421](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L421)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_ID\_DOMAIN
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_ID\_DOMAIN**: ``"tbtc-p2tr-signature-fraud-bridge-challenge-v1"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:541](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L541)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_KEY\_DOMAIN
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_KEY\_DOMAIN**: ``"tbtc-p2tr-signature-fraud-bridge-key-v0"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:544](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L544)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_PAYLOAD\_ABI\_TYPE
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_PAYLOAD\_ABI\_TYPE**: ``"tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:451](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L451)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_DRAFT\_CHALLENGE\_ID\_DOMAIN
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_DRAFT\_CHALLENGE\_ID\_DOMAIN**: ``"tbtc-p2tr-signature-fraud-challenge-v0"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:538](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L538)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_DEPOSIT\_SWEEP
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_DEPOSIT\_SWEEP**: ``"deposit-sweep"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L30)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_HEARTBEAT
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_HEARTBEAT**: ``"heartbeat"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L36)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_MOVED\_FUNDS\_SWEEP
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_MOVED\_FUNDS\_SWEEP**: ``"moved-funds-sweep"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L32)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_MOVING\_FUNDS
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_MOVING\_FUNDS**: ``"moving-funds"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L31)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_REDEMPTION
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_REDEMPTION**: ``"redemption"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L34)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_UNCLASSIFIED
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_UNCLASSIFIED**: ``"unclassified"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L29)
+
+___
+
+### P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_WALLET\_CLOSING
+
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_SPEND\_TYPE\_WALLET\_CLOSING**: ``"wallet-closing"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L35)
+
+___
+
+### P2TR\_WATCHTOWER\_OBSERVATION\_ID\_DOMAIN
+
+• `Const` **P2TR\_WATCHTOWER\_OBSERVATION\_ID\_DOMAIN**: ``"tbtc-p2tr-watchtower-observation-v0"``
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:535](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L535)
 
 ___
 
@@ -987,7 +2511,7 @@ Use SolanaExtraDataEncoder instead
 
 #### Defined in
 
-[lib/solana/extra-data-encoder.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L60)
+[src/lib/solana/extra-data-encoder.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L60)
 
 ___
 
@@ -1001,7 +2525,7 @@ Use StarkNetExtraDataEncoder instead
 
 #### Defined in
 
-[lib/starknet/extra-data-encoder.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L67)
+[src/lib/starknet/extra-data-encoder.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L67)
 
 ___
 
@@ -1015,7 +2539,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:527](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L527)
+[src/lib/starknet/starknet-depositor.ts:538](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L538)
 
 ___
 
@@ -1047,7 +2571,7 @@ const encoded = encodeDestinationReceiver(
 
 #### Defined in
 
-[lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
+[src/lib/utils/wormhole.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L20)
 
 ___
 
@@ -1060,7 +2584,7 @@ Includes standard ERC20 functions needed for tBTC operations
 
 #### Defined in
 
-[lib/starknet/abi.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/abi.ts#L26)
+[src/lib/starknet/abi.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/abi.ts#L26)
 
 ## Functions
 
@@ -1084,7 +2608,28 @@ The amount in Satoshi precision.
 
 #### Defined in
 
-[lib/utils/bitcoin.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/bitcoin.ts#L8)
+[src/lib/utils/bitcoin.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/bitcoin.ts#L8)
+
+___
+
+### applyP2TRWatchtowerChallengeEvent
+
+▸ **applyP2TRWatchtowerChallengeEvent**(`record`, `event`): [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `record` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord) |
+| `event` | [`P2TRWatchtowerChallengeEvent`](README.md#p2trwatchtowerchallengeevent) |
+
+#### Returns
+
+[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2111)
 
 ___
 
@@ -1111,7 +2656,31 @@ Bitcoin transaction along with the inclusion proof.
 
 #### Defined in
 
-[lib/bitcoin/spv.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L75)
+[src/lib/bitcoin/spv.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L75)
+
+___
+
+### assertTaprootDepositSupported
+
+▸ **assertTaprootDepositSupported**(`depositor`, `deposit`): `void`
+
+Rejects a Taproot receipt when the target deposit handler has not explicitly
+declared end-to-end Taproot support.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `depositor` | [`TaprootDepositorCapability`](interfaces/TaprootDepositorCapability.md) | Deposit handler whose capability should be checked. |
+| `deposit` | [`DepositReceipt`](interfaces/DepositReceipt.md) | Deposit receipt about to be revealed. |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[src/lib/contracts/depositor-proxy.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L38)
 
 ___
 
@@ -1161,7 +2730,27 @@ A function that can retry any function.
 
 #### Defined in
 
-[lib/utils/backoff.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L89)
+[src/lib/utils/backoff.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L89)
+
+___
+
+### buildP2TRSignatureFraudBridgeChallengePayload
+
+▸ **buildP2TRSignatureFraudBridgeChallengePayload**(`observation`): [`P2TRSignatureFraudBridgeChallengePayload`](README.md#p2trsignaturefraudbridgechallengepayload)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `observation` | [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) |
+
+#### Returns
+
+[`P2TRSignatureFraudBridgeChallengePayload`](README.md#p2trsignaturefraudbridgechallengepayload)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3172](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3172)
 
 ___
 
@@ -1185,7 +2774,7 @@ Chain ID as a string.
 
 #### Defined in
 
-[lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
+[src/lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
 
 ___
 
@@ -1210,7 +2799,194 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
+[src/lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
+
+___
+
+### computeP2TRKeyPathSighash
+
+▸ **computeP2TRKeyPathSighash**(`rawTransaction`, `inputIndex`, `inputPrevouts`, `sighashType`, `annex?`): [`Hex`](classes/Hex.md)
+
+Reconstructs a BIP-341 KEY-PATH (ext_flag = 0) sighash for any supported
+sighash mode, with or without a witness annex.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | Raw (unsigned) Bitcoin transaction. |
+| `inputIndex` | `number` | Zero-based index of the signed input. |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] | Per-input prevout records (script, amount). Length must equal the transaction's input vector length. |
+| `sighashType` | [`P2TRSupportedSighashType`](README.md#p2trsupportedsighashtype) | Supported Taproot key-path sighash type: DEFAULT, ALL, NONE, SINGLE, or any of those OR-ed with ANYONECANPAY. |
+| `annex?` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> | Optional witness annex bytes including the mandatory 0x50 prefix. |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+32-byte BIP-341 key-path sighash.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2728](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2728)
+
+___
+
+### computeP2TRSignatureFraudBridgeChallengeIdentity
+
+▸ **computeP2TRSignatureFraudBridgeChallengeIdentity**(`challenge`): [`Hex`](classes/Hex.md)
+
+Computes the canonical Bridge-facing identity of a signed Taproot
+authorization. The BIP-341 sighash commits exactly the transaction fields
+selected by the witness sighash mode; fields outside that cryptographic
+commitment cannot create separate challenge, deposit, or reward records.
+
+ Bridge integration identity for the P2TR signature-fraud path.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `challenge` | [`P2TRSignatureFraudBridgeChallengeIdentity`](README.md#p2trsignaturefraudbridgechallengeidentity) | Wallet, reconstructed BIP-341 sighash, BIP-340 signature, and parsed witness sighash type. |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+32-byte Bridge challenge identity (SHA-256 over the canonical
+         signed-authorization tuple).
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3043](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3043)
+
+___
+
+### computeP2TRSignatureFraudBridgeChallengeKey
+
+▸ **computeP2TRSignatureFraudBridgeChallengeKey**(`challenge`): [`Hex`](classes/Hex.md)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `challenge` | [`P2TRSignatureFraudBridgeChallengeKey`](README.md#p2trsignaturefraudbridgechallengekey) |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3126](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3126)
+
+___
+
+### computeP2TRSignatureFraudDraftChallengeIdentity
+
+▸ **computeP2TRSignatureFraudDraftChallengeIdentity**(`challenge`): [`Hex`](classes/Hex.md)
+
+Computes the shared draft challenge identity used by the P2TR
+signature-fraud vector corpus.
+
+This identity intentionally mirrors the current Node/Rust/Solidity test
+harnesses. It is not a final production Bridge challenge key.
+
+ Draft vector-conformance helper for the P2TR signature-fraud
+              watchtower path.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `challenge` | [`P2TRSignatureFraudDraftChallenge`](README.md#p2trsignaturefrauddraftchallenge) | Draft challenge payload: wallet input, witness signature, raw transaction, prevout map, optional Bridge/domain identifier. |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+32-byte draft challenge identity matching the cross-language
+         vector corpus.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3086](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3086)
+
+___
+
+### computeP2TRWalletInputWitnessObservationID
+
+▸ **computeP2TRWalletInputWitnessObservationID**(`observation`): [`Hex`](classes/Hex.md)
+
+Computes a deterministic raw-evidence observation ID for domainless
+watchtower operation.
+
+This ID is intentionally separate from the future production Bridge
+challenge key. It commits to the observed wallet input, witness signature,
+raw transaction, prevout map, and optional Bridge/domain identifier so
+duplicate mempool/confirmed observations can be collapsed before submission.
+When a Bridge challenge domain is configured, the watchtower instead uses
+the domain-bound Bridge challenge key for record and submission idempotency.
+
+ This is an idempotency primitive for the draft P2TR
+              signature-fraud watchtower path. It is not a production
+              challenge key.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `observation` | [`P2TRWalletInputWitnessObservation`](README.md#p2trwalletinputwitnessobservation) | Observation tuple (wallet input, witness signature, raw transaction, prevouts, optional domain) being deduplicated. |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+32-byte deterministic observation ID for off-chain dedup.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2970](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2970)
+
+___
+
+### createP2TRSignatureFraudSpendTypeClassifier
+
+▸ **createP2TRSignatureFraudSpendTypeClassifier**(`rules`): [`P2TRSignatureFraudSpendTypeClassifier`](README.md#p2trsignaturefraudspendtypeclassifier)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `rules` | [`P2TRSignatureFraudSpendTypeClassifierRule`](README.md#p2trsignaturefraudspendtypeclassifierrule)[] |
+
+#### Returns
+
+[`P2TRSignatureFraudSpendTypeClassifier`](README.md#p2trsignaturefraudspendtypeclassifier)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1001](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1001)
+
+___
+
+### createP2TRWatchtowerChallengeRecord
+
+▸ **createP2TRWatchtowerChallengeRecord**(`observationID`): [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `observationID` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> |
+
+#### Returns
+
+[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1092](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1092)
 
 ___
 
@@ -1246,7 +3022,47 @@ const { chainId, recipient } = decodeDestinationReceiver("0x27120000000000000000
 
 #### Defined in
 
-[lib/utils/ntt.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L59)
+[src/lib/utils/ntt.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L59)
+
+___
+
+### deserializeP2TRSignatureFraudWitnessObservation
+
+▸ **deserializeP2TRSignatureFraudWitnessObservation**(`observation`): [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `observation` | [`P2TRSignatureFraudWitnessObservationJSON`](README.md#p2trsignaturefraudwitnessobservationjson) |
+
+#### Returns
+
+[`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1164)
+
+___
+
+### deserializeP2TRWatchtowerChallengeRecord
+
+▸ **deserializeP2TRWatchtowerChallengeRecord**(`record`): [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `record` | [`P2TRWatchtowerChallengeRecordJSON`](README.md#p2trwatchtowerchallengerecordjson) |
+
+#### Returns
+
+[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1342](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1342)
 
 ___
 
@@ -1278,7 +3094,27 @@ const encoded = encodeDestinationReceiver(10002, "0x1234567890123456789012345678
 
 #### Defined in
 
-[lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
+[src/lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
+
+___
+
+### encodeP2TRSignatureFraudBridgeChallengePayload
+
+▸ **encodeP2TRSignatureFraudBridgeChallengePayload**(`observation`): `string`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `observation` | [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) |
+
+#### Returns
+
+`string`
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3227](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3227)
 
 ___
 
@@ -1308,7 +3144,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
+[src/lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
 
 ___
 
@@ -1341,7 +3177,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[lib/ethereum/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/cross-chain.ts#L29)
+[src/lib/ethereum/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/cross-chain.ts#L29)
 
 ___
 
@@ -1366,7 +3202,124 @@ Transaction data with fields represented as un-prefixed hex strings.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L133)
+[src/lib/bitcoin/tx.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L133)
+
+___
+
+### extractP2TRKeyPathInputWitnessSignature
+
+▸ **extractP2TRKeyPathInputWitnessSignature**(`rawTransaction`, `inputIndex`): [`P2TRKeyPathInputWitnessSignature`](README.md#p2trkeypathinputwitnesssignature)
+
+Extracts and parses a single-input Taproot key-path witness signature from a
+raw Bitcoin transaction.
+
+The caller must first identify that the input spends a registered tBTC P2TR
+wallet UTXO. This function intentionally rejects annex/script-path/malformed
+witness forms and does not classify honest spend types or submit challenges.
+
+ This is a parser primitive for the draft P2TR signature-fraud
+              watchtower path. It is not production challenge submission.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | Raw Bitcoin transaction containing the candidate input. |
+| `inputIndex` | `number` | Zero-based index of the input whose key-path witness signature should be parsed. |
+
+#### Returns
+
+[`P2TRKeyPathInputWitnessSignature`](README.md#p2trkeypathinputwitnesssignature)
+
+Parsed witness signature for the input, with sighash type resolved.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2539](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2539)
+
+___
+
+### extractP2TRSignatureFraudWitnessObservations
+
+▸ **extractP2TRSignatureFraudWitnessObservations**(`rawTransaction`, `inputPrevouts`, `registeredWalletIDs`, `bridgeIdentifier?`, `spendTypeClassifier?`, `payloadBounds?`, `bridgeChallengeDomain?`, `walletInputKeyBindings?`): [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation)[]
+
+#### Parameters
+
+| Name | Type | Default value |
+| :------ | :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | `undefined` |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] | `undefined` |
+| `registeredWalletIDs` | (`string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\>)[] | `undefined` |
+| `bridgeIdentifier?` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> | `undefined` |
+| `spendTypeClassifier?` | [`P2TRSignatureFraudSpendTypeClassifier`](README.md#p2trsignaturefraudspendtypeclassifier) | `undefined` |
+| `payloadBounds?` | [`P2TRSignatureFraudPayloadBounds`](README.md#p2trsignaturefraudpayloadbounds) | `undefined` |
+| `bridgeChallengeDomain?` | [`P2TRSignatureFraudBridgeChallengeDomain`](README.md#p2trsignaturefraudbridgechallengedomain) | `undefined` |
+| `walletInputKeyBindings` | [`P2TRWalletInputKeyBinding`](README.md#p2trwalletinputkeybinding)[] | `[]` |
+
+#### Returns
+
+[`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation)[]
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3371](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3371)
+
+___
+
+### extractP2TRWalletIDFromScriptPubKey
+
+▸ **extractP2TRWalletIDFromScriptPubKey**(`scriptPubKey`): `undefined` \| [`Hex`](classes/Hex.md)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `scriptPubKey` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> |
+
+#### Returns
+
+`undefined` \| [`Hex`](classes/Hex.md)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2795](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2795)
+
+___
+
+### extractP2TRWalletInputWitnessCandidates
+
+▸ **extractP2TRWalletInputWitnessCandidates**(`rawTransaction`, `inputPrevouts`, `registeredWalletIDs`, `walletInputKeyBindings?`): [`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate)[]
+
+Finds registered tBTC P2TR wallet inputs in a raw Bitcoin transaction and
+parses their key-path witness signatures.
+
+Unknown P2TR outputs and non-P2TR inputs are ignored. Script-path spends of
+exactly bound deposit outputs are refunds and are ignored. Registered wallet
+inputs with unsupported witness forms are rejected fail-closed.
+
+ This is a parser primitive for the draft P2TR signature-fraud
+              watchtower path. It is not production challenge submission.
+
+#### Parameters
+
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | `undefined` | Raw Bitcoin transaction whose inputs are being screened for P2TR wallet key-path spends. |
+| `inputPrevouts` | [`P2TRWalletInputPrevout`](README.md#p2trwalletinputprevout)[] | `undefined` | Per-input prevout records (script, amount). Length must equal the transaction's input vector length. |
+| `registeredWalletIDs` | (`string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\>)[] | `undefined` | Canonical FROST wallet identifiers whose P2TR outputs are considered "registered" for this scan. |
+| `walletInputKeyBindings` | [`P2TRWalletInputKeyBinding`](README.md#p2trwalletinputkeybinding)[] | `[]` | Revealed-deposit output keys bound to their registered wallet IDs and exact funding outpoints. |
+
+#### Returns
+
+[`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate)[]
+
+Candidate witness records for each input whose prevout script
+         matches a registered wallet's P2TR output key, directly or through
+         an exact revealed-deposit binding.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2833](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2833)
 
 ___
 
@@ -1390,7 +3343,7 @@ The chain ID
 
 #### Defined in
 
-[lib/utils/ntt.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L133)
+[src/lib/utils/ntt.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L133)
 
 ___
 
@@ -1414,7 +3367,7 @@ The recipient address
 
 #### Defined in
 
-[lib/utils/ntt.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L159)
+[src/lib/utils/ntt.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L159)
 
 ___
 
@@ -1438,7 +3391,27 @@ True if the format is valid, false otherwise
 
 #### Defined in
 
-[lib/utils/ntt.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L100)
+[src/lib/utils/ntt.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L100)
+
+___
+
+### listP2TRWatchtowerUnresolvedOperatorAlerts
+
+▸ **listP2TRWatchtowerUnresolvedOperatorAlerts**(`recordSource`): `Promise`\<[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)[]\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `recordSource` | [`P2TRWatchtowerChallengeRecordSource`](interfaces/P2TRWatchtowerChallengeRecordSource.md) |
+
+#### Returns
+
+`Promise`\<[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)[]\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1496](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1496)
 
 ___
 
@@ -1463,7 +3436,7 @@ Use loadArbitrumCrossChainInterfaces instead
 
 #### Defined in
 
-[lib/arbitrum/index.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L62)
+[src/lib/arbitrum/index.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L62)
 
 ___
 
@@ -1494,7 +3467,7 @@ Throws an error if the signer's Arbitrum chain ID is other than
 
 #### Defined in
 
-[lib/arbitrum/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L23)
+[src/lib/arbitrum/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L23)
 
 ___
 
@@ -1519,7 +3492,7 @@ Use loadBaseCrossChainInterfaces instead
 
 #### Defined in
 
-[lib/base/index.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L63)
+[src/lib/base/index.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L63)
 
 ___
 
@@ -1550,7 +3523,7 @@ Throws an error if the signer's Base chain ID is other than
 
 #### Defined in
 
-[lib/base/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L23)
+[src/lib/base/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L23)
 
 ___
 
@@ -1581,7 +3554,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
+[src/lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
 
 ___
 
@@ -1610,7 +3583,7 @@ If the connection's genesis hash does not match the expected `genesisHash`.
 
 #### Defined in
 
-[lib/solana/index.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L20)
+[src/lib/solana/index.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L20)
 
 ___
 
@@ -1636,7 +3609,7 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[lib/starknet/index.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L109)
+[src/lib/starknet/index.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L109)
 
 ___
 
@@ -1663,7 +3636,7 @@ Handle to the contracts
 
 #### Defined in
 
-[lib/starknet/index.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L43)
+[src/lib/starknet/index.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L43)
 
 ___
 
@@ -1697,17 +3670,172 @@ Packed parameters.
 | `fundingTx.locktime` | `string` |
 | `fundingTx.outputVector` | `string` |
 | `fundingTx.version` | `string` |
-| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string`  } |
+| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `refundXOnlyPublicKey?`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string` ; `walletXOnlyPublicKey?`: `string`  } |
 | `reveal.blindingFactor` | `string` |
 | `reveal.fundingOutputIndex` | `number` |
 | `reveal.refundLocktime` | `string` |
 | `reveal.refundPubKeyHash` | `string` |
+| `reveal.refundXOnlyPublicKey?` | `string` |
 | `reveal.vault` | `string` |
 | `reveal.walletPubKeyHash` | `string` |
+| `reveal.walletXOnlyPublicKey?` | `string` |
 
 #### Defined in
 
-[lib/ethereum/bridge.ts:714](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L714)
+[src/lib/ethereum/bridge.ts:1327](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1327)
+
+___
+
+### parseP2TRKeyPathWitnessSignature
+
+▸ **parseP2TRKeyPathWitnessSignature**(`witnessSignature`): [`P2TRKeyPathWitnessSignature`](README.md#p2trkeypathwitnesssignature)
+
+Parses the Taproot key-path witness signature encodings currently allowed by
+the draft P2TR signature-fraud model.
+
+BIP-341 represents `SIGHASH_DEFAULT` by omitting the trailing sighash byte.
+The draft model also allows explicit `SIGHASH_ALL` (`0x01`). Explicit
+`SIGHASH_DEFAULT` (`0x00`) and all other sighash bytes are rejected before a
+watchtower attempts challenge submission.
+
+ This is a parser primitive for the draft P2TR signature-fraud
+              watchtower path. It is not production challenge submission.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `witnessSignature` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> | Raw witness signature bytes (Hex, Buffer, or hex string) extracted from the Taproot key-path spend. |
+
+#### Returns
+
+[`P2TRKeyPathWitnessSignature`](README.md#p2trkeypathwitnesssignature)
+
+Parsed signature with the 64-byte Schnorr signature and the
+         resolved sighash flag.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2479](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2479)
+
+___
+
+### recordP2TRWatchtowerChallengeEvent
+
+▸ **recordP2TRWatchtowerChallengeEvent**(`store`, `event`): `Promise`\<[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `store` | [`P2TRWatchtowerChallengeStore`](interfaces/P2TRWatchtowerChallengeStore.md) |
+| `event` | [`P2TRWatchtowerChallengeEvent`](README.md#p2trwatchtowerchallengeevent) |
+
+#### Returns
+
+`Promise`\<[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2380](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2380)
+
+___
+
+### recordP2TRWatchtowerChallengeEventWithRetry
+
+▸ **recordP2TRWatchtowerChallengeEventWithRetry**(`store`, `event`, `attempts?`): `Promise`\<[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)\>
+
+Records a watchtower challenge event, retrying transient persistence failures.
+
+Used for submission lifecycle events where losing the write is consequential:
+once a challenge transaction is broadcast, its "submission-broadcast" and
+"submission-accepted" records must reach durable storage so the challenge is
+not re-broadcast on replay. Retries are bounded and immediate; the durable,
+non-replayable "broadcast-pending" status (recorded first via the broadcast
+event) is the backstop if persistence remains unavailable.
+
+#### Parameters
+
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `store` | [`P2TRWatchtowerChallengeStore`](interfaces/P2TRWatchtowerChallengeStore.md) | `undefined` | Challenge record store to persist the event into. |
+| `event` | [`P2TRWatchtowerChallengeEvent`](README.md#p2trwatchtowerchallengeevent) | `undefined` | Challenge event to record. |
+| `attempts` | `number` | `3` | Maximum number of persistence attempts (bounded to >= 1). |
+
+#### Returns
+
+`Promise`\<[`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord)\>
+
+The updated challenge record after a successful persist.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2442](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2442)
+
+___
+
+### resolveP2TRInputPrevouts
+
+▸ **resolveP2TRInputPrevouts**(`rawTransaction`, `bitcoinClient`): `Promise`\<[`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[]\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `bitcoinClient` | [`BitcoinClient`](interfaces/BitcoinClient.md) |
+
+#### Returns
+
+`Promise`\<[`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[]\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2683](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2683)
+
+___
+
+### resolveP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType
+
+▸ **resolveP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType**(`recordSource`, `bitcoinTxHash`, `spendType`): `Promise`\<[`Hex`](classes/Hex.md)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `recordSource` | [`P2TRWatchtowerChallengeRecordSource`](interfaces/P2TRWatchtowerChallengeRecordSource.md) |
+| `bitcoinTxHash` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> |
+| `spendType` | [`P2TRSignatureFraudSpendType`](README.md#p2trsignaturefraudspendtype) |
+
+#### Returns
+
+`Promise`\<[`Hex`](classes/Hex.md)\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1589](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1589)
+
+___
+
+### resolveP2TRWatchtowerObservationIDForBridgeChallengeKey
+
+▸ **resolveP2TRWatchtowerObservationIDForBridgeChallengeKey**(`recordSource`, `bridgeChallengeKey`, `lifecycleEvidence?`): `Promise`\<[`Hex`](classes/Hex.md)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `recordSource` | [`P2TRWatchtowerChallengeRecordSource`](interfaces/P2TRWatchtowerChallengeRecordSource.md) |
+| `bridgeChallengeKey` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> |
+| `lifecycleEvidence?` | [`P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence`](README.md#p2trsignaturefraudwatchtowerbridgelifecycleeventevidence) |
+
+#### Returns
+
+`Promise`\<[`Hex`](classes/Hex.md)\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1553](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1553)
 
 ___
 
@@ -1732,7 +3860,47 @@ Always returns true.
 
 #### Defined in
 
-[lib/utils/backoff.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L9)
+[src/lib/utils/backoff.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L9)
+
+___
+
+### serializeP2TRSignatureFraudWitnessObservation
+
+▸ **serializeP2TRSignatureFraudWitnessObservation**(`observation`): [`P2TRSignatureFraudWitnessObservationJSON`](README.md#p2trsignaturefraudwitnessobservationjson)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `observation` | [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) |
+
+#### Returns
+
+[`P2TRSignatureFraudWitnessObservationJSON`](README.md#p2trsignaturefraudwitnessobservationjson)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1123](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1123)
+
+___
+
+### serializeP2TRWatchtowerChallengeRecord
+
+▸ **serializeP2TRWatchtowerChallengeRecord**(`record`): [`P2TRWatchtowerChallengeRecordJSON`](README.md#p2trwatchtowerchallengerecordjson)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `record` | [`P2TRWatchtowerChallengeRecord`](README.md#p2trwatchtowerchallengerecord) |
+
+#### Returns
+
+[`P2TRWatchtowerChallengeRecordJSON`](README.md#p2trwatchtowerchallengerecordjson)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1314](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1314)
 
 ___
 
@@ -1758,7 +3926,72 @@ Matcher function that returns false if error matches one of the patterns.
 
 #### Defined in
 
-[lib/utils/backoff.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L20)
+[src/lib/utils/backoff.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L20)
+
+___
+
+### stripWitnessesFromBitcoinRawTransaction
+
+▸ **stripWitnessesFromBitcoinRawTransaction**(`rawTransaction`): [`BitcoinRawTx`](interfaces/BitcoinRawTx.md)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+
+#### Returns
+
+[`BitcoinRawTx`](interfaces/BitcoinRawTx.md)
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2577](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2577)
+
+___
+
+### summarizeP2TRWatchtowerChallengeRecords
+
+▸ **summarizeP2TRWatchtowerChallengeRecords**(`recordSource`): `Promise`\<[`P2TRWatchtowerChallengeRecordSummary`](README.md#p2trwatchtowerchallengerecordsummary)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `recordSource` | [`P2TRWatchtowerChallengeRecordSource`](interfaces/P2TRWatchtowerChallengeRecordSource.md) |
+
+#### Returns
+
+`Promise`\<[`P2TRWatchtowerChallengeRecordSummary`](README.md#p2trwatchtowerchallengerecordsummary)\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:1517](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1517)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(`depositor`): `boolean`
+
+Checks whether a deposit handler explicitly supports Taproot deposits.
+Missing capability declarations fail closed for backward compatibility.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `depositor` | [`TaprootDepositorCapability`](interfaces/TaprootDepositorCapability.md) | Deposit handler whose capability should be checked. |
+
+#### Returns
+
+`boolean`
+
+True only when Taproot support is explicitly declared.
+
+#### Defined in
+
+[src/lib/contracts/depositor-proxy.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L25)
 
 ___
 
@@ -1787,7 +4020,7 @@ An error if the network is not supported by `bitcoinjs-lib`.
 
 #### Defined in
 
-[lib/bitcoin/network.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L62)
+[src/lib/bitcoin/network.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L63)
 
 ___
 
@@ -1828,7 +4061,7 @@ If any of the block headers are invalid, or if the block
 
 #### Defined in
 
-[lib/bitcoin/header.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L132)
+[src/lib/bitcoin/header.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L132)
 
 ___
 
@@ -1868,7 +4101,7 @@ The function should be used within a try-catch block.
 
 #### Defined in
 
-[lib/bitcoin/spv.ts:180](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L180)
+[src/lib/bitcoin/spv.ts:180](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L180)
 
 ___
 
@@ -1895,4 +4128,47 @@ This function does not validate the depositor's identifier as its
 
 #### Defined in
 
-[lib/contracts/bridge.ts:247](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L247)
+[src/lib/contracts/bridge.ts:321](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L321)
+
+___
+
+### validateP2TRSignatureFraudPayloadBounds
+
+▸ **validateP2TRSignatureFraudPayloadBounds**(`rawTransaction`, `inputPrevouts`, `bounds`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
+| `bounds` | [`P2TRSignatureFraudPayloadBounds`](README.md#p2trsignaturefraudpayloadbounds) |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:2616](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2616)
+
+___
+
+### validateP2TRSignatureFraudWitnessObservationConsistency
+
+▸ **validateP2TRSignatureFraudWitnessObservationConsistency**(`observation`, `context?`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `observation` | [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation) |
+| `context` | [`P2TRSignatureFraudWitnessObservationConsistencyContext`](README.md#p2trsignaturefraudwitnessobservationconsistencycontext) |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:3465](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3465)

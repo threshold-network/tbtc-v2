@@ -13,6 +13,7 @@ Service exposing features related to tBTC v2 redemptions.
 - [#crossChainContracts](RedemptionsService.md##crosschaincontracts)
 - [bitcoinClient](RedemptionsService.md#bitcoinclient)
 - [tbtcContracts](RedemptionsService.md#tbtccontracts)
+- [ZeroBytes32](RedemptionsService.md#zerobytes32)
 
 ### Methods
 
@@ -23,8 +24,12 @@ Service exposing features related to tBTC v2 redemptions.
 - [fetchWalletsForRedemption](RedemptionsService.md#fetchwalletsforredemption)
 - [findWalletForRedemption](RedemptionsService.md#findwalletforredemption)
 - [fromSerializableWallet](RedemptionsService.md#fromserializablewallet)
+- [frostWalletID](RedemptionsService.md#frostwalletid)
 - [getRedeemerOutputScript](RedemptionsService.md#getredeemeroutputscript)
 - [getRedemptionRequests](RedemptionsService.md#getredemptionrequests)
+- [isFrostWallet](RedemptionsService.md#isfrostwallet)
+- [redemptionWalletIdentityFromCandidate](RedemptionsService.md#redemptionwalletidentityfromcandidate)
+- [redemptionWalletPublicKey](RedemptionsService.md#redemptionwalletpublickey)
 - [relayRedemptionRequestToL1](RedemptionsService.md#relayredemptionrequesttol1)
 - [requestCrossChainRedemption](RedemptionsService.md#requestcrosschainredemption)
 - [requestRedemption](RedemptionsService.md#requestredemption)
@@ -52,7 +57,7 @@ Service exposing features related to tBTC v2 redemptions.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L47)
+[src/services/redemptions/redemptions-service.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L55)
 
 ## Properties
 
@@ -78,7 +83,7 @@ Gets cross-chain contracts for the given supported L2 chain.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L45)
+[src/services/redemptions/redemptions-service.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L53)
 
 ___
 
@@ -90,7 +95,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L38)
+[src/services/redemptions/redemptions-service.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L46)
 
 ___
 
@@ -102,7 +107,17 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L34)
+[src/services/redemptions/redemptions-service.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L42)
+
+___
+
+### ZeroBytes32
+
+▪ `Static` `Private` `Readonly` **ZeroBytes32**: [`Hex`](Hex.md)
+
+#### Defined in
+
+[src/services/redemptions/redemptions-service.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L35)
 
 ## Methods
 
@@ -133,7 +148,7 @@ An array of subarrays, where each subarray has a maximum length of `chunkSize`.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:580](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L580)
+[src/services/redemptions/redemptions-service.ts:678](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L678)
 
 ___
 
@@ -145,7 +160,7 @@ ___
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `bitcoinRedeemerAddress` | `string` | Bitcoin address redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported. |
+| `bitcoinRedeemerAddress` | `string` | Bitcoin address redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, P2WSH, and P2TR address types are supported. |
 | `amount` | `BigNumber` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 
 #### Returns
@@ -160,7 +175,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:315](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L315)
+[src/services/redemptions/redemptions-service.ts:325](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L325)
 
 ___
 
@@ -176,7 +191,7 @@ Determines a valid wallet that can handle a redemption request.
 | :------ | :------ | :------ |
 | `amount` | `BigNumber` | The amount to be redeemed in satoshi precision (1e8). |
 | `potentialCandidateWallets` | [`SerializableWallet`](../interfaces/SerializableWallet.md)[] | Array of wallets that can handle the redemption request. The wallets must be in the Live state. |
-| `redeemerAddressOrScript?` | `string` | Optional. Either a Bitcoin address (P2PKH, P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without 0x prefix). When provided, the function checks for pending redemptions to avoid wallet collisions. - If the input matches /^(0x)?[0-9a-fA-F]+$/, it's treated as a raw hex output script and used directly. - Otherwise, it's treated as a Bitcoin address and converted to an output script. |
+| `redeemerAddressOrScript?` | `string` | Optional. Either a Bitcoin address (P2PKH, P2WPKH, P2SH, P2WSH, P2TR) or a raw hex output script (with or without 0x prefix). When provided, the function checks for pending redemptions to avoid wallet collisions. - If the input matches /^(0x)?[0-9a-fA-F]+$/, it's treated as a raw hex output script and used directly. - Otherwise, it's treated as a Bitcoin address and converted to an output script. |
 
 #### Returns
 
@@ -195,13 +210,13 @@ Throws an error if no valid redemption wallet exists for the given
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:359](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L359)
+[src/services/redemptions/redemptions-service.ts:369](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L369)
 
 ___
 
 ### determineWalletMainUtxo
 
-▸ **determineWalletMainUtxo**(`walletPublicKeyHash`, `bitcoinNetwork`): `Promise`\<`undefined` \| [`BitcoinUtxo`](../README.md#bitcoinutxo)\>
+▸ **determineWalletMainUtxo**(`walletPublicKeyHash`, `bitcoinNetwork`, `taprootWalletID?`): `Promise`\<`undefined` \| [`BitcoinUtxo`](../README.md#bitcoinutxo)\>
 
 Determines the plain-text wallet main UTXO currently registered in the
 Bridge on-chain contract. The returned main UTXO can be undefined if the
@@ -213,6 +228,7 @@ wallet does not have a main UTXO registered in the Bridge at the moment.
 | :------ | :------ | :------ |
 | `walletPublicKeyHash` | [`Hex`](Hex.md) | Public key hash of the wallet. |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | Bitcoin network. |
+| `taprootWalletID?` | [`Hex`](Hex.md) | Optional 32-byte x-only FROST wallet ID. When present, P2TR wallet history is scanned as well. |
 
 #### Returns
 
@@ -222,7 +238,7 @@ Promise holding the wallet main UTXO or undefined value.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:599](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L599)
+[src/services/redemptions/redemptions-service.ts:760](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L760)
 
 ___
 
@@ -241,7 +257,7 @@ Array of wallet events.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:753](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L753)
+[src/services/redemptions/redemptions-service.ts:952](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L952)
 
 ___
 
@@ -268,7 +284,7 @@ Promise with the wallet details needed to request a redemption.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:439](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L439)
+[src/services/redemptions/redemptions-service.ts:528](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L528)
 
 ___
 
@@ -288,7 +304,28 @@ ___
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:840](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L840)
+[src/services/redemptions/redemptions-service.ts:1041](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L1041)
+
+___
+
+### frostWalletID
+
+▸ **frostWalletID**(`wallet`, `walletPublicKeyHash`): `undefined` \| [`Hex`](Hex.md)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `wallet` | [`Wallet`](../interfaces/Wallet.md) |
+| `walletPublicKeyHash` | [`Hex`](Hex.md) |
+
+#### Returns
+
+`undefined` \| [`Hex`](Hex.md)
+
+#### Defined in
+
+[src/services/redemptions/redemptions-service.ts:729](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L729)
 
 ___
 
@@ -312,7 +349,7 @@ The output script of the given Bitcoin address.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:778](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L778)
+[src/services/redemptions/redemptions-service.ts:977](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L977)
 
 ___
 
@@ -343,7 +380,74 @@ Throws an error if no redemption request exists for the given
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:711](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L711)
+[src/services/redemptions/redemptions-service.ts:910](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L910)
+
+___
+
+### isFrostWallet
+
+▸ **isFrostWallet**(`wallet`): `boolean`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `wallet` | [`Wallet`](../interfaces/Wallet.md) |
+
+#### Returns
+
+`boolean`
+
+#### Defined in
+
+[src/services/redemptions/redemptions-service.ts:743](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L743)
+
+___
+
+### redemptionWalletIdentityFromCandidate
+
+▸ **redemptionWalletIdentityFromCandidate**(`walletKey`): `Object`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `walletKey` | [`Hex`](Hex.md) |
+
+#### Returns
+
+`Object`
+
+| Name | Type |
+| :------ | :------ |
+| `walletID?` | [`Hex`](Hex.md) |
+| `walletPublicKey` | [`Hex`](Hex.md) |
+| `walletPublicKeyHash` | [`Hex`](Hex.md) |
+
+#### Defined in
+
+[src/services/redemptions/redemptions-service.ts:689](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L689)
+
+___
+
+### redemptionWalletPublicKey
+
+▸ **redemptionWalletPublicKey**(`wallet`, `walletPublicKeyHash`): `undefined` \| [`Hex`](Hex.md)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `wallet` | [`Wallet`](../interfaces/Wallet.md) |
+| `walletPublicKeyHash` | [`Hex`](Hex.md) |
+
+#### Returns
+
+`undefined` \| [`Hex`](Hex.md)
+
+#### Defined in
+
+[src/services/redemptions/redemptions-service.ts:713](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L713)
 
 ___
 
@@ -379,7 +483,7 @@ Throws an error if no wallet with sufficient funds can be found.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L244)
+[src/services/redemptions/redemptions-service.ts:254](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L254)
 
 ___
 
@@ -395,7 +499,7 @@ through the provided redeemer proxy.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `bitcoinRedeemerAddress` | `string` | Bitcoin address the redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported. |
+| `bitcoinRedeemerAddress` | `string` | Bitcoin address the redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, P2WSH, and P2TR address types are supported. |
 | `amount` | `BigNumber` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 | `l2ChainName` | [`DestinationChainName`](../README.md#destinationchainname) | The name of the L2 chain to request redemption on. |
 
@@ -409,7 +513,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L200)
+[src/services/redemptions/redemptions-service.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L210)
 
 ___
 
@@ -423,7 +527,7 @@ Requests a redemption of TBTC v2 token into BTC.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `bitcoinRedeemerAddress` | `string` | Bitcoin address redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported. |
+| `bitcoinRedeemerAddress` | `string` | Bitcoin address redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, P2WSH, and P2TR address types are supported. |
 | `amount` | `BigNumber` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 
 #### Returns
@@ -438,7 +542,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L84)
+[src/services/redemptions/redemptions-service.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L92)
 
 ___
 
@@ -454,7 +558,7 @@ through the provided redeemer proxy.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `bitcoinRedeemerAddress` | `string` | Bitcoin address the redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported. |
+| `bitcoinRedeemerAddress` | `string` | Bitcoin address the redeemed BTC should be sent to. Only P2PKH, P2WPKH, P2SH, P2WSH, and P2TR address types are supported. |
 | `amount` | `BigNumberish` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 | `redeemerProxy` | [`RedeemerProxy`](../interfaces/RedeemerProxy.md) | Object impleenting functions required to route tBTC redemption requests through the tBTC bridge. |
 
@@ -470,7 +574,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L156)
+[src/services/redemptions/redemptions-service.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L165)
 
 ___
 
@@ -486,7 +590,7 @@ Bitcoin address and handles each case appropriately.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `redeemerAddressOrScript` | `string` | Either a Bitcoin address (P2PKH, P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without 0x prefix). |
+| `redeemerAddressOrScript` | `string` | Either a Bitcoin address (P2PKH, P2WPKH, P2SH, P2WSH, P2TR) or a raw hex output script (with or without 0x prefix). |
 
 #### Returns
 
@@ -496,7 +600,7 @@ The resolved output script as a Hex object.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:808](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L808)
+[src/services/redemptions/redemptions-service.ts:1009](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L1009)
 
 ___
 
@@ -520,4 +624,4 @@ once the loader is ready.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L65)
+[src/services/redemptions/redemptions-service.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L73)

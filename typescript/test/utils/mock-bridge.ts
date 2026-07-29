@@ -10,7 +10,9 @@ import {
   DepositReceipt,
   DepositRevealedEvent,
   DepositRequest,
+  TaprootDepositRevealedEvent,
 } from "../../src/lib/contracts"
+import { WalletIDUtils } from "../../src/lib/contracts/wallet-id"
 import {
   BitcoinRawTxVectors,
   BitcoinSpvProof,
@@ -70,10 +72,13 @@ export class MockBridge implements Bridge {
   private _requestRedemptionLog: RequestRedemptionLogEntry[] = []
   private _redemptionProofLog: RedemptionProofLogEntry[] = []
   private _deposits = new Map<BigNumberish, DepositRequest>()
+  private _activeWalletID: Hex | undefined
   private _activeWalletPublicKey: Hex | undefined
+  private _activeWalletPublicKeyHash: Hex | undefined
   private _newWalletRegisteredEvents: NewWalletRegisteredEvent[] = []
   private _newWalletRegisteredEventsLog: NewWalletRegisteredEventsLog[] = []
   private _wallets = new Map<string, Wallet>()
+  private _walletPubKeyHashByWalletID = new Map<string, Hex>()
   private _walletsLog: WalletLog[] = []
 
   setPendingRedemptions(value: Map<BigNumberish, RedemptionRequest>) {
@@ -86,6 +91,12 @@ export class MockBridge implements Bridge {
 
   setWallet(key: string, value: Wallet) {
     this._wallets.set(key, value)
+    if (value.walletID) {
+      this._walletPubKeyHashByWalletID.set(
+        value.walletID.toPrefixedString(),
+        Hex.from(key)
+      )
+    }
   }
 
   set newWalletRegisteredEvents(value: NewWalletRegisteredEvent[]) {
@@ -120,8 +131,28 @@ export class MockBridge implements Bridge {
     this._deposits = value
   }
 
+  async taprootDepositOutputKeyCommitment(
+    _depositTxHash: BitcoinTxHash,
+    _depositOutputIndex: number
+  ): Promise<Hex> {
+    return Hex.from("00".repeat(32))
+  }
+
   setActiveWalletPublicKey(activeWalletPublicKey: Hex) {
+    this._activeWalletID = undefined
     this._activeWalletPublicKey = activeWalletPublicKey
+    this._activeWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
+      activeWalletPublicKey
+    )
+  }
+
+  setActiveWalletPublicKeyHash(activeWalletPublicKeyHash: Hex) {
+    this._activeWalletID = undefined
+    this._activeWalletPublicKeyHash = activeWalletPublicKeyHash
+  }
+
+  setActiveWalletID(activeWalletID: Hex) {
+    this._activeWalletID = activeWalletID
   }
 
   getDepositRevealedEvents(
@@ -147,6 +178,42 @@ export class MockBridge implements Bridge {
           blindingFactor: deposit.data.blindingFactor,
           walletPublicKeyHash: deposit.data.walletPublicKeyHash,
           refundPublicKeyHash: deposit.data.refundPublicKeyHash,
+          refundLocktime: deposit.data.refundLocktime,
+          vault: EthereumAddress.from(constants.AddressZero),
+        },
+      ])
+    })
+  }
+
+  getTaprootDepositRevealedEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<any>
+  ): Promise<TaprootDepositRevealedEvent[]> {
+    const deposit = depositSweepWithNoMainUtxoAndWitnessOutput.deposits[0]
+
+    return new Promise<TaprootDepositRevealedEvent[]>((resolve, _) => {
+      resolve([
+        {
+          blockNumber: 32142,
+          blockHash: Hex.from(
+            "0xe43552af34efab0828278b91e0f984e4b9769abf85beaed41eee4c25c822a619"
+          ),
+          transactionHash: Hex.from(
+            "0xdc6c041baaf1cc5bebca5aab02d0488e885a3687541ef012d9beb53141f73419"
+          ),
+          fundingTxHash: deposit.utxo.transactionHash,
+          fundingOutputIndex: deposit.utxo.outputIndex,
+          depositor: deposit.data.depositor,
+          amount: deposit.utxo.value,
+          blindingFactor: deposit.data.blindingFactor,
+          walletPublicKeyHash: deposit.data.walletPublicKeyHash,
+          walletXOnlyPublicKey: Hex.from(
+            "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+          ),
+          refundPublicKeyHash: deposit.data.refundPublicKeyHash,
+          refundXOnlyPublicKey: Hex.from(
+            "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+          ),
           refundLocktime: deposit.data.refundLocktime,
           vault: EthereumAddress.from(constants.AddressZero),
         },
@@ -365,6 +432,22 @@ export class MockBridge implements Bridge {
     return this._activeWalletPublicKey
   }
 
+  async activeWalletPublicKeyHash(): Promise<Hex | undefined> {
+    return this._activeWalletPublicKeyHash
+  }
+
+  async activeWalletID(): Promise<Hex | undefined> {
+    if (this._activeWalletID) {
+      return this._activeWalletID
+    }
+
+    if (!this._activeWalletPublicKeyHash) {
+      return undefined
+    }
+
+    return this.walletID(this._activeWalletPublicKeyHash)
+  }
+
   async getNewWalletRegisteredEvents(
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
@@ -383,6 +466,26 @@ export class MockBridge implements Bridge {
     })
     const wallet = this._wallets.get(walletPublicKeyHash.toPrefixedString())
     return wallet!
+  }
+
+  async walletsByWalletID(walletID: Hex): Promise<Wallet> {
+    const walletPublicKeyHash = await this.walletPublicKeyHashForWalletID(
+      walletID
+    )
+    return this.wallets(walletPublicKeyHash)
+  }
+
+  async walletID(walletPublicKeyHash: Hex): Promise<Hex> {
+    return WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
+  }
+
+  async walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex> {
+    const key = walletID.toPrefixedString()
+    if (this._walletPubKeyHashByWalletID.has(key)) {
+      return this._walletPubKeyHashByWalletID.get(key)!
+    }
+
+    return Hex.from(`0x${walletID.toString().slice(24)}`)
   }
 
   buildUtxoHash(utxo: BitcoinUtxo): Hex {

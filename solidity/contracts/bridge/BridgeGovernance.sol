@@ -48,6 +48,11 @@ contract BridgeGovernance is Ownable {
     // governanceDelays[2] -> governanceDelayChangeInitiated
     uint256[3] public governanceDelays;
 
+    /// @notice The minimum allowed value for the governance delay. Prevents
+    ///         setting the delay to zero or near-zero values that would
+    ///         effectively disable timelocked governance parameter updates.
+    uint256 public constant MIN_GOVERNANCE_DELAY = 3600; // 1 hour
+
     uint256 public bridgeGovernanceTransferChangeInitiated;
     address internal newBridgeGovernance;
 
@@ -289,6 +294,10 @@ contract BridgeGovernance is Ownable {
     event TreasuryUpdated(address treasury);
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
+        require(
+            _governanceDelay >= MIN_GOVERNANCE_DELAY,
+            "Initial governance delay must be >= minimum"
+        );
         bridge = _bridge;
         governanceDelays[0] = _governanceDelay;
     }
@@ -305,6 +314,14 @@ contract BridgeGovernance is Ownable {
         bridge.setVaultStatus(vault, isTrusted);
     }
 
+    /// @notice Sets whether economic slashing is active on the Bridge. `false`
+    ///         disables the (economically inert) operator-stake slashing without
+    ///         affecting permissionless fraud-proof wallet termination.
+    /// @param active New value of the slashing-active flag.
+    function setSlashingActive(bool active) external onlyOwner {
+        bridge.setSlashingActive(active);
+    }
+
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.
@@ -318,15 +335,20 @@ contract BridgeGovernance is Ownable {
     }
 
     /// @notice Begins the governance delay update process.
-    /// @dev Can be called only by the contract owner. The event that informs about
-    ///      the start of the governance delay was skipped on purpose to trim
-    ///      the contract size. All the params inside of the `governanceDelays`
-    ///      array are public and can be easily fetched.
+    /// @dev Can be called only by the contract owner. The new governance delay
+    ///      must be at least `MIN_GOVERNANCE_DELAY`. The event that informs
+    ///      about the start of the governance delay was skipped on purpose to
+    ///      trim the contract size. All the params inside of the
+    ///      `governanceDelays` array are public and can be easily fetched.
     /// @param _newGovernanceDelay New governance delay
     function beginGovernanceDelayUpdate(uint256 _newGovernanceDelay)
         external
         onlyOwner
     {
+        require(
+            _newGovernanceDelay >= MIN_GOVERNANCE_DELAY,
+            "New governance delay must be >= minimum"
+        );
         governanceDelays[1] = _newGovernanceDelay;
         /* solhint-disable not-rely-on-time */
         governanceDelays[2] = block.timestamp;
@@ -1789,6 +1811,128 @@ contract BridgeGovernance is Ownable {
         onlyOwner
     {
         bridge.setRedemptionWatchtower(redemptionWatchtower);
+    }
+
+    /// @notice Sets the FROST wallet registry address. This function does
+    ///         not have a governance delay because it is a one-off
+    ///         action performed during enablement of the FROST wallet
+    ///         registration path. Once set, the registry address cannot
+    ///         be changed without a Bridge implementation upgrade.
+    /// @param frostWalletRegistry Address of the FROST wallet registry.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - FROST wallet registry address must not be already set,
+    ///      - FROST wallet registry address must not be 0x0.
+    function setFrostWalletRegistry(address frostWalletRegistry)
+        external
+        onlyOwner
+    {
+        bridge.setFrostWalletRegistry(frostWalletRegistry);
+    }
+
+    /// @notice Sets the EcdsaFraudRouter sidecar address on the Bridge.
+    ///         This function does not have a governance delay since
+    ///         setting the router is a one-off action performed during
+    ///         enablement of the extracted ECDSA fraud lifecycle. Once
+    ///         set, the router address cannot be changed without a
+    ///         Bridge implementation upgrade.
+    /// @param ecdsaFraudRouter Address of the EcdsaFraudRouter sidecar.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - ECDSA fraud router address must not be already set,
+    ///      - ECDSA fraud router address must not be 0x0.
+    function setEcdsaFraudRouter(address ecdsaFraudRouter) external onlyOwner {
+        bridge.setEcdsaFraudRouter(ecdsaFraudRouter);
+    }
+
+    /// @notice Migrates a batch of legacy fraud challenges from
+    ///         Bridge storage to one of the fraud router sidecars.
+    ///         Forwards to `Bridge.migrateLegacyFraudChallenges`,
+    ///         which transfers the aggregate escrowed ETH along
+    ///         with the challenge records.
+    /// @param routerKind 0 = ECDSA router, 1 = P2TR router. Off-chain
+    ///        classification is required since the legacy Bridge
+    ///        mapping was shared between the two lifecycles.
+    /// @param challengeKeys Legacy challenge keys to migrate.
+    /// @dev Bridge accepts only unresolved records, deletes them before the
+    ///      router call, and transfers the exact aggregate escrow. A router
+    ///      failure reverts the complete migration atomically.
+    function migrateLegacyFraudChallenges(
+        uint8 routerKind,
+        uint256[] calldata challengeKeys
+    ) external onlyOwner {
+        bridge.migrateLegacyFraudChallenges(routerKind, challengeKeys);
+    }
+
+    /// @notice Sets the P2TRSignatureFraudRouter sidecar address on
+    ///         the Bridge. Same one-off (no governance delay) pattern
+    ///         as `setEcdsaFraudRouter`.
+    function setP2TRFraudRouter(address p2trFraudRouter) external onlyOwner {
+        bridge.setP2TRFraudRouter(p2trFraudRouter);
+    }
+
+    /// @notice Sets the BridgeLifecycleRouter address. This function
+    ///         does not have a governance delay because it is a
+    ///         one-off action performed during enablement of the
+    ///         FROST wallet lifecycle path. Once set, the router
+    ///         address cannot be changed without a Bridge
+    ///         implementation upgrade.
+    /// @param lifecycleRouter Address of the BridgeLifecycleRouter.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - Lifecycle router address must not be already set,
+    ///      - Lifecycle router address must not be 0x0.
+    function setLifecycleRouter(address lifecycleRouter) external onlyOwner {
+        bridge.setLifecycleRouter(lifecycleRouter);
+    }
+
+    // D-2.2 slice 3: `setNewWalletScheme(scheme)` forwarder
+    // removed. Pre-slice-3 it let governance flip
+    // Bridge.currentNewWalletScheme between Ecdsa and Frost.
+    // Slice 3 also removed the Bridge-side setter + the
+    // scheme-dispatch branch in `Wallets.requestNewWallet`;
+    // FROST is now the only valid scheme. The storage field
+    // is preserved for upgrade-safety. See
+    // `d2-2-followups-plan.md` §"Slice 3".
+
+    /// @notice OPTIONAL audit-trail forwarder for the D-2
+    ///         retire flag. Calling this flips
+    ///         `ecdsaRetired = true` on Bridge. The flag is
+    ///         purely an on-chain marker that governance has
+    ///         formally retired ECDSA wallet creation; it is
+    ///         NOT load-bearing for the hard retirement.
+    ///         Observable via the public `Bridge.ecdsaRetired()`
+    ///         getter (NOT via an event: D-2.2 dropped the
+    ///         `emit EcdsaRetired()` in `Bridge.retireEcdsa()`
+    ///         to fit the getter under EIP-170).
+    /// @dev New requests are FROST-only after the Bridge upgrade. The Bridge
+    ///      intentionally retains the authenticated ECDSA creation callback
+    ///      so a request started before that upgrade can complete even if this
+    ///      audit-trail flag has already been set.
+    ///
+    ///      `retireEcdsa()` is a NEW function shipping in this
+    ///      PR's source. Calling it on mainnet requires
+    ///      redeploying BridgeGovernance and transferring
+    ///      Bridge governance to the new instance (the
+    ///      existing deployed BridgeGovernance does not have
+    ///      this selector). The audit-trail value of the flag
+    ///      is the only motivation to incur that operational
+    ///      cost. (Per PR #444 review.)
+    ///
+    ///      Requirements:
+    ///      - Caller must be the owner of THIS BridgeGovernance.
+    ///
+    ///      No governance delay: D-2 is a deliberate one-way
+    ///      flip that should take effect on confirmation, and
+    ///      the flag is idempotent (re-calling after it is set
+    ///      writes the same value — warm SSTORE no-op). The
+    ///      transition is observable via the public
+    ///      `Bridge.ecdsaRetired()` getter (NOT via an event:
+    ///      D-2.2 dropped the `emit EcdsaRetired()` in
+    ///      `Bridge.retireEcdsa()` to fit the getter under
+    ///      EIP-170).
+    function retireEcdsa() external onlyOwner {
+        bridge.retireEcdsa();
     }
 
     /// @notice Sets the rebate staking address. This function does not

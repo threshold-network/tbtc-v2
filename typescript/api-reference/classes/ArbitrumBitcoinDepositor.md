@@ -39,6 +39,7 @@ for reference.
 - [getEvents](ArbitrumBitcoinDepositor.md#getevents)
 - [initializeDeposit](ArbitrumBitcoinDepositor.md#initializedeposit)
 - [setDepositOwner](ArbitrumBitcoinDepositor.md#setdepositowner)
+- [supportsTaprootDeposits](ArbitrumBitcoinDepositor.md#supportstaprootdeposits)
 
 ## Constructors
 
@@ -63,7 +64,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L33)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L34)
 
 ## Properties
 
@@ -73,7 +74,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L31)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L32)
 
 ___
 
@@ -83,7 +84,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L30)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L31)
 
 ___
 
@@ -101,7 +102,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
+[src/lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -117,7 +118,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
+[src/lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -133,7 +134,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
+[src/lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
@@ -153,7 +154,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L80)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L81)
 
 ___
 
@@ -175,7 +176,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
+[src/lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -195,7 +196,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L56)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L57)
 
 ___
 
@@ -215,7 +216,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L64)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L65)
 
 ___
 
@@ -249,7 +250,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
+[src/lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -278,7 +279,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L88)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:97](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L97)
 
 ___
 
@@ -304,4 +305,26 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L72)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L73)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+False because the deployed contract uses the legacy reveal tuple.
+
+**`See`**
+
+#### Implementation of
+
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[supportsTaprootDeposits](../interfaces/BitcoinDepositor.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L89)

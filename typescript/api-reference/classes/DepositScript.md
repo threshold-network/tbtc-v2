@@ -15,27 +15,33 @@ by the target wallet during the deposit sweep process.
 ### Properties
 
 - [receipt](DepositScript.md#receipt)
+- [scriptType](DepositScript.md#scripttype)
 - [witness](DepositScript.md#witness)
 
 ### Methods
 
 - [deriveAddress](DepositScript.md#deriveaddress)
+- [deriveOutputScript](DepositScript.md#deriveoutputscript)
 - [getHash](DepositScript.md#gethash)
 - [getPlainText](DepositScript.md#getplaintext)
+- [getTaprootLeafHash](DepositScript.md#gettaprootleafhash)
+- [getTaprootMerkleRoot](DepositScript.md#gettaprootmerkleroot)
+- [getTaprootOutputKey](DepositScript.md#gettaprootoutputkey)
+- [getTaprootRefundScript](DepositScript.md#gettaprootrefundscript)
 - [fromReceipt](DepositScript.md#fromreceipt)
 
 ## Constructors
 
 ### constructor
 
-• **new DepositScript**(`receipt`, `witness`): [`DepositScript`](DepositScript.md)
+• **new DepositScript**(`receipt`, `scriptType`): [`DepositScript`](DepositScript.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `receipt` | [`DepositReceipt`](../interfaces/DepositReceipt.md) |
-| `witness` | `boolean` |
+| `scriptType` | [`DepositScriptType`](../README.md#depositscripttype) |
 
 #### Returns
 
@@ -43,7 +49,7 @@ by the target wallet during the deposit sweep process.
 
 #### Defined in
 
-[services/deposits/deposit.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L192)
+[src/services/deposits/deposit.ts:226](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L226)
 
 ## Properties
 
@@ -56,7 +62,19 @@ and allowing to build a unique deposit script (and address) on Bitcoin chain.
 
 #### Defined in
 
-[services/deposits/deposit.ts:185](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L185)
+[src/services/deposits/deposit.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L215)
+
+___
+
+### scriptType
+
+• `Readonly` **scriptType**: [`DepositScriptType`](../README.md#depositscripttype)
+
+Deposit script/address type.
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:224](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L224)
 
 ___
 
@@ -69,7 +87,7 @@ should be a witness P2WSH one. If false, legacy P2SH will be used instead.
 
 #### Defined in
 
-[services/deposits/deposit.ts:190](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L190)
+[src/services/deposits/deposit.ts:220](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L220)
 
 ## Methods
 
@@ -93,7 +111,32 @@ Bitcoin address corresponding to this deposit script.
 
 #### Defined in
 
-[services/deposits/deposit.ts:261](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L261)
+[src/services/deposits/deposit.ts:375](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L375)
+
+___
+
+### deriveOutputScript
+
+▸ **deriveOutputScript**(`bitcoinNetwork`): `Promise`\<`Buffer`\<`ArrayBufferLike`\>\>
+
+Derives a Bitcoin output script for the given network for this deposit
+script.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | Bitcoin network the output script should be derived for. |
+
+#### Returns
+
+`Promise`\<`Buffer`\<`ArrayBufferLike`\>\>
+
+Output script not prepended with length.
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:418](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L418)
 
 ___
 
@@ -109,7 +152,7 @@ Hashed deposit script as Buffer.
 
 #### Defined in
 
-[services/deposits/deposit.ts:209](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L209)
+[src/services/deposits/deposit.ts:255](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L255)
 
 ___
 
@@ -125,20 +168,84 @@ Plain-text deposit script as a hex string.
 
 #### Defined in
 
-[services/deposits/deposit.ts:221](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L221)
+[src/services/deposits/deposit.ts:271](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L271)
+
+___
+
+### getTaprootLeafHash
+
+▸ **getTaprootLeafHash**(): `Promise`\<[`Hex`](Hex.md)\>
+
+#### Returns
+
+`Promise`\<[`Hex`](Hex.md)\>
+
+TapLeaf hash of the Taproot refund script.
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:344](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L344)
+
+___
+
+### getTaprootMerkleRoot
+
+▸ **getTaprootMerkleRoot**(): `Promise`\<[`Hex`](Hex.md)\>
+
+#### Returns
+
+`Promise`\<[`Hex`](Hex.md)\>
+
+Taproot merkle root for this deposit's script tree.
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:351](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L351)
+
+___
+
+### getTaprootOutputKey
+
+▸ **getTaprootOutputKey**(): `Promise`\<[`Hex`](Hex.md)\>
+
+#### Returns
+
+`Promise`\<[`Hex`](Hex.md)\>
+
+X-only Taproot output key committing to the refund script.
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L358)
+
+___
+
+### getTaprootRefundScript
+
+▸ **getTaprootRefundScript**(): `Promise`\<[`Hex`](Hex.md)\>
+
+#### Returns
+
+`Promise`\<[`Hex`](Hex.md)\>
+
+Tapscript refund leaf for a Taproot-native deposit.
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:313](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L313)
 
 ___
 
 ### fromReceipt
 
-▸ **fromReceipt**(`receipt`, `witness?`): [`DepositScript`](DepositScript.md)
+▸ **fromReceipt**(`receipt`, `options?`): [`DepositScript`](DepositScript.md)
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `receipt` | [`DepositReceipt`](../interfaces/DepositReceipt.md) | `undefined` |
-| `witness` | `boolean` | `true` |
+| Name | Type |
+| :------ | :------ |
+| `receipt` | [`DepositReceipt`](../interfaces/DepositReceipt.md) |
+| `options` | [`DepositScriptOptions`](../README.md#depositscriptoptions) |
 
 #### Returns
 
@@ -146,4 +253,4 @@ ___
 
 #### Defined in
 
-[services/deposits/deposit.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L199)
+[src/services/deposits/deposit.ts:245](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L245)

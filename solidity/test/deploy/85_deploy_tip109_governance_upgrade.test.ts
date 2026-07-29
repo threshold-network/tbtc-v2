@@ -8,7 +8,7 @@ import fs from "fs"
 import path from "path"
 import func, {
   encodeRebateStakingUpgrade,
-  encodeBridgeUpgradeAndCall,
+  encodeBridgeUpgrade,
   encodeSetRebateStaking,
   encodeBeginDepositTreasuryFeeDivisorUpdate,
   KNOWN_PROXY_ADMIN,
@@ -35,16 +35,16 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   // Address maps shared by all mock HRE instances.
   const deployAddressMap: Record<string, string> = {
     Deposit: DEPOSIT_ADDRESS,
+    DepositSweep: DEPOSIT_SWEEP_ADDRESS,
     Redemption: REDEMPTION_ADDRESS,
+    Wallets: WALLETS_ADDRESS,
+    Fraud: FRAUD_ADDRESS,
+    MovingFunds: MOVING_FUNDS_ADDRESS,
     BridgeTIP109Implementation: BRIDGE_IMPL_ADDRESS,
     RebateStakingTIP109Implementation: REBATE_IMPL_ADDRESS,
   }
 
   const getAddressMap: Record<string, string> = {
-    DepositSweep: DEPOSIT_SWEEP_ADDRESS,
-    Wallets: WALLETS_ADDRESS,
-    Fraud: FRAUD_ADDRESS,
-    MovingFunds: MOVING_FUNDS_ADDRESS,
     Bridge: BRIDGE_PROXY_ADDRESS,
     RebateStaking: REBATE_STAKING_PROXY_ADDRESS,
     BridgeGovernance: BRIDGE_GOV_ADDRESS,
@@ -211,6 +211,18 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(depositCall!.options.waitConfirmations).to.equal(1)
       })
 
+      it("should deploy DepositSweep library with correct options", async () => {
+        await func(mockHre)
+
+        const depositSweepCall = deployCalls.find(
+          (c) => c.name === "DepositSweep"
+        )
+        expect(depositSweepCall).to.not.be.undefined
+        expect(depositSweepCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(depositSweepCall!.options.log).to.be.true
+        expect(depositSweepCall!.options.waitConfirmations).to.equal(1)
+      })
+
       it("should deploy Redemption library with correct options", async () => {
         await func(mockHre)
 
@@ -221,23 +233,64 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(redemptionCall!.options.waitConfirmations).to.equal(1)
       })
 
-      it("should resolve existing libraries via deployments.get()", async () => {
+      it("should deploy local Wallets library with correct options", async () => {
         await func(mockHre)
 
-        const expectedLibraries = [
+        const walletsCall = deployCalls.find((c) => c.name === "Wallets")
+        expect(walletsCall).to.not.be.undefined
+        expect(walletsCall!.options.contract).to.equal(
+          "contracts/bridge/Wallets.sol:Wallets"
+        )
+        expect(walletsCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(walletsCall!.options.log).to.be.true
+        expect(walletsCall!.options.waitConfirmations).to.equal(1)
+      })
+
+      it("should deploy Fraud library with correct options", async () => {
+        await func(mockHre)
+
+        const fraudCall = deployCalls.find((c) => c.name === "Fraud")
+        expect(fraudCall).to.not.be.undefined
+        expect(fraudCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(fraudCall!.options.log).to.be.true
+        expect(fraudCall!.options.waitConfirmations).to.equal(1)
+      })
+
+      it("should deploy MovingFunds library with correct options", async () => {
+        await func(mockHre)
+
+        const movingFundsCall = deployCalls.find(
+          (c) => c.name === "MovingFunds"
+        )
+        expect(movingFundsCall).to.not.be.undefined
+        expect(movingFundsCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(movingFundsCall!.options.log).to.be.true
+        expect(movingFundsCall!.options.waitConfirmations).to.equal(1)
+      })
+
+      it("should never resolve Bridge libraries via deployments.get()", async () => {
+        await func(mockHre)
+
+        const bridgeLibraries = [
+          "Deposit",
           "DepositSweep",
+          "Redemption",
           "Wallets",
           "Fraud",
           "MovingFunds",
         ]
         const getNames = getCalls.map((c) => c.name)
 
-        expectedLibraries.forEach((lib) => {
-          expect(getNames).to.include(
-            lib,
-            `Expected deployments.get() to be called with "${lib}"`
+        bridgeLibraries.forEach((library) => {
+          expect(getNames).to.not.include(
+            library,
+            `${library} must be deployed from current source`
           )
         })
+
+        expect(getNames).to.include("Bridge")
+        expect(getNames).to.include("RebateStaking")
+        expect(getNames).to.include("BridgeGovernance")
       })
 
       it("should deploy Bridge implementation with distinct artifact name", async () => {
@@ -336,8 +389,26 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           ethers.constants.AddressZero
         )
 
+        const depositSweepArtifact = await deployments.get("DepositSweep")
+        expect(depositSweepArtifact.address).to.not.equal(
+          ethers.constants.AddressZero
+        )
+
         const redemptionArtifact = await deployments.get("Redemption")
         expect(redemptionArtifact.address).to.not.equal(
+          ethers.constants.AddressZero
+        )
+
+        const walletsArtifact = await deployments.get("Wallets")
+        expect(walletsArtifact.address).to.not.equal(
+          ethers.constants.AddressZero
+        )
+
+        const fraudArtifact = await deployments.get("Fraud")
+        expect(fraudArtifact.address).to.not.equal(ethers.constants.AddressZero)
+
+        const movingFundsArtifact = await deployments.get("MovingFunds")
+        expect(movingFundsArtifact.address).to.not.equal(
           ethers.constants.AddressZero
         )
 
@@ -370,7 +441,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
           // Verify that deployed addresses appear in the console output
           const depositArtifact = await deployments.get("Deposit")
+          const depositSweepArtifact = await deployments.get("DepositSweep")
           const redemptionArtifact = await deployments.get("Redemption")
+          const walletsArtifact = await deployments.get("Wallets")
+          const fraudArtifact = await deployments.get("Fraud")
+          const movingFundsArtifact = await deployments.get("MovingFunds")
           const bridgeImplArtifact = await deployments.get(
             "BridgeTIP109Implementation"
           )
@@ -379,7 +454,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           )
 
           expect(allOutput).to.include(depositArtifact.address)
+          expect(allOutput).to.include(depositSweepArtifact.address)
           expect(allOutput).to.include(redemptionArtifact.address)
+          expect(allOutput).to.include(walletsArtifact.address)
+          expect(allOutput).to.include(fraudArtifact.address)
+          expect(allOutput).to.include(movingFundsArtifact.address)
           expect(allOutput).to.include(bridgeImplArtifact.address)
           expect(allOutput).to.include(rebateImplArtifact.address)
         } finally {
@@ -393,10 +472,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     // ABI interfaces used for decoding generated calldata
     const proxyAdminABI = [
       "function upgrade(address proxy, address implementation)",
-      "function upgradeAndCall(address proxy, address implementation, bytes data)",
-    ]
-    const bridgeABI = [
-      "function initializeV5_RepairRebateStaking(address newRebateStaking)",
     ]
     const bridgeGovABI = [
       "function setRebateStaking(address rebateStaking)",
@@ -404,7 +479,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     ]
 
     const proxyAdminIface = new ethers.utils.Interface(proxyAdminABI)
-    const bridgeIface = new ethers.utils.Interface(bridgeABI)
     const bridgeGovIface = new ethers.utils.Interface(bridgeGovABI)
 
     // Calldata-specific test addresses (implementation addresses distinct
@@ -429,48 +503,17 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    describe("Bridge upgradeAndCall calldata", () => {
-      it("should encode upgradeAndCall(address,address,bytes) with correct params", () => {
-        const calldata = encodeBridgeUpgradeAndCall(
-          BRIDGE_PROXY_ADDRESS,
-          BRIDGE_IMPL
-        )
+    describe("Bridge upgrade calldata", () => {
+      it("should encode upgrade(address,address) with correct params", () => {
+        const calldata = encodeBridgeUpgrade(BRIDGE_PROXY_ADDRESS, BRIDGE_IMPL)
 
-        // Verify the function selector is upgradeAndCall(address,address,bytes) = 0x9623609d
-        expect(calldata.slice(0, 10)).to.equal("0x9623609d")
+        // Verify the function selector is upgrade(address,address) = 0x99a88ec4
+        expect(calldata.slice(0, 10)).to.equal("0x99a88ec4")
 
-        // Decode outer calldata and verify proxy and impl addresses
-        const decoded = proxyAdminIface.decodeFunctionData(
-          "upgradeAndCall",
-          calldata
-        )
+        // Decode calldata and verify proxy and impl addresses
+        const decoded = proxyAdminIface.decodeFunctionData("upgrade", calldata)
         expect(decoded.proxy).to.equal(BRIDGE_PROXY_ADDRESS)
         expect(decoded.implementation).to.equal(BRIDGE_IMPL)
-      })
-
-      it("should encode initializeV5_RepairRebateStaking(address(0)) as inner data", () => {
-        const calldata = encodeBridgeUpgradeAndCall(
-          BRIDGE_PROXY_ADDRESS,
-          BRIDGE_IMPL
-        )
-
-        // Decode the outer calldata to extract inner bytes
-        const decoded = proxyAdminIface.decodeFunctionData(
-          "upgradeAndCall",
-          calldata
-        )
-        const innerData: string = decoded.data
-
-        // Decode the inner calldata and verify it targets initializeV5
-        const innerDecoded = bridgeIface.decodeFunctionData(
-          "initializeV5_RepairRebateStaking",
-          innerData
-        )
-
-        // The repair target must be address(0) per D-7
-        expect(innerDecoded.newRebateStaking).to.equal(
-          ethers.constants.AddressZero
-        )
       })
     })
 
@@ -510,7 +553,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     })
 
     describe("execution order", () => {
-      it("should place RebateStaking upgrade FIRST and Bridge upgradeAndCall SECOND in timelock actions", async () => {
+      it("should place RebateStaking upgrade FIRST and Bridge upgrade SECOND in timelock actions", async () => {
         const { mockHre } = createMockHre()
 
         const loggedMessages: string[] = []
@@ -529,22 +572,24 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         const allOutput = loggedMessages.join("\n")
 
-        // The RebateStaking upgrade calldata (0x99a88ec4) must appear before
-        // the Bridge upgradeAndCall calldata (0x9623609d) in the output
-        const rebateUpgradeIndex = allOutput.indexOf("0x99a88ec4")
-        const bridgeUpgradeIndex = allOutput.indexOf("0x9623609d")
+        const rebateUpgradeIndex = allOutput.indexOf(
+          "Timelock Action [0]: RebateStaking upgrade"
+        )
+        const bridgeUpgradeIndex = allOutput.indexOf(
+          "Timelock Action [1]: Bridge upgrade"
+        )
 
         expect(rebateUpgradeIndex).to.be.greaterThan(
           -1,
-          "RebateStaking upgrade calldata should be logged"
+          "RebateStaking upgrade action should be logged"
         )
         expect(bridgeUpgradeIndex).to.be.greaterThan(
           -1,
-          "Bridge upgradeAndCall calldata should be logged"
+          "Bridge upgrade action should be logged"
         )
         expect(rebateUpgradeIndex).to.be.lessThan(
           bridgeUpgradeIndex,
-          "RebateStaking upgrade must appear BEFORE Bridge upgradeAndCall"
+          "RebateStaking upgrade must appear BEFORE Bridge upgrade"
         )
       })
     })
@@ -702,11 +747,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         "0x99a88ec4"
       )
 
-      // Index 1 must be Bridge upgradeAndCall
+      // Index 1 must be Bridge upgrade
       expect(summary.timelockActions[1].description).to.include("Bridge")
-      // Selector for upgradeAndCall(address,address,bytes) = 0x9623609d
+      // Selector for upgrade(address,address) = 0x99a88ec4
       expect(summary.timelockActions[1].data.slice(0, 10)).to.equal(
-        "0x9623609d"
+        "0x99a88ec4"
       )
     })
 
@@ -734,13 +779,17 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       )
     })
 
-    it("should have deployedContracts with all 4 entries", () => {
+    it("should have deployedContracts with all 8 entries", () => {
       expect(summary).to.not.be.null
       const dc = summary.deployedContracts
 
       const requiredKeys = [
         "Deposit",
+        "DepositSweep",
         "Redemption",
+        "Wallets",
+        "Fraud",
+        "MovingFunds",
         "BridgeTIP109Implementation",
         "RebateStakingTIP109Implementation",
       ]
@@ -864,11 +913,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         )
       })
 
-      it("should have check[0] reference getRebateStaking with address(0) expected", () => {
+      it("should have check[0] reference getRebateStaking with RebateStaking proxy expected", () => {
         expect(summary).to.not.be.null
         const check = summary.verificationChecks[0]
         expect(check.command).to.include("getRebateStaking")
-        expect(check.expectedResult).to.match(/address\(0\)|0x0{40}/i)
+        expect(check.expectedResult).to.equal(REBATE_STAKING_PROXY_ADDRESS)
       })
 
       it("should have a storage layout check referencing slots 79, 80, and gap 81-128", () => {
@@ -897,9 +946,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         const stateCheck = summary.verificationChecks.find(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) =>
-            c.description.toLowerCase().includes("state") ||
-            c.description.toLowerCase().includes("rebatestaking")
+          (c: any) => c.description.toLowerCase().includes("preserved")
         )
         expect(
           stateCheck,
@@ -931,7 +978,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(combined).to.include("56")
       })
 
-      it("should have a bytecode linkage check referencing Deposit and Redemption addresses", () => {
+      it("should have a bytecode linkage check referencing all six library addresses", () => {
         expect(summary).to.not.be.null
 
         const bytecodeCheck = summary.verificationChecks.find(
@@ -944,13 +991,24 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         ).to.not.be.undefined
 
         const combined = `${bytecodeCheck.command} ${bytecodeCheck.expectedResult}`
-        // The check should reference the deployed Deposit and Redemption
-        // library addresses (from deployAddressMap in mock)
+        // The check should reference all freshly deployed library addresses.
         expect(combined.toLowerCase()).to.include(
           DEPOSIT_ADDRESS.toLowerCase().slice(2)
         )
         expect(combined.toLowerCase()).to.include(
+          DEPOSIT_SWEEP_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
           REDEMPTION_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
+          WALLETS_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
+          FRAUD_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
+          MOVING_FUNDS_ADDRESS.toLowerCase().slice(2)
         )
       })
     })

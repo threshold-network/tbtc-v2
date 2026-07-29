@@ -41,7 +41,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[services/deposits/funding.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L30)
+[src/services/deposits/funding.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L31)
 
 ## Properties
 
@@ -51,7 +51,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[services/deposits/funding.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L28)
+[src/services/deposits/funding.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L29)
 
 ## Methods
 
@@ -68,7 +68,7 @@ the underlying deposit script.
 | :------ | :------ | :------ |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | The target Bitcoin network. |
 | `amount` | `BigNumber` | Deposit amount in satoshis. |
-| `inputUtxos` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `BigNumber`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md)[] | UTXOs to be used for funding the deposit transaction. So far only P2WPKH UTXO inputs are supported. |
+| `inputUtxos` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `BigNumber`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md)[] | UTXOs to be used for funding the deposit transaction. So far only P2PKH and P2WPKH UTXO inputs are supported. |
 | `fee` | `BigNumber` | Transaction fee to be subtracted from the sum of the UTXOs' values. |
 | `depositorPrivateKey` | `string` | Bitcoin private key of the depositor. Must be able to unlock input UTXOs. |
 
@@ -101,7 +101,7 @@ When the sum of the selected UTXOs is insufficient to cover
 
 #### Defined in
 
-[services/deposits/funding.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L62)
+[src/services/deposits/funding.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L63)
 
 ___
 
@@ -117,7 +117,7 @@ using the underlying deposit script.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `amount` | `BigNumber` | Deposit amount in satoshis. |
-| `inputUtxos` | [`BitcoinUtxo`](../README.md#bitcoinutxo)[] | UTXOs to be used for funding the deposit transaction. So far only P2WPKH UTXO inputs are supported. |
+| `inputUtxos` | [`BitcoinUtxo`](../README.md#bitcoinutxo)[] | UTXOs to be used for funding the deposit transaction. So far only P2PKH and P2WPKH UTXO inputs are supported. |
 | `fee` | `BigNumber` | The value that should be subtracted from the sum of the UTXOs values and used as the transaction fee. |
 | `depositorPrivateKey` | `string` | Bitcoin private key of the depositor. |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) | Bitcoin client used to interact with the network. |
@@ -151,7 +151,7 @@ When the sum of the selected UTXOs is insufficient to cover
 
 #### Defined in
 
-[services/deposits/funding.ts:181](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L181)
+[src/services/deposits/funding.ts:201](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L201)
 
 ___
 
@@ -171,4 +171,4 @@ ___
 
 #### Defined in
 
-[services/deposits/funding.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L34)
+[src/services/deposits/funding.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L35)

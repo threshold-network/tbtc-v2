@@ -4,6 +4,8 @@ import {
   DepositorProxy,
   DepositReceipt,
   CrossChainInterfaces,
+  assertTaprootDepositSupported,
+  supportsTaprootDeposits,
 } from "../../lib/contracts"
 import { BitcoinRawTxVectors } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
@@ -53,6 +55,28 @@ export class CrossChainDepositor implements DepositorProxy {
   }
 
   /**
+   * @returns True when every depositor used by the selected reveal mode
+   *          explicitly supports Taproot deposits end to end.
+   * @see {DepositorProxy#supportsTaprootDeposits}
+   */
+  supportsTaprootDeposits(): boolean {
+    const l1SupportsTaproot = supportsTaprootDeposits(
+      this.#crossChainContracts.l1BitcoinDepositor
+    )
+
+    if (this.#revealMode == "L1Transaction") {
+      return l1SupportsTaproot
+    }
+
+    return (
+      l1SupportsTaproot &&
+      supportsTaprootDeposits(
+        this.#crossChainContracts.destinationChainBitcoinDepositor
+      )
+    )
+  }
+
+  /**
    * @returns Extra data for the cross-chain deposit script. Actually, this is
    *          the destination chain deposit owner identifier took from the BitcoinDepositor
    *          contract.
@@ -92,6 +116,8 @@ export class CrossChainDepositor implements DepositorProxy {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
+    assertTaprootDepositSupported(this, deposit)
+
     let result: Hex | TransactionReceipt | SuiTransactionBlockResponse
 
     switch (this.#revealMode) {

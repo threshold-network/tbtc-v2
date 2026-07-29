@@ -21,6 +21,10 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import "./BitcoinTx.sol";
 import "./Bridge.sol";
 import "./Deposit.sol";
+// Heartbeat used to be reachable transitively via Fraud's imports;
+// after the ECDSA fraud extraction Fraud.sol no longer pulls it in,
+// so we depend on it explicitly here.
+import "./Heartbeat.sol";
 import "./Redemption.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
@@ -79,6 +83,23 @@ contract WalletProposalValidator {
         bytes8 blindingFactor;
         bytes20 walletPubKeyHash;
         bytes20 refundPubKeyHash;
+        bytes4 refundLocktime;
+    }
+
+    /// @notice Helper structure holding Taproot deposit extra info required
+    ///         during deposit sweep proposal validation.
+    /// @dev These data can be pulled from `TaprootDepositRevealed` events
+    ///      emitted by the `Bridge.revealTaprootDeposit` function. The
+    ///      `fundingTx` field must be taken directly from the Bitcoin chain,
+    ///      using the `TaprootDepositRevealed.fundingTxHash` as transaction
+    ///      identifier.
+    struct TaprootDepositExtraInfo {
+        BitcoinTx.Info fundingTx;
+        bytes8 blindingFactor;
+        bytes20 walletPubKeyHash;
+        bytes32 walletXOnlyPublicKey;
+        bytes20 refundPubKeyHash;
+        bytes32 refundXOnlyPublicKey;
         bytes4 refundLocktime;
     }
 
@@ -346,6 +367,124 @@ contract WalletProposalValidator {
         return true;
     }
 
+    /// @notice Validates the given Taproot deposit sweep proposal.
+    /// @param proposal Deposit sweep proposal that is subject of validation.
+    /// @param depositsExtraInfo Taproot deposits extra info required to
+    ///        perform the validation.
+    /// @return True if the proposal is valid. Reverts otherwise.
+    /// @dev Requirements are equivalent to `validateDepositSweepProposal`,
+    ///      except each funding output must be a P2TR output key derived from
+    ///      the revealed wallet x-only key and refund tapscript leaf.
+    function validateTaprootDepositSweepProposal(
+        DepositSweepProposal calldata proposal,
+        TaprootDepositExtraInfo[] calldata depositsExtraInfo
+    ) external view returns (bool) {
+        Wallets.Wallet memory wallet = bridge.wallets(
+            proposal.walletPubKeyHash
+        );
+
+        require(
+            wallet.state == Wallets.WalletState.Live ||
+                wallet.state == Wallets.WalletState.MovingFunds,
+            "Wallet is not in Live or MovingFunds state"
+        );
+
+        require(proposal.depositsKeys.length > 0, "Sweep below the min size");
+
+        require(
+            proposal.depositsKeys.length <= DEPOSIT_SWEEP_MAX_SIZE,
+            "Sweep exceeds the max size"
+        );
+
+        require(
+            proposal.depositsKeys.length == depositsExtraInfo.length,
+            "Each deposit key must have matching extra info"
+        );
+
+        validateSweepTxFee(proposal.sweepTxFee, proposal.depositsKeys.length);
+
+        address proposalVault = address(0);
+
+        uint256[] memory processedDepositKeys = new uint256[](
+            proposal.depositsKeys.length
+        );
+
+        for (uint256 i = 0; i < proposal.depositsKeys.length; i++) {
+            DepositKey memory depositKey = proposal.depositsKeys[i];
+            TaprootDepositExtraInfo memory depositExtraInfo = depositsExtraInfo[
+                i
+            ];
+
+            uint256 depositKeyUint = uint256(
+                keccak256(
+                    abi.encodePacked(
+                        depositKey.fundingTxHash,
+                        depositKey.fundingOutputIndex
+                    )
+                )
+            );
+
+            // slither-disable-next-line calls-loop
+            Deposit.DepositRequest memory depositRequest = bridge.deposits(
+                depositKeyUint
+            );
+
+            require(depositRequest.revealedAt != 0, "Deposit not revealed");
+
+            require(
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp > depositRequest.revealedAt + DEPOSIT_MIN_AGE,
+                "Deposit min age not achieved yet"
+            );
+
+            require(depositRequest.sweptAt == 0, "Deposit already swept");
+
+            validateTaprootDepositExtraInfo(
+                depositKey,
+                depositRequest.depositor,
+                depositRequest.extraData,
+                depositExtraInfo
+            );
+
+            uint32 depositRefundableTimestamp = BTCUtils.reverseUint32(
+                uint32(depositExtraInfo.refundLocktime)
+            );
+            require(
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp <
+                    depositRefundableTimestamp - DEPOSIT_REFUND_SAFETY_MARGIN,
+                "Deposit refund safety margin is not preserved"
+            );
+
+            require(
+                depositExtraInfo.walletPubKeyHash == proposal.walletPubKeyHash,
+                "Deposit controlled by different wallet"
+            );
+
+            // Make sure all deposits target the same vault by using the
+            // vault of the first deposit as a reference.
+            if (i == 0) {
+                proposalVault = depositRequest.vault;
+            }
+            require(
+                depositRequest.vault == proposalVault,
+                "Deposit targets different vault"
+            );
+
+            // Make sure there are no duplicates in the deposits list.
+            for (uint256 j = 0; j < i; j++) {
+                require(
+                    processedDepositKeys[j] != depositKeyUint,
+                    "Duplicated deposit"
+                );
+            }
+
+            processedDepositKeys[i] = depositKeyUint;
+        }
+
+        return true;
+    }
+
     /// @notice Validates the sweep tx fee by checking if the part of the fee
     ///         incurred by each deposit does not exceed the maximum value
     ///         allowed by the Bridge. This function is heavily based on
@@ -512,6 +651,72 @@ contract WalletProposalValidator {
         }
 
         revert("Extra info funding output script does not match");
+    }
+
+    /// @notice Validates the extra info for the given Taproot deposit.
+    /// @param depositKey Key of the given deposit.
+    /// @param depositor Depositor that revealed the deposit.
+    /// @param extraData 32-byte deposit extra data. Optional, can be bytes32(0).
+    /// @param depositExtraInfo Taproot extra info being subject of the
+    ///        validation.
+    /// @dev Requirements:
+    ///      - The transaction hash computed using `depositExtraInfo.fundingTx`
+    ///        must match the `depositKey.fundingTxHash`.
+    ///      - The wallet and refund compatibility aliases must match their
+    ///        revealed x-only keys.
+    ///      - The P2TR output key inferred from `depositExtraInfo` must be
+    ///        used to lock funds by the `depositKey.fundingOutputIndex` output
+    ///        of the `depositExtraInfo.fundingTx` transaction.
+    function validateTaprootDepositExtraInfo(
+        DepositKey memory depositKey,
+        address depositor,
+        bytes32 extraData,
+        TaprootDepositExtraInfo memory depositExtraInfo
+    ) internal view {
+        bytes32 depositExtraFundingTxHash = abi
+            .encodePacked(
+                depositExtraInfo.fundingTx.version,
+                depositExtraInfo.fundingTx.inputVector,
+                depositExtraInfo.fundingTx.outputVector,
+                depositExtraInfo.fundingTx.locktime
+            )
+            .hash256View();
+
+        // Make sure the funding tx provided as part of deposit extra info
+        // actually matches the deposit referred by the given deposit key.
+        if (depositKey.fundingTxHash != depositExtraFundingTxHash) {
+            revert("Extra info funding tx hash does not match");
+        }
+
+        require(
+            BitcoinTx.deriveWalletPubKeyHashFromXOnly(
+                depositExtraInfo.walletXOnlyPublicKey
+            ) == depositExtraInfo.walletPubKeyHash,
+            "Wallet x-only key mismatch"
+        );
+
+        require(
+            BitcoinTx.deriveWalletPubKeyHashFromXOnly(
+                depositExtraInfo.refundXOnlyPublicKey
+            ) == depositExtraInfo.refundPubKeyHash,
+            "Refund x-only key mismatch"
+        );
+
+        bytes32 expectedOutputKey = Deposit.deriveTaprootDepositOutputKey(
+            depositor,
+            extraData,
+            depositExtraInfo.blindingFactor,
+            depositExtraInfo.refundLocktime,
+            depositExtraInfo.walletXOnlyPublicKey,
+            depositExtraInfo.refundXOnlyPublicKey
+        );
+
+        bytes memory fundingOutput = depositExtraInfo
+            .fundingTx
+            .outputVector
+            .extractOutputAtIndex(depositKey.fundingOutputIndex);
+
+        Deposit.validateTaprootFundingOutput(fundingOutput, expectedOutputKey);
     }
 
     /// @notice View function encapsulating the main rules of a valid redemption

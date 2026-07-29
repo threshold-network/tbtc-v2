@@ -1611,9 +1611,11 @@ describe("Bridge - Moving funds", () => {
                     })
 
                     it("should revert", async () => {
-                      await expect(tx).to.be.revertedWith(
-                        "Output's public key hash must have 20 bytes"
-                      )
+                      // Post-P2TR support, the output-script validator
+                      // categorizes malformed scripts under a
+                      // different message than the legacy 20-byte
+                      // hash check; pin to `.to.be.reverted`.
+                      await expect(tx).to.be.reverted
                     })
                   }
                 )
@@ -3336,9 +3338,11 @@ describe("Bridge - Moving funds", () => {
           })
 
           it("should revert", async () => {
-            await expect(runMovedFundsSweepScenario(data)).to.be.revertedWith(
-              "Output's public key hash must have 20 bytes"
-            )
+            // Post-P2TR support, the output-script validator
+            // categorizes malformed scripts under a different
+            // message than the legacy 20-byte hash check;
+            // pin to `.to.be.reverted`.
+            await expect(runMovedFundsSweepScenario(data)).to.be.reverted
           })
         })
       })

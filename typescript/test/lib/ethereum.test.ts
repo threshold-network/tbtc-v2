@@ -33,6 +33,20 @@ import { abi as ArbitrumL1BitcoinDepositorABI } from "../../src/lib/ethereum/art
 
 chai.use(waffleChai)
 
+const BridgeABIWithTaprootDepositReveal = [
+  ...BridgeABI,
+  ...JSON.parse(
+    new utils.Interface([
+      "function revealTaprootDeposit((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal)",
+      "function revealTaprootDepositWithExtraData((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal, bytes32 extraData)",
+      "function activeWalletID() view returns (bytes32)",
+      "function taprootDepositOutputKeyCommitment(uint256 depositKey) view returns (bytes32)",
+      "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
+      "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
+    ]).format(utils.FormatTypes.json) as string
+  ),
+]
+
 describe("Ethereum", () => {
   describe("EthereumBridge", () => {
     let walletRegistry: MockContract
@@ -49,7 +63,7 @@ describe("Ethereum", () => {
 
       bridgeContract = await deployMockContract(
         signer,
-        `${JSON.stringify(BridgeABI)}`
+        `${JSON.stringify(BridgeABIWithTaprootDepositReveal)}`
       )
 
       await bridgeContract.mock.contractReferences.returns(
@@ -62,6 +76,47 @@ describe("Ethereum", () => {
       bridgeHandle = new EthereumBridge({
         address: bridgeContract.address,
         signerOrProvider: signer,
+      })
+    })
+
+    describe("canonical wallet ID accessors", () => {
+      const walletPublicKeyHash = Hex.from(
+        "2a621226d6f9916a929c0ab8cc7d3252c1485708"
+      )
+      const walletID = Hex.from(
+        "93fd799256287638b1589bc4c8db1b11fcf873796aabeac9edf4cf238f38e596"
+      )
+
+      it("should resolve active wallet ID from a post-upgrade Bridge despite stale local ABI", async () => {
+        await bridgeContract.mock.activeWalletID.returns(
+          walletID.toPrefixedString()
+        )
+
+        expect((await bridgeHandle.activeWalletID())?.toString()).to.equal(
+          walletID.toString()
+        )
+      })
+
+      it("should resolve canonical wallet ID from wallet public key hash despite stale local ABI", async () => {
+        await bridgeContract.mock.walletID
+          .withArgs(walletPublicKeyHash.toPrefixedString())
+          .returns(walletID.toPrefixedString())
+
+        expect(
+          (await bridgeHandle.walletID(walletPublicKeyHash)).toString()
+        ).to.equal(walletID.toString())
+      })
+
+      it("should resolve wallet public key hash from canonical wallet ID despite stale local ABI", async () => {
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(walletID.toPrefixedString())
+          .returns(walletPublicKeyHash.toPrefixedString())
+
+        expect(
+          (
+            await bridgeHandle.walletPublicKeyHashForWalletID(walletID)
+          ).toString()
+        ).to.equal(walletPublicKeyHash.toString())
       })
     })
 
@@ -257,6 +312,134 @@ describe("Ethereum", () => {
           )
         })
       })
+
+      context("when deposit is Taproot-native", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.revealTaprootDeposit.returns()
+
+          await bridgeHandle.revealDeposit(
+            // Just short byte strings for clarity.
+            {
+              version: Hex.from("00000000"),
+              inputs: Hex.from("11111111"),
+              outputs: Hex.from("22222222"),
+              locktime: Hex.from("33333333"),
+            },
+            2,
+            {
+              depositor: EthereumAddress.from(
+                "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+              ),
+              walletPublicKeyHash: Hex.from(
+                "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+              ),
+              walletXOnlyPublicKey: Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              ),
+              refundPublicKeyHash: Hex.from(
+                "c2a27a88d8d03e271e8edc556923e9398619f17c"
+              ),
+              refundXOnlyPublicKey: Hex.from(
+                "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+              ),
+              blindingFactor: Hex.from("f9f0c90d00039523"),
+              refundLocktime: Hex.from("60bcea61"),
+            },
+            EthereumAddress.from("82883a4c7a8dd73ef165deb402d432613615ced4")
+          )
+        })
+
+        it("should reveal the Taproot deposit", async () => {
+          assertContractCalledWith(bridgeContract, "revealTaprootDeposit", [
+            {
+              version: "0x00000000",
+              inputVector: "0x11111111",
+              outputVector: "0x22222222",
+              locktime: "0x33333333",
+            },
+            {
+              fundingOutputIndex: 2,
+              blindingFactor: "0xf9f0c90d00039523",
+              walletPubKeyHash: "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc",
+              walletXOnlyPublicKey:
+                "0x2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008",
+              refundPubKeyHash: "0xc2a27a88d8d03e271e8edc556923e9398619f17c",
+              refundXOnlyPublicKey:
+                "0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+              refundLocktime: "0x60bcea61",
+              vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+            },
+          ])
+        })
+      })
+
+      context("when Taproot-native deposit has optional extra data", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.revealTaprootDepositWithExtraData.returns()
+
+          await bridgeHandle.revealDeposit(
+            // Just short byte strings for clarity.
+            {
+              version: Hex.from("00000000"),
+              inputs: Hex.from("11111111"),
+              outputs: Hex.from("22222222"),
+              locktime: Hex.from("33333333"),
+            },
+            2,
+            {
+              depositor: EthereumAddress.from(
+                "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+              ),
+              walletPublicKeyHash: Hex.from(
+                "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+              ),
+              walletXOnlyPublicKey: Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              ),
+              refundPublicKeyHash: Hex.from(
+                "c2a27a88d8d03e271e8edc556923e9398619f17c"
+              ),
+              refundXOnlyPublicKey: Hex.from(
+                "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+              ),
+              blindingFactor: Hex.from("f9f0c90d00039523"),
+              refundLocktime: Hex.from("60bcea61"),
+              extraData: Hex.from(
+                "aebfb5afc9ee6432374ed39b58b8cf87797f9468eca40569b67ac8d59415c9c0"
+              ),
+            },
+            EthereumAddress.from("82883a4c7a8dd73ef165deb402d432613615ced4")
+          )
+        })
+
+        it("should reveal the Taproot deposit", async () => {
+          assertContractCalledWith(
+            bridgeContract,
+            "revealTaprootDepositWithExtraData",
+            [
+              {
+                version: "0x00000000",
+                inputVector: "0x11111111",
+                outputVector: "0x22222222",
+                locktime: "0x33333333",
+              },
+              {
+                fundingOutputIndex: 2,
+                blindingFactor: "0xf9f0c90d00039523",
+                walletPubKeyHash: "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc",
+                walletXOnlyPublicKey:
+                  "0x2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008",
+                refundPubKeyHash: "0xc2a27a88d8d03e271e8edc556923e9398619f17c",
+                refundXOnlyPublicKey:
+                  "0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+                refundLocktime: "0x60bcea61",
+                vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+              },
+              "0xaebfb5afc9ee6432374ed39b58b8cf87797f9468eca40569b67ac8d59415c9c0",
+            ]
+          )
+        })
+      })
     })
 
     describe("submitDepositSweepProof", () => {
@@ -444,8 +627,7 @@ describe("Ethereum", () => {
               revealedAt: 1654774330,
               sweptAt: 1655033516,
               treasuryFee: BigNumber.from(200),
-              extraData:
-                "0x0000000000000000000000000000000000000000000000000000000000000000",
+              extraData: `0x${"11".repeat(32)}`,
             } as any)
         })
 
@@ -468,6 +650,7 @@ describe("Ethereum", () => {
             revealedAt: 1654774330,
             sweptAt: 1655033516,
             treasuryFee: BigNumber.from(200),
+            extraData: Hex.from("11".repeat(32)),
           })
         })
       })
@@ -516,6 +699,54 @@ describe("Ethereum", () => {
       })
     })
 
+    describe("taprootDepositOutputKeyCommitment", () => {
+      it("should return the commitment for the endian-normalized deposit key", async () => {
+        const commitment = Hex.from("11".repeat(32))
+        await bridgeContract.mock.taprootDepositOutputKeyCommitment
+          .withArgs(
+            "0x01151be714c10edde62a310bf0604c01134450416a0bf8a7bfd43cef90644f0f"
+          )
+          .returns(commitment.toPrefixedString())
+
+        expect(
+          await bridgeHandle.taprootDepositOutputKeyCommitment(
+            BitcoinTxHash.from(
+              "c1082c460527079a84e39ec6481666db72e5a22e473a78db03b996d26fd1dc83"
+            ),
+            0
+          )
+        ).to.eql(commitment)
+      })
+    })
+
+    describe("activeWalletPublicKeyHash", () => {
+      context("when there is an active wallet", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.activeWalletPubKeyHash.returns(
+            "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+          )
+        })
+
+        it("should return the active wallet's public key hash", async () => {
+          expect(
+            (await bridgeHandle.activeWalletPublicKeyHash())?.toString()
+          ).to.be.equal("8db50eb52063ea9d98b3eac91489a90f738986f6")
+        })
+      })
+
+      context("when there is no active wallet", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.activeWalletPubKeyHash.returns(
+            "0x0000000000000000000000000000000000000000"
+          )
+        })
+
+        it("should return undefined", async () => {
+          expect(await bridgeHandle.activeWalletPublicKeyHash()).to.be.undefined
+        })
+      })
+    })
+
     describe("activeWalletPublicKey", () => {
       context("when there is an active wallet", () => {
         beforeEach(async () => {
@@ -537,6 +768,12 @@ describe("Ethereum", () => {
               state: 1,
               movingFundsTargetWalletsCommitmentHash: constants.HashZero,
             } as any)
+
+          await bridgeContract.mock.walletID
+            .withArgs("0x8db50eb52063ea9d98b3eac91489a90f738986f6")
+            .returns(
+              "0x0000000000000000000000008db50eb52063ea9d98b3eac91489a90f738986f6"
+            )
 
           await walletRegistry.mock.getWalletPublicKey
             .withArgs(
@@ -707,6 +944,27 @@ describe("Ethereum", () => {
       const vault: ChainIdentifier = EthereumAddress.from(
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
+
+      it("should declare Taproot deposits unsupported", () => {
+        expect(depositorHandle.supportsTaprootDeposits()).to.be.false
+      })
+
+      it("should reject a Taproot receipt before encoding the legacy tuple", async () => {
+        await expect(
+          depositorHandle.initializeDeposit(
+            depositTx,
+            depositOutputIndex,
+            {
+              ...deposit,
+              walletXOnlyPublicKey: Hex.from("11".repeat(32)),
+              refundXOnlyPublicKey: Hex.from("22".repeat(32)),
+            },
+            vault
+          )
+        ).to.be.rejectedWith(
+          "Taproot deposits are not supported by this depositor"
+        )
+      })
 
       context(
         "when L2 deposit owner is properly encoded in the extra data",

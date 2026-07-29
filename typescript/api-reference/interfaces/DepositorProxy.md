@@ -8,6 +8,12 @@ another protocols, in an automated way. Depositor proxy is responsible for
 attributing the deposit and minted TBTC tokens to the user (e.g. using the
 optional 32-byte extra data field of the deposit script).
 
+## Hierarchy
+
+- [`TaprootDepositorCapability`](TaprootDepositorCapability.md)
+
+  ↳ **`DepositorProxy`**
+
 ## Implemented by
 
 - [`CrossChainDepositor`](../classes/CrossChainDepositor.md)
@@ -19,6 +25,7 @@ optional 32-byte extra data field of the deposit script).
 
 - [getChainIdentifier](DepositorProxy.md#getchainidentifier)
 - [revealDeposit](DepositorProxy.md#revealdeposit)
+- [supportsTaprootDeposits](DepositorProxy.md#supportstaprootdeposits)
 
 ## Methods
 
@@ -34,7 +41,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/depositor-proxy.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L20)
+[src/lib/contracts/depositor-proxy.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L64)
 
 ___
 
@@ -61,4 +68,25 @@ Transaction hash of the reveal deposit transaction.
 
 #### Defined in
 
-[lib/contracts/depositor-proxy.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L32)
+[src/lib/contracts/depositor-proxy.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L76)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+True only when the complete reveal path preserves both x-only
+         public keys required by a Taproot deposit.
+
+#### Inherited from
+
+[TaprootDepositorCapability](TaprootDepositorCapability.md).[supportsTaprootDeposits](TaprootDepositorCapability.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/lib/contracts/depositor-proxy.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L16)

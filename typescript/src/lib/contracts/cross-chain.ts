@@ -5,6 +5,7 @@ import { ChainMapping, DestinationChainName } from "./chain"
 import { BitcoinRawTxVectors, BitcoinUtxo } from "../bitcoin"
 import { DepositReceipt } from "./bridge"
 import { Hex } from "../utils"
+import { TaprootDepositorCapability } from "./depositor-proxy"
 
 /**
  * Convenience type aggregating TBTC cross-chain contracts forming a connector
@@ -71,7 +72,7 @@ export interface DestinationChainTBTCToken {
  * Interface for communication with the BitcoinDepositor on-chain contract
  * deployed on the given destination chain.
  */
-export interface BitcoinDepositor {
+export interface BitcoinDepositor extends TaprootDepositorCapability {
   /**
    * Gets the chain-specific identifier of this contract.
    * Optional method - may not be available for off-chain implementations.

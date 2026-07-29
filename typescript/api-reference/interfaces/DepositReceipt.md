@@ -12,7 +12,9 @@ to build a unique deposit address on Bitcoin chain.
 - [extraData](DepositReceipt.md#extradata)
 - [refundLocktime](DepositReceipt.md#refundlocktime)
 - [refundPublicKeyHash](DepositReceipt.md#refundpublickeyhash)
+- [refundXOnlyPublicKey](DepositReceipt.md#refundxonlypublickey)
 - [walletPublicKeyHash](DepositReceipt.md#walletpublickeyhash)
+- [walletXOnlyPublicKey](DepositReceipt.md#walletxonlypublickey)
 
 ## Properties
 
@@ -25,7 +27,7 @@ public key and refund public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L212)
+[src/lib/contracts/bridge.ts:265](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L265)
 
 ___
 
@@ -37,7 +39,7 @@ Depositor's chain identifier.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L206)
+[src/lib/contracts/bridge.ts:259](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L259)
 
 ___
 
@@ -49,7 +51,7 @@ Optional 32-byte extra data.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:237](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L237)
+[src/lib/contracts/bridge.ts:302](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L302)
 
 ___
 
@@ -61,7 +63,7 @@ A 4-byte little-endian refund locktime.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:232](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L232)
+[src/lib/contracts/bridge.ts:297](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L297)
 
 ___
 
@@ -76,7 +78,20 @@ You can use `computeHash160` function to get the hash from a public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:227](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L227)
+[src/lib/contracts/bridge.ts:280](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L280)
+
+___
+
+### refundXOnlyPublicKey
+
+• `Optional` **refundXOnlyPublicKey**: [`Hex`](../classes/Hex.md)
+
+Optional 32-byte x-only refund key embedded in the tapscript refund leaf
+for Taproot-native deposits. Present only for P2TR deposit receipts.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:292](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L292)
 
 ___
 
@@ -90,4 +105,17 @@ You can use `computeHash160` function to get the hash from a public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L219)
+[src/lib/contracts/bridge.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L272)
+
+___
+
+### walletXOnlyPublicKey
+
+• `Optional` **walletXOnlyPublicKey**: [`Hex`](../classes/Hex.md)
+
+Optional 32-byte x-only wallet key used as the Taproot internal key for
+Taproot-native deposits. Present only for P2TR deposit receipts.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:286](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L286)

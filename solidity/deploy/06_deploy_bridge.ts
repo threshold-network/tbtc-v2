@@ -37,6 +37,9 @@ const func: DeployFunction = async function deployBridge(
     contract: "contracts/bridge/Wallets.sol:Wallets",
     ...deployOptions,
   })
+  // The migration loop is externalized into Fraud to keep the Bridge
+  // implementation below EIP-170 while preserving an atomic migration of
+  // pre-upgrade challenges and their escrow.
   const Fraud = await deploy("Fraud", deployOptions)
   const MovingFunds = await deploy("MovingFunds", deployOptions)
 

@@ -3,7 +3,7 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { utils, constants } from "ethers"
+import { utils } from "ethers"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -37,11 +37,6 @@ export const KNOWN_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
 // full contract artifacts.
 const PROXY_ADMIN_ABI = [
   "function upgrade(address proxy, address implementation)",
-  "function upgradeAndCall(address proxy, address implementation, bytes data)",
-]
-
-const BRIDGE_ABI = [
-  "function initializeV5_RepairRebateStaking(address newRebateStaking)",
 ]
 
 const BRIDGE_GOVERNANCE_ABI = [
@@ -52,7 +47,6 @@ const BRIDGE_GOVERNANCE_ABI = [
 // Shared interface instances used by both helper functions and the main
 // deployment function for calldata encoding.
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
-const bridgeInterface = new utils.Interface(BRIDGE_ABI)
 const bridgeGovInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
 
 /**
@@ -73,26 +67,19 @@ export function encodeRebateStakingUpgrade(
 }
 
 /**
- * Encodes ProxyAdmin.upgradeAndCall() calldata for upgrading the Bridge proxy
- * and calling initializeV5_RepairRebateStaking(address(0)) in the same
- * transaction. The address(0) parameter clears the stale rebateStaking
- * pointer; the actual wiring happens later via setRebateStaking.
+ * Encodes ProxyAdmin.upgrade() calldata for upgrading the Bridge proxy to a
+ * new implementation.
  * @param bridgeProxy - Address of the Bridge proxy contract
  * @param newBridgeImpl - Address of the new Bridge implementation
- * @returns ABI-encoded calldata for ProxyAdmin.upgradeAndCall(proxy, impl, data)
+ * @returns ABI-encoded calldata for ProxyAdmin.upgrade(proxy, implementation)
  */
-export function encodeBridgeUpgradeAndCall(
+export function encodeBridgeUpgrade(
   bridgeProxy: string,
   newBridgeImpl: string
 ): string {
-  const initData = bridgeInterface.encodeFunctionData(
-    "initializeV5_RepairRebateStaking",
-    [constants.AddressZero]
-  )
-  return proxyAdminInterface.encodeFunctionData("upgradeAndCall", [
+  return proxyAdminInterface.encodeFunctionData("upgrade", [
     bridgeProxy,
     newBridgeImpl,
-    initData,
   ])
 }
 
@@ -223,23 +210,31 @@ function buildVerificationChecks(addresses: {
   rebateStakingProxy: string
   rebateImpl: string
   depositLib: string
+  depositSweepLib: string
   redemptionLib: string
+  walletsLib: string
+  fraudLib: string
+  movingFundsLib: string
 }): VerificationCheck[] {
   return [
     {
       command: `cast call ${addresses.bridgeProxy} "getRebateStaking()(address)"`,
-      expectedResult: "0x0000000000000000000000000000000000000000 (address(0))",
+      expectedResult: addresses.rebateStakingProxy,
       description:
-        "After Bridge upgrade with initializeV5 repair, rebate staking getter should return address(0)",
+        "After setRebateStaking executes, Bridge should reference the RebateStaking proxy",
     },
     {
       command: `cast code ${addresses.bridgeImpl}`,
       expectedResult:
         "Bytecode should contain embedded library address fragments: " +
-        `${addresses.depositLib.slice(2).toLowerCase()} (Deposit) and ` +
-        `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption)`,
+        `${addresses.depositLib.slice(2).toLowerCase()} (Deposit), ` +
+        `${addresses.depositSweepLib.slice(2).toLowerCase()} (DepositSweep), ` +
+        `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption), ` +
+        `${addresses.walletsLib.slice(2).toLowerCase()} (Wallets), ` +
+        `${addresses.fraudLib.slice(2).toLowerCase()} (Fraud), and ` +
+        `${addresses.movingFundsLib.slice(2).toLowerCase()} (MovingFunds)`,
       description:
-        "Bridge implementation bytecode should contain embedded addresses of new Deposit and Redemption libraries",
+        "Bridge implementation bytecode should contain embedded addresses of all six current Bridge libraries",
     },
     {
       command: `cast call ${addresses.bridgeProxy} "deposits(uint256)(bytes32,uint32,uint64,uint32,address,uint32)" <sample_deposit_key>`,
@@ -321,32 +316,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Step 1: Deploy new library versions ---
-  // Deposit has rebate integration changes; Redemption has the balanceOwner
-  // fix. Both require fresh deployments.
-  console.log("\n--- Deploying updated libraries ---")
+  // --- Step 1: Deploy current Bridge library versions ---
+  // The implementation is compiled from the current checkout, so every
+  // external library must be deployed from the same source before linking.
+  console.log("\n--- Deploying current Bridge libraries ---")
   const Deposit = await deploy("Deposit", deployOptions)
+  const DepositSweep = await deploy("DepositSweep", deployOptions)
   const Redemption = await deploy("Redemption", deployOptions)
-
-  // --- Step 2: Resolve unchanged existing libraries ---
-  // These libraries have NOT changed since last deployment and are reused
-  // from existing deployment artifacts.
-  console.log("\n--- Resolving existing libraries ---")
-  const DepositSweep = await get("DepositSweep")
-  const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
-  const MovingFunds = await get("MovingFunds")
-
-  console.log("Existing library addresses:")
-  console.log(`  DepositSweep: ${DepositSweep.address}`)
-  console.log(`  Wallets:      ${Wallets.address}`)
-  console.log(`  Fraud:        ${Fraud.address}`)
-  console.log(`  MovingFunds:  ${MovingFunds.address}`)
+  const Wallets = await deploy("Wallets", {
+    contract: "contracts/bridge/Wallets.sol:Wallets",
+    ...deployOptions,
+  })
+  const Fraud = await deploy("Fraud", deployOptions)
+  const MovingFunds = await deploy("MovingFunds", deployOptions)
 
   // --- Step 3: Deploy Bridge implementation ---
   // Uses a distinct artifact name to avoid overwriting the existing Bridge
-  // proxy artifact managed by hardhat-deploy. The Bridge contract requires
-  // all 6 libraries linked at deployment time.
+  // proxy artifact managed by hardhat-deploy. The Bridge contract links
+  // all 6 libraries required by the current implementation.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
@@ -379,7 +366,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`\n${"-".repeat(80)}`)
   console.log("Deployed contract addresses:")
   console.log(`  Deposit library:              ${Deposit.address}`)
+  console.log(`  DepositSweep library:         ${DepositSweep.address}`)
   console.log(`  Redemption library:           ${Redemption.address}`)
+  console.log(`  Wallets library:              ${Wallets.address}`)
+  console.log(`  Fraud library:                ${Fraud.address}`)
+  console.log(`  MovingFunds library:          ${MovingFunds.address}`)
   console.log(`  Bridge implementation:        ${bridgeImpl.address}`)
   console.log(`  RebateStaking implementation: ${rebateImpl.address}`)
   console.log("-".repeat(80))
@@ -411,7 +402,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   //
   // Governance flow:
   //   Timelock route:  Council Safe -> Timelock.schedule() -> [wait 24h] ->
-  //                    Timelock.execute() -> ProxyAdmin.upgrade/upgradeAndCall
+  //                    Timelock.execute() -> ProxyAdmin.upgrade
   //   Council route:   Council Safe -> BridgeGovernance.setRebateStaking()
   //                    (direct onlyOwner, no begin/finalize)
   //   Governance route: Council Safe ->
@@ -422,7 +413,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const RebateStaking = await get("RebateStaking")
   const BridgeGovernance = await get("BridgeGovernance")
 
-  // Timelock actions array: RebateStaking upgrade FIRST, Bridge upgradeAndCall
+  // Timelock actions array: RebateStaking upgrade FIRST, Bridge upgrade
   // SECOND. This ordering ensures the RebateStaking proxy has the new 3-arg
   // ABI before Bridge activation references it.
   // Timelock minDelay = 86400s (24h)
@@ -440,20 +431,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     { Proxy: RebateStaking.address, "New impl": rebateImpl.address }
   )
 
-  // timelockActions[1]: Bridge upgradeAndCall
-  const bridgeUpgradeCalldata = encodeBridgeUpgradeAndCall(
+  // timelockActions[1]: Bridge upgrade
+  const bridgeUpgradeCalldata = encodeBridgeUpgrade(
     Bridge.address,
     bridgeImpl.address
   )
   logCalldataAction(
-    "Timelock Action [1]: Bridge upgradeAndCall",
+    "Timelock Action [1]: Bridge upgrade",
     proxyAdminAddress,
     "ProxyAdmin",
     bridgeUpgradeCalldata,
     {
       Proxy: Bridge.address,
       "New impl": bridgeImpl.address,
-      "Inner call": "initializeV5_RepairRebateStaking(address(0))",
     }
   )
 
@@ -492,7 +482,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     chainId,
     deployedContracts: {
       Deposit: Deposit.address,
+      DepositSweep: DepositSweep.address,
       Redemption: Redemption.address,
+      Wallets: Wallets.address,
+      Fraud: Fraud.address,
+      MovingFunds: MovingFunds.address,
       BridgeTIP109Implementation: bridgeImpl.address,
       RebateStakingTIP109Implementation: rebateImpl.address,
     },
@@ -516,7 +510,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         target: proxyAdminAddress,
         data: bridgeUpgradeCalldata,
         value: 0,
-        description: "Bridge proxy upgrade via ProxyAdmin.upgradeAndCall()",
+        description: "Bridge proxy upgrade via ProxyAdmin.upgrade()",
       },
     ],
     councilSafeActions: [
@@ -544,7 +538,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       rebateStakingProxy: RebateStaking.address,
       rebateImpl: rebateImpl.address,
       depositLib: Deposit.address,
+      depositSweepLib: DepositSweep.address,
       redemptionLib: Redemption.address,
+      walletsLib: Wallets.address,
+      fraudLib: Fraud.address,
+      movingFundsLib: MovingFunds.address,
     }),
   }
 
@@ -578,7 +576,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`        Selector: ${rebateUpgradeCalldata.slice(0, 10)}`)
   console.log(`        Proxy: ${RebateStaking.address}`)
   console.log(`        New impl: ${rebateImpl.address}`)
-  console.log("    [1] Bridge upgradeAndCall")
+  console.log("    [1] Bridge upgrade")
   console.log(`        Target: ProxyAdmin (${proxyAdminAddress})`)
   console.log(`        Selector: ${bridgeUpgradeCalldata.slice(0, 10)}`)
   console.log(`        Proxy: ${Bridge.address}`)
@@ -645,9 +643,29 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             label: "Deposit",
           },
           {
+            address: DepositSweep.address,
+            name: "contracts/bridge/DepositSweep.sol:DepositSweep",
+            label: "DepositSweep",
+          },
+          {
             address: Redemption.address,
             name: "contracts/bridge/Redemption.sol:Redemption",
             label: "Redemption",
+          },
+          {
+            address: Wallets.address,
+            name: "contracts/bridge/Wallets.sol:Wallets",
+            label: "Wallets",
+          },
+          {
+            address: Fraud.address,
+            name: "contracts/bridge/Fraud.sol:Fraud",
+            label: "Fraud",
+          },
+          {
+            address: MovingFunds.address,
+            name: "contracts/bridge/MovingFunds.sol:MovingFunds",
+            label: "MovingFunds",
           },
           {
             address: bridgeImpl.address,

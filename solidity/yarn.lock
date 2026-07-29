@@ -1998,7 +1998,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@keep-network/sortition-pools@npm:^2.0.0-pre.16":
+"@keep-network/sortition-pools@npm:2.0.0, @keep-network/sortition-pools@npm:^2.0.0-pre.16":
   version: 2.0.0
   resolution: "@keep-network/sortition-pools@npm:2.0.0"
   dependencies:
@@ -2018,6 +2018,7 @@ __metadata:
     "@keep-network/hardhat-helpers": "npm:0.6.0-pre.18"
     "@keep-network/hardhat-local-networks-config": "npm:^0.1.0-pre.4"
     "@keep-network/random-beacon": "npm:development"
+    "@keep-network/sortition-pools": "npm:2.0.0"
     "@keep-network/tbtc": "npm:development"
     "@nomiclabs/hardhat-ethers": "npm:^2.0.6"
     "@nomiclabs/hardhat-etherscan": "npm:^3.1.0"
@@ -2029,7 +2030,7 @@ __metadata:
     "@thesis-co/eslint-config": "github:thesis/eslint-config"
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
     "@typechain/ethers-v5": "npm:^8.0.5"
-    "@typechain/hardhat": "npm:^4.0.0"
+    "@typechain/hardhat": "npm:^3.1.0"
     "@types/chai": "npm:^4.3.0"
     "@types/crypto-js": "npm:^4.1.1"
     "@types/mocha": "npm:^9.1.0"
@@ -3110,16 +3111,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@typechain/hardhat@npm:^4.0.0":
-  version: 4.0.0
-  resolution: "@typechain/hardhat@npm:4.0.0"
+"@typechain/hardhat@npm:^3.1.0":
+  version: 3.1.0
+  resolution: "@typechain/hardhat@npm:3.1.0"
   dependencies:
     fs-extra: "npm:^9.1.0"
   peerDependencies:
     hardhat: ^2.0.10
     lodash: ^4.17.15
-    typechain: ^7.0.0
-  checksum: 10c0/f1004bfb11e08ea786a930401be0d22bab58eb1ee3c8901baa8cd467e45fe8a451d6f1e6b86d53ac84338c9fd3b7f422184d68274cbf7877196e695e2e301238
+    typechain: ^6.0.0
+  checksum: 10c0/2f65cf21023e73b0856cb0f3ffa941c066d2c8e9ce3c7957282d7cbb2e8e47a26be7639c2d044f4a252ff9ed4250a16a30f5b47d942c0b1a509ed654f55785ae
   languageName: node
   linkType: hard
 

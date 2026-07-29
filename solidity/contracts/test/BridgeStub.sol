@@ -4,11 +4,17 @@ pragma solidity 0.8.17;
 
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
+import "../bridge/EcdsaLib.sol";
+import "../bridge/Fraud.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/RebateStaking.sol";
+import "../bridge/Redemption.sol";
 import "../bridge/Wallets.sol";
+import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
 contract BridgeStub is Bridge {
+    using BTCUtils for bytes;
+
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(
@@ -18,6 +24,18 @@ contract BridgeStub is Bridge {
             );
             self.deposits[utxoKey].sweptAt = 1641650400;
         }
+    }
+
+    function setTaprootDepositOutputKeyCommitment(
+        BitcoinTx.UTXO calldata utxo,
+        bytes32 walletID,
+        bytes32 outputKey
+    ) external {
+        uint256 utxoKey = uint256(
+            keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
+        );
+        self.taprootDepositOutputKeyCommitments[utxoKey] = Deposit
+            .taprootOutputKeyCommitment(walletID, outputKey);
     }
 
     function setSpentMainUtxos(BitcoinTx.UTXO[] calldata utxos) external {
@@ -48,6 +66,35 @@ contract BridgeStub is Bridge {
 
     function setActiveWallet(bytes20 activeWalletPubKeyHash) external {
         self.activeWalletPubKeyHash = activeWalletPubKeyHash;
+        if (activeWalletPubKeyHash == bytes20(0)) {
+            delete self.activeWalletID;
+        } else {
+            self.activeWalletID = Wallets.deriveLegacyWalletID(
+                activeWalletPubKeyHash
+            );
+        }
+    }
+
+    function setActiveWalletWithID(
+        bytes20 activeWalletPubKeyHash,
+        bytes32 activeWalletID
+    ) external {
+        self.activeWalletPubKeyHash = activeWalletPubKeyHash;
+        self.activeWalletID = activeWalletID;
+    }
+
+    function setWalletPubKeyHashForWalletID(
+        bytes32 walletID,
+        bytes20 walletPubKeyHash
+    ) external {
+        self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
+    }
+
+    function setWalletIDForWalletPubKeyHash(
+        bytes20 walletPubKeyHash,
+        bytes32 walletID
+    ) external {
+        self.walletIDByWalletPubKeyHash[walletPubKeyHash] = walletID;
     }
 
     function setWalletMainUtxo(
@@ -71,6 +118,50 @@ contract BridgeStub is Bridge {
         if (wallet.state == Wallets.WalletState.Live) {
             self.liveWalletsCount++;
         }
+    }
+
+    // Test-only setter that bypasses the one-time `FrostWalletRegistryAlreadySet`
+    // guard on `setFrostWalletRegistry`. The production setter on Bridge is
+    // intentionally one-shot to prevent governance from accidentally rotating
+    // the registry mid-DKG; tests that exercise registry → Bridge callback
+    // flows need to repoint Bridge at a test-deployed registry after the
+    // canonical mirror's no-tags `deployments.fixture()` has already wired
+    // the production registry. Only available on the stub.
+    function resetFrostWalletRegistryForTest(address frostWalletRegistry)
+        external
+    {
+        self.frostWalletRegistry = frostWalletRegistry;
+    }
+
+    function resetLifecycleRouterForTest(address lifecycleRouter) external {
+        self.lifecycleRouter = lifecycleRouter;
+    }
+
+    function resetEcdsaFraudRouterForTest(address router) external {
+        self.ecdsaFraudRouter = router;
+    }
+
+    function resetP2TRFraudRouterForTest(address router) external {
+        self.p2trFraudRouter = router;
+    }
+
+    function setLegacyFraudChallengeForTest(
+        uint256 challengeKey,
+        Fraud.FraudChallenge calldata challenge
+    ) external payable {
+        require(
+            msg.value == challenge.depositAmount,
+            "msg.value != challenge deposit"
+        );
+        self.fraudChallenges[challengeKey] = challenge;
+    }
+
+    function legacyFraudChallengeForTest(uint256 challengeKey)
+        external
+        view
+        returns (Fraud.FraudChallenge memory)
+    {
+        return self.fraudChallenges[challengeKey];
     }
 
     function setDepositDustThreshold(uint64 _depositDustThreshold) external {
@@ -195,5 +286,103 @@ contract BridgeStub is Bridge {
 
     function cancelRebate(address user, uint256 requestedAt) external {
         RebateStaking(self.rebateStaking).cancelRebate(user, requestedAt);
+    }
+
+    function processRedemptionTxOutputsForTest(
+        bytes memory redemptionTxOutputVector,
+        bytes20 walletPubKeyHash
+    )
+        external
+        returns (
+            uint256 outputsTotalValue,
+            uint64 totalBurnableValue,
+            uint64 totalTreasuryFee,
+            uint32 changeIndex,
+            uint64 changeValue
+        )
+    {
+        Redemption.RedemptionTxOutputsInfo memory info = Redemption
+            .processRedemptionTxOutputs(
+                self,
+                redemptionTxOutputVector,
+                walletPubKeyHash
+            );
+
+        return (
+            info.outputsTotalValue,
+            info.totalBurnableValue,
+            info.totalTreasuryFee,
+            info.changeIndex,
+            info.changeValue
+        );
+    }
+
+    /// @notice Test-only setter for the ECDSA retirement flag.
+    ///         The production governance path is
+    ///         `BridgeGovernance.retireEcdsa()` → `Bridge.retireEcdsa()`
+    ///         (added in D-2). This stub helper bypasses
+    ///         governance for unit tests that just need to toggle
+    ///         the flag.
+    function setEcdsaRetiredForTest(bool retired) external {
+        self.ecdsaRetired = retired;
+    }
+
+    /// @notice Test-only ECDSA wallet creation helper. Replicates the
+    ///         body of `Wallets.registerNewWallet` minus the
+    ///         `msg.sender == ecdsaWalletRegistry` access
+    ///         check so test fixtures can create ECDSA wallets
+    ///         for downstream-flow testing (redemptions,
+    ///         deposits, fraud, etc.) without needing to
+    ///         impersonate the registry.
+    /// @dev This helper only bypasses production registry authentication.
+    ///      If the library's
+    ///      `registerNewWallet` changes in a future PR, this
+    ///      helper should be updated to match.
+    function __ecdsaWalletCreatedCallbackForTest(
+        bytes32 ecdsaWalletID,
+        bytes32 publicKeyX,
+        bytes32 publicKeyY
+    ) external {
+        if (ecdsaWalletID == bytes32(0)) {
+            revert Wallets.EcdsaWalletIdIsZero();
+        }
+
+        bytes20 walletPubKeyHash = bytes20(
+            EcdsaLib.compressPublicKey(publicKeyX, publicKeyY).hash160View()
+        );
+        bytes32 walletID = Wallets.deriveLegacyWalletID(walletPubKeyHash);
+
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            walletPubKeyHash
+        ];
+        require(
+            wallet.state == Wallets.WalletState.Unknown,
+            "ECDSA wallet has been already registered"
+        );
+        wallet.ecdsaWalletID = ecdsaWalletID;
+        wallet.state = Wallets.WalletState.Live;
+        /* solhint-disable-next-line not-rely-on-time */
+        wallet.createdAt = uint32(block.timestamp);
+
+        bytes20 activeWalletPubKeyHash = self.activeWalletPubKeyHash;
+        if (
+            activeWalletPubKeyHash == bytes20(0) ||
+            self.registeredWallets[activeWalletPubKeyHash].ecdsaWalletID !=
+            bytes32(0)
+        ) {
+            self.activeWalletPubKeyHash = walletPubKeyHash;
+            self.activeWalletID = walletID;
+        }
+        self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
+
+        self.liveWalletsCount++;
+        self.ecdsaWalletCount += 1;
+
+        emit Wallets.NewWalletRegistered(ecdsaWalletID, walletPubKeyHash);
+        emit Wallets.NewWalletRegisteredV2(
+            walletID,
+            ecdsaWalletID,
+            walletPubKeyHash
+        );
     }
 }

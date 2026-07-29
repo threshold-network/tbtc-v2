@@ -19,8 +19,8 @@ const func: DeployFunction = async function runDeployment(
     }
   )
 
-  // 60 seconds for Sepolia. 48 hours otherwise.
-  const GOVERNANCE_DELAY = hre.network.name === "sepolia" ? 60 : 172800
+  // 1 hour for Sepolia. 48 hours otherwise.
+  const GOVERNANCE_DELAY = hre.network.name === "sepolia" ? 3600 : 172800
 
   const bridgeGovernance = await deploy("BridgeGovernance", {
     contract: "BridgeGovernance",

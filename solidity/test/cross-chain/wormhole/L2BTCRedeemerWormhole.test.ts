@@ -48,6 +48,8 @@ describe("L2BTCRedeemerWormhole", () => {
     "0x17a9140102030405060708090a0b0c0d0e0f101112131487" // 23 bytes: OP_HASH160 <20-byte-hash> OP_EQUAL
   const exampleP2WSHOutputScript =
     "0x2200200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" // 34 bytes: OP_0 <32-byte-hash>
+  const exampleP2TROutputScript =
+    "0x2251200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" // 35 bytes: OP_1 push32 <32-byte-x-only-output-key>
 
   const contractsFixture = async () => {
     const _signers = await ethers.getSigners()
@@ -527,6 +529,61 @@ describe("L2BTCRedeemerWormhole", () => {
               exampleP2WSHOutputScript, // Use P2WSH script
               exampleNonce
             )
+        })
+      }
+    )
+
+    context(
+      "when redeemerOutputScript is P2TR (32-byte x-only output key)",
+      () => {
+        let tx: ContractTransaction
+        const expectedGatewaySequence = BigNumber.from(793)
+
+        beforeEach(async () => {
+          await createSnapshot()
+          gateway.sendTbtcWithPayloadToNativeChain
+            .whenCalledWith(
+              exampleAmount,
+              l1ChainId,
+              toWormholeFormat(l1BtcRedeemerWormholeAddress),
+              exampleNonce,
+              exampleP2TROutputScript
+            )
+            .returns(expectedGatewaySequence)
+
+          tx = await l2BtcRedeemer
+            .connect(user)
+            .requestRedemption(
+              exampleAmount,
+              l1ChainId,
+              exampleP2TROutputScript,
+              exampleNonce
+            )
+        })
+
+        it("should transfer tBTC from user to L2BTCRedeemerWormhole contract", async () => {
+          expect(await tbtc.balanceOf(user.address)).to.equal(exampleAmount)
+          expect(await tbtc.balanceOf(l2BtcRedeemer.address)).to.equal(
+            exampleAmount
+          )
+        })
+
+        it("should call gateway.sendTbtcWithPayloadToNativeChain with P2TR script", async () => {
+          expect(
+            gateway.sendTbtcWithPayloadToNativeChain
+          ).to.have.been.calledOnceWith(
+            exampleAmount,
+            l1ChainId,
+            toWormholeFormat(l1BtcRedeemerWormholeAddress),
+            exampleNonce,
+            exampleP2TROutputScript
+          )
+        })
+
+        it("should emit RedemptionRequestedOnL2 event with P2TR script", async () => {
+          await expect(tx)
+            .to.emit(l2BtcRedeemer, "RedemptionRequestedOnL2")
+            .withArgs(exampleAmount, exampleP2TROutputScript, exampleNonce)
         })
       }
     )

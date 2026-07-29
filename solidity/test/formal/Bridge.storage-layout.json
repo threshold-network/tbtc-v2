@@ -1,0 +1,838 @@
+{
+  "storage": [
+    {
+      "label": "governance",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "label": "__gap",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_array(t_uint256)49_storage"
+    },
+    {
+      "label": "_initialized",
+      "offset": 0,
+      "slot": "50",
+      "type": "t_uint8"
+    },
+    {
+      "label": "_initializing",
+      "offset": 1,
+      "slot": "50",
+      "type": "t_bool"
+    },
+    {
+      "label": "self",
+      "offset": 0,
+      "slot": "51",
+      "type": "t_struct(Storage)_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)39_storage": {
+      "encoding": "inplace",
+      "label": "uint256[39]",
+      "numberOfBytes": "1248",
+      "base": "t_uint256"
+    },
+    "t_array(t_uint256)49_storage": {
+      "encoding": "inplace",
+      "label": "uint256[49]",
+      "numberOfBytes": "1568",
+      "base": "t_uint256"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_bytes20": {
+      "encoding": "inplace",
+      "label": "bytes20",
+      "numberOfBytes": "20"
+    },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_contract(Bank)": {
+      "encoding": "inplace",
+      "label": "contract Bank",
+      "numberOfBytes": "20"
+    },
+    "t_contract(IRelay)": {
+      "encoding": "inplace",
+      "label": "contract IRelay",
+      "numberOfBytes": "20"
+    },
+    "t_contract(IWalletRegistry)": {
+      "encoding": "inplace",
+      "label": "contract IWalletRegistry",
+      "numberOfBytes": "20"
+    },
+    "t_contract(ReimbursementPool)": {
+      "encoding": "inplace",
+      "label": "contract ReimbursementPool",
+      "numberOfBytes": "20"
+    },
+    "t_enum(MovedFundsSweepRequestState)": {
+      "encoding": "inplace",
+      "label": "enum MovingFunds.MovedFundsSweepRequestState",
+      "numberOfBytes": "1"
+    },
+    "t_enum(WalletScheme)": {
+      "encoding": "inplace",
+      "label": "enum BridgeState.WalletScheme",
+      "numberOfBytes": "1"
+    },
+    "t_enum(WalletState)": {
+      "encoding": "inplace",
+      "label": "enum Wallets.WalletState",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_address,t_bool)": {
+      "encoding": "mapping",
+      "label": "mapping(address => bool)",
+      "numberOfBytes": "32",
+      "key": "t_address",
+      "value": "t_bool"
+    },
+    "t_mapping(t_bytes20,t_bytes32)": {
+      "encoding": "mapping",
+      "label": "mapping(bytes20 => bytes32)",
+      "numberOfBytes": "32",
+      "key": "t_bytes20",
+      "value": "t_bytes32"
+    },
+    "t_mapping(t_bytes20,t_struct(Wallet)_storage)": {
+      "encoding": "mapping",
+      "label": "mapping(bytes20 => struct Wallets.Wallet)",
+      "numberOfBytes": "32",
+      "key": "t_bytes20",
+      "value": "t_struct(Wallet)_storage"
+    },
+    "t_mapping(t_bytes32,t_bytes20)": {
+      "encoding": "mapping",
+      "label": "mapping(bytes32 => bytes20)",
+      "numberOfBytes": "32",
+      "key": "t_bytes32",
+      "value": "t_bytes20"
+    },
+    "t_mapping(t_uint256,t_bool)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => bool)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_bool"
+    },
+    "t_mapping(t_uint256,t_bytes32)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => bytes32)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_bytes32"
+    },
+    "t_mapping(t_uint256,t_struct(DepositRequest)_storage)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => struct Deposit.DepositRequest)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_struct(DepositRequest)_storage"
+    },
+    "t_mapping(t_uint256,t_struct(FraudChallenge)_storage)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => struct Fraud.FraudChallenge)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_struct(FraudChallenge)_storage"
+    },
+    "t_mapping(t_uint256,t_struct(MovedFundsSweepRequest)_storage)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => struct MovingFunds.MovedFundsSweepRequest)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_struct(MovedFundsSweepRequest)_storage"
+    },
+    "t_mapping(t_uint256,t_struct(RedemptionRequest)_storage)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => struct Redemption.RedemptionRequest)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_struct(RedemptionRequest)_storage"
+    },
+    "t_struct(DepositRequest)_storage": {
+      "encoding": "inplace",
+      "label": "struct Deposit.DepositRequest",
+      "numberOfBytes": "96",
+      "members": [
+        {
+          "label": "depositor",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "label": "amount",
+          "offset": 20,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "label": "revealedAt",
+          "offset": 28,
+          "slot": "0",
+          "type": "t_uint32"
+        },
+        {
+          "label": "vault",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_address"
+        },
+        {
+          "label": "treasuryFee",
+          "offset": 20,
+          "slot": "1",
+          "type": "t_uint64"
+        },
+        {
+          "label": "sweptAt",
+          "offset": 28,
+          "slot": "1",
+          "type": "t_uint32"
+        },
+        {
+          "label": "extraData",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_bytes32"
+        }
+      ]
+    },
+    "t_struct(FraudChallenge)_storage": {
+      "encoding": "inplace",
+      "label": "struct Fraud.FraudChallenge",
+      "numberOfBytes": "96",
+      "members": [
+        {
+          "label": "challenger",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "label": "depositAmount",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint256"
+        },
+        {
+          "label": "reportedAt",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint32"
+        },
+        {
+          "label": "resolved",
+          "offset": 4,
+          "slot": "2",
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(MovedFundsSweepRequest)_storage": {
+      "encoding": "inplace",
+      "label": "struct MovingFunds.MovedFundsSweepRequest",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "walletPubKeyHash",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_bytes20"
+        },
+        {
+          "label": "value",
+          "offset": 20,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "label": "createdAt",
+          "offset": 28,
+          "slot": "0",
+          "type": "t_uint32"
+        },
+        {
+          "label": "state",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_enum(MovedFundsSweepRequestState)"
+        }
+      ]
+    },
+    "t_struct(RedemptionRequest)_storage": {
+      "encoding": "inplace",
+      "label": "struct Redemption.RedemptionRequest",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "redeemer",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "label": "requestedAmount",
+          "offset": 20,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "label": "treasuryFee",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint64"
+        },
+        {
+          "label": "txMaxFee",
+          "offset": 8,
+          "slot": "1",
+          "type": "t_uint64"
+        },
+        {
+          "label": "requestedAt",
+          "offset": 16,
+          "slot": "1",
+          "type": "t_uint32"
+        }
+      ]
+    },
+    "t_struct(Storage)_storage": {
+      "encoding": "inplace",
+      "label": "struct BridgeState.Storage",
+      "numberOfBytes": "2496",
+      "members": [
+        {
+          "label": "bank",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_contract(Bank)"
+        },
+        {
+          "label": "relay",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_contract(IRelay)"
+        },
+        {
+          "label": "txProofDifficultyFactor",
+          "offset": 20,
+          "slot": "1",
+          "type": "t_uint96"
+        },
+        {
+          "label": "ecdsaWalletRegistry",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_contract(IWalletRegistry)"
+        },
+        {
+          "label": "reimbursementPool",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_contract(ReimbursementPool)"
+        },
+        {
+          "label": "treasury",
+          "offset": 0,
+          "slot": "4",
+          "type": "t_address"
+        },
+        {
+          "label": "__treasuryAlignmentGap",
+          "offset": 0,
+          "slot": "5",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "depositDustThreshold",
+          "offset": 0,
+          "slot": "6",
+          "type": "t_uint64"
+        },
+        {
+          "label": "depositTreasuryFeeDivisor",
+          "offset": 8,
+          "slot": "6",
+          "type": "t_uint64"
+        },
+        {
+          "label": "depositTxMaxFee",
+          "offset": 16,
+          "slot": "6",
+          "type": "t_uint64"
+        },
+        {
+          "label": "depositRevealAheadPeriod",
+          "offset": 24,
+          "slot": "6",
+          "type": "t_uint32"
+        },
+        {
+          "label": "__depositAlignmentGap",
+          "offset": 0,
+          "slot": "7",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "movingFundsTxMaxTotalFee",
+          "offset": 0,
+          "slot": "8",
+          "type": "t_uint64"
+        },
+        {
+          "label": "movingFundsDustThreshold",
+          "offset": 8,
+          "slot": "8",
+          "type": "t_uint64"
+        },
+        {
+          "label": "movingFundsTimeoutResetDelay",
+          "offset": 16,
+          "slot": "8",
+          "type": "t_uint32"
+        },
+        {
+          "label": "movingFundsTimeout",
+          "offset": 20,
+          "slot": "8",
+          "type": "t_uint32"
+        },
+        {
+          "label": "movingFundsTimeoutSlashingAmount",
+          "offset": 0,
+          "slot": "9",
+          "type": "t_uint96"
+        },
+        {
+          "label": "movingFundsTimeoutNotifierRewardMultiplier",
+          "offset": 12,
+          "slot": "9",
+          "type": "t_uint32"
+        },
+        {
+          "label": "movingFundsCommitmentGasOffset",
+          "offset": 16,
+          "slot": "9",
+          "type": "t_uint16"
+        },
+        {
+          "label": "__movingFundsAlignmentGap",
+          "offset": 0,
+          "slot": "10",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "movedFundsSweepTxMaxTotalFee",
+          "offset": 0,
+          "slot": "11",
+          "type": "t_uint64"
+        },
+        {
+          "label": "movedFundsSweepTimeout",
+          "offset": 8,
+          "slot": "11",
+          "type": "t_uint32"
+        },
+        {
+          "label": "movedFundsSweepTimeoutSlashingAmount",
+          "offset": 12,
+          "slot": "11",
+          "type": "t_uint96"
+        },
+        {
+          "label": "movedFundsSweepTimeoutNotifierRewardMultiplier",
+          "offset": 24,
+          "slot": "11",
+          "type": "t_uint32"
+        },
+        {
+          "label": "redemptionDustThreshold",
+          "offset": 0,
+          "slot": "12",
+          "type": "t_uint64"
+        },
+        {
+          "label": "redemptionTreasuryFeeDivisor",
+          "offset": 8,
+          "slot": "12",
+          "type": "t_uint64"
+        },
+        {
+          "label": "redemptionTxMaxFee",
+          "offset": 16,
+          "slot": "12",
+          "type": "t_uint64"
+        },
+        {
+          "label": "redemptionTxMaxTotalFee",
+          "offset": 24,
+          "slot": "12",
+          "type": "t_uint64"
+        },
+        {
+          "label": "__redemptionAlignmentGap",
+          "offset": 0,
+          "slot": "13",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "redemptionTimeout",
+          "offset": 0,
+          "slot": "14",
+          "type": "t_uint32"
+        },
+        {
+          "label": "redemptionTimeoutSlashingAmount",
+          "offset": 4,
+          "slot": "14",
+          "type": "t_uint96"
+        },
+        {
+          "label": "redemptionTimeoutNotifierRewardMultiplier",
+          "offset": 16,
+          "slot": "14",
+          "type": "t_uint32"
+        },
+        {
+          "label": "fraudChallengeDepositAmount",
+          "offset": 20,
+          "slot": "14",
+          "type": "t_uint96"
+        },
+        {
+          "label": "fraudChallengeDefeatTimeout",
+          "offset": 0,
+          "slot": "15",
+          "type": "t_uint32"
+        },
+        {
+          "label": "fraudSlashingAmount",
+          "offset": 4,
+          "slot": "15",
+          "type": "t_uint96"
+        },
+        {
+          "label": "fraudNotifierRewardMultiplier",
+          "offset": 16,
+          "slot": "15",
+          "type": "t_uint32"
+        },
+        {
+          "label": "walletCreationPeriod",
+          "offset": 20,
+          "slot": "15",
+          "type": "t_uint32"
+        },
+        {
+          "label": "walletCreationMinBtcBalance",
+          "offset": 24,
+          "slot": "15",
+          "type": "t_uint64"
+        },
+        {
+          "label": "walletCreationMaxBtcBalance",
+          "offset": 0,
+          "slot": "16",
+          "type": "t_uint64"
+        },
+        {
+          "label": "walletClosureMinBtcBalance",
+          "offset": 8,
+          "slot": "16",
+          "type": "t_uint64"
+        },
+        {
+          "label": "walletMaxAge",
+          "offset": 16,
+          "slot": "16",
+          "type": "t_uint32"
+        },
+        {
+          "label": "activeWalletPubKeyHash",
+          "offset": 0,
+          "slot": "17",
+          "type": "t_bytes20"
+        },
+        {
+          "label": "liveWalletsCount",
+          "offset": 20,
+          "slot": "17",
+          "type": "t_uint32"
+        },
+        {
+          "label": "walletMaxBtcTransfer",
+          "offset": 24,
+          "slot": "17",
+          "type": "t_uint64"
+        },
+        {
+          "label": "walletClosingPeriod",
+          "offset": 0,
+          "slot": "18",
+          "type": "t_uint32"
+        },
+        {
+          "label": "deposits",
+          "offset": 0,
+          "slot": "19",
+          "type": "t_mapping(t_uint256,t_struct(DepositRequest)_storage)"
+        },
+        {
+          "label": "isVaultTrusted",
+          "offset": 0,
+          "slot": "20",
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "isSpvMaintainer",
+          "offset": 0,
+          "slot": "21",
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "movedFundsSweepRequests",
+          "offset": 0,
+          "slot": "22",
+          "type": "t_mapping(t_uint256,t_struct(MovedFundsSweepRequest)_storage)"
+        },
+        {
+          "label": "pendingRedemptions",
+          "offset": 0,
+          "slot": "23",
+          "type": "t_mapping(t_uint256,t_struct(RedemptionRequest)_storage)"
+        },
+        {
+          "label": "timedOutRedemptions",
+          "offset": 0,
+          "slot": "24",
+          "type": "t_mapping(t_uint256,t_struct(RedemptionRequest)_storage)"
+        },
+        {
+          "label": "fraudChallenges",
+          "offset": 0,
+          "slot": "25",
+          "type": "t_mapping(t_uint256,t_struct(FraudChallenge)_storage)"
+        },
+        {
+          "label": "spentMainUTXOs",
+          "offset": 0,
+          "slot": "26",
+          "type": "t_mapping(t_uint256,t_bool)"
+        },
+        {
+          "label": "registeredWallets",
+          "offset": 0,
+          "slot": "27",
+          "type": "t_mapping(t_bytes20,t_struct(Wallet)_storage)"
+        },
+        {
+          "label": "redemptionWatchtower",
+          "offset": 0,
+          "slot": "28",
+          "type": "t_address"
+        },
+        {
+          "label": "rebateStaking",
+          "offset": 0,
+          "slot": "29",
+          "type": "t_address"
+        },
+        {
+          "label": "walletPubKeyHashByWalletID",
+          "offset": 0,
+          "slot": "30",
+          "type": "t_mapping(t_bytes32,t_bytes20)"
+        },
+        {
+          "label": "activeWalletID",
+          "offset": 0,
+          "slot": "31",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "frostWalletRegistry",
+          "offset": 0,
+          "slot": "32",
+          "type": "t_address"
+        },
+        {
+          "label": "ecdsaFraudRouter",
+          "offset": 0,
+          "slot": "33",
+          "type": "t_address"
+        },
+        {
+          "label": "p2trFraudRouter",
+          "offset": 0,
+          "slot": "34",
+          "type": "t_address"
+        },
+        {
+          "label": "lifecycleRouter",
+          "offset": 0,
+          "slot": "35",
+          "type": "t_address"
+        },
+        {
+          "label": "walletIDByWalletPubKeyHash",
+          "offset": 0,
+          "slot": "36",
+          "type": "t_mapping(t_bytes20,t_bytes32)"
+        },
+        {
+          "label": "currentNewWalletScheme",
+          "offset": 0,
+          "slot": "37",
+          "type": "t_enum(WalletScheme)"
+        },
+        {
+          "label": "ecdsaWalletCount",
+          "offset": 1,
+          "slot": "37",
+          "type": "t_uint128"
+        },
+        {
+          "label": "ecdsaRetired",
+          "offset": 17,
+          "slot": "37",
+          "type": "t_bool"
+        },
+        {
+          "label": "slashingActive",
+          "offset": 18,
+          "slot": "37",
+          "type": "t_bool"
+        },
+        {
+          "label": "taprootDepositOutputKeyCommitments",
+          "offset": 0,
+          "slot": "38",
+          "type": "t_mapping(t_uint256,t_bytes32)"
+        },
+        {
+          "label": "__gap",
+          "offset": 0,
+          "slot": "39",
+          "type": "t_array(t_uint256)39_storage"
+        }
+      ]
+    },
+    "t_struct(Wallet)_storage": {
+      "encoding": "inplace",
+      "label": "struct Wallets.Wallet",
+      "numberOfBytes": "128",
+      "members": [
+        {
+          "label": "ecdsaWalletID",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "mainUtxoHash",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "pendingRedemptionsValue",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint64"
+        },
+        {
+          "label": "createdAt",
+          "offset": 8,
+          "slot": "2",
+          "type": "t_uint32"
+        },
+        {
+          "label": "movingFundsRequestedAt",
+          "offset": 12,
+          "slot": "2",
+          "type": "t_uint32"
+        },
+        {
+          "label": "closingStartedAt",
+          "offset": 16,
+          "slot": "2",
+          "type": "t_uint32"
+        },
+        {
+          "label": "pendingMovedFundsSweepRequestsCount",
+          "offset": 20,
+          "slot": "2",
+          "type": "t_uint32"
+        },
+        {
+          "label": "state",
+          "offset": 24,
+          "slot": "2",
+          "type": "t_enum(WalletState)"
+        },
+        {
+          "label": "movingFundsTargetWalletsCommitmentHash",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_bytes32"
+        }
+      ]
+    },
+    "t_uint128": {
+      "encoding": "inplace",
+      "label": "uint128",
+      "numberOfBytes": "16"
+    },
+    "t_uint16": {
+      "encoding": "inplace",
+      "label": "uint16",
+      "numberOfBytes": "2"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint32": {
+      "encoding": "inplace",
+      "label": "uint32",
+      "numberOfBytes": "4"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    },
+    "t_uint8": {
+      "encoding": "inplace",
+      "label": "uint8",
+      "numberOfBytes": "1"
+    },
+    "t_uint96": {
+      "encoding": "inplace",
+      "label": "uint96",
+      "numberOfBytes": "12"
+    }
+  }
+}

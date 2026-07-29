@@ -16,7 +16,7 @@ import { Hex } from "../utils"
 import SepoliaL1BitcoinRedeemerDeployment from "./artifacts/sepolia/L1BitcoinRedeemer.json"
 import MainnetBaseL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import MainnetArbitrumL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
-import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
+import { BitcoinPublicKeyUtils, BitcoinUtxo } from "../bitcoin"
 import { BytesLike } from "ethers"
 
 const artifactLoader = {
@@ -87,7 +87,9 @@ export class EthereumL1BitcoinRedeemer
     encodedVm: BytesLike
   ): Promise<Hex> {
     const walletPublicKeyHash =
-      BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
+      BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(
+        walletPublicKey
+      ).toPrefixedString()
 
     const mainUtxoParam = {
       // The L1BitcoinRedeemer expects this hash to be in the Bitcoin internal

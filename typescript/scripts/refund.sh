@@ -43,17 +43,17 @@ help() {
 for arg in "$@"; do
   shift
   case "$arg" in
-  "--deposit-json-path") set -- "$@" "-d" ;;
-  "--deposit-amount") set -- "$@" "-a" ;;
-  "--deposit-transaction-id") set -- "$@" "-t" ;;
-  "--deposit-transaction-index") set -- "$@" "-i" ;;
-  "--private-key") set -- "$@" "-k" ;;
-  "--transaction-fee") set -- "$@" "-f" ;;
-  "--electrum-host") set -- "$@" "-o" ;;
-  "--electrum-port") set -- "$@" "-p" ;;
-  "--electrum-protocol") set -- "$@" "-r" ;;
-  "--help") set -- "$@" "-h" ;;
-  *) set -- "$@" "$arg" ;;
+    "--deposit-json-path") set -- "$@" "-d" ;;
+    "--deposit-amount") set -- "$@" "-a" ;;
+    "--deposit-transaction-id") set -- "$@" "-t" ;;
+    "--deposit-transaction-index") set -- "$@" "-i" ;;
+    "--private-key") set -- "$@" "-k" ;;
+    "--transaction-fee") set -- "$@" "-f" ;;
+    "--electrum-host") set -- "$@" "-o" ;;
+    "--electrum-port") set -- "$@" "-p" ;;
+    "--electrum-protocol") set -- "$@" "-r" ;;
+    "--help") set -- "$@" "-h" ;;
+    *) set -- "$@" "$arg" ;;
   esac
 done
 
@@ -61,17 +61,17 @@ done
 OPTIND=1
 while getopts "d:a:t:i:k:f:o:p:r:h" opt; do
   case "$opt" in
-  d) deposit_json_path="$OPTARG" ;;
-  a) deposit_amount="$OPTARG" ;;
-  t) deposit_transaction_id="$OPTARG" ;;
-  i) deposit_transaction_index="$OPTARG" ;;
-  k) private_key="$OPTARG" ;;
-  f) transaction_fee="$OPTARG" ;;
-  o) host="$OPTARG" ;;
-  p) port="$OPTARG" ;;
-  r) protocol="$OPTARG" ;;
-  h) help ;;
-  ?) help ;; # Print help in case parameter is non-existent
+    d) deposit_json_path="$OPTARG" ;;
+    a) deposit_amount="$OPTARG" ;;
+    t) deposit_transaction_id="$OPTARG" ;;
+    i) deposit_transaction_index="$OPTARG" ;;
+    k) private_key="$OPTARG" ;;
+    f) transaction_fee="$OPTARG" ;;
+    o) host="$OPTARG" ;;
+    p) port="$OPTARG" ;;
+    r) protocol="$OPTARG" ;;
+    h) help ;;
+    ?) help ;; # Print help in case parameter is non-existent
   esac
 done
 shift $(expr $OPTIND - 1) # remove options from positional parameters
@@ -146,6 +146,6 @@ yarn refund \
   --transaction-fee ${TRANSACTION_FEE} \
   --host ${HOST} \
   --port ${PORT} \
-  --protocol ${PROTOCOL} \
+  --protocol ${PROTOCOL}
 
 printf "${DONE_START}Complete!${DONE_END}"

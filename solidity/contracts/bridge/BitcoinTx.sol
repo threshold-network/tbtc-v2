@@ -180,6 +180,13 @@ library BitcoinTx {
         // stored, it is used as a function's calldata argument.
     }
 
+    /// @notice Supported wallet script types for Bridge wallet outputs.
+    enum WalletScriptType {
+        P2PKH,
+        P2WPKH,
+        P2TR
+    }
+
     /// @notice Validates the SPV proof of the Bitcoin transaction.
     ///         Reverts in case the validation or proof verification fail.
     /// @param txInfo Bitcoin transaction data.
@@ -327,61 +334,202 @@ library BitcoinTx {
         );
     }
 
-    /// @notice Extracts public key hash from the provided P2PKH or P2WPKH output.
+    /// @notice Extracts wallet public key hash from the provided output.
     ///         Reverts if the validation fails.
     /// @param output The transaction output.
     /// @return pubKeyHash 20-byte public key hash the output locks funds on.
     /// @dev Requirements:
-    ///      - The output must be of P2PKH or P2WPKH type and lock the funds
-    ///        on a 20-byte public key hash.
+    ///      - The output must be of P2PKH or P2WPKH type.
     function extractPubKeyHash(BridgeState.Storage storage, bytes memory output)
         internal
-        pure
+        view
         returns (bytes20 pubKeyHash)
     {
-        bytes memory pubKeyHashBytes = output.extractHash();
+        (
+            WalletScriptType scriptType,
+            bytes32 walletKey
+        ) = extractWalletScriptKey(output);
 
-        require(
-            pubKeyHashBytes.length == 20,
-            "Output's public key hash must have 20 bytes"
-        );
+        if (scriptType == WalletScriptType.P2TR) {
+            revert("P2TR wallet outputs are not enabled");
+        }
 
-        pubKeyHash = pubKeyHashBytes.slice20(0);
+        return bytes20(walletKey);
+    }
 
-        // The output consists of an 8-byte value and a variable length script.
-        // To extract just the script, we ignore the first 8 bytes.
-        uint256 scriptLen = output.length - 8;
+    /// @notice Extracts canonical wallet identifier from the provided output.
+    /// @dev For P2TR outputs, this is the 32-byte x-only output key.
+    ///      For legacy outputs, this is a left-padded 20-byte PKH.
+    function extractWalletID(BridgeState.Storage storage, bytes memory output)
+        internal
+        pure
+        returns (bytes32 walletID)
+    {
+        (
+            WalletScriptType scriptType,
+            bytes32 walletKey
+        ) = extractWalletScriptKey(output);
 
-        // The P2PKH script is 26 bytes long.
-        // The P2WPKH script is 23 bytes long.
-        // A valid script must have one of these lengths,
-        // and we can identify the expected script type by the length.
-        require(
-            scriptLen == 26 || scriptLen == 23,
-            "Output must be P2PKH or P2WPKH"
-        );
+        if (scriptType == WalletScriptType.P2TR) {
+            return walletKey;
+        }
 
-        if (scriptLen == 26) {
-            // Compare to the expected P2PKH script.
-            bytes26 script = bytes26(output.slice32(8));
+        return bytes32(uint256(uint160(bytes20(walletKey))));
+    }
 
+    /// @notice Extracts wallet public key hash compatibility key from the
+    ///         provided output.
+    /// @dev For legacy outputs, this is the 20-byte PKH directly encoded in
+    ///      the script. For P2TR outputs, the x-only output key must resolve
+    ///      through `walletPubKeyHashByWalletID` to the compatibility key used
+    ///      by legacy Bridge state and events.
+    function extractWalletPubKeyHash(
+        BridgeState.Storage storage self,
+        bytes memory output
+    ) internal view returns (bytes20 walletPubKeyHash) {
+        (
+            WalletScriptType scriptType,
+            bytes32 walletKey
+        ) = extractWalletScriptKey(output);
+
+        if (scriptType != WalletScriptType.P2TR) {
+            walletPubKeyHash = bytes20(walletKey);
             require(
-                script == makeP2PKHScript(pubKeyHash),
+                self.walletIDByWalletPubKeyHash[walletPubKeyHash] == bytes32(0),
+                "FROST wallet output must be P2TR"
+            );
+
+            return walletPubKeyHash;
+        }
+
+        walletPubKeyHash = self.walletPubKeyHashByWalletID[walletKey];
+        require(walletPubKeyHash != bytes20(0), "Unknown wallet ID");
+
+        return walletPubKeyHash;
+    }
+
+    /// @notice Derives a 20-byte compatibility alias from a 32-byte x-only key.
+    /// @dev Alias is computed as HASH160 over a synthetic compressed key:
+    ///      `HASH160(0x02 || xOnlyKey)`.
+    function deriveWalletPubKeyHashFromXOnly(bytes32 xOnlyKey)
+        internal
+        view
+        returns (bytes20)
+    {
+        return bytes20(abi.encodePacked(hex"02", xOnlyKey).hash160View());
+    }
+
+    /// @notice Parses wallet output script and extracts the wallet key.
+    /// @dev For P2PKH/P2WPKH, the key is the 20-byte PKH in the first 20 bytes.
+    ///      For P2TR, the key is the full 32-byte x-only output key.
+    function extractWalletScriptKey(bytes memory output)
+        internal
+        pure
+        returns (WalletScriptType scriptType, bytes32 walletKey)
+    {
+        require(output.length >= 9, "Output is too short");
+
+        // The output consists of:
+        // - 8-byte value
+        // - compactSize script length (for standard wallet scripts, 1 byte)
+        // - script
+        uint256 scriptLen = uint8(output[8]);
+
+        require(
+            output.length == scriptLen + 9,
+            "Output has invalid script length"
+        );
+
+        if (scriptLen == 25) {
+            // P2PKH script body:
+            // 76 a9 14 <20-byte pubKeyHash> 88 ac
+            require(
+                output.slice3(9) == hex"76a914" &&
+                    output.slice2(32) == hex"88ac",
                 "Invalid P2PKH script"
             );
+
+            return (WalletScriptType.P2PKH, output.slice32(12));
         }
 
-        if (scriptLen == 23) {
-            // Compare to the expected P2WPKH script.
-            bytes23 script = bytes23(output.slice32(8));
+        if (scriptLen == 22) {
+            // P2WPKH script body:
+            // 00 14 <20-byte pubKeyHash>
+            require(output.slice2(9) == hex"0014", "Invalid P2WPKH script");
 
-            require(
-                script == makeP2WPKHScript(pubKeyHash),
-                "Invalid P2WPKH script"
-            );
+            return (WalletScriptType.P2WPKH, output.slice32(11));
         }
 
-        return pubKeyHash;
+        if (scriptLen == 34) {
+            // P2TR script body:
+            // 51 20 <32-byte x-only output key>
+            require(output.slice2(9) == hex"5120", "Invalid P2TR script");
+
+            return (WalletScriptType.P2TR, output.slice32(11));
+        }
+
+        revert("Output must be P2PKH or P2WPKH or P2TR");
+    }
+
+    /// @notice Extracts the payload from a standard length-prefixed output
+    ///         script.
+    /// @dev Supports P2PKH, P2WPKH, P2SH, P2WSH and P2TR scripts. Returns an
+    ///      empty byte array for malformed or unsupported scripts. Replaces
+    ///      `BTCUtils.extractHashAt` at redemption-destination call sites so
+    ///      P2TR redemption destinations are accepted, matching the wallet-
+    ///      identity-compatibility manifest's claim that the redeem path
+    ///      accepts the standard P2TR user destination script.
+    function extractStandardOutputScriptPayload(bytes memory outputScript)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        // P2PKH script:
+        // 19 76 a9 14 <20-byte pubKeyHash> 88 ac
+        if (
+            outputScript.length == 26 &&
+            outputScript.slice3(0) == hex"1976a9" &&
+            uint8(outputScript[3]) == 20 &&
+            outputScript.slice2(24) == hex"88ac"
+        ) {
+            return outputScript.slice(4, 20);
+        }
+
+        // P2SH script:
+        // 17 a9 14 <20-byte scriptHash> 87
+        if (
+            outputScript.length == 24 &&
+            outputScript.slice3(0) == hex"17a914" &&
+            uint8(outputScript[23]) == 0x87
+        ) {
+            return outputScript.slice(3, 20);
+        }
+
+        // P2WPKH script:
+        // 16 00 14 <20-byte pubKeyHash>
+        if (
+            outputScript.length == 23 && outputScript.slice3(0) == hex"160014"
+        ) {
+            return outputScript.slice(3, 20);
+        }
+
+        // P2WSH script:
+        // 22 00 20 <32-byte scriptHash>
+        if (
+            outputScript.length == 35 && outputScript.slice3(0) == hex"220020"
+        ) {
+            return outputScript.slice(3, 32);
+        }
+
+        // P2TR script:
+        // 22 51 20 <32-byte x-only output key>
+        if (
+            outputScript.length == 35 && outputScript.slice3(0) == hex"225120"
+        ) {
+            return outputScript.slice(3, 32);
+        }
+
+        return hex"";
     }
 
     /// @notice Build the P2PKH script from the given public key hash.
@@ -427,5 +575,21 @@ library BitcoinTx {
         bytes23 P2WPKHScriptMask = hex"1600140000000000000000000000000000000000000000";
 
         return ((bytes23(pubKeyHash) >> 24) | P2WPKHScriptMask);
+    }
+
+    /// @notice Build the P2TR script from the given x-only output key.
+    /// @param xOnlyKey The 32-byte x-only Taproot output key.
+    /// @return The P2TR script.
+    /// @dev The P2TR script has the following format:
+    ///      <0x22> <0x51> <0x20> <32-byte x-only key>. Where:
+    ///      - 0x22: Byte length of the script body (34 bytes)
+    ///      - 0x51: OP_1 (witness version 1)
+    ///      - 0x20: Byte length of the witness program (32 bytes)
+    function makeP2TRScript(bytes32 xOnlyKey)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(hex"225120", xOnlyKey);
     }
 }

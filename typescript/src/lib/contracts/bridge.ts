@@ -26,6 +26,12 @@ export interface Bridge {
   getDepositRevealedEvents: GetChainEvents.Function<DepositRevealedEvent>
 
   /**
+   * Get emitted TaprootDepositRevealed events.
+   * @see GetEventsFunction
+   */
+  getTaprootDepositRevealedEvents: GetChainEvents.Function<TaprootDepositRevealedEvent>
+
+  /**
    * Submits a deposit sweep transaction proof to the on-chain contract.
    * @param sweepTx - Sweep transaction data.
    * @param sweepProof - Sweep proof data.
@@ -69,6 +75,19 @@ export interface Bridge {
     depositTxHash: BitcoinTxHash,
     depositOutputIndex: number
   ): Promise<DepositRequest>
+
+  /**
+   * Gets the wallet/output-key commitment recorded for a Taproot deposit.
+   * A zero value means the outpoint has no Taproot deposit commitment.
+   * @param depositTxHash The revealed deposit transaction's hash.
+   * @param depositOutputIndex Index of the deposit transaction output that
+   *        funds the revealed deposit.
+   * @returns The 32-byte Taproot deposit output-key commitment.
+   */
+  taprootDepositOutputKeyCommitment(
+    depositTxHash: BitcoinTxHash,
+    depositOutputIndex: number
+  ): Promise<Hex>
 
   /**
    * Requests a redemption from the on-chain contract.
@@ -155,6 +174,13 @@ export interface Bridge {
   ): Promise<RedemptionRequest>
 
   /**
+   * Gets the public key hash of the current active wallet.
+   * @returns 20-byte active wallet public key hash. If there is no active
+   *          wallet at the moment, undefined is returned.
+   */
+  activeWalletPublicKeyHash(): Promise<Hex | undefined>
+
+  /**
    * Gets the public key of the current active wallet.
    * @returns Compressed (33 bytes long with 02 or 03 prefix) active wallet's
    *          public key. If there is no active wallet at the moment, undefined
@@ -180,6 +206,33 @@ export interface Bridge {
    * @returns Promise with the wallet details.
    */
   wallets(walletPublicKeyHash: Hex): Promise<Wallet>
+
+  /**
+   * Gets details about a registered wallet using canonical wallet ID.
+   * @param walletID Canonical wallet identifier.
+   * @returns Promise with the wallet details.
+   */
+  walletsByWalletID(walletID: Hex): Promise<Wallet>
+
+  /**
+   * Resolves canonical wallet ID from legacy wallet public key hash.
+   * @param walletPublicKeyHash The 20-byte wallet public key hash.
+   * @returns Canonical wallet ID.
+   */
+  walletID(walletPublicKeyHash: Hex): Promise<Hex>
+
+  /**
+   * Resolves legacy wallet public key hash from canonical wallet ID.
+   * @param walletID Canonical wallet identifier.
+   * @returns 20-byte wallet public key hash.
+   */
+  walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex>
+
+  /**
+   * Gets canonical wallet ID of the active wallet.
+   * @returns Canonical wallet ID of the active wallet, if set.
+   */
+  activeWalletID(): Promise<Hex | undefined>
 
   /**
    * Builds the UTXO hash based on the UTXO components.
@@ -227,6 +280,18 @@ export interface DepositReceipt {
   refundPublicKeyHash: Hex
 
   /**
+   * Optional 32-byte x-only wallet key used as the Taproot internal key for
+   * Taproot-native deposits. Present only for P2TR deposit receipts.
+   */
+  walletXOnlyPublicKey?: Hex
+
+  /**
+   * Optional 32-byte x-only refund key embedded in the tapscript refund leaf
+   * for Taproot-native deposits. Present only for P2TR deposit receipts.
+   */
+  refundXOnlyPublicKey?: Hex
+
+  /**
    * A 4-byte little-endian refund locktime.
    */
   refundLocktime: Hex
@@ -235,6 +300,15 @@ export interface DepositReceipt {
    * Optional 32-byte extra data.
    */
   extraData?: Hex
+}
+
+/**
+ * Represents a Taproot-native deposit receipt. The receipt holds all
+ * information required to build a unique P2TR deposit address on Bitcoin chain.
+ */
+export type TaprootDepositReceipt = DepositReceipt & {
+  walletXOnlyPublicKey: Hex
+  refundXOnlyPublicKey: Hex
 }
 
 // eslint-disable-next-line valid-jsdoc
@@ -254,6 +328,23 @@ export function validateDepositReceipt(receipt: DepositReceipt) {
 
   if (receipt.refundPublicKeyHash.toString().length != 40) {
     throw new Error("Invalid refund public key hash")
+  }
+
+  const walletXOnlyPublicKey = receipt.walletXOnlyPublicKey
+  const refundXOnlyPublicKey = receipt.refundXOnlyPublicKey
+  if (
+    (walletXOnlyPublicKey && !refundXOnlyPublicKey) ||
+    (!walletXOnlyPublicKey && refundXOnlyPublicKey)
+  ) {
+    throw new Error("Taproot deposit receipt must include both x-only keys")
+  }
+
+  if (walletXOnlyPublicKey && walletXOnlyPublicKey.toString().length != 64) {
+    throw new Error("Invalid wallet x-only public key")
+  }
+
+  if (refundXOnlyPublicKey && refundXOnlyPublicKey.toString().length != 64) {
+    throw new Error("Invalid refund x-only public key")
   }
 
   if (receipt.refundLocktime.toString().length != 8) {
@@ -299,12 +390,27 @@ export interface DepositRequest {
    * Denominated in satoshi.
    */
   treasuryFee: BigNumber
+
+  /**
+   * Optional 32-byte extra data committed by the deposit script.
+   */
+  extraData?: Hex
 }
 
 /**
  * Represents an event emitted on deposit reveal to the on-chain bridge.
  */
 export type DepositRevealedEvent = DepositReceipt &
+  Pick<DepositRequest, "amount" | "vault"> & {
+    fundingTxHash: BitcoinTxHash
+    fundingOutputIndex: number
+  } & ChainEvent
+
+/**
+ * Represents an event emitted on Taproot-native deposit reveal to the on-chain
+ * bridge.
+ */
+export type TaprootDepositRevealedEvent = TaprootDepositReceipt &
   Pick<DepositRequest, "amount" | "vault"> & {
     fundingTxHash: BitcoinTxHash
     fundingOutputIndex: number
@@ -421,6 +527,10 @@ export namespace WalletState {
  */
 export interface Wallet {
   /**
+   * Canonical wallet identifier.
+   */
+  walletID?: Hex
+  /**
    * Identifier of a ECDSA Wallet registered in the ECDSA Wallet Registry.
    */
   ecdsaWalletID: Hex
@@ -469,6 +579,10 @@ export interface Wallet {
  * Represents an event emitted when new wallet is registered on the on-chain bridge.
  */
 export type NewWalletRegisteredEvent = {
+  /**
+   * Canonical wallet identifier.
+   */
+  walletID?: Hex
   /**
    * Identifier of a ECDSA Wallet registered in the ECDSA Wallet Registry.
    */

@@ -22,7 +22,7 @@ any action in the Bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L395)
+[src/lib/contracts/bridge.ts:501](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L501)
 
 ___
 
@@ -36,7 +36,7 @@ and must defend against them.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:390](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
+[src/lib/contracts/bridge.ts:496](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L496)
 
 ___
 
@@ -48,7 +48,7 @@ The wallet can sweep deposits and accept redemption requests.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:377](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L377)
+[src/lib/contracts/bridge.ts:483](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L483)
 
 ___
 
@@ -63,7 +63,7 @@ accepted.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:384](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L384)
+[src/lib/contracts/bridge.ts:490](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L490)
 
 ___
 
@@ -78,7 +78,7 @@ any actions in the Bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:402](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L402)
+[src/lib/contracts/bridge.ts:508](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L508)
 
 ___
 
@@ -90,4 +90,4 @@ The wallet is unknown to the Bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:373](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L373)
+[src/lib/contracts/bridge.ts:479](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L479)

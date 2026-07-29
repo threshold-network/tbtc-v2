@@ -2253,6 +2253,201 @@ describe("RedemptionWatchtower", () => {
     })
   })
 
+  describe("raiseObjectionByWalletID", () => {
+    let redemption: RedemptionData
+    // P2TR-style 32-byte canonical wallet ID for a wallet whose legacy alias
+    // is the redemption fixture's walletPublicKeyHash.
+    const p2trWalletID =
+      "0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+
+    before(async () => {
+      await createSnapshot()
+
+      // eslint-disable-next-line prefer-destructuring
+      redemption = (
+        await createRedemptionRequests(SinglePendingRequestedRedemption)
+      )[0]
+
+      await redemptionWatchtower.connect(governance).enableWatchtower(
+        redemptionWatchtowerManager.address,
+        guardians.map((g) => g.address)
+      )
+
+      // Register the canonical walletID -> legacy pubKeyHash mapping so the
+      // walletID entry point can resolve to the same redemption key as the
+      // legacy raiseObjection path.
+      await bridge.setWalletPubKeyHashForWalletID(
+        p2trWalletID,
+        redemption.walletPublicKeyHash
+      )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when walletID is not registered", () => {
+      it("should revert", async () => {
+        const unregisteredWalletID =
+          "0x0000000000000000000000000000000000000000000000000000000000000001"
+        await expect(
+          redemptionWatchtower
+            .connect(guardians[0])
+            .raiseObjectionByWalletID(
+              unregisteredWalletID,
+              redemption.redeemerOutputScript
+            )
+        ).to.be.revertedWith("Wallet ID is not registered")
+      })
+    })
+
+    context("when called not by a guardian", () => {
+      it("should revert", async () => {
+        await expect(
+          redemptionWatchtower
+            .connect(thirdParty)
+            .raiseObjectionByWalletID(
+              p2trWalletID,
+              redemption.redeemerOutputScript
+            )
+        ).to.be.revertedWith("Caller is not guardian")
+      })
+    })
+
+    context("when called by a guardian against a registered walletID", () => {
+      it("should produce the same effect as raiseObjection on the legacy pubKeyHash", async () => {
+        // Raise an objection via the walletID entry point. The redemption
+        // key is keccak256(keccak256(script) | pubKeyHash); the walletID
+        // entry resolves walletID -> pubKeyHash on-chain and then computes
+        // the same key, so the same VetoProposal is mutated as if we had
+        // called raiseObjection(pubKeyHash, script) directly.
+        const redemptionKey = ethers.utils.solidityKeccak256(
+          ["bytes32", "bytes20"],
+          [
+            ethers.utils.solidityKeccak256(
+              ["bytes"],
+              [redemption.redeemerOutputScript]
+            ),
+            redemption.walletPublicKeyHash,
+          ]
+        )
+
+        const tx = await redemptionWatchtower
+          .connect(guardians[0])
+          .raiseObjectionByWalletID(
+            p2trWalletID,
+            redemption.redeemerOutputScript
+          )
+
+        await expect(tx)
+          .to.emit(redemptionWatchtower, "ObjectionRaised")
+          .withArgs(redemptionKey, guardians[0].address)
+
+        const veto = await redemptionWatchtower.vetoProposals(redemptionKey)
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        expect(veto.objectionsCount).to.equal(1)
+      })
+    })
+  })
+
+  describe("isSafeRedemptionByWalletID", () => {
+    let redemption: RedemptionData
+    const p2trWalletID =
+      "0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+    before(async () => {
+      await createSnapshot()
+
+      // eslint-disable-next-line prefer-destructuring
+      redemption = (
+        await createRedemptionRequests(SinglePendingRequestedRedemption)
+      )[0]
+
+      await redemptionWatchtower.connect(governance).enableWatchtower(
+        redemptionWatchtowerManager.address,
+        guardians.map((g) => g.address)
+      )
+
+      await bridge.setWalletPubKeyHashForWalletID(
+        p2trWalletID,
+        redemption.walletPublicKeyHash
+      )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when walletID is not registered", () => {
+      it("should revert", async () => {
+        const unregisteredWalletID =
+          "0x0000000000000000000000000000000000000000000000000000000000000002"
+        await expect(
+          redemptionWatchtower.isSafeRedemptionByWalletID(
+            unregisteredWalletID,
+            redemption.redeemerOutputScript,
+            "0x0Bf9bD12462c43A91F13440faF9f9BD6ece37689",
+            "0x90a4ac843763F7F345f2738CcC9F420D59751249"
+          )
+        ).to.be.revertedWith("Wallet ID is not registered")
+      })
+    })
+
+    context("when walletID is registered and no objections exist", () => {
+      it("should return the same result as isSafeRedemption on the legacy pubKeyHash", async () => {
+        const balanceOwner = "0x0Bf9bD12462c43A91F13440faF9f9BD6ece37689"
+        const redeemer = "0x90a4ac843763F7F345f2738CcC9F420D59751249"
+
+        const legacy = await redemptionWatchtower.isSafeRedemption(
+          redemption.walletPublicKeyHash,
+          redemption.redeemerOutputScript,
+          balanceOwner,
+          redeemer
+        )
+        const byWalletID =
+          await redemptionWatchtower.isSafeRedemptionByWalletID(
+            p2trWalletID,
+            redemption.redeemerOutputScript,
+            balanceOwner,
+            redeemer
+          )
+        expect(byWalletID).to.equal(legacy)
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        expect(byWalletID).to.be.true
+      })
+    })
+
+    context("when an objection exists against the legacy key", () => {
+      before(async () => {
+        await createSnapshot()
+        await redemptionWatchtower
+          .connect(guardians[0])
+          .raiseObjection(
+            redemption.walletPublicKeyHash,
+            redemption.redeemerOutputScript
+          )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should return false through the walletID entry point too", async () => {
+        const balanceOwner = "0x0Bf9bD12462c43A91F13440faF9f9BD6ece37689"
+        const redeemer = "0x90a4ac843763F7F345f2738CcC9F420D59751249"
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        expect(
+          await redemptionWatchtower.isSafeRedemptionByWalletID(
+            p2trWalletID,
+            redemption.redeemerOutputScript,
+            balanceOwner,
+            redeemer
+          )
+        ).to.be.false
+      })
+    })
+  })
+
   describe("unban", () => {
     before(async () => {
       await createSnapshot()
