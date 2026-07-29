@@ -99,6 +99,7 @@ type AuthorityPlan = OwnerPlan & {
 type SnapshotOptions = {
   challengeCount?: number
   totalEscrow?: BigNumber | number
+  historyCommitment?: string
 }
 
 async function expectCustomError(
@@ -562,7 +563,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
     const bridgeBalance = await ethers.provider.getBalance(bridge.address)
     const sourceEventCount = challengeCount
     const history = {
-      historyCommitment: ethers.utils.id("canonical-receipt-history"),
+      historyCommitment:
+        options.historyCommitment ??
+        ethers.utils.id("canonical-receipt-history"),
       emitterSetCommitment: plan.emitterSetCommitment,
       blockCount: finalizedBlock - plan.scanStartBlock + 1,
       transactionCount: 0,
@@ -661,6 +664,21 @@ describe("Bridge - ECDSA fraud router cutover", () => {
     }
   }
 
+  function inventoryPayload(snapshot: {
+    encodedSnapshot: string
+    sourceSignature: string
+    reconcilerSignature: string
+  }): string {
+    return ethers.utils.defaultAbiCoder.encode(
+      ["bytes", "bytes", "bytes"],
+      [
+        snapshot.encodedSnapshot,
+        snapshot.sourceSignature,
+        snapshot.reconcilerSignature,
+      ]
+    )
+  }
+
   async function stageAtAge(
     plan: AuthorityPlan,
     age: number,
@@ -670,18 +688,7 @@ describe("Bridge - ECDSA fraud router cutover", () => {
     const currentBlock = await ethers.provider.getBlockNumber()
     await mineBlocks(Math.max(0, finalizedBlock + age - 1 - currentBlock))
     const snapshot = await encodeSnapshot(plan, finalizedBlock, options)
-    return authorityAction(
-      keeper,
-      4,
-      ethers.utils.defaultAbiCoder.encode(
-        ["bytes", "bytes", "bytes"],
-        [
-          snapshot.encodedSnapshot,
-          snapshot.sourceSignature,
-          snapshot.reconcilerSignature,
-        ]
-      )
-    )
+    return authorityAction(keeper, 4, inventoryPayload(snapshot))
   }
 
   async function migrateEmptyInventory(plan: AuthorityPlan): Promise<void> {
@@ -762,6 +769,69 @@ describe("Bridge - ECDSA fraud router cutover", () => {
   it("does not wedge finalization when unrelated ETH arrives after staging", async () => {
     await executeEmptyCutover(true)
     expect(await ethers.provider.getBalance(bridge.address)).to.equal(1)
+  })
+
+  it("does not wedge staging when unrelated ETH arrives after the drain block", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    const finalizedBlock = plan.drainBlock as number
+    const currentBlock = await ethers.provider.getBlockNumber()
+    await mineBlocks(Math.max(0, finalizedBlock + 63 - currentBlock))
+    const historicalBalance = await ethers.provider.getBalance(bridge.address)
+    const snapshot = await encodeSnapshot(plan, finalizedBlock)
+
+    const force = await (
+      await ethers.getContractFactory(
+        "EcdsaFraudCutoverForceEtherStub",
+        deployer
+      )
+    ).deploy({ value: 1 })
+    await force.forceSend(bridge.address)
+
+    await (await authorityAction(keeper, 4, inventoryPayload(snapshot))).wait()
+    const staged = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(Number(staged.phase)).to.equal(2)
+    expect(await ethers.provider.getBalance(bridge.address)).to.equal(
+      historicalBalance.add(1)
+    )
+  })
+
+  it("keeps exact confirmed inventory replays idempotent while allowing corrected restaging", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    const finalizedBlock = plan.drainBlock as number
+    const currentBlock = await ethers.provider.getBlockNumber()
+    await mineBlocks(Math.max(0, finalizedBlock + 63 - currentBlock))
+    const snapshot = await encodeSnapshot(plan, finalizedBlock)
+    const payload = inventoryPayload(snapshot)
+
+    await (await authorityAction(keeper, 4, payload)).wait()
+    const staged = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    await (
+      await authorityAction(
+        reconciler,
+        0,
+        ethers.utils.defaultAbiCoder.encode(
+          ["bytes32"],
+          [staged.inventoryCommitment]
+        )
+      )
+    ).wait()
+
+    await (await authorityAction(keeper, 4, payload)).wait()
+    const replayed = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(Number(replayed.phase)).to.equal(3)
+    expect(replayed.inventoryCommitment).to.equal(staged.inventoryCommitment)
+
+    const correctedSnapshot = await encodeSnapshot(plan, finalizedBlock, {
+      historyCommitment: ethers.utils.id("corrected-canonical-receipt-history"),
+    })
+    await (
+      await authorityAction(keeper, 4, inventoryPayload(correctedSnapshot))
+    ).wait()
+    const restaged = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(Number(restaged.phase)).to.equal(2)
+    expect(restaged.inventoryCommitment).not.to.equal(
+      staged.inventoryCommitment
+    )
   })
 
   it("stores the exact owner authorization hash and lets Idle preauthorization be replaced", async () => {

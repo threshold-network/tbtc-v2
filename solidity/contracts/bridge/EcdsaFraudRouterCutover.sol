@@ -644,6 +644,13 @@ library EcdsaFraudRouterCutover {
                 reconcilerAttestation
             );
 
+        if (
+            self.phase == Phase.InventoryConfirmed &&
+            commitment == self.inventoryCommitment
+        ) {
+            return;
+        }
+
         self.phase = Phase.InventoryStaged;
         self.finalizedBlock = snapshot.finalizedBlock;
         self.finalizedBlockHash = snapshot.finalizedBlockHash;
