@@ -218,7 +218,6 @@ library EcdsaFraudRouterCutoverVerifier {
     {
         _requireHistoryEvidence(
             self,
-            bridgeAddress,
             snapshot.finalizedBlock,
             snapshot.challengeCount,
             snapshot.totalEscrow,
@@ -686,7 +685,6 @@ library EcdsaFraudRouterCutoverVerifier {
 
     function _requireHistoryEvidence(
         EcdsaFraudRouterCutover.Data storage self,
-        address bridgeAddress,
         uint64 finalizedBlock,
         uint32 challengeCount,
         uint256 totalEscrow,
@@ -708,8 +706,7 @@ library EcdsaFraudRouterCutoverVerifier {
             history.lifecycleEventDigest == bytes32(0) ||
             history.legacyLiabilityDigest == bytes32(0) ||
             history.bridgeBalance !=
-            totalEscrow + history.unrelatedBridgeBalance ||
-            bridgeAddress.balance != history.bridgeBalance
+            totalEscrow + history.unrelatedBridgeBalance
         ) {
             revert EcdsaFraudRouterCutover.EcdsaFraudCutoverCommitmentMismatch();
         }
