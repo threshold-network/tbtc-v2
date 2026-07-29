@@ -1396,14 +1396,17 @@ library P2TRReservation {
             "Wallet cannot enter recovery"
         );
 
-        if (previousState == Wallets.WalletState.Live) {
-            if (self.activeWalletPubKeyHash == walletPubKeyHash) {
-                delete self.activeWalletPubKeyHash;
-                delete self.activeWalletID;
+        if (previousState != Wallets.WalletState.RecoveryRequired) {
+            if (previousState == Wallets.WalletState.Live) {
+                if (self.activeWalletPubKeyHash == walletPubKeyHash) {
+                    delete self.activeWalletPubKeyHash;
+                    delete self.activeWalletID;
+                }
+                self.liveWalletsCount--;
             }
-            self.liveWalletsCount--;
+            wallet.state = Wallets.WalletState.RecoveryRequired;
+            emit WalletRecoveryRequired(walletPubKeyHash);
         }
-        wallet.state = Wallets.WalletState.RecoveryRequired;
         ICompleteP2TRAuthorizedProofReconciliation(self.p2trFraudRouter)
             .reconcileReservationConflict(walletPubKeyHash);
     }

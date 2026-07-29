@@ -245,7 +245,7 @@ const createDraftApprovedP2TRWatchtower = (
   )
 
 const expectedVector0BridgeChallengeKey =
-  "dfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
+  "b3686a4383585912636eb96d0f1b20fb23ee7f20df148d4215120f126f96383c"
 
 const computeBridgeChallengeIdentity = (vector: SignatureFraudVector): Hex => {
   const parsedWitness = parseP2TRKeyPathWitnessSignature(
@@ -260,15 +260,10 @@ const computeBridgeChallengeIdentity = (vector: SignatureFraudVector): Hex => {
   )
 
   return computeP2TRSignatureFraudBridgeChallengeIdentity({
+    ...bridgeChallengeDomain,
     walletID: vector.walletIDHex,
+    signingKey: vector.walletIDHex,
     sighash,
-    signature: parsedWitness.signature,
-    sighashType: parsedWitness.sighashType,
-    signedInputIndex: vector.signedInputIndex,
-    unsignedTransaction: {
-      transactionHex: vector.unsignedTransactionHex,
-    },
-    inputPrevouts,
   })
 }
 
@@ -712,114 +707,96 @@ describe("P2TR signature-fraud witness parsing", () => {
     vectorCorpus.cases.forEach((vector) => {
       const identity = computeBridgeChallengeIdentity(vector)
       const mutatedIdentity = computeP2TRSignatureFraudBridgeChallengeIdentity({
+        ...bridgeChallengeDomain,
         walletID: vector.walletIDHex,
+        signingKey: txHash("f"),
         sighash: vector.expectedBip341SighashHex,
-        signature: vector.bip340SignatureHex,
-        sighashType: vector.sighashType as
-          | typeof P2TR_SIGHASH_DEFAULT
-          | typeof P2TR_SIGHASH_ALL,
-        signedInputIndex: vector.signedInputIndex,
-        unsignedTransaction: {
-          transactionHex: vector.unsignedTransactionHex,
-        },
-        inputPrevouts: toObservationPrevouts(vector).map((prevout, index) =>
-          index === vector.signedInputIndex
-            ? {
-                ...prevout,
-                valueSats: Number(prevout.valueSats) + 1,
-              }
-            : prevout
-        ),
       })
 
       expect(identity.toBuffer()).to.have.lengthOf(32)
       expect(identity.toString(), vector.id).to.equal(
-        vector.expectedBridgeChallengeIdentityHex
+        utils
+          .sha256(
+            utils.solidityPack(
+              ["string", "uint256", "address", "bytes32", "bytes32", "bytes32"],
+              [
+                "tbtc-p2tr-signature-fraud-authorization-v3",
+                bridgeChallengeDomain.chainID,
+                bridgeChallengeDomain.bridgeAddress,
+                Hex.from(vector.walletIDHex).toPrefixedString(),
+                Hex.from(vector.walletIDHex).toPrefixedString(),
+                Hex.from(vector.expectedBip341SighashHex).toPrefixedString(),
+              ]
+            )
+          )
+          .slice(2)
       )
-      expect(mutatedIdentity.toString(), vector.id).to.equal(
+      expect(mutatedIdentity.toString(), vector.id).to.not.equal(
         identity.toString()
       )
 
       expect(
         computeP2TRSignatureFraudBridgeChallengeIdentity({
+          ...bridgeChallengeDomain,
           walletID: vector.walletIDHex,
+          signingKey: vector.walletIDHex,
           sighash: `0x${"00".repeat(32)}`,
-          signature: vector.bip340SignatureHex,
-          sighashType: vector.sighashType as
-            | typeof P2TR_SIGHASH_DEFAULT
-            | typeof P2TR_SIGHASH_ALL,
         }).toString()
       ).to.not.equal(identity.toString())
     })
   })
 
-  it("computes domain-separated Bridge challenge keys from Bridge identities", () => {
+  it("uses COMPLETE_V2 Bridge identities directly as challenge keys", () => {
     const vector = vectorCorpus.cases[0]
     const bridgeChallengeIdentity = computeBridgeChallengeIdentity(vector)
 
     const bridgeChallengeKey = computeP2TRSignatureFraudBridgeChallengeKey({
-      chainID: 11155111,
-      bridgeAddress: "0x1111111111111111111111111111111111111111",
       bridgeChallengeIdentity,
     })
 
     expect(bridgeChallengeKey.toString()).to.equal(
       expectedVector0BridgeChallengeKey
     )
+    expect(bridgeChallengeKey.equals(bridgeChallengeIdentity)).to.be.true
     expect(
       computeP2TRSignatureFraudBridgeChallengeKey({
-        chainID: 1,
-        bridgeAddress: "0x1111111111111111111111111111111111111111",
-        bridgeChallengeIdentity,
-      }).toString()
-    ).to.not.equal(bridgeChallengeKey.toString())
-    expect(
-      computeP2TRSignatureFraudBridgeChallengeKey({
-        chainID: 11155111,
-        bridgeAddress: "0x2222222222222222222222222222222222222222",
-        bridgeChallengeIdentity,
-      }).toString()
-    ).to.not.equal(bridgeChallengeKey.toString())
-    expect(
-      computeP2TRSignatureFraudBridgeChallengeKey({
-        chainID: 11155111,
-        bridgeAddress: "0x1111111111111111111111111111111111111111",
         bridgeChallengeIdentity: txHash("0"),
       }).toString()
     ).to.not.equal(bridgeChallengeKey.toString())
   })
 
-  it("rejects invalid Bridge challenge-key domains", () => {
+  it("rejects invalid COMPLETE_V2 challenge-identity domains", () => {
+    const vector = vectorCorpus.cases[0]
     expectWitnessError(
       () =>
-        computeP2TRSignatureFraudBridgeChallengeKey({
+        computeP2TRSignatureFraudBridgeChallengeIdentity({
           chainID: 0,
           bridgeAddress: "0x1111111111111111111111111111111111111111",
-          bridgeChallengeIdentity: computeBridgeChallengeIdentity(
-            vectorCorpus.cases[0]
-          ),
+          walletID: vector.walletIDHex,
+          signingKey: vector.walletIDHex,
+          sighash: vector.expectedBip341SighashHex,
         }),
       "invalid-observation-payload"
     )
     expectWitnessError(
       () =>
-        computeP2TRSignatureFraudBridgeChallengeKey({
+        computeP2TRSignatureFraudBridgeChallengeIdentity({
           chainID: 11155111,
           bridgeAddress: constants.AddressZero,
-          bridgeChallengeIdentity: computeBridgeChallengeIdentity(
-            vectorCorpus.cases[0]
-          ),
+          walletID: vector.walletIDHex,
+          signingKey: vector.walletIDHex,
+          sighash: vector.expectedBip341SighashHex,
         }),
       "invalid-observation-payload"
     )
     expectWitnessError(
       () =>
-        computeP2TRSignatureFraudBridgeChallengeKey({
+        computeP2TRSignatureFraudBridgeChallengeIdentity({
           chainID: 11155111,
           bridgeAddress: "not-an-address",
-          bridgeChallengeIdentity: computeBridgeChallengeIdentity(
-            vectorCorpus.cases[0]
-          ),
+          walletID: vector.walletIDHex,
+          signingKey: vector.walletIDHex,
+          sighash: vector.expectedBip341SighashHex,
         }),
       "invalid-observation-payload"
     )
@@ -1013,7 +990,12 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.expectedBip341SighashHex
     )
     expect(observation.bridgeChallengeIdentity.toString()).to.equal(
-      vector.expectedBridgeChallengeIdentityHex
+      computeP2TRSignatureFraudBridgeChallengeIdentity({
+        ...bridgeChallengeDomain,
+        walletID: observation.walletID,
+        signingKey: observation.walletID,
+        sighash: observation.sighash,
+      }).toString()
     )
     expect(restored.annex?.toString()).to.equal(vector.annexHex)
     expect(payload.annex).to.equal(`0x${vector.annexHex}`)
@@ -5413,6 +5395,32 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(candidates[0].scriptPubKey.toString()).to.equal(
       `5120${depositOutputKey}`
     )
+
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector).map((prevout, index) => ({
+        ...prevout,
+        scriptPubKey:
+          index === vector.signedInputIndex
+            ? `5120${depositOutputKey}`
+            : prevout.scriptPubKey,
+      })),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain,
+      [binding]
+    )
+    const expectedIdentity = computeP2TRSignatureFraudBridgeChallengeIdentity({
+      ...bridgeChallengeDomain,
+      walletID: vector.walletIDHex,
+      signingKey: depositOutputKey,
+      sighash: observation.sighash,
+    })
+    expect(observation.bridgeChallengeIdentity.equals(expectedIdentity)).to.be
+      .true
+    expect(observation.bridgeChallengeKey?.equals(expectedIdentity)).to.be.true
 
     expect(
       extractP2TRWalletInputWitnessCandidates(

@@ -370,15 +370,37 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
       walletPubKeyHash,
       1
     )
-    await bridge.settleP2TRProofForTest(
-      keccak256(toUtf8Bytes("pre-challenge-conflict-proof")),
-      1,
-      walletPubKeyHash,
-      [resourceID]
+    await expect(
+      bridge.settleP2TRProofForTest(
+        keccak256(toUtf8Bytes("pre-challenge-conflict-proof")),
+        1,
+        walletPubKeyHash,
+        [resourceID]
+      )
     )
+      .to.emit(bridge, "WalletRecoveryRequired")
+      .withArgs(walletPubKeyHash)
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
       recoveryRequiredWalletState
     )
+
+    const secondResourceID = keccak256(
+      toUtf8Bytes("pre-challenge-second-conflict-resource")
+    )
+    await registry.setConflictingReservation(
+      secondResourceID,
+      keccak256(toUtf8Bytes("pre-challenge-second-conflict-reservation")),
+      walletPubKeyHash,
+      1
+    )
+    await expect(
+      bridge.settleP2TRProofForTest(
+        keccak256(toUtf8Bytes("pre-challenge-second-conflict-proof")),
+        1,
+        walletPubKeyHash,
+        [secondResourceID]
+      )
+    ).not.to.emit(bridge, "WalletRecoveryRequired")
 
     await submit(evidence)
     await increaseTime(challengeTimeout)
