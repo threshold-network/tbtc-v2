@@ -259,9 +259,12 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
         // (3) Pass the full ETH balance through to the DAO treasury.
         uint256 ethBalance = address(this).balance;
         if (ethBalance > 0) {
+            // `daoTreasury` is a governance-set sink, not caller input, so a
+            // permissionless `distribute()` can only forward ETH to that fixed
+            // address. The disable must sit directly above the call for Slither
+            // to honour it; solhint is suppressed same-line.
             // slither-disable-next-line arbitrary-send-eth,low-level-calls
-            // solhint-disable-next-line avoid-low-level-calls
-            (bool success, ) = daoTreasury.call{value: ethBalance}("");
+            (bool success, ) = daoTreasury.call{value: ethBalance}(""); // solhint-disable-line avoid-low-level-calls
             if (!success) {
                 revert EthTransferFailed();
             }
