@@ -181,6 +181,20 @@ export interface Bridge {
   activeWalletPublicKeyHash(): Promise<Hex | undefined>
 
   /**
+   * Gets an independently verified, canonical identity of the current active
+   * wallet. Implementations used for deposit creation must authenticate the
+   * identity against at least two operationally independent chain views and
+   * require the same fully bound identity at each view's own authenticated
+   * finalized head.
+   *
+   * This method is optional for backward source compatibility with custom
+   * Bridge implementations. Deposit creation fails closed when it is absent.
+   * @returns Canonically bound active wallet identity. If there is no active
+   *          wallet at the verified block, undefined is returned.
+   */
+  activeWalletIdentity?(): Promise<ActiveWalletIdentity | undefined>
+
+  /**
    * Gets the public key of the current active wallet.
    * @returns Compressed (33 bytes long with 02 or 03 prefix) active wallet's
    *          public key. If there is no active wallet at the moment, undefined
@@ -246,6 +260,16 @@ export interface Bridge {
    * @see GetEventsFunction
    */
   getRedemptionRequestedEvents: GetChainEvents.Function<RedemptionRequestedEvent>
+}
+
+/**
+ * Canonically bound identity of an active Bridge wallet.
+ */
+export interface ActiveWalletIdentity {
+  /** 20-byte compatibility public-key hash used by legacy Bridge paths. */
+  walletPublicKeyHash: Hex
+  /** Canonical wallet ID: a legacy alias or native FROST x-only key. */
+  walletID: Hex
 }
 
 /**

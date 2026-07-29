@@ -8,7 +8,10 @@ import {
   TBTCContracts,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
-import { EthereumSigner } from "../lib/ethereum"
+import {
+  EthereumActiveWalletIdentityQuorum,
+  EthereumSigner,
+} from "../lib/ethereum"
 import type { AnchorProvider } from "@coral-xyz/anchor"
 import type { StarkNetProvider } from "../lib/starknet"
 import type { SuiSignerWithAddress } from "../lib/sui"
@@ -51,20 +54,37 @@ export class TBTC extends TBTCCore {
    * The initialized instance uses default Electrum servers to interact
    * with Bitcoin mainnet
    * @param ethereumSignerOrProvider Ethereum signer or provider.
-   * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param crossChainSupportOrActiveWalletIdentityQuorum Whether to enable
+   *        cross-chain support, or the wallet-identity quorum when cross-chain
+   *        support is disabled. False by default.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
-    crossChainSupport: boolean = false
+    crossChainSupportOrActiveWalletIdentityQuorum:
+      | boolean
+      | EthereumActiveWalletIdentityQuorum = false,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
   ): Promise<TBTC> {
+    const crossChainSupport =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? crossChainSupportOrActiveWalletIdentityQuorum
+        : false
+    const resolvedActiveWalletIdentityQuorum =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? activeWalletIdentityQuorum
+        : crossChainSupportOrActiveWalletIdentityQuorum
+
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Mainnet,
       BitcoinNetwork.Mainnet,
-      crossChainSupport
+      crossChainSupport,
+      resolvedActiveWalletIdentityQuorum
     )
   }
 
@@ -81,20 +101,37 @@ export class TBTC extends TBTCCore {
    * updated. Update your integration to testnet4 Bitcoin tooling before
    * upgrading this SDK.
    * @param ethereumSignerOrProvider Ethereum signer or provider.
-   * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param crossChainSupportOrActiveWalletIdentityQuorum Whether to enable
+   *        cross-chain support, or the wallet-identity quorum when cross-chain
+   *        support is disabled. False by default.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
-    crossChainSupport: boolean = false
+    crossChainSupportOrActiveWalletIdentityQuorum:
+      | boolean
+      | EthereumActiveWalletIdentityQuorum = false,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
   ): Promise<TBTC> {
+    const crossChainSupport =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? crossChainSupportOrActiveWalletIdentityQuorum
+        : false
+    const resolvedActiveWalletIdentityQuorum =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? activeWalletIdentityQuorum
+        : crossChainSupportOrActiveWalletIdentityQuorum
+
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
       BitcoinNetwork.Testnet4,
-      crossChainSupport
+      crossChainSupport,
+      resolvedActiveWalletIdentityQuorum
     )
   }
 
@@ -105,7 +142,11 @@ export class TBTC extends TBTCCore {
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param ethereumChainId Ethereum chain ID.
    * @param bitcoinNetwork Bitcoin network.
-   * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param crossChainSupportOrActiveWalletIdentityQuorum Whether to enable
+   *        cross-chain support, or the wallet-identity quorum when cross-chain
+   *        support is disabled. False by default.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the underlying signer's Ethereum network is
    *         other than the given Ethereum network.
@@ -114,12 +155,25 @@ export class TBTC extends TBTCCore {
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
-    crossChainSupport = false
+    crossChainSupportOrActiveWalletIdentityQuorum:
+      | boolean
+      | EthereumActiveWalletIdentityQuorum = false,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
   ): Promise<TBTC> {
+    const crossChainSupport =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? crossChainSupportOrActiveWalletIdentityQuorum
+        : false
+    const resolvedActiveWalletIdentityQuorum =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? activeWalletIdentityQuorum
+        : crossChainSupportOrActiveWalletIdentityQuorum
+
     const tbtc = (await super.initializeEthereum(
       ethereumSignerOrProvider,
       ethereumChainId,
-      bitcoinNetwork
+      bitcoinNetwork,
+      resolvedActiveWalletIdentityQuorum
     )) as TBTC
 
     if (crossChainSupport) {

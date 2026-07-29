@@ -1864,6 +1864,174 @@ describe("Deposits", () => {
     })
 
     describe("initiateMinting", () => {
+      const assertMismatchedFundingTransactionRejected = async (
+        autoDetect: boolean,
+        useDepositorProxy: boolean
+      ) => {
+        const fee = BigNumber.from(1520)
+        const depositFunding = DepositFunding.fromScript(
+          DepositScript.fromReceipt(
+            taprootDepositFixture.receipt,
+            DepositScriptType.P2TR
+          )
+        )
+        const result = await depositFunding.assembleTransaction(
+          BitcoinNetwork.Testnet,
+          depositAmount,
+          [testnetUTXO],
+          fee,
+          testnetPrivateKey
+        )
+
+        const requestedTransaction = Transaction.fromHex(
+          result.rawTransaction.transactionHex
+        )
+        const mismatchedTransaction = requestedTransaction.clone()
+        mismatchedTransaction.version += 1
+
+        expect(mismatchedTransaction.getId()).not.to.equal(
+          result.depositUtxo.transactionHash.toString()
+        )
+
+        const bitcoinClient = new MockBitcoinClient()
+        bitcoinClient.rawTransactions = new Map([
+          [
+            result.depositUtxo.transactionHash.toString(),
+            { transactionHex: mismatchedTransaction.toHex() },
+          ],
+        ])
+
+        if (autoDetect) {
+          bitcoinClient.unspentTransactionOutputs = new Map([
+            [
+              await DepositScript.fromReceipt(
+                taprootDepositFixture.receipt,
+                DepositScriptType.P2TR
+              ).deriveAddress(BitcoinNetwork.Testnet),
+              [result.depositUtxo],
+            ],
+          ])
+        }
+
+        const tbtcContracts = new MockTBTCContracts()
+        const depositorProxy = useDepositorProxy
+          ? new MockDepositorProxy(true)
+          : undefined
+        const deposit = await Deposit.fromReceipt(
+          taprootDepositFixture.receipt,
+          tbtcContracts,
+          bitcoinClient,
+          depositorProxy,
+          DepositScriptType.P2TR
+        )
+
+        await expect(
+          deposit.initiateMinting(autoDetect ? undefined : result.depositUtxo)
+        ).to.be.rejectedWith(
+          "Funding transaction bytes do not match requested transaction hash"
+        )
+        expect(tbtcContracts.bridge.revealDepositLog).to.be.empty
+        if (depositorProxy) {
+          expect(depositorProxy.revealDepositLog).to.be.empty
+        }
+      }
+
+      const assertInvalidDetectedFundingMetadataRejected = async (
+        useDepositorProxy: boolean,
+        invalidField: "outputIndex" | "value"
+      ) => {
+        const fee = BigNumber.from(1520)
+        const depositFunding = DepositFunding.fromScript(
+          DepositScript.fromReceipt(
+            taprootDepositFixture.receipt,
+            DepositScriptType.P2TR
+          )
+        )
+        const result = await depositFunding.assembleTransaction(
+          BitcoinNetwork.Testnet,
+          depositAmount,
+          [testnetUTXO],
+          fee,
+          testnetPrivateKey
+        )
+        const transaction = Transaction.fromHex(
+          result.rawTransaction.transactionHex
+        )
+        const invalidUtxo: BitcoinUtxo = {
+          ...result.depositUtxo,
+          ...(invalidField === "outputIndex"
+            ? { outputIndex: transaction.outs.length }
+            : { value: result.depositUtxo.value.add(1) }),
+        }
+
+        const bitcoinClient = new MockBitcoinClient()
+        bitcoinClient.rawTransactions = new Map([
+          [
+            result.depositUtxo.transactionHash.toString(),
+            result.rawTransaction,
+          ],
+        ])
+        bitcoinClient.unspentTransactionOutputs = new Map([
+          [
+            await DepositScript.fromReceipt(
+              taprootDepositFixture.receipt,
+              DepositScriptType.P2TR
+            ).deriveAddress(BitcoinNetwork.Testnet),
+            [invalidUtxo],
+          ],
+        ])
+
+        const tbtcContracts = new MockTBTCContracts()
+        const depositorProxy = useDepositorProxy
+          ? new MockDepositorProxy(true)
+          : undefined
+        const deposit = await Deposit.fromReceipt(
+          taprootDepositFixture.receipt,
+          tbtcContracts,
+          bitcoinClient,
+          depositorProxy,
+          DepositScriptType.P2TR
+        )
+
+        await expect(deposit.initiateMinting()).to.be.rejectedWith(
+          invalidField === "outputIndex"
+            ? "Funding output index is out of range"
+            : "Funding output value does not match detected UTXO value"
+        )
+        expect(tbtcContracts.bridge.revealDepositLog).to.be.empty
+        if (depositorProxy) {
+          expect(depositorProxy.revealDepositLog).to.be.empty
+        }
+      }
+
+      ;[
+        { autoDetect: true, useDepositorProxy: false },
+        { autoDetect: true, useDepositorProxy: true },
+        { autoDetect: false, useDepositorProxy: false },
+        { autoDetect: false, useDepositorProxy: true },
+      ].forEach(({ autoDetect, useDepositorProxy }) => {
+        it(`should reject mismatched raw transaction bytes before ${
+          useDepositorProxy ? "proxy" : "Bridge"
+        } reveal in ${autoDetect ? "auto" : "manual"} mode`, async () => {
+          await assertMismatchedFundingTransactionRejected(
+            autoDetect,
+            useDepositorProxy
+          )
+        })
+      })
+      ;[false, true].forEach((useDepositorProxy) => {
+        ;(["outputIndex", "value"] as const).forEach((invalidField) => {
+          it(`should reject an auto-detected ${invalidField} mismatch before ${
+            useDepositorProxy ? "proxy" : "Bridge"
+          } reveal`, async () => {
+            await assertInvalidDetectedFundingMetadataRejected(
+              useDepositorProxy,
+              invalidField
+            )
+          })
+        })
+      })
+
       context("auto funding outpoint detection mode", () => {
         context("when no funding UTXOs found", () => {
           let deposit: Deposit
@@ -2551,6 +2719,20 @@ describe("Deposits", () => {
               activeWalletPublicKeyHash
             )
             tbtcContracts.bridge.setActiveWalletID(activeWalletID)
+          })
+
+          it("should reject an unbound active wallet ID before deriving an address", async () => {
+            tbtcContracts.bridge.setActiveWalletID(
+              Hex.from(
+                "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+              )
+            )
+
+            await expect(
+              depositService.initiateTaprootDeposit(taprootRecoveryAddress)
+            ).to.be.rejectedWith(
+              "Active wallet identity is not canonically bound"
+            )
           })
 
           context("when recovery address is not P2TR", () => {

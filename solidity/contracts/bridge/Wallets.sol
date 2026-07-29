@@ -22,6 +22,7 @@ import "./BitcoinTx.sol";
 import "./EcdsaLib.sol";
 import "./BridgeState.sol";
 import "./IBridgeLifecycleRouter.sol";
+import "./P2TRFraudEvidenceProtocol.sol";
 
 /// @notice Minimal interface for the FROST wallet registry's wallet
 ///         creation entry point and lifecycle-owner handshake. The
@@ -270,6 +271,7 @@ library Wallets {
         if (frostWalletRegistry == address(0)) {
             revert FrostWalletRegistryNotSet();
         }
+        requireCompleteP2TRFraudEvidence(self);
         address lifecycleRouter = self.lifecycleRouter;
         if (lifecycleRouter == address(0)) {
             revert LifecycleRouterNotSet();
@@ -437,6 +439,7 @@ library Wallets {
         if (msg.sender != frostWalletRegistry) {
             revert CallerIsNotFrostWalletRegistry();
         }
+        requireCompleteP2TRFraudEvidence(self);
         // Gate FROST wallet creation on both ends of the lifecycle
         // path being wired up. Without a lifecycle router, the
         // wallet's eventual closeWallet/seize/isWalletMember would
@@ -499,6 +502,22 @@ library Wallets {
             xOnlyOutputKey
         );
         emit NewWalletRegisteredV2(walletID, bytes32(0), walletPubKeyHash);
+    }
+
+    /// @notice Requires a complete P2TR fraud-evidence protocol bound to this
+    ///         Bridge before FROST custody can begin.
+    /// @dev Low-level calls deliberately normalize absent, reverting, and
+    ///      malformed implementations to one fail-closed custom error. Exact
+    ///      32-byte ABI words are required so a fallback cannot accidentally
+    ///      satisfy the handshake with trailing or truncated data.
+    function requireCompleteP2TRFraudEvidence(BridgeState.Storage storage self)
+        internal
+        view
+    {
+        P2TRFraudEvidenceProtocol.requireCompleteRouter(
+            self.p2trFraudRouter,
+            address(this)
+        );
     }
 
     /// @notice Derives canonical wallet ID for legacy ECDSA wallets.

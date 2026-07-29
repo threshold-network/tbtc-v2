@@ -19,6 +19,7 @@ import {
   DepositRequest,
   TaprootDepositRevealedEvent,
   Chains,
+  ActiveWalletIdentity,
 } from "../contracts"
 import { WalletIDUtils } from "../contracts/wallet-id"
 import { Event as EthersEvent } from "@ethersproject/contracts"
@@ -27,11 +28,13 @@ import {
   constants,
   Contract,
   ContractTransaction,
+  providers,
   utils,
 } from "ethers"
 import { backoffRetrier, Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
+  BitcoinHashUtils,
   BitcoinRawTxVectors,
   BitcoinSpvProof,
   BitcoinCompactSizeUint,
@@ -66,11 +69,42 @@ const TaprootDepositRevealABI = [
 const BridgeV2CompatibilityABI = [
   ...TaprootDepositRevealABI,
   "event NewWalletRegisteredV2(bytes32 indexed walletID, bytes32 indexed ecdsaWalletID, bytes20 indexed walletPubKeyHash)",
+  "function activeWalletPubKeyHash() view returns (bytes20)",
   "function activeWalletID() view returns (bytes32)",
   "function taprootDepositOutputKeyCommitment(uint256 depositKey) view returns (bytes32)",
   "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
   "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
 ]
+
+/**
+ * Independently operated provider used to verify the primary provider's active
+ * wallet identity. Trust-domain IDs must describe real operational failure
+ * domains, not merely different URLs backed by the same provider organization.
+ */
+export interface EthereumCanonicalActiveWalletIdentityProvider {
+  readonly trustDomainID: string
+  readonly provider: providers.Provider
+}
+
+/**
+ * Two-provider quorum required before Ethereum state can select Bitcoin
+ * deposit custody. Both providers must support Ethereum's `finalized` block
+ * tag and the upgraded Bridge wallet-identity selectors.
+ */
+export interface EthereumActiveWalletIdentityQuorum {
+  readonly sourceTrustDomainID: string
+  readonly canonicalProvider: EthereumCanonicalActiveWalletIdentityProvider
+}
+
+/** Ethereum Bridge configuration. */
+export interface EthereumBridgeConfig extends EthersContractConfig {
+  /**
+   * Independent finalized-state verifier for deposit wallet identities.
+   * Ordinary read APIs remain available without this option, but deposit
+   * creation fails closed.
+   */
+  readonly activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
+}
 
 /**
  * Implementation of the Ethereum Bridge handle.
@@ -80,6 +114,16 @@ export class EthereumBridge
   extends EthersContractHandle<BridgeTypechain>
   implements Bridge
 {
+  private readonly activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
+
+  private static normalizeTrustDomainID(value: string, label: string): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`${label} must be non-empty`)
+    }
+
+    return value.trim().toLowerCase()
+  }
+
   private static ensureBridgeV2CompatibilityFallback(
     error: unknown,
     methodName: string
@@ -203,7 +247,7 @@ export class EthereumBridge
   }
 
   constructor(
-    config: EthersContractConfig,
+    config: EthereumBridgeConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
     let deployment: EthersContractDeployment
@@ -223,6 +267,50 @@ export class EthereumBridge
     }
 
     super(config, deployment)
+
+    if (config.activeWalletIdentityQuorum) {
+      const sourceTrustDomainID = EthereumBridge.normalizeTrustDomainID(
+        config.activeWalletIdentityQuorum.sourceTrustDomainID,
+        "Active wallet identity source trust-domain ID"
+      )
+      const canonicalTrustDomainID = EthereumBridge.normalizeTrustDomainID(
+        config.activeWalletIdentityQuorum.canonicalProvider.trustDomainID,
+        "Active wallet identity canonical provider trust-domain ID"
+      )
+
+      if (sourceTrustDomainID === canonicalTrustDomainID) {
+        throw new Error(
+          "Active wallet identity providers must use different trust domains"
+        )
+      }
+
+      const canonicalProvider =
+        config.activeWalletIdentityQuorum.canonicalProvider.provider
+      if (
+        canonicalProvider === undefined ||
+        typeof canonicalProvider.getNetwork !== "function" ||
+        typeof canonicalProvider.getBlock !== "function" ||
+        typeof canonicalProvider.call !== "function"
+      ) {
+        throw new Error(
+          "Active wallet identity canonical provider must be an Ethers provider"
+        )
+      }
+
+      if (canonicalProvider === this._instance.provider) {
+        throw new Error(
+          "Active wallet identity providers must use different provider instances"
+        )
+      }
+
+      this.activeWalletIdentityQuorum = {
+        sourceTrustDomainID,
+        canonicalProvider: {
+          trustDomainID: canonicalTrustDomainID,
+          provider: canonicalProvider,
+        },
+      }
+    }
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -237,11 +325,13 @@ export class EthereumBridge
     return this.bridgeV2CompatibilityContract()
   }
 
-  private bridgeV2CompatibilityContract(): Contract {
+  private bridgeV2CompatibilityContract(
+    provider?: providers.Provider
+  ): Contract {
     return new Contract(
       this._instance.address,
       BridgeV2CompatibilityABI,
-      this._instance.signer || this._instance.provider
+      provider ?? this._instance.signer ?? this._instance.provider
     )
   }
 
@@ -764,6 +854,246 @@ export class EthereumBridge
     }
   }
 
+  private async getFinalizedBlock(
+    provider: providers.Provider,
+    label: string
+  ): Promise<{ number: number; hash: string }> {
+    const rpcProvider = provider as providers.Provider & {
+      send?: (method: string, params: unknown[]) => Promise<unknown>
+    }
+
+    if (typeof rpcProvider.send !== "function") {
+      throw new Error(`${label} must support the Ethereum finalized block tag`)
+    }
+
+    const rawBlock = (await backoffRetrier<unknown>(this._totalRetryAttempts)(
+      async () =>
+        rpcProvider.send!("eth_getBlockByNumber", ["finalized", false])
+    )) as { number?: unknown; hash?: unknown } | null
+
+    if (
+      rawBlock === null ||
+      typeof rawBlock !== "object" ||
+      typeof rawBlock.number !== "string" ||
+      typeof rawBlock.hash !== "string" ||
+      !utils.isHexString(rawBlock.hash, 32)
+    ) {
+      throw new Error(`${label} did not return a finalized block`)
+    }
+
+    let number: number
+    try {
+      number = BigNumber.from(rawBlock.number).toNumber()
+    } catch (_) {
+      throw new Error(`${label} returned an invalid finalized block number`)
+    }
+
+    if (!Number.isSafeInteger(number) || number < 0) {
+      throw new Error(`${label} returned an invalid finalized block number`)
+    }
+
+    return { number, hash: rawBlock.hash.toLowerCase() }
+  }
+
+  private async authenticateFinalizedBlock(
+    provider: providers.Provider,
+    finalizedBlock: { number: number; hash: string },
+    label: string
+  ): Promise<void> {
+    const block = await backoffRetrier<providers.Block>(
+      this._totalRetryAttempts
+    )(async () => provider.getBlock(finalizedBlock.number))
+
+    if (
+      !block ||
+      block.number !== finalizedBlock.number ||
+      !utils.isHexString(block.hash, 32) ||
+      block.hash.toLowerCase() !== finalizedBlock.hash
+    ) {
+      throw new Error(`${label} did not authenticate its finalized block`)
+    }
+  }
+
+  private async readActiveWalletIdentityAt(
+    provider: providers.Provider,
+    blockNumber: number,
+    label: string
+  ): Promise<ActiveWalletIdentity | undefined> {
+    const bridge = this.bridgeV2CompatibilityContract(provider) as unknown as {
+      activeWalletPubKeyHash: (overrides: {
+        blockTag: number
+      }) => Promise<string>
+      activeWalletID: (overrides: { blockTag: number }) => Promise<string>
+      walletID: (
+        walletPublicKeyHash: string,
+        overrides: { blockTag: number }
+      ) => Promise<string>
+      walletPubKeyHashForWalletID: (
+        walletID: string,
+        overrides: { blockTag: number }
+      ) => Promise<string>
+    }
+
+    let walletPublicKeyHashRaw: string
+    let walletIDRaw: string
+    try {
+      ;[walletPublicKeyHashRaw, walletIDRaw] = await Promise.all([
+        bridge.activeWalletPubKeyHash({ blockTag: blockNumber }),
+        bridge.activeWalletID({ blockTag: blockNumber }),
+      ])
+    } catch (_) {
+      throw new Error(
+        `${label} could not prove upgraded Bridge wallet-identity selectors`
+      )
+    }
+
+    const noWalletPublicKeyHash =
+      walletPublicKeyHashRaw === "0x0000000000000000000000000000000000000000"
+    const noWalletID = walletIDRaw === constants.HashZero
+    if (noWalletPublicKeyHash || noWalletID) {
+      if (noWalletPublicKeyHash && noWalletID) {
+        return undefined
+      }
+
+      throw new Error("Active wallet identity is not canonically bound")
+    }
+
+    const walletPublicKeyHash = Hex.from(walletPublicKeyHashRaw)
+    const walletID = Hex.from(walletIDRaw)
+    if (
+      walletPublicKeyHash.toBuffer().length !== 20 ||
+      walletID.toBuffer().length !== 32
+    ) {
+      throw new Error("Active wallet identity is not canonically bound")
+    }
+
+    let mappedWalletID: Hex
+    let reverseWalletPublicKeyHash: Hex
+    try {
+      ;[mappedWalletID, reverseWalletPublicKeyHash] = await Promise.all([
+        bridge
+          .walletID(walletPublicKeyHash.toPrefixedString(), {
+            blockTag: blockNumber,
+          })
+          .then(Hex.from),
+        bridge
+          .walletPubKeyHashForWalletID(walletID.toPrefixedString(), {
+            blockTag: blockNumber,
+          })
+          .then(Hex.from),
+      ])
+    } catch (_) {
+      throw new Error(
+        `${label} could not prove upgraded Bridge wallet-identity selectors`
+      )
+    }
+
+    if (
+      !mappedWalletID.equals(walletID) ||
+      !reverseWalletPublicKeyHash.equals(walletPublicKeyHash)
+    ) {
+      throw new Error("Active wallet identity is not canonically bound")
+    }
+
+    if (!WalletIDUtils.isLegacyWalletID(walletID, walletPublicKeyHash)) {
+      const derivedWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
+        Hex.from(Buffer.concat([Buffer.from([0x02]), walletID.toBuffer()]))
+      )
+      if (!derivedWalletPublicKeyHash.equals(walletPublicKeyHash)) {
+        throw new Error("Active wallet identity is not canonically bound")
+      }
+    }
+
+    return { walletPublicKeyHash, walletID }
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#activeWalletIdentity}
+   */
+  async activeWalletIdentity(): Promise<ActiveWalletIdentity | undefined> {
+    const quorum = this.activeWalletIdentityQuorum
+    if (!quorum) {
+      throw new Error(
+        "Deposit wallet identity requires an independent Ethereum provider"
+      )
+    }
+
+    const sourceProvider = this._instance.provider
+    if (!sourceProvider) {
+      throw new Error(
+        "Deposit wallet identity requires a primary Ethereum provider"
+      )
+    }
+    const canonicalProvider = quorum.canonicalProvider.provider
+
+    const [sourceNetwork, canonicalNetwork] = await Promise.all([
+      sourceProvider.getNetwork(),
+      canonicalProvider.getNetwork(),
+    ])
+    if (sourceNetwork.chainId !== canonicalNetwork.chainId) {
+      throw new Error(
+        "Active wallet identity providers use different Ethereum chains"
+      )
+    }
+
+    const [sourceFinalized, canonicalFinalized] = await Promise.all([
+      this.getFinalizedBlock(
+        sourceProvider,
+        "Active wallet identity source provider"
+      ),
+      this.getFinalizedBlock(
+        canonicalProvider,
+        "Active wallet identity canonical provider"
+      ),
+    ])
+
+    await Promise.all([
+      this.authenticateFinalizedBlock(
+        sourceProvider,
+        sourceFinalized,
+        "Active wallet identity source provider"
+      ),
+      this.authenticateFinalizedBlock(
+        canonicalProvider,
+        canonicalFinalized,
+        "Active wallet identity canonical provider"
+      ),
+    ])
+
+    const [sourceIdentity, canonicalIdentity] = await Promise.all([
+      this.readActiveWalletIdentityAt(
+        sourceProvider,
+        sourceFinalized.number,
+        "Active wallet identity source provider"
+      ),
+      this.readActiveWalletIdentityAt(
+        canonicalProvider,
+        canonicalFinalized.number,
+        "Active wallet identity canonical provider"
+      ),
+    ])
+
+    if (!sourceIdentity || !canonicalIdentity) {
+      if (!sourceIdentity && !canonicalIdentity) {
+        return undefined
+      }
+
+      throw new Error("Active wallet identity providers disagree")
+    }
+
+    if (
+      !sourceIdentity.walletPublicKeyHash.equals(
+        canonicalIdentity.walletPublicKeyHash
+      ) ||
+      !sourceIdentity.walletID.equals(canonicalIdentity.walletID)
+    ) {
+      throw new Error("Active wallet identity providers disagree")
+    }
+
+    return sourceIdentity
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {Bridge#activeWalletPublicKeyHash}
@@ -806,41 +1136,12 @@ export class EthereumBridge
    * @see {Bridge#activeWalletID}
    */
   async activeWalletID(): Promise<Hex | undefined> {
-    const bridgeContract = this._instance as unknown as {
-      activeWalletID?: () => Promise<string>
-      activeWalletPubKeyHash: () => Promise<string>
-    }
-
-    if (typeof bridgeContract.activeWalletID === "function") {
-      try {
-        const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
-          async () => bridgeContract.activeWalletID!()
-        )
-
-        if (walletID === constants.HashZero) {
-          return undefined
-        }
-
-        return Hex.from(walletID)
-      } catch (err) {
-        // The bundled artifact ABI may expose this selector while the deployed
-        // (pre-upgrade) bytecode does not; fall through to the compatibility
-        // contract and legacy path below rather than throwing.
-        EthereumBridge.ensureBridgeV2CompatibilityFallback(
-          err,
-          "activeWalletID"
-        )
-      }
-    }
-
     const bridgeV2Contract =
       this.bridgeV2CompatibilityContract() as unknown as {
         activeWalletID: () => Promise<string>
       }
     try {
-      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
-        async () => bridgeV2Contract.activeWalletID()
-      )
+      const walletID = await bridgeV2Contract.activeWalletID()
 
       if (walletID === constants.HashZero) {
         return undefined
@@ -848,26 +1149,12 @@ export class EthereumBridge
 
       return Hex.from(walletID)
     } catch (err) {
-      EthereumBridge.ensureBridgeV2CompatibilityFallback(err, "activeWalletID")
-      // Fall back to the legacy alias below for pre-upgrade Bridge contracts
-      // whose ABI and bytecode do not expose `activeWalletID`.
+      if (EthereumBridge.isMissingBridgeV2CompatibilityMethodError(err)) {
+        throw new Error("Bridge does not expose a canonical active wallet ID")
+      }
+
+      throw err
     }
-
-    const activeWalletPublicKeyHash: string = await backoffRetrier<string>(
-      this._totalRetryAttempts
-    )(async () => {
-      return await bridgeContract.activeWalletPubKeyHash()
-    })
-
-    if (
-      activeWalletPublicKeyHash === "0x0000000000000000000000000000000000000000"
-    ) {
-      return undefined
-    }
-
-    return WalletIDUtils.legacyWalletIDFromPublicKeyHash(
-      Hex.from(activeWalletPublicKeyHash)
-    )
   }
 
   private async getWalletCompressedPublicKey(
