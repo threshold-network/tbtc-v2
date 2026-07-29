@@ -126,23 +126,14 @@ export type P2TRSignatureFraudDraftChallenge = {
 }
 
 export type P2TRSignatureFraudBridgeChallengeIdentity = {
+  chainID: BigNumberish
+  bridgeAddress: string
   walletID: Hex | Buffer | string
+  signingKey: Hex | Buffer | string
   sighash: Hex | Buffer | string
-  signature: Hex | Buffer | string
-  sighashType: P2TRSupportedSighashType
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  signedInputIndex?: number
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  unsignedTransaction?: BitcoinRawTx
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  inputPrevouts?: P2TRWalletInputObservationPrevout[]
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  annex?: Hex | Buffer | string
 }
 
 export type P2TRSignatureFraudBridgeChallengeKey = {
-  chainID: BigNumberish
-  bridgeAddress: string
   bridgeChallengeIdentity: Hex | Buffer | string
 }
 
@@ -619,10 +610,14 @@ export const P2TR_SIGNATURE_FRAUD_DRAFT_CHALLENGE_ID_DOMAIN =
   "tbtc-p2tr-signature-fraud-challenge-v0"
 
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN =
-  "tbtc-p2tr-signature-fraud-bridge-challenge-v1"
+  "tbtc-p2tr-signature-fraud-authorization-v3"
 
+/** @deprecated COMPLETE_V2 uses its v3 challenge identity directly as the key. */
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_KEY_DOMAIN =
   "tbtc-p2tr-signature-fraud-bridge-key-v0"
+
+const P2TR_SIGNATURE_FRAUD_LEGACY_BRIDGE_CHALLENGE_ID_DOMAIN =
+  "tbtc-p2tr-signature-fraud-bridge-challenge-v1"
 
 export type P2TRWatchtowerChallengeStatus =
   | "observed"
@@ -1322,14 +1317,11 @@ export const deserializeP2TRSignatureFraudWitnessObservation = (
   const sighash = toBytes32Hex(observation.sighash, "Sighash")
   const bridgeChallengeIdentity =
     observation.bridgeChallengeIdentity === undefined
-      ? computeP2TRSignatureFraudBridgeChallengeIdentity({
+      ? computeLegacyP2TRSignatureFraudBridgeChallengeIdentity({
           walletID,
           sighash,
           signature,
           sighashType,
-          signedInputIndex: observation.inputIndex,
-          unsignedTransaction,
-          inputPrevouts,
         })
       : toBytes32Hex(
           observation.bridgeChallengeIdentity,
@@ -3347,19 +3339,65 @@ export const computeP2TRWalletInputWitnessObservationID = (
 
 /**
  * Computes the canonical Bridge-facing identity of a signed Taproot
- * authorization. The BIP-341 sighash commits exactly the transaction fields
- * selected by the witness sighash mode; fields outside that cryptographic
- * commitment cannot create separate challenge, deposit, or reward records.
+ * authorization for the COMPLETE_V2 router. The identity is bound to the
+ * chain, Bridge, registered wallet, actual Taproot signing key, and BIP-341
+ * sighash. COMPLETE_V2 uses this identity directly as its challenge key.
  *
  * @experimental Bridge integration identity for the P2TR signature-fraud path.
- * @param challenge Wallet, reconstructed BIP-341 sighash, BIP-340 signature,
- *        and parsed witness sighash type.
- * @returns 32-byte Bridge challenge identity (SHA-256 over the canonical
- *          signed-authorization tuple).
+ * @param challenge COMPLETE_V2 domain and signed-authorization tuple.
+ * @returns 32-byte COMPLETE_V2 Bridge challenge identity.
  */
 export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
   challenge: P2TRSignatureFraudBridgeChallengeIdentity
 ): Hex => {
+  const chainID = BigNumber.from(challenge.chainID)
+  if (chainID.lte(0)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Chain ID must be positive"
+    )
+  }
+
+  let bridgeAddress: string
+  try {
+    bridgeAddress = utils.getAddress(challenge.bridgeAddress)
+  } catch (_) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Bridge address must be a valid address"
+    )
+  }
+
+  if (bridgeAddress === constants.AddressZero) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Bridge address must be non-zero"
+    )
+  }
+
+  return Hex.from(
+    utils.sha256(
+      utils.solidityPack(
+        ["string", "uint256", "address", "bytes32", "bytes32", "bytes32"],
+        [
+          P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN,
+          chainID,
+          bridgeAddress,
+          toBytes32(challenge.walletID, "Wallet ID"),
+          toBytes32(challenge.signingKey, "Signing key"),
+          toBytes32(challenge.sighash, "BIP-341 sighash"),
+        ]
+      )
+    )
+  )
+}
+
+const computeLegacyP2TRSignatureFraudBridgeChallengeIdentity = (challenge: {
+  walletID: Hex | Buffer | string
+  sighash: Hex | Buffer | string
+  signature: Hex | Buffer | string
+  sighashType: P2TRSupportedSighashType
+}): Hex => {
   const signature = toBuffer(challenge.signature)
   if (signature.length !== 64) {
     throw new P2TRWitnessSignatureError(
@@ -3375,15 +3413,20 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     )
   }
 
-  const preimageParts = [
-    Buffer.from(P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN, "utf8"),
-    toBytes32Hex(challenge.walletID, "Wallet ID").toBuffer(),
-    toBytes32Hex(challenge.sighash, "BIP-341 sighash").toBuffer(),
-    signature,
-    Buffer.from([challenge.sighashType]),
-  ]
-
-  return Hex.from(utils.sha256(Buffer.concat(preimageParts)))
+  return Hex.from(
+    utils.sha256(
+      Buffer.concat([
+        Buffer.from(
+          P2TR_SIGNATURE_FRAUD_LEGACY_BRIDGE_CHALLENGE_ID_DOMAIN,
+          "utf8"
+        ),
+        toBytes32Hex(challenge.walletID, "Wallet ID").toBuffer(),
+        toBytes32Hex(challenge.sighash, "BIP-341 sighash").toBuffer(),
+        signature,
+        Buffer.from([challenge.sighashType]),
+      ])
+    )
+  )
 }
 
 /**
@@ -3442,49 +3485,8 @@ export const computeP2TRSignatureFraudDraftChallengeIdentity = (
 
 export const computeP2TRSignatureFraudBridgeChallengeKey = (
   challenge: P2TRSignatureFraudBridgeChallengeKey
-): Hex => {
-  const chainID = BigNumber.from(challenge.chainID)
-  if (chainID.lte(0)) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Chain ID must be positive"
-    )
-  }
-
-  let bridgeAddress: string
-  try {
-    bridgeAddress = utils.getAddress(challenge.bridgeAddress)
-  } catch (_) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Bridge address must be a valid address"
-    )
-  }
-
-  if (bridgeAddress === constants.AddressZero) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Bridge address must be non-zero"
-    )
-  }
-
-  return Hex.from(
-    utils.keccak256(
-      utils.defaultAbiCoder.encode(
-        ["string", "uint256", "address", "bytes32"],
-        [
-          P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_KEY_DOMAIN,
-          chainID,
-          bridgeAddress,
-          toBytes32(
-            challenge.bridgeChallengeIdentity,
-            "Bridge challenge identity"
-          ),
-        ]
-      )
-    )
-  )
-}
+): Hex =>
+  toBytes32Hex(challenge.bridgeChallengeIdentity, "Bridge challenge identity")
 
 export const buildP2TRSignatureFraudBridgeChallengePayload = (
   observation: P2TRSignatureFraudWitnessObservation
@@ -3743,21 +3745,33 @@ export const extractP2TRSignatureFraudWitnessObservations = (
         unsignedTransaction,
         inputPrevouts,
       })
+    const signingKey = extractP2TRWalletIDFromScriptPubKey(
+      candidate.scriptPubKey
+    )
+    if (signingKey === undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-observation-payload",
+        "Taproot wallet input must expose a signing key"
+      )
+    }
     const bridgeChallengeIdentity =
-      computeP2TRSignatureFraudBridgeChallengeIdentity({
-        walletID: candidate.walletID,
-        sighash,
-        signature: candidate.signature,
-        sighashType: candidate.sighashType,
-        signedInputIndex: candidate.inputIndex,
-        unsignedTransaction,
-        inputPrevouts,
-      })
+      bridgeChallengeDomain === undefined
+        ? computeLegacyP2TRSignatureFraudBridgeChallengeIdentity({
+            walletID: candidate.walletID,
+            sighash,
+            signature: candidate.signature,
+            sighashType: candidate.sighashType,
+          })
+        : computeP2TRSignatureFraudBridgeChallengeIdentity({
+            ...bridgeChallengeDomain,
+            walletID: candidate.walletID,
+            signingKey,
+            sighash,
+          })
     const bridgeChallengeKey =
       bridgeChallengeDomain === undefined
         ? undefined
         : computeP2TRSignatureFraudBridgeChallengeKey({
-            ...bridgeChallengeDomain,
             bridgeChallengeIdentity,
           })
 

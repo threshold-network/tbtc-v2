@@ -918,16 +918,12 @@ test("rejects the transaction view when reveal-history retrieval fails", async (
   ])
 })
 
-test("wires Esplora transaction source from validated runtime config", async () => {
+test("wires domainless Esplora observation config with its reveal-chain domain", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig({
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.stateFilePath]:
       "/var/lib/tbtc/p2tr-watchtower.json",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.walletIDs]: walletID,
-    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeChainID]: "31337",
-    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeBridgeAddress]: `0x${"11".repeat(
-      20
-    )}`,
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraBaseUrl]:
       "https://esplora.test/",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraBitcoinNetwork]: "testnet",
@@ -939,6 +935,8 @@ test("wires Esplora transaction source from validated runtime config", async () 
       "/var/lib/tbtc/p2tr-confirmed-history.json",
   })
   const source = createEsploraP2TRTransactionSourceFromRuntimeConfig(config, {
+    taprootDepositRevealChainID: "31337",
+    taprootDepositRevealBridgeAddress: `0x${"11".repeat(20)}`,
     taprootDepositRevealSource: emptyTaprootDepositRevealSource,
     taprootDepositRevealSourceTrustDomainID: "indexer.test",
     canonicalTaprootDepositRevealSource: independentTaprootDepositRevealSource(

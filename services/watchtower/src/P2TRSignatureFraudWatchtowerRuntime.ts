@@ -41,6 +41,8 @@ export type P2TRSignatureFraudWatchtowerRuntime = {
 }
 
 export type P2TRSignatureFraudWatchtowerEsploraRuntimeOptions = {
+  taprootDepositRevealChainID: unknown
+  taprootDepositRevealBridgeAddress: string
   taprootDepositRevealSource: P2TRTaprootDepositRevealSource
   taprootDepositRevealSourceTrustDomainID: string
   canonicalTaprootDepositRevealSource: P2TRCanonicalTaprootDepositRevealSource
@@ -128,7 +130,6 @@ export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
   if (
     esploraBaseUrl === undefined ||
     bitcoinNetwork === undefined ||
-    config.service.bridgeChallengeDomain === undefined ||
     (confirmedHistoryCursorFilePath === undefined &&
       options.confirmedHistoryCursorStore === undefined)
   ) {
@@ -143,9 +144,9 @@ export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
     config.service.registeredWalletIDs,
     {
       ...sourceOptions,
-      taprootDepositRevealChainID: config.service.bridgeChallengeDomain.chainID,
+      taprootDepositRevealChainID: options.taprootDepositRevealChainID,
       taprootDepositRevealBridgeAddress:
-        config.service.bridgeChallengeDomain.bridgeAddress,
+        options.taprootDepositRevealBridgeAddress,
       taprootDepositRevealSource: options.taprootDepositRevealSource,
       taprootDepositRevealSourceTrustDomainID:
         options.taprootDepositRevealSourceTrustDomainID,
