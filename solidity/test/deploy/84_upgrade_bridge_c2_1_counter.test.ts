@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
+import { constants, utils } from "ethers"
 import func from "../../deploy/84_upgrade_bridge_c2_1_counter"
 
 describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
@@ -41,7 +42,10 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
     options: any
   }
 
-  function createMockHre(networkTags: Record<string, boolean> = {}) {
+  function createMockHre(
+    networkTags: Record<string, boolean> = {},
+    networkName = "hardhat"
+  ) {
     const deployCalls: DeployCall[] = []
     const getCalls: string[] = []
     const logCalls: string[] = []
@@ -53,6 +57,14 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
 
     const mockHre: any = {
       ethers: {
+        constants,
+        utils,
+        provider: {
+          getBlockNumber: async () => 100,
+          getBlock: async () => ({ hash: `0x${"ab".repeat(32)}` }),
+          getStorageAt: async () => constants.HashZero,
+          getLogs: async () => [],
+        },
         getSigner: async (address: string) => {
           expect(address).to.equal(DEPLOYER_ADDRESS)
           return signer
@@ -61,6 +73,9 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
       deployments: {
         get: async (name: string) => {
           getCalls.push(name)
+          if (name === "Bridge") {
+            return { address: BRIDGE_ADDRESS }
+          }
           const address = dependencyAddresses[name]
           if (!address) {
             throw new Error(`Unexpected deployment lookup: ${name}`)
@@ -83,6 +98,7 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
         deployer: DEPLOYER_ADDRESS,
         treasury: TREASURY_ADDRESS,
       }),
+      getChainId: async () => "11155111",
       helpers: {
         upgrades: {
           upgradeProxy: async (...args: any[]) => {
@@ -99,7 +115,7 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
           },
         },
       },
-      network: { tags: networkTags },
+      network: { name: networkName, tags: networkTags },
       tenderly: {
         verify: async (deployment: any) => {
           tenderlyVerifyCalls.push(deployment)
@@ -202,5 +218,24 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
       { name: "MovingFunds", address: MOVING_FUNDS_ADDRESS },
       { name: "Bridge", address: BRIDGE_ADDRESS },
     ])
+  })
+
+  it("aborts a live-network upgrade before deployment or proxy mutation", async () => {
+    const { mockHre, deployCalls, upgradeProxyCalls } = createMockHre(
+      {},
+      "sepolia"
+    )
+
+    try {
+      await func(mockHre)
+      expect.fail("expected live Bridge upgrade NO-GO")
+    } catch (error) {
+      expect((error as Error).message).to.include(
+        "NO-GO 84_upgrade_bridge_c2_1_counter"
+      )
+    }
+
+    expect(deployCalls).to.deep.equal([])
+    expect(upgradeProxyCalls).to.deep.equal([])
   })
 })

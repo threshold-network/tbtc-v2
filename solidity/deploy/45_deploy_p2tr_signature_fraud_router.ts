@@ -1,32 +1,241 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import { utils } from "ethers"
 
-// Returns a signer for `address` only when that account is configured for the
-// current network. Used to decide whether a governance-gated call can be sent by
-// this deployment, or must instead be emitted as calldata for manual governance
-// execution (the governance owner -- e.g. a Safe -- is not a deployer-controlled
-// signer in production). Mirrors 48_deploy_frost_wallet_registry.
-async function getConfiguredSigner(
+export const BOUNDED_V1_PROTOCOL_ID = utils.id(
+  "tbtc/p2tr-signature-fraud/evidence/bounded-v1"
+)
+export const COMPLETE_V2_PROTOCOL_ID = utils.id(
+  "tbtc/p2tr-signature-fraud/evidence/complete-v2"
+)
+
+const FROST_REGISTRATION_SCAN_PAGE_SIZE = 10000
+
+// Formal storage layout for Bridge at this upgrade boundary:
+// Bridge.self starts at absolute slot 51. Within BridgeState.Storage,
+// frostWalletRegistry is relative slot 32 and p2trFraudRouter is relative slot
+// 34. Reading the proxy slots directly works before the candidate getters are
+// installed and proves both reserved fields are exactly zero.
+export const BRIDGE_FROST_WALLET_REGISTRY_STORAGE_SLOT = 51 + 32
+export const BRIDGE_P2TR_FRAUD_ROUTER_STORAGE_SLOT = 51 + 34
+
+export interface FrostCustodyPreflightReceipt {
+  schemaVersion: "tbtc/frost-custody-preflight/v1"
+  networkName: string
+  chainId: string
+  bridge: string
+  snapshotBlockNumber: number
+  snapshotBlockHash: string
+  scanFromBlock: 0
+  scanToBlock: number
+  registrationsFound: 0
+  frostWalletRegistry: string
+  configuredP2TRFraudRouter: string
+  configuredRouterStatus: "unset"
+  frostWalletRegistryStorageSlot: number
+  p2trFraudRouterStorageSlot: number
+  storageLayoutEvidence: "test/formal/Bridge.storage-layout.json"
+}
+
+const requireExactResultLength = (
+  result: string,
+  bytes: number,
+  description: string
+): void => {
+  if (!/^0x[0-9a-fA-F]*$/.test(result) || result.length !== 2 + bytes * 2) {
+    throw new Error(
+      `FROST custody preflight failed: malformed ${description} result`
+    )
+  }
+}
+
+const readBridgePreflightState = async (
   hre: HardhatRuntimeEnvironment,
-  address: string
-) {
-  const configuredAccounts = (await hre.ethers.provider.listAccounts()).map(
-    (account) => account.toLowerCase()
-  )
+  bridgeAddress: string,
+  snapshotBlockNumber: number
+): Promise<{
+  frostWalletRegistry: string
+  configuredP2TRFraudRouter: string
+  configuredRouterStatus: "unset"
+}> => {
+  const { ethers } = hre
 
-  if (!configuredAccounts.includes(address.toLowerCase())) {
-    return undefined
+  const frostWalletRegistryWord = await ethers.provider.getStorageAt(
+    bridgeAddress,
+    BRIDGE_FROST_WALLET_REGISTRY_STORAGE_SLOT,
+    snapshotBlockNumber
+  )
+  requireExactResultLength(
+    frostWalletRegistryWord,
+    32,
+    `Bridge storage slot ${BRIDGE_FROST_WALLET_REGISTRY_STORAGE_SLOT}`
+  )
+  if (frostWalletRegistryWord !== ethers.constants.HashZero) {
+    throw new Error(
+      `FROST custody preflight failed: Bridge frost registry storage slot ${BRIDGE_FROST_WALLET_REGISTRY_STORAGE_SLOT} is non-zero (${frostWalletRegistryWord})`
+    )
   }
 
-  return hre.ethers.getSigner(address)
+  const p2trFraudRouterWord = await ethers.provider.getStorageAt(
+    bridgeAddress,
+    BRIDGE_P2TR_FRAUD_ROUTER_STORAGE_SLOT,
+    snapshotBlockNumber
+  )
+  requireExactResultLength(
+    p2trFraudRouterWord,
+    32,
+    `Bridge storage slot ${BRIDGE_P2TR_FRAUD_ROUTER_STORAGE_SLOT}`
+  )
+  if (p2trFraudRouterWord !== ethers.constants.HashZero) {
+    throw new Error(
+      `FROST custody preflight failed: Bridge P2TR router storage slot ${BRIDGE_P2TR_FRAUD_ROUTER_STORAGE_SLOT} is non-zero (${p2trFraudRouterWord})`
+    )
+  }
+
+  return {
+    frostWalletRegistry: ethers.constants.AddressZero,
+    configuredP2TRFraudRouter: ethers.constants.AddressZero,
+    configuredRouterStatus: "unset",
+  }
 }
+
+const assertNoFrostRegistrationHistory = async (
+  hre: HardhatRuntimeEnvironment,
+  bridgeAddress: string,
+  snapshotBlockNumber: number
+): Promise<void> => {
+  const { ethers } = hre
+  const newFrostWalletRegisteredTopic = ethers.utils.id(
+    "NewFrostWalletRegistered(bytes32,bytes20,bytes32)"
+  )
+  const newWalletRegisteredV2Topic = ethers.utils.id(
+    "NewWalletRegisteredV2(bytes32,bytes32,bytes20)"
+  )
+
+  for (
+    let fromBlock = 0;
+    fromBlock <= snapshotBlockNumber;
+    fromBlock += FROST_REGISTRATION_SCAN_PAGE_SIZE
+  ) {
+    const toBlock = Math.min(
+      snapshotBlockNumber,
+      fromBlock + FROST_REGISTRATION_SCAN_PAGE_SIZE - 1
+    )
+
+    // Both queries are required. NewFrostWalletRegistered covers the current
+    // callback, while the zero-ECDSA V2 marker covers intermediate deployments.
+    // Any provider or decoding failure propagates and aborts the deployment.
+    // eslint-disable-next-line no-await-in-loop
+    const newFrostWalletLogs = await ethers.provider.getLogs({
+      address: bridgeAddress,
+      fromBlock,
+      toBlock,
+      topics: [newFrostWalletRegisteredTopic],
+    })
+    // eslint-disable-next-line no-await-in-loop
+    const zeroEcdsaWalletV2Logs = await ethers.provider.getLogs({
+      address: bridgeAddress,
+      fromBlock,
+      toBlock,
+      topics: [newWalletRegisteredV2Topic, null, ethers.constants.HashZero],
+    })
+
+    if (newFrostWalletLogs.length > 0 || zeroEcdsaWalletV2Logs.length > 0) {
+      const firstLog = newFrostWalletLogs[0] ?? zeroEcdsaWalletV2Logs[0]
+      throw new Error(
+        `FROST custody preflight failed: prior FROST wallet registration at block ${firstLog.blockNumber}`
+      )
+    }
+  }
+}
+
+export const runFrostCustodyPreflight = async (
+  hre: HardhatRuntimeEnvironment,
+  bridgeAddress: string
+): Promise<FrostCustodyPreflightReceipt> => {
+  const snapshotBlockNumber = await hre.ethers.provider.getBlockNumber()
+  const snapshotBlock = await hre.ethers.provider.getBlock(snapshotBlockNumber)
+  if (!snapshotBlock?.hash) {
+    throw new Error(
+      "FROST custody preflight failed: snapshot block has no hash"
+    )
+  }
+
+  const bridgeState = await readBridgePreflightState(
+    hre,
+    bridgeAddress,
+    snapshotBlockNumber
+  )
+  await assertNoFrostRegistrationHistory(
+    hre,
+    bridgeAddress,
+    snapshotBlockNumber
+  )
+
+  const canonicalSnapshot = await hre.ethers.provider.getBlock(
+    snapshotBlockNumber
+  )
+  if (
+    !canonicalSnapshot?.hash ||
+    canonicalSnapshot.hash.toLowerCase() !== snapshotBlock.hash.toLowerCase()
+  ) {
+    throw new Error("FROST custody preflight failed: snapshot block reorged")
+  }
+
+  return {
+    schemaVersion: "tbtc/frost-custody-preflight/v1",
+    networkName: hre.network.name,
+    chainId: await hre.getChainId(),
+    bridge: bridgeAddress,
+    snapshotBlockNumber,
+    snapshotBlockHash: snapshotBlock.hash,
+    scanFromBlock: 0,
+    scanToBlock: snapshotBlockNumber,
+    registrationsFound: 0,
+    frostWalletRegistry: bridgeState.frostWalletRegistry,
+    configuredP2TRFraudRouter: bridgeState.configuredP2TRFraudRouter,
+    configuredRouterStatus: bridgeState.configuredRouterStatus,
+    frostWalletRegistryStorageSlot: BRIDGE_FROST_WALLET_REGISTRY_STORAGE_SLOT,
+    p2trFraudRouterStorageSlot: BRIDGE_P2TR_FRAUD_ROUTER_STORAGE_SLOT,
+    storageLayoutEvidence: "test/formal/Bridge.storage-layout.json",
+  }
+}
+
+export const abortLiveBridgeUpgradeWithoutVettedCompleteV2 = async (
+  hre: HardhatRuntimeEnvironment,
+  upgradePath: string
+): Promise<never> => {
+  const Bridge = await hre.deployments.get("Bridge")
+  const receipt = await runFrostCustodyPreflight(hre, Bridge.address)
+
+  // Machine-readable, write-free receipt for operator review. The script
+  // throws immediately afterward, so no deployment or governance calldata is
+  // produced on live/custom networks.
+  console.log(`FROST_CUSTODY_PREFLIGHT_RECEIPT=${JSON.stringify(receipt)}`)
+
+  throw new Error(
+    `NO-GO ${upgradePath}: zero-FROST preflight passed at ${receipt.snapshotBlockNumber}/${receipt.snapshotBlockHash}, ` +
+      "but no vetted immutable COMPLETE_V2 evidence router exists. Do not deploy an implementation, execute a proxy upgrade, or emit governance calldata. " +
+      "The eventual governance operation must atomically validate the vetted router before enabling FROST-only replacement-wallet creation."
+  )
+}
+
+export const isEphemeralLocalNetwork = (networkName: string): boolean =>
+  ["hardhat", "development", "system_tests"].includes(networkName)
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, helpers, getNamedAccounts, ethers } = hre
-  const { deploy } = deployments
+  const { deploy, save } = deployments
   const { deployer } = await getNamedAccounts()
 
   const Bridge = await deployments.get("Bridge")
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "45_deploy_p2tr_signature_fraud_router"
+    )
+  }
+  const preflightReceipt = await runFrostCustodyPreflight(hre, Bridge.address)
 
   // P2TRSignatureFraudRouter is a plain (non-upgradeable) contract
   // that pins the Bridge address at construction. Sister sidecar to
@@ -38,190 +247,50 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     waitConfirmations: 1,
   })
 
-  // Wire the router onto the Bridge via the one-time governance setter
-  // `Bridge.setP2TRFraudRouter`. Until this lands, `Bridge.p2trFraudRouter()`
-  // stays `address(0)`, `slashWalletForP2TRFraud` (the router's only privileged
-  // Bridge entry point, gated by `onlyP2TRFraudRouter`) is unreachable, and all
-  // P2TR fraud slashing is dead -- the router is deployed-but-dead until this
-  // call runs. The setter is one-time (reverts `P2TRFraudRouterAlreadySet()`
-  // once set), so this wiring is idempotent and must skip cleanly on re-runs.
-  //
-  // This mirrors the `setFrostWalletRegistry` wiring in
-  // 48_deploy_frost_wallet_registry: read the current Bridge value, send the
-  // setter when the deployer/governance owner is a configured signer, else emit
-  // the exact governance calldata for manual execution, and verify idempotently.
-  const bridgeContract = await ethers.getContractAt("Bridge", Bridge.address)
-  const bridgeGovernance = await ethers.getContractAt(
-    "BridgeGovernance",
-    (
-      await deployments.get("BridgeGovernance")
-    ).address
+  const routerContract = await ethers.getContractAt(
+    "P2TRSignatureFraudRouter",
+    p2trFraudRouter.address
+  )
+  if (
+    (await routerContract.bridge()).toLowerCase() !==
+    Bridge.address.toLowerCase()
+  ) {
+    throw new Error("P2TRSignatureFraudRouter is bound to the wrong Bridge")
+  }
+  if (
+    (await routerContract.evidenceProtocolID()).toLowerCase() !==
+    BOUNDED_V1_PROTOCOL_ID.toLowerCase()
+  ) {
+    throw new Error("Unexpected P2TR fraud evidence protocol ID")
+  }
+
+  // Re-read both reserved slots after the deployment transaction. Governance
+  // ordering requires them to remain zero until an independently reviewed,
+  // immutable COMPLETE_V2 router is available.
+  await readBridgePreflightState(
+    hre,
+    Bridge.address,
+    await ethers.provider.getBlockNumber()
   )
 
-  // Route the setter based on the current `Bridge.governance()`. On a fresh
-  // deploy chain (test/local) `21_transfer_bridge_governance.ts` runs last
-  // (`runAtTheEnd = true`), so this script executes while `Bridge.governance`
-  // is still the `deployer` named account -- the only address that passes
-  // `Bridge.onlyGovernance` in that window (routing through `BridgeGovernance`
-  // there would revert with "Caller is not the governance"). Once governance
-  // has been transferred, `Bridge.governance` is the `BridgeGovernance`
-  // contract and the setter must be routed through its `onlyOwner` wrapper
-  // (production deploys substitute the governance multisig signer there).
-  const currentBridgeGovernance = await bridgeContract.governance()
-  const governanceIsDeployer =
-    currentBridgeGovernance.toLowerCase() === deployer.toLowerCase()
-  const ALREADY_SET_SELECTOR = ethers.utils
-    .id("P2TRFraudRouterAlreadySet()")
-    .slice(0, 10)
+  await save("P2TRSignatureFraudRouter", {
+    ...p2trFraudRouter,
+    linkedData: {
+      ...(p2trFraudRouter.linkedData ?? {}),
+      frostCustodyPreflight: preflightReceipt,
+    },
+  })
 
-  // Idempotency pre-check via the public getter. `setP2TRFraudRouter` is a
-  // one-shot setter, so a re-run must skip cleanly on EVERY governance
-  // configuration -- including a multisig owner that is not a configured
-  // signer, where the wiring is emitted as calldata (not sent) and the
-  // AlreadySet revert path is never reached.
-  //
-  // When preparing the atomic upgrade of an EXISTING Bridge, the proxy is
-  // still on the pre-upgrade implementation, which has no `p2trFraudRouter()`
-  // selector until the governance proposal executes -- so this read reverts
-  // with a CALL_EXCEPTION (the eth_call returns no data to decode). A plain
-  // getter cannot revert for any other reason, so tolerate ONLY that case:
-  // treat the router as unwired and fall through to emit the setter calldata
-  // the operator needs for the upgrade/wiring proposal, rather than aborting
-  // before that branch is reached. Any other error (e.g. an RPC failure)
-  // rethrows so it is not silently swallowed (cf. the blanket-catch regression
-  // fixed in 48_deploy_frost_wallet_registry).
-  let currentP2TRFraudRouter: string
-  let bridgeExposesGetter = true
-  try {
-    currentP2TRFraudRouter = await bridgeContract.p2trFraudRouter()
-  } catch (err) {
-    if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
-      throw err
-    }
-    console.log(
-      "Bridge.p2trFraudRouter() reverted (no such selector on the current " +
-        "Bridge implementation -- pre-upgrade proxy); treating the router as " +
-        "unwired and emitting wiring for the upgrade proposal"
-    )
-    currentP2TRFraudRouter = ethers.constants.AddressZero
-    bridgeExposesGetter = false
-  }
-
-  if (
-    currentP2TRFraudRouter.toLowerCase() ===
-    p2trFraudRouter.address.toLowerCase()
-  ) {
-    console.log(
-      `P2TRSignatureFraudRouter already wired on this Bridge at ${p2trFraudRouter.address}; skipping`
-    )
-  } else if (currentP2TRFraudRouter !== ethers.constants.AddressZero) {
-    throw new Error(
-      "Bridge is already wired to a different P2TRSignatureFraudRouter " +
-        `(${currentP2TRFraudRouter}); refusing to wire ` +
-        `${p2trFraudRouter.address}`
-    )
-  } else {
-    // Resolve the authorized caller. In the governance-wrapper case the setter
-    // is `BridgeGovernance.onlyOwner`, so the call must come from the wrapper
-    // owner -- which post-handoff is the governance multisig, not `deployer`.
-    // When that owner is not a configured signer, emit the calldata for manual
-    // governance execution and skip (mainnet) rather than sending from
-    // `deployer` and reverting.
-    const setterContract = governanceIsDeployer
-      ? bridgeContract
-      : bridgeGovernance
-    const setterCaller = governanceIsDeployer
-      ? deployer
-      : await bridgeGovernance.owner()
-    // A pre-upgrade Bridge has no `setP2TRFraudRouter` selector yet, so the
-    // transaction cannot be sent regardless of who is a configured signer.
-    // Force the calldata-emission path in that case (leave the signer
-    // unresolved) rather than attempting -- and reverting -- the send.
-    const setterSigner = bridgeExposesGetter
-      ? await getConfiguredSigner(hre, setterCaller)
-      : undefined
-
-    if (!setterSigner) {
-      const calldata = setterContract.interface.encodeFunctionData(
-        "setP2TRFraudRouter",
-        [p2trFraudRouter.address]
-      )
-      const reason = !bridgeExposesGetter
-        ? `the Bridge at ${Bridge.address} does not yet expose ` +
-          "setP2TRFraudRouter (pre-upgrade implementation); wire it as part " +
-          "of the upgrade proposal"
-        : `${setterCaller} is not a configured signer for network ${hre.network.name}`
-      const message =
-        `P2TRSignatureFraudRouter wiring must be executed by governance -- ${reason}. ` +
-        "Submit this call from governance:\n" +
-        `  target: ${setterContract.address}\n` +
-        `  data:   ${calldata}`
-
-      // A pre-upgrade Bridge genuinely cannot be wired now on ANY network, so
-      // emit the calldata and continue. Otherwise keep the existing guard:
-      // skip on mainnet (a non-signer governance owner is expected there) and
-      // error elsewhere so an unexpected non-signer is surfaced.
-      if (!bridgeExposesGetter || hre.network.name === "mainnet") {
-        console.log(`${message}\nskipping for manual governance execution`)
-      } else {
-        throw new Error(message)
-      }
-    } else {
-      try {
-        const tx = await setterContract
-          .connect(setterSigner)
-          .setP2TRFraudRouter(p2trFraudRouter.address)
-        await tx.wait(1)
-        console.log(
-          `wired P2TRSignatureFraudRouter at ${
-            p2trFraudRouter.address
-          } onto Bridge ${
-            governanceIsDeployer
-              ? "directly (governance is still deployer)"
-              : "via BridgeGovernance"
-          }`
-        )
-      } catch (err) {
-        // Tolerate only a concurrent deployment that wired the SAME router
-        // between the pre-check read above and this call (AlreadySet revert).
-        const errAny = err as {
-          data?: string
-          error?: { data?: string }
-          message?: string
-        }
-        const revertData =
-          errAny.data || errAny.error?.data || errAny.message || ""
-        if (
-          typeof revertData === "string" &&
-          revertData.toLowerCase().includes(ALREADY_SET_SELECTOR.toLowerCase())
-        ) {
-          console.log(
-            "P2TRSignatureFraudRouter already wired on this Bridge; skipping"
-          )
-        } else {
-          console.error(
-            "setP2TRFraudRouter call reverted with an unexpected error;",
-            "deploy aborted so the operator can investigate:",
-            errAny.message || err
-          )
-          throw err
-        }
-      }
-
-      // Idempotent post-check: assert the on-chain value now reflects this
-      // router. Only meaningful when the setter was actually sent; the
-      // calldata-emit path skips before reaching here. Also catches a
-      // concurrent deploy that wired a DIFFERENT router (AlreadySet caught
-      // above) between the pre-check and this send.
-      const wiredRouter = await bridgeContract.p2trFraudRouter()
-      if (wiredRouter.toLowerCase() !== p2trFraudRouter.address.toLowerCase()) {
-        throw new Error(
-          "Bridge.p2trFraudRouter mismatch after deploy: " +
-            `expected ${p2trFraudRouter.address}, got ${wiredRouter}`
-        )
-      }
-    }
-  }
+  // NO-GO: BOUNDED_V1 cannot adjudicate every valid Bitcoin transaction
+  // shape, so wiring it would make an unchallengeable FROST spend possible.
+  // Do not call the one-shot setter and do not emit governance calldata. The
+  // slot must remain available for a future COMPLETE_V2 implementation.
+  console.log(
+    `NO-GO: deployed bounded P2TR fraud router ${p2trFraudRouter.address}; ` +
+      "leaving Bridge.p2trFraudRouter unset. Zero-FROST receipt: " +
+      `${preflightReceipt.snapshotBlockNumber}/${preflightReceipt.snapshotBlockHash}. ` +
+      "Do not upgrade this Bridge until a vetted immutable COMPLETE_V2 router exists."
+  )
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(p2trFraudRouter)
@@ -238,4 +307,4 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 export default func
 
 func.tags = ["P2TRSignatureFraudRouter"]
-func.dependencies = ["Bridge", "BridgeGovernance"]
+func.dependencies = ["FrostCustodyNoGo", "Bridge", "BridgeGovernance"]

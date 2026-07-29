@@ -1,5 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 /// Phase C-2.1a upgrade script — deploys the current versions of all
 /// external libraries linked by `Bridge` and upgrades the proxy using
@@ -19,6 +23,13 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { get, deploy, log } = deployments
   const { deployer, treasury } = await getNamedAccounts()
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "84_upgrade_bridge_c2_1_counter"
+    )
+  }
 
   const Bank = await get("Bank")
   const LightRelay = await get("LightRelay")
@@ -133,6 +144,7 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
 export default func
 
 func.tags = ["UpgradeBridgeC21Counter"]
+func.dependencies = ["FrostCustodyNoGo"]
 // Off by default. To run, set the environment variable
 // `RUN_UPGRADE_C2_1_COUNTER=1` and invoke:
 //

@@ -4,6 +4,10 @@ import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 import { utils } from "ethers"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -303,6 +307,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deploy, get } = deployments
   const { deployer } = await getNamedAccounts()
   const { ethers } = hre
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "85_deploy_tip109_governance_upgrade"
+    )
+  }
 
   const deployOptions: DeployOptions = {
     from: deployer,
@@ -707,6 +718,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployTIP109GovernanceUpgrade"]
+func.dependencies = ["FrostCustodyNoGo"]
 // Set DEPLOY_TIP109=true when running the deployment.
 // yarn deploy --tags DeployTIP109GovernanceUpgrade --network <NETWORK>
 func.skip = async () => process.env.DEPLOY_TIP109 !== "true"

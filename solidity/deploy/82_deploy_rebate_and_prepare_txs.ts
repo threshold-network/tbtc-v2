@@ -2,11 +2,22 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { deploy } = deployments
   const { deployer } = await getNamedAccounts()
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "82_deploy_rebate_and_prepare_txs"
+    )
+  }
 
   console.log("\n========== REBATE DEPLOYMENT STARTING ==========")
   console.log("Network:", hre.network.name)
@@ -446,6 +457,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployRebateAndPrepareTxs"]
+func.dependencies = ["FrostCustodyNoGo"]
 // Dependencies remain removed so standalone live-network execution does not
-// rerun the full Bridge deployment chain.
+// rerun the full Bridge deployment chain. The write-free NO-GO dependency is
+// the sole exception and aborts non-ephemeral networks before this function.
 // func.dependencies = ["Bridge", "BridgeGovernance"]

@@ -209,9 +209,10 @@ export default async function bridgeFixture(): Promise<{
   // Deploy + wire the two fraud router sidecars. EcdsaFraudRouter
   // hosts the ECDSA fraud lifecycle (was inlined on Bridge);
   // P2TRSignatureFraudRouter is the sister sidecar for the P2TR
-  // signature-fraud lifecycle. Both routers are pinned to the
-  // Bridge address at construction and wired via the one-time
-  // setters on Bridge.
+  // signature-fraud lifecycle. Production BOUNDED_V1 is intentionally
+  // not wired because it cannot activate FROST custody. Tests use an
+  // explicit handshake-only COMPLETE_V2 stub. It is not evidence that a
+  // production COMPLETE_V2 implementation exists.
   const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
   let ecdsaFraudRouter: EcdsaFraudRouter
   if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
@@ -237,7 +238,7 @@ export default async function bridgeFixture(): Promise<{
   let p2trFraudRouter: P2TRSignatureFraudRouter
   if (existingP2TRFraudRouter === ethers.constants.AddressZero) {
     const P2TRFraudRouterFactory = await ethers.getContractFactory(
-      "P2TRSignatureFraudRouter",
+      "HandshakeOnlyCompleteP2TRSignatureFraudRouterStub",
       deployer
     )
     p2trFraudRouter = (await P2TRFraudRouterFactory.deploy(
