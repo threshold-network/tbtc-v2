@@ -106,7 +106,10 @@ describe("FrostDkg liveness security", () => {
     pool.selectGroup.returns(selectedMembers)
 
     const Validator = await ethers.getContractFactory("FrostDkgValidator")
-    const validator = await Validator.deploy(pool.address)
+    const validator = await Validator.deploy(
+      pool.address,
+      0 // maxSeatsPerWallet disabled
+    )
     await validator.deployed()
 
     const Harness = await ethers.getContractFactory("FrostDkgLivenessHarness")

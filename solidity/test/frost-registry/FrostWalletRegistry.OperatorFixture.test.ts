@@ -80,13 +80,20 @@ describe("FrostWalletRegistry 100-operator fixture (B-1.5 slice 2)", () => {
       "FrostDkgValidator"
     )
     const validator = await ValidatorFactory.connect(deployer).deploy(
-      frostSortitionPool.address
+      frostSortitionPool.address,
+      0 // maxSeatsPerWallet disabled
     )
     await validator.deployed()
 
     const InactFactory = await ethers.getContractFactory("FrostInactivity")
     const inact = await InactFactory.connect(deployer).deploy()
     await inact.deployed()
+
+    const ExposureFactory = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const exposure = await ExposureFactory.connect(deployer).deploy()
+    await exposure.deployed()
 
     // Use a test-suite-unique deployment label so this fixture
     // doesn't collide with `Permissions.test.ts` or
@@ -108,7 +115,10 @@ describe("FrostWalletRegistry 100-operator fixture (B-1.5 slice 2)", () => {
         ],
         factoryOpts: {
           signer: deployer,
-          libraries: { FrostInactivity: inact.address },
+          libraries: {
+            FrostInactivity: inact.address,
+            FrostWalletExposure: exposure.address,
+          },
         },
         proxyOpts: {
           constructorArgs: [frostSortitionPool.address],

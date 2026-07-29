@@ -69,7 +69,7 @@ describe("FrostDkgValidator RFC v4 digest binding", () => {
     await SortitionPool.deployed()
 
     const Validator = await ethers.getContractFactory("FrostDkgValidator")
-    validator = await Validator.deploy(SortitionPool.address)
+    validator = await Validator.deploy(SortitionPool.address, 0)
     await validator.deployed()
   })
 

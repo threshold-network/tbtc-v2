@@ -60,7 +60,7 @@ describe("FrostDkgValidator digest parity (B-1.5 helper invariant)", () => {
     const ValidatorFactory = await ethers.getContractFactory(
       "FrostDkgValidator"
     )
-    validator = await ValidatorFactory.connect(deployer).deploy(pool.address)
+    validator = await ValidatorFactory.connect(deployer).deploy(pool.address, 0)
     await validator.deployed()
 
     // Synthetic addresses for the digest binding. The validator

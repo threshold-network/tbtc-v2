@@ -108,13 +108,20 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       "FrostDkgValidator"
     )
     const validator = await ValidatorFactory.connect(deployer).deploy(
-      frostSortitionPool.address
+      frostSortitionPool.address,
+      0 // maxSeatsPerWallet disabled
     )
     await validator.deployed()
 
     const InactFactory = await ethers.getContractFactory("FrostInactivity")
     const inact = await InactFactory.connect(deployer).deploy()
     await inact.deployed()
+
+    const ExposureFactory = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const exposure = await ExposureFactory.connect(deployer).deploy()
+    await exposure.deployed()
 
     // Distinct deployment label so this fixture doesn't collide
     // with the other frost-registry tests when they run in the
@@ -131,7 +138,10 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
         ],
         factoryOpts: {
           signer: deployer,
-          libraries: { FrostInactivity: inact.address },
+          libraries: {
+            FrostInactivity: inact.address,
+            FrostWalletExposure: exposure.address,
+          },
         },
         proxyOpts: {
           constructorArgs: [frostSortitionPool.address],

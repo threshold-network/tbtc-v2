@@ -76,13 +76,20 @@ describe("FrostWalletRegistry allowlist authorization", () => {
       "FrostDkgValidator"
     )
     const validator = await ValidatorFactory.connect(deployer).deploy(
-      frostSortitionPool.address
+      frostSortitionPool.address,
+      0 // maxSeatsPerWallet disabled
     )
     await validator.deployed()
 
     const InactivityFactory = await ethers.getContractFactory("FrostInactivity")
     const inactivity = await InactivityFactory.connect(deployer).deploy()
     await inactivity.deployed()
+
+    const ExposureFactory = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const exposure = await ExposureFactory.connect(deployer).deploy()
+    await exposure.deployed()
 
     const [registry] = await helpers.upgrades.deployProxy(
       `FrostWalletRegistryAllowlistTest${testDeploymentCounter}`,
@@ -96,7 +103,10 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         ],
         factoryOpts: {
           signer: deployer,
-          libraries: { FrostInactivity: inactivity.address },
+          libraries: {
+            FrostInactivity: inactivity.address,
+            FrostWalletExposure: exposure.address,
+          },
         },
         proxyOpts: {
           constructorArgs: [frostSortitionPool.address],

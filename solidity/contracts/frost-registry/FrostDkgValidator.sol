@@ -64,10 +64,20 @@ contract FrostDkgValidator {
     ///      DKG result.
     uint256 public constant signatureByteSize = 65;
 
+    /// @notice Maximum number of seats a single member may hold in one
+    ///         wallet. Member IDs are sortition pool operator IDs, so the
+    ///         same operator always carries the same ID and seat multiplicity
+    ///         can be counted directly on `result.members` without address
+    ///         resolution. Bounding the multiplicity bounds the signing power
+    ///         any single operator can capture in a wallet regardless of its
+    ///         sortition weight. Zero disables the check.
+    uint32 public immutable maxSeatsPerWallet;
+
     SortitionPool public immutable sortitionPool;
 
-    constructor(SortitionPool _sortitionPool) {
+    constructor(SortitionPool _sortitionPool, uint32 _maxSeatsPerWallet) {
         sortitionPool = _sortitionPool;
+        maxSeatsPerWallet = _maxSeatsPerWallet;
     }
 
     /// @notice Performs a full validation of DKG result, including checking the
@@ -118,11 +128,13 @@ contract FrostDkgValidator {
 
     /// @notice Performs a static validation of DKG result fields: lengths,
     ///         ranges, and order of arrays.
+    /// @dev `view` (not `pure`) solely because the seat cap check reads the
+    ///      `maxSeatsPerWallet` immutable.
     /// @return isValid true if the result is valid, false otherwise
     /// @return errorMsg validation error message; empty for a valid result
     function validateFields(FrostDkg.Result calldata result)
         public
-        pure
+        view
         returns (bool isValid, string memory errorMsg)
     {
         // FROST x-only output key is bytes32; the only structural
@@ -132,6 +144,31 @@ contract FrostDkgValidator {
         // produced the zero key.
         if (result.xOnlyOutputKey == bytes32(0)) {
             return (false, "Malformed x-only output key");
+        }
+
+        // A member ID appearing N times in the members array means the
+        // operator with that ID holds N seats in the wallet. When the seat
+        // cap is enabled, reject any result in which a single member ID's
+        // multiplicity exceeds `maxSeatsPerWallet`. The quadratic scan over
+        // at most `groupSize` (100) entries is acceptable for a view-first
+        // validation path; it exits as soon as an excessive multiplicity
+        // is found.
+        if (maxSeatsPerWallet > 0) {
+            uint32[] calldata members = result.members;
+            for (uint256 i = 0; i < members.length; i++) {
+                uint256 seats = 1;
+                for (uint256 j = i + 1; j < members.length; j++) {
+                    if (members[i] == members[j]) {
+                        seats++;
+                        if (seats > maxSeatsPerWallet) {
+                            return (
+                                false,
+                                "Too many seats for a single member"
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         // The number of misbehaved members can not exceed the threshold.

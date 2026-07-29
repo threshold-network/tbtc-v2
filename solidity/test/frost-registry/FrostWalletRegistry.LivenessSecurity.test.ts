@@ -68,16 +68,28 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     reimbursementPool.refund.returns()
 
     const Validator = await ethers.getContractFactory("FrostDkgValidator")
-    const validator = await Validator.deploy(pool.address)
+    const validator = await Validator.deploy(
+      pool.address,
+      0 // maxSeatsPerWallet disabled
+    )
     await validator.deployed()
 
     const FrostInactivity = await ethers.getContractFactory("FrostInactivity")
     const frostInactivity = await FrostInactivity.deploy()
     await frostInactivity.deployed()
 
+    const FrostWalletExposure = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const frostWalletExposure = await FrostWalletExposure.deploy()
+    await frostWalletExposure.deployed()
+
     const Registry = await ethers.getContractFactory("FrostWalletRegistry", {
       signer: deployer,
-      libraries: { FrostInactivity: frostInactivity.address },
+      libraries: {
+        FrostInactivity: frostInactivity.address,
+        FrostWalletExposure: frostWalletExposure.address,
+      },
     })
     const implementation = await Registry.deploy(pool.address, {
       gasLimit: 12_000_000,

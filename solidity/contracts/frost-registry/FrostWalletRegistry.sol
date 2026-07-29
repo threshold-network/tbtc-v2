@@ -27,10 +27,12 @@ pragma solidity 0.8.17;
 // enum's versioning.
 import "./api/IFrostWalletOwner.sol";
 import "./api/IFrostAuthorizationSource.sol";
+import "../staking/api/IWalletExposureLedger.sol";
 import "./libraries/FrostRegistryWallets.sol";
 import {FrostAuthorization as Authorization} from "./libraries/FrostAuthorization.sol";
 import {FrostDkg as DKG} from "./libraries/FrostDkg.sol";
 import {FrostInactivity as Inactivity} from "./libraries/FrostInactivity.sol";
+import {FrostWalletExposure as WalletExposure} from "./libraries/FrostWalletExposure.sol";
 import {FrostDkgValidator as DKGValidator} from "./FrostDkgValidator.sol";
 
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
@@ -163,6 +165,23 @@ contract FrostWalletRegistry is
     ///         only depends on this neutral interface. Source migration is
     ///         upgrade-only because `initializeV2` is intentionally one-shot.
     IFrostAuthorizationSource public authorizationSource;
+
+    /// @notice Ledger tracking which wallets each staking provider has live
+    ///         signing exposure to. Notified on wallet registration
+    ///         (`approveDkgResult`) and wallet closure (`closeWallet`).
+    ///         Optional wiring: while unset (zero address) the notifications
+    ///         are skipped entirely. Once set by governance via
+    ///         `setWalletExposureLedger` it cannot be changed (set-once).
+    ///         Exposed via the `walletExposureLedger()` view.
+    /// @dev Appended storage (single slot) — this contract is upgradeable;
+    ///      never reorder the variables above. The exposure logic lives in
+    ///      the externally linked `FrostWalletExposure` library to keep
+    ///      this contract under the bytecode size limit; the library also
+    ///      declares the `WalletExposureLedgerSet` /
+    ///      `WalletExposureLedgerCallFailed` events (emitted via
+    ///      delegatecall, so attributed to this contract's address) and
+    ///      the setter's custom errors.
+    WalletExposure.Data internal walletExposureData;
 
     // Events
     event DkgStarted(uint256 indexed seed);
@@ -302,16 +321,21 @@ contract FrostWalletRegistry is
     );
 
     modifier onlyAuthorizationSource() {
-        address currentAuthorizationSource = address(authorizationSource);
+        _checkAuthorizationSource();
+        _;
+    }
+
+    /// @dev `_currentAuthorizationSource()` reverts with
+    ///      "Authorization source is not initialized" when the source is
+    ///      unset, preserving the original two-step check. Extracted to an
+    ///      internal function so the modifier inlines a single call at
+    ///      each use site instead of the full require — the registry runs
+    ///      close to the contract size limit.
+    function _checkAuthorizationSource() internal view {
         require(
-            currentAuthorizationSource != address(0),
-            "Authorization source is not initialized"
-        );
-        require(
-            msg.sender == currentAuthorizationSource,
+            msg.sender == address(_currentAuthorizationSource()),
             "Caller is not the authorization source"
         );
-        _;
     }
 
     /// @notice Reverts if called not by the Wallet Owner.
@@ -688,6 +712,35 @@ contract FrostWalletRegistry is
         emit LifecycleOwnerUpdated(_lifecycleOwner);
     }
 
+    /// @notice Sets the wallet exposure ledger address. The ledger is
+    ///         notified about wallet registrations (`approveDkgResult`) and
+    ///         wallet closures (`closeWallet`) so the delegated staking
+    ///         module can gate stake exits on live wallet exposure.
+    /// @dev Can be called only by the contract guvnor, which should be the
+    ///      wallet registry governance contract, and only once — the ledger
+    ///      address cannot be changed after it is set (same one-shot wiring
+    ///      idiom as the Bridge's `setRebateStaking`). Reverts with
+    ///      `WalletExposureLedgerAlreadySet` / `WalletExposureLedgerAddressZero`
+    ///      (declared in `FrostWalletExposure`) and emits
+    ///      `WalletExposureLedgerSet`.
+    /// @param _walletExposureLedger Address of the wallet exposure ledger.
+    function setWalletExposureLedger(address _walletExposureLedger)
+        external
+        onlyGovernance
+    {
+        WalletExposure.setLedger(walletExposureData, _walletExposureLedger);
+    }
+
+    /// @notice Returns the wallet exposure ledger address; the zero address
+    ///         while the ledger has not been set.
+    function walletExposureLedger()
+        external
+        view
+        returns (IWalletExposureLedger)
+    {
+        return walletExposureData.ledger;
+    }
+
     /// @notice Updates the values of authorization parameters.
     /// @dev Can be called only by the contract guvnor, which should be the
     ///      wallet registry governance contract. The caller is responsible for
@@ -813,12 +866,15 @@ contract FrostWalletRegistry is
         _notifySeedTimeoutGasOffset = notifySeedTimeoutGasOffset;
         _notifyDkgTimeoutNegativeGasOffset = notifyDkgTimeoutNegativeGasOffset;
 
+        // Emit the parameters directly instead of re-reading the freshly
+        // written storage slots — identical event payload, smaller
+        // bytecode (the registry runs close to the contract size limit).
         emit GasParametersUpdated(
             dkgResultSubmissionGas,
             dkgResultApprovalGasOffset,
             notifyOperatorInactivityGasOffset,
-            _notifySeedTimeoutGasOffset,
-            _notifyDkgTimeoutNegativeGasOffset
+            notifySeedTimeoutGasOffset,
+            notifyDkgTimeoutNegativeGasOffset
         );
     }
 
@@ -860,6 +916,13 @@ contract FrostWalletRegistry is
     function closeWallet(bytes32 walletID) external onlyLifecycleOwner {
         wallets.deleteWallet(walletID);
         emit WalletClosed(walletID);
+
+        // Notify the wallet exposure ledger, if wired (no-op on the zero
+        // address). `closeWallet` is driven by the Bridge lifecycle and
+        // MUST NOT revert because of the ledger — the library wraps the
+        // ledger call in try/catch and a failure only emits
+        // `WalletExposureLedgerCallFailed`.
+        WalletExposure.notifyWalletClosed(walletExposureData, walletID);
     }
 
     /// @notice A callback that is executed once a new relay entry gets
@@ -969,6 +1032,28 @@ contract FrostWalletRegistry is
         // no y-coordinate and the walletID is the key itself (see
         // `IFrostWalletOwner.__frostWalletCreatedCallback`).
         walletOwner.__frostWalletCreatedCallback(dkgResult.xOnlyOutputKey);
+
+        // Notify the wallet exposure ledger, if wired (no-op on the zero
+        // address), about the staking providers now backing the new
+        // wallet. The library resolves the result's member IDs to staking
+        // providers (same resolution as `seize`), aggregates unique
+        // provider / seat-count arrays, and calls the ledger inside
+        // try/catch — a ledger failure cannot brick DKG result approval,
+        // it only emits `WalletExposureLedgerCallFailed`.
+        //
+        // The full result member list is used, including misbehaved
+        // members (at most `groupSize - activeThreshold` of them). This
+        // over-approximates exposure for misbehaved members' providers,
+        // which is the fail-safe direction — it can only delay their
+        // stake exits until the wallet closes, never unlock an exit
+        // early.
+        WalletExposure.notifyWalletRegistered(
+            walletExposureData,
+            sortitionPool,
+            authorization.operatorToStakingProvider,
+            walletID,
+            dkgResult.members
+        );
 
         dkg.complete();
 
@@ -1173,29 +1258,20 @@ contract FrostWalletRegistry is
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external onlyLifecycleOwner {
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
-        require(
-            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
-            "Invalid wallet members identifiers"
-        );
-
-        address[] memory groupMembersAddresses = sortitionPool.getIDOperators(
-            walletMembersIDs
-        );
-        address[] memory stakingProvidersAddresses = new address[](
-            walletMembersIDs.length
-        );
-        for (uint256 i = 0; i < groupMembersAddresses.length; i++) {
-            stakingProvidersAddresses[i] = operatorToStakingProvider(
-                groupMembersAddresses[i]
-            );
-        }
-
-        _currentAuthorizationSource().reportMaliciousBehavior(
+        // The body lives in the externally linked `FrostWalletExposure`
+        // library (verbatim relocation, identical requires and order) to
+        // keep this contract under the bytecode size limit. The wallet
+        // lookup stays here so an unknown wallet reverts before anything
+        // else, exactly as before.
+        WalletExposure.seize(
+            sortitionPool,
+            authorization.operatorToStakingProvider,
+            authorizationSource,
+            wallets.getWalletMembersIdsHash(walletID),
             amount,
             rewardMultiplier,
             notifier,
-            stakingProvidersAddresses
+            walletMembersIDs
         );
     }
 
