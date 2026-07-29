@@ -149,10 +149,10 @@ contract P2TRAuthorizationRegistryStub {
         return resourceReservations[resourceID];
     }
 
-    function settleConflictingProof(
-        bytes32,
-        bytes32 spentResourceID
-    ) external returns (bytes32 reservationID, bytes20 walletPubKeyHash) {
+    function settleConflictingProof(bytes32, bytes32 spentResourceID)
+        external
+        returns (bytes32 reservationID, bytes20 walletPubKeyHash)
+    {
         require(msg.sender == bridge, "Caller is not Bridge");
         reservationID = resourceReservations[spentResourceID];
         require(reservationID != bytes32(0), "Resource is not reserved");
