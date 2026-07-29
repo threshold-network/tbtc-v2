@@ -1,0 +1,449 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+// ██████████████     ▐████▌     ██████████████
+// ██████████████     ▐████▌     ██████████████
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+// ██████████████     ▐████▌     ██████████████
+// ██████████████     ▐████▌     ██████████████
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+
+pragma solidity 0.8.17;
+
+import "../frost-registry/api/IFrostAuthorizationSource.sol";
+import "../staking/SeatAllocator.sol";
+import "../staking/api/ISignerRegistry.sol";
+import "../staking/api/ISlashingModule.sol";
+import "../staking/api/IRewardsDistributor.sol";
+
+/// @dev Test stubs for the delegated staking module's seat allocator and
+///      wallet exposure ledger tests. `StakingMockWalletRegistry` records
+///      the authorization callbacks the allocator drives and forwards
+///      registry-only calls into the allocator (callback sequencing); the
+///      remaining stubs provide settable views for the allocator's wired
+///      dependencies plus minimal stateful slashing so integration tests
+///      can observe a slash landing in the vault.
+
+/// @notice Records the registry-side authorization callbacks and lets
+///         tests impersonate the registry towards the allocator.
+contract StakingMockWalletRegistry {
+    struct AuthorizationCall {
+        address stakingProvider;
+        uint96 fromAmount;
+        uint96 toAmount;
+    }
+
+    AuthorizationCall[] public increaseCalls;
+    AuthorizationCall[] public decreaseRequestCalls;
+
+    uint96 public lastApprovedWeight;
+
+    bool public revertOnAuthorizationCalls;
+
+    function setRevertOnAuthorizationCalls(bool _revert) external {
+        revertOnAuthorizationCalls = _revert;
+    }
+
+    function authorizationIncreased(
+        address stakingProvider,
+        uint96 fromAmount,
+        uint96 toAmount
+    ) external {
+        // solhint-disable-next-line reason-string, custom-errors
+        require(
+            !revertOnAuthorizationCalls,
+            "StakingMockWalletRegistry: forced revert"
+        );
+        increaseCalls.push(
+            AuthorizationCall(stakingProvider, fromAmount, toAmount)
+        );
+    }
+
+    function authorizationDecreaseRequested(
+        address stakingProvider,
+        uint96 fromAmount,
+        uint96 toAmount
+    ) external {
+        // solhint-disable-next-line reason-string, custom-errors
+        require(
+            !revertOnAuthorizationCalls,
+            "StakingMockWalletRegistry: forced revert"
+        );
+        decreaseRequestCalls.push(
+            AuthorizationCall(stakingProvider, fromAmount, toAmount)
+        );
+    }
+
+    function increaseCallsCount() external view returns (uint256) {
+        return increaseCalls.length;
+    }
+
+    function decreaseRequestCallsCount() external view returns (uint256) {
+        return decreaseRequestCalls.length;
+    }
+
+    function callApproveAuthorizationDecrease(
+        IFrostAuthorizationSource authorizationSource,
+        address stakingProvider
+    ) external {
+        lastApprovedWeight = authorizationSource.approveAuthorizationDecrease(
+            stakingProvider
+        );
+    }
+
+    function callReportMaliciousBehavior(
+        IFrostAuthorizationSource authorizationSource,
+        uint96 amount,
+        uint256 rewardMultiplier,
+        address notifier,
+        address[] calldata stakingProviders
+    ) external {
+        authorizationSource.reportMaliciousBehavior(
+            amount,
+            rewardMultiplier,
+            notifier,
+            stakingProviders
+        );
+    }
+}
+
+/// @notice Settable operator status / beneficiary source implementing
+///         `ISignerRegistry`.
+contract StakingMockSignerRegistry is ISignerRegistry {
+    mapping(address => OperatorStatus) internal statuses;
+    mapping(address => address payable) internal beneficiaries;
+    mapping(address => uint16) internal commissions;
+
+    function setOperatorStatus(address stakingProvider, OperatorStatus status)
+        external
+    {
+        statuses[stakingProvider] = status;
+    }
+
+    function setBeneficiary(
+        address stakingProvider,
+        address payable beneficiary
+    ) external {
+        beneficiaries[stakingProvider] = beneficiary;
+    }
+
+    function setCommissionBps(address stakingProvider, uint16 commissionBps)
+        external
+    {
+        commissions[stakingProvider] = commissionBps;
+    }
+
+    function operatorStatus(address stakingProvider)
+        external
+        view
+        override
+        returns (OperatorStatus)
+    {
+        return statuses[stakingProvider];
+    }
+
+    function isActive(address stakingProvider)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return statuses[stakingProvider] == OperatorStatus.Active;
+    }
+
+    function nodeOperatorOf(address stakingProvider)
+        external
+        pure
+        override
+        returns (address)
+    {
+        return stakingProvider;
+    }
+
+    function stakingProviderOf(address nodeOperator)
+        external
+        pure
+        override
+        returns (address)
+    {
+        return nodeOperator;
+    }
+
+    function beneficiaryOf(address stakingProvider)
+        external
+        view
+        override
+        returns (address payable)
+    {
+        address payable beneficiary = beneficiaries[stakingProvider];
+        return
+            beneficiary != address(0) ? beneficiary : payable(stakingProvider);
+    }
+
+    function commissionBpsOf(address stakingProvider)
+        external
+        view
+        override
+        returns (uint16)
+    {
+        return commissions[stakingProvider];
+    }
+}
+
+/// @notice Settable stake vault views implementing the allocator-facing
+///         vault surface, with a first-loss `applySlash` so tests can
+///         observe slashes landing in the vault.
+contract StakingMockStakeVault is ISeatAllocatorStakeVault {
+    mapping(address => uint96) internal selfBonds;
+    mapping(address => uint96) internal delegated;
+    mapping(address => uint96) internal pendingUndelegations;
+    mapping(address => uint96) internal pendingSelfBondWithdrawals;
+    uint96 internal minSelfBondValue;
+
+    uint96 public totalSeized;
+    uint256 public applySlashCallCount;
+    address public lastSlashedProvider;
+    uint96 public lastSlashRequestedAmount;
+
+    function setSelfBond(address stakingProvider, uint96 amount) external {
+        selfBonds[stakingProvider] = amount;
+    }
+
+    function setDelegatedAssets(address stakingProvider, uint96 amount)
+        external
+    {
+        delegated[stakingProvider] = amount;
+    }
+
+    function setPendingUndelegationAssets(
+        address stakingProvider,
+        uint96 amount
+    ) external {
+        pendingUndelegations[stakingProvider] = amount;
+    }
+
+    function setPendingSelfBondWithdrawal(
+        address stakingProvider,
+        uint96 amount
+    ) external {
+        pendingSelfBondWithdrawals[stakingProvider] = amount;
+    }
+
+    function setMinSelfBond(uint96 amount) external {
+        minSelfBondValue = amount;
+    }
+
+    function selfBondOf(address stakingProvider)
+        external
+        view
+        override
+        returns (uint96)
+    {
+        return selfBonds[stakingProvider];
+    }
+
+    function delegatedAssetsOf(address stakingProvider)
+        external
+        view
+        override
+        returns (uint96)
+    {
+        return delegated[stakingProvider];
+    }
+
+    function pendingUndelegationAssetsOf(address stakingProvider)
+        external
+        view
+        override
+        returns (uint96)
+    {
+        return pendingUndelegations[stakingProvider];
+    }
+
+    function pendingSelfBondWithdrawalOf(address stakingProvider)
+        external
+        view
+        override
+        returns (uint96)
+    {
+        return pendingSelfBondWithdrawals[stakingProvider];
+    }
+
+    function minSelfBond() external view override returns (uint96) {
+        return minSelfBondValue;
+    }
+
+    function sharesOf(address, address)
+        external
+        pure
+        override
+        returns (uint256)
+    {
+        return 0;
+    }
+
+    /// @dev First-loss semantics mirroring the spec: self-bond down to
+    ///      zero first, then delegated assets; capped at available; never
+    ///      reverts.
+    function applySlash(address stakingProvider, uint96 amount)
+        external
+        override
+        returns (uint96 seized)
+    {
+        applySlashCallCount++;
+        lastSlashedProvider = stakingProvider;
+        lastSlashRequestedAmount = amount;
+
+        uint96 fromSelfBond = amount <= selfBonds[stakingProvider]
+            ? amount
+            : selfBonds[stakingProvider];
+        selfBonds[stakingProvider] -= fromSelfBond;
+
+        uint96 remainder = amount - fromSelfBond;
+        uint96 fromDelegated = remainder <= delegated[stakingProvider]
+            ? remainder
+            : delegated[stakingProvider];
+        delegated[stakingProvider] -= fromDelegated;
+
+        seized = fromSelfBond + fromDelegated;
+        totalSeized += seized;
+    }
+
+    function payoutSeized(address, uint96 amount) external override {
+        totalSeized -= amount;
+    }
+
+    function creditReward(address, uint256) external override {
+        // no-op
+    }
+}
+
+/// @notice Recording slashing module implementing `ISlashingModule`. Can
+///         be configured to revert (to prove the allocator's report path
+///         never reverts) and forwards aggregated per-provider totals to a
+///         wired vault so integration tests observe the haircut.
+contract StakingMockSlashingModule is ISlashingModule {
+    StakingMockStakeVault public vault;
+    bool public revertOnReport;
+
+    uint256 public reportCallCount;
+    uint96 public lastPerSeatAmount;
+    uint256 public lastRewardMultiplier;
+    address public lastNotifier;
+    address[] public lastStakingProviders;
+
+    mapping(address => uint256) internal pendingSlashes;
+
+    function setVault(StakingMockStakeVault _vault) external {
+        vault = _vault;
+    }
+
+    function setRevertOnReport(bool _revertOnReport) external {
+        revertOnReport = _revertOnReport;
+    }
+
+    function setPendingSlashCount(address stakingProvider, uint256 count)
+        external
+    {
+        pendingSlashes[stakingProvider] = count;
+    }
+
+    function lastStakingProvidersCount() external view returns (uint256) {
+        return lastStakingProviders.length;
+    }
+
+    function report(
+        address[] calldata stakingProviders,
+        uint96 perSeatAmount,
+        uint256 rewardMultiplier,
+        address notifier
+    ) external override {
+        // solhint-disable-next-line reason-string, custom-errors
+        require(!revertOnReport, "StakingMockSlashingModule: forced revert");
+
+        reportCallCount++;
+        lastPerSeatAmount = perSeatAmount;
+        lastRewardMultiplier = rewardMultiplier;
+        lastNotifier = notifier;
+        lastStakingProviders = stakingProviders;
+
+        if (address(vault) == address(0)) {
+            return;
+        }
+
+        // Aggregate duplicate providers in-memory (per-seat semantics)
+        // and apply one slash per unique provider, as the production
+        // slashing module is specified to do.
+        address[] memory uniqueProviders = new address[](
+            stakingProviders.length
+        );
+        uint96[] memory totals = new uint96[](stakingProviders.length);
+        uint256 uniqueCount = 0;
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            bool found = false;
+            for (uint256 j = 0; j < uniqueCount; j++) {
+                if (uniqueProviders[j] == stakingProviders[i]) {
+                    totals[j] += perSeatAmount;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                uniqueProviders[uniqueCount] = stakingProviders[i];
+                totals[uniqueCount] = perSeatAmount;
+                uniqueCount++;
+            }
+        }
+
+        for (uint256 i = 0; i < uniqueCount; i++) {
+            vault.applySlash(uniqueProviders[i], totals[i]);
+            pendingSlashes[uniqueProviders[i]]++;
+        }
+    }
+
+    function pendingSlashCount(address stakingProvider)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        return pendingSlashes[stakingProvider];
+    }
+}
+
+/// @notice Recording rewards distributor implementing
+///         `IRewardsDistributor`.
+contract StakingMockRewardsDistributor is IRewardsDistributor {
+    uint256 public onWeightChangedCallCount;
+    address public lastStakingProvider;
+    uint96 public lastWeight;
+
+    bool public revertOnWeightChanged;
+
+    function setRevertOnWeightChanged(bool _revert) external {
+        revertOnWeightChanged = _revert;
+    }
+
+    function onWeightChanged(address stakingProvider, uint96 newWeight)
+        external
+        override
+    {
+        // solhint-disable-next-line reason-string, custom-errors
+        require(
+            !revertOnWeightChanged,
+            "StakingMockRewardsDistributor: forced revert"
+        );
+        onWeightChangedCallCount++;
+        lastStakingProvider = stakingProvider;
+        lastWeight = newWeight;
+    }
+
+    function notifyReward(uint256) external override {
+        // no-op
+    }
+}
