@@ -115,6 +115,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       log: true,
       waitConfirmations: 1,
       skipIfAlreadyDeployed: false,
+      args: [ethers.constants.AddressZero],
       libraries: bridgeLibraries,
     }
   )

@@ -17,6 +17,7 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
+import "./EcdsaFraudRouterCutover.sol";
 
 import "./Bridge.sol";
 
@@ -32,6 +33,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.WalletData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
+    using EcdsaFraudRouterCutover for EcdsaFraudRouterCutover.Data;
 
     BridgeGovernanceParameters.DepositData internal depositData;
     BridgeGovernanceParameters.RedemptionData internal redemptionData;
@@ -39,6 +41,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.WalletData internal walletData;
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
+    EcdsaFraudRouterCutover.Data internal ecdsaFraudCutoverData;
 
     Bridge internal bridge;
 
@@ -55,6 +58,14 @@ contract BridgeGovernance is Ownable {
 
     uint256 public bridgeGovernanceTransferChangeInitiated;
     address internal newBridgeGovernance;
+
+    error EcdsaFraudCutoverActive();
+
+    function requireNoEcdsaFraudCutover() private view {
+        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
+            revert EcdsaFraudCutoverActive();
+        }
+    }
 
     // We skip emitting event on *Update to go down with the contract size
     // limit. The reason why we leave *Started but not including *Updated is
@@ -302,6 +313,13 @@ contract BridgeGovernance is Ownable {
         governanceDelays[0] = _governanceDelay;
     }
 
+    /// @notice Bridge instance governed by this wrapper.
+    /// @dev Exposed so deployment handoffs can authenticate the constructor
+    ///      binding; the Bridge address is storage, not runtime bytecode.
+    function bridgeAddress() external view returns (address) {
+        return address(bridge);
+    }
+
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:
@@ -345,6 +363,7 @@ contract BridgeGovernance is Ownable {
         external
         onlyOwner
     {
+        requireNoEcdsaFraudCutover();
         require(
             _newGovernanceDelay >= MIN_GOVERNANCE_DELAY,
             "New governance delay must be >= minimum"
@@ -382,6 +401,7 @@ contract BridgeGovernance is Ownable {
         external
         onlyOwner
     {
+        requireNoEcdsaFraudCutover();
         // slither-disable-next-line missing-zero-check
         newBridgeGovernance = _newBridgeGovernance;
         /* solhint-disable not-rely-on-time */
@@ -400,6 +420,7 @@ contract BridgeGovernance is Ownable {
     ///      Event that informs about the transfer in this function is skipped on
     ///      purpose to go down with the contract size.
     function finalizeBridgeGovernanceTransfer() external onlyOwner {
+        requireNoEcdsaFraudCutover();
         require(
             bridgeGovernanceTransferChangeInitiated > 0,
             "Change not initiated"
@@ -1841,8 +1862,56 @@ contract BridgeGovernance is Ownable {
     ///      - The caller must be the owner,
     ///      - ECDSA fraud router address must not be already set,
     ///      - ECDSA fraud router address must not be 0x0.
-    function setEcdsaFraudRouter(address ecdsaFraudRouter) external onlyOwner {
-        bridge.setEcdsaFraudRouter(ecdsaFraudRouter);
+    function setEcdsaFraudRouter(
+        address ecdsaFraudRouter,
+        bytes32 expectedCodeHash
+    ) external onlyOwner {
+        bridge.setEcdsaFraudRouter(ecdsaFraudRouter, expectedCodeHash);
+    }
+
+    /// @notice Executes an owner-authorized cutover action. The payload schema
+    ///         is pinned by the selected action in `EcdsaFraudRouterCutover`.
+    function processEcdsaFraudCutoverOwnerAction(
+        uint8 action,
+        bytes calldata payload
+    ) external onlyOwner {
+        ecdsaFraudCutoverData.processOwnerAction(
+            address(bridge),
+            action,
+            payload,
+            governanceDelay(),
+            bridgeGovernanceTransferChangeInitiated != 0 ||
+                governanceDelays[1] != 0 ||
+                governanceDelays[2] != 0
+        );
+    }
+
+    /// @notice Executes an independently authorized confirmation or recovery
+    ///         action. The linked library authenticates the action's caller.
+    function processEcdsaFraudCutoverAuthorityAction(
+        uint8 action,
+        bytes calldata payload
+    ) external {
+        ecdsaFraudCutoverData.processAuthorityAction(
+            address(bridge),
+            action,
+            payload,
+            governanceDelay(),
+            bridgeGovernanceTransferChangeInitiated != 0 ||
+                governanceDelays[1] != 0 ||
+                governanceDelays[2] != 0
+        );
+    }
+
+    /// @notice Full on-chain readback of the active cutover commitment and
+    ///         phase. The record is cleared only by successful finalization;
+    ///         finalized commitments remain permanently indexed in events.
+    function ecdsaFraudCutoverReadiness()
+        external
+        view
+        returns (EcdsaFraudRouterCutover.Readiness memory readiness)
+    {
+        return ecdsaFraudCutoverData.readiness();
     }
 
     /// @notice Migrates a batch of legacy fraud challenges from
@@ -1861,14 +1930,21 @@ contract BridgeGovernance is Ownable {
         uint8 routerKind,
         uint256[] calldata challengeKeys
     ) external onlyOwner {
-        bridge.migrateLegacyFraudChallenges(routerKind, challengeKeys);
+        BridgeGovernanceParameters.migrateLegacyFraudChallenges(
+            address(bridge),
+            routerKind,
+            challengeKeys
+        );
     }
 
-    /// @notice Sets the P2TRSignatureFraudRouter sidecar address on
-    ///         the Bridge. Same one-off (no governance delay) pattern
-    ///         as `setEcdsaFraudRouter`.
-    function setP2TRFraudRouter(address p2trFraudRouter) external onlyOwner {
-        bridge.setP2TRFraudRouter(p2trFraudRouter);
+    function processTaprootOutputKeyCoverage(bytes calldata payload)
+        external
+        onlyOwner
+    {
+        BridgeGovernanceParameters.processTaprootOutputKeyCoverage(
+            address(bridge),
+            payload
+        );
     }
 
     /// @notice Sets the BridgeLifecycleRouter address. This function

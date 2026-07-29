@@ -126,7 +126,10 @@ contract FrostWalletRegistry is
     ///         Layered on top of the Bridge's own collision check
     ///         in `Wallets.registerNewFrostWallet`; mirrors the
     ///         pattern PR #435 uses for `fraudChallenges`.
-    mapping(bytes32 => bool) public registered; // xOnlyOutputKey -> true
+    /// @dev Keys exclusively represent permanently registered wallet IDs.
+    ///      Migration metadata is kept in dedicated wallet storage and must
+    ///      never enter this namespace because DKG submission consults it.
+    mapping(bytes32 => bool) public registered; // wallet ID -> true
 
     // Address that initiates wallet CREATION on the FROST registry.
     // Set to Bridge at initialize() time. Bridge calls
@@ -156,6 +159,8 @@ contract FrostWalletRegistry is
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     SortitionPool public immutable sortitionPool;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address internal immutable archiveMigrationImplementation;
     IRandomBeacon public randomBeacon;
 
     /// @notice Contract providing FROST operator authorization weights. The
@@ -196,6 +201,15 @@ contract FrostWalletRegistry is
     );
 
     event WalletClosed(bytes32 indexed walletID);
+
+    /// @notice Emitted when governance restores the membership commitment of
+    ///         a wallet closed before archive tombstones were introduced.
+    event WalletMembershipBackfilled(
+        bytes32 indexed walletID,
+        bytes32 membersIdsHash
+    );
+
+    event WalletArchiveMigrationCompleted(bytes32 indexed manifestHash);
 
     event DkgMaliciousResultSlashed(
         bytes32 indexed resultHash,
@@ -336,6 +350,15 @@ contract FrostWalletRegistry is
         _;
     }
 
+    /// @dev Freezes every DKG state transition while an upgraded proxy still
+    ///      lacks its validated archive manifest. This also stops a request
+    ///      that raced the proxy upgrade from advancing after the upgrade.
+    modifier onlyAfterArchiveMigration() {
+        // solhint-disable-next-line reason-string
+        require(wallets.isArchiveReady());
+        _;
+    }
+
     modifier onlyReimbursableAdmin() override {
         require(governance == msg.sender, "Caller is not the governance");
         _;
@@ -346,6 +369,7 @@ contract FrostWalletRegistry is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(SortitionPool _sortitionPool) {
         sortitionPool = _sortitionPool;
+        archiveMigrationImplementation = address(this);
 
         _disableInitializers();
     }
@@ -453,6 +477,10 @@ contract FrostWalletRegistry is
         _notifyOperatorInactivityGasOffset = 93_000;
         _notifySeedTimeoutGasOffset = 7_250;
         _notifyDkgTimeoutNegativeGasOffset = 2_300;
+
+        // Fresh proxies have no legacy-loss history. Mark them atomically so
+        // fresh and migrated completion remain distinguishable on chain.
+        Inactivity.initializeFreshArchive(wallets);
     }
 
     /// @notice Wires the FROST operator authorization source. Authorization
@@ -469,6 +497,20 @@ contract FrostWalletRegistry is
         );
         authorizationSource = IFrostAuthorizationSource(_authorizationSource);
         emit AuthorizationSourceUpdated(_authorizationSource);
+    }
+
+    /// @notice Enters the frozen archive phase atomically with the proxy
+    ///         upgrade. This call is authorized against the EIP-1967 admin.
+    function initializeArchiveMigration(bytes calldata encodedStart)
+        external
+        reinitializer(3)
+    {
+        Inactivity.beginArchiveMigration(
+            wallets,
+            governance,
+            archiveMigrationImplementation,
+            encodedStart
+        );
     }
 
     /// @notice Withdraws application rewards for the given staking provider.
@@ -840,7 +882,11 @@ contract FrostWalletRegistry is
     ///      fast here forces the activation sequence to wire
     ///      lifecycle ownership BEFORE any FROST wallets exist.
     ///      (Per PR #441 follow-up review.)
-    function requestNewWallet() external onlyWalletOwner {
+    function requestNewWallet()
+        external
+        onlyWalletOwner
+        onlyAfterArchiveMigration
+    {
         if (lifecycleOwner == address(0)) {
             revert LifecycleOwnerNotSet();
         }
@@ -866,11 +912,12 @@ contract FrostWalletRegistry is
     ///         generated. It starts the DKG process.
     /// @dev Can be called only by the random beacon contract.
     /// @param relayEntry Relay entry.
-    function __beaconCallback(uint256 relayEntry, uint256) external {
-        require(
-            msg.sender == address(randomBeacon),
-            "Caller is not the Random Beacon"
-        );
+    function __beaconCallback(uint256 relayEntry, uint256)
+        external
+        onlyAfterArchiveMigration
+    {
+        // solhint-disable-next-line reason-string
+        require(msg.sender == address(randomBeacon));
 
         dkg.start(relayEntry);
     }
@@ -903,20 +950,11 @@ contract FrostWalletRegistry is
     ///      `address registry` parameters so the digest binds correctly
     ///      across deployments.
     /// @param dkgResult DKG result.
-    function submitDkgResult(DKG.Result calldata dkgResult) external {
-        // RFC v4 delta #4: fail-fast on already-registered keys.
-        // Without this top-of-function check, a valid-but-stale
-        // result could enter the challenge window and lock the
-        // DKG state machine until timeout (the result is "valid"
-        // per the validator so there's no challenge basis, but
-        // `approveDkgResult` would revert downstream on
-        // `wallets.validateXOnlyOutputKey`).
-        require(
-            !registered[dkgResult.xOnlyOutputKey],
-            "FROST wallet already registered"
-        );
-        wallets.validateXOnlyOutputKey(dkgResult.xOnlyOutputKey);
-        dkg.submitResult(dkgResult);
+    function submitDkgResult(DKG.Result calldata dkgResult)
+        external
+        onlyAfterArchiveMigration
+    {
+        Inactivity.submitDkgResult(dkg, wallets, registered, dkgResult);
     }
 
     /// @notice Approves DKG result. Can be called when the challenge period for
@@ -929,7 +967,10 @@ contract FrostWalletRegistry is
     ///         A new wallet based on the DKG result details.
     /// @param dkgResult Result to approve. Must match the submitted result
     ///        stored during `submitDkgResult`.
-    function approveDkgResult(DKG.Result calldata dkgResult) external {
+    function approveDkgResult(DKG.Result calldata dkgResult)
+        external
+        onlyAfterArchiveMigration
+    {
         // Defense-in-depth: `requestNewWallet` already checks
         // `lifecycleOwner != 0` before locking DKG, so by the
         // time a result is approved, lifecycle should be wired.
@@ -941,50 +982,24 @@ contract FrostWalletRegistry is
         if (lifecycleOwner == address(0)) {
             revert LifecycleOwnerNotSet();
         }
-        uint256 gasStart = gasleft();
-        uint32[] memory misbehavedMembers = dkg.approveResult(dkgResult);
-
-        bytes32 walletID = wallets.addWallet(
-            dkgResult.membersHash,
-            dkgResult.xOnlyOutputKey
-        );
-
-        // RFC v4 delta #4: set the defensive-guard flag at the
-        // same time the wallet is added to storage; subsequent
-        // `submitDkgResult` calls for the same key fail-fast.
-        registered[dkgResult.xOnlyOutputKey] = true;
-
-        emit WalletCreated(walletID, keccak256(abi.encode(dkgResult)));
-
-        if (misbehavedMembers.length > 0) {
-            sortitionPool.setRewardIneligibility(
-                misbehavedMembers,
-                // solhint-disable-next-line not-rely-on-time
-                block.timestamp + _sortitionPoolRewardsBanDuration
-            );
-        }
-
-        // RFC v4 delta #3: FROST callback shape. The Bridge callback
-        // receives only the x-only output key; the FROST DKG output has
-        // no y-coordinate and the walletID is the key itself (see
-        // `IFrostWalletOwner.__frostWalletCreatedCallback`).
-        walletOwner.__frostWalletCreatedCallback(dkgResult.xOnlyOutputKey);
-
-        dkg.complete();
-
-        // Refund msg.sender's ETH for DKG result submission and result approval
-        reimbursementPool.refund(
-            _dkgResultSubmissionGas +
-                (gasStart - gasleft()) +
-                _dkgResultApprovalGasOffset,
-            msg.sender
+        Inactivity.approveDkgResult(
+            dkg,
+            wallets,
+            registered,
+            sortitionPool,
+            walletOwner,
+            reimbursementPool,
+            _sortitionPoolRewardsBanDuration,
+            _dkgResultSubmissionGas,
+            _dkgResultApprovalGasOffset,
+            dkgResult
         );
     }
 
     /// @notice Notifies about seed for DKG delivery timeout. It is expected
     ///         that a seed is delivered by the Random Beacon as a relay entry in a
     ///         callback function.
-    function notifySeedTimeout() external {
+    function notifySeedTimeout() external onlyAfterArchiveMigration {
         uint256 gasStart = gasleft();
 
         dkg.notifySeedTimeout();
@@ -996,7 +1011,7 @@ contract FrostWalletRegistry is
     }
 
     /// @notice Notifies about DKG timeout.
-    function notifyDkgTimeout() external {
+    function notifyDkgTimeout() external onlyAfterArchiveMigration {
         uint256 gasStart = gasleft();
 
         dkg.notifyDkgTimeout();
@@ -1020,7 +1035,10 @@ contract FrostWalletRegistry is
     ///      attacks related to the gas limit manipulation, this function
     ///      requires an extra amount of gas to be left at the end of the
     ///      execution.
-    function challengeDkgResult(DKG.Result calldata dkgResult) external {
+    function challengeDkgResult(DKG.Result calldata dkgResult)
+        external
+        onlyAfterArchiveMigration
+    {
         // solhint-disable-next-line avoid-tx-origin
         require(msg.sender == tx.origin, "Not EOA");
 
@@ -1106,7 +1124,9 @@ contract FrostWalletRegistry is
         require(nonce == inactivityClaimNonce[walletID], "Invalid nonce");
 
         bytes32 xOnlyOutputKey = wallets.getWalletXOnlyOutputKey(walletID);
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
+        bytes32 memberIdsHash = wallets.getRetainedWalletMembersIdsHash(
+            walletID
+        );
 
         require(
             memberIdsHash == keccak256(abi.encode(groupMembers)),
@@ -1158,29 +1178,16 @@ contract FrostWalletRegistry is
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external onlyLifecycleOwner {
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
-        require(
-            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
-            "Invalid wallet members identifiers"
-        );
-
-        address[] memory groupMembersAddresses = sortitionPool.getIDOperators(
-            walletMembersIDs
-        );
-        address[] memory stakingProvidersAddresses = new address[](
-            walletMembersIDs.length
-        );
-        for (uint256 i = 0; i < groupMembersAddresses.length; i++) {
-            stakingProvidersAddresses[i] = operatorToStakingProvider(
-                groupMembersAddresses[i]
-            );
-        }
-
-        _currentAuthorizationSource().reportMaliciousBehavior(
+        Inactivity.seize(
+            wallets,
+            authorization,
+            sortitionPool,
+            _currentAuthorizationSource(),
             amount,
             rewardMultiplier,
             notifier,
-            stakingProvidersAddresses
+            walletID,
+            walletMembersIDs
         );
     }
 
@@ -1225,24 +1232,15 @@ contract FrostWalletRegistry is
         address operator,
         uint256 walletMemberIndex
     ) external view returns (bool) {
-        uint32 operatorID = sortitionPool.getOperatorID(operator);
-
-        require(operatorID != 0, "Not a sortition pool operator");
-
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
-
-        require(
-            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
-            "Invalid wallet members identifiers"
-        );
-
-        require(
-            1 <= walletMemberIndex &&
-                walletMemberIndex <= walletMembersIDs.length,
-            "Wallet member index is out of range"
-        );
-
-        return walletMembersIDs[walletMemberIndex - 1] == operatorID;
+        return
+            Inactivity.isWalletMember(
+                wallets,
+                sortitionPool,
+                walletID,
+                walletMembersIDs,
+                operator,
+                walletMemberIndex
+            );
     }
 
     /// @notice Checks if awaiting seed timed out.
@@ -1266,6 +1264,125 @@ contract FrostWalletRegistry is
         returns (FrostRegistryWallets.Wallet memory)
     {
         return wallets.registry[walletID];
+    }
+
+    /// @notice Returns an active or archived wallet membership commitment.
+    /// @dev This explicit historical accessor must only be used by settlement,
+    ///      conflict, and recovery paths. It must not authorize new work.
+    function getRetainedWalletMembersIdsHash(bytes32 walletID)
+        external
+        view
+        returns (bytes32)
+    {
+        return Inactivity.getRetainedWalletMembersIdsHash(wallets, walletID);
+    }
+
+    /// @notice Returns the signed archive migration manifest root.
+    /// @dev Zero means migration has not been finalized and wallet creation is
+    ///      blocked. The root lives outside the permanent wallet-ID namespace.
+    function getWalletArchiveMigrationManifestHash()
+        external
+        view
+        returns (bytes32)
+    {
+        return wallets.archiveMigrationManifestHash;
+    }
+
+    /// @notice Commits the independently signed canonical legacy-loss set.
+    function commitArchiveMigrationManifest(bytes calldata encodedCommit)
+        external
+    {
+        Inactivity.commitArchiveMigrationManifest(
+            wallets,
+            governance,
+            encodedCommit
+        );
+    }
+
+    /// @notice Restores one proven legacy tombstone. Proof submission is
+    ///         permissionless; the signed root fixes the only accepted values.
+    function backfillArchivedWalletMembership(
+        uint256 index,
+        bytes32 walletID,
+        bytes32 dkgResultHash,
+        bytes32 membersIdsHash,
+        bytes32[] calldata proof
+    ) external {
+        Inactivity.backfillArchivedWalletMembership(
+            wallets,
+            registered,
+            index,
+            walletID,
+            dkgResultHash,
+            membersIdsHash,
+            proof
+        );
+    }
+
+    /// @notice Completes migration only after every indexed proof was applied.
+    function finalizeArchiveMigration() external {
+        Inactivity.finalizeArchiveMigration(wallets, dkg);
+    }
+
+    /// @notice Returns the complete resumable migration state.
+    function getWalletArchiveMigration()
+        external
+        view
+        returns (
+            FrostRegistryWallets.ArchiveMigrationState state,
+            address authority,
+            uint256 upgradeBlockNumber,
+            bytes32 oldImplementationCodeHash,
+            bytes32 newImplementationCodeHash,
+            bytes32 walletsRoot,
+            bytes32 historyRoot,
+            bytes32 pendingManifestHash,
+            uint256 expectedCount,
+            uint256 completedCount,
+            bytes32 checkpointHash,
+            uint256 checkpointBlockNumber,
+            uint256 maxTailBlocks
+        )
+    {
+        return (
+            wallets.archiveMigrationState,
+            wallets.archiveMigrationAuthority,
+            wallets.archiveMigrationUpgradeBlock,
+            wallets.archiveMigrationOldImplementationCodeHash,
+            wallets.archiveMigrationNewImplementationCodeHash,
+            wallets.archiveMigrationMerkleRoot,
+            wallets.archiveMigrationHistoryRoot,
+            wallets.archiveMigrationPendingManifestHash,
+            wallets.archiveMigrationExpectedCount,
+            wallets.archiveMigrationCompletedCount,
+            wallets.archiveMigrationCheckpointHash,
+            wallets.archiveMigrationCheckpointBlock,
+            wallets.archiveMigrationMaxTailBlocks
+        );
+    }
+
+    /// @notice Returns the immutable dual-source checkpoint attestation state.
+    function getWalletArchiveAttestations()
+        external
+        view
+        returns (bytes memory encodedAttestations)
+    {
+        return Inactivity.getArchiveAttestations(wallets);
+    }
+
+    /// @notice Returns the role-separated attestations over the final tail.
+    function getWalletArchiveFinalAttestations()
+        external
+        view
+        returns (
+            bytes32 sourceAttestationHash,
+            bytes32 reconcilerAttestationHash
+        )
+    {
+        return (
+            wallets.archiveMigrationFinalSourceAttestationHash,
+            wallets.archiveMigrationFinalReconcilerAttestationHash
+        );
     }
 
     /// @notice Gets the FROST x-only Taproot output key (BIP-340)

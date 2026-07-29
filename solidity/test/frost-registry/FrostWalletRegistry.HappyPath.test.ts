@@ -4,6 +4,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
 import chai, { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import type {
   Bridge,
   BridgeStub,
@@ -18,6 +19,7 @@ import {
   registerOperators,
   selectFrostGroup,
 } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -48,6 +50,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
   let frostSortitionPool: any
+  let frostAllowlist: any
   let randomBeacon: any
   let operators: Awaited<ReturnType<typeof registerOperators>>
 
@@ -56,22 +59,10 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await loadFixture(bridgeFixture))
 
-    // This suite deliberately exercises the registry -> Bridge FROST callback.
-    // Install the handshake-only COMPLETE_V2 test stub explicitly so the test
-    // never depends on whichever bounded production router another full-suite
-    // fixture left in Bridge storage. The stub is not a functional fraud router
-    // and is never used by deployment code.
-    const CompleteP2TRFraudRouterFactory = await ethers.getContractFactory(
-      "HandshakeOnlyCompleteP2TRSignatureFraudRouterStub",
-      deployer
-    )
-    const completeP2TRFraudRouter = await CompleteP2TRFraudRouterFactory.deploy(
-      bridge.address
-    )
-    await completeP2TRFraudRouter.deployed()
-    await bridge.resetP2TRFraudRouterForTest(completeP2TRFraudRouter.address)
+    // `bridgeFixture` installs the concrete COMPLETE_V2 router and immutable
+    // reservation registry required by the FROST activation handshake.
 
     const t = await deployments.get("T")
 
@@ -153,6 +144,21 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
 
+    // Swapping the Bridge's FROST registry orphans the authorization registry
+    // `bridgeFixture` installed -- its `frostRegistry` is immutable -- so
+    // `Wallets.requireCompleteP2TRFraudEvidence` fails closed and wallet
+    // registration reverts with P2TRFraudEvidenceUnavailable() before reaching
+    // what this suite asserts. Rebind the pair to the local registry.
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostWalletRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      deployer,
+      ethers
+    )
+
     // Bridge-side callback guard requires the registry lifecycle owner
     // to match Bridge.lifecycleRouter. The deploy chain sets the
     // one-time router slot before this test deploys a fresh registry,
@@ -175,8 +181,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       dkgParams.resultSubmissionTimeout,
       dkgParams.submitterPrecedencePeriodLength
     )
-
-    const [frostAllowlist] = await helpers.upgrades.deployProxy(
+    ;[frostAllowlist] = await helpers.upgrades.deployProxy(
       "FrostAllowlistHappyPathTest",
       {
         contractName: "FrostAllowlist",
@@ -442,5 +447,57 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
         .connect(submitter)
         .notifyOperatorInactivity(heartbeatClaim, 0, groupMemberIds)
     ).to.be.revertedWith("Invalid nonce")
+
+    // Active membership may authorize protocol work, but closing the wallet
+    // must immediately remove that authority while retaining the immutable
+    // commitment for delayed settlement/conflict/recovery paths.
+    expect(
+      await frostWalletRegistry.isWalletMember(
+        xOnlyOutputKey,
+        groupMemberIds,
+        submitter.address,
+        1
+      )
+    ).to.equal(true)
+
+    await frostWalletRegistry.connect(deployer).closeWallet(xOnlyOutputKey)
+
+    const activeWallet = await frostWalletRegistry.getWallet(xOnlyOutputKey)
+    expect(activeWallet.membersIdsHash).to.equal(ethers.constants.HashZero)
+    expect(activeWallet.xOnlyOutputKey).to.equal(ethers.constants.HashZero)
+
+    expect(
+      await frostWalletRegistry.getRetainedWalletMembersIdsHash(xOnlyOutputKey)
+    ).to.equal(
+      ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(["uint32[]"], [groupMemberIds])
+      )
+    )
+    expect(
+      await frostWalletRegistry.isWalletRegistered(xOnlyOutputKey)
+    ).to.equal(false)
+
+    await expect(
+      frostWalletRegistry.isWalletMember(
+        xOnlyOutputKey,
+        groupMemberIds,
+        submitter.address,
+        1
+      )
+    ).to.be.reverted
+
+    const wrongGroupMemberIds = [...groupMemberIds]
+    wrongGroupMemberIds[0] += 1
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .seize(0, 0, deployer.address, xOnlyOutputKey, wrongGroupMemberIds)
+    ).to.be.revertedWith("Invalid wallet members identifiers")
+
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .seize(0, 0, deployer.address, xOnlyOutputKey, groupMemberIds)
+    ).to.emit(frostAllowlist, "MaliciousBehaviorIdentified")
   })
 })

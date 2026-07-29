@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, waffle, helpers } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import type {
@@ -10,7 +10,9 @@ import type {
   FrostWalletRegistryStub,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import { walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const frostXOnlyOutputKey =
   "0xb1de1afa17e1cbb20d8a4f8e54f8a55fbf5c8d2da9e1c6c4d1f0c7b3a2e5d4c8"
@@ -64,7 +66,7 @@ describe("BridgeLifecycleRouter", () => {
   let walletPubKeyHash: string
 
   beforeEach(async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     thirdParty = fixture.thirdParty
     governance = fixture.governance
     bridge = fixture.bridge
@@ -86,6 +88,20 @@ describe("BridgeLifecycleRouter", () => {
     await router.deployed()
 
     await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+    // The bridge fixture installs a COMPLETE_V2 router whose authorization
+    // registry has an immutable `frostRegistry` pointing at the canonical
+    // FrostWalletRegistry. Swapping the Bridge's registry above breaks that
+    // handshake, so FROST wallet registration would fail closed with
+    // P2TRFraudEvidenceUnavailable() before reaching what these tests assert.
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      fixture.deployer,
+      ethers
+    )
     await bridge.resetLifecycleRouterForTest(router.address)
     await frostRegistry.setLifecycleOwner(router.address)
     await frostRegistry.callBridgeFrostWalletCreatedCallback(

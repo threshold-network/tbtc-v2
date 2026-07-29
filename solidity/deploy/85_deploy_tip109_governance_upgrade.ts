@@ -219,6 +219,8 @@ function buildVerificationChecks(addresses: {
   walletsLib: string
   fraudLib: string
   movingFundsLib: string
+  p2trPreSigningLib: string
+  p2trReservationLib: string
 }): VerificationCheck[] {
   return [
     {
@@ -235,10 +237,16 @@ function buildVerificationChecks(addresses: {
         `${addresses.depositSweepLib.slice(2).toLowerCase()} (DepositSweep), ` +
         `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption), ` +
         `${addresses.walletsLib.slice(2).toLowerCase()} (Wallets), ` +
-        `${addresses.fraudLib.slice(2).toLowerCase()} (Fraud), and ` +
-        `${addresses.movingFundsLib.slice(2).toLowerCase()} (MovingFunds)`,
+        `${addresses.fraudLib.slice(2).toLowerCase()} (Fraud), ` +
+        `${addresses.movingFundsLib.slice(2).toLowerCase()} (MovingFunds), ` +
+        `${addresses.p2trPreSigningLib
+          .slice(2)
+          .toLowerCase()} (P2TRPreSigning), and ` +
+        `${addresses.p2trReservationLib
+          .slice(2)
+          .toLowerCase()} (P2TRReservation)`,
       description:
-        "Bridge implementation bytecode should contain embedded addresses of all six current Bridge libraries",
+        "Bridge implementation bytecode should contain embedded addresses of all eight current Bridge libraries",
     },
     {
       command: `cast call ${addresses.bridgeProxy} "deposits(uint256)(bytes32,uint32,uint64,uint32,address,uint32)" <sample_deposit_key>`,
@@ -331,15 +339,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // The implementation is compiled from the current checkout, so every
   // external library must be deployed from the same source before linking.
   console.log("\n--- Deploying current Bridge libraries ---")
+  const P2TRReservation = await deploy("P2TRReservation", deployOptions)
+  const P2TRPreSigning = await deploy("P2TRPreSigning", deployOptions)
+  const p2trReservationLinkedOptions: DeployOptions = {
+    ...deployOptions,
+    libraries: { P2TRReservation: P2TRReservation.address },
+  }
   const Deposit = await deploy("Deposit", deployOptions)
-  const DepositSweep = await deploy("DepositSweep", deployOptions)
-  const Redemption = await deploy("Redemption", deployOptions)
+  const DepositSweep = await deploy(
+    "DepositSweep",
+    p2trReservationLinkedOptions
+  )
+  const Redemption = await deploy("Redemption", p2trReservationLinkedOptions)
   const Wallets = await deploy("Wallets", {
     contract: "contracts/bridge/Wallets.sol:Wallets",
-    ...deployOptions,
+    ...p2trReservationLinkedOptions,
   })
   const Fraud = await deploy("Fraud", deployOptions)
-  const MovingFunds = await deploy("MovingFunds", deployOptions)
+  const MovingFunds = await deploy("MovingFunds", p2trReservationLinkedOptions)
 
   // --- Step 3: Deploy Bridge implementation ---
   // Uses a distinct artifact name to avoid overwriting the existing Bridge
@@ -353,6 +370,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
+    P2TRPreSigning: P2TRPreSigning.address,
+    P2TRReservation: P2TRReservation.address,
   }
 
   const bridgeImpl = await deploy("BridgeTIP109Implementation", {
@@ -360,6 +379,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     contract: "Bridge",
     skipIfAlreadyDeployed: false,
     libraries: bridgeLibraries,
+    args: [ethers.constants.AddressZero],
   })
 
   // --- Step 4: Deploy RebateStaking implementation ---
@@ -382,6 +402,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  Wallets library:              ${Wallets.address}`)
   console.log(`  Fraud library:                ${Fraud.address}`)
   console.log(`  MovingFunds library:          ${MovingFunds.address}`)
+  console.log(`  P2TRPreSigning library:       ${P2TRPreSigning.address}`)
+  console.log(`  P2TRReservation library:      ${P2TRReservation.address}`)
   console.log(`  Bridge implementation:        ${bridgeImpl.address}`)
   console.log(`  RebateStaking implementation: ${rebateImpl.address}`)
   console.log("-".repeat(80))
@@ -554,6 +576,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       walletsLib: Wallets.address,
       fraudLib: Fraud.address,
       movingFundsLib: MovingFunds.address,
+      p2trPreSigningLib: P2TRPreSigning.address,
+      p2trReservationLib: P2TRReservation.address,
     }),
   }
 

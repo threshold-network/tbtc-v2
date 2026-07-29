@@ -1,5 +1,5 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -21,6 +21,7 @@ import {
   SingleP2SHDeposit,
   SingleP2SHDepositWalletID,
 } from "../data/deposit-sweep"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
@@ -74,7 +75,7 @@ describe("TBTCVault - OptimisticMinting", () => {
       bridgeGovernance,
       tbtcVault,
       tbtc,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.

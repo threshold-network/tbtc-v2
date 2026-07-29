@@ -6,6 +6,7 @@ import { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
 import type { Bridge, BridgeStub, IRandomBeacon } from "../../typechain"
 import { deriveFundedOperatorWallets } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
 
 let testDeploymentCounter = 0
 
@@ -54,9 +55,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     testDeploymentCounter += 1
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, thirdParty, bridge } = await waffle.loadFixture(
-      bridgeFixture
-    ))
+    ;({ deployer, thirdParty, bridge } = await loadFixture(bridgeFixture))
 
     const t = await deployments.get("T")
     const reimbursementPool = await deployments.get("ReimbursementPool")

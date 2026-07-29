@@ -2,6 +2,11 @@ import { artifacts, run } from "hardhat"
 import { expect } from "chai"
 import fs from "fs"
 import path from "path"
+import { ethers } from "ethers"
+import {
+  BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT,
+  BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
+} from "../../scripts/ecdsa-fraud-router-cutover-lib"
 
 // Storage-layout invariant test.
 //
@@ -88,7 +93,13 @@ describe("Bridge storage layout invariant", () => {
   // active. The build-info API resolves the same way regardless.
   let layout: StorageLayout
 
-  before(async () => {
+  before(async function compileBridgeStorageLayout() {
+    // A clean storage-layout compilation can exceed the suite-wide 60 second
+    // timeout on CI because solc must emit build info for the complete Bridge
+    // dependency graph. Keep the invariant self-contained without making a
+    // successful clean compile look like a layout failure.
+    this.timeout(180_000)
+
     // Ensure contracts are compiled in the current run. Hardhat
     // normally runs `compile` before `test`, but the formal-invariants
     // task can be invoked with `--no-compile`; explicit compile keeps
@@ -251,10 +262,11 @@ describe("Bridge storage layout invariant", () => {
     // WITHOUT taking a new slot. No `__gap` decrement; the member+gap
     // total grows by 1 (106 → 107).
     //
-    // Taproot deposit fraud verification appends the
-    // `taprootDepositOutputKeyCommitments` mapping in slot 38 and reduces
-    // `__gap` from 40 to 39. The explicit-member + gap total remains 107.
-    const EXPECTED_RESERVED_TOTAL = 107
+    // The Taproot commitment, ECDSA cutover, and COMPLETE_V2 coverage fields
+    // occupy slots 38 through 53 and reduce `__gap` to 24. Three pairs/groups
+    // of packed fields add three explicit members without consuming extra
+    // slots, so the explicit-member + gap total grows from 107 to 110.
+    const EXPECTED_RESERVED_TOTAL = 110
 
     const explicitMemberCount = selfType.members!.length - 1
     const expectedGapSize = EXPECTED_RESERVED_TOTAL - explicitMemberCount
@@ -268,6 +280,40 @@ describe("Bridge storage layout invariant", () => {
       gapType.label,
       `__gap should be uint256[${expectedGapSize}] (explicit fields = ${explicitMemberCount}, reserved total = ${EXPECTED_RESERVED_TOTAL})`
     ).to.equal(`uint256[${expectedGapSize}]`)
+
+    // Member counts are packing-sensitive, so independently pin the physical
+    // end of the struct. The first reserved slot plus the exact array length
+    // must remain 78, and solc must report the corresponding 2,496 bytes.
+    expect(Number(gap!.slot) + expectedGapSize).to.equal(78)
+    expect(selfType.numberOfBytes).to.equal("2496")
+  })
+
+  it("pins the legacy fraud mapping slot used by the canonical reconciler", () => {
+    const selfVar = layout.storage.find((entry) => entry.label === "self")
+    expect(selfVar, "Bridge.self storage variable missing").to.exist
+    const selfType = layout.types[selfVar!.type]
+    const fraudChallenges = selfType.members?.find(
+      (member) => member.label === "fraudChallenges"
+    )
+    expect(fraudChallenges, "BridgeState.fraudChallenges mapping missing").to
+      .exist
+
+    const selfSlot = Number(selfVar!.slot)
+    const relativeSlot = Number(fraudChallenges!.slot)
+    expect(selfSlot).to.equal(BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT.bridgeSelfSlot)
+    expect(relativeSlot).to.equal(
+      BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT.fraudChallengesRelativeSlot
+    )
+    expect(selfSlot + relativeSlot).to.equal(
+      BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT.fraudChallengesAbsoluteSlot
+    )
+    expect(
+      ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes(
+          JSON.stringify(BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT)
+        )
+      )
+    ).to.equal(BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH)
   })
 })
 

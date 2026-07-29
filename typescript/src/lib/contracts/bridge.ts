@@ -530,6 +530,18 @@ export enum WalletState {
    * any actions in the Bridge.
    */
   Terminated = 5,
+  /**
+   * An unresolved P2TR signature-fraud challenge temporarily blocks every
+   * wallet action. The wallet's exact prior state is restored only after its
+   * final challenge is defeated.
+   */
+  Quarantined = 6,
+  /**
+   * An SPV-authenticated transaction conflicted with a pre-signing reservation.
+   * Automated wallet state transitions stop until an explicit recovery
+   * procedure is executed.
+   */
+  RecoveryRequired = 7,
 }
 /* eslint-enable no-unused-vars */
 

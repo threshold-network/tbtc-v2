@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { smock } from "@defi-wonderland/smock"
@@ -20,6 +20,7 @@ import {
 } from "../data/fraud"
 import { constants, ecdsaDkgState, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -81,7 +82,7 @@ describe("Bridge - Wallets", () => {
       bridge,
       bridgeGovernance,
       ecdsaFraudRouter,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
   })
 
   describe("requestNewWallet", () => {

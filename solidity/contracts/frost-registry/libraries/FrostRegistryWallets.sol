@@ -35,6 +35,20 @@ library FrostRegistryWallets {
     error XOnlyOutputKeyIsLegacyAlias();
     error XOnlyOutputKeyAlreadyRegistered();
     error WalletNotRegistered();
+    error WalletMembersIdsHashIsZero();
+    error WalletWasNeverRegistered();
+    error WalletStillRegistered();
+    error WalletAlreadyArchived();
+    error WalletArchiveMigrationAlreadyCompleted();
+    error WalletArchiveMigrationNotReady();
+
+    enum ArchiveMigrationState {
+        Uninitialized,
+        Pending,
+        ManifestCommitted,
+        Completed,
+        Fresh
+    }
 
     struct Wallet {
         // Keccak256 hash of group members identifiers array. Group members
@@ -53,10 +67,52 @@ library FrostRegistryWallets {
     struct Data {
         // Mapping of walletID (== xOnlyOutputKey) to wallet details.
         mapping(bytes32 => Wallet) registry;
+        // Immutable tombstones for wallets removed from the active registry.
+        // Membership commitments must remain available after lifecycle close
+        // so delayed Bitcoin proofs and recovery obligations can still bind to
+        // the wallet's original signing group. An archived wallet ID can never
+        // be registered again.
+        mapping(bytes32 => Wallet) archived;
+        // Existing proxies read zero after the archive implementation is
+        // installed. Fresh deployments and fully verified historical
+        // migrations store their signed manifest root before new wallet work
+        // is permitted. A non-zero root is the completion sentinel.
+        bytes32 archiveMigrationManifestHash;
+        // Independent authority attesting the canonical legacy-loss manifest.
+        // Packed with the upgrade block and state in one slot.
+        address archiveMigrationAuthority;
+        uint64 archiveMigrationUpgradeBlock;
+        ArchiveMigrationState archiveMigrationState;
+        bytes32 archiveMigrationOldImplementationCodeHash;
+        bytes32 archiveMigrationNewImplementationCodeHash;
+        bytes32 archiveMigrationMerkleRoot;
+        bytes32 archiveMigrationHistoryRoot;
+        bytes32 archiveMigrationPendingManifestHash;
+        uint256 archiveMigrationExpectedCount;
+        uint256 archiveMigrationCompletedCount;
+        mapping(uint256 => uint256) archiveMigrationClaimedBitMap;
+        bytes32 archiveMigrationCheckpointHash;
+        uint64 archiveMigrationCheckpointBlock;
+        uint32 archiveMigrationMaxTailBlocks;
+        uint64 archiveMigrationUpgradeDeadlineBlock;
+        address archiveMigrationSourceAttester;
+        address archiveMigrationReconcilerAttester;
+        bytes32 archiveMigrationSourceAttestationHash;
+        bytes32 archiveMigrationReconcilerAttestationHash;
+        bytes32 archiveMigrationSourceIdentityHash;
+        bytes32 archiveMigrationSourceEndpointIdentityHash;
+        bytes32 archiveMigrationSourceTrustDomainHash;
+        bytes32 archiveMigrationSourceEndpointPolicyHash;
+        bytes32 archiveMigrationReconcilerIdentityHash;
+        bytes32 archiveMigrationReconcilerEndpointIdentityHash;
+        bytes32 archiveMigrationReconcilerTrustDomainHash;
+        bytes32 archiveMigrationReconcilerEndpointPolicyHash;
+        bytes32 archiveMigrationFinalSourceAttestationHash;
+        bytes32 archiveMigrationFinalReconcilerAttestationHash;
         // Reserved storage space in case we need to add more variables.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        uint256[22] __gap;
     }
 
     /// @notice Performs preliminary validation of a new FROST wallet's
@@ -87,7 +143,10 @@ library FrostRegistryWallets {
         if (bytes12(xOnlyOutputKey) == bytes12(0)) {
             revert XOnlyOutputKeyIsLegacyAlias();
         }
-        if (self.registry[xOnlyOutputKey].xOnlyOutputKey != bytes32(0)) {
+        if (
+            self.registry[xOnlyOutputKey].xOnlyOutputKey != bytes32(0) ||
+            self.archived[xOnlyOutputKey].xOnlyOutputKey != bytes32(0)
+        ) {
             revert XOnlyOutputKeyAlreadyRegistered();
         }
     }
@@ -112,10 +171,50 @@ library FrostRegistryWallets {
     /// @notice Deletes a wallet with the given ID from the registry.
     /// @dev Reverts if the wallet is not registered.
     function deleteWallet(Data storage self, bytes32 walletID) internal {
-        if (!isWalletRegistered(self, walletID)) {
+        Wallet storage wallet = self.registry[walletID];
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
             revert WalletNotRegistered();
         }
+
+        self.archived[walletID] = wallet;
         delete self.registry[walletID];
+    }
+
+    function isArchiveReady(Data storage self) internal view returns (bool) {
+        return
+            self.archiveMigrationState == ArchiveMigrationState.Completed ||
+            self.archiveMigrationState == ArchiveMigrationState.Fresh;
+    }
+
+    /// @notice Restores the membership commitment of a wallet closed by an
+    ///         implementation deployed before archive tombstones existed.
+    /// @dev `registered` is the permanent registry-level record written when
+    ///      DKG approval first created the wallet. It prevents governance from
+    ///      manufacturing historical wallets. The caller must independently
+    ///      reconstruct and verify `membersIdsHash` from canonical DKG events.
+    function backfillArchivedWalletMembership(
+        Data storage self,
+        mapping(bytes32 => bool) storage registered,
+        bytes32 walletID,
+        bytes32 membersIdsHash
+    ) internal {
+        if (membersIdsHash == bytes32(0)) {
+            revert WalletMembersIdsHashIsZero();
+        }
+        if (!registered[walletID]) {
+            revert WalletWasNeverRegistered();
+        }
+        if (self.registry[walletID].xOnlyOutputKey != bytes32(0)) {
+            revert WalletStillRegistered();
+        }
+        if (self.archived[walletID].xOnlyOutputKey != bytes32(0)) {
+            revert WalletAlreadyArchived();
+        }
+
+        self.archived[walletID] = Wallet({
+            membersIdsHash: membersIdsHash,
+            xOnlyOutputKey: walletID
+        });
     }
 
     /// @notice Checks if a wallet with the given ID is registered.
@@ -138,6 +237,22 @@ library FrostRegistryWallets {
             revert WalletNotRegistered();
         }
         return self.registry[walletID].membersIdsHash;
+    }
+
+    /// @notice Returns the members commitment for an active or archived
+    ///         wallet. Reverts if the wallet ID has never been registered.
+    function getRetainedWalletMembersIdsHash(
+        Data storage self,
+        bytes32 walletID
+    ) internal view returns (bytes32) {
+        Wallet storage wallet = self.registry[walletID];
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
+            wallet = self.archived[walletID];
+        }
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
+            revert WalletNotRegistered();
+        }
+        return wallet.membersIdsHash;
     }
 
     /// @notice Returns the FROST x-only output key for a registered

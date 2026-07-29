@@ -20,6 +20,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./P2TRReservation.sol";
 import "./RebateStaking.sol";
 import "./Wallets.sol";
 
@@ -469,6 +470,8 @@ library Redemption {
             walletPubKeyHash
         ];
 
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
+
         require(
             wallet.state == Wallets.WalletState.Live,
             "Wallet must be in Live state"
@@ -654,6 +657,36 @@ library Redemption {
             redemptionProof
         );
 
+        {
+            bytes32[] memory additionalResources = new bytes32[](0);
+            P2TRReservation.ProofSettlement memory settlement = P2TRReservation
+                .settleProof(
+                    self,
+                    redemptionTxHash,
+                    2,
+                    walletPubKeyHash,
+                    P2TRReservation.proofResources(
+                        redemptionTx.inputVector,
+                        additionalResources
+                    )
+                );
+            if (
+                settlement.disposition ==
+                P2TRReservation.ProofDisposition.Conflicted
+            ) return;
+        }
+        P2TRReservation.requireProofWalletState(
+            self,
+            redemptionTxHash,
+            walletPubKeyHash,
+            2
+        );
+        P2TRReservation.requireProofWalletUnlocked(
+            self,
+            redemptionTxHash,
+            walletPubKeyHash
+        );
+
         Wallets.Wallet storage wallet = resolveRedeemingWallet(
             self,
             walletPubKeyHash,
@@ -678,7 +711,11 @@ library Redemption {
 
         require(
             mainUtxo.txOutputValue - outputsInfo.outputsTotalValue <=
-                self.redemptionTxMaxTotalFee,
+                P2TRReservation.proofFeeLimit(
+                    self,
+                    redemptionTxHash,
+                    self.redemptionTxMaxTotalFee
+                ),
             "Transaction fee is too high"
         );
 
@@ -707,7 +744,7 @@ library Redemption {
 
         if (outputsInfo.totalTreasuryFee > 0) {
             self.bank.transferBalance(
-                self.treasury,
+                P2TRReservation.redemptionTreasury(self, redemptionTxHash),
                 outputsInfo.totalTreasuryFee
             );
         }
@@ -747,13 +784,6 @@ library Redemption {
                 )
             ) == mainUtxoHash,
             "Invalid main UTXO data"
-        );
-
-        Wallets.WalletState walletState = wallet.state;
-        require(
-            walletState == Wallets.WalletState.Live ||
-                walletState == Wallets.WalletState.MovingFunds,
-            "Wallet must be in Live or MovingFunds state"
         );
     }
 
@@ -1097,6 +1127,11 @@ library Redemption {
             walletPubKeyHash,
             redeemerOutputScript
         );
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
+        P2TRReservation.requireResourceUnlocked(
+            self,
+            P2TRReservation.redemptionRequestResource(redemptionKey)
+        );
         Redemption.RedemptionRequest memory request = self.pendingRedemptions[
             redemptionKey
         ];
@@ -1212,6 +1247,11 @@ library Redemption {
         uint256 redemptionKey = getRedemptionKey(
             walletPubKeyHash,
             redeemerOutputScript
+        );
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
+        P2TRReservation.requireResourceUnlocked(
+            self,
+            P2TRReservation.redemptionRequestResource(redemptionKey)
         );
         Redemption.RedemptionRequest storage redemption = self
             .pendingRedemptions[redemptionKey];

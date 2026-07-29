@@ -2,13 +2,14 @@ import fs from "fs"
 import path from "path"
 
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, waffle } from "hardhat"
+import { ethers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
 import { smock } from "@defi-wonderland/smock"
 
 import type { Bank, Bridge, TBTC, TBTCVault } from "../../typechain"
 import { toSatoshis } from "../helpers/contract-test-helpers"
+import { loadFixture } from "../helpers/fixture"
 
 const SATOSHI_MULTIPLIER = ethers.BigNumber.from(10).pow(10)
 const MAX_UINT256 = ethers.constants.MaxUint256
@@ -297,8 +298,9 @@ const assertCustodyInvariants = async (
 
 describe("CustodyInvariantHarness", () => {
   it("keeps governance gates fail-closed for bank and vault upgrade controls", async () => {
-    const { governance, bank, vault, campaignAccounts } =
-      await waffle.loadFixture(fixture)
+    const { governance, bank, vault, campaignAccounts } = await loadFixture(
+      fixture
+    )
 
     await expect(
       bank
@@ -317,7 +319,7 @@ describe("CustodyInvariantHarness", () => {
   })
 
   it("fails closed when transferBalanceFrom is called without allowance", async () => {
-    const { bank, campaignAccounts } = await waffle.loadFixture(fixture)
+    const { bank, campaignAccounts } = await loadFixture(fixture)
     const owner = campaignAccounts[0]
     const spender = campaignAccounts[1]
     const recipient = campaignAccounts[2]
@@ -331,8 +333,9 @@ describe("CustodyInvariantHarness", () => {
   })
 
   it("keeps custody accounting invariants for zero and max boundary amounts", async () => {
-    const { bank, bridge, tbtc, vault, campaignAccounts } =
-      await waffle.loadFixture(fixture)
+    const { bank, bridge, tbtc, vault, campaignAccounts } = await loadFixture(
+      fixture
+    )
     const expectedBankBalances: BalanceModel = new Map()
     const expectedTbtcBalances: BalanceModel = new Map()
     const sender = campaignAccounts[0]
@@ -405,8 +408,9 @@ describe("CustodyInvariantHarness", () => {
 
   for (const seed of seedCorpus.seeds) {
     it(`keeps custody accounting invariants under seeded campaign ${seed}`, async () => {
-      const { bank, bridge, tbtc, vault, campaignAccounts } =
-        await waffle.loadFixture(fixture)
+      const { bank, bridge, tbtc, vault, campaignAccounts } = await loadFixture(
+        fixture
+      )
 
       const nextRandom = makeRng(seed)
       const expectedBankBalances: BalanceModel = new Map()

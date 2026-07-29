@@ -1,4 +1,4 @@
-import { helpers, waffle, ethers } from "hardhat"
+import { helpers, ethers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { BigNumber, BigNumberish, BytesLike, ContractTransaction } from "ethers"
@@ -15,6 +15,7 @@ import {
   RedemptionTestData,
   SinglePendingRequestedRedemption,
 } from "../data/redemption"
+import { loadFixture } from "../helpers/fixture"
 
 const { impersonateAccount } = helpers.account
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -63,7 +64,7 @@ describe("RedemptionWatchtower", () => {
       bridge,
       bank,
       redemptionWatchtower,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     await bridgeGovernance
       .connect(governance)

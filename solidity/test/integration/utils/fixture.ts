@@ -19,6 +19,7 @@ import { Bank } from "../../../typechain/Bank"
 import { registerOperator } from "./ecdsa-wallet-registry"
 import { fakeRandomBeacon } from "./fake-random-beacon"
 import { authorizeApplication, stake } from "./staking"
+import { buildCoverageInitializationPayload } from "../../utils/p2trCoverage"
 
 const { to1e18 } = helpers.number
 
@@ -129,18 +130,21 @@ export const fixture = deployments.createFixture(
     // deploy/44_deploy_ecdsa_fraud_router.ts and
     // deploy/45_deploy_p2tr_signature_fraud_router.ts run during
     // deployments.fixture() above. Production BOUNDED_V1 deliberately stays
-    // unwired; integration tests substitute a handshake-only COMPLETE_V2 stub.
-    // The stub is not evidence that a production COMPLETE_V2 implementation
-    // exists.
+    // unwired; integration tests install the concrete COMPLETE_V2 router and
+    // immutable authorization registry so activation exercises the full
+    // reservation/policy handshake.
     const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
     let ecdsaFraudRouter: EcdsaFraudRouter
     if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
       ecdsaFraudRouter = await helpers.contracts.getContract<EcdsaFraudRouter>(
         "EcdsaFraudRouter"
       )
+      const ecdsaFraudRouterCodeHash = ethers.utils.keccak256(
+        await ethers.provider.getCode(ecdsaFraudRouter.address)
+      )
       await bridgeGovernance
         .connect(governance)
-        .setEcdsaFraudRouter(ecdsaFraudRouter.address)
+        .setEcdsaFraudRouter(ecdsaFraudRouter.address, ecdsaFraudRouterCodeHash)
     } else {
       ecdsaFraudRouter = (await ethers.getContractAt(
         "EcdsaFraudRouter",
@@ -151,17 +155,51 @@ export const fixture = deployments.createFixture(
     const existingP2TRFraudRouter = await bridge.p2trFraudRouter()
     let p2trFraudRouter: P2TRSignatureFraudRouter
     if (existingP2TRFraudRouter === ethers.constants.AddressZero) {
+      const frostWalletRegistry = await helpers.contracts.getContract(
+        "FrostWalletRegistry"
+      )
+      const walletProposalValidator = await helpers.contracts.getContract(
+        "WalletProposalValidator"
+      )
+      const AuthorizationRegistryFactory = await ethers.getContractFactory(
+        "P2TRAuthorizationRegistry",
+        deployer
+      )
+      const authorizationRegistry = await AuthorizationRegistryFactory.deploy(
+        bridge.address,
+        frostWalletRegistry.address,
+        walletProposalValidator.address
+      )
+      await authorizationRegistry.deployed()
       const CompleteP2TRFraudRouterFactory = await ethers.getContractFactory(
-        "HandshakeOnlyCompleteP2TRSignatureFraudRouterStub",
+        "CompleteP2TRSignatureFraudRouter",
         deployer
       )
       p2trFraudRouter = (await CompleteP2TRFraudRouterFactory.deploy(
-        bridge.address
+        bridge.address,
+        authorizationRegistry.address
       )) as P2TRSignatureFraudRouter
       await p2trFraudRouter.deployed()
+      const coverageInitialization = await buildCoverageInitializationPayload(
+        bridge,
+        deployer.address,
+        ethers.constants.HashZero,
+        0,
+        authorizationRegistry.address,
+        p2trFraudRouter.address,
+        deployer
+      )
       await bridgeGovernance
         .connect(governance)
-        .setP2TRFraudRouter(p2trFraudRouter.address)
+        .processTaprootOutputKeyCoverage(coverageInitialization.payload)
+      await bridgeGovernance
+        .connect(governance)
+        .processTaprootOutputKeyCoverage(
+          ethers.utils.defaultAbiCoder.encode(
+            ["uint8", "address"],
+            [8, p2trFraudRouter.address]
+          )
+        )
     } else {
       p2trFraudRouter = (await ethers.getContractAt(
         "P2TRSignatureFraudRouter",

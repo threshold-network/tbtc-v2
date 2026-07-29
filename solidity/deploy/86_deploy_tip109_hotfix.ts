@@ -132,6 +132,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // this source tree. Historical deployment artifacts may point to earlier
   // library versions that do not implement the current Bridge behavior.
   console.log("\n--- Deploying current Bridge libraries ---")
+  const P2TRReservation = await deploy("P2TRReservationTIP109Hotfix", {
+    ...deployOptions,
+    contract: "P2TRReservation",
+    skipIfAlreadyDeployed: false,
+  })
+  const P2TRPreSigning = await deploy("P2TRPreSigningTIP109Hotfix", {
+    ...deployOptions,
+    contract: "P2TRPreSigning",
+    skipIfAlreadyDeployed: false,
+  })
+  const p2trReservationLibraries = {
+    P2TRReservation: P2TRReservation.address,
+  }
   const Deposit = await deploy("DepositTIP109Hotfix", {
     ...deployOptions,
     contract: "Deposit",
@@ -141,16 +154,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     ...deployOptions,
     contract: "DepositSweep",
     skipIfAlreadyDeployed: false,
+    libraries: p2trReservationLibraries,
   })
   const Redemption = await deploy("RedemptionTIP109Hotfix", {
     ...deployOptions,
     contract: "Redemption",
     skipIfAlreadyDeployed: false,
+    libraries: p2trReservationLibraries,
   })
   const Wallets = await deploy("WalletsTIP109Hotfix", {
     ...deployOptions,
     contract: "contracts/bridge/Wallets.sol:Wallets",
     skipIfAlreadyDeployed: false,
+    libraries: p2trReservationLibraries,
   })
   const Fraud = await deploy("FraudTIP109Hotfix", {
     ...deployOptions,
@@ -161,6 +177,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     ...deployOptions,
     contract: "MovingFunds",
     skipIfAlreadyDeployed: false,
+    libraries: p2trReservationLibraries,
   })
 
   // --- Step 2: Deploy new Bridge implementation ---
@@ -173,6 +190,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
+    P2TRPreSigning: P2TRPreSigning.address,
+    P2TRReservation: P2TRReservation.address,
   }
 
   const bridgeImpl = await deploy("BridgeTIP109HotfixImplementation", {
@@ -180,6 +199,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     contract: "Bridge",
     skipIfAlreadyDeployed: false,
     libraries: bridgeLibraries,
+    args: [ethers.constants.AddressZero],
   })
 
   // --- Step 3: Deploy new RebateStaking implementation (PR #939) ---
@@ -199,6 +219,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  Wallets library (NEW):         ${Wallets.address}`)
   console.log(`  Fraud library (NEW):           ${Fraud.address}`)
   console.log(`  MovingFunds library (NEW):     ${MovingFunds.address}`)
+  console.log(`  P2TRPreSigning library (NEW):  ${P2TRPreSigning.address}`)
+  console.log(`  P2TRReservation library (NEW): ${P2TRReservation.address}`)
   console.log(`  Bridge implementation (NEW):   ${bridgeImpl.address}`)
   console.log(`  RebateStaking impl (NEW):      ${rebateImpl.address}`)
   console.log("-".repeat(80))
@@ -285,6 +307,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       WalletsTIP109Hotfix: Wallets.address,
       FraudTIP109Hotfix: Fraud.address,
       MovingFundsTIP109Hotfix: MovingFunds.address,
+      P2TRPreSigningTIP109Hotfix: P2TRPreSigning.address,
+      P2TRReservationTIP109Hotfix: P2TRReservation.address,
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
     },

@@ -1,9 +1,10 @@
 /* eslint-disable no-underscore-dangle */
-import { deployments, ethers, helpers, waffle } from "hardhat"
+import { deployments, ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
 import type { Bridge, BridgeGovernance, BridgeStub } from "../../typechain"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -79,7 +80,7 @@ describe("FrostWalletRegistry permissions (B-1.5 final-slice subset)", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, thirdParty, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+      await loadFixture(bridgeFixture))
 
     // Use the FROST chain deployed by the production deploy scripts
     // (46_deploy_frost_sortition_pool, 47_deploy_frost_dkg_validator,

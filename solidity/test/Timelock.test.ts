@@ -1,9 +1,10 @@
-import { helpers, waffle, upgrades } from "hardhat"
+import { helpers, upgrades } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import type { Bridge, TBTCVault, Timelock, ProxyAdmin } from "../typechain"
 
 import bridgeFixture from "./fixtures/bridge"
+import { loadFixture } from "./helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -23,9 +24,7 @@ describe("Timelock", () => {
   before(async () => {
     const { esdm } = await helpers.signers.getNamedSigners()
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, bridge, tbtcVault } = await waffle.loadFixture(
-      bridgeFixture
-    ))
+    ;({ governance, bridge, tbtcVault } = await loadFixture(bridgeFixture))
 
     // One of the Threshold Council signers
     governanceSigner = await helpers.account.impersonateAccount(
