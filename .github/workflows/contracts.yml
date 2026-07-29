@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
@@ -117,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
@@ -153,7 +153,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           registry-url: "https://registry.npmjs.org"
 
       - name: Enable Corepack (Yarn from lockfile)
@@ -253,7 +253,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
@@ -305,7 +305,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           registry-url: "https://registry.npmjs.org"
 
       - name: Enable Corepack (Yarn from lockfile)
@@ -376,7 +376,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
 
       # IMPORTANT: Keep this root `yarn install` **before** `corepack prepare
       # yarn@4`. The repo root uses Yarn Classic (Frozen v1 lockfile); `solidity/`
@@ -428,7 +428,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
