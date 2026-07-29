@@ -425,6 +425,60 @@ contract SeatAllocator is
         return uint96(weight);
     }
 
+    /// @notice The staking provider's UNCAPPED reward weight: the total
+    ///         delegated capital backing the provider
+    ///         (`selfBondOf + delegatedAssetsOf`), used solely to apportion
+    ///         fee-reward revenue across operators.
+    /// @dev This is deliberately NOT the same quantity as {currentWeight}.
+    ///      Seat/signing weight ({currentWeight}) is capped by the delegation
+    ///      factor and the maximum operator weight because the decentralization
+    ///      vector that matters — how many signing seats an operator can win —
+    ///      is what those caps must bound. Revenue is a different axis: if an
+    ///      operator attracts more delegated capital it is fair the pool earns
+    ///      proportionally more, so the reward weight tracks the operator's
+    ///      full uncapped capital. This also removes the capped model's
+    ///      dilution cliff, where over-cap delegation diluted existing
+    ///      delegators for zero extra pool reward.
+    ///
+    ///      The eligibility gate is shared with {currentWeight}: this returns
+    ///      0 whenever `currentWeight == 0`, so a provider that is not an
+    ///      active, allowlisted, sufficiently self-bonded, at-or-above-minimum
+    ///      signer earns nothing — rewards are never paid to a non-signer.
+    ///      Otherwise it returns the raw uncapped sum clamped to
+    ///      `type(uint96).max` (the total T supply fits in a uint96, but the
+    ///      clamp is kept as defense in depth). The sum deliberately does NOT
+    ///      subtract pending undelegations or queued self-bond withdrawals:
+    ///      per design §6 pending-exit capital stays slashable AND
+    ///      reward-earning until finalization, and `selfBondOf` /
+    ///      `delegatedAssetsOf` already include it.
+    ///
+    ///      Boundary case — the self-bond floor: a pending self-bond
+    ///      withdrawal that drops effective self-bond below `minSelfBond`
+    ///      zeroes reward weight for the whole pool (currentWeight becomes 0),
+    ///      overriding the pending-exit-keeps-earning rule — the operator has
+    ///      ceased to be a qualified signer. This is the same wind-down state
+    ///      as deactivation, reached via the self-bond path. It differs from a
+    ///      pending *undelegation*, which keeps earning: `currentWeight`
+    ///      subtracts the queued self-bond withdrawal BEFORE its `minSelfBond`
+    ///      check, so only the self-bond path can cross the eligibility floor.
+    function rewardWeight(address stakingProvider)
+        public
+        view
+        returns (uint96)
+    {
+        if (currentWeight(stakingProvider) == 0) {
+            return 0;
+        }
+
+        uint256 raw = uint256(stakeVault.selfBondOf(stakingProvider)) +
+            uint256(stakeVault.delegatedAssetsOf(stakingProvider));
+
+        if (raw > type(uint96).max) {
+            return type(uint96).max;
+        }
+        return uint96(raw);
+    }
+
     /// @notice See {ISeatAllocator-refreshAuthorization}. Permissionless.
     ///         Computes the current weight and synchronizes it to the
     ///         registry: an increase is filed immediately
@@ -432,10 +486,13 @@ contract SeatAllocator is
     ///         decrease is requested (`authorizationDecreaseRequested`) and
     ///         recorded as the pending target, to be finalized when the
     ///         registry calls `approveAuthorizationDecrease` after its
-    ///         authorization decrease delay. Always forwards the live
-    ///         weight to the rewards distributor so reward accrual tracks
-    ///         weight changes (pending exits stop earning weight-based
-    ///         rewards immediately).
+    ///         authorization decrease delay. Always forwards the provider's
+    ///         UNCAPPED reward weight ({rewardWeight}) — not the capped seat
+    ///         weight — to the rewards distributor so revenue tracks the
+    ///         operator's delegated capital (Model B). Pending-exit capital
+    ///         keeps earning until finalization because {rewardWeight} does
+    ///         not subtract it; only losing eligibility (weight to 0) or a
+    ///         drop in actual capital changes the reward weight.
     /// @dev While a decrease is pending at the registry the request can
     ///      only be re-pointed further down (or to a different lower
     ///      target); a recovery to or above the synced weight has to wait
@@ -518,8 +575,19 @@ contract SeatAllocator is
             }
         }
 
+        // Reward accrual tracks the UNCAPPED reward weight (Model B), while
+        // the registry-sync calls above kept using the capped seat weight.
+        // dev: the try/catch guards only the onWeightChanged call, NOT the
+        // evaluation of the rewardWeight(p) argument — but that is safe:
+        // rewardWeight cannot revert (non-reverting views plus a
+        // non-overflowing uint96 add-and-clamp), and currentWeight(p) is
+        // already evaluated unprotected earlier on this path, so wiring the
+        // uncapped weight in here introduces no new revert surface.
         try
-            rewardsDistributor.onWeightChanged(stakingProvider, newWeight)
+            rewardsDistributor.onWeightChanged(
+                stakingProvider,
+                rewardWeight(stakingProvider)
+            )
         {} catch {
             weightDirty[stakingProvider] = true;
             emit AuthorizationSyncFailed(stakingProvider);

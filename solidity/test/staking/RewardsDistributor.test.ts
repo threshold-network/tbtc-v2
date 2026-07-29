@@ -500,4 +500,79 @@ describe("RewardsDistributor", () => {
       ).to.be.revertedWith("NothingToClaim")
     })
   })
+
+  // Model B: the seat allocator feeds the distributor each operator's UNCAPPED
+  // reward weight (its delegated capital), so revenue tracks capital and
+  // over-cap delegation no longer dilutes a pool's existing delegators. The
+  // allocator's uncapped-vs-capped computation is proven in the SeatAllocator
+  // suite; here we exercise the distributor's response to those weights.
+  describe("Model B reward weighting", () => {
+    before(async () => {
+      await createSnapshot()
+      // Two operators start with equal capital (equal uncapped weight).
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider1.address, to1e18(100))
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider2.address, to1e18(100))
+      // First tranche at parity: each accrues 100.
+      await notify(200)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("earns strictly more with more uncapped capital, without diluting existing delegators", async () => {
+      // provider1 attracts +100 of (over-cap) capital; under Model B its
+      // reward weight grows one-for-one to 200. Its seat/registry weight would
+      // stay capped (SeatAllocator suite), but the reward leg is uncapped.
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider1.address, to1e18(200))
+
+      // The first-tranche accrual settled at the old weight 100.
+      expect(
+        await rewardsDistributor.accruedRewards(provider1.address)
+      ).to.equal(to1e18(100))
+      expect(await rewardsDistributor.totalWeight()).to.equal(to1e18(300))
+
+      const p1Before = await rewardsDistributor.pendingRewardOf(
+        provider1.address
+      )
+      const p2Before = await rewardsDistributor.pendingRewardOf(
+        provider2.address
+      )
+
+      // Second tranche of 300 lands across weights 200 / 100.
+      await notify(300)
+
+      const p1Incremental = (
+        await rewardsDistributor.pendingRewardOf(provider1.address)
+      ).sub(p1Before)
+      const p2Incremental = (
+        await rewardsDistributor.pendingRewardOf(provider2.address)
+      ).sub(p2Before)
+
+      // provider1 (weight 200) earns strictly more than provider2 (100),
+      // exactly 2:1 — proportional to uncapped capital.
+      expect(p1Incremental).to.equal(to1e18(200))
+      expect(p2Incremental).to.equal(to1e18(100))
+      expect(p1Incremental.gt(p2Incremental)).to.be.true
+      expect(p1Incremental).to.equal(p2Incremental.mul(2))
+
+      // No dilution: per-unit-capital yield is equal across the pool that grew
+      // (200 reward / 200 capital = 1.0) and the pool that did not
+      // (100 reward / 100 capital = 1.0).
+      expect(p1Incremental.mul(100)).to.equal(p2Incremental.mul(200))
+
+      // Contrast Model A (capped): provider1's weight would have stayed 100,
+      // so of the 300 tranche it earns 300 * 100 / 200 = 150 on 200 capital
+      // → yield 0.75 < provider2's 1.5. The over-cap capital would have
+      // diluted provider1's own delegators for zero extra pool reward.
+      const modelACounterfactual = to1e18(300).mul(100).div(200) // 150
+      expect(p1Incremental.gt(modelACounterfactual)).to.be.true
+    })
+  })
 })

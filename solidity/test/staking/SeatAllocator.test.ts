@@ -276,6 +276,207 @@ describe("SeatAllocator", () => {
     })
   })
 
+  // Model B: reward weight tracks the operator's UNCAPPED delegated capital,
+  // while seat/signing weight (currentWeight) stays capped exactly as before.
+  describe("rewardWeight (Model B)", () => {
+    const MAX_UINT96 = ethers.BigNumber.from(2).pow(96).sub(1)
+
+    it("returns the uncapped capital while currentWeight stays λ-capped", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(40_000))
+      await stakeVault.setDelegatedAssets(provider, to18(200_000))
+      // Seat weight is λ-clamped to 4 * 40k = 160k...
+      expect(await allocator.currentWeight(provider)).to.equal(to18(160_000))
+      // ...but the reward weight is the full uncapped capital 40k + 200k.
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(240_000))
+    })
+
+    it("returns the uncapped capital while currentWeight stays at maxOperatorWeight", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(1_000_000))
+      await stakeVault.setDelegatedAssets(provider, to18(5_000_000))
+      // Seat weight clamps at maxOperatorWeight 2M...
+      expect(await allocator.currentWeight(provider)).to.equal(to18(2_000_000))
+      // ...reward weight is the full 6M of capital.
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(6_000_000))
+    })
+
+    it("pays reward proportional to uncapped capital for equal-seat operators", async () => {
+      // Two operators with the SAME capped seat weight but different over-cap
+      // capital — the core Model-B property.
+      await activate(provider)
+      await activate(provider2)
+      await stakeVault.setSelfBond(provider, to18(1_000_000))
+      await stakeVault.setDelegatedAssets(provider, to18(2_000_000)) // raw 3M
+      await stakeVault.setSelfBond(provider2, to18(1_000_000))
+      await stakeVault.setDelegatedAssets(provider2, to18(5_000_000)) // raw 6M
+
+      // Identical capped seat weight (both clamp to maxOperatorWeight 2M),
+      // so signing power / decentralization is unchanged between them.
+      expect(await allocator.currentWeight(provider)).to.equal(to18(2_000_000))
+      expect(await allocator.currentWeight(provider2)).to.equal(to18(2_000_000))
+
+      // Reward weight tracks the uncapped capital: 3M vs 6M.
+      const rw1 = await allocator.rewardWeight(provider)
+      const rw2 = await allocator.rewardWeight(provider2)
+      expect(rw1).to.equal(to18(3_000_000))
+      expect(rw2).to.equal(to18(6_000_000))
+      // The higher-capital operator earns strictly more, exactly 2:1.
+      expect(rw2.gt(rw1)).to.be.true
+      expect(rw2).to.equal(rw1.mul(2))
+    })
+
+    it("grows one-for-one with over-cap delegation (no dilution), seat weight unchanged", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(500_000))
+      await stakeVault.setDelegatedAssets(provider, to18(1_500_000))
+      // Seat weight already at the λ cap (4 * 500k = 2M).
+      const seatBefore = await allocator.currentWeight(provider)
+      const rewardBefore = await allocator.rewardWeight(provider)
+      expect(seatBefore).to.equal(to18(2_000_000))
+      expect(rewardBefore).to.equal(to18(2_000_000)) // 500k + 1.5M
+
+      // Add 1M of over-cap delegation.
+      await stakeVault.setDelegatedAssets(provider, to18(2_500_000))
+      const seatAfter = await allocator.currentWeight(provider)
+      const rewardAfter = await allocator.rewardWeight(provider)
+
+      // Seat weight (signing power) is unchanged — the cap holds.
+      expect(seatAfter).to.equal(seatBefore)
+      // The reward weight grew by exactly the added capital, so the pool's
+      // reward slice scales with the new delegation and existing delegators
+      // are not diluted (Model A would have kept the capped weight flat, so
+      // the added capital earned zero extra pool reward — the dilution cliff).
+      expect(rewardAfter.sub(rewardBefore)).to.equal(to18(1_000_000))
+    })
+
+    it("keeps a pending exit earning: currentWeight drops, rewardWeight does not", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(100_000))
+      await stakeVault.setDelegatedAssets(provider, to18(100_000))
+      expect(await allocator.currentWeight(provider)).to.equal(to18(200_000))
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(200_000))
+
+      // A delegator queues an undelegation: the seat weight drops immediately
+      // (pending undelegation leaves rawWeight), but the capital is still in
+      // the pool — slashable AND reward-earning until finalize (design §6).
+      await stakeVault.setPendingUndelegationAssets(provider, to18(100_000))
+      expect(await allocator.currentWeight(provider)).to.equal(to18(100_000))
+      // Reward weight is unchanged: delegatedAssetsOf still includes the
+      // pending-exit capital and rewardWeight does not subtract it.
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(200_000))
+    })
+
+    it("is zero for ineligible operators and restores on reactivation", async () => {
+      await stakeVault.setSelfBond(provider, to18(1_000_000))
+      await stakeVault.setDelegatedAssets(provider, to18(1_000_000))
+
+      // No reward weight in any non-Active status, regardless of capital —
+      // rewards are never paid to a non-signer.
+      for (const status of [STATUS_NONE, STATUS_DEACTIVATING, STATUS_EJECTED]) {
+        await signerRegistry.setOperatorStatus(provider, status)
+        expect(await allocator.rewardWeight(provider)).to.equal(0)
+      }
+
+      // Reactivation restores the uncapped reward weight and accrual resumes.
+      await activate(provider)
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(2_000_000))
+    })
+
+    it("is zero when the self-bond is below the minimum (shares currentWeight's gate)", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(39_999))
+      await stakeVault.setDelegatedAssets(provider, to18(1_000_000))
+      // currentWeight is 0 (self-bond below minSelfBond) → rewardWeight 0.
+      expect(await allocator.currentWeight(provider)).to.equal(0)
+      expect(await allocator.rewardWeight(provider)).to.equal(0)
+    })
+
+    // Boundary case: the self-bond floor overrides the
+    // pending-exit-keeps-earning rule, but ONLY via the self-bond path.
+    it("zeroes the whole pool via a below-floor self-bond withdrawal, but not via a delegator undelegation", async () => {
+      await activate(provider)
+      // Self-bond exactly at the floor, with delegated capital on top.
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await stakeVault.setDelegatedAssets(provider, to18(200_000))
+      // Active and at/above the floor: earns on the full uncapped capital.
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(240_000))
+
+      // A delegator undelegation alone does NOT cross the eligibility floor —
+      // the operator stays a qualified signer, so the pending-exit capital
+      // keeps earning (design §6): the seat weight drops but reward weight
+      // holds, even with the entire delegation queued to exit.
+      await stakeVault.setPendingUndelegationAssets(provider, to18(200_000))
+      expect(await allocator.currentWeight(provider)).to.equal(MIN_SELF_BOND)
+      expect(await allocator.rewardWeight(provider)).to.equal(to18(240_000))
+      await stakeVault.setPendingUndelegationAssets(provider, 0)
+
+      // Now queue a self-bond withdrawal that drops the effective self-bond
+      // below minSelfBond: currentWeight subtracts the queued withdrawal
+      // BEFORE the floor check, so currentWeight collapses to 0 and the WHOLE
+      // pool's reward weight zeroes — including the still-present delegated
+      // capital (which is unchanged). The operator has ceased to be a
+      // qualified signer; this is the same wind-down state as deactivation.
+      await stakeVault.setPendingSelfBondWithdrawal(provider, 1)
+      expect(await stakeVault.delegatedAssetsOf(provider)).to.equal(
+        to18(200_000)
+      )
+      expect(await allocator.currentWeight(provider)).to.equal(0)
+      expect(await allocator.rewardWeight(provider)).to.equal(0)
+    })
+
+    it("clamps the reward weight to type(uint96).max defensively", async () => {
+      await activate(provider)
+      // Each field is a uint96; their sum overflows uint96. currentWeight is
+      // capped at maxOperatorWeight (well within range) so the eligibility
+      // gate passes, and rewardWeight clamps the overflowing raw sum.
+      await stakeVault.setSelfBond(provider, MAX_UINT96)
+      await stakeVault.setDelegatedAssets(provider, MAX_UINT96)
+      expect(await allocator.currentWeight(provider)).to.equal(to18(2_000_000))
+      expect(await allocator.rewardWeight(provider)).to.equal(MAX_UINT96)
+    })
+  })
+
+  // The rewards distributor is driven with the UNCAPPED reward weight, while
+  // the registry sync stays capped.
+  describe("refreshAuthorization reward leg (Model B)", () => {
+    it("forwards the uncapped reward weight to the distributor on a capped operator", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(40_000))
+      await stakeVault.setDelegatedAssets(provider, to18(200_000))
+
+      await allocator.connect(thirdParty).refreshAuthorization(provider)
+
+      // Registry sync (seat weight) is λ-capped at 160k...
+      expect(
+        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
+      ).to.equal(to18(160_000))
+      const increaseCall = await mockRegistry.increaseCalls(0)
+      expect(increaseCall.toAmount).to.equal(to18(160_000))
+      // ...but the reward leg received the uncapped 240k.
+      expect(await rewardsDistributor.lastWeight()).to.equal(to18(240_000))
+    })
+
+    it("keeps forwarding the full reward weight when a pending exit drops the seat weight", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, to18(100_000))
+      await stakeVault.setDelegatedAssets(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider) // seat + reward = 200k
+      expect(await rewardsDistributor.lastWeight()).to.equal(to18(200_000))
+
+      // Queue an undelegation: seat weight halves, reward weight holds.
+      await stakeVault.setPendingUndelegationAssets(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider)
+      // Registry saw a decrease to the capped 100k...
+      expect(await allocator.decreasePending(provider)).to.be.true
+      expect(await allocator.pendingDecreaseTarget(provider)).to.equal(
+        to18(100_000)
+      )
+      // ...while the distributor still sees the full 200k of earning capital.
+      expect(await rewardsDistributor.lastWeight()).to.equal(to18(200_000))
+    })
+  })
+
   describe("refreshAuthorization", () => {
     beforeEach(async () => {
       await activate(provider)
@@ -357,8 +558,10 @@ describe("SeatAllocator", () => {
           MIN_SELF_BOND
         )
 
-        // The rewards distributor sees the reduced weight immediately —
-        // pending exits stop earning weight-based rewards right away.
+        // The delegated capital was actually removed (dropped to 0), so the
+        // uncapped reward weight legitimately falls to the self-bond. (This is
+        // a real capital reduction, not a pending exit — a pending exit would
+        // keep earning under Model B; see the rewardWeight suite.)
         expect(await rewardsDistributor.lastWeight()).to.equal(MIN_SELF_BOND)
       })
 
@@ -407,8 +610,11 @@ describe("SeatAllocator", () => {
             ethers.constants.AddressZero
           )
         ).to.equal(to18(160_000))
-        // Rewards still track the live weight.
-        expect(await rewardsDistributor.lastWeight()).to.equal(to18(400_000))
+        // Rewards track the UNCAPPED reward weight (Model B): selfBond 100k +
+        // delegated 400k = 500k, even though the capped seat weight is
+        // λ-clamped to 400k. The registry sync stays capped; only the reward
+        // leg goes uncapped.
+        expect(await rewardsDistributor.lastWeight()).to.equal(to18(500_000))
       })
 
       it("finalizes the decrease on registry approval and resumes increases", async () => {
