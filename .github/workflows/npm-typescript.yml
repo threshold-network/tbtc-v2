@@ -43,6 +43,11 @@ jobs:
       - name: Compile
         run: yarn build
 
+      - name: Verify mainnet deposit reveal-ahead period
+        env:
+          CHAIN_API_URL: ${{ secrets.MAINNET_ETH_HOSTNAME }}
+        run: yarn check:mainnet-deposit-parameters
+
       - name: Bump up package version
         id: npm-version-bump
         uses: keep-network/npm-version-bump@v2
