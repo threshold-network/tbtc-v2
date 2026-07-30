@@ -10,6 +10,7 @@ import {
   applyP2TRWatchtowerChallengeEvent,
   BitcoinClient,
   BitcoinRawTx,
+  computeP2TRSignatureFraudBridgeChallengeIdentity,
   createP2TRWatchtowerChallengeRecord,
   extractP2TRSignatureFraudWitnessObservations,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT,
@@ -1149,13 +1150,21 @@ test("passes configured spend-type classifier into observation-only indexing wit
 
     const [storedRecord] = await persistence.loadChallengeRecords()
     assert.equal(storedRecord.status, "observed")
+    assert.ok(storedRecord.observation)
     assert.equal(
-      storedRecord.observation?.spendType,
+      storedRecord.observation.spendType,
       P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
     )
+    const expectedBridgeChallengeKey =
+      computeP2TRSignatureFraudBridgeChallengeIdentity({
+        ...draftBridgeChallengeDomain,
+        walletID: storedRecord.observation.walletID,
+        signingKey: vector.walletIDHex,
+        sighash: storedRecord.observation.sighash,
+      }).toString()
     assert.equal(
-      storedRecord.observation?.bridgeChallengeKey,
-      "dfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
+      storedRecord.observation.bridgeChallengeKey,
+      expectedBridgeChallengeKey
     )
   } finally {
     await rm(directory, { recursive: true, force: true })
