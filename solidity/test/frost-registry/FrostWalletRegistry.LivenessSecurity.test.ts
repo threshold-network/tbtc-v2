@@ -101,9 +101,23 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     const registry = Registry.attach(proxy.address)
 
     await registry.updateLifecycleOwner(deployer.address)
+    await hre.network.provider.send("hardhat_setBalance", [
+      walletOwner.address,
+      "0x56BC75E2D63100000",
+    ])
+    await hre.network.provider.send("hardhat_impersonateAccount", [
+      walletOwner.address,
+    ])
+    const walletOwnerSigner = await ethers.getSigner(walletOwner.address)
+    const freshMigration = await registry.getWalletArchiveMigration()
+    expect(freshMigration.state).to.equal(4)
+    expect(await registry.getWalletArchiveMigrationManifestHash()).to.not.equal(
+      ethers.constants.HashZero
+    )
+    expect(await registry.registered(ethers.constants.HashZero)).to.equal(false)
     await registry.updateDkgParameters(8, CHALLENGE_PERIOD, 50_000, 20, 5)
 
-    for (const address of [walletOwner.address, randomBeacon.address]) {
+    for (const address of [randomBeacon.address]) {
       await hre.network.provider.send("hardhat_setBalance", [
         address,
         "0x56BC75E2D63100000",
@@ -111,7 +125,6 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
       await hre.network.provider.send("hardhat_impersonateAccount", [address])
     }
 
-    const walletOwnerSigner = await ethers.getSigner(walletOwner.address)
     await registry.connect(walletOwnerSigner).requestNewWallet()
     expect(pool.lock).to.have.been.calledOnce
 
@@ -120,6 +133,42 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
       ethers.utils.id("frost-wallet-registry-liveness-valid-seed")
     )
     const randomBeaconSigner = await ethers.getSigner(randomBeacon.address)
+
+    // Adversarial upgrade race: a request entered AWAITING_SEED after the
+    // deployment preflight but the upgraded implementation observes an empty
+    // manifest slot. Every remaining transition must freeze until migration
+    // finalization; otherwise this in-flight session could register a wallet
+    // during partial backfill.
+    const archiveStateSlot = 205
+    const originalArchiveStateWord = ethers.BigNumber.from(
+      await ethers.provider.getStorageAt(registry.address, archiveStateSlot)
+    )
+    const archiveStateMask = ethers.BigNumber.from(0xff).shl(224)
+    const setArchiveState = async (state: number) => {
+      await hre.network.provider.send("hardhat_setStorageAt", [
+        registry.address,
+        ethers.utils.hexValue(archiveStateSlot),
+        ethers.utils.hexZeroPad(
+          originalArchiveStateWord
+            .and(ethers.constants.MaxUint256.xor(archiveStateMask))
+            .or(ethers.BigNumber.from(state).shl(224))
+            .toHexString(),
+          32
+        ),
+      ])
+      // `hardhat_setStorageAt` leaves the write pending, and smock caches
+      // the state manager it installs fake bytecode through. Until a block
+      // is mined that cache is stale and every later `smock.fake()` in the
+      // process silently installs no code.
+      await hre.network.provider.send("evm_mine")
+    }
+    await setArchiveState(1)
+    await expect(registry.connect(randomBeaconSigner).__beaconCallback(seed, 0))
+      .to.be.reverted
+    await expect(registry.notifySeedTimeout()).to.be.reverted
+    expect(await registry.getWalletCreationState()).to.equal(1)
+
+    await setArchiveState(4)
     await registry.connect(randomBeaconSigner).__beaconCallback(seed, 0)
 
     const xOnlyOutputKey = ethers.utils.id(
@@ -140,9 +189,38 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     const [isValid, validationError] = await registry.isDkgResultValid(result)
     expect(isValid, validationError).to.equal(true)
 
+    await setArchiveState(1)
+    await expect(registry.connect(operatorSigners[0]).submitDkgResult(result))
+      .to.be.reverted
+    await expect(registry.notifyDkgTimeout()).to.be.reverted
+    expect(await registry.getWalletCreationState()).to.equal(2)
+
+    await setArchiveState(4)
     await registry.connect(operatorSigners[0]).submitDkgResult(result)
+
+    await setArchiveState(1)
+    await expect(
+      registry.connect(operatorSigners[0]).challengeDkgResult(result)
+    ).to.be.reverted
     await hre.network.provider.send("hardhat_mine", [
       `0x${(CHALLENGE_PERIOD + 1).toString(16)}`,
+    ])
+    await expect(registry.connect(operatorSigners[0]).approveDkgResult(result))
+      .to.be.reverted
+    expect(await registry.getWalletCreationState()).to.equal(3)
+
+    await setArchiveState(2)
+    await registry.finalizeArchiveMigration()
+    expect((await registry.getWalletArchiveMigration()).state).to.equal(3)
+
+    // Migration finalization rebases a pending result's submission block. The
+    // time spent frozen therefore cannot make the result immediately
+    // approvable; challengers receive a complete post-finalization window.
+    await expect(
+      registry.connect(operatorSigners[0]).approveDkgResult(result)
+    ).to.be.revertedWith("Challenge period has not passed yet")
+    await hre.network.provider.send("hardhat_mine", [
+      `0x${CHALLENGE_PERIOD.toString(16)}`,
     ])
     await registry.connect(operatorSigners[0]).approveDkgResult(result)
 

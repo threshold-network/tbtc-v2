@@ -8,6 +8,8 @@
 - [Closing](WalletState-1.md#closing)
 - [Live](WalletState-1.md#live)
 - [MovingFunds](WalletState-1.md#movingfunds)
+- [Quarantined](WalletState-1.md#quarantined)
+- [RecoveryRequired](WalletState-1.md#recoveryrequired)
 - [Terminated](WalletState-1.md#terminated)
 - [Unknown](WalletState-1.md#unknown)
 
@@ -64,6 +66,34 @@ accepted.
 #### Defined in
 
 [src/lib/contracts/bridge.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L514)
+
+___
+
+### Quarantined
+
+• **Quarantined** = ``6``
+
+An unresolved P2TR signature-fraud challenge temporarily blocks every
+wallet action. The wallet's exact prior state is restored only after its
+final challenge is defeated.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:538](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L538)
+
+___
+
+### RecoveryRequired
+
+• **RecoveryRequired** = ``7``
+
+An SPV-authenticated transaction conflicted with a pre-signing reservation.
+Automated wallet state transitions stop until an explicit recovery
+procedure is executed.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:544](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L544)
 
 ___
 

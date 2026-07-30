@@ -87,6 +87,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       },
       proxyOpts: {
         kind: "transparent",
+        constructorArgs: [ethers.constants.AddressZero],
         // Allow external libraries linking. We need to ensure manually that the
         // external libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.

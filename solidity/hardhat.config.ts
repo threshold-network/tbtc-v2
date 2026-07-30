@@ -61,14 +61,18 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Reduce the number of optimizer runs to 200 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
+// Optimize BridgeGovernance for size rather than gas. It is a governance
+// contract -- its functions are called rarely, by governance -- and it is the
+// contract closest to the EIP-170 limit: at the project-default runs=200 it
+// deploys at 23703 bytes, which leaves less than the 1 KiB of headroom
+// `test/bridge/BridgeGovernance.Size.test.ts` requires. Same trade-off, and
+// the same runs=1, that L1BTCDepositorNttWithExecutor.sol already uses below.
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
     optimizer: {
       enabled: true,
-      runs: 200,
+      runs: 1,
     },
   },
 }

@@ -61,6 +61,14 @@ export type P2TRCanonicalBridgeLifecycleLogVerification = {
   log: P2TRCanonicalBridgeLifecycleEventLog
 }
 
+export type P2TRCanonicalBridgeLifecycleLogRangeVerification = {
+  eventName: string
+  expectedEmitter: string
+  fromBlock?: number | string
+  toBlock?: number | string
+  logs: readonly P2TRCanonicalBridgeLifecycleEventLog[]
+}
+
 /**
  * Canonical lifecycle verification must be backed by an Ethereum view that is
  * operationally independent from the provider used by `queryFilter`.
@@ -70,8 +78,13 @@ export type P2TRCanonicalBridgeLifecycleLogVerification = {
  */
 export type P2TRCanonicalBridgeLifecycleLogVerifier = {
   readonly trustDomainID: string
+  /** Exact provider object used for canonical reads. */
+  readonly providerIdentity: object
   getBlockNumber(): Promise<number>
   getCanonicalBlockHash(blockNumber: number): Promise<string>
+  verifyLifecycleLogRange(
+    verification: P2TRCanonicalBridgeLifecycleLogRangeVerification
+  ): Promise<boolean>
   verifyLifecycleLog(
     verification: P2TRCanonicalBridgeLifecycleLogVerification
   ): Promise<boolean>
@@ -93,6 +106,12 @@ export type P2TREthersCanonicalBridgeLifecycleProvider = {
   getTransactionReceipt(
     transactionHash: string
   ): Promise<P2TREthersCanonicalBridgeLifecycleReceipt | null | undefined>
+  getLogs(filter: {
+    address: string
+    topics: readonly string[]
+    fromBlock?: number | string
+    toBlock?: number | string
+  }): Promise<P2TREthersBridgeLifecycleEventLog[]>
 }
 
 /**
@@ -104,6 +123,7 @@ export class EthersP2TRCanonicalBridgeLifecycleLogVerifier
   implements P2TRCanonicalBridgeLifecycleLogVerifier
 {
   readonly trustDomainID: string
+  readonly providerIdentity: object
 
   constructor(
     trustDomainID: string,
@@ -117,12 +137,14 @@ export class EthersP2TRCanonicalBridgeLifecycleLogVerifier
       provider === undefined ||
       typeof provider.getBlockNumber !== "function" ||
       typeof provider.getBlock !== "function" ||
-      typeof provider.getTransactionReceipt !== "function"
+      typeof provider.getTransactionReceipt !== "function" ||
+      typeof provider.getLogs !== "function"
     ) {
       throw new Error(
         "Bridge lifecycle canonical verifier requires an Ethers provider"
       )
     }
+    this.providerIdentity = provider
   }
 
   async getBlockNumber(): Promise<number> {
@@ -147,6 +169,45 @@ export class EthersP2TRCanonicalBridgeLifecycleLogVerifier
       block.hash,
       `Bridge lifecycle canonical block ${blockNumber} hash`
     )
+  }
+
+  async verifyLifecycleLogRange({
+    eventName,
+    expectedEmitter,
+    fromBlock,
+    toBlock,
+    logs,
+  }: P2TRCanonicalBridgeLifecycleLogRangeVerification): Promise<boolean> {
+    const expectedTopic = CANONICAL_LIFECYCLE_EVENT_TOPICS[eventName]
+    if (expectedTopic === undefined) {
+      return false
+    }
+
+    try {
+      const canonicalLogs = (
+        await this.provider.getLogs({
+          address: expectedEmitter,
+          topics: [expectedTopic],
+          fromBlock,
+          toBlock,
+        })
+      ).map((log) => {
+        const canonicalLog = normalizeCanonicalLifecycleLog(
+          log,
+          expectedEmitter
+        )
+        validateCanonicalLifecycleLogBlockRange(canonicalLog, {
+          isEmpty: false,
+          fromBlock,
+          toBlock,
+        })
+        return canonicalLog
+      })
+
+      return canonicalLifecycleLogSetsEqual(logs, canonicalLogs)
+    } catch {
+      return false
+    }
   }
 
   async verifyLifecycleLog({
@@ -338,7 +399,11 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       this.options.scanCursorStore?.p2trSignatureFraudWatchtowerStoreProfile
     this.p2trSignatureFraudWatchtowerTransactionalStoreID =
       this.options.scanCursorStore?.p2trSignatureFraudWatchtowerTransactionalStoreID
-    validateCanonicalVerificationOptions(this.options)
+    validateCanonicalVerificationOptions(
+      this.options,
+      this.p2trSignatureFraudRouter,
+      this.bridge
+    )
     validateBlockRangeOptions(this.options)
   }
 
@@ -484,13 +549,28 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       `${contractName} contract address`
     )
 
+    const canonicalLogs = logs.map((log) => {
+      const canonicalLog = normalizeCanonicalLifecycleLog(log, expectedEmitter)
+      validateCanonicalLifecycleLogBlockRange(canonicalLog, blockRange)
+      return canonicalLog
+    })
+    const isComplete =
+      await this.options.canonicalLogVerifier.verifyLifecycleLogRange({
+        eventName,
+        expectedEmitter,
+        fromBlock: blockRange.fromBlock,
+        toBlock: blockRange.toBlock,
+        logs: canonicalLogs,
+      })
+
+    if (!isComplete) {
+      throw new Error(
+        `${contractName} ${eventName} log range is not independently complete`
+      )
+    }
+
     return Promise.all(
-      logs.map(async (log) => {
-        const canonicalLog = normalizeCanonicalLifecycleLog(
-          log,
-          expectedEmitter
-        )
-        validateCanonicalLifecycleLogBlockRange(canonicalLog, blockRange)
+      canonicalLogs.map(async (canonicalLog) => {
         const isCanonical = await this.canonicalLogVerificationTaskQueue.run(
           () =>
             this.options.canonicalLogVerifier.verifyLifecycleLog({
@@ -884,7 +964,9 @@ function requireLifecycleSourceOptions(
 }
 
 function validateCanonicalVerificationOptions(
-  options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+  options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
+  p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
+  bridge: P2TREthersBridgeLifecycleContract
 ): void {
   const sourceTrustDomainID = normalizeTrustDomainID(
     options.sourceTrustDomainID,
@@ -894,12 +976,43 @@ function validateCanonicalVerificationOptions(
 
   if (
     verifier === undefined ||
+    typeof verifier.providerIdentity !== "object" ||
+    verifier.providerIdentity === null ||
+    typeof verifier.verifyLifecycleLogRange !== "function" ||
     typeof verifier.verifyLifecycleLog !== "function" ||
     typeof verifier.getBlockNumber !== "function" ||
     typeof verifier.getCanonicalBlockHash !== "function"
   ) {
     throw new Error(
       "Bridge lifecycle event source requires an independent canonical-log verifier"
+    )
+  }
+
+  const routerProviderIdentity = p2trSignatureFraudRouter.provider
+  const bridgeProviderIdentity = bridge.provider
+  if (
+    typeof routerProviderIdentity !== "object" ||
+    routerProviderIdentity === null ||
+    typeof bridgeProviderIdentity !== "object" ||
+    bridgeProviderIdentity === null
+  ) {
+    throw new Error(
+      "Bridge lifecycle event source requires source provider identities"
+    )
+  }
+
+  if (routerProviderIdentity !== bridgeProviderIdentity) {
+    throw new Error(
+      "Bridge lifecycle router and Bridge contracts must use the same source provider instance"
+    )
+  }
+
+  if (
+    verifier.providerIdentity === routerProviderIdentity ||
+    verifier.providerIdentity === bridgeProviderIdentity
+  ) {
+    throw new Error(
+      "Bridge lifecycle source and canonical verifier must use different provider instances"
     )
   }
 
@@ -914,12 +1027,42 @@ function validateCanonicalVerificationOptions(
   }
 }
 
+function canonicalLifecycleLogSetsEqual(
+  left: readonly P2TRCanonicalBridgeLifecycleEventLog[],
+  right: readonly P2TRCanonicalBridgeLifecycleEventLog[]
+): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  const leftIdentities = left.map(canonicalLifecycleLogIdentity).sort()
+  const rightIdentities = right.map(canonicalLifecycleLogIdentity).sort()
+
+  return leftIdentities.every(
+    (identity, index) => identity === rightIdentities[index]
+  )
+}
+
+function canonicalLifecycleLogIdentity(
+  log: P2TRCanonicalBridgeLifecycleEventLog
+): string {
+  return JSON.stringify({
+    address: log.address,
+    blockHash: log.blockHash,
+    blockNumber: log.blockNumber,
+    transactionHash: log.transactionHash,
+    logIndex: log.logIndex,
+    topics: log.topics,
+    data: log.data,
+  })
+}
+
 function normalizeTrustDomainID(value: string, label: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${label} must be non-empty`)
   }
 
-  return value.trim()
+  return value.trim().toLowerCase()
 }
 
 function validateBlockRangeOptions(

@@ -1,4 +1,4 @@
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type { BigNumberish } from "ethers"
 import { expect } from "chai"
@@ -15,6 +15,7 @@ import {
   wallet as fraudWallet,
 } from "../data/fraud"
 import { constants, walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -59,7 +60,7 @@ describe("Bridge - legacy fraud challenge migration", () => {
       bridgeGovernance,
       ecdsaFraudRouter,
       p2trFraudRouter,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
   })
 
   beforeEach(async () => {
@@ -114,6 +115,9 @@ describe("Bridge - legacy fraud challenge migration", () => {
     await expect(tx)
       .to.emit(bridge, "LegacyFraudChallengeMigrated")
       .withArgs(0, keys[1], thirdParty.address, deposits[1])
+    const receipt = await tx.wait()
+    const migratedAt = (await ethers.provider.getBlock(receipt.blockNumber))
+      .timestamp
 
     expect(await ethers.provider.getBalance(bridge.address)).to.equal(
       bridgeBalanceBefore.sub(totalDeposit)
@@ -145,7 +149,14 @@ describe("Bridge - legacy fraud challenge migration", () => {
       expect(migrated.depositAmount).to.equal(deposits[i])
       expect(migrated.reportedAt).to.equal(1_700_000_000)
       expect(migrated.resolved).to.equal(false)
+      expect(
+        await ecdsaFraudRouter.migrationDefenseStartedAtByChallenge(keys[i])
+      ).to.equal(migratedAt)
+      expect(
+        await ecdsaFraudRouter.fraudChallengeDefeatTimeoutStartedAt(keys[i])
+      ).to.equal(migratedAt)
     }
+    expect(await ecdsaFraudRouter.migratedChallengesActivatedAt()).to.equal(0)
   })
 
   it("blocks public evidence from pre-seeding an ECDSA migration key", async () => {
@@ -282,19 +293,22 @@ describe("Bridge - legacy fraud challenge migration", () => {
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
   })
 
-  it("routes P2TR records only to the handshake-only P2TR test stub", async () => {
+  it("rejects legacy P2TR records after COMPLETE_V2 activation", async () => {
     const key = 201
     const deposit = ethers.utils.parseEther("0.25")
     await seedChallenge(key, deposit)
 
-    await bridgeGovernance
-      .connect(governance)
-      .migrateLegacyFraudChallenges(1, [key])
+    await expect(
+      bridgeGovernance
+        .connect(governance)
+        .migrateLegacyFraudChallenges(1, [key])
+    ).to.be.revertedWith("COMPLETE_V2 migration must be empty")
 
-    expect((await p2trFraudRouter.fraudChallenges(key)).depositAmount).to.equal(
-      deposit
-    )
+    expect((await p2trFraudRouter.fraudChallenges(key)).reportedAt).to.equal(0)
     expect((await ecdsaFraudRouter.fraudChallenges(key)).reportedAt).to.equal(0)
+    expect(
+      (await bridge.legacyFraudChallengeForTest(key)).depositAmount
+    ).to.equal(deposit)
   })
 
   it("rejects calls through BridgeGovernance from a non-owner", async () => {
@@ -305,7 +319,12 @@ describe("Bridge - legacy fraud challenge migration", () => {
 
   it("rejects direct calls to Bridge from a non-governance address", async () => {
     await expect(
-      bridge.connect(thirdParty).migrateLegacyFraudChallenges(0, [])
+      bridge
+        .connect(thirdParty)
+        .processEcdsaFraudRouterCutover(
+          3,
+          ethers.utils.defaultAbiCoder.encode(["uint8", "uint256[]"], [0, []])
+        )
     ).to.be.revertedWith("Caller is not the governance")
   })
 
@@ -408,7 +427,13 @@ describe("Bridge - legacy fraud challenge migration", () => {
   ]) {
     it(`${routerName} rejects resolved migration records`, async () => {
       const factory = await ethers.getContractFactory(routerName, deployer)
-      const router = await factory.deploy(thirdParty.address)
+      const router =
+        routerName === "EcdsaFraudRouter"
+          ? await factory.deploy(
+              thirdParty.address,
+              ethers.constants.AddressZero
+            )
+          : await factory.deploy(thirdParty.address)
       await router.deployed()
       const deposit = ethers.utils.parseEther("0.1")
 

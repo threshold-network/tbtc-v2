@@ -77,6 +77,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       },
     })
 
+  // Fresh proxies atomically enter the distinct Fresh archive state inside
+  // initialize. Existing proxies can only enter Pending through deploy 54's
+  // ProxyAdmin upgradeAndCall initializer.
+  const freshArchive = await frostWalletRegistry.getWalletArchiveMigration()
+  const freshArchiveManifestHash =
+    await frostWalletRegistry.getWalletArchiveMigrationManifestHash()
+  if (
+    freshArchive.state !== 4 ||
+    freshArchiveManifestHash === ethers.constants.HashZero ||
+    (await frostWalletRegistry.registered(ethers.constants.HashZero)) ||
+    (await frostWalletRegistry.registered(freshArchiveManifestHash))
+  ) {
+    throw new Error("fresh FrostWalletRegistry archive initialization failed")
+  }
+
   // Transfer FrostSortitionPool ownership to the registry so the
   // registry can lock/unlock + selectGroup. Mirrors the upstream
   // ECDSA registry's deploy pattern.

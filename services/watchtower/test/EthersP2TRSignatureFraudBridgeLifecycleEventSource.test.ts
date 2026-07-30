@@ -9,8 +9,10 @@ import {
   P2TRCanonicalBridgeLifecycleEventLog,
   P2TRCanonicalBridgeLifecycleLogVerifier,
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
+  P2TREthersCanonicalBridgeLifecycleProvider,
   P2TREthersBridgeLifecycleContract,
   P2TREthersBridgeLifecycleEventLog,
+  P2TREthersBridgeLifecycleProvider,
 } from "../src/index.js"
 
 const defeatedFilter = { event: "defeated" }
@@ -50,8 +52,11 @@ class EthersP2TRSignatureFraudBridgeLifecycleEventSource {
     const options = hasSeparateBridge ? maybeOptions : bridgeOrOptions
     const verifiedOptions = {
       ...options,
-      sourceTrustDomainID: "indexer.test",
-      canonicalLogVerifier: acceptingCanonicalVerifier(bridge),
+      sourceTrustDomainID: "query-indexer.test",
+      canonicalLogVerifier: acceptingCanonicalVerifier(
+        p2trSignatureFraudRouter,
+        bridge
+      ),
     }
 
     this.source = hasSeparateBridge
@@ -99,6 +104,7 @@ const expectedLifecycleQueries = (
 
 test("requires a canonical verifier from a different trust domain", () => {
   const contract = new FakeBridgeLifecycleContract({})
+  const canonicalLogVerifier = acceptingCanonicalVerifier(contract)
 
   assert.throws(
     () =>
@@ -113,11 +119,95 @@ test("requires a canonical verifier from a different trust domain", () => {
       new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(contract, {
         sourceTrustDomainID: "shared.example",
         canonicalLogVerifier: {
-          ...acceptingCanonicalVerifier(contract),
           trustDomainID: "shared.example",
+          providerIdentity: canonicalLogVerifier.providerIdentity,
+          getBlockNumber: () => canonicalLogVerifier.getBlockNumber(),
+          getCanonicalBlockHash: (blockNumber) =>
+            canonicalLogVerifier.getCanonicalBlockHash(blockNumber),
+          verifyLifecycleLogRange: (verification) =>
+            canonicalLogVerifier.verifyLifecycleLogRange(verification),
+          verifyLifecycleLog: (verification) =>
+            canonicalLogVerifier.verifyLifecycleLog(verification),
         },
       }),
     /must use different trust domains/
+  )
+})
+
+test("rejects a canonical verifier backed by the single source provider", () => {
+  const contract = new FakeBridgeLifecycleContract({})
+  const canonicalLogVerifier = acceptingCanonicalVerifier(contract)
+
+  assert.throws(
+    () =>
+      new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(contract, {
+        sourceTrustDomainID: "query-indexer.example",
+        canonicalLogVerifier: verifierWithProviderIdentity(
+          canonicalLogVerifier,
+          contract.provider
+        ),
+      }),
+    /must use different provider instances/
+  )
+})
+
+test("rejects separate router and Bridge source provider instances", () => {
+  const router = new FakeBridgeLifecycleContract({}, undefined, {}, [
+    "defeated",
+    "timedOut",
+  ])
+  const bridge = new FakeBridgeLifecycleContract({}, undefined, {}, [
+    "movingFundsCompleted",
+    "redemptionsCompleted",
+  ])
+  const canonicalLogVerifier = acceptingCanonicalVerifier(router, bridge)
+
+  assert.throws(
+    () =>
+      new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+        router,
+        bridge,
+        {
+          sourceTrustDomainID: "query-indexer.example",
+          canonicalLogVerifier,
+        }
+      ),
+    /must use the same source provider instance/
+  )
+})
+
+test("rejects a canonical verifier backed by the shared separate-contract provider", () => {
+  const sourceProvider = fakeBridgeLifecycleProvider()
+  const router = new FakeBridgeLifecycleContract(
+    {},
+    undefined,
+    {},
+    ["defeated", "timedOut"],
+    sourceProvider
+  )
+  const bridge = new FakeBridgeLifecycleContract(
+    {},
+    undefined,
+    {},
+    ["movingFundsCompleted", "redemptionsCompleted"],
+    sourceProvider
+  )
+  const canonicalLogVerifier = acceptingCanonicalVerifier(router, bridge)
+
+  assert.throws(
+    () =>
+      new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+        router,
+        bridge,
+        {
+          sourceTrustDomainID: "query-indexer.example",
+          canonicalLogVerifier: verifierWithProviderIdentity(
+            canonicalLogVerifier,
+            sourceProvider
+          ),
+        }
+      ),
+    /must use different provider instances/
   )
 })
 
@@ -144,11 +234,15 @@ test("rejects an unverified lifecycle log without advancing the cursor", async (
       sourceTrustDomainID: "indexer.example",
       canonicalLogVerifier: {
         trustDomainID: "canonical.example",
+        providerIdentity: {},
         async getBlockNumber() {
           return 100
         },
         async getCanonicalBlockHash() {
           return txHash("88")
+        },
+        async verifyLifecycleLogRange() {
+          return true
         },
         async verifyLifecycleLog() {
           return false
@@ -163,6 +257,48 @@ test("rejects an unverified lifecycle log without advancing the cursor", async (
   await assert.rejects(
     source.listBridgeLifecycleEvents(),
     /log is not independently canonical/
+  )
+  await source.commitBridgeLifecycleScan()
+  assert.equal(cursorStore.savedCursor, undefined)
+})
+
+test("rejects lifecycle-log omissions without advancing the cursor", async () => {
+  const cursorStore = new FakeBridgeLifecycleScanCursorStore({
+    lastScannedBlock: 49,
+  })
+  const contract = new FakeBridgeLifecycleContract({}, 100)
+  const omittedCanonicalLog = canonicalLogFixture(
+    {
+      args: { challengeKey: 1n },
+      transactionHash: txHash("ab"),
+      blockNumber: 60,
+      logIndex: 0,
+    },
+    contract.address,
+    "defeated"
+  )
+  const canonicalProvider = new FakeIndependentCanonicalBridgeLifecycleProvider(
+    [contract],
+    [omittedCanonicalLog]
+  )
+  assert.notEqual(canonicalProvider, contract.provider)
+  const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    {
+      sourceTrustDomainID: "query-indexer.example",
+      canonicalLogVerifier: new EthersP2TRCanonicalBridgeLifecycleLogVerifier(
+        "canonical-rpc.example",
+        canonicalProvider
+      ),
+      confirmationDepth: 12,
+      maxBlockRange: 100,
+      scanCursorStore: cursorStore,
+    }
+  )
+
+  await assert.rejects(
+    source.listBridgeLifecycleEvents(),
+    /P2TRSignatureFraudChallengeDefeated log range is not independently complete/
   )
   await source.commitBridgeLifecycleScan()
   assert.equal(cursorStore.savedCursor, undefined)
@@ -307,11 +443,15 @@ test("bounds cursor progress by the independent canonical head", async () => {
       sourceTrustDomainID: "indexer.example",
       canonicalLogVerifier: {
         trustDomainID: "canonical.example",
+        providerIdentity: {},
         async getBlockNumber() {
           return 100
         },
         async getCanonicalBlockHash() {
           return txHash("88")
+        },
+        async verifyLifecycleLogRange() {
+          return true
         },
         async verifyLifecycleLog() {
           return true
@@ -436,6 +576,9 @@ test("verifies exact receipt log membership through an independent provider", as
           logs: receiptLogs,
         }
       },
+      async getLogs(filter) {
+        return filterCanonicalProviderLogs(receiptLogs, filter)
+      },
     }
   )
 
@@ -500,6 +643,9 @@ test("accepts each supported canonical lifecycle event signature", async () => {
             logs: [canonicalLog],
           }
         },
+        async getLogs(filter) {
+          return filterCanonicalProviderLogs([canonicalLog], filter)
+        },
       }
     )
 
@@ -553,6 +699,9 @@ test("rejects a submitted event returned by a defeated-event query", async () =>
             logs: [canonicalLog],
           }
         },
+        async getLogs(filter) {
+          return filterCanonicalProviderLogs([canonicalLog], filter)
+        },
       })
 
     return new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
@@ -578,7 +727,7 @@ test("rejects a submitted event returned by a defeated-event query", async () =>
     sourceForEventTopic(
       challengeSubmittedEventTopic
     ).listBridgeLifecycleEvents(),
-    /P2TRSignatureFraudChallengeDefeated log is not independently canonical/
+    /P2TRSignatureFraudChallengeDefeated log range is not independently complete/
   )
 })
 
@@ -626,6 +775,9 @@ test("maps lifecycle arguments from independently verified log data", async () =
           transactionHash: canonicalLog.transactionHash,
           logs: [receiptLog],
         }
+      },
+      async getLogs(filter) {
+        return filterCanonicalProviderLogs([receiptLog], filter)
       },
     })
   const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
@@ -691,6 +843,9 @@ test("maps completed proof hashes from verified data with or without adapter arg
             transactionHash: canonicalLog.transactionHash,
             logs: [receiptLog],
           }
+        },
+        async getLogs(filter) {
+          return filterCanonicalProviderLogs([receiptLog], filter)
         },
       })
 
@@ -826,6 +981,7 @@ test("maps Bridge completed spend proof logs to honest spend evidence events", a
 })
 
 test("queries P2TR router and Bridge lifecycle events from separate contracts", async () => {
+  const sourceProvider = fakeBridgeLifecycleProvider()
   const router = new FakeBridgeLifecycleContract(
     {
       defeated: [
@@ -844,7 +1000,8 @@ test("queries P2TR router and Bridge lifecycle events from separate contracts", 
     },
     undefined,
     {},
-    ["defeated", "timedOut"]
+    ["defeated", "timedOut"],
+    sourceProvider
   )
   const bridge = new FakeBridgeLifecycleContract(
     {
@@ -859,7 +1016,8 @@ test("queries P2TR router and Bridge lifecycle events from separate contracts", 
     },
     undefined,
     {},
-    ["movingFundsCompleted", "redemptionsCompleted"]
+    ["movingFundsCompleted", "redemptionsCompleted"],
+    sourceProvider
   )
   const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
     router,
@@ -1538,12 +1696,9 @@ test("rejects malformed Bridge lifecycle logs before mutating watchtower state",
 })
 
 test("rejects contracts without the required Bridge event filters", async () => {
-  const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource({
-    filters: {},
-    async queryFilter() {
-      return []
-    },
-  })
+  const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    new FakeBridgeLifecycleContract({}, undefined, {}, [])
+  )
 
   await assert.rejects(
     source.listBridgeLifecycleEvents(),
@@ -1564,12 +1719,24 @@ const allFakeBridgeLifecycleFilters: FakeBridgeLifecycleFilter[] = [
   "redemptionsCompleted",
 ]
 
+function fakeBridgeLifecycleProvider(
+  getHead: () => number = () => Number.MAX_SAFE_INTEGER,
+  getBlockHash: (blockNumber: number) => string | undefined = () => undefined
+): P2TREthersBridgeLifecycleProvider {
+  return {
+    async getBlockNumber() {
+      return getHead()
+    },
+    async getBlock(blockNumber: number) {
+      const hash = getBlockHash(blockNumber)
+      return hash === undefined ? undefined : { hash }
+    },
+  }
+}
+
 class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
   readonly address = `0x${"42".repeat(20)}`
-  readonly provider?: {
-    getBlockNumber(): Promise<number>
-    getBlock(blockNumber: number): Promise<{ hash: string } | undefined>
-  }
+  readonly provider: P2TREthersBridgeLifecycleProvider
 
   readonly filters: Record<string, () => unknown>
 
@@ -1588,24 +1755,17 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
     },
     public latestBlock?: number,
     private readonly blockHashes: Record<number, string | undefined> = {},
-    availableFilters: FakeBridgeLifecycleFilter[] = allFakeBridgeLifecycleFilters
+    availableFilters: FakeBridgeLifecycleFilter[] = allFakeBridgeLifecycleFilters,
+    sourceProvider?: P2TREthersBridgeLifecycleProvider
   ) {
     this.filters = buildFakeBridgeLifecycleFilters(availableFilters)
 
-    const hasProvider =
-      latestBlock !== undefined || Object.keys(blockHashes).length > 0
-    this.provider = hasProvider
-      ? {
-          getBlockNumber: async () => {
-            return this.latestBlock ?? 0
-          },
-          getBlock: async (blockNumber: number) => {
-            const hash = this.blockHashes[blockNumber]
-
-            return hash === undefined ? undefined : { hash }
-          },
-        }
-      : undefined
+    this.provider =
+      sourceProvider ??
+      fakeBridgeLifecycleProvider(
+        () => this.latestBlock ?? Number.MAX_SAFE_INTEGER,
+        (blockNumber) => this.blockHashes[blockNumber]
+      )
   }
 
   async queryFilter(
@@ -1645,6 +1805,27 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
   setBlockHash(blockNumber: number, blockHash: string): void {
     this.blockHashes[blockNumber] = blockHash
   }
+
+  canonicalProviderBlockHash(blockNumber: number): string | undefined {
+    return this.blockHashes[blockNumber]
+  }
+
+  canonicalProviderLogs(): P2TREthersBridgeLifecycleEventLog[] {
+    return [
+      ...(this.logs.defeated ?? []).map((log) =>
+        canonicalLogFixture(log, this.address, "defeated")
+      ),
+      ...(this.logs.timedOut ?? []).map((log) =>
+        canonicalLogFixture(log, this.address, "timedOut")
+      ),
+      ...(this.logs.movingFundsCompleted ?? []).map((log) =>
+        canonicalLogFixture(log, this.address, "movingFundsCompleted")
+      ),
+      ...(this.logs.redemptionsCompleted ?? []).map((log) =>
+        canonicalLogFixture(log, this.address, "redemptionsCompleted")
+      ),
+    ].map(cloneLifecycleLog)
+  }
 }
 
 function isBridgeLifecycleContract(
@@ -1660,6 +1841,7 @@ class DeferredCanonicalLogVerifier
   implements P2TRCanonicalBridgeLifecycleLogVerifier
 {
   readonly trustDomainID = "canonical.example"
+  readonly providerIdentity = {}
   readonly startedTransactionHashes: string[] = []
   readonly completedTransactionHashes: string[] = []
   private readonly pending = new Map<string, (result: boolean) => void>()
@@ -1680,6 +1862,10 @@ class DeferredCanonicalLogVerifier
 
   async getCanonicalBlockHash(): Promise<string> {
     return txHash("99")
+  }
+
+  async verifyLifecycleLogRange(): Promise<boolean> {
+    return true
   }
 
   verifyLifecycleLog({
@@ -1721,22 +1907,152 @@ class DeferredCanonicalLogVerifier
 }
 
 function acceptingCanonicalVerifier(
-  contract: P2TREthersBridgeLifecycleContract
+  ...contracts: P2TREthersBridgeLifecycleContract[]
+): P2TRCanonicalBridgeLifecycleLogVerifier {
+  const fixtureContracts = contracts
+    .filter((contract, index) => contracts.indexOf(contract) === index)
+    .map((contract) => {
+      assert.ok(contract instanceof FakeBridgeLifecycleContract)
+      return contract
+    })
+  const provider = new FakeIndependentCanonicalBridgeLifecycleProvider(
+    fixtureContracts
+  )
+
+  for (const contract of fixtureContracts) {
+    assert.notEqual(provider, contract.provider)
+  }
+
+  return new EthersP2TRCanonicalBridgeLifecycleLogVerifier(
+    "canonical-rpc.test",
+    provider
+  )
+}
+
+function verifierWithProviderIdentity(
+  verifier: P2TRCanonicalBridgeLifecycleLogVerifier,
+  providerIdentity: object
 ): P2TRCanonicalBridgeLifecycleLogVerifier {
   return {
-    trustDomainID: "canonical.test",
-    async getBlockNumber() {
-      return contract.provider === undefined
-        ? Number.MAX_SAFE_INTEGER
-        : contract.provider.getBlockNumber()
-    },
-    async getCanonicalBlockHash(blockNumber) {
-      const block = await contract.provider?.getBlock?.(blockNumber)
-      return block?.hash ?? txHash("99")
-    },
-    async verifyLifecycleLog() {
+    trustDomainID: verifier.trustDomainID,
+    providerIdentity,
+    getBlockNumber: () => verifier.getBlockNumber(),
+    getCanonicalBlockHash: (blockNumber) =>
+      verifier.getCanonicalBlockHash(blockNumber),
+    verifyLifecycleLogRange: (verification) =>
+      verifier.verifyLifecycleLogRange(verification),
+    verifyLifecycleLog: (verification) =>
+      verifier.verifyLifecycleLog(verification),
+  }
+}
+
+class FakeIndependentCanonicalBridgeLifecycleProvider
+  implements P2TREthersCanonicalBridgeLifecycleProvider
+{
+  readonly providerIdentity = {}
+
+  constructor(
+    private readonly contracts: readonly FakeBridgeLifecycleContract[],
+    private readonly additionalLogs: readonly P2TREthersBridgeLifecycleEventLog[] = []
+  ) {}
+
+  async getBlockNumber(): Promise<number> {
+    const heads = this.contracts
+      .map((contract) => contract.latestBlock)
+      .filter((head): head is number => head !== undefined)
+
+    return heads.length === 0 ? Number.MAX_SAFE_INTEGER : Math.min(...heads)
+  }
+
+  async getBlock(blockNumber: number): Promise<{ hash: string } | undefined> {
+    for (const contract of this.contracts) {
+      const hash = contract.canonicalProviderBlockHash(blockNumber)
+      if (hash !== undefined) {
+        return { hash }
+      }
+    }
+
+    const logAtBlock = this.canonicalLogs().find(
+      (log) => log.blockNumber === blockNumber
+    )
+    return { hash: logAtBlock?.blockHash ?? txHash("99") }
+  }
+
+  async getTransactionReceipt(transactionHash: string) {
+    const receiptLogs = this.canonicalLogs().filter(
+      (log) => log.transactionHash === transactionHash
+    )
+    const firstLog = receiptLogs[0]
+    if (firstLog === undefined) {
+      return undefined
+    }
+
+    return {
+      status: 1,
+      blockHash: firstLog.blockHash ?? txHash("99"),
+      blockNumber: firstLog.blockNumber ?? 0,
+      transactionHash,
+      logs: receiptLogs,
+    }
+  }
+
+  async getLogs(
+    filter: Parameters<P2TREthersCanonicalBridgeLifecycleProvider["getLogs"]>[0]
+  ): Promise<P2TREthersBridgeLifecycleEventLog[]> {
+    return filterCanonicalProviderLogs(this.canonicalLogs(), filter)
+  }
+
+  private canonicalLogs(): P2TREthersBridgeLifecycleEventLog[] {
+    return [
+      ...this.contracts.flatMap((contract) => contract.canonicalProviderLogs()),
+      ...this.additionalLogs.map(cloneLifecycleLog),
+    ]
+  }
+}
+
+function filterCanonicalProviderLogs(
+  logs: readonly P2TREthersBridgeLifecycleEventLog[],
+  filter: Parameters<P2TREthersCanonicalBridgeLifecycleProvider["getLogs"]>[0]
+): P2TREthersBridgeLifecycleEventLog[] {
+  return logs
+    .filter((log) => {
+      if (log.address?.toLowerCase() !== filter.address.toLowerCase()) {
+        return false
+      }
+
+      if (
+        !filter.topics.every(
+          (topic, index) => log.topics?.[index]?.toLowerCase() === topic
+        )
+      ) {
+        return false
+      }
+
+      if (
+        typeof filter.fromBlock === "number" &&
+        (log.blockNumber === undefined || log.blockNumber < filter.fromBlock)
+      ) {
+        return false
+      }
+
+      if (
+        typeof filter.toBlock === "number" &&
+        (log.blockNumber === undefined || log.blockNumber > filter.toBlock)
+      ) {
+        return false
+      }
+
       return true
-    },
+    })
+    .map(cloneLifecycleLog)
+}
+
+function cloneLifecycleLog(
+  log: P2TREthersBridgeLifecycleEventLog
+): P2TREthersBridgeLifecycleEventLog {
+  return {
+    ...log,
+    topics: log.topics === undefined ? undefined : [...log.topics],
   }
 }
 

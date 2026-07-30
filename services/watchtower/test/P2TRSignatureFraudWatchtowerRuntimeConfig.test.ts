@@ -1,11 +1,7 @@
 import assert from "assert/strict"
 import test from "node:test"
 
-import {
-  BitcoinNetwork,
-  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP,
-  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-} from "@keep-network/tbtc-v2.ts"
+import { BitcoinNetwork } from "@keep-network/tbtc-v2.ts"
 
 import {
   DEFAULT_P2TR_SIGNATURE_FRAUD_WATCHTOWER_POLL_INTERVAL_MS,
@@ -22,8 +18,8 @@ const baseEnv = (): P2TRSignatureFraudWatchtowerRuntimeEnv => ({
 const bridgeLifecycleRequireCursorBlockHashEnv =
   P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleRequireCursorBlockHash
 
-// A complete, valid submission-mode environment. Negative cases override a
-// single field so each assertion isolates the precondition under test.
+// A formerly complete submission-mode environment. It remains useful for
+// proving that no legacy combination can bypass the bounded/no-go gate.
 const submissionEnv = (): P2TRSignatureFraudWatchtowerRuntimeEnv => ({
   ...baseEnv(),
   [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
@@ -48,6 +44,8 @@ const submissionEnv = (): P2TRSignatureFraudWatchtowerRuntimeEnv => ({
   [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertMessage]:
     "manual intervention required",
 })
+const disabledSubmissionModePattern =
+  /SUBMIT_CHALLENGES=true is disabled while the FROST fraud layer is bounded\/no-go/
 
 test("loads required watchtower runtime config with safe defaults", () => {
   const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(baseEnv())
@@ -79,7 +77,14 @@ test("loads required watchtower runtime config with safe defaults", () => {
     requestTimeoutMs: undefined,
     retryDelayMs: undefined,
     confirmedPageLimit: undefined,
+    confirmedHistoryCursorFilePath: undefined,
     depositScanConcurrency: undefined,
+    taprootDepositRevealFromBlock: undefined,
+    taprootDepositRevealConfirmationDepth: undefined,
+    taprootDepositRevealMaxBlockRange: undefined,
+    taprootDepositRevealMaxEventsPerRange: undefined,
+    depositOutspendScanLimit: undefined,
+    taprootDepositBindingInventoryLimit: undefined,
   })
   assert.deepEqual(config.loop, {
     pollIntervalMs: DEFAULT_P2TR_SIGNATURE_FRAUD_WATCHTOWER_POLL_INTERVAL_MS,
@@ -119,12 +124,22 @@ test("loads explicit watchtower runtime config values", () => {
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraRequestTimeoutMs]: "6000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraRetryDelayMs]: "0",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedPageLimit]: "3",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedHistoryCursorFilePath]:
+      "/var/lib/tbtc/p2tr-confirmed-history-cursor.json",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositScanConcurrency]: "2",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealFromBlock]: "100",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealConfirmationDepth]:
+      "6",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealMaxBlockRange]:
+      "1000",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealMaxEventsPerRange]:
+      "250",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositOutspendScanLimit]: "100",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositBindingInventoryLimit]:
+      "1000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.pollIntervalMs]: "45000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.continueOnError]: "true",
-    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
-    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
-      "redemption, deposit-sweep, redemption",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "false",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxRawTransactionBytes]: "10000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxInputs]: "2",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxOutputs]: "2",
@@ -163,10 +178,18 @@ test("loads explicit watchtower runtime config values", () => {
     requestTimeoutMs: 6000,
     retryDelayMs: 0,
     confirmedPageLimit: 3,
+    confirmedHistoryCursorFilePath:
+      "/var/lib/tbtc/p2tr-confirmed-history-cursor.json",
     depositScanConcurrency: 2,
+    taprootDepositRevealFromBlock: 100,
+    taprootDepositRevealConfirmationDepth: 6,
+    taprootDepositRevealMaxBlockRange: 1000,
+    taprootDepositRevealMaxEventsPerRange: 250,
+    depositOutspendScanLimit: 100,
+    taprootDepositBindingInventoryLimit: 1000,
   })
   assert.equal(config.service.maxSubmissionAttempts, 3)
-  assert.equal(config.service.submitChallenges, true)
+  assert.equal(config.service.submitChallenges, false)
   assert.equal(config.service.indexingStoreProfile, "single-process-rehearsal")
   assert.equal(config.service.allowSingleProcessRehearsalSubmission, true)
   assert.deepEqual(config.service.payloadBounds, {
@@ -179,32 +202,31 @@ test("loads explicit watchtower runtime config values", () => {
     code: "submission-attempt-limit",
     message: "manual intervention required",
   })
-  assert.deepEqual(config.service.submissionPolicy, {
-    allowedSpendTypes: [
-      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP,
-    ],
-  })
+  assert.equal(config.service.submissionPolicy, undefined)
   assert.deepEqual(config.loop, {
     pollIntervalMs: 45000,
     continueOnError: true,
   })
 })
 
-test("validates the submission spend-type policy environment variable", () => {
-  assert.doesNotThrow(() =>
-    loadP2TRSignatureFraudWatchtowerRuntimeConfig(submissionEnv())
-  )
-
-  assert.throws(
-    () =>
-      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
-        ...submissionEnv(),
-        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
-          undefined,
-      }),
-    /SUBMIT_CHALLENGES requires .*SUBMISSION_ALLOWED_SPEND_TYPES/
-  )
+test("rejects legacy submission environments before parsing spend policies", () => {
+  for (const submissionAllowedSpendTypes of [
+    undefined,
+    "redemption",
+    "redemption,,deposit-sweep",
+    "heartbeat",
+    "not-a-real-spend-type",
+  ]) {
+    assert.throws(
+      () =>
+        loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+          ...submissionEnv(),
+          [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+            submissionAllowedSpendTypes,
+        }),
+      disabledSubmissionModePattern
+    )
+  }
 
   assert.throws(
     () =>
@@ -214,36 +236,6 @@ test("validates the submission spend-type policy environment variable", () => {
           "redemption",
       }),
     /SUBMISSION_ALLOWED_SPEND_TYPES requires .*SUBMIT_CHALLENGES=true/
-  )
-
-  assert.throws(
-    () =>
-      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
-        ...submissionEnv(),
-        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
-          "redemption,,deposit-sweep",
-      }),
-    /SUBMISSION_ALLOWED_SPEND_TYPES must not contain empty entries/
-  )
-
-  assert.throws(
-    () =>
-      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
-        ...submissionEnv(),
-        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
-          "heartbeat",
-      }),
-    /SUBMISSION_ALLOWED_SPEND_TYPES must contain only approved submission spend types/
-  )
-
-  assert.throws(
-    () =>
-      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
-        ...submissionEnv(),
-        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
-          "not-a-real-spend-type",
-      }),
-    /SUBMISSION_ALLOWED_SPEND_TYPES must contain only approved submission spend types/
   )
 })
 
@@ -310,7 +302,7 @@ test("rejects unsafe watchtower runtime config before service startup", () => {
         ...baseEnv(),
         [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
       }),
-    /SUBMIT_CHALLENGES requires .*BRIDGE_LIFECYCLE_CURSOR_FILE/
+    disabledSubmissionModePattern
   )
 
   assert.throws(
@@ -325,7 +317,7 @@ test("rejects unsafe watchtower runtime config before service startup", () => {
         [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleMaxBlockRange]:
           "5000",
       }),
-    /SUBMIT_CHALLENGES requires .*BRIDGE_LIFECYCLE_REQUIRE_CURSOR_BLOCK_HASH=true/
+    disabledSubmissionModePattern
   )
 
   assert.throws(
@@ -341,7 +333,7 @@ test("rejects unsafe watchtower runtime config before service startup", () => {
           "5000",
         [bridgeLifecycleRequireCursorBlockHashEnv]: "true",
       }),
-    /ALLOW_FILE_BACKED_SUBMISSION=true.*production submission requires transactional challenge-record and cursor stores/
+    disabledSubmissionModePattern
   )
 
   assert.throws(

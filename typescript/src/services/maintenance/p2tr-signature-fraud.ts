@@ -73,6 +73,8 @@ export type P2TRKeyPathWitnessSignature = {
 
 export type P2TRKeyPathInputWitnessSignature = P2TRKeyPathWitnessSignature & {
   inputIndex: number
+  /** BIP-341 annex bytes, including the mandatory 0x50 prefix. */
+  annex?: Hex
 }
 
 export type P2TRWalletInputPrevout = {
@@ -124,23 +126,14 @@ export type P2TRSignatureFraudDraftChallenge = {
 }
 
 export type P2TRSignatureFraudBridgeChallengeIdentity = {
+  chainID: BigNumberish
+  bridgeAddress: string
   walletID: Hex | Buffer | string
+  signingKey: Hex | Buffer | string
   sighash: Hex | Buffer | string
-  signature: Hex | Buffer | string
-  sighashType: P2TRSupportedSighashType
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  signedInputIndex?: number
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  unsignedTransaction?: BitcoinRawTx
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  inputPrevouts?: P2TRWalletInputObservationPrevout[]
-  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
-  annex?: Hex | Buffer | string
 }
 
 export type P2TRSignatureFraudBridgeChallengeKey = {
-  chainID: BigNumberish
-  bridgeAddress: string
   bridgeChallengeIdentity: Hex | Buffer | string
 }
 
@@ -182,6 +175,7 @@ export type P2TRSignatureFraudWitnessObservationJSON = {
   inputIndex: number
   walletID: string
   witnessSignature: string
+  annex?: string
   signature: string
   sighashType: P2TRSupportedSighashType
   scriptPubKey: string
@@ -210,10 +204,49 @@ export type P2TRWatchtowerOperatorAlert = {
 }
 
 export type P2TRSignatureFraudWatchtowerRunnerOptions = {
+  /**
+   * Automatic submission is hard-disabled while the FROST fraud layer is
+   * bounded/no-go. Only `false` or `undefined` is accepted; `true` always
+   * fails construction pending a separately reviewed `COMPLETE_V2` design.
+   */
   submitChallenges?: boolean
   maxSubmissionAttempts?: number
   submissionAttemptLimitAlert?: P2TRWatchtowerOperatorAlert
   submissionPolicy?: P2TRSignatureFraudChallengeSubmissionPolicy
+}
+
+export type P2TRSignatureFraudChallengeBroadcastResolution =
+  | { status: "accepted" }
+  | { status: "absent-after-finality"; reason: string }
+  | { status: "unknown"; reason: string }
+
+export type P2TRSignatureFraudChallengeBroadcastReconciliationContext = {
+  observationID: Hex
+  bridgeChallengeKey: Hex
+  challengeTxHash?: Hex
+  broadcastAtUnixMs?: number
+  reconciliationAttempts: number
+}
+
+/**
+ * Future `COMPLETE_V2` activation scaffolding for resolving an ambiguous
+ * challenge broadcast against canonical chain state.
+ *
+ * The current watchtower is observation-only and this interface does not
+ * enable automatic submission. Any separately reviewed production activation
+ * must use a trust domain independent from the provider that broadcast the
+ * transaction. It may return `absent-after-finality` only after a bounded
+ * finality policy proves both the transaction hash and the Router challenge
+ * key are absent.
+ */
+export interface P2TRSignatureFraudChallengeBroadcastReconciler {
+  /** Independent provider/trust-domain identity used for reconciliation. */
+  readonly reconciliationTrustDomainID: string
+  /** Positive canonical confirmation depth required before proving absence. */
+  readonly finalityConfirmationBlocks: number
+  reconcileSignatureFraudChallengeBroadcast(
+    context: P2TRSignatureFraudChallengeBroadcastReconciliationContext
+  ): Promise<P2TRSignatureFraudChallengeBroadcastResolution>
 }
 
 export type P2TRSignatureFraudWatchtowerProcessingFailure<T> = {
@@ -237,13 +270,39 @@ export type P2TRSignatureFraudWatchtowerSourceFailure = {
 
 export interface P2TRSignatureFraudWatchtowerTransactionSource {
   listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]>
-  listConfirmedTransactions(): Promise<P2TRWatchtowerConfirmedTransaction[]>
+  listConfirmedTransactions(): Promise<P2TRWatchtowerConfirmedTransactionSourceResult>
+  /**
+   * Acknowledges the staged confirmed batch after its observations have been
+   * durably recorded. Sources without a durable cursor may omit this method.
+   */
+  commitConfirmedTransactionScan?(): Promise<void>
 }
+
+/**
+ * A bounded confirmed-history batch. `complete` is true only when the source
+ * has proved that every confirmed transaction up to its canonical scan head
+ * has been returned in this or a previously committed batch.
+ */
+export type P2TRWatchtowerConfirmedTransactionSourceResult = {
+  transactions: P2TRWatchtowerConfirmedTransaction[]
+  complete: boolean
+}
+
+const isP2TRWatchtowerConfirmedTransactionSourceResult = (
+  value: unknown
+): value is P2TRWatchtowerConfirmedTransactionSourceResult =>
+  typeof value === "object" &&
+  value !== null &&
+  "transactions" in value &&
+  Array.isArray(value.transactions) &&
+  "complete" in value &&
+  typeof value.complete === "boolean"
 
 export type P2TRSignatureFraudWatchtowerCycleResult = {
   replayed: P2TRSignatureFraudWatchtowerSubmissionResult[]
   mempool: P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerMempoolTransaction>
   confirmed: P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerConfirmedTransaction>
+  confirmedSourceComplete: boolean
   sourceFailures: P2TRSignatureFraudWatchtowerSourceFailure[]
   summary: P2TRWatchtowerChallengeRecordSummary
   unresolvedOperatorAlerts: P2TRWatchtowerChallengeRecord[]
@@ -359,6 +418,7 @@ export type P2TRSignatureFraudWatchtowerIntegratedCycleResult = {
   replayed: P2TRSignatureFraudWatchtowerSubmissionResult[]
   mempool: P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerMempoolTransaction>
   confirmed: P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerConfirmedTransaction>
+  confirmedSourceComplete: boolean
   bridgeLifecycle: P2TRSignatureFraudWatchtowerBridgeLifecycleBatchResult
   sourceFailures: P2TRSignatureFraudWatchtowerIntegratedSourceFailure[]
   summary: P2TRWatchtowerChallengeRecordSummary
@@ -401,6 +461,10 @@ export type P2TRWatchtowerConfirmedTransaction =
     bitcoinBlockHeight: number
   }
 
+/**
+ * Options for the manual low-level challenge submission API. They do not
+ * enable the observation-only watchtower automatic submission path.
+ */
 export interface P2TRSignatureFraudChallengeSubmissionOptions {
   /**
    * Invoked immediately after the challenge transaction has been broadcast (its
@@ -411,7 +475,14 @@ export interface P2TRSignatureFraudChallengeSubmissionOptions {
   onBroadcast?: (challengeTxHash: Hex | Buffer | string) => Promise<void> | void
 }
 
+/**
+ * Manual low-level challenge submission boundary. The automatic watchtower
+ * runner does not invoke this interface while the FROST fraud layer remains
+ * bounded/no-go.
+ */
 export interface P2TRSignatureFraudChallengeSubmitter {
+  /** Provider/trust-domain identity used to broadcast, when declared. */
+  readonly submissionTrustDomainID?: string
   submitSignatureFraudChallenge(
     observation: P2TRSignatureFraudWitnessObservation,
     options?: P2TRSignatureFraudChallengeSubmissionOptions
@@ -448,8 +519,25 @@ export type P2TRSignatureFraudBridgeChallengePayload = {
   annex: string
 }
 
+/**
+ * Legacy variable-length challenge payload retained for domainless encoder
+ * compatibility. COMPLETE_V2 submissions use fixed-size evidence instead.
+ */
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE =
   "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"
+
+type P2TRSignatureFraudCompleteBridgeChallengeEvidence = {
+  walletID: string
+  signingKey: string
+  bindingTxHash: string
+  bindingOutputIndex: number
+  sighash: string
+  nonceX: string
+  signatureScalar: string
+}
+
+const P2TR_SIGNATURE_FRAUD_COMPLETE_BRIDGE_CHALLENGE_EVIDENCE_ABI_TYPE =
+  "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
 export type P2TRSignatureFraudBridgeFraudParameters = {
   fraudChallengeDepositAmount?: BigNumberish
@@ -539,10 +627,14 @@ export const P2TR_SIGNATURE_FRAUD_DRAFT_CHALLENGE_ID_DOMAIN =
   "tbtc-p2tr-signature-fraud-challenge-v0"
 
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN =
-  "tbtc-p2tr-signature-fraud-bridge-challenge-v1"
+  "tbtc-p2tr-signature-fraud-authorization-v3"
 
+/** @deprecated COMPLETE_V2 uses its v3 challenge identity directly as the key. */
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_KEY_DOMAIN =
   "tbtc-p2tr-signature-fraud-bridge-key-v0"
+
+const P2TR_SIGNATURE_FRAUD_LEGACY_BRIDGE_CHALLENGE_ID_DOMAIN =
+  "tbtc-p2tr-signature-fraud-bridge-challenge-v1"
 
 export type P2TRWatchtowerChallengeStatus =
   | "observed"
@@ -588,6 +680,10 @@ export type P2TRWatchtowerChallengeRecord = {
   bitcoinBlockHash?: Hex
   bitcoinBlockHeight?: number
   challengeTxHash?: Hex
+  challengeBroadcastAtUnixMs?: number
+  challengeBroadcastReconciliationAttempts?: number
+  lastChallengeBroadcastReconciliationAtUnixMs?: number
+  lastChallengeBroadcastResolution?: P2TRSignatureFraudChallengeBroadcastResolution["status"]
   defeatTxHash?: Hex
   slashingTxHash?: Hex
   rewardTxHash?: Hex
@@ -609,6 +705,10 @@ export type P2TRWatchtowerChallengeRecordJSON = {
   bitcoinBlockHash?: string
   bitcoinBlockHeight?: number
   challengeTxHash?: string
+  challengeBroadcastAtUnixMs?: number
+  challengeBroadcastReconciliationAttempts?: number
+  lastChallengeBroadcastReconciliationAtUnixMs?: number
+  lastChallengeBroadcastResolution?: P2TRSignatureFraudChallengeBroadcastResolution["status"]
   defeatTxHash?: string
   slashingTxHash?: string
   rewardTxHash?: string
@@ -686,6 +786,13 @@ export type P2TRWatchtowerChallengeEvent =
       type: "submission-broadcast"
       observationID: Hex | Buffer | string
       challengeTxHash: Hex | Buffer | string
+      broadcastAtUnixMs?: number
+    }
+  | {
+      type: "submission-broadcast-reconciled"
+      observationID: Hex | Buffer | string
+      resolution: P2TRSignatureFraudChallengeBroadcastResolution
+      reconciledAtUnixMs: number
     }
   | {
       type: "submission-accepted"
@@ -747,6 +854,38 @@ const toBuffer = (value: Hex | Buffer | string): Buffer => {
   }
 
   return Hex.from(value).toBuffer()
+}
+
+const normalizeP2TRKeyPathAnnex = (
+  annex: Hex | Buffer | string | undefined
+): Hex | undefined => {
+  if (annex === undefined) {
+    return undefined
+  }
+
+  const annexBuffer = toBuffer(annex)
+  if (annexBuffer.length === 0 || annexBuffer[0] !== 0x50) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Taproot key-path annex must be non-empty and start with 0x50"
+    )
+  }
+
+  return Hex.from(annexBuffer)
+}
+
+const requireOptionalUnixMilliseconds = (
+  value: number | undefined,
+  fieldName: string
+): number | undefined => {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      `${fieldName} must be a non-negative safe integer`
+    )
+  }
+
+  return value
 }
 
 const toBytes = (value: Hex | Buffer | string): string =>
@@ -889,6 +1028,13 @@ const watchtowerChallengeStatusValues: P2TRWatchtowerChallengeStatus[] = [
 
 const watchtowerChallengeStatuses = new Set(watchtowerChallengeStatusValues)
 
+const challengeBroadcastResolutionStatuses = new Set<
+  P2TRSignatureFraudChallengeBroadcastResolution["status"]
+>(["accepted", "absent-after-finality", "unknown"])
+
+const P2TR_CHALLENGE_BROADCAST_FINALITY_UNKNOWN_ALERT =
+  "P2TR-CHALLENGE-BROADCAST-FINALITY-UNKNOWN"
+
 const watchtowerBitcoinStatusValues: P2TRWatchtowerBitcoinStatus[] = [
   "mempool",
   "confirmed",
@@ -983,21 +1129,6 @@ const requireP2TRSignatureFraudSubmissionSpendType = (
   return normalizedSpendType
 }
 
-const normalizeP2TRSignatureFraudSubmissionPolicy = (
-  policy: P2TRSignatureFraudChallengeSubmissionPolicy = {}
-): Set<P2TRSignatureFraudSpendType> =>
-  new Set(
-    (policy.allowedSpendTypes ?? []).map((spendType) =>
-      requireP2TRSignatureFraudSubmissionSpendType(spendType)
-    )
-  )
-
-const isP2TRSignatureFraudSubmissionAllowed = (
-  observation: P2TRSignatureFraudWitnessObservation,
-  policy: P2TRSignatureFraudChallengeSubmissionPolicy = {}
-): boolean =>
-  normalizeP2TRSignatureFraudSubmissionPolicy(policy).has(observation.spendType)
-
 export const createP2TRSignatureFraudSpendTypeClassifier = (
   rules: P2TRSignatureFraudSpendTypeClassifierRule[]
 ): P2TRSignatureFraudSpendTypeClassifier => {
@@ -1078,6 +1209,7 @@ const isP2TRWatchtowerSubmissionEvent = (
 ): boolean =>
   event.type === "submission-started" ||
   event.type === "submission-broadcast" ||
+  event.type === "submission-broadcast-reconciled" ||
   event.type === "submission-accepted" ||
   event.type === "submission-rejected"
 
@@ -1095,6 +1227,7 @@ export const createP2TRWatchtowerChallengeRecord = (
   observationID: toHex(observationID),
   status: "observed",
   submissionAttempts: 0,
+  challengeBroadcastReconciliationAttempts: 0,
 })
 
 const serializeP2TRWalletInputObservationPrevout = (
@@ -1132,6 +1265,7 @@ export const serializeP2TRSignatureFraudWitnessObservation = (
   inputIndex: observation.inputIndex,
   walletID: toBytes32Hex(observation.walletID, "Wallet ID").toString(),
   witnessSignature: toHex(observation.witnessSignature).toString(),
+  annex: observation.annex?.toString(),
   signature: toHex(observation.signature).toString(),
   sighashType: observation.sighashType,
   scriptPubKey: toHex(observation.scriptPubKey).toString(),
@@ -1196,17 +1330,15 @@ export const deserializeP2TRSignatureFraudWitnessObservation = (
     deserializeP2TRWalletInputObservationPrevout
   )
   const sighashType = requireSupportedP2TRSighashType(observation.sighashType)
+  const annex = normalizeP2TRKeyPathAnnex(observation.annex)
   const sighash = toBytes32Hex(observation.sighash, "Sighash")
   const bridgeChallengeIdentity =
     observation.bridgeChallengeIdentity === undefined
-      ? computeP2TRSignatureFraudBridgeChallengeIdentity({
+      ? computeLegacyP2TRSignatureFraudBridgeChallengeIdentity({
           walletID,
           sighash,
           signature,
           sighashType,
-          signedInputIndex: observation.inputIndex,
-          unsignedTransaction,
-          inputPrevouts,
         })
       : toBytes32Hex(
           observation.bridgeChallengeIdentity,
@@ -1219,6 +1351,7 @@ export const deserializeP2TRSignatureFraudWitnessObservation = (
     inputIndex: observation.inputIndex,
     walletID,
     witnessSignature,
+    annex,
     signature,
     sighashType,
     scriptPubKey: toHex(observation.scriptPubKey),
@@ -1329,6 +1462,12 @@ export const serializeP2TRWatchtowerChallengeRecord = (
   bitcoinBlockHash: record.bitcoinBlockHash?.toString(),
   bitcoinBlockHeight: record.bitcoinBlockHeight,
   challengeTxHash: record.challengeTxHash?.toString(),
+  challengeBroadcastAtUnixMs: record.challengeBroadcastAtUnixMs,
+  challengeBroadcastReconciliationAttempts:
+    record.challengeBroadcastReconciliationAttempts ?? 0,
+  lastChallengeBroadcastReconciliationAtUnixMs:
+    record.lastChallengeBroadcastReconciliationAtUnixMs,
+  lastChallengeBroadcastResolution: record.lastChallengeBroadcastResolution,
   defeatTxHash: record.defeatTxHash?.toString(),
   slashingTxHash: record.slashingTxHash?.toString(),
   rewardTxHash: record.rewardTxHash?.toString(),
@@ -1392,6 +1531,50 @@ export const deserializeP2TRWatchtowerChallengeRecord = (
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
       "Watchtower submission attempts must be a non-negative integer"
+    )
+  }
+
+  const challengeBroadcastReconciliationAttempts =
+    record.challengeBroadcastReconciliationAttempts ?? 0
+  if (
+    !Number.isInteger(challengeBroadcastReconciliationAttempts) ||
+    challengeBroadcastReconciliationAttempts < 0
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge broadcast reconciliation attempts must be a non-negative integer"
+    )
+  }
+
+  const challengeBroadcastAtUnixMs = requireOptionalUnixMilliseconds(
+    record.challengeBroadcastAtUnixMs,
+    "Challenge broadcast timestamp"
+  )
+  const lastChallengeBroadcastReconciliationAtUnixMs =
+    requireOptionalUnixMilliseconds(
+      record.lastChallengeBroadcastReconciliationAtUnixMs,
+      "Last challenge broadcast reconciliation timestamp"
+    )
+  if (
+    record.lastChallengeBroadcastResolution !== undefined &&
+    !challengeBroadcastResolutionStatuses.has(
+      record.lastChallengeBroadcastResolution
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Last challenge broadcast resolution is unsupported"
+    )
+  }
+
+  if (
+    challengeBroadcastReconciliationAttempts > 0 &&
+    (lastChallengeBroadcastReconciliationAtUnixMs === undefined ||
+      record.lastChallengeBroadcastResolution === undefined)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Reconciled challenge broadcast must retain its last result and timestamp"
     )
   }
 
@@ -1472,6 +1655,10 @@ export const deserializeP2TRWatchtowerChallengeRecord = (
       record.challengeTxHash,
       "Challenge tx hash"
     ),
+    challengeBroadcastAtUnixMs,
+    challengeBroadcastReconciliationAttempts,
+    lastChallengeBroadcastReconciliationAtUnixMs,
+    lastChallengeBroadcastResolution: record.lastChallengeBroadcastResolution,
     defeatTxHash: optionalBytes32Hex(record.defeatTxHash, "Defeat tx hash"),
     slashingTxHash: optionalBytes32Hex(
       record.slashingTxHash,
@@ -1555,6 +1742,26 @@ export const resolveP2TRWatchtowerObservationIDForBridgeChallengeKey = async (
   bridgeChallengeKey: Hex | Buffer | string,
   lifecycleEvidence?: P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence
 ): Promise<Hex> => {
+  const observationID =
+    await resolveOptionalP2TRWatchtowerObservationIDForBridgeChallengeKey(
+      recordSource,
+      bridgeChallengeKey,
+      lifecycleEvidence
+    )
+  if (observationID === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "No watchtower challenge record matches Bridge challenge key"
+    )
+  }
+  return observationID
+}
+
+const resolveOptionalP2TRWatchtowerObservationIDForBridgeChallengeKey = async (
+  recordSource: P2TRWatchtowerChallengeRecordSource,
+  bridgeChallengeKey: Hex | Buffer | string,
+  lifecycleEvidence?: P2TRSignatureFraudWatchtowerBridgeLifecycleEventEvidence
+): Promise<Hex | undefined> => {
   const resolvedBridgeChallengeKey = toBytes32Hex(
     bridgeChallengeKey,
     "Bridge challenge key"
@@ -1566,10 +1773,7 @@ export const resolveP2TRWatchtowerObservationIDForBridgeChallengeKey = async (
   )
 
   if (matchingRecords.length === 0) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-watchtower-state",
-      "No watchtower challenge record matches Bridge challenge key"
-    )
+    return undefined
   }
 
   if (matchingRecords.length > 1) {
@@ -1771,7 +1975,7 @@ const resolveP2TRBridgeLifecycleEventObservationID = async (
     )
   }
 
-  return resolveP2TRWatchtowerObservationIDForBridgeChallengeKey(
+  return resolveOptionalP2TRWatchtowerObservationIDForBridgeChallengeKey(
     recordSource,
     eventBridgeChallengeKey,
     event
@@ -2108,6 +2312,21 @@ const clearResolvedP2TRWatchtowerOperatorAlert = (
   }
 }
 
+const clearP2TRChallengeBroadcastFinalityAlert = (
+  record: P2TRWatchtowerChallengeRecord
+): P2TRWatchtowerChallengeRecord => {
+  if (
+    record.operatorAlertCode !== P2TR_CHALLENGE_BROADCAST_FINALITY_UNKNOWN_ALERT
+  ) {
+    return record
+  }
+
+  return {
+    ...record,
+    operatorAlertStatus: "cleared",
+  }
+}
+
 export const applyP2TRWatchtowerChallengeEvent = (
   record: P2TRWatchtowerChallengeRecord,
   event: P2TRWatchtowerChallengeEvent
@@ -2188,10 +2407,108 @@ export const applyP2TRWatchtowerChallengeEvent = (
         ...record,
         status: "broadcast-pending",
         challengeTxHash: toHex(event.challengeTxHash),
+        challengeBroadcastAtUnixMs: requireOptionalUnixMilliseconds(
+          event.broadcastAtUnixMs,
+          "Challenge broadcast timestamp"
+        ),
+        challengeBroadcastReconciliationAttempts: 0,
+        lastChallengeBroadcastReconciliationAtUnixMs: undefined,
+        lastChallengeBroadcastResolution: undefined,
         lastError: undefined,
       }
 
+    case "submission-broadcast-reconciled": {
+      if (
+        record.status !== "submitting" &&
+        record.status !== "broadcast-pending"
+      ) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Watchtower challenge must be submitting or broadcast-pending before reconciliation"
+        )
+      }
+
+      const { resolution } = event
+      if (!challengeBroadcastResolutionStatuses.has(resolution.status)) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Challenge broadcast reconciliation result is unsupported"
+        )
+      }
+      if (
+        resolution.status !== "accepted" &&
+        (typeof resolution.reason !== "string" ||
+          resolution.reason.length === 0)
+      ) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Challenge broadcast reconciliation result must include a reason"
+        )
+      }
+
+      const reconciledAtUnixMs = requireOptionalUnixMilliseconds(
+        event.reconciledAtUnixMs,
+        "Challenge broadcast reconciliation timestamp"
+      )
+      if (reconciledAtUnixMs === undefined) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Challenge broadcast reconciliation timestamp is required"
+        )
+      }
+
+      const reconciledRecord: P2TRWatchtowerChallengeRecord = {
+        ...record,
+        challengeBroadcastReconciliationAttempts:
+          (record.challengeBroadcastReconciliationAttempts ?? 0) + 1,
+        lastChallengeBroadcastReconciliationAtUnixMs: reconciledAtUnixMs,
+        lastChallengeBroadcastResolution: resolution.status,
+      }
+
+      if (resolution.status === "accepted") {
+        return clearP2TRChallengeBroadcastFinalityAlert({
+          ...reconciledRecord,
+          status: "submitted",
+          lastError: undefined,
+        })
+      }
+
+      if (resolution.status === "absent-after-finality") {
+        return clearP2TRChallengeBroadcastFinalityAlert({
+          ...reconciledRecord,
+          status: "rejected",
+          lastError: resolution.reason,
+        })
+      }
+
+      return {
+        ...reconciledRecord,
+        lastError: resolution.reason,
+        operatorAlertStatus: "open",
+        operatorAlertCode: P2TR_CHALLENGE_BROADCAST_FINALITY_UNKNOWN_ALERT,
+        operatorAlertMessage: resolution.reason,
+        operatorAlertAcknowledgedBy: undefined,
+      }
+    }
+
     case "mempool-observed": {
+      const bitcoinTxHash = toBytes32Hex(
+        event.bitcoinTxHash,
+        "Mempool Bitcoin transaction hash"
+      )
+      if (
+        event.observation !== undefined &&
+        !p2trWatchtowerObservationMatchesBitcoinTxHash(
+          event.observation,
+          bitcoinTxHash
+        )
+      ) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Mempool watchtower observation raw transaction does not match its Bitcoin transaction hash"
+        )
+      }
+
       const mempoolRecord = applyP2TRWatchtowerObservationPayload(
         initializeP2TRWatchtowerBitcoinProofAliases(record),
         event
@@ -2199,7 +2516,7 @@ export const applyP2TRWatchtowerChallengeEvent = (
       return {
         ...mempoolRecord,
         bitcoinStatus: "mempool",
-        bitcoinTxHash: toHex(event.bitcoinTxHash),
+        bitcoinTxHash,
         bitcoinBlockHash: undefined,
         bitcoinBlockHeight: undefined,
       }
@@ -2526,8 +2843,9 @@ export const parseP2TRKeyPathWitnessSignature = (
  * raw Bitcoin transaction.
  *
  * The caller must first identify that the input spends a registered tBTC P2TR
- * wallet UTXO. This function intentionally rejects annex/script-path/malformed
- * witness forms and does not classify honest spend types or submit challenges.
+ * wallet UTXO. This function preserves a valid BIP-341 annex and rejects
+ * script-path or malformed witness forms. It does not classify honest spend
+ * types or submit challenges.
  *
  * @experimental This is a parser primitive for the draft P2TR signature-fraud
  *               watchtower path. It is not production challenge submission.
@@ -2561,16 +2879,24 @@ export const extractP2TRKeyPathInputWitnessSignature = (
     )
   }
 
-  if (witness.length !== 1) {
+  const lastWitnessItem = witness[witness.length - 1]
+  const hasAnnex =
+    witness.length >= 2 &&
+    lastWitnessItem.length > 0 &&
+    lastWitnessItem[0] === 0x50
+  const keyPathWitness = hasAnnex ? witness.slice(0, -1) : witness
+
+  if (keyPathWitness.length !== 1) {
     throw new P2TRWitnessSignatureError(
       "unsupported-witness-form",
-      "Only Taproot key-path witnesses without annex or script path are supported"
+      "Only Taproot key-path witnesses with an optional BIP-341 annex are supported"
     )
   }
 
   return {
-    ...parseP2TRKeyPathWitnessSignature(witness[0]),
+    ...parseP2TRKeyPathWitnessSignature(keyPathWitness[0]),
     inputIndex,
+    annex: hasAnnex ? Hex.from(lastWitnessItem) : undefined,
   }
 }
 
@@ -3030,19 +3356,65 @@ export const computeP2TRWalletInputWitnessObservationID = (
 
 /**
  * Computes the canonical Bridge-facing identity of a signed Taproot
- * authorization. The BIP-341 sighash commits exactly the transaction fields
- * selected by the witness sighash mode; fields outside that cryptographic
- * commitment cannot create separate challenge, deposit, or reward records.
+ * authorization for the COMPLETE_V2 router. The identity is bound to the
+ * chain, Bridge, registered wallet, actual Taproot signing key, and BIP-341
+ * sighash. COMPLETE_V2 uses this identity directly as its challenge key.
  *
  * @experimental Bridge integration identity for the P2TR signature-fraud path.
- * @param challenge Wallet, reconstructed BIP-341 sighash, BIP-340 signature,
- *        and parsed witness sighash type.
- * @returns 32-byte Bridge challenge identity (SHA-256 over the canonical
- *          signed-authorization tuple).
+ * @param challenge COMPLETE_V2 domain and signed-authorization tuple.
+ * @returns 32-byte COMPLETE_V2 Bridge challenge identity.
  */
 export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
   challenge: P2TRSignatureFraudBridgeChallengeIdentity
 ): Hex => {
+  const chainID = BigNumber.from(challenge.chainID)
+  if (chainID.lte(0)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Chain ID must be positive"
+    )
+  }
+
+  let bridgeAddress: string
+  try {
+    bridgeAddress = utils.getAddress(challenge.bridgeAddress)
+  } catch (_) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Bridge address must be a valid address"
+    )
+  }
+
+  if (bridgeAddress === constants.AddressZero) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Bridge address must be non-zero"
+    )
+  }
+
+  return Hex.from(
+    utils.sha256(
+      utils.solidityPack(
+        ["string", "uint256", "address", "bytes32", "bytes32", "bytes32"],
+        [
+          P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN,
+          chainID,
+          bridgeAddress,
+          toBytes32(challenge.walletID, "Wallet ID"),
+          toBytes32(challenge.signingKey, "Signing key"),
+          toBytes32(challenge.sighash, "BIP-341 sighash"),
+        ]
+      )
+    )
+  )
+}
+
+const computeLegacyP2TRSignatureFraudBridgeChallengeIdentity = (challenge: {
+  walletID: Hex | Buffer | string
+  sighash: Hex | Buffer | string
+  signature: Hex | Buffer | string
+  sighashType: P2TRSupportedSighashType
+}): Hex => {
   const signature = toBuffer(challenge.signature)
   if (signature.length !== 64) {
     throw new P2TRWitnessSignatureError(
@@ -3058,15 +3430,20 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     )
   }
 
-  const preimageParts = [
-    Buffer.from(P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN, "utf8"),
-    toBytes32Hex(challenge.walletID, "Wallet ID").toBuffer(),
-    toBytes32Hex(challenge.sighash, "BIP-341 sighash").toBuffer(),
-    signature,
-    Buffer.from([challenge.sighashType]),
-  ]
-
-  return Hex.from(utils.sha256(Buffer.concat(preimageParts)))
+  return Hex.from(
+    utils.sha256(
+      Buffer.concat([
+        Buffer.from(
+          P2TR_SIGNATURE_FRAUD_LEGACY_BRIDGE_CHALLENGE_ID_DOMAIN,
+          "utf8"
+        ),
+        toBytes32Hex(challenge.walletID, "Wallet ID").toBuffer(),
+        toBytes32Hex(challenge.sighash, "BIP-341 sighash").toBuffer(),
+        signature,
+        Buffer.from([challenge.sighashType]),
+      ])
+    )
+  )
 }
 
 /**
@@ -3125,53 +3502,12 @@ export const computeP2TRSignatureFraudDraftChallengeIdentity = (
 
 export const computeP2TRSignatureFraudBridgeChallengeKey = (
   challenge: P2TRSignatureFraudBridgeChallengeKey
-): Hex => {
-  const chainID = BigNumber.from(challenge.chainID)
-  if (chainID.lte(0)) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Chain ID must be positive"
-    )
-  }
+): Hex =>
+  toBytes32Hex(challenge.bridgeChallengeIdentity, "Bridge challenge identity")
 
-  let bridgeAddress: string
-  try {
-    bridgeAddress = utils.getAddress(challenge.bridgeAddress)
-  } catch (_) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Bridge address must be a valid address"
-    )
-  }
-
-  if (bridgeAddress === constants.AddressZero) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Bridge address must be non-zero"
-    )
-  }
-
-  return Hex.from(
-    utils.keccak256(
-      utils.defaultAbiCoder.encode(
-        ["string", "uint256", "address", "bytes32"],
-        [
-          P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_KEY_DOMAIN,
-          chainID,
-          bridgeAddress,
-          toBytes32(
-            challenge.bridgeChallengeIdentity,
-            "Bridge challenge identity"
-          ),
-        ]
-      )
-    )
-  )
-}
-
-export const buildP2TRSignatureFraudBridgeChallengePayload = (
+const parseP2TRSignatureFraudBridgeChallengeTransaction = (
   observation: P2TRSignatureFraudWitnessObservation
-): P2TRSignatureFraudBridgeChallengePayload => {
+): Transaction => {
   const transaction = Transaction.fromHex(
     observation.unsignedTransaction.transactionHex
   )
@@ -3194,6 +3530,15 @@ export const buildP2TRSignatureFraudBridgeChallengePayload = (
     )
   }
 
+  return transaction
+}
+
+export const buildP2TRSignatureFraudBridgeChallengePayload = (
+  observation: P2TRSignatureFraudWitnessObservation
+): P2TRSignatureFraudBridgeChallengePayload => {
+  const transaction =
+    parseP2TRSignatureFraudBridgeChallengeTransaction(observation)
+
   return {
     walletID: utils.hexlify(
       toBytes32Hex(observation.walletID, "Wallet ID").toBuffer()
@@ -3215,22 +3560,97 @@ export const buildP2TRSignatureFraudBridgeChallengePayload = (
     })),
     signedInputIndex: observation.inputIndex,
     witnessSignature: utils.hexlify(toBuffer(observation.witnessSignature)),
-    // The raw-transaction observation path is key-path, annex-free (see
-    // `extractP2TRKeyPathInputWitnessSignature`, which rejects multi-item
-    // witnesses fail-closed), so an observation-derived payload carries no
-    // annex. Annex-bearing evidence is built via the direct challenge-identity
-    // API, which threads the annex explicitly.
-    annex: "0x",
+    annex:
+      observation.annex === undefined
+        ? "0x"
+        : utils.hexlify(toBuffer(observation.annex)),
   }
 }
 
+const buildP2TRSignatureFraudCompleteBridgeChallengeEvidence = (
+  observation: P2TRSignatureFraudWitnessObservation
+): P2TRSignatureFraudCompleteBridgeChallengeEvidence => {
+  const transaction =
+    parseP2TRSignatureFraudBridgeChallengeTransaction(observation)
+  const walletID = toBytes32Hex(observation.walletID, "Wallet ID")
+  const signingKey = extractP2TRWalletIDFromScriptPubKey(
+    observation.scriptPubKey
+  )
+  if (signingKey === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Taproot wallet input must expose a signing key"
+    )
+  }
+
+  const signature = toBuffer(observation.signature)
+  if (signature.length !== 64) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "BIP-340 signature must be 64 bytes"
+    )
+  }
+
+  if (
+    observation.bridgeChallengeKey !== undefined &&
+    !toBytes32Hex(
+      observation.bridgeChallengeKey,
+      "Bridge challenge key"
+    ).equals(
+      toBytes32Hex(
+        observation.bridgeChallengeIdentity,
+        "Bridge challenge identity"
+      )
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "COMPLETE_V2 challenge key must equal its Bridge challenge identity"
+    )
+  }
+
+  const signedInput = transaction.ins[observation.inputIndex]
+  const usesBaseWalletKey = signingKey.equals(walletID)
+
+  return {
+    walletID: walletID.toPrefixedString(),
+    signingKey: signingKey.toPrefixedString(),
+    bindingTxHash: usesBaseWalletKey
+      ? constants.HashZero
+      : utils.hexlify(signedInput.hash),
+    bindingOutputIndex: usesBaseWalletKey ? 0 : signedInput.index,
+    sighash: toBytes32Hex(
+      observation.sighash,
+      "BIP-341 sighash"
+    ).toPrefixedString(),
+    nonceX: utils.hexlify(signature.subarray(0, 32)),
+    signatureScalar: utils.hexlify(signature.subarray(32)),
+  }
+}
+
+/**
+ * Encodes fixed-size COMPLETE_V2 evidence for domain-bound observations.
+ * Domainless observations retain the legacy encoding for callers that only
+ * use this helper; the COMPLETE_V2 submitter rejects them before contract
+ * access because they have no on-chain challenge identity.
+ * @param observation Parsed witness observation to encode.
+ * @returns ABI-encoded COMPLETE_V2 evidence or legacy domainless payload.
+ */
 export const encodeP2TRSignatureFraudBridgeChallengePayload = (
   observation: P2TRSignatureFraudWitnessObservation
-): string =>
-  utils.defaultAbiCoder.encode(
+): string => {
+  if (observation.bridgeChallengeKey !== undefined) {
+    return utils.defaultAbiCoder.encode(
+      [P2TR_SIGNATURE_FRAUD_COMPLETE_BRIDGE_CHALLENGE_EVIDENCE_ABI_TYPE],
+      [buildP2TRSignatureFraudCompleteBridgeChallengeEvidence(observation)]
+    )
+  }
+
+  return utils.defaultAbiCoder.encode(
     [P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE],
     [buildP2TRSignatureFraudBridgeChallengePayload(observation)]
   )
+}
 
 const resolveP2TRSignatureFraudChallengeDepositAmount = (
   fraudParameters: P2TRSignatureFraudBridgeFraudParameters
@@ -3261,13 +3681,22 @@ const validateP2TRSignatureFraudBridgeTxHash = (txHash: string): string => {
   return txHash
 }
 
+/**
+ * Manual low-level COMPLETE_V2 Router adapter for explicitly submitted fraud
+ * challenges. Only domain-bound observations are accepted because their Bridge
+ * identity is the router's challenge key and lifecycle correlation key.
+ *
+ * This class is not an automatic production watchtower path and does not
+ * activate the bounded/no-go FROST fraud layer. Callers remain responsible for
+ * a separately reviewed `COMPLETE_V2` protocol and operational controls.
+ */
 export class P2TRSignatureFraudBridgeChallengeSubmitter
   implements P2TRSignatureFraudChallengeSubmitter
 {
   private readonly confirmations: number
 
   /**
-   * @param contract The P2TR signature-fraud entry-point contract.
+   * @param bridge The P2TR signature-fraud entry-point contract.
    *        Post-extraction this is the `P2TRSignatureFraudRouter`
    *        sidecar (NOT the Bridge contract). See
    *        `P2TRSignatureFraudBridgeChallengeContract` doc for the
@@ -3299,10 +3728,18 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
     observation: P2TRSignatureFraudWitnessObservation,
     options?: P2TRSignatureFraudChallengeSubmissionOptions
   ): Promise<string> {
+    if (observation.bridgeChallengeKey === undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "COMPLETE_V2 submission requires a domain-bound Bridge challenge key"
+      )
+    }
+
+    const payload = encodeP2TRSignatureFraudBridgeChallengePayload(observation)
     const challengeDepositAmount = await this.challengeDepositAmount()
     const tx = await this.bridge.processP2TRSignatureFraudChallenge(
       P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT,
-      encodeP2TRSignatureFraudBridgeChallengePayload(observation),
+      payload,
       [],
       { value: challengeDepositAmount }
     )
@@ -3408,7 +3845,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
       unsignedTransaction,
       candidate.inputIndex,
       inputPrevouts,
-      candidate.sighashType
+      candidate.sighashType,
+      candidate.annex
     )
     const draftChallengeIdentity =
       computeP2TRSignatureFraudDraftChallengeIdentity({
@@ -3420,21 +3858,33 @@ export const extractP2TRSignatureFraudWitnessObservations = (
         unsignedTransaction,
         inputPrevouts,
       })
+    const signingKey = extractP2TRWalletIDFromScriptPubKey(
+      candidate.scriptPubKey
+    )
+    if (signingKey === undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-observation-payload",
+        "Taproot wallet input must expose a signing key"
+      )
+    }
     const bridgeChallengeIdentity =
-      computeP2TRSignatureFraudBridgeChallengeIdentity({
-        walletID: candidate.walletID,
-        sighash,
-        signature: candidate.signature,
-        sighashType: candidate.sighashType,
-        signedInputIndex: candidate.inputIndex,
-        unsignedTransaction,
-        inputPrevouts,
-      })
+      bridgeChallengeDomain === undefined
+        ? computeLegacyP2TRSignatureFraudBridgeChallengeIdentity({
+            walletID: candidate.walletID,
+            sighash,
+            signature: candidate.signature,
+            sighashType: candidate.sighashType,
+          })
+        : computeP2TRSignatureFraudBridgeChallengeIdentity({
+            ...bridgeChallengeDomain,
+            walletID: candidate.walletID,
+            signingKey,
+            sighash,
+          })
     const bridgeChallengeKey =
       bridgeChallengeDomain === undefined
         ? undefined
         : computeP2TRSignatureFraudBridgeChallengeKey({
-            ...bridgeChallengeDomain,
             bridgeChallengeIdentity,
           })
 
@@ -3526,12 +3976,15 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
   }
 }
 
+/**
+ * Observation-only P2TR fraud evidence index and lifecycle store.
+ *
+ * Automatic challenge submission is hard-disabled while the FROST fraud layer
+ * is bounded/no-go. Observation and manual lifecycle reconciliation remain
+ * available without activating the incomplete fraud protocol.
+ */
 export class P2TRSignatureFraudWatchtower {
   private readonly registeredWalletIDs: Hex[]
-  private readonly inFlightSubmissions = new Map<
-    string,
-    Promise<P2TRWatchtowerChallengeRecord>
-  >()
 
   constructor(
     private readonly store: P2TRWatchtowerChallengeStore,
@@ -3718,6 +4171,18 @@ export class P2TRSignatureFraudWatchtower {
     })
   }
 
+  async reconcileChallengeBroadcast(
+    observationID: Hex | Buffer | string,
+    resolution: P2TRSignatureFraudChallengeBroadcastResolution
+  ): Promise<P2TRWatchtowerChallengeRecord> {
+    return recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
+      type: "submission-broadcast-reconciled",
+      observationID,
+      resolution,
+      reconciledAtUnixMs: Date.now(),
+    })
+  }
+
   async raiseChallengeOperatorAlert(
     observationID: Hex | Buffer | string,
     code: string,
@@ -3751,193 +4216,57 @@ export class P2TRSignatureFraudWatchtower {
     })
   }
 
+  /**
+   * Always rejects while automatic P2TR fraud submission is disabled.
+   *
+   * A future activation requires a separately reviewed `COMPLETE_V2` evidence
+   * protocol, durable broadcast outbox, and canonical independent
+   * reconciliation design.
+   * @param observation Compatibility-only observed evidence; it is never
+   *        submitted by this method.
+   * @param submitter Compatibility-only low-level submitter; it is never
+   *        invoked by this method.
+   * @param submissionPolicy Compatibility-only policy; it cannot enable
+   *        submission.
+   * @returns A rejected promise while the fraud layer remains bounded/no-go.
+   */
   async submitChallenge(
     observation: P2TRSignatureFraudWitnessObservation,
     submitter: P2TRSignatureFraudChallengeSubmitter,
     submissionPolicy: P2TRSignatureFraudChallengeSubmissionPolicy = {}
   ): Promise<P2TRWatchtowerChallengeRecord> {
-    validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
-      bridgeIdentifier: this.bridgeIdentifier,
-      spendTypeClassifier: this.spendTypeClassifier,
-      payloadBounds: this.payloadBounds,
-      bridgeChallengeDomain: this.bridgeChallengeDomain,
-    })
-
-    const submissionKey = observation.observationID.toString()
-    const inFlightSubmission = this.inFlightSubmissions.get(submissionKey)
-    if (inFlightSubmission !== undefined) {
-      return inFlightSubmission
-    }
-
-    const submission = this.submitChallengeOnce(
-      observation,
-      submitter,
-      submissionPolicy
+    void observation
+    void submitter
+    void submissionPolicy
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "P2TR signature-fraud watchtower challenge submission is disabled while the FROST fraud layer is bounded/no-go; COMPLETE_V2 activation requires a separately reviewed durable outbox and canonical independent reconciliation design"
     )
-    this.inFlightSubmissions.set(submissionKey, submission)
-
-    try {
-      return await submission
-    } finally {
-      if (this.inFlightSubmissions.get(submissionKey) === submission) {
-        this.inFlightSubmissions.delete(submissionKey)
-      }
-    }
-  }
-
-  private async submitChallengeOnce(
-    observation: P2TRSignatureFraudWitnessObservation,
-    submitter: P2TRSignatureFraudChallengeSubmitter,
-    submissionPolicy: P2TRSignatureFraudChallengeSubmissionPolicy
-  ): Promise<P2TRWatchtowerChallengeRecord> {
-    const observedRecord = await recordP2TRWatchtowerChallengeEvent(
-      this.store,
-      {
-        type: "observed",
-        observationID: observation.observationID,
-        observation,
-      }
-    )
-
-    if (
-      isSubmissionClosedWatchtowerStatus(observedRecord.status) ||
-      observedRecord.status === "broadcast-pending"
-    ) {
-      // Already broadcast (or settled): never initiate another submission for
-      // the same challenge, which would duplicate the on-chain transaction.
-      return observedRecord
-    }
-
-    if (!isP2TRSignatureFraudSubmissionAllowed(observation, submissionPolicy)) {
-      return this.raiseChallengeOperatorAlert(
-        observation.observationID,
-        "P2TR-SPEND-TYPE-NOT-APPROVED",
-        `P2TR signature-fraud spend type ${observation.spendType} is not approved for challenge submission`
-      )
-    }
-
-    const submissionStartedRecord =
-      await recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
-        type: "submission-started",
-        observationID: observation.observationID,
-        observation,
-      })
-
-    if (submissionStartedRecord.status !== "submitting") {
-      return submissionStartedRecord
-    }
-
-    const submissionObservation =
-      submissionStartedRecord.observation ?? observation
-
-    // A replayed `submitting` record may retain an older same-key payload, so
-    // revalidate and reauthorize the exact payload chosen from durable state.
-    validateP2TRSignatureFraudWitnessObservationConsistency(
-      submissionObservation,
-      {
-        bridgeIdentifier: this.bridgeIdentifier,
-        spendTypeClassifier: this.spendTypeClassifier,
-        payloadBounds: this.payloadBounds,
-        bridgeChallengeDomain: this.bridgeChallengeDomain,
-      }
-    )
-
-    if (
-      !isP2TRSignatureFraudSubmissionAllowed(
-        submissionObservation,
-        submissionPolicy
-      )
-    ) {
-      return this.raiseChallengeOperatorAlert(
-        submissionObservation.observationID,
-        "P2TR-SPEND-TYPE-NOT-APPROVED",
-        `P2TR signature-fraud spend type ${submissionObservation.spendType} is not approved for challenge submission`
-      )
-    }
-
-    // Once the challenge transaction is broadcast it is irreversible, so the
-    // record must never be left in a replayable state (which would re-broadcast a
-    // duplicate). The submitter reports the broadcast via `onBroadcast`, which
-    // durably records the non-replayable "broadcast-pending" status before the
-    // confirmation wait and the final acceptance record.
-    let broadcastAttempted = false
-    let broadcastRecord: P2TRWatchtowerChallengeRecord | undefined
-    try {
-      const challengeTxHash = await submitter.submitSignatureFraudChallenge(
-        submissionObservation,
-        {
-          onBroadcast: async (txHash) => {
-            broadcastAttempted = true
-            broadcastRecord = await recordP2TRWatchtowerChallengeEventWithRetry(
-              this.store,
-              {
-                type: "submission-broadcast",
-                observationID: observation.observationID,
-                challengeTxHash: txHash,
-              }
-            )
-          },
-        }
-      )
-
-      return await recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
-        type: "submission-accepted",
-        observationID: observation.observationID,
-        challengeTxHash,
-      })
-    } catch (error) {
-      if (
-        error instanceof P2TRWitnessSignatureError &&
-        error.code === "challenge-transaction-reverted"
-      ) {
-        // The challenge transaction was broadcast but the finality wait observed
-        // an on-chain revert, so it created no state and is safe to retry. Mark it
-        // rejected (replayable) even though the broadcast was already recorded.
-        return recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
-          type: "submission-rejected",
-          observationID: observation.observationID,
-          error: watchtowerSubmissionErrorMessage(error),
-        })
-      }
-
-      if (broadcastRecord !== undefined) {
-        // Broadcast succeeded (or its outcome is unknown) but a later step
-        // (confirmation wait or acceptance persistence) failed. The durable
-        // "broadcast-pending" record is non-replayable; surface it instead of
-        // marking the challenge rejected (which is replayable and would
-        // re-broadcast).
-        return broadcastRecord
-      }
-
-      if (broadcastAttempted) {
-        // The challenge was broadcast but its broadcast status could not be
-        // persisted. Marking it rejected would re-broadcast on replay, so surface
-        // the failure and leave the (replayable) submitting record for an
-        // operator to resolve rather than silently duplicating the submission.
-        throw error
-      }
-
-      return recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
-        type: "submission-rejected",
-        observationID: observation.observationID,
-        error: watchtowerSubmissionErrorMessage(error),
-      })
-    }
   }
 }
 
+/**
+ * Observation-only transaction and Bridge-lifecycle processing runner.
+ *
+ * The submission constructor surface is retained for API compatibility, but
+ * `submitChallenges: true` always rejects and no automatic broadcast occurs.
+ */
 export class P2TRSignatureFraudWatchtowerRunner {
-  private readonly submitChallenges: boolean
   private readonly maxSubmissionAttempts?: number
   private readonly submissionAttemptLimitAlert?: P2TRWatchtowerOperatorAlert
-  private readonly submissionPolicy: P2TRSignatureFraudChallengeSubmissionPolicy
+  private readonly broadcastReconciler?: P2TRSignatureFraudChallengeBroadcastReconciler
 
   constructor(
     private readonly watchtower: P2TRSignatureFraudWatchtower,
     private readonly bitcoinClient: BitcoinClient,
-    private readonly submitter: P2TRSignatureFraudChallengeSubmitter,
-    options: P2TRSignatureFraudWatchtowerRunnerOptions = {}
+    /** Compatibility-only low-level submitter; this runner never invokes it. */
+    _submitter: P2TRSignatureFraudChallengeSubmitter,
+    /** Observation-only options; `submitChallenges: true` always rejects. */
+    options: P2TRSignatureFraudWatchtowerRunnerOptions = {},
+    /** Future `COMPLETE_V2` scaffolding; it cannot enable submission. */
+    broadcastReconciler?: P2TRSignatureFraudChallengeBroadcastReconciler
   ) {
+    this.broadcastReconciler = broadcastReconciler
     if (
       options.submitChallenges !== undefined &&
       typeof options.submitChallenges !== "boolean"
@@ -3945,6 +4274,13 @@ export class P2TRSignatureFraudWatchtowerRunner {
       throw new P2TRWitnessSignatureError(
         "invalid-watchtower-state",
         "Watchtower submit-challenges option must be a boolean"
+      )
+    }
+
+    if (options.submitChallenges === true) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Automatic P2TR signature-fraud challenge submission is disabled while the FROST fraud layer is bounded/no-go; COMPLETE_V2 activation requires a separately reviewed durable outbox and canonical independent reconciliation design"
       )
     }
 
@@ -3973,23 +4309,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
       }
     }
 
-    const normalizedSubmissionPolicy =
-      normalizeP2TRSignatureFraudSubmissionPolicy(options.submissionPolicy)
-
-    if (
-      options.submitChallenges === true &&
-      normalizedSubmissionPolicy.size === 0
-    ) {
-      throw new P2TRWitnessSignatureError(
-        "invalid-watchtower-state",
-        "Watchtower challenge submission requires at least one approved spend type"
-      )
-    }
-
-    this.submitChallenges = options.submitChallenges ?? false
     this.maxSubmissionAttempts = options.maxSubmissionAttempts
     this.submissionAttemptLimitAlert = options.submissionAttemptLimitAlert
-    this.submissionPolicy = options.submissionPolicy ?? {}
   }
 
   private hasReachedSubmissionAttemptLimit(
@@ -4002,23 +4323,12 @@ export class P2TRSignatureFraudWatchtowerRunner {
     )
   }
 
-  private shouldSubmitChallenge(
-    record: P2TRWatchtowerChallengeRecord
-  ): boolean {
-    return (
-      this.submitChallenges &&
-      !isSubmissionClosedWatchtowerStatus(record.status) &&
-      record.status !== "broadcast-pending" &&
-      !this.hasReachedSubmissionAttemptLimit(record)
-    )
-  }
-
   async processMempoolTransaction(
     rawTransaction: BitcoinRawTx,
     bitcoinTxHash: Hex | Buffer | string,
     walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
-    return this.submitObservationResults(
+    return this.observationResultsWithoutSubmission(
       await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
         rawTransaction,
         this.bitcoinClient,
@@ -4065,7 +4375,7 @@ export class P2TRSignatureFraudWatchtowerRunner {
     bitcoinBlockHeight: number,
     walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
-    return this.submitObservationResults(
+    return this.observationResultsWithoutSubmission(
       await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
         rawTransaction,
         this.bitcoinClient,
@@ -4111,11 +4421,58 @@ export class P2TRSignatureFraudWatchtowerRunner {
     )
   }
 
+  private async observeMempoolTransactionsSettled(
+    transactions: P2TRWatchtowerMempoolTransaction[]
+  ): Promise<
+    P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerMempoolTransaction>
+  > {
+    return this.processTransactionsSettled(transactions, async (transaction) =>
+      this.observationResultsWithoutSubmission(
+        await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
+          transaction.rawTransaction,
+          this.bitcoinClient,
+          transaction.bitcoinTxHash,
+          transaction.walletInputKeyBindings
+        )
+      )
+    )
+  }
+
+  private async observeConfirmedTransactionsSettled(
+    transactions: P2TRWatchtowerConfirmedTransaction[]
+  ): Promise<
+    P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerConfirmedTransaction>
+  > {
+    return this.processTransactionsSettled(transactions, async (transaction) =>
+      this.observationResultsWithoutSubmission(
+        await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
+          transaction.rawTransaction,
+          this.bitcoinClient,
+          transaction.bitcoinTxHash,
+          transaction.bitcoinBlockHash,
+          transaction.bitcoinBlockHeight,
+          transaction.walletInputKeyBindings
+        )
+      )
+    )
+  }
+
   async replayStoredChallenges(
     records: P2TRWatchtowerChallengeRecord[]
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
+    return this.replayStoredChallengesAfterLifecycle(records, false)
+  }
+
+  private async replayStoredChallengesAfterLifecycle(
+    records: P2TRWatchtowerChallengeRecord[],
+    allowSubmissions: boolean
+  ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
+    const reconciledRecords = await Promise.all(
+      records.map((record) => this.reconcileAmbiguousBroadcastRecord(record))
+    )
+
     return Promise.all(
-      records
+      reconciledRecords
         .filter(
           (record) =>
             record.observation !== undefined &&
@@ -4125,15 +4482,7 @@ export class P2TRSignatureFraudWatchtowerRunner {
           observation:
             record.observation as P2TRSignatureFraudWitnessObservation,
           record,
-          submissionRecord: this.shouldSubmitChallenge(record)
-            ? await this.withSubmissionAttemptLimitAlert(
-                await this.watchtower.submitChallenge(
-                  record.observation as P2TRSignatureFraudWitnessObservation,
-                  this.submitter,
-                  this.submissionPolicy
-                )
-              )
-            : await this.withSubmissionAttemptLimitAlert(record),
+          submissionRecord: await this.withSubmissionAttemptLimitAlert(record),
         }))
     )
   }
@@ -4141,8 +4490,76 @@ export class P2TRSignatureFraudWatchtowerRunner {
   async replayStoredChallengeRecords(
     recordSource: P2TRWatchtowerChallengeRecordSource
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
-    return this.replayStoredChallenges(
-      await recordSource.listChallengeRecords()
+    return this.replayStoredChallengesAfterLifecycle(
+      await recordSource.listChallengeRecords(),
+      false
+    )
+  }
+
+  private async reconcileAmbiguousBroadcastRecord(
+    record: P2TRWatchtowerChallengeRecord
+  ): Promise<P2TRWatchtowerChallengeRecord> {
+    if (
+      record.status !== "submitting" &&
+      record.status !== "broadcast-pending"
+    ) {
+      return record
+    }
+
+    let resolution: P2TRSignatureFraudChallengeBroadcastResolution
+    const bridgeChallengeKey = record.observation?.bridgeChallengeKey
+
+    if (this.broadcastReconciler === undefined) {
+      resolution = {
+        status: "unknown",
+        reason:
+          "Challenge broadcast finality cannot be reconciled because no canonical reconciler is configured",
+      }
+    } else if (bridgeChallengeKey === undefined) {
+      resolution = {
+        status: "unknown",
+        reason:
+          "Challenge broadcast finality cannot be reconciled because its Bridge challenge key is missing",
+      }
+    } else {
+      try {
+        resolution =
+          await this.broadcastReconciler.reconcileSignatureFraudChallengeBroadcast(
+            {
+              observationID: record.observationID,
+              bridgeChallengeKey,
+              challengeTxHash: record.challengeTxHash,
+              broadcastAtUnixMs: record.challengeBroadcastAtUnixMs,
+              reconciliationAttempts:
+                record.challengeBroadcastReconciliationAttempts ?? 0,
+            }
+          )
+        if (
+          resolution === undefined ||
+          !challengeBroadcastResolutionStatuses.has(resolution.status) ||
+          (resolution.status !== "accepted" &&
+            (typeof resolution.reason !== "string" ||
+              resolution.reason.length === 0))
+        ) {
+          resolution = {
+            status: "unknown",
+            reason:
+              "Challenge broadcast finality reconciler returned an invalid result",
+          }
+        }
+      } catch (error) {
+        resolution = {
+          status: "unknown",
+          reason: `Challenge broadcast finality reconciliation failed: ${watchtowerSubmissionErrorMessage(
+            error
+          )}`,
+        }
+      }
+    }
+
+    return this.watchtower.reconcileChallengeBroadcast(
+      record.observationID,
+      resolution
     )
   }
 
@@ -4150,31 +4567,39 @@ export class P2TRSignatureFraudWatchtowerRunner {
     transactionSource: P2TRSignatureFraudWatchtowerTransactionSource,
     recordSource: P2TRWatchtowerChallengeRecordSource
   ): Promise<P2TRSignatureFraudWatchtowerCycleResult> {
-    const replayed = await this.replayStoredChallengeRecords(recordSource)
+    const cycleStartRecords = await recordSource.listChallengeRecords()
     const [mempoolTransactions, confirmedTransactions] =
       await Promise.allSettled([
         transactionSource.listMempoolTransactions(),
         transactionSource.listConfirmedTransactions(),
       ])
     const sourceFailures: P2TRSignatureFraudWatchtowerSourceFailure[] = []
+    const confirmedSourceComplete =
+      confirmedTransactions.status === "fulfilled" &&
+      isP2TRWatchtowerConfirmedTransactionSourceResult(
+        confirmedTransactions.value
+      ) &&
+      confirmedTransactions.value.complete === true
 
-    const mempool = await this.processTransactionSourceResult(
+    const observedMempool = await this.processTransactionSourceResult(
       "mempool",
       mempoolTransactions,
       sourceFailures,
-      (transactions) => this.processMempoolTransactionsSettled(transactions)
+      (transactions) => this.observeMempoolTransactionsSettled(transactions)
     )
-    const confirmed = await this.processTransactionSourceResult(
+    const observedConfirmed = await this.processConfirmedSourceResult(
       "confirmed",
       confirmedTransactions,
       sourceFailures,
-      (transactions) => this.processConfirmedTransactionsSettled(transactions)
+      (transactions) => this.observeConfirmedTransactionsSettled(transactions)
     )
+    const replayed = await this.replayStoredChallenges(cycleStartRecords)
 
     return {
       replayed,
-      mempool,
-      confirmed,
+      mempool: observedMempool,
+      confirmed: observedConfirmed,
+      confirmedSourceComplete,
       sourceFailures,
       summary: await summarizeP2TRWatchtowerChallengeRecords(recordSource),
       unresolvedOperatorAlerts:
@@ -4323,7 +4748,11 @@ export class P2TRSignatureFraudWatchtowerRunner {
     bridgeLifecycleEventSource: P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource,
     recordSource: P2TRWatchtowerChallengeRecordSource
   ): Promise<P2TRSignatureFraudWatchtowerIntegratedCycleResult> {
-    const replayed = await this.replayStoredChallengeRecords(recordSource)
+    const cycleStartRecordIDs = new Set(
+      (await recordSource.listChallengeRecords()).map((record) =>
+        record.observationID.toString()
+      )
+    )
     const [mempoolTransactions, confirmedTransactions, bridgeLifecycleEvents] =
       await Promise.allSettled([
         transactionSource.listMempoolTransactions(),
@@ -4335,28 +4764,62 @@ export class P2TRSignatureFraudWatchtowerRunner {
     const bridgeLifecycleSourceFailures: P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure[] =
       []
 
-    const mempool = await this.processTransactionSourceResult(
+    const observedMempool = await this.processTransactionSourceResult(
       "mempool",
       mempoolTransactions,
       transactionSourceFailures,
-      (transactions) => this.processMempoolTransactionsSettled(transactions)
+      (transactions) => this.observeMempoolTransactionsSettled(transactions)
     )
-    const confirmed = await this.processTransactionSourceResult(
+    const observedConfirmed = await this.processConfirmedSourceResult(
       "confirmed",
       confirmedTransactions,
       transactionSourceFailures,
-      (transactions) => this.processConfirmedTransactionsSettled(transactions)
+      (transactions) => this.observeConfirmedTransactionsSettled(transactions)
     )
     const bridgeLifecycle = await this.processBridgeLifecycleSourceResult(
       bridgeLifecycleEvents,
       bridgeLifecycleSourceFailures,
       recordSource
     )
+    const confirmedSourceComplete =
+      confirmedTransactions.status === "fulfilled" &&
+      isP2TRWatchtowerConfirmedTransactionSourceResult(
+        confirmedTransactions.value
+      ) &&
+      confirmedTransactions.value.complete === true
+    const allowSubmissions =
+      bridgeLifecycleEvents.status === "fulfilled" &&
+      bridgeLifecycle.failures.length === 0 &&
+      transactionSourceFailures.length === 0 &&
+      observedMempool.failures.length === 0 &&
+      observedConfirmed.failures.length === 0 &&
+      confirmedSourceComplete
+    const currentCycleStartRecords = (
+      await recordSource.listChallengeRecords()
+    ).filter((record) =>
+      cycleStartRecordIDs.has(record.observationID.toString())
+    )
+    const replayed = await this.replayStoredChallengesAfterLifecycle(
+      currentCycleStartRecords,
+      allowSubmissions
+    )
+
+    const mempool = await this.submitPersistedObservationBatch(
+      observedMempool,
+      recordSource,
+      allowSubmissions
+    )
+    const confirmed = await this.submitPersistedObservationBatch(
+      observedConfirmed,
+      recordSource,
+      allowSubmissions
+    )
 
     return {
       replayed,
       mempool,
       confirmed,
+      confirmedSourceComplete,
       bridgeLifecycle,
       sourceFailures: [
         ...transactionSourceFailures,
@@ -4368,23 +4831,55 @@ export class P2TRSignatureFraudWatchtowerRunner {
     }
   }
 
-  private async submitObservationResults(
-    observationResults: P2TRSignatureFraudWatchtowerObservationResult[]
-  ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
-    return Promise.all(
-      observationResults.map(async (result) => ({
-        ...result,
-        submissionRecord: this.shouldSubmitChallenge(result.record)
-          ? await this.withSubmissionAttemptLimitAlert(
-              await this.watchtower.submitChallenge(
-                result.observation,
-                this.submitter,
-                this.submissionPolicy
-              )
-            )
-          : await this.withSubmissionAttemptLimitAlert(result.record),
-      }))
+  private async submitPersistedObservationBatch<T>(
+    batch: P2TRSignatureFraudWatchtowerBatchResult<T>,
+    recordSource: P2TRWatchtowerChallengeRecordSource,
+    allowSubmissions: boolean
+  ): Promise<P2TRSignatureFraudWatchtowerBatchResult<T>> {
+    if (!allowSubmissions || batch.submissions.length === 0) {
+      return batch
+    }
+
+    const records = new Map(
+      (await recordSource.listChallengeRecords()).map((record) => [
+        record.observationID.toString(),
+        record,
+      ])
     )
+    const submissions: P2TRSignatureFraudWatchtowerSubmissionResult[] = []
+
+    // Process sequentially. A mempool and confirmed batch can contain the same
+    // observation, and a second submission decision must see the first one's
+    // durable state rather than race it.
+    for (const result of batch.submissions) {
+      const observationID = result.observation.observationID.toString()
+      const record = records.get(observationID)
+      if (record?.observation === undefined) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Observed challenge record disappeared before reconciled submission"
+        )
+      }
+
+      const observation = record.observation
+      const submissionRecord = await this.withSubmissionAttemptLimitAlert(
+        record
+      )
+
+      submissions.push({ observation, record, submissionRecord })
+      records.set(observationID, submissionRecord)
+    }
+
+    return { ...batch, submissions }
+  }
+
+  private observationResultsWithoutSubmission(
+    observationResults: P2TRSignatureFraudWatchtowerObservationResult[]
+  ): P2TRSignatureFraudWatchtowerSubmissionResult[] {
+    return observationResults.map((result) => ({
+      ...result,
+      submissionRecord: result.record,
+    }))
   }
 
   private async processTransactionSourceResult<T>(
@@ -4405,6 +4900,39 @@ export class P2TRSignatureFraudWatchtowerRunner {
     }
 
     return processTransactions(sourceResult.value)
+  }
+
+  private async processConfirmedSourceResult(
+    source: "confirmed",
+    sourceResult: PromiseSettledResult<P2TRWatchtowerConfirmedTransactionSourceResult>,
+    sourceFailures: P2TRSignatureFraudWatchtowerSourceFailure[],
+    processTransactions: (
+      transactions: P2TRWatchtowerConfirmedTransaction[]
+    ) => Promise<
+      P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerConfirmedTransaction>
+    >
+  ): Promise<
+    P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerConfirmedTransaction>
+  > {
+    if (sourceResult.status === "rejected") {
+      sourceFailures.push({
+        source,
+        error: watchtowerSubmissionErrorMessage(sourceResult.reason),
+      })
+
+      return { submissions: [], failures: [] }
+    }
+
+    if (!isP2TRWatchtowerConfirmedTransactionSourceResult(sourceResult.value)) {
+      sourceFailures.push({
+        source,
+        error:
+          "Confirmed transaction source returned an invalid bounded-history result",
+      })
+      return { submissions: [], failures: [] }
+    }
+
+    return processTransactions(sourceResult.value.transactions)
   }
 
   private async processBridgeLifecycleSourceResult(

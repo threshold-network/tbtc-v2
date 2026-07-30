@@ -10,6 +10,7 @@ import {
   applyP2TRWatchtowerChallengeEvent,
   BitcoinClient,
   BitcoinRawTx,
+  computeP2TRSignatureFraudBridgeChallengeIdentity,
   createP2TRWatchtowerChallengeRecord,
   extractP2TRSignatureFraudWitnessObservations,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT,
@@ -18,6 +19,7 @@ import {
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
   P2TRSignatureFraudChallengeSubmitter,
+  P2TRSignatureFraudChallengeBroadcastReconciler,
   P2TRSignatureFraudChallengeSubmissionPolicy,
   P2TRSignatureFraudPayloadBounds,
   P2TRSignatureFraudWitnessObservation,
@@ -68,10 +70,8 @@ const emptyTransactionSource: P2TRSignatureFraudWatchtowerTransactionSource = {
   async listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]> {
     return []
   },
-  async listConfirmedTransactions(): Promise<
-    P2TRWatchtowerConfirmedTransaction[]
-  > {
-    return []
+  async listConfirmedTransactions() {
+    return { transactions: [], complete: true }
   },
 }
 
@@ -197,8 +197,15 @@ const transactionalCoordinator = (
   return coordinator
 }
 
-class FakeSubmitter implements P2TRSignatureFraudChallengeSubmitter {
+class FakeSubmitter
+  implements
+    P2TRSignatureFraudChallengeSubmitter,
+    P2TRSignatureFraudChallengeBroadcastReconciler
+{
   readonly p2trSignatureFraudWatchtowerIdempotentSubmissions = true
+  readonly submissionTrustDomainID = "submitter.test"
+  readonly reconciliationTrustDomainID = "reconciler.test"
+  readonly finalityConfirmationBlocks = 12
   submissionCount = 0
   private readonly submittedChallenges = new Map<string, string>()
 
@@ -220,7 +227,23 @@ class FakeSubmitter implements P2TRSignatureFraudChallengeSubmitter {
     )
     return challengeTxHash
   }
+
+  async reconcileSignatureFraudChallengeBroadcast() {
+    return {
+      status: "absent-after-finality" as const,
+      reason: "challenge is absent after the test finality boundary",
+    }
+  }
 }
+
+const acceptedChallengeBroadcastReconciler: P2TRSignatureFraudChallengeBroadcastReconciler =
+  {
+    reconciliationTrustDomainID: "reconciler.test",
+    finalityConfirmationBlocks: 12,
+    async reconcileSignatureFraudChallengeBroadcast() {
+      return { status: "accepted" }
+    },
+  }
 
 class TransactionalRollbackChallengeRecordPersistence {
   readonly p2trSignatureFraudWatchtowerStoreProfile =
@@ -269,6 +292,7 @@ const emptyCycleReport = (): P2TRSignatureFraudWatchtowerCycleReport => ({
     mempool: { submissions: [], failures: [] },
     confirmed: { submissions: [], failures: [] },
     bridgeLifecycle: { records: [], failures: [], ignored: [] },
+    confirmedSourceComplete: true,
     sourceFailures: [],
     summary: {
       total: 0,
@@ -316,6 +340,7 @@ const emptyCycleReport = (): P2TRSignatureFraudWatchtowerCycleReport => ({
     sourceFailures: 0,
     totalRecords: 0,
     unresolvedOperatorAlerts: 0,
+    alertSinkFailures: 0,
   },
 })
 
@@ -602,6 +627,7 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
         sourceTrustDomainID: "indexer.test",
         canonicalLogVerifier: {
           trustDomainID: "canonical.test",
+          providerIdentity: {},
           async getBlockNumber() {
             return 150
           },
@@ -609,6 +635,9 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
             return lifecycleBlockHash
           },
           async verifyLifecycleLog() {
+            return true
+          },
+          async verifyLifecycleLogRange() {
             return true
           },
         },
@@ -654,7 +683,7 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
   }
 })
 
-test("rejects mutated persisted observations before replay submission", async () => {
+test("keeps mutated persisted observations inert while automatic submission is disabled", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
 
@@ -695,13 +724,6 @@ test("rejects mutated persisted observations before replay submission", async ()
     const service = new P2TRSignatureFraudWatchtowerService(
       {
         registeredWalletIDs: [vector.walletIDHex],
-        submitChallenges: true,
-        ...draftSingleProcessRehearsalSubmission,
-        submissionPolicy: {
-          allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
-        },
-        maxSubmissionAttempts: 3,
-        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
         payloadBounds: draftPayloadBounds,
         bridgeChallengeDomain: draftBridgeChallengeDomain,
         spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
@@ -715,11 +737,12 @@ test("rejects mutated persisted observations before replay submission", async ()
       }
     )
 
-    await assert.rejects(
-      service.processCycle(),
-      /Watchtower observation fields do not match reconstructed witness data/
-    )
+    const report = await service.processCycle()
+
     assert.equal(submitter.submissionCount, 0)
+    assert.equal(report.metrics.replayedRecords, 1)
+    assert.equal(report.metrics.replayedSubmissions, 0)
+    assert.equal(report.metrics.replayedSubmissionAttempts, 0)
 
     const [storedRecord] = await persistence.loadChallengeRecords()
     assert.equal(storedRecord.status, "rejected")
@@ -729,7 +752,7 @@ test("rejects mutated persisted observations before replay submission", async ()
   }
 })
 
-test("replays stored rejected challenges during a service cycle after restart", async () => {
+test("keeps stored rejected challenges inert during observation-only restart cycles", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
 
@@ -774,11 +797,6 @@ test("replays stored rejected challenges during a service cycle after restart", 
     const service = new P2TRSignatureFraudWatchtowerService(
       {
         registeredWalletIDs: [vector.walletIDHex],
-        submitChallenges: true,
-        ...draftSingleProcessRehearsalSubmission,
-        maxSubmissionAttempts: 3,
-        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
-        submissionPolicy: draftRedemptionSubmissionPolicy,
         payloadBounds: draftPayloadBounds,
         bridgeChallengeDomain: draftBridgeChallengeDomain,
         spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
@@ -794,21 +812,22 @@ test("replays stored rejected challenges during a service cycle after restart", 
 
     const report = await service.processCycle()
 
-    assert.equal(submitter.submissionCount, 1)
+    assert.equal(submitter.submissionCount, 0)
     assert.equal(report.metrics.replayedRecords, 1)
-    assert.equal(report.metrics.replayedSubmissions, 1)
-    assert.equal(report.metrics.replayedSubmissionAttempts, 1)
+    assert.equal(report.metrics.replayedSubmissions, 0)
+    assert.equal(report.metrics.replayedSubmissionAttempts, 0)
     assert.equal(report.metrics.totalRecords, 1)
 
     const [storedRecord] = await persistence.loadChallengeRecords()
-    assert.equal(storedRecord.status, "submitted")
-    assert.equal(storedRecord.challengeTxHash, "ab".repeat(32))
+    assert.equal(storedRecord.status, "rejected")
+    assert.equal(storedRecord.submissionAttempts, 1)
+    assert.equal(storedRecord.challengeTxHash, undefined)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
 })
 
-test("keeps rejected challenges replayable when lifecycle verification fails", async () => {
+test("keeps rejected challenges inert when lifecycle verification fails", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
 
@@ -852,11 +871,6 @@ test("keeps rejected challenges replayable when lifecycle verification fails", a
     const service = new P2TRSignatureFraudWatchtowerService(
       {
         registeredWalletIDs: [vector.walletIDHex],
-        submitChallenges: true,
-        ...draftSingleProcessRehearsalSubmission,
-        maxSubmissionAttempts: 5,
-        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
-        submissionPolicy: draftRedemptionSubmissionPolicy,
         payloadBounds: draftPayloadBounds,
         bridgeChallengeDomain: draftBridgeChallengeDomain,
         spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
@@ -889,16 +903,16 @@ test("keeps rejected challenges replayable when lifecycle verification fails", a
     assert.equal(secondReport.metrics.replayedRecords, 1)
     assert.equal(firstReport.metrics.sourceFailures, 1)
     assert.equal(secondReport.metrics.sourceFailures, 1)
-    assert.equal(submissionCount, 2)
+    assert.equal(submissionCount, 0)
     const [storedRecord] = await persistence.loadChallengeRecords()
     assert.equal(storedRecord.status, "rejected")
-    assert.equal(storedRecord.submissionAttempts, 3)
+    assert.equal(storedRecord.submissionAttempts, 1)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
 })
 
-test("wires file-backed runtime config into service and loop options", async () => {
+test("wires observation-only file-backed runtime config into service and loop options", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
 
@@ -950,11 +964,6 @@ test("wires file-backed runtime config into service and loop options", async () 
         transactionSource: {},
         service: {
           registeredWalletIDs: [vector.walletIDHex],
-          submitChallenges: true,
-          ...draftSingleProcessRehearsalSubmission,
-          maxSubmissionAttempts: 3,
-          submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
-          submissionPolicy: draftRedemptionSubmissionPolicy,
           payloadBounds: draftPayloadBounds,
           bridgeChallengeDomain: draftBridgeChallengeDomain,
           spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
@@ -979,58 +988,25 @@ test("wires file-backed runtime config into service and loop options", async () 
 
     const report = await runtime.service.processCycle()
 
-    assert.equal(submitter.submissionCount, 1)
+    assert.equal(submitter.submissionCount, 0)
     assert.equal(report.metrics.replayedRecords, 1)
-    assert.equal(report.metrics.replayedSubmissions, 1)
-    assert.equal(report.metrics.replayedSubmissionAttempts, 1)
+    assert.equal(report.metrics.replayedSubmissions, 0)
+    assert.equal(report.metrics.replayedSubmissionAttempts, 0)
     assert.equal(report.metrics.totalRecords, 1)
 
     const [storedRecord] = JSON.parse(await readFile(statePath, "utf8"))
-    assert.equal(storedRecord.status, "submitted")
-    assert.equal(storedRecord.challengeTxHash, "ab".repeat(32))
+    assert.equal(storedRecord.status, "rejected")
+    assert.equal(storedRecord.submissionAttempts, 1)
+    assert.equal(storedRecord.challengeTxHash, undefined)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
 })
 
-test("builds an environment-backed submission runtime with an injected classifier", () => {
-  const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(
-    submissionRuntimeEnv()
-  )
-
-  assert.deepEqual(config.service.submissionPolicy, {
-    allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
-  })
-  assert.equal(config.service.spendTypeClassifier, undefined)
-
-  const runtime = createFileBackedP2TRSignatureFraudWatchtowerRuntime(
-    config,
-    {
-      bitcoinClient: {} as BitcoinClient,
-      challengeSubmitter: new FakeSubmitter(),
-      transactionSource: emptyTransactionSource,
-      bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
-    },
-    { spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION }
-  )
-
-  assert.ok(runtime.service instanceof P2TRSignatureFraudWatchtowerService)
-})
-
-test("rejects an environment-backed submission runtime without an injected classifier", () => {
-  const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(
-    submissionRuntimeEnv()
-  )
-
+test("rejects environment-backed automatic submission before runtime construction", () => {
   assert.throws(
-    () =>
-      createFileBackedP2TRSignatureFraudWatchtowerRuntime(config, {
-        bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
-        bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
-      }),
-    /requires an injected spend-type classifier/
+    () => loadP2TRSignatureFraudWatchtowerRuntimeConfig(submissionRuntimeEnv()),
+    /bounded\/no-go/
   )
 })
 
@@ -1083,7 +1059,7 @@ test("defaults service cycles to observation-only submission policy", async () =
     const report = await service.processCycle()
 
     assert.equal(report.metrics.replayedRecords, 1)
-    assert.equal(report.metrics.replayedSubmissions, 1)
+    assert.equal(report.metrics.replayedSubmissions, 0)
     assert.equal(report.metrics.replayedSubmissionAttempts, 0)
     assert.equal(report.result.replayed[0].submissionRecord.status, "rejected")
     assert.equal(
@@ -1095,7 +1071,7 @@ test("defaults service cycles to observation-only submission policy", async () =
   }
 })
 
-test("passes configured spend-type classifier into live submissions", async () => {
+test("passes configured spend-type classifier into observation-only indexing without broadcasting", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
 
@@ -1106,6 +1082,9 @@ test("passes configured spend-type classifier into live submissions", async () =
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const bitcoinClient = {
       async getRawTransaction(txid: string) {
         const prevout = vector.prevouts.find(
@@ -1127,13 +1106,6 @@ test("passes configured spend-type classifier into live submissions", async () =
     const service = new P2TRSignatureFraudWatchtowerService(
       {
         registeredWalletIDs: [vector.walletIDHex],
-        submitChallenges: true,
-        ...draftSingleProcessRehearsalSubmission,
-        submissionPolicy: {
-          allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
-        },
-        maxSubmissionAttempts: 3,
-        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
         bridgeChallengeDomain: draftBridgeChallengeDomain,
         payloadBounds: {
           maxRawTransactionBytes: 10000,
@@ -1157,10 +1129,10 @@ test("passes configured spend-type classifier into live submissions", async () =
         challengeSubmitter: submitter,
         transactionSource: {
           async listMempoolTransactions() {
-            return [{ rawTransaction, bitcoinTxHash: `0x${"44".repeat(32)}` }]
+            return [{ rawTransaction, bitcoinTxHash }]
           },
           async listConfirmedTransactions() {
-            return []
+            return { transactions: [], complete: true }
           },
         },
         bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
@@ -1170,23 +1142,29 @@ test("passes configured spend-type classifier into live submissions", async () =
 
     const report = await service.processCycle()
 
-    // Classification runs during observation, incoming submission validation,
-    // and final validation of the exact payload selected from durable state.
-    assert.equal(classifierCalls, 3)
-    assert.equal(submitter.submissionCount, 1)
+    assert.equal(classifierCalls, 1)
+    assert.equal(submitter.submissionCount, 0)
     assert.equal(report.metrics.mempoolObservations, 1)
-    assert.equal(report.metrics.mempoolSubmissions, 1)
-    assert.equal(report.metrics.mempoolSubmissionAttempts, 1)
+    assert.equal(report.metrics.mempoolSubmissions, 0)
+    assert.equal(report.metrics.mempoolSubmissionAttempts, 0)
 
     const [storedRecord] = await persistence.loadChallengeRecords()
-    assert.equal(storedRecord.status, "submitted")
+    assert.equal(storedRecord.status, "observed")
+    assert.ok(storedRecord.observation)
     assert.equal(
-      storedRecord.observation?.spendType,
+      storedRecord.observation.spendType,
       P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
     )
+    const expectedBridgeChallengeKey =
+      computeP2TRSignatureFraudBridgeChallengeIdentity({
+        ...draftBridgeChallengeDomain,
+        walletID: storedRecord.observation.walletID,
+        signingKey: vector.walletIDHex,
+        sighash: storedRecord.observation.sighash,
+      }).toString()
     assert.equal(
-      storedRecord.observation?.bridgeChallengeKey,
-      "dfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
+      storedRecord.observation.bridgeChallengeKey,
+      expectedBridgeChallengeKey
     )
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -1253,16 +1231,6 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
     const service = new P2TRSignatureFraudWatchtowerService(
       {
         registeredWalletIDs: [vector.walletIDHex],
-        submitChallenges: true,
-        ...draftSingleProcessRehearsalSubmission,
-        submissionPolicy: {
-          allowedSpendTypes: [
-            P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-            P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
-          ],
-        },
-        maxSubmissionAttempts: 3,
-        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
         bridgeChallengeDomain: draftBridgeChallengeDomain,
         payloadBounds: {
           maxRawTransactionBytes: 10000,
@@ -1283,7 +1251,7 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
             return mempoolTransactions
           },
           async listConfirmedTransactions() {
-            return confirmedTransactions
+            return { transactions: confirmedTransactions, complete: true }
           },
         },
         bridgeLifecycleEventSource: {
@@ -1299,7 +1267,7 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
     )
 
     await service.processCycle()
-    assert.equal(submitter.submissionCount, 1)
+    assert.equal(submitter.submissionCount, 0)
 
     mempoolTransactions = []
     confirmedTransactions = [
@@ -1334,7 +1302,7 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
     assert.equal(storedRecords.length, 1)
     assert.equal(storedRecord.status, "defeat-eligible")
     assert.equal(committedBridgeLifecycleScan, true)
-    assert.equal(submitter.submissionCount, 1)
+    assert.equal(submitter.submissionCount, 0)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -1439,6 +1407,9 @@ test("threads revealed-deposit key bindings from transaction sources into observ
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const depositOutputKey = "42".repeat(32)
     const signedPrevout = vector.prevouts[vector.signedInputIndex]
     const bitcoinClient = {
@@ -1472,7 +1443,7 @@ test("threads revealed-deposit key bindings from transaction sources into observ
             return [
               {
                 rawTransaction,
-                bitcoinTxHash: `0x${"44".repeat(32)}`,
+                bitcoinTxHash,
                 walletInputKeyBindings: [
                   {
                     txid: signedPrevout.txidHex,
@@ -1485,7 +1456,7 @@ test("threads revealed-deposit key bindings from transaction sources into observ
             ]
           },
           async listConfirmedTransactions() {
-            return []
+            return { transactions: [], complete: true }
           },
         },
         bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
@@ -1504,7 +1475,7 @@ test("threads revealed-deposit key bindings from transaction sources into observ
   }
 })
 
-test("requires a challenge submitter only when submissions are enabled", () => {
+test("hard-disables automatic submission before requiring a submitter", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1521,7 +1492,7 @@ test("requires a challenge submitter only when submissions are enabled", () => {
           ),
         }
       ),
-    /requires a challenge submitter when submissions are enabled/
+    /bounded\/no-go/
   )
 
   assert.doesNotThrow(
@@ -1542,7 +1513,7 @@ test("requires a challenge submitter only when submissions are enabled", () => {
   )
 })
 
-test("requires an approved spend-type policy when submissions are enabled", () => {
+test("hard-disables automatic submission before checking spend policy", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1554,6 +1525,7 @@ test("requires an approved spend-type policy when submissions are enabled", () =
         {
           bitcoinClient: {} as BitcoinClient,
           challengeSubmitter: new FakeSubmitter(),
+          challengeBroadcastReconciler: acceptedChallengeBroadcastReconciler,
           transactionSource: emptyTransactionSource,
           bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
           persistence: new FileBackedP2TRWatchtowerChallengeRecordPersistence(
@@ -1561,11 +1533,11 @@ test("requires an approved spend-type policy when submissions are enabled", () =
           ),
         }
       ),
-    /requires at least one approved spend type when submissions are enabled/
+    /bounded\/no-go/
   )
 })
 
-test("keeps unresolved spend types fail-closed for submissions", () => {
+test("hard-disables automatic submission for every unresolved spend type", () => {
   ;[
     P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED,
     P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
@@ -1590,12 +1562,12 @@ test("keeps unresolved spend types fail-closed for submissions", () => {
             ),
           }
         ),
-      new RegExp(`spend type ${spendType} is fail-closed`)
+      /bounded\/no-go/
     )
   })
 })
 
-test("requires explicit payload bounds when submissions are enabled", () => {
+test("hard-disables automatic submission before checking payload bounds", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1607,6 +1579,7 @@ test("requires explicit payload bounds when submissions are enabled", () => {
         {
           bitcoinClient: {} as BitcoinClient,
           challengeSubmitter: new FakeSubmitter(),
+          challengeBroadcastReconciler: acceptedChallengeBroadcastReconciler,
           transactionSource: emptyTransactionSource,
           bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
           persistence: new FileBackedP2TRWatchtowerChallengeRecordPersistence(
@@ -1614,7 +1587,7 @@ test("requires explicit payload bounds when submissions are enabled", () => {
           ),
         }
       ),
-    /requires explicit payload bounds when submissions are enabled/
+    /bounded\/no-go/
   )
 
   assert.throws(
@@ -1639,11 +1612,11 @@ test("requires explicit payload bounds when submissions are enabled", () => {
           ),
         }
       ),
-    /input payload bound must be a positive integer/
+    /bounded\/no-go/
   )
 })
 
-test("requires a Bridge challenge domain when submissions are enabled", () => {
+test("hard-disables automatic submission before checking Bridge domain", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1663,11 +1636,11 @@ test("requires a Bridge challenge domain when submissions are enabled", () => {
           ),
         }
       ),
-    /requires a Bridge challenge domain when submissions are enabled/
+    /bounded\/no-go/
   )
 })
 
-test("requires a spend-type classifier when submissions are enabled", () => {
+test("hard-disables automatic submission before checking classifier", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1688,11 +1661,11 @@ test("requires a spend-type classifier when submissions are enabled", () => {
           ),
         }
       ),
-    /requires a spend-type classifier when submissions are enabled/
+    /bounded\/no-go/
   )
 })
 
-test("requires a submission-attempt alert when submissions are enabled", () => {
+test("hard-disables automatic submission before checking attempt alerts", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1714,11 +1687,11 @@ test("requires a submission-attempt alert when submissions are enabled", () => {
           ),
         }
       ),
-    /requires a submission-attempt ceiling and alert when submissions are enabled/
+    /bounded\/no-go/
   )
 })
 
-test("requires a transactional indexing store or rehearsal override when submissions are enabled", () => {
+test("hard-disables automatic submission for every indexing profile", () => {
   assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
@@ -1742,10 +1715,10 @@ test("requires a transactional indexing store or rehearsal override when submiss
           ),
         }
       ),
-    /requires a transactional production indexing store or explicit single-process rehearsal override/
+    /bounded\/no-go/
   )
 
-  assert.doesNotThrow(
+  assert.throws(
     () =>
       new P2TRSignatureFraudWatchtowerService(
         {
@@ -1762,105 +1735,167 @@ test("requires a transactional indexing store or rehearsal override when submiss
         {
           bitcoinClient: {} as BitcoinClient,
           challengeSubmitter: new FakeSubmitter(),
+          challengeBroadcastReconciler: acceptedChallengeBroadcastReconciler,
           transactionSource: emptyTransactionSource,
           bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
           persistence: transactionalChallengeRecordPersistence(),
           transactionCoordinator: transactionalCoordinator(),
           alertSink: noopAlertSink,
         }
-      )
+      ),
+    /bounded\/no-go/
   )
 })
 
+const transactionalConfirmedTransactionSource = (
+  transactionalStoreID = "production-indexing-store"
+) => ({
+  p2trSignatureFraudWatchtowerStoreProfile: "transactional-production" as const,
+  p2trSignatureFraudWatchtowerTransactionalStoreID: transactionalStoreID,
+  async listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]> {
+    return []
+  },
+  async listConfirmedTransactions() {
+    return { transactions: [], complete: true }
+  },
+  async commitConfirmedTransactionScan() {},
+})
+
 test("requires transactional-production dependencies for the production indexing profile", () => {
-  const productionSubmissionConfig = {
+  const productionObservationConfig = {
     registeredWalletIDs: [`0x${"11".repeat(32)}`],
-    submitChallenges: true,
+    submitChallenges: false,
     indexingStoreProfile: "transactional-production" as const,
-    submissionPolicy: draftRedemptionSubmissionPolicy,
-    payloadBounds: draftPayloadBounds,
-    bridgeChallengeDomain: draftBridgeChallengeDomain,
-    spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-    maxSubmissionAttempts: 3,
-    submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
   }
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
-        bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
+        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: {
           async loadChallengeRecords() {
             return []
           },
           async saveChallengeRecords() {},
         },
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires challenge-record persistence marked as transactional-production; got unmarked/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
-        bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
+        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: new FileBackedP2TRWatchtowerChallengeRecordPersistence(
           "/tmp/p2tr-watchtower-state.json"
         ),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires challenge-record persistence marked as transactional-production; got single-process-rehearsal/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
         transactionSource: emptyTransactionSource,
+        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
+        persistence: transactionalChallengeRecordPersistence(),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
+      }),
+    /transactional-production indexing profile requires confirmed transaction source marked as transactional-production; got unmarked/
+  )
+
+  assert.throws(
+    () =>
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
+        bitcoinClient: {} as BitcoinClient,
+        transactionSource: {
+          ...emptyTransactionSource,
+          p2trSignatureFraudWatchtowerStoreProfile:
+            "single-process-rehearsal" as const,
+        },
+        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
+        persistence: transactionalChallengeRecordPersistence(),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
+      }),
+    /transactional-production indexing profile requires confirmed transaction source marked as transactional-production; got single-process-rehearsal/
+  )
+
+  assert.throws(
+    () =>
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
+        bitcoinClient: {} as BitcoinClient,
+        transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: singleProcessBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires Bridge lifecycle event source marked as transactional-production; got single-process-rehearsal/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
         persistence: transactionalChallengeRecordPersistence(),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires Bridge lifecycle event source marked as transactional-production; got unmarked/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: {
           ...transactionalChallengeRecordPersistence(),
           p2trSignatureFraudWatchtowerTransactionalStoreID: undefined,
         },
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires challenge-record persistence to declare a transactional store ID/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource: {
+          ...transactionalConfirmedTransactionSource(),
+          p2trSignatureFraudWatchtowerTransactionalStoreID: undefined,
+        },
+        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
+        persistence: transactionalChallengeRecordPersistence(),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
+      }),
+    /transactional-production indexing profile requires confirmed transaction source to declare a transactional store ID/
+  )
+
+  assert.throws(
+    () =>
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
+        bitcoinClient: {} as BitcoinClient,
+        transactionSource: transactionalConfirmedTransactionSource(
+          "challenge-record-store"
+        ),
         bridgeLifecycleEventSource:
           transactionalBridgeLifecycleSource("cursor-store"),
         persistence: transactionalChallengeRecordPersistence(
@@ -1869,90 +1904,122 @@ test("requires transactional-production dependencies for the production indexing
         transactionCoordinator: transactionalCoordinator(
           "challenge-record-store"
         ),
+        alertSink: noopAlertSink,
       }),
-    /transactional-production indexing profile requires challenge-record persistence, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID/
+    /transactional-production indexing profile requires challenge-record persistence, confirmed transaction source, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource:
+          transactionalConfirmedTransactionSource("confirmed-store"),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
+        transactionCoordinator: transactionalCoordinator(),
+        alertSink: noopAlertSink,
+      }),
+    /transactional-production indexing profile requires challenge-record persistence, confirmed transaction source, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID/
+  )
+
+  assert.throws(
+    () =>
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
+        bitcoinClient: {} as BitcoinClient,
+        transactionSource: transactionalConfirmedTransactionSource(),
+        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
+        persistence: transactionalChallengeRecordPersistence(),
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires a transaction coordinator/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
         transactionCoordinator: {
           ...transactionalCoordinator(),
           p2trSignatureFraudWatchtowerAtomicTransactions: false,
         } as unknown as P2TRSignatureFraudWatchtowerTransactionCoordinator,
+        alertSink: noopAlertSink,
       }),
     /transactional-production indexing profile requires a transaction coordinator that declares atomic rollback-on-error semantics/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
         transactionCoordinator: {
           ...transactionalCoordinator(),
           p2trSignatureFraudWatchtowerTransactionalStoreID: "coordinator-store",
         },
+        alertSink: noopAlertSink,
       }),
-    /transactional-production indexing profile requires challenge-record persistence, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID/
+    /transactional-production indexing profile requires challenge-record persistence, confirmed transaction source, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID/
   )
 
   assert.throws(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
         transactionCoordinator: {
           ...transactionalCoordinator(),
           assertP2TRSignatureFraudWatchtowerSharedStore() {
             throw new Error(
-              "coordinator does not own both transactional handles"
+              "coordinator does not own all transactional handles"
             )
           },
         },
+        alertSink: noopAlertSink,
       }),
-    /coordinator does not own both transactional handles/
+    /coordinator does not own all transactional handles/
   )
 
-  assert.throws(
+  const persistence = transactionalChallengeRecordPersistence()
+  const transactionSource = transactionalConfirmedTransactionSource()
+  const bridgeLifecycleEventSource = transactionalBridgeLifecycleSource()
+  let sharedStoreAssertionCount = 0
+  const transactionCoordinator = {
+    ...transactionalCoordinator(),
+    assertP2TRSignatureFraudWatchtowerSharedStore(dependencies: {
+      persistence: unknown
+      transactionSource: unknown
+      bridgeLifecycleEventSource: unknown
+    }) {
+      sharedStoreAssertionCount++
+      assert.equal(dependencies.persistence, persistence)
+      assert.equal(dependencies.transactionSource, transactionSource)
+      assert.equal(
+        dependencies.bridgeLifecycleEventSource,
+        bridgeLifecycleEventSource
+      )
+    },
+  }
+
+  assert.doesNotThrow(
     () =>
-      new P2TRSignatureFraudWatchtowerService(productionSubmissionConfig, {
+      new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: {
-          async submitSignatureFraudChallenge(): Promise<string> {
-            return `0x${"cd".repeat(32)}`
-          },
-        },
-        transactionSource: emptyTransactionSource,
-        bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
-        persistence: transactionalChallengeRecordPersistence(),
-        transactionCoordinator: transactionalCoordinator(),
-      }),
-    /transactional-production indexing profile requires an idempotent challenge submitter/
+        transactionSource,
+        bridgeLifecycleEventSource,
+        persistence,
+        transactionCoordinator,
+        alertSink: noopAlertSink,
+      })
   )
+  assert.equal(sharedStoreAssertionCount, 1)
 })
 
 test("requires an alert sink for the transactional-production indexing profile", () => {
@@ -1961,19 +2028,12 @@ test("requires an alert sink for the transactional-production indexing profile",
       new P2TRSignatureFraudWatchtowerService(
         {
           registeredWalletIDs: [`0x${"11".repeat(32)}`],
-          submitChallenges: true,
+          submitChallenges: false,
           indexingStoreProfile: "transactional-production",
-          submissionPolicy: draftRedemptionSubmissionPolicy,
-          payloadBounds: draftPayloadBounds,
-          bridgeChallengeDomain: draftBridgeChallengeDomain,
-          spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-          maxSubmissionAttempts: 3,
-          submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
         },
         {
           bitcoinClient: {} as BitcoinClient,
-          challengeSubmitter: new FakeSubmitter(),
-          transactionSource: emptyTransactionSource,
+          transactionSource: transactionalConfirmedTransactionSource(),
           bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
           persistence: transactionalChallengeRecordPersistence(),
           transactionCoordinator: transactionalCoordinator(),
@@ -1985,6 +2045,7 @@ test("requires an alert sink for the transactional-production indexing profile",
 
 test("wraps production indexing cycles and cursor commits in the transaction coordinator", async () => {
   let activeTransactions = 0
+  let committedConfirmedScanInTransaction = false
   let committedBridgeLifecycleScanInTransaction = false
   let transactionCount = 0
   const transactionCoordinator: P2TRSignatureFraudWatchtowerTransactionCoordinator =
@@ -2007,6 +2068,12 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
         }
       },
     }
+  const transactionSource = {
+    ...transactionalConfirmedTransactionSource(),
+    async commitConfirmedTransactionScan() {
+      committedConfirmedScanInTransaction = activeTransactions === 1
+    },
+  }
   const bridgeLifecycleEventSource = {
     ...transactionalBridgeLifecycleSource(),
     async commitBridgeLifecycleScan() {
@@ -2016,19 +2083,12 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
   const service = new P2TRSignatureFraudWatchtowerService(
     {
       registeredWalletIDs: [`0x${"11".repeat(32)}`],
-      submitChallenges: true,
+      submitChallenges: false,
       indexingStoreProfile: "transactional-production",
-      submissionPolicy: draftRedemptionSubmissionPolicy,
-      payloadBounds: draftPayloadBounds,
-      bridgeChallengeDomain: draftBridgeChallengeDomain,
-      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-      maxSubmissionAttempts: 3,
-      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
     },
     {
       bitcoinClient: {} as BitcoinClient,
-      challengeSubmitter: new FakeSubmitter(),
-      transactionSource: emptyTransactionSource,
+      transactionSource,
       bridgeLifecycleEventSource,
       persistence: transactionalChallengeRecordPersistence(),
       transactionCoordinator,
@@ -2039,6 +2099,7 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
   await service.processCycle()
 
   assert.equal(transactionCount, 1)
+  assert.equal(committedConfirmedScanInTransaction, true)
   assert.equal(committedBridgeLifecycleScanInTransaction, true)
 })
 
@@ -2068,30 +2129,20 @@ test("does not commit the Bridge lifecycle cursor when a transaction source fail
   // sourceFailure for the cycle. Honest-spend proof events processed in the same
   // cycle then cannot be reliably matched against observed transactions, so the
   // Bridge lifecycle cursor must NOT advance past them.
-  const failingTransactionSource: P2TRSignatureFraudWatchtowerTransactionSource =
-    {
-      async listMempoolTransactions() {
-        throw new Error("mempool source unavailable")
-      },
-      async listConfirmedTransactions() {
-        return []
-      },
-    }
+  const failingTransactionSource = {
+    ...transactionalConfirmedTransactionSource(),
+    async listMempoolTransactions() {
+      throw new Error("mempool source unavailable")
+    },
+  }
   const service = new P2TRSignatureFraudWatchtowerService(
     {
       registeredWalletIDs: [`0x${"11".repeat(32)}`],
-      submitChallenges: true,
+      submitChallenges: false,
       indexingStoreProfile: "transactional-production",
-      submissionPolicy: draftRedemptionSubmissionPolicy,
-      payloadBounds: draftPayloadBounds,
-      bridgeChallengeDomain: draftBridgeChallengeDomain,
-      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-      maxSubmissionAttempts: 3,
-      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
     },
     {
       bitcoinClient: {} as BitcoinClient,
-      challengeSubmitter: new FakeSubmitter(),
       transactionSource: failingTransactionSource,
       bridgeLifecycleEventSource,
       persistence: transactionalChallengeRecordPersistence(),
@@ -2135,19 +2186,12 @@ test("rejects transaction coordinators that suppress indexing operation failures
   const service = new P2TRSignatureFraudWatchtowerService(
     {
       registeredWalletIDs: [`0x${"11".repeat(32)}`],
-      submitChallenges: true,
+      submitChallenges: false,
       indexingStoreProfile: "transactional-production",
-      submissionPolicy: draftRedemptionSubmissionPolicy,
-      payloadBounds: draftPayloadBounds,
-      bridgeChallengeDomain: draftBridgeChallengeDomain,
-      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-      maxSubmissionAttempts: 3,
-      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
     },
     {
       bitcoinClient: {} as BitcoinClient,
-      challengeSubmitter: new FakeSubmitter(),
-      transactionSource: emptyTransactionSource,
+      transactionSource: transactionalConfirmedTransactionSource(),
       bridgeLifecycleEventSource,
       persistence: transactionalChallengeRecordPersistence(),
       transactionCoordinator,
@@ -2161,7 +2205,7 @@ test("rejects transaction coordinators that suppress indexing operation failures
   )
 })
 
-test("does not retain rolled-back production transaction records across cycles", async () => {
+test("does not retain rolled-back production lifecycle records across cycles", async () => {
   const vector = loadFirstSignatureFraudVector()
   const [observation] = extractP2TRSignatureFraudWitnessObservations(
     withInputWitness(
@@ -2194,10 +2238,17 @@ test("does not retain rolled-back production transaction records across cycles",
   const persistence = new TransactionalRollbackChallengeRecordPersistence([
     serializeP2TRWatchtowerChallengeRecord(rejectedRecord),
   ])
-  const submitter = new FakeSubmitter()
   let failCursorCommit = true
   const bridgeLifecycleEventSource = {
     ...transactionalBridgeLifecycleSource(),
+    async listBridgeLifecycleEvents() {
+      return [
+        {
+          type: "timeout-eligible" as const,
+          observationID: observation.observationID,
+        },
+      ]
+    },
     async commitBridgeLifecycleScan() {
       if (failCursorCommit) {
         throw new Error("cursor store unavailable")
@@ -2228,19 +2279,12 @@ test("does not retain rolled-back production transaction records across cycles",
   const service = new P2TRSignatureFraudWatchtowerService(
     {
       registeredWalletIDs: [vector.walletIDHex],
-      submitChallenges: true,
+      submitChallenges: false,
       indexingStoreProfile: "transactional-production",
-      submissionPolicy: draftRedemptionSubmissionPolicy,
-      payloadBounds: draftPayloadBounds,
-      bridgeChallengeDomain: draftBridgeChallengeDomain,
-      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-      maxSubmissionAttempts: 3,
-      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
     },
     {
       bitcoinClient: {} as BitcoinClient,
-      challengeSubmitter: submitter,
-      transactionSource: emptyTransactionSource,
+      transactionSource: transactionalConfirmedTransactionSource(),
       bridgeLifecycleEventSource,
       persistence,
       transactionCoordinator,
@@ -2249,16 +2293,13 @@ test("does not retain rolled-back production transaction records across cycles",
   )
 
   await assert.rejects(service.processCycle(), /cursor store unavailable/)
-  assert.equal(submitter.submissionCount, 1)
   assert.equal((await persistence.loadChallengeRecords())[0].status, "rejected")
 
   failCursorCommit = false
   await service.processCycle()
 
-  assert.equal(submitter.submissionCount, 1)
   const [storedRecord] = await persistence.loadChallengeRecords()
-  assert.equal(storedRecord.status, "submitted")
-  assert.equal(storedRecord.challengeTxHash, "ab".repeat(32))
+  assert.equal(storedRecord.status, "timeout-eligible")
 })
 
 test("applies Bridge lifecycle events and reports cycle metrics", async () => {
@@ -2516,19 +2557,12 @@ test("emits cursor commit alerts after production transactions unwind", async ()
     {
       registeredWalletIDs: [`0x${"33".repeat(32)}`],
       bridgeIdentifier: "sepolia-bridge",
-      submitChallenges: true,
+      submitChallenges: false,
       indexingStoreProfile: "transactional-production",
-      submissionPolicy: draftRedemptionSubmissionPolicy,
-      payloadBounds: draftPayloadBounds,
-      bridgeChallengeDomain: draftBridgeChallengeDomain,
-      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-      maxSubmissionAttempts: 3,
-      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
     },
     {
       bitcoinClient: {} as BitcoinClient,
-      challengeSubmitter: new FakeSubmitter(),
-      transactionSource: emptyTransactionSource,
+      transactionSource: transactionalConfirmedTransactionSource(),
       bridgeLifecycleEventSource,
       persistence,
       transactionCoordinator,
@@ -2552,7 +2586,7 @@ test("logs source and item failure details for operator triage", async () => {
   const statePath = join(directory, "records.json")
   const bridgeLifecycleEvent = {
     type: "slashed" as const,
-    bridgeChallengeKey: `0x${"44".repeat(32)}`,
+    bridgeChallengeKey: "0x1234",
     slashingTxHash: `0x${"55".repeat(32)}`,
   }
   const logs: {
@@ -2585,7 +2619,7 @@ test("logs source and item failure details for operator triage", async () => {
             throw new Error("mempool source unavailable")
           },
           async listConfirmedTransactions() {
-            return []
+            return { transactions: [], complete: true }
           },
         },
         bridgeLifecycleEventSource: {
@@ -2743,7 +2777,7 @@ test("keeps alert sink failures from failing completed cycles", async () => {
             throw new Error("mempool source unavailable")
           },
           async listConfirmedTransactions() {
-            return []
+            return { transactions: [], complete: true }
           },
         },
         bridgeLifecycleEventSource: emptyBridgeLifecycleSource,

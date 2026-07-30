@@ -17,6 +17,10 @@ describe("active Bridge upgrade scripts", () => {
     "Wallets",
     "Fraud",
     "MovingFunds",
+    // Bridge links these two as external libraries as well, so they are
+    // equally exposed to the stale-bytecode hazard this guard exists to catch.
+    "P2TRPreSigning",
+    "P2TRReservation",
   ]
 
   scripts.forEach((script) => {
@@ -29,7 +33,13 @@ describe("active Bridge upgrade scripts", () => {
           : library
 
         expect(source).not.to.match(new RegExp(`get\\("${library}"\\)`))
-        expect(source).to.match(new RegExp(`deploy\\("${deploymentName}"`))
+        // Prettier wraps a `deploy(` call that exceeds the 80-column print
+        // width, so the deployment name can start on the next line -- which is
+        // what happened to DepositSweep once its options identifier grew to
+        // `p2trReservationLinkedOptions`. Tolerate that whitespace: the
+        // assertion is about the script calling deploy() for this library, not
+        // about how the call is formatted.
+        expect(source).to.match(new RegExp(`deploy\\(\\s*"${deploymentName}"`))
         expect(source).to.match(
           new RegExp(`${library}:\\s*${library}\\.address`)
         )

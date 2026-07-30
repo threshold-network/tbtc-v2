@@ -23,6 +23,7 @@ import "./EcdsaLib.sol";
 import "./BridgeState.sol";
 import "./IBridgeLifecycleRouter.sol";
 import "./P2TRFraudEvidenceProtocol.sol";
+import "./P2TRReservation.sol";
 
 /// @notice Minimal interface for the FROST wallet registry's wallet
 ///         creation entry point and lifecycle-owner handshake. The
@@ -80,7 +81,16 @@ library Wallets {
         ///      wallet is blocked and can not perform any actions in the Bridge.
         ///      Off-chain coordination with the wallet operators is needed to
         ///      recover funds.
-        Terminated
+        Terminated,
+        /// @dev An unresolved P2TR signature-fraud challenge temporarily
+        ///      blocks every wallet action. The router restores the exact
+        ///      pre-quarantine state only after the wallet's final challenge
+        ///      is defeated.
+        Quarantined,
+        /// @dev An SPV-authenticated transaction conflicted with a pre-signing
+        ///      reservation. Automated state transitions stop until an
+        ///      explicit recovery procedure is executed.
+        RecoveryRequired
     }
 
     /// @notice Holds information about a wallet.
@@ -166,6 +176,8 @@ library Wallets {
     error LifecycleRouterNotSet();
     error LifecycleOwnerMismatch();
     error EcdsaFraudChallengePending();
+    error P2TRFraudChallengePending();
+    error EcdsaFraudRouterDrainPending();
     // FROST wallet's canonical walletID lookup failed. Raised when the
     // scheme-aware lifecycle path is invoked for a wallet whose
     // ecdsaWalletID is zero but whose walletIDByWalletPubKeyHash entry
@@ -510,13 +522,29 @@ library Wallets {
     ///      malformed implementations to one fail-closed custom error. Exact
     ///      32-byte ABI words are required so a fallback cannot accidentally
     ///      satisfy the handshake with trailing or truncated data.
+    ///
+    ///      This checks wiring and policy only. The router/registry accounting
+    ///      counters are NOT checked here: `authorizedChallengeIdentityCount`
+    ///      and `activeReservationSetVersion` are strictly monotonic and never
+    ///      reset, so requiring them to be zero on this path would permanently
+    ///      revert every wallet creation after the first pre-signing ceremony.
+    ///      Pristine accounting stays a precondition of INSTALLING the router
+    ///      (see `P2TRReservation._setCompleteP2TRFraudRouter`).
     function requireCompleteP2TRFraudEvidence(BridgeState.Storage storage self)
         internal
         view
     {
-        P2TRFraudEvidenceProtocol.requireCompleteRouter(
+        if (
+            !self.taprootOutputKeyCoverageInitialized ||
+            self.taprootOutputKeyCoverageMigratedCount !=
+            self.taprootOutputKeyCoverageInventoryCount
+        ) {
+            revert P2TRFraudEvidenceProtocol.P2TRFraudEvidenceUnavailable();
+        }
+        P2TRFraudEvidenceProtocol.requireCompleteRouterWiring(
             self.p2trFraudRouter,
-            address(this)
+            address(this),
+            self.frostWalletRegistry
         );
     }
 
@@ -992,6 +1020,7 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         if (wallet.mainUtxoHash == bytes32(0)) {
@@ -1028,6 +1057,7 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         // Initialize the closing period.
         wallet.state = WalletState.Closing;
@@ -1047,15 +1077,28 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
+        if (wallet.ecdsaWalletID != bytes32(0)) {
+            if (self.ecdsaFraudRouterInDrain != address(0)) {
+                revert EcdsaFraudRouterDrainPending();
+            }
+            if (
+                self.ecdsaFraudRouter != address(0) &&
+                IEcdsaFraudChallengeCounter(self.ecdsaFraudRouter)
+                    .hasOpenFraudChallengeForWallet(walletPubKeyHash)
+            ) {
+                revert EcdsaFraudChallengePending();
+            }
+        }
         if (
-            wallet.ecdsaWalletID != bytes32(0) &&
-            self.ecdsaFraudRouter != address(0) &&
-            IEcdsaFraudChallengeCounter(self.ecdsaFraudRouter)
+            wallet.ecdsaWalletID == bytes32(0) &&
+            self.p2trFraudRouter != address(0) &&
+            IEcdsaFraudChallengeCounter(self.p2trFraudRouter)
                 .hasOpenFraudChallengeForWallet(walletPubKeyHash)
         ) {
-            revert EcdsaFraudChallengePending();
+            revert P2TRFraudChallengePending();
         }
 
         wallet.state = WalletState.Closed;
@@ -1090,6 +1133,7 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         if (wallet.state == WalletState.Live) {

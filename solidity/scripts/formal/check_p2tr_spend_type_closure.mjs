@@ -127,10 +127,17 @@ for (const phrase of [
   }
 }
 
+// These name the tests that hold the fail-closed guarantee: an unapproved
+// spend type must never reach the submitter. The first three were renamed when
+// the guarantee moved from "return a blocked status carrying an error code" to
+// "throw, and never call the submitter at all", which is why the old
+// `P2TR-SPEND-TYPE-NOT-APPROVED` code no longer exists anywhere. The assertion
+// that actually pins the property -- `submissionCount` is zero -- is unchanged
+// and is the strongest of the four.
 for (const phrase of [
-  "fails closed for unapproved spend types before submission",
-  "rejects fail-closed spend types in submission policies",
-  "P2TR-SPEND-TYPE-NOT-APPROVED",
+  "keeps unapproved spend types observation-only while submission is disabled",
+  "rejects automatic submission for fail-closed spend policies",
+  "invalid-watchtower-state",
   "expect(submitter.submissionCount).to.equal(0)",
 ]) {
   if (!textIncludes(sdkWatchtowerTests, phrase)) {
@@ -151,8 +158,12 @@ for (const phrase of [
 }
 
 for (const phrase of [
-  "requires an approved spend-type policy when submissions are enabled",
-  "keeps unresolved spend types fail-closed for submissions",
+  // Same redesign as above, one layer out: rather than refusing a submission
+  // for an unresolved spend type, the service now refuses to CONSTRUCT with
+  // submissions enabled at all while the fraud layer is bounded/no-go, so the
+  // unsafe configuration cannot be expressed.
+  "hard-disables automatic submission for every unresolved spend type",
+  "hard-disables automatic submission before checking payload bounds",
   "P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED",
   "P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING",
   "P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT",

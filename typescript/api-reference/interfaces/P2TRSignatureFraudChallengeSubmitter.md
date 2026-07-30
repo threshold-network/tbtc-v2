@@ -1,14 +1,34 @@
 # Interface: P2TRSignatureFraudChallengeSubmitter
 
+Manual low-level challenge submission boundary. The automatic watchtower
+runner does not invoke this interface while the FROST fraud layer remains
+bounded/no-go.
+
 ## Implemented by
 
 - [`P2TRSignatureFraudBridgeChallengeSubmitter`](../classes/P2TRSignatureFraudBridgeChallengeSubmitter.md)
 
 ## Table of contents
 
+### Properties
+
+- [submissionTrustDomainID](P2TRSignatureFraudChallengeSubmitter.md#submissiontrustdomainid)
+
 ### Methods
 
 - [submitSignatureFraudChallenge](P2TRSignatureFraudChallengeSubmitter.md#submitsignaturefraudchallenge)
+
+## Properties
+
+### submissionTrustDomainID
+
+• `Optional` `Readonly` **submissionTrustDomainID**: `string`
+
+Provider/trust-domain identity used to broadcast, when declared.
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:485](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L485)
 
 ## Methods
 
@@ -29,4 +49,4 @@
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:415](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L415)
+[src/services/maintenance/p2tr-signature-fraud.ts:486](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L486)

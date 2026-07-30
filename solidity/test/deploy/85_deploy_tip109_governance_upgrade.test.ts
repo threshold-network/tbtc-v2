@@ -25,6 +25,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   const WALLETS_ADDRESS = "0x0000000000000000000000000000000000000004"
   const FRAUD_ADDRESS = "0x0000000000000000000000000000000000000005"
   const MOVING_FUNDS_ADDRESS = "0x0000000000000000000000000000000000000006"
+  const P2TR_PRE_SIGNING_ADDRESS = "0x000000000000000000000000000000000000000a"
+  const P2TR_RESERVATION_ADDRESS = "0x000000000000000000000000000000000000000b"
   const BRIDGE_IMPL_ADDRESS = "0x0000000000000000000000000000000000000007"
   const REBATE_IMPL_ADDRESS = "0x0000000000000000000000000000000000000008"
   const BRIDGE_PROXY_ADDRESS = "0x5e4861a80B55f035D899f66772117F00FA0E8e7B"
@@ -40,6 +42,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     Wallets: WALLETS_ADDRESS,
     Fraud: FRAUD_ADDRESS,
     MovingFunds: MOVING_FUNDS_ADDRESS,
+    P2TRPreSigning: P2TR_PRE_SIGNING_ADDRESS,
+    P2TRReservation: P2TR_RESERVATION_ADDRESS,
     BridgeTIP109Implementation: BRIDGE_IMPL_ADDRESS,
     RebateStakingTIP109Implementation: REBATE_IMPL_ADDRESS,
   }
@@ -310,7 +314,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(directBridgeCall).to.be.undefined
       })
 
-      it("should define all 6 required libraries for Bridge implementation deployment", async () => {
+      it("should define all 8 required libraries for Bridge implementation deployment", async () => {
         await func(mockHre)
 
         const bridgeCall = deployCalls.find(
@@ -328,9 +332,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           "Wallets",
           "Fraud",
           "MovingFunds",
+          "P2TRPreSigning",
+          "P2TRReservation",
         ]
         const actualKeys = Object.keys(libraries)
-        expect(actualKeys).to.have.lengthOf(6)
+        expect(actualKeys).to.have.lengthOf(8)
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
@@ -344,6 +350,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(libraries.Wallets).to.equal(WALLETS_ADDRESS)
         expect(libraries.Fraud).to.equal(FRAUD_ADDRESS)
         expect(libraries.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
+        expect(libraries.P2TRPreSigning).to.equal(P2TR_PRE_SIGNING_ADDRESS)
+        expect(libraries.P2TRReservation).to.equal(P2TR_RESERVATION_ADDRESS)
       })
 
       it("should deploy RebateStaking implementation with distinct artifact name", async () => {
@@ -821,11 +829,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    it("should have libraries with all 6 entries", () => {
+    it("should have libraries with all 8 entries", () => {
       expect(summary).to.not.be.null
       const libs = summary.libraries
 
-      expect(Object.keys(libs)).to.have.lengthOf(6)
+      expect(Object.keys(libs)).to.have.lengthOf(8)
 
       const requiredKeys = [
         "Deposit",
@@ -834,6 +842,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         "Wallets",
         "Fraud",
         "MovingFunds",
+        "P2TRPreSigning",
+        "P2TRReservation",
       ]
 
       requiredKeys.forEach((key) => {

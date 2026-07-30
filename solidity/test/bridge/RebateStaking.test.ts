@@ -1,4 +1,4 @@
-import { helpers, waffle, ethers } from "hardhat"
+import { helpers, ethers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { Contract, ContractTransaction } from "ethers"
@@ -10,6 +10,7 @@ import type {
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -41,7 +42,7 @@ describe("RebateStaking", () => {
       bridgeGovernance,
       t,
       rebateStaking,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     await bridgeGovernance
       .connect(governance)

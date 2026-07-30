@@ -16,6 +16,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       },
       proxyOpts: {
         kind: "transparent",
+        // The watchtower shares Bridge types compiled in a source graph that
+        // contains the externally linked P2TRReservation library. Its own
+        // bytecode has no link references, but OpenZeppelin conservatively
+        // requires the same explicit acknowledgement.
+        unsafeAllow: ["external-library-linking"],
       },
     })
 

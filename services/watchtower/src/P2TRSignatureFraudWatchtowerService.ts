@@ -7,12 +7,12 @@ import {
   P2TRWatchtowerSerializedChallengeStore,
 } from "@keep-network/tbtc-v2.ts"
 import type {
+  P2TRSignatureFraudChallengeBroadcastReconciler,
   P2TRSignatureFraudChallengeSubmitter,
   P2TRSignatureFraudWatchtowerBridgeLifecycleFailure,
   P2TRSignatureFraudWatchtowerProcessingFailure,
   P2TRSignatureFraudSpendType,
   P2TRSignatureFraudWitnessObservation,
-  P2TRSignatureFraudWatchtowerSubmissionResult,
   P2TRWatchtowerConfirmedTransaction,
   P2TRWatchtowerMempoolTransaction,
 } from "@keep-network/tbtc-v2.ts"
@@ -44,65 +44,13 @@ export class P2TRSignatureFraudWatchtowerService {
       )
     }
 
-    if (
-      config.submitChallenges === true &&
-      dependencies.challengeSubmitter === undefined
-    ) {
-      throw new Error(
-        "P2TR signature-fraud watchtower requires a challenge submitter when submissions are enabled"
-      )
-    }
-
-    if (
-      config.submitChallenges === true &&
-      (config.submissionPolicy?.allowedSpendTypes?.length ?? 0) === 0
-    ) {
-      throw new Error(
-        "P2TR signature-fraud watchtower requires at least one approved spend type when submissions are enabled"
-      )
-    }
-
     if (config.submitChallenges === true) {
-      rejectFailClosedSubmissionSpendTypes(config)
-    }
-
-    if (config.submitChallenges === true) {
-      requireExplicitPayloadBounds(config.payloadBounds)
-    }
-
-    if (
-      config.submitChallenges === true &&
-      config.bridgeChallengeDomain === undefined
-    ) {
       throw new Error(
-        "P2TR signature-fraud watchtower requires a Bridge challenge domain when submissions are enabled"
+        "Automatic P2TR signature-fraud challenge submission is disabled while the FROST fraud layer is bounded/no-go; COMPLETE_V2 activation requires a separately reviewed durable outbox and canonical independent reconciliation design"
       )
     }
 
-    if (
-      config.submitChallenges === true &&
-      config.spendTypeClassifier === undefined
-    ) {
-      throw new Error(
-        "P2TR signature-fraud watchtower requires a spend-type classifier when submissions are enabled"
-      )
-    }
-
-    if (
-      config.submitChallenges === true &&
-      (config.maxSubmissionAttempts === undefined ||
-        config.submissionAttemptLimitAlert === undefined)
-    ) {
-      throw new Error(
-        "P2TR signature-fraud watchtower requires a submission-attempt ceiling and alert when submissions are enabled"
-      )
-    }
-
-    if (config.submitChallenges === true) {
-      requireSubmissionIndexingStoreProfile(config)
-      requireProductionStoresForProductionProfile(config, dependencies)
-      requireIdempotentProductionSubmitter(config, dependencies)
-    }
+    requireProductionStoresForProductionProfile(config, dependencies)
 
     // Alert sink is required for any transactional-production deployment,
     // including observation-only profiles, so source/item/cursor-commit
@@ -138,6 +86,10 @@ export class P2TRSignatureFraudWatchtowerService {
         // fraud-relevant failure context detected earlier in this cycle.
         await this.emitCycleAlerts(cycleResult, cycleMetrics)
 
+        await commitConfirmedTransactionScanIfSafe(
+          this.dependencies.transactionSource,
+          cycleResult
+        )
         await commitBridgeLifecycleScanIfSafe(
           this.dependencies.bridgeLifecycleEventSource,
           cycleResult
@@ -146,6 +98,23 @@ export class P2TRSignatureFraudWatchtowerService {
         return { result: cycleResult, metrics: cycleMetrics }
       })
     } catch (error) {
+      if (error instanceof ConfirmedTransactionCursorCommitError) {
+        const fields = this.confirmedTransactionCursorCommitFailureFields(
+          error,
+          startedAt
+        )
+        this.dependencies.logger?.error(
+          "P2TR watchtower confirmed-transaction cursor commit failed",
+          fields
+        )
+        await this.emitAlert({
+          code: "confirmed-transaction-cursor-commit-failed",
+          severity: "error",
+          message: "P2TR watchtower confirmed-transaction cursor commit failed",
+          fields,
+        })
+      }
+
       if (error instanceof BridgeLifecycleCursorCommitError) {
         const fields = this.bridgeLifecycleCursorCommitFailureFields(
           error,
@@ -244,7 +213,8 @@ export class P2TRSignatureFraudWatchtowerService {
         maxSubmissionAttempts: this.config.maxSubmissionAttempts,
         submissionAttemptLimitAlert: this.config.submissionAttemptLimitAlert,
         submissionPolicy: this.config.submissionPolicy,
-      }
+      },
+      this.dependencies.challengeBroadcastReconciler
     )
   }
 
@@ -259,6 +229,24 @@ export class P2TRSignatureFraudWatchtowerService {
       error: serviceErrorMessage(error.cause),
       storeId:
         transactionalStoreID(this.dependencies.bridgeLifecycleEventSource) ??
+        transactionalStoreID(this.dependencies.persistence) ??
+        "unmarked",
+      bridgeIdentifier: this.config.bridgeIdentifier ?? "unconfigured",
+      cycleStartedAt,
+    }
+  }
+
+  private confirmedTransactionCursorCommitFailureFields(
+    error: ConfirmedTransactionCursorCommitError,
+    cycleStartedAt: string
+  ): Extract<
+    P2TRSignatureFraudWatchtowerServiceAlert,
+    { code: "confirmed-transaction-cursor-commit-failed" }
+  >["fields"] {
+    return {
+      error: serviceErrorMessage(error.cause),
+      storeId:
+        transactionalStoreID(this.dependencies.transactionSource) ??
         transactionalStoreID(this.dependencies.persistence) ??
         "unmarked",
       bridgeIdentifier: this.config.bridgeIdentifier ?? "unconfigured",
@@ -416,6 +404,48 @@ class BridgeLifecycleCursorCommitError extends Error {
   }
 }
 
+class ConfirmedTransactionCursorCommitError extends Error {
+  constructor(readonly cause: unknown) {
+    super(serviceErrorMessage(cause))
+    this.name = "ConfirmedTransactionCursorCommitError"
+  }
+}
+
+type ConfirmedTransactionScanCommitter = {
+  commitConfirmedTransactionScan(): Promise<void>
+}
+
+async function commitConfirmedTransactionScanIfSafe(
+  transactionSource: unknown,
+  result: P2TRSignatureFraudWatchtowerCycleReport["result"]
+): Promise<void> {
+  if (
+    !hasConfirmedTransactionScanCommitter(transactionSource) ||
+    result.sourceFailures.length > 0 ||
+    result.mempool.failures.length > 0 ||
+    result.confirmed.failures.length > 0
+  ) {
+    return
+  }
+
+  try {
+    await transactionSource.commitConfirmedTransactionScan()
+  } catch (error) {
+    throw new ConfirmedTransactionCursorCommitError(error)
+  }
+}
+
+function hasConfirmedTransactionScanCommitter(
+  value: unknown
+): value is ConfirmedTransactionScanCommitter {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "commitConfirmedTransactionScan" in value &&
+    typeof value.commitConfirmedTransactionScan === "function"
+  )
+}
+
 type BridgeLifecycleScanCommitter = {
   commitBridgeLifecycleScan(): Promise<void>
 }
@@ -427,6 +457,7 @@ async function commitBridgeLifecycleScanIfSafe(
   if (
     !hasBridgeLifecycleScanCommitter(eventSource) ||
     result.bridgeLifecycle.failures.length > 0 ||
+    !result.confirmedSourceComplete ||
     // Matching honest-spend proof events (MovingFundsCompleted /
     // RedemptionsCompleted) against observed transactions requires a complete,
     // reliable transaction view for the cycle. If the mempool/confirmed
@@ -542,6 +573,7 @@ function requireProductionStoresForProductionProfile(
 
   const requiredStores = [
     ["challenge-record persistence", dependencies.persistence],
+    ["confirmed transaction source", dependencies.transactionSource],
     ["Bridge lifecycle event source", dependencies.bridgeLifecycleEventSource],
   ] as const
   const transactionalStoreIDs: string[] = []
@@ -613,13 +645,14 @@ function requireProductionStoresForProductionProfile(
 
   if (new Set(transactionalStoreIDs).size !== 1) {
     throw new Error(
-      "P2TR signature-fraud watchtower transactional-production indexing profile requires challenge-record persistence, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID"
+      "P2TR signature-fraud watchtower transactional-production indexing profile requires challenge-record persistence, confirmed transaction source, Bridge lifecycle event source, and transaction coordinator to share the same transactional store ID"
     )
   }
 
   dependencies.transactionCoordinator.assertP2TRSignatureFraudWatchtowerSharedStore(
     {
       persistence: dependencies.persistence,
+      transactionSource: dependencies.transactionSource,
       bridgeLifecycleEventSource: dependencies.bridgeLifecycleEventSource,
     }
   )
@@ -640,6 +673,88 @@ function requireIdempotentProductionSubmitter(
   }
 }
 
+function requireProductionBroadcastReconciler(
+  config: P2TRSignatureFraudWatchtowerServiceConfig,
+  dependencies: P2TRSignatureFraudWatchtowerServiceDependencies
+): void {
+  const combinedReconciler = asChallengeBroadcastReconciler(
+    dependencies.challengeSubmitter
+  )
+  const reconciler =
+    dependencies.challengeBroadcastReconciler ?? combinedReconciler
+  if (reconciler === undefined) {
+    throw new Error(
+      "P2TR signature-fraud watchtower challenge submission requires a canonical challenge broadcast reconciler"
+    )
+  }
+
+  const finalityConfirmationBlocks = (
+    reconciler as unknown as Record<string, unknown>
+  ).finalityConfirmationBlocks
+  if (
+    typeof finalityConfirmationBlocks !== "number" ||
+    !Number.isSafeInteger(finalityConfirmationBlocks) ||
+    finalityConfirmationBlocks <= 0
+  ) {
+    throw new Error(
+      "P2TR signature-fraud watchtower challenge broadcast reconciler requires a positive finality confirmation depth"
+    )
+  }
+
+  const submissionTrustDomainID = readOptionalTrustDomainID(
+    dependencies.challengeSubmitter,
+    "submissionTrustDomainID"
+  )
+  const reconciliationTrustDomainID = readOptionalTrustDomainID(
+    reconciler,
+    "reconciliationTrustDomainID"
+  )
+  if (
+    submissionTrustDomainID === undefined ||
+    submissionTrustDomainID.length === 0 ||
+    reconciliationTrustDomainID === undefined ||
+    reconciliationTrustDomainID.length === 0 ||
+    submissionTrustDomainID === reconciliationTrustDomainID
+  ) {
+    throw new Error(
+      "P2TR signature-fraud watchtower challenge submission and reconciliation require distinct non-empty trust-domain IDs"
+    )
+  }
+}
+
+function readOptionalTrustDomainID(
+  value: unknown,
+  property: string
+): string | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !(property in value) ||
+    typeof (value as Record<string, unknown>)[property] !== "string"
+  ) {
+    return undefined
+  }
+
+  return ((value as Record<string, string>)[property] as string)
+    .trim()
+    .toLowerCase()
+}
+
+function asChallengeBroadcastReconciler(
+  value: unknown
+): P2TRSignatureFraudChallengeBroadcastReconciler | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("reconcileSignatureFraudChallengeBroadcast" in value) ||
+    typeof value.reconcileSignatureFraudChallengeBroadcast !== "function"
+  ) {
+    return undefined
+  }
+
+  return value as P2TRSignatureFraudChallengeBroadcastReconciler
+}
+
 function requireProductionAlertSink(
   config: P2TRSignatureFraudWatchtowerServiceConfig,
   dependencies: P2TRSignatureFraudWatchtowerServiceDependencies
@@ -658,10 +773,7 @@ function requireProductionAlertSink(
 function usesProductionIndexingTransaction(
   config: P2TRSignatureFraudWatchtowerServiceConfig
 ): boolean {
-  return (
-    config.submitChallenges === true &&
-    config.indexingStoreProfile === "transactional-production"
-  )
+  return config.indexingStoreProfile === "transactional-production"
 }
 
 function hasIndexingTransactionCoordinator(
@@ -721,19 +833,15 @@ export function buildP2TRSignatureFraudWatchtowerCycleMetrics(
 ): P2TRSignatureFraudWatchtowerCycleMetrics {
   return {
     replayedRecords: result.replayed.length,
-    replayedSubmissions: result.replayed.length,
-    replayedSubmissionAttempts: countSubmissionAttempts(result.replayed),
+    replayedSubmissions: 0,
+    replayedSubmissionAttempts: 0,
     mempoolObservations: result.mempool.submissions.length,
-    mempoolSubmissions: result.mempool.submissions.length,
-    mempoolSubmissionAttempts: countSubmissionAttempts(
-      result.mempool.submissions
-    ),
+    mempoolSubmissions: 0,
+    mempoolSubmissionAttempts: 0,
     mempoolFailures: result.mempool.failures.length,
     confirmedObservations: result.confirmed.submissions.length,
-    confirmedSubmissions: result.confirmed.submissions.length,
-    confirmedSubmissionAttempts: countSubmissionAttempts(
-      result.confirmed.submissions
-    ),
+    confirmedSubmissions: 0,
+    confirmedSubmissionAttempts: 0,
     confirmedFailures: result.confirmed.failures.length,
     bridgeLifecycleRecords: result.bridgeLifecycle.records.length,
     bridgeLifecycleFailures: result.bridgeLifecycle.failures.length,
@@ -743,15 +851,6 @@ export function buildP2TRSignatureFraudWatchtowerCycleMetrics(
     unresolvedOperatorAlerts: result.summary.unresolvedOperatorAlerts,
     alertSinkFailures: 0,
   }
-}
-
-function countSubmissionAttempts(
-  results: P2TRSignatureFraudWatchtowerSubmissionResult[]
-): number {
-  return results.filter(
-    ({ record, submissionRecord }) =>
-      submissionRecord.submissionAttempts > record.submissionAttempts
-  ).length
 }
 
 function summarizeP2TRTransactionFailure(
@@ -808,7 +907,10 @@ function summarizeP2TRBridgeLifecycleFailure(
 function alertDeduplicationKey(
   alert: P2TRSignatureFraudWatchtowerServiceAlert
 ): string {
-  if (alert.code === "bridge-lifecycle-cursor-commit-failed") {
+  if (
+    alert.code === "bridge-lifecycle-cursor-commit-failed" ||
+    alert.code === "confirmed-transaction-cursor-commit-failed"
+  ) {
     return JSON.stringify({
       code: alert.code,
       error: alert.fields.error,

@@ -10,7 +10,7 @@ import {
 } from "@keep-network/tbtc-v2.ts"
 
 import {
-  EsploraP2TRSignatureFraudTransactionSource,
+  EsploraP2TRSignatureFraudTransactionSource as VerifiedEsploraP2TRSignatureFraudTransactionSource,
   P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV,
   P2TREsploraFetch,
   P2TRTaprootDepositRevealSource,
@@ -18,7 +18,14 @@ import {
   deriveP2TRWalletAddress,
   loadP2TRSignatureFraudWatchtowerRuntimeConfig,
 } from "../src/index.js"
-import type { P2TRDepositScanFailure } from "../src/index.js"
+import type {
+  EsploraP2TRSignatureFraudTransactionSourceOptions,
+  P2TRCanonicalTaprootDepositRevealSource,
+  P2TRConfirmedHistoryCursor,
+  P2TRConfirmedHistoryCursorStore,
+  P2TRDepositScanFailure,
+  P2TRTaprootDepositBindingInventory,
+} from "../src/index.js"
 
 type FakeRoute = {
   status?: number
@@ -42,6 +49,91 @@ const fundingTxid = "12".repeat(32)
 
 const emptyTaprootDepositRevealSource = taprootDepositRevealSource([])
 const ignoreDepositScanFailure = () => undefined
+
+type TestEsploraOptions = Omit<
+  EsploraP2TRSignatureFraudTransactionSourceOptions,
+  | "taprootDepositRevealSourceTrustDomainID"
+  | "canonicalTaprootDepositRevealSource"
+  | "confirmedHistoryCursorStore"
+  | "taprootDepositRevealSource"
+  | "taprootDepositRevealChainID"
+  | "taprootDepositRevealBridgeAddress"
+> & {
+  confirmedHistoryCursorStore?: P2TRConfirmedHistoryCursorStore
+  taprootDepositRevealSource: Omit<
+    P2TRTaprootDepositRevealSource,
+    "providerIdentity" | "getBlockNumber" | "getCanonicalBlockHash"
+  > &
+    Partial<
+      Pick<
+        P2TRTaprootDepositRevealSource,
+        "providerIdentity" | "getBlockNumber" | "getCanonicalBlockHash"
+      >
+    >
+  taprootDepositRevealChainID?: string
+  taprootDepositRevealBridgeAddress?: string
+}
+
+class EsploraP2TRSignatureFraudTransactionSource extends VerifiedEsploraP2TRSignatureFraudTransactionSource {
+  constructor(
+    baseUrl: string,
+    bitcoinNetwork: BitcoinNetwork,
+    registeredWalletIDs: string[],
+    options: TestEsploraOptions
+  ) {
+    if (options === undefined) {
+      super(baseUrl, bitcoinNetwork, registeredWalletIDs, options as never)
+      return
+    }
+
+    const primarySource = withRevealSourceVerification(
+      options.taprootDepositRevealSource
+    )
+
+    super(baseUrl, bitcoinNetwork, registeredWalletIDs, {
+      ...options,
+      taprootDepositRevealSource: primarySource,
+      taprootDepositRevealChainID:
+        options.taprootDepositRevealChainID ?? "31337",
+      taprootDepositRevealBridgeAddress:
+        options.taprootDepositRevealBridgeAddress ?? `0x${"11".repeat(20)}`,
+      taprootDepositRevealSourceTrustDomainID: "indexer.test",
+      canonicalTaprootDepositRevealSource:
+        independentTaprootDepositRevealSource(primarySource),
+      confirmedHistoryCursorStore:
+        options.confirmedHistoryCursorStore ??
+        new MemoryConfirmedHistoryCursorStore(),
+    })
+  }
+}
+
+class MemoryConfirmedHistoryCursorStore
+  implements P2TRConfirmedHistoryCursorStore
+{
+  private readonly cursors = new Map<string, P2TRConfirmedHistoryCursor>()
+  private inventory?: P2TRTaprootDepositBindingInventory
+
+  async loadConfirmedHistoryCursor(address: string) {
+    return structuredClone(this.cursors.get(address))
+  }
+
+  async saveConfirmedHistoryCursor(
+    address: string,
+    cursor: P2TRConfirmedHistoryCursor
+  ) {
+    this.cursors.set(address, structuredClone(cursor))
+  }
+
+  async loadTaprootDepositBindingInventory() {
+    return structuredClone(this.inventory)
+  }
+
+  async saveTaprootDepositBindingInventory(
+    inventory: P2TRTaprootDepositBindingInventory
+  ) {
+    this.inventory = structuredClone(inventory)
+  }
+}
 
 test("derives P2TR wallet addresses from canonical x-only wallet IDs", () => {
   assert.equal(
@@ -211,6 +303,8 @@ test("bounds historical deposit scan work across every RPC stage", async () => {
             () =>
               ({
                 depositor: { identifierHex: "23".repeat(20) },
+                revealedAt: 1,
+                treasuryFee: { toString: () => "0" },
               } as never)
           )
         },
@@ -236,16 +330,14 @@ test("bounds historical deposit scan work across every RPC stage", async () => {
     transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
     spendingTxids
   )
-  const probes = [
-    commitmentProbe,
-    depositRequestProbe,
-    outspendProbe,
-    rawTransactionProbe,
-  ]
-  probes.forEach((probe) => {
+  for (const probe of [commitmentProbe, depositRequestProbe]) {
+    assert.equal(probe.started, fundingTxids.length * 2)
+    assert.equal(probe.maxInFlight, concurrency)
+  }
+  for (const probe of [outspendProbe, rawTransactionProbe]) {
     assert.equal(probe.started, fundingTxids.length)
     assert.equal(probe.maxInFlight, concurrency)
-  })
+  }
 })
 
 test("shares raw transaction concurrency across mempool and confirmed listings", async () => {
@@ -293,9 +385,12 @@ test("shares raw transaction concurrency across mempool and confirmed listings",
     mempoolTxids
   )
   assert.deepEqual(
-    confirmedTransactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
+    confirmedTransactions.transactions.map(({ bitcoinTxHash }) =>
+      bitcoinTxHash.toString()
+    ),
     confirmedTxids
   )
+  assert.equal(confirmedTransactions.complete, false)
   assert.equal(rawTransactionProbe.started, 6)
   assert.equal(rawTransactionProbe.maxInFlight, concurrency)
 })
@@ -339,7 +434,7 @@ test("excludes revealed deposits without an output-key commitment", async () => 
   )
 })
 
-test("keeps wallet transactions when a revealed outpoint is unavailable", async () => {
+test("rejects a partial transaction view when a revealed outpoint is unavailable", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const failures: P2TRDepositScanFailure[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -361,11 +456,9 @@ test("keeps wallet transactions when a revealed outpoint is unavailable", async 
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.deepEqual(
-    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
-    [mempoolTxid]
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
   )
   assert.deepEqual(failures, [
     {
@@ -399,13 +492,12 @@ test("contains rejected async deposit scan failure handlers", async () => {
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
+  )
   await new Promise<void>((resolve) => setImmediate(resolve))
 
-  assert.deepEqual(
-    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
-    [mempoolTxid]
-  )
   assert.deepEqual(failures, [
     {
       stage: "outspend",
@@ -416,7 +508,7 @@ test("contains rejected async deposit scan failure handlers", async () => {
   ])
 })
 
-test("keeps mempool observations when a deposit spend raw transaction is unavailable", async () => {
+test("rejects a partial mempool view when a raw transaction is unavailable", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const failures: P2TRDepositScanFailure[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -443,11 +535,9 @@ test("keeps mempool observations when a deposit spend raw transaction is unavail
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.deepEqual(
-    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
-    [mempoolTxid]
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
   )
   assert.deepEqual(failures, [
     {
@@ -460,7 +550,7 @@ test("keeps mempool observations when a deposit spend raw transaction is unavail
   ])
 })
 
-test("keeps confirmed observations when a deposit spend raw transaction is unavailable", async () => {
+test("rejects a partial confirmed view when a raw transaction is unavailable", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const failures: P2TRDepositScanFailure[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -491,13 +581,10 @@ test("keeps confirmed observations when a deposit spend raw transaction is unava
     }
   )
 
-  const transactions = await source.listConfirmedTransactions()
-
-  assert.deepEqual(
-    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
-    [confirmedTxid]
+  await assert.rejects(
+    source.listConfirmedTransactions(),
+    /Incomplete P2TR transaction view/
   )
-  assert.equal(transactions[0].bitcoinBlockHeight, 123)
   assert.deepEqual(failures, [
     {
       stage: "raw-transaction",
@@ -547,9 +634,10 @@ test("reports every deposit binding when a shared raw transaction is unavailable
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.equal(transactions.length, 1)
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
+  )
   assert.equal(
     requestedPaths.filter((path) => path === `/tx/${secondMempoolTxid}/hex`)
       .length,
@@ -571,7 +659,7 @@ test("reports every deposit binding when a shared raw transaction is unavailable
   })
 })
 
-test("isolates raw transaction failures for wallet-only candidates", async () => {
+test("rejects raw transaction failures for wallet-only candidates", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const failures: P2TRDepositScanFailure[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -591,11 +679,9 @@ test("isolates raw transaction failures for wallet-only candidates", async () =>
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.deepEqual(
-    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
-    [mempoolTxid]
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
   )
   assert.deepEqual(failures, [
     {
@@ -606,7 +692,7 @@ test("isolates raw transaction failures for wallet-only candidates", async () =>
   ])
 })
 
-test("isolates a failed deposit request from another deposit spend", async () => {
+test("rejects a failed deposit request after scanning honest siblings", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const secondFundingTxid = "13".repeat(32)
   const firstEvent = taprootDepositEvent()
@@ -625,6 +711,8 @@ test("isolates a failed deposit request from another deposit spend", async () =>
       }
       return {
         depositor: { identifierHex: "23".repeat(20) },
+        revealedAt: 1,
+        treasuryFee: { toString: () => "0" },
       } as never
     },
     async taprootDepositOutputKeyCommitment() {
@@ -650,11 +738,10 @@ test("isolates a failed deposit request from another deposit spend", async () =>
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.equal(transactions.length, 1)
-  assert.equal(transactions[0].bitcoinTxHash.toString(), mempoolTxid)
-  assert.equal(transactions[0].walletInputKeyBindings?.[0].vout, 3)
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
+  )
   assert.deepEqual(failures, [
     {
       stage: "deposit-request",
@@ -665,7 +752,7 @@ test("isolates a failed deposit request from another deposit spend", async () =>
   ])
 })
 
-test("isolates a failed deposit commitment read from wallet scans", async () => {
+test("rejects a failed deposit commitment read", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const failures: P2TRDepositScanFailure[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -692,11 +779,9 @@ test("isolates a failed deposit commitment read from wallet scans", async () => 
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.deepEqual(
-    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
-    [mempoolTxid]
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
   )
   assert.deepEqual(failures, [
     {
@@ -706,6 +791,53 @@ test("isolates a failed deposit commitment read from wallet scans", async () => 
       error: "commitment RPC unavailable",
     },
   ])
+})
+
+test("rejects a fulfilled reveal-history omission against the independent source", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const requestedPaths: string[] = []
+  const failures: P2TRDepositScanFailure[] = []
+  const canonicalSource = independentTaprootDepositRevealSource(
+    taprootDepositRevealSource([taprootDepositEvent()])
+  )
+  const primarySource = {
+    ...taprootDepositRevealSource([]),
+    async getBlockNumber() {
+      return 13
+    },
+    getCanonicalBlockHash: (blockNumber: number) =>
+      canonicalSource.getCanonicalBlockHash(blockNumber),
+  }
+  const source = new VerifiedEsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID],
+    {
+      taprootDepositRevealSource: primarySource,
+      taprootDepositRevealSourceTrustDomainID: "indexer.test",
+      canonicalTaprootDepositRevealSource: canonicalSource,
+      confirmedHistoryCursorStore: new MemoryConfirmedHistoryCursorStore(),
+      taprootDepositRevealChainID: "31337",
+      taprootDepositRevealBridgeAddress: `0x${"11".repeat(20)}`,
+      onDepositScanFailure: (failure) => failures.push(failure),
+      fetchFn: fakeFetch({ [addressMempoolPath(address)]: [] }, requestedPaths),
+    }
+  )
+
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /reveal history is incomplete/
+  )
+  assert.deepEqual(failures, [
+    {
+      stage: "reveal-history",
+      error: "Taproot deposit reveal range is not independently complete",
+    },
+  ])
+  assert.equal(
+    requestedPaths.some((path) => path.includes("/outspend/")),
+    false
+  )
 })
 
 test("deduplicates wallet and duplicate reveal discoveries while preserving bindings", async () => {
@@ -750,7 +882,7 @@ test("deduplicates wallet and duplicate reveal discoveries while preserving bind
   )
 })
 
-test("keeps wallet transactions when reveal-history retrieval fails", async () => {
+test("rejects the transaction view when reveal-history retrieval fails", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const failures: P2TRDepositScanFailure[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -777,15 +909,16 @@ test("keeps wallet transactions when reveal-history retrieval fails", async () =
     }
   )
 
-  const transactions = await source.listMempoolTransactions()
-
-  assert.equal(transactions.length, 1)
+  await assert.rejects(
+    source.listMempoolTransactions(),
+    /Incomplete P2TR transaction view/
+  )
   assert.deepEqual(failures, [
     { stage: "reveal-history", error: "Bridge RPC unavailable" },
   ])
 })
 
-test("wires Esplora transaction source from validated runtime config", async () => {
+test("wires domainless Esplora observation config with its reveal-chain domain", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig({
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.stateFilePath]:
@@ -798,9 +931,18 @@ test("wires Esplora transaction source from validated runtime config", async () 
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraRequestTimeoutMs]: "1000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraRetryDelayMs]: "0",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedPageLimit]: "1",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedHistoryCursorFilePath]:
+      "/var/lib/tbtc/p2tr-confirmed-history.json",
   })
   const source = createEsploraP2TRTransactionSourceFromRuntimeConfig(config, {
+    taprootDepositRevealChainID: "31337",
+    taprootDepositRevealBridgeAddress: `0x${"11".repeat(20)}`,
     taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+    taprootDepositRevealSourceTrustDomainID: "indexer.test",
+    canonicalTaprootDepositRevealSource: independentTaprootDepositRevealSource(
+      emptyTaprootDepositRevealSource
+    ),
+    confirmedHistoryCursorStore: new MemoryConfirmedHistoryCursorStore(),
     onDepositScanFailure: ignoreDepositScanFailure,
     fetchFn: fakeFetch({
       [addressMempoolPath(address)]: [{ txid: mempoolTxid }],
@@ -844,7 +986,12 @@ test("lists paged Esplora confirmed P2TR wallet transactions with block metadata
     }
   )
 
-  const transactions = await source.listConfirmedTransactions()
+  const result = await source.listConfirmedTransactions()
+  const { transactions } = result
+
+  // Bounded pagination can finish, but Esplora is not an independently
+  // authenticated canonical Bitcoin feed and never certifies lifecycle safety.
+  assert.equal(result.complete, false)
 
   assert.deepEqual(
     transactions.map((transaction) => transaction.bitcoinTxHash.toString()),
@@ -865,13 +1012,228 @@ test("lists paged Esplora confirmed P2TR wallet transactions with block metadata
   )
 })
 
-test("rejects a capped confirmed-history prefix instead of reporting it complete", async () => {
+test("resumes a 26-transaction confirmed history across source restarts", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const pageOneTxids = Array.from({ length: 25 }, (_, index) =>
     (index + 1).toString(16).padStart(2, "0").repeat(32)
   )
   const pageTwoTxid = "f1".repeat(32)
   const requestedPaths: string[] = []
+  const cursorStore = new MemoryConfirmedHistoryCursorStore()
+  const routes: Record<string, FakeRoute["body"] | FakeRoute> = {
+    [addressConfirmedPath(address)]: pageOneTxids.map((txid, index) =>
+      confirmedSummary(txid, blockHash, 100 + index)
+    ),
+    [`${addressConfirmedPath(address)}/${pageOneTxids[24]}`]: [
+      confirmedSummary(pageTwoTxid, blockHash, 125),
+    ],
+    [`${addressConfirmedPath(address)}/${pageTwoTxid}`]: [],
+  }
+  for (const txid of [...pageOneTxids, pageTwoTxid]) {
+    routes[`/tx/${txid}/hex`] = rawConfirmedTx
+  }
+  routes[`/tx/${pageOneTxids[0]}/status`] = confirmedSummary(
+    pageOneTxids[0],
+    blockHash,
+    100
+  ).status
+  routes[`/tx/${pageOneTxids[24]}/status`] = confirmedSummary(
+    pageOneTxids[24],
+    blockHash,
+    124
+  ).status
+  const buildSource = () =>
+    new EsploraP2TRSignatureFraudTransactionSource(
+      "https://esplora.test",
+      BitcoinNetwork.Testnet,
+      [walletID],
+      {
+        taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+        onDepositScanFailure: ignoreDepositScanFailure,
+        confirmedPageLimit: 1,
+        confirmedHistoryCursorStore: cursorStore,
+        fetchFn: fakeFetch(routes, requestedPaths),
+      }
+    )
+
+  const firstSource = buildSource()
+  const firstBatch = await firstSource.listConfirmedTransactions()
+  assert.equal(firstBatch.complete, false)
+  assert.equal(firstBatch.transactions.length, 25)
+  await firstSource.commitConfirmedTransactionScan()
+
+  const secondSource = buildSource()
+  const secondBatch = await secondSource.listConfirmedTransactions()
+  assert.equal(secondBatch.complete, false)
+  assert.equal(secondBatch.transactions.length, 1)
+  assert.equal(
+    secondBatch.transactions[0].bitcoinTxHash.toString(),
+    pageTwoTxid
+  )
+  await secondSource.commitConfirmedTransactionScan()
+  assert.ok(
+    requestedPaths.includes(
+      `${addressConfirmedPath(address)}/${pageOneTxids[24]}`
+    )
+  )
+  assert.ok(requestedPaths.includes(`/tx/${pageTwoTxid}/hex`))
+})
+
+test("bounds and resumes 25, 50, and 51 confirmed transactions", async () => {
+  const expectedCycles = new Map([
+    [25, 1],
+    [50, 2],
+    [51, 3],
+  ])
+
+  for (const [historyCount, cycleCount] of expectedCycles) {
+    const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+    const txids = Array.from({ length: historyCount }, (_, index) =>
+      (index + 1).toString(16).padStart(64, "0")
+    )
+    const routes: Record<string, FakeRoute["body"] | FakeRoute> = {}
+    for (let offset = 0; offset < txids.length; offset += 25) {
+      const pageTxids = txids.slice(offset, offset + 25)
+      const path =
+        offset === 0
+          ? addressConfirmedPath(address)
+          : `${addressConfirmedPath(address)}/${txids[offset - 1]}`
+      routes[path] = pageTxids.map((txid, index) =>
+        confirmedSummary(txid, blockHash, 100 + offset + index)
+      )
+    }
+    routes[`${addressConfirmedPath(address)}/${txids[txids.length - 1]}`] = []
+    txids.forEach((txid) => {
+      routes[`/tx/${txid}/hex`] = rawConfirmedTx
+    })
+    for (const index of [0, 24, 49]) {
+      const txid = txids[index]
+      if (txid === undefined) continue
+      routes[`/tx/${txid}/status`] = confirmedSummary(
+        txid,
+        blockHash,
+        100 + index
+      ).status
+    }
+
+    const cursorStore = new MemoryConfirmedHistoryCursorStore()
+    const buildSource = () =>
+      new EsploraP2TRSignatureFraudTransactionSource(
+        "https://esplora.test",
+        BitcoinNetwork.Testnet,
+        [walletID],
+        {
+          taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+          onDepositScanFailure: ignoreDepositScanFailure,
+          confirmedPageLimit: 1,
+          confirmedHistoryCursorStore: cursorStore,
+          fetchFn: fakeFetch(routes),
+        }
+      )
+
+    let observed = 0
+    for (let cycle = 1; cycle <= cycleCount; cycle++) {
+      const source = buildSource()
+      const batch = await source.listConfirmedTransactions()
+      observed += batch.transactions.length
+      assert.equal(batch.complete, false)
+      await source.commitConfirmedTransactionScan()
+    }
+    assert.equal(observed, historyCount)
+  }
+})
+
+test("advances each wallet history independently during bounded catch-up", async () => {
+  const firstAddress = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const secondAddress = deriveP2TRWalletAddress(
+    secondWalletID,
+    BitcoinNetwork.Testnet
+  )
+  const firstTxids = Array.from({ length: 26 }, (_, index) =>
+    (0x100 + index).toString(16).padStart(64, "0")
+  )
+  const secondTxids = Array.from({ length: 25 }, (_, index) =>
+    (0x200 + index).toString(16).padStart(64, "0")
+  )
+  const secondTerminalPath = `${addressConfirmedPath(secondAddress)}/${
+    secondTxids[24]
+  }`
+  const requestedPaths: string[] = []
+  const routes: Record<string, FakeRoute["body"] | FakeRoute> = {
+    [addressConfirmedPath(firstAddress)]: firstTxids
+      .slice(0, 25)
+      .map((txid, index) => confirmedSummary(txid, blockHash, 300 + index)),
+    [`${addressConfirmedPath(firstAddress)}/${firstTxids[24]}`]: [
+      confirmedSummary(firstTxids[25], blockHash, 325),
+    ],
+    [`${addressConfirmedPath(firstAddress)}/${firstTxids[25]}`]: [],
+    [addressConfirmedPath(secondAddress)]: secondTxids.map((txid, index) =>
+      confirmedSummary(txid, blockHash, 400 + index)
+    ),
+    [secondTerminalPath]: [],
+  }
+  for (const txid of [...firstTxids, ...secondTxids]) {
+    routes[`/tx/${txid}/hex`] = rawConfirmedTx
+  }
+  routes[`/tx/${firstTxids[0]}/status`] = confirmedSummary(
+    firstTxids[0],
+    blockHash,
+    300
+  ).status
+  routes[`/tx/${firstTxids[24]}/status`] = confirmedSummary(
+    firstTxids[24],
+    blockHash,
+    324
+  ).status
+  const cursorStore = new MemoryConfirmedHistoryCursorStore()
+  const source = new EsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID, secondWalletID],
+    {
+      taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+      onDepositScanFailure: ignoreDepositScanFailure,
+      confirmedHistoryCursorStore: cursorStore,
+      fetchFn: fakeFetch(routes, requestedPaths),
+    }
+  )
+
+  const firstBatch = await source.listConfirmedTransactions()
+  assert.equal(firstBatch.complete, false)
+  assert.equal(firstBatch.transactions.length, 50)
+  await source.commitConfirmedTransactionScan()
+  assert.equal(
+    requestedPaths.filter((path) => path === secondTerminalPath).length,
+    1
+  )
+
+  const secondBatch = await source.listConfirmedTransactions()
+  assert.equal(secondBatch.complete, false)
+  assert.equal(secondBatch.transactions.length, 1)
+  await source.commitConfirmedTransactionScan()
+  assert.equal(
+    requestedPaths.filter((path) => path === secondTerminalPath).length,
+    1
+  )
+})
+
+test("rebuilds confirmed history when the stored anchor is reorganized", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const firstTxid = "71".repeat(32)
+  const removedTxid = "72".repeat(32)
+  const replacementTxid = "73".repeat(32)
+  const replacementBlockHash = "74".repeat(32)
+  const routes: Record<string, FakeRoute["body"] | FakeRoute> = {
+    [addressConfirmedPath(address)]: [
+      confirmedSummary(firstTxid, blockHash, 200),
+      confirmedSummary(removedTxid, blockHash, 199),
+    ],
+    [`${addressConfirmedPath(address)}/${removedTxid}`]: [],
+    [`/tx/${firstTxid}/hex`]: rawConfirmedTx,
+    [`/tx/${removedTxid}/hex`]: rawConfirmedTx,
+    [`/tx/${replacementTxid}/hex`]: rawConfirmedTx,
+  }
+  const cursorStore = new MemoryConfirmedHistoryCursorStore()
   const source = new EsploraP2TRSignatureFraudTransactionSource(
     "https://esplora.test",
     BitcoinNetwork.Testnet,
@@ -879,31 +1241,31 @@ test("rejects a capped confirmed-history prefix instead of reporting it complete
     {
       taprootDepositRevealSource: emptyTaprootDepositRevealSource,
       onDepositScanFailure: ignoreDepositScanFailure,
-      confirmedPageLimit: 1,
-      fetchFn: fakeFetch(
-        {
-          [addressConfirmedPath(address)]: pageOneTxids.map((txid, index) =>
-            confirmedSummary(txid, blockHash, 100 + index)
-          ),
-          [`${addressConfirmedPath(address)}/${pageOneTxids[24]}`]: [
-            confirmedSummary(pageTwoTxid, blockHash, 125),
-          ],
-        },
-        requestedPaths
-      ),
+      confirmedHistoryCursorStore: cursorStore,
+      fetchFn: fakeFetch(routes),
     }
   )
 
-  await assert.rejects(
-    source.listConfirmedTransactions(),
-    /Confirmed P2TR wallet transaction history.*incomplete after 1 page/
+  assert.deepEqual(
+    (await source.listConfirmedTransactions()).transactions.map(
+      ({ bitcoinTxHash }) => bitcoinTxHash.toString()
+    ),
+    [firstTxid, removedTxid]
   )
-  assert.ok(
-    requestedPaths.includes(
-      `${addressConfirmedPath(address)}/${pageOneTxids[24]}`
-    )
+  await source.commitConfirmedTransactionScan()
+
+  routes[addressConfirmedPath(address)] = [
+    confirmedSummary(firstTxid, replacementBlockHash, 201),
+    confirmedSummary(replacementTxid, replacementBlockHash, 200),
+  ]
+  routes[`${addressConfirmedPath(address)}/${replacementTxid}`] = []
+
+  const reorganized = (await source.listConfirmedTransactions()).transactions
+  assert.deepEqual(
+    reorganized.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
+    [firstTxid, replacementTxid]
   )
-  assert.ok(!requestedPaths.includes(`/tx/${pageTwoTxid}/hex`))
+  assert.equal(reorganized[0].bitcoinBlockHash, replacementBlockHash)
 })
 
 test("discovers confirmed spends of revealed Taproot deposit outpoints", async () => {
@@ -933,8 +1295,10 @@ test("discovers confirmed spends of revealed Taproot deposit outpoints", async (
     }
   )
 
-  const transactions = await source.listConfirmedTransactions()
+  const result = await source.listConfirmedTransactions()
+  const { transactions } = result
 
+  assert.equal(result.complete, false)
   assert.equal(transactions.length, 1)
   assert.equal(transactions[0].bitcoinTxHash.toString(), confirmedTxid)
   assert.equal(transactions[0].bitcoinBlockHash, blockHash)
@@ -1102,24 +1466,99 @@ test("validates Esplora source configuration before scanning", () => {
   }
 })
 
+function withRevealSourceVerification(
+  source: TestEsploraOptions["taprootDepositRevealSource"]
+): P2TRTaprootDepositRevealSource {
+  return {
+    ...source,
+    providerIdentity: source.providerIdentity ?? {},
+    getBlockNumber: source.getBlockNumber ?? (async () => 13),
+    getCanonicalBlockHash:
+      source.getCanonicalBlockHash ??
+      (async (blockNumber) => blockNumber.toString(16).padStart(64, "0")),
+  }
+}
+
 function taprootDepositRevealSource(
   events: unknown[],
   extraData?: Hex,
   outputKeyCommitment = Hex.from("01".repeat(32))
 ): P2TRTaprootDepositRevealSource {
+  const confirmationDepth = 12
+  const blockNumbers = events
+    .map((event) =>
+      typeof event === "object" && event !== null && "blockNumber" in event
+        ? Number(event.blockNumber)
+        : 0
+    )
+    .filter(Number.isSafeInteger)
+  const head = Math.max(0, ...blockNumbers) + confirmationDepth
+
   return {
-    async getTaprootDepositRevealedEvents() {
-      return events as never[]
+    providerIdentity: {},
+    async getBlockNumber() {
+      return head
+    },
+    async getCanonicalBlockHash(blockNumber) {
+      const event = events.find(
+        (candidate) =>
+          typeof candidate === "object" &&
+          candidate !== null &&
+          "blockNumber" in candidate &&
+          candidate.blockNumber === blockNumber &&
+          "blockHash" in candidate
+      ) as { blockHash?: { toString(): string } } | undefined
+      return (
+        event?.blockHash?.toString() ??
+        blockNumber.toString(16).padStart(64, "0")
+      )
+    },
+    async getTaprootDepositRevealedEvents(options) {
+      return events.filter((event) => {
+        if (
+          typeof event !== "object" ||
+          event === null ||
+          !("blockNumber" in event)
+        ) {
+          return true
+        }
+        const eventBlock = Number(event.blockNumber)
+        return (
+          (options?.fromBlock === undefined ||
+            eventBlock >= options.fromBlock) &&
+          (options?.toBlock === undefined || eventBlock <= options.toBlock)
+        )
+      }) as never[]
     },
     async deposits() {
       return {
         depositor: { identifierHex: "23".repeat(20) },
+        revealedAt: 1,
+        treasuryFee: { toString: () => "0" },
         extraData,
       } as never
     },
     async taprootDepositOutputKeyCommitment() {
       return outputKeyCommitment
     },
+  }
+}
+
+function independentTaprootDepositRevealSource(
+  source: P2TRTaprootDepositRevealSource,
+  trustDomainID = "canonical.test"
+): P2TRCanonicalTaprootDepositRevealSource {
+  return {
+    trustDomainID,
+    providerIdentity: {},
+    getBlockNumber: () => source.getBlockNumber(),
+    getCanonicalBlockHash: (blockNumber) =>
+      source.getCanonicalBlockHash(blockNumber),
+    getTaprootDepositRevealedEvents: (...args) =>
+      source.getTaprootDepositRevealedEvents(...args),
+    deposits: (...args) => source.deposits(...args),
+    taprootDepositOutputKeyCommitment: (...args) =>
+      source.taprootDepositOutputKeyCommitment(...args),
   }
 }
 
@@ -1131,6 +1570,7 @@ function taprootDepositEvent(overrides: Record<string, unknown> = {}): unknown {
     fundingTxHash: BitcoinTxHash.from(fundingTxid),
     fundingOutputIndex: 2,
     depositor: { identifierHex: "23".repeat(20) },
+    amount: { toString: () => "100000" },
     blindingFactor: Hex.from("24".repeat(8)),
     walletPublicKeyHash: Hex.from("25".repeat(20)),
     walletXOnlyPublicKey: Hex.from(walletID),

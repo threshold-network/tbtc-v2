@@ -1,4 +1,4 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -14,6 +14,7 @@ import {
   WormholeBridgeStub,
   MockTBTCVault,
 } from "../../../typechain"
+import { loadFixture } from "../../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -206,7 +207,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       bank,
       tbtcToken,
       tbtcVault,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("initialization", () => {
