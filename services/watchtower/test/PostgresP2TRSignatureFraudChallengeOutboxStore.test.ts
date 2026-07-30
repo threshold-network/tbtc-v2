@@ -2946,7 +2946,7 @@ function boundaryResolution(
               blockHash: `0x${"c3".repeat(32)}`,
             },
             observedHead: {
-              blockNumber: 512,
+              blockNumber: 564,
               blockHash: `0x${"c4".repeat(32)}`,
             },
           },
@@ -3797,6 +3797,45 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
     expectedAlertCodes: [],
   },
   {
+    // A nonce that appears consumed near the head can become live again in an
+    // ordinary reorg. Direct boundary evidence therefore uses the same
+    // consensus-finality floor as ordinary reconciliation.
+    name: "refuses shallow nonce-consumption finality",
+    seed: 245,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [
+      {
+        outcome: "nonce-consumed",
+        nonceConsumption: {
+          chainID: CHAIN_ID,
+          sender: WALLET.address,
+          transactionNonce: 7,
+          finalizedAccountNonce: 8,
+          accountNonceReadAtBlock: 500,
+          consumingTransaction: {
+            transactionHash: `0x${"c1".repeat(32)}`,
+            sender: WALLET.address,
+            nonce: 7,
+            blockNumber: 480,
+            blockHash: `0x${"c2".repeat(32)}`,
+          },
+          finalizedThrough: {
+            blockNumber: 500,
+            blockHash: `0x${"c3".repeat(32)}`,
+          },
+          observedHead: {
+            blockNumber: 563,
+            blockHash: `0x${"c4".repeat(32)}`,
+          },
+        },
+      },
+    ],
+    expected: [
+      "error:Signer-boundary nonce consumption finality depth must be at least 64 blocks",
+    ],
+    expectedAlertCodes: [],
+  },
+  {
     // Permitted precisely BECAUSE bytes may have escaped -- that is what nonce
     // consumption makes harmless. never-invoked refuses this same record.
     name: "settles a nonce-consumed boundary that carries escape evidence",
@@ -3845,7 +3884,7 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
             blockHash: `0x${"c3".repeat(32)}`,
           },
           observedHead: {
-            blockNumber: 512,
+            blockNumber: 564,
             blockHash: `0x${"c4".repeat(32)}`,
           },
         },

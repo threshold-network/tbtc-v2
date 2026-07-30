@@ -942,7 +942,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
     )
   }
   return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v4", "utf8")
+    .update("tbtc-p2tr-signer-boundary-independent-resolution-v5", "utf8")
     .update(
       Buffer.from(
         normalizeBytes32(
@@ -1094,6 +1094,23 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
             normalizeBytes32(
               consumption.finalizedThrough.blockHash,
               "Signer-boundary nonce consumption finality hash"
+            ).slice(2),
+            "hex"
+          )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.observedHead.blockNumber,
+        "Signer-boundary nonce consumption observed head height"
+      )
+    )
+    .update(
+      consumption === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              consumption.observedHead.blockHash,
+              "Signer-boundary nonce consumption observed head hash"
             ).slice(2),
             "hex"
           )
@@ -1384,6 +1401,14 @@ const normalizeSignerBoundaryNonceConsumption = (
   if (observedHead.blockNumber < finalizedThrough.blockNumber) {
     throw new Error(
       "Signer-boundary nonce consumption finality boundary is ahead of its observed head"
+    )
+  }
+  if (
+    observedHead.blockNumber - finalizedThrough.blockNumber <
+    P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
+  ) {
+    throw new Error(
+      `Signer-boundary nonce consumption finality depth must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
     )
   }
   const transactionNonce = requireNonNegativeSafeInteger(
@@ -6660,6 +6685,17 @@ const validatePreparedTransactionFeePolicy = (
       "Prepared challenge priority fee per gas"
     )
   )
+  const manifestGasLimit = BigInt(
+    normalizePositivePolicyUint256(
+      policy.maxGasLimit,
+      "Challenge fee policy gas limit"
+    )
+  )
+  if (gasLimit !== manifestGasLimit) {
+    throw new Error(
+      "Prepared challenge transaction does not use its exact manifest-bound gas limit"
+    )
+  }
   if (
     policy.chainID !== intent.chainID ||
     normalizePolicyUint256(
@@ -6668,7 +6704,6 @@ const validatePreparedTransactionFeePolicy = (
     ) !== normalizePolicyUint256(intent.value, "Challenge intent value") ||
     normalizeAddress(policy.sender, "Challenge fee policy sender") !==
       normalizeAddress(prepared.sender, "Prepared challenge sender") ||
-    gasLimit > BigInt(policy.maxGasLimit) ||
     maxFeePerGas > BigInt(policy.maxFeePerGas) ||
     maxPriorityFeePerGas > BigInt(policy.maxPriorityFeePerGas) ||
     gasLimit * maxFeePerGas > BigInt(policy.maxTotalFeeWei)

@@ -739,6 +739,11 @@ export type P2TRSignatureFraudChallengeTransactionFeePolicy = {
   signerIdentity: string
   sender: string
   challengeValueWei: string
+  /**
+   * Exact gas budget for challenge calls. The manifest uses a cap-shaped field
+   * so it also bounds cost, but preparers must not lower it and create a
+   * nonce-consuming transaction that is guaranteed to run out of gas.
+   */
   maxGasLimit: string
   maxFeePerGas: string
   maxPriorityFeePerGas: string

@@ -1610,7 +1610,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           nonce_consumption_account_nonce, nonce_consumption_read_at_block,
           nonce_consumption_transaction_hash,
           nonce_consumption_finalized_block_number,
-          nonce_consumption_finalized_block_hash
+          nonce_consumption_finalized_block_hash,
+          nonce_consumption_observed_head_block_number,
+          nonce_consumption_observed_head_block_hash
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), $3, $4,
           decode($5, 'hex'), $6, $7, $8,
@@ -1623,7 +1625,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           $23, $24, $25, $26,
           CASE WHEN $27::text IS NULL THEN NULL ELSE decode($27, 'hex') END,
           $28,
-          CASE WHEN $29::text IS NULL THEN NULL ELSE decode($29, 'hex') END
+          CASE WHEN $29::text IS NULL THEN NULL ELSE decode($29, 'hex') END,
+          $30,
+          CASE WHEN $31::text IS NULL THEN NULL ELSE decode($31, 'hex') END
        )`,
       [
         stripHex(normalized.recordID),
@@ -1665,6 +1669,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         normalized.nonceConsumption === undefined
           ? null
           : stripHex(normalized.nonceConsumption.finalizedThrough.blockHash),
+        normalized.nonceConsumption?.observedHead.blockNumber ?? null,
+        normalized.nonceConsumption === undefined
+          ? null
+          : stripHex(normalized.nonceConsumption.observedHead.blockHash),
       ]
     )
     if (normalized.outcome === "never-invoked") {
