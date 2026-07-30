@@ -591,19 +591,31 @@ describe("StakeVault", () => {
       ).to.be.revertedWith("UndelegationDelayNotElapsed")
     })
 
-    it("should revert while a wallet registered at or before the request epoch is live", async () => {
+    it("should finalize even while a wallet at or before the request epoch is live (delegator path is not lifecycle-gated)", async () => {
       await increaseTime(UNDELEGATION_DELAY)
+      // Live exposure at the request epoch would block the operator self-bond
+      // path, but delegator undelegation is deliberately NOT lifecycle-gated.
       await seatAllocator.setExposure(operator.address, true, 3)
-      await expect(
-        vault.connect(delegator1).finalizeUndelegate(0)
-      ).to.be.revertedWith("LiveWalletExposure")
+      const balanceBefore = await tToken.balanceOf(delegator1.address)
+      await vault.connect(delegator1).finalizeUndelegate(0)
+      expect(await tToken.balanceOf(delegator1.address)).to.equal(
+        balanceBefore.add(to1e18(400))
+      )
     })
 
-    it("should not be blocked by wallets registered after the request epoch", async () => {
+    it("should finalize when the oldest live exposure predates the request epoch (delegator path ignores the lifecycle gate)", async () => {
       await increaseTime(UNDELEGATION_DELAY)
-      // Oldest live exposure is epoch 4 > request epoch 3: exit unblocked.
-      await seatAllocator.setExposure(operator.address, true, 4)
+      // Oldest live exposure epoch 2 is strictly BELOW the request epoch 3, so
+      // `oldestLiveEpoch (2) <= epochAtRequest (3)` holds: the OLD gated code
+      // would have reverted with LiveWalletExposure here. The delegator path
+      // is deliberately not lifecycle-gated, so it finalizes anyway.
+      await seatAllocator.setExposure(operator.address, true, 2)
+      const balanceBefore = await tToken.balanceOf(delegator1.address)
       await vault.connect(delegator1).finalizeUndelegate(0)
+      expect(await tToken.balanceOf(delegator1.address)).to.equal(
+        balanceBefore.add(to1e18(400))
+      )
+      expect(await vault.pendingSharesOf(operator.address)).to.equal(0)
     })
 
     it("should burn shares at the current price and return T", async () => {
@@ -757,6 +769,60 @@ describe("StakeVault", () => {
           await slashingModule.pendingSlashCount(operator.address)
         ).to.equal(0)
       })
+    })
+  })
+
+  describe("lifecycle-gate asymmetry (delegator vs operator self-bond)", () => {
+    // Same provider, same live-wallet-exposure state, same request epoch: the
+    // delegator undelegation finalizes after the cooldown while the operator
+    // self-bond withdrawal stays blocked by the wallet-lifecycle gate.
+    const EXPOSURE_EPOCH = 5
+    let undelegationReqId: number
+    let selfBondReqId: number
+
+    before(async () => {
+      await createSnapshot()
+
+      // Both exit requests are recorded at the same exposure epoch.
+      await ledger.setCurrentEpoch(operator.address, EXPOSURE_EPOCH)
+
+      // Operator self-bond: deposit and queue a withdrawal (stays Active,
+      // keeping exactly the minimum bonded).
+      await vault.connect(operator).depositSelfBond(to1e18(50000))
+      selfBondReqId = (await vault.selfBondWithdrawalRequestCount()).toNumber()
+      await vault.connect(operator).requestSelfBondWithdrawal(to1e18(10000))
+
+      // Delegator: delegate to the same provider and queue an undelegation.
+      await vault.connect(delegator1).delegate(operator.address, to1e18(1000))
+      undelegationReqId = (await vault.undelegationRequestCount()).toNumber()
+      await vault
+        .connect(delegator1)
+        .requestUndelegate(operator.address, to1e18(400))
+
+      // Identical live exposure for the provider at (== ) the request epoch:
+      // this trips the lifecycle gate for both epochAtRequest values.
+      await seatAllocator.setExposure(operator.address, true, EXPOSURE_EPOCH)
+
+      await increaseTime(UNDELEGATION_DELAY)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("lets the delegator finalize despite the live wallet exposure", async () => {
+      const balanceBefore = await tToken.balanceOf(delegator1.address)
+      await vault.connect(delegator1).finalizeUndelegate(undelegationReqId)
+      // 400 shares at an unchanged 1 T/share price.
+      expect(await tToken.balanceOf(delegator1.address)).to.equal(
+        balanceBefore.add(to1e18(400))
+      )
+    })
+
+    it("blocks the operator self-bond withdrawal on the same exposure", async () => {
+      await expect(
+        vault.connect(operator).finalizeSelfBondWithdrawal(selfBondReqId)
+      ).to.be.revertedWith("LiveWalletExposure")
     })
   })
 

@@ -41,10 +41,22 @@ import "./api/IWalletExposureLedger.sol";
 ///        all delegators including pending exits. It caps at the available
 ///        balance and never reverts — it is on the never-revert
 ///        malicious-behavior reporting path.
-///      - Exits (`finalizeUndelegate`, `finalizeSelfBondWithdrawal`) are
-///        blocked while the slashing module holds a pending slash for the
-///        provider, and additionally gated on the undelegation delay and on
-///        the seat allocator's wallet-exposure check.
+///      - Both exits (`finalizeUndelegate`, `finalizeSelfBondWithdrawal`) are
+///        blocked by the fixed `undelegationDelay` cooldown and while the
+///        slashing module holds a pending slash for the provider. They differ
+///        on the wallet-lifecycle gate (`seatAllocator.canFinalizeUndelegate`,
+///        which bundles BOTH the live-wallet-exposure check AND the
+///        `decreasePending`/`exposureFloorEpoch` "phantom-weight" hold): the
+///        operator self-bond withdrawal is additionally gated on it (operators
+///        hold key shares and are the first-loss tranche, so their self-bond
+///        stays lifecycle-coupled), whereas a delegator undelegation is NOT —
+///        passive delegated capital is not coupled to the operator's wallet
+///        lifecycle by design, so a delegator may finalize even while live
+///        exposure persists AND while an authorization decrease is still
+///        awaiting registry approval / the sortition pool reflects stale
+///        weight. The self-bond first-loss tranche is the guaranteed
+///        live-wallet collateral that intentionally absorbs this. See
+///        `_checkExitGates`.
 ///      Share-price manipulation notes: shares are non-transferable and the
 ///      first deposit mints 1 share per asset wei. Donation-based share
 ///      price inflation is not possible because the pool tracks
@@ -435,11 +447,17 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         _refresh(msg.sender);
     }
 
-    /// @notice Finalizes a queued self-bond withdrawal. Requires the
-    ///         undelegation delay to have elapsed, no pending slash for the
-    ///         provider, and no live wallet exposure at or before the epoch
-    ///         recorded at request time. Pays out at most what is left after
-    ///         slashes that hit the queued self-bond during the wait.
+    /// @notice Finalizes a queued self-bond withdrawal (OPERATOR path).
+    ///         Pays out at most what is left after slashes that hit the queued
+    ///         self-bond during the wait.
+    /// @dev Unlike the delegator path, self-bond withdrawal STAYS
+    ///      lifecycle-gated (`enforceLifecycleGate = true`): the fixed
+    ///      `undelegationDelay` cooldown must have elapsed, no slash may be
+    ///      pending, AND there must be no live wallet exposure at or before the
+    ///      epoch recorded at request time. Operators hold the wallets' FROST
+    ///      key shares and are the first-loss tranche, so their self-bond is
+    ///      the guaranteed live-wallet slashing collateral and must remain
+    ///      locked until every wallet it backed at request time has retired.
     /// @param requestId Identifier returned by `requestSelfBondWithdrawal`.
     function finalizeSelfBondWithdrawal(uint256 requestId) external {
         if (requestId >= selfBondWithdrawalRequests.length) {
@@ -455,7 +473,8 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         _checkExitGates(
             msg.sender,
             request.requestedAt,
-            request.epochAtRequest
+            request.epochAtRequest,
+            true
         );
 
         Pool storage pool = pools[msg.sender];
@@ -577,12 +596,35 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         _refresh(stakingProvider);
     }
 
-    /// @notice Finalizes a queued undelegation, burning the shares at the
-    ///         CURRENT share price — any slash during the wait was borne
-    ///         pro-rata — and returning the backing T. Requires the
-    ///         undelegation delay to have elapsed, no pending slash for the
-    ///         provider, and no live wallet exposure at or before the epoch
-    ///         recorded at request time.
+    /// @notice Finalizes a queued undelegation (DELEGATOR path), burning the
+    ///         shares at the CURRENT share price — any slash during the wait
+    ///         was borne pro-rata — and returning the backing T.
+    /// @dev Delegated capital is NOT lifecycle-coupled: this exit requires
+    ///      only that the fixed `undelegationDelay` cooldown has elapsed and
+    ///      that no slash is pending for the provider. It deliberately does
+    ///      NOT enforce the wallet-lifecycle gate (`enforceLifecycleGate =
+    ///      false`), i.e. it skips `seatAllocator.canFinalizeUndelegate`
+    ///      entirely. That call bundles TWO holds and BOTH are dropped for
+    ///      delegators — not only the pure wallet-lifecycle exposure check:
+    ///        1. the live-wallet exposure / `exposureFloorEpoch` check — so a
+    ///           delegator finalizes even while the operator holds live wallet
+    ///           exposure at or before the request epoch; and
+    ///        2. the `decreasePending` "phantom-weight" hold — so a delegator
+    ///           finalizes even while an authorization decrease is still
+    ///           awaiting registry approval and the sortition pool may still
+    ///           reflect the pre-decrease (stale) weight, i.e. a wallet could
+    ///           still be selecting this provider on a stale leaf.
+    ///      Both are intentional and consistent with the fixed-cooldown design.
+    ///      Rationale (design §13): stake is far below custody value and the
+    ///      operator's self-bond first-loss tranche — which DOES stay
+    ///      lifecycle-coupled (see `finalizeSelfBondWithdrawal`) and is the
+    ///      guaranteed live-wallet collateral — over-covers realistic slashes
+    ///      and absorbs this residual, so coupling passive delegated capital to
+    ///      the operator's up-to-8-month wallet lifecycle would be a
+    ///      viability-killing lock for a symbolic coverage guarantee. The
+    ///      pending-slash block still holds, so the delegator-escape race
+    ///      (finalizing at the pre-haircut price while a fraud is being
+    ///      executed) stays closed via the atomic-at-report haircut.
     /// @param requestId Identifier returned by `requestUndelegate`.
     function finalizeUndelegate(uint256 requestId) external {
         if (requestId >= undelegationRequests.length) {
@@ -593,10 +635,14 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         if (request.delegator != msg.sender) revert CallerNotRequestOwner();
 
         address stakingProvider = request.stakingProvider;
+        // `request.epochAtRequest` is still recorded (for the request event /
+        // telemetry) but is no longer gated on for delegators: the lifecycle
+        // gate is disabled on this path.
         _checkExitGates(
             stakingProvider,
             request.requestedAt,
-            request.epochAtRequest
+            request.epochAtRequest,
+            false
         );
 
         _settleRewards(stakingProvider, msg.sender);
@@ -869,14 +915,50 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     // ---------------------------------------------------------------------
 
     /// @dev Common exit gates for `finalizeUndelegate` and
-    ///      `finalizeSelfBondWithdrawal`: the undelegation delay must have
-    ///      elapsed, no pending slash may exist for the provider, and the
-    ///      seat allocator must confirm there is no live wallet exposure at
-    ///      or before the epoch recorded at request time.
+    ///      `finalizeSelfBondWithdrawal`. Two checks are UNCONDITIONAL and
+    ///      apply to delegators and operators alike:
+    ///        (1) the fixed `undelegationDelay` cooldown must have elapsed;
+    ///        (2) no pending slash may reference the provider — together with
+    ///            the atomic-at-report haircut this closes the escape race
+    ///            where an exiter finalizes at the pre-haircut share price
+    ///            between a fraud report and its execution.
+    ///      A THIRD check — the wallet-lifecycle gate, the seat allocator's
+    ///      `canFinalizeUndelegate` — is applied only when
+    ///      `enforceLifecycleGate` is true. That single call bundles TWO holds:
+    ///      (a) it blocks the exit while the ledger reports live wallet exposure
+    ///      at or before the epoch recorded at request time (raised to
+    ///      `exposureFloorEpoch`); and (b) it blocks the exit while an
+    ///      authorization decrease is still awaiting registry approval
+    ///      (`decreasePending`), i.e. while the sortition pool may still reflect
+    ///      stale, pre-decrease weight ("phantom weight") and a wallet could
+    ///      still select this provider on a stale leaf. Passing `false`
+    ///      therefore drops BOTH holds, not only the pure exposure check.
+    ///
+    ///      The gate is enforced asymmetrically by design (see §5, §6, §13 of
+    ///      the delegated-staking design):
+    ///        - Delegator undelegations pass `false`: passive delegated
+    ///          capital is NOT coupled to the operator's full wallet lifecycle.
+    ///          A delegator exits on the fixed cooldown plus the pending-slash
+    ///          block alone — finalizing even while live wallet exposure
+    ///          persists AND while an authorization decrease is still awaiting
+    ///          registry approval / the sortition pool reflects stale weight.
+    ///          This is intentional and consistent with the fixed-cooldown
+    ///          design. The guaranteed live-wallet slashing collateral is
+    ///          the operator's self-bond first-loss tranche (which stays
+    ///          lifecycle-coupled below and over-covers realistic slashes:
+    ///          per-seat self-bond `minSelfBond` far exceeds per-seat slash
+    ///          amounts), not the delegated tranche.
+    ///        - Operator self-bond withdrawals pass `true`: operators hold the
+    ///          wallets' FROST key shares and are the first-loss tranche, so
+    ///          their self-bond stays slashable — and thus locked — until every
+    ///          wallet they backed at request time has retired.
+    /// @param enforceLifecycleGate When true, additionally require no live
+    ///        wallet exposure at or before `epochAtRequest` (self-bond path).
     function _checkExitGates(
         address stakingProvider,
         uint64 requestedAt,
-        uint64 epochAtRequest
+        uint64 epochAtRequest,
+        bool enforceLifecycleGate
     ) internal view {
         /* solhint-disable-next-line not-rely-on-time */
         if (block.timestamp < uint256(requestedAt) + undelegationDelay) {
@@ -889,13 +971,15 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         ) {
             revert PendingSlashExists();
         }
-        if (
-            !seatAllocator.canFinalizeUndelegate(
-                stakingProvider,
-                epochAtRequest
-            )
-        ) {
-            revert LiveWalletExposure();
+        if (enforceLifecycleGate) {
+            if (
+                !seatAllocator.canFinalizeUndelegate(
+                    stakingProvider,
+                    epochAtRequest
+                )
+            ) {
+                revert LiveWalletExposure();
+            }
         }
     }
 
