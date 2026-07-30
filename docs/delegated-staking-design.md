@@ -7,7 +7,7 @@
 
 ## 0. The honest framing, up front
 
-Stake in this design does **not** economically secure BTC custody. A captured 51-of-100 wallet at `walletCreationMaxBtcBalance` (100 BTC) is worth millions; the maximum slashable stake for the seats that signed the theft is five figures. **Threshold-honesty and DAO allowlist curation remain the actual custody guarantees.** What staking buys is: (1) a sybil-resistant, capital-weighted way to allocate signing seats among curated operators; (2) a real (if partial) deterrent and a funded restitution mechanism where today's `seize` is an event-only no-op; (3) an incentive channel — bridge-fee revenue share — that pays operators and their delegators for carrying signing duty and slashing risk. Every claim below should be read through that lens, and delegator-facing material must say so.
+Stake in this design does **not** economically secure BTC custody. A captured 51-of-100 wallet at `walletCreationMaxBtcBalance` (100 BTC) is worth millions; the maximum slashable stake for the seats that signed the theft is five figures. **Threshold-honesty and DAO allowlist curation remain the actual custody guarantees.** What staking buys is: (1) a real (if partial) deterrent and a funded restitution mechanism where today's `seize` is an event-only no-op — with capital at risk behind each curated, equally-weighted signer; (2) an incentive channel — bridge-fee revenue share — that pays operators and their delegators for carrying signing duty and slashing risk. Every claim below should be read through that lens, and delegator-facing material must say so.
 
 ## 1. Summary
 
