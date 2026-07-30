@@ -98,7 +98,15 @@ async function createTestDatabase(
       import.meta.url
     ),
     new URL(
+      "../migrations/004_p2tr_candidate_enqueue_retry_alerts.sql",
+      import.meta.url
+    ),
+    new URL(
       "../migrations/005_p2tr_signer_boundary_late_artifact.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/006_p2tr_signer_boundary_nonce_finality.sql",
       import.meta.url
     ),
   ]) {

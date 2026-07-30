@@ -2,16 +2,35 @@ import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { readdirSync } from "node:fs"
 import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
 import { describe, it } from "node:test"
 import pg from "pg"
 import {
+  loadP2TRWatchtowerMigrations,
   runP2TRWatchtowerMigrations,
   validateP2TRWatchtowerMigrationBody,
   type P2TRWatchtowerMigration,
   type P2TRWatchtowerMigrationClient,
 } from "../src/P2TRWatchtowerMigrations.js"
 
+const PUBLISHED_OUTBOX_MIGRATION_CHECKSUM =
+  "e6887e75e5c2baa0a97a6c68d911c604c4c5750cbc0c250dad2502739e8b88bc"
+
 describe("P2TR watchtower migration bodies", () => {
+  it("preserves the published migration 003 checksum", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
+        import.meta.url
+      )
+    )
+
+    assert.equal(
+      createHash("sha256").update(migration).digest("hex"),
+      PUBLISHED_OUTBOX_MIGRATION_CHECKSUM
+    )
+  })
+
   it("rejects every top-level transaction-control token", () => {
     for (const control of [
       "BEGIN",
@@ -247,9 +266,10 @@ class MigrationClient implements P2TRWatchtowerMigrationClient {
 // statement PostgreSQL refuses to parse, and one shipped undetected: migration
 // 004 aliased a table `authorization`, a reserved key word, so the whole file
 // failed at the first reference to it and the tables, foreign keys and
-// append-only triggers it declares existed in no database. Nothing else applies
-// 004 -- the adapter suites stop at 003 -- so this is the only test that would
-// have caught it. It applies every migration, in order, to a real server.
+// append-only triggers it declares existed in no database. The outbox adapter
+// suite applies the complete schema but does not directly exercise 004's retry
+// journal, so this remains the test that applies every migration in order and
+// verifies the ordered upgrade path on a real server.
 describe("P2TR watchtower migrations apply to PostgreSQL", () => {
   const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
   const postgresIt = postgresURL === undefined ? it.skip : it
@@ -259,7 +279,7 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
     const ordered = readdirSync(migrationsURL)
       .filter((name) => /^\d{3}_.+\.sql$/.test(name))
       .sort()
-    assert.ok(ordered.length >= 4, "expected the full migration set")
+    assert.ok(ordered.length >= 6, "expected the full migration set")
 
     const client = new pg.Client({ connectionString: postgresURL })
     await client.connect()
@@ -286,4 +306,105 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
       await client.end()
     }
   })
+
+  postgresIt(
+    "upgrades a checksum-tracked migration 003 database through migration 006",
+    async () => {
+      const migrationsURL = new URL("../migrations/", import.meta.url)
+      const migrations = await loadP2TRWatchtowerMigrations(
+        fileURLToPath(migrationsURL)
+      )
+      assert.equal(migrations[2].checksum, PUBLISHED_OUTBOX_MIGRATION_CHECKSUM)
+
+      const client = new pg.Client({ connectionString: postgresURL })
+      await client.connect()
+      const schema = `p2tr_migration_upgrade_${process.pid}_${Date.now()}`
+      try {
+        await client.query(`CREATE SCHEMA ${schema}`)
+        await client.query(`SET search_path TO ${schema}`)
+        const pool = {
+          connect: async () => postgresMigrationClient(client),
+        }
+
+        const installed = await runP2TRWatchtowerMigrations(
+          pool,
+          migrations.slice(0, 4)
+        )
+        assert.deepEqual(
+          installed.applied.map(({ version }) => version),
+          [1, 2, 3, 4]
+        )
+
+        const upgraded = await runP2TRWatchtowerMigrations(pool, migrations)
+        assert.deepEqual(
+          upgraded.applied.map(({ version }) => version),
+          [5, 6]
+        )
+        assert.equal(upgraded.current.length, 6)
+
+        const columns = await client.query<{ column_name: string }>(
+          `SELECT column_name
+             FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name =
+                  'p2tr_signature_fraud_challenge_signer_boundary_resolution'
+              AND column_name IN (
+                  'nonce_consumption_observed_head_block_number',
+                  'nonce_consumption_observed_head_block_hash'
+              )
+            ORDER BY column_name`,
+          [schema]
+        )
+        assert.deepEqual(
+          columns.rows.map(({ column_name }) => column_name),
+          [
+            "nonce_consumption_observed_head_block_hash",
+            "nonce_consumption_observed_head_block_number",
+          ]
+        )
+
+        const constraint = await client.query<{ convalidated: boolean }>(
+          `SELECT convalidated
+             FROM pg_constraint
+            WHERE conname = 'p2tr_signer_boundary_nonce_finality_v5'
+              AND connamespace = $1::regnamespace`,
+          [schema]
+        )
+        assert.deepEqual(constraint.rows, [{ convalidated: false }])
+
+        const guard = await client.query<{ definition: string }>(
+          `SELECT pg_get_functiondef(
+                    'p2tr_signature_fraud_guard_signer_boundary_resolution()'
+                    ::regprocedure
+                  ) AS definition`
+        )
+        assert.match(
+          guard.rows[0].definition,
+          /tbtc-p2tr-signer-boundary-independent-resolution-v5/
+        )
+        assert.match(
+          guard.rows[0].definition,
+          /nonce_consumption_observed_head_block_number/
+        )
+      } finally {
+        await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+        await client.end()
+      }
+    }
+  )
 })
+
+function postgresMigrationClient(
+  client: pg.Client
+): P2TRWatchtowerMigrationClient {
+  return {
+    async query(text, values) {
+      const result = await client.query(
+        text,
+        values === undefined ? undefined : [...values]
+      )
+      return { rows: result.rows, rowCount: result.rowCount }
+    },
+    release() {},
+  }
+}
