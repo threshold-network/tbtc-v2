@@ -96,6 +96,38 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
   })
 
+  it("locks authorization against the certificate's exact current CAS", async () => {
+    const client = new TransactionClient()
+    const coordinator = coordinatorFor(client)
+    const store =
+      coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) =>
+          new PostgresP2TRProductionActivationStore(session, {
+            storeID: "watchtower",
+            maxEventHistoryRecords: 10,
+          })
+      )
+
+    await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
+      store.lockCandidateAuthorization(WORD("10"), WORD("30"), WORD("20"))
+    )
+
+    const query = client.queries.find((text) =>
+      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
+    )
+    assert.ok(query)
+    assert.match(query, /JOIN p2tr_readiness_certificates certificate/)
+    assert.match(query, /JOIN p2tr_canonical_generations certified_generation/)
+    assert.match(query, /JOIN p2tr_bitcoin_cursor certified_bitcoin/)
+    assert.match(query, /JOIN p2tr_ethereum_cursor certified_ethereum/)
+    assert.match(
+      query,
+      /certified_generation\.generation_id = \([\s\S]*?SELECT max\(generation_id\)/
+    )
+    assert.doesNotMatch(query, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
+    assert.doesNotMatch(query, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
+  })
+
   it("destroys sessions after COMMIT or ROLLBACK ambiguity", async () => {
     for (const failure of ["COMMIT", "ROLLBACK"] as const) {
       const client = new TransactionClient(failure)
@@ -239,6 +271,23 @@ class TransactionClient implements P2TRPostgresClient {
     }
     if (text.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")) {
       return { rows: [], rowCount: 1 }
+    }
+    if (
+      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
+    ) {
+      return {
+        rows: [
+          {
+            candidate_digest: WORD("30"),
+            consumed_at: null,
+            invalidated_at: null,
+            live: true,
+            canonical: true,
+            current_manifest_hash: WORD("20"),
+          },
+        ] as Row[],
+        rowCount: 1,
+      }
     }
     return { rows: [], rowCount: 0 }
   }

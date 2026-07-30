@@ -797,18 +797,66 @@ export class PostgresP2TRProductionActivationStore
               encode(manifest.manifest_hash, 'hex') AS current_manifest_hash,
               true AS canonical
          FROM p2tr_candidate_enqueue_authorizations authorization
+         JOIN p2tr_readiness_certificates certificate
+           ON certificate.certificate_id =
+                authorization.readiness_certificate_id
+          AND certificate.certificate_generation =
+                authorization.readiness_certificate_generation
+          AND certificate.is_current
+          AND certificate.invalidated_at IS NULL
+          AND certificate.manifest_hash = authorization.manifest_hash
+          AND certificate.bitcoin_height =
+                authorization.verified_bitcoin_height
+          AND certificate.bitcoin_hash =
+                authorization.verified_bitcoin_hash
+          AND certificate.ethereum_block_number =
+                authorization.verified_ethereum_block
+          AND certificate.ethereum_block_hash =
+                authorization.verified_ethereum_hash
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
           AND manifest.manifest_hash = authorization.manifest_hash
-         JOIN p2tr_bitcoin_blocks bitcoin_block
-           ON bitcoin_block.height = authorization.verified_bitcoin_height
-          AND bitcoin_block.hash = authorization.verified_bitcoin_hash
-         JOIN p2tr_ethereum_blocks ethereum_block
-           ON ethereum_block.block_number = authorization.verified_ethereum_block
-          AND ethereum_block.block_hash = authorization.verified_ethereum_hash
+          AND manifest.activation_sequence =
+                certificate.manifest_activation_sequence
+         JOIN p2tr_canonical_generations certified_generation
+           ON certified_generation.generation_id =
+                certificate.primary_bitcoin_generation
+          AND certified_generation.state = 'committed'
+          AND certified_generation.bitcoin_chain_root =
+                certificate.primary_bitcoin_root
+          AND certified_generation.semantic_root =
+                certificate.primary_bitcoin_semantic_root
+         JOIN p2tr_bitcoin_cursor certified_bitcoin
+           ON certified_bitcoin.singleton
+          AND certified_bitcoin.current_height =
+                certified_generation.bitcoin_height
+          AND certified_bitcoin.current_hash =
+                certified_generation.bitcoin_hash
+         JOIN p2tr_ethereum_cursor certified_ethereum
+           ON certified_ethereum.singleton
+          AND certified_ethereum.generation =
+                certificate.ethereum_journal_generation
+          AND certified_ethereum.current_block_number =
+                certified_generation.ethereum_block_number
+          AND certified_ethereum.current_block_hash =
+                certified_generation.ethereum_block_hash
+         JOIN p2tr_ethereum_blocks certified_ethereum_block
+           ON certified_ethereum_block.block_number =
+                certified_ethereum.current_block_number
+          AND certified_ethereum_block.block_hash =
+                certified_ethereum.current_block_hash
+          AND certified_ethereum_block.history_root =
+                certificate.ethereum_history_root
         WHERE token_id = $1
+          AND certified_generation.generation_id = (
+            SELECT max(generation_id)
+              FROM p2tr_canonical_generations
+             WHERE state = 'committed'
+          )
         FOR UPDATE OF authorization
-        FOR SHARE OF manifest, bitcoin_block, ethereum_block`,
+        FOR SHARE OF manifest, certificate, certified_generation,
+                     certified_bitcoin, certified_ethereum,
+                     certified_ethereum_block`,
       [hexBuffer(tokenID, "candidate token")]
     )
     if (

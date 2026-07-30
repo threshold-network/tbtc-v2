@@ -98,6 +98,36 @@ describe("production activation PostgreSQL schema contract", () => {
     const mint = activationGate.indexOf("mintReadinessCertificate({", health)
     assert.ok(lock >= 0 && health > lock && mint > health)
   })
+
+  it("revalidates the readiness certificate CAS without localizing provider heads", () => {
+    const lock = methodSource(
+      activationStore,
+      "lockCandidateAuthorization",
+      "consumeCandidateAuthorization"
+    )
+    assert.match(
+      lock,
+      /JOIN p2tr_readiness_certificates certificate[\s\S]*?certificate\.certificate_id =\s+authorization\.readiness_certificate_id[\s\S]*?certificate\.certificate_generation =\s+authorization\.readiness_certificate_generation/
+    )
+    assert.match(
+      lock,
+      /certificate\.bitcoin_height =\s+authorization\.verified_bitcoin_height[\s\S]*?certificate\.bitcoin_hash =\s+authorization\.verified_bitcoin_hash[\s\S]*?certificate\.ethereum_block_number =\s+authorization\.verified_ethereum_block[\s\S]*?certificate\.ethereum_block_hash =\s+authorization\.verified_ethereum_hash/
+    )
+    assert.match(
+      lock,
+      /JOIN p2tr_canonical_generations certified_generation[\s\S]*?certificate\.primary_bitcoin_root[\s\S]*?certificate\.primary_bitcoin_semantic_root/
+    )
+    assert.match(
+      lock,
+      /JOIN p2tr_bitcoin_cursor certified_bitcoin[\s\S]*?JOIN p2tr_ethereum_cursor certified_ethereum[\s\S]*?certificate\.ethereum_history_root/
+    )
+    assert.match(
+      lock,
+      /certified_generation\.generation_id = \([\s\S]*?SELECT max\(generation_id\)/
+    )
+    assert.doesNotMatch(lock, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
+    assert.doesNotMatch(lock, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
+  })
 })
 
 function requiredTableColumns(source: string, table: string): string[] {
@@ -120,4 +150,15 @@ function insertedColumns(source: string, table: string): string[] {
     .split(",")
     .map((column) => column.trim())
     .filter((column) => /^[a-z_]+$/.test(column))
+}
+
+function methodSource(
+  source: string,
+  method: string,
+  followingMethod: string
+): string {
+  const start = source.indexOf(`async ${method}(`)
+  const end = source.indexOf(`async ${followingMethod}(`, start)
+  assert.ok(start >= 0 && end > start, `${method} source is absent`)
+  return source.slice(start, end)
 }

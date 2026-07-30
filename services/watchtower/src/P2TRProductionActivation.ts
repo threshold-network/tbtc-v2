@@ -743,6 +743,9 @@ export class P2TRProductionActivationGate {
   readonly manifestHash: string
   private readonly candidateAuthorizationLifetimeMs: number
   private readonly candidateTokens = new WeakMap<object, CandidateTokenRecord>()
+  // A readiness check replaces the singleton durable certificate. Keep that
+  // authority through candidate attestation and durable authorization issue.
+  private readinessAuthorityTail: Promise<void> = Promise.resolve()
 
   constructor(
     envelope: P2TRProductionActivationEnvelope,
@@ -787,6 +790,10 @@ export class P2TRProductionActivationGate {
   }
 
   async assertReady(): Promise<P2TRProductionReadySnapshot> {
+    return this.withReadinessAuthority(() => this.assertReadyUnderAuthority())
+  }
+
+  private async assertReadyUnderAuthority(): Promise<P2TRProductionReadySnapshot> {
     const ethereum = await this.readVerifiedEthereum()
     const bitcoin = await this.readVerifiedBitcoin()
     const nonce = bytes32(randomBytes(32).toString("hex"), "handshake nonce")
@@ -890,8 +897,16 @@ export class P2TRProductionActivationGate {
   async assertCandidateReconciled(
     candidate: P2TRProductionBitcoinCandidateIdentity
   ): Promise<P2TRProductionCandidateAuthorizationToken> {
+    return this.withReadinessAuthority(() =>
+      this.assertCandidateReconciledUnderAuthority(candidate)
+    )
+  }
+
+  private async assertCandidateReconciledUnderAuthority(
+    candidate: P2TRProductionBitcoinCandidateIdentity
+  ): Promise<P2TRProductionCandidateAuthorizationToken> {
     const normalized = normalizeCandidate(candidate)
-    const ready = await this.assertReady()
+    const ready = await this.assertReadyUnderAuthority()
     if (normalized.blockHeight > ready.verifiedBitcoin.height) {
       throw new Error("Bitcoin candidate has not reached manifest finality")
     }
@@ -964,6 +979,22 @@ export class P2TRProductionActivationGate {
     )
     this.candidateTokens.set(token, { receipt, consumed: false })
     return token
+  }
+
+  private async withReadinessAuthority<T>(
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const predecessor = this.readinessAuthorityTail
+    let release!: () => void
+    this.readinessAuthorityTail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await predecessor
+    try {
+      return await operation()
+    } finally {
+      release()
+    }
   }
 
   async consumeCandidateAuthorization(
