@@ -350,7 +350,8 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
                   'p2tr_signature_fraud_challenge_signer_boundary_resolution'
               AND column_name IN (
                   'nonce_consumption_observed_head_block_number',
-                  'nonce_consumption_observed_head_block_hash'
+                  'nonce_consumption_observed_head_block_hash',
+                  'resolution_evidence_version'
               )
             ORDER BY column_name`,
           [schema]
@@ -360,17 +361,47 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
           [
             "nonce_consumption_observed_head_block_hash",
             "nonce_consumption_observed_head_block_number",
+            "resolution_evidence_version",
           ]
         )
 
-        const constraint = await client.query<{ convalidated: boolean }>(
-          `SELECT convalidated
-             FROM pg_constraint
-            WHERE conname = 'p2tr_signer_boundary_nonce_finality_v5'
-              AND connamespace = $1::regnamespace`,
+        const evidenceVersionDefault = await client.query<{
+          column_default: string
+        }>(
+          `SELECT column_default
+             FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name =
+                  'p2tr_signature_fraud_challenge_signer_boundary_resolution'
+              AND column_name = 'resolution_evidence_version'`,
           [schema]
         )
-        assert.deepEqual(constraint.rows, [{ convalidated: false }])
+        assert.match(evidenceVersionDefault.rows[0].column_default, /5/)
+
+        const constraints = await client.query<{
+          conname: string
+          convalidated: boolean
+        }>(
+          `SELECT conname, convalidated
+             FROM pg_constraint
+            WHERE conname IN (
+                      'p2tr_signer_boundary_evidence_version_v5',
+                      'p2tr_signer_boundary_nonce_finality_v5'
+                  )
+              AND connamespace = $1::regnamespace
+            ORDER BY conname`,
+          [schema]
+        )
+        assert.deepEqual(constraints.rows, [
+          {
+            conname: "p2tr_signer_boundary_evidence_version_v5",
+            convalidated: false,
+          },
+          {
+            conname: "p2tr_signer_boundary_nonce_finality_v5",
+            convalidated: false,
+          },
+        ])
 
         const guard = await client.query<{ definition: string }>(
           `SELECT pg_get_functiondef(

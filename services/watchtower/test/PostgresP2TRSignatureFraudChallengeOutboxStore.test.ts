@@ -29,6 +29,7 @@ import {
   computeP2TRSignatureFraudCanonicalProvenanceFingerprint,
   computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHash,
   computeP2TRSignatureFraudChallengeFeePolicyHash,
+  computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
@@ -72,7 +73,8 @@ type TestDatabase = {
 }
 
 async function createTestDatabase(
-  maxActiveOutboxRecords = 1_024
+  maxActiveOutboxRecords = 1_024,
+  migrationCount = 5
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   await client.connect()
@@ -109,7 +111,7 @@ async function createTestDatabase(
       "../migrations/006_p2tr_signer_boundary_nonce_finality.sql",
       import.meta.url
     ),
-  ]) {
+  ].slice(0, migrationCount)) {
     await client.query(await readFile(migration, "utf8"))
   }
   await seedCanonicalPoint(client, maxActiveOutboxRecords)
@@ -2922,7 +2924,8 @@ function boundaryAttestations(
  */
 function boundaryResolution(
   record: P2TRSignatureFraudChallengeOutboxRecord,
-  overrides: BoundaryResolutionOverrides = {}
+  overrides: BoundaryResolutionOverrides = {},
+  computeEvidenceDigest = computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest
 ): P2TRSignatureFraudIndependentSignerBoundaryResolution {
   const outcome = overrides.outcome ?? "never-invoked"
   const invocationID =
@@ -2992,8 +2995,7 @@ function boundaryResolution(
       overrides.providerEvidenceDigest ?? BOUNDARY_PROVIDER_DIGEST,
   }
   const evidenceDigest =
-    overrides.evidenceDigest ??
-    computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest(binding)
+    overrides.evidenceDigest ?? computeEvidenceDigest(binding)
   const resolvedAtUnixMs = overrides.resolvedAtUnixMs ?? 2_400
   return {
     ...binding,
@@ -3005,6 +3007,89 @@ function boundaryResolution(
     ),
     resolvedAtUnixMs,
   }
+}
+
+function legacyV4BoundaryResolution(
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  overrides: BoundaryResolutionOverrides = {}
+): P2TRSignatureFraudIndependentSignerBoundaryResolution {
+  return boundaryResolution(
+    record,
+    overrides,
+    computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest
+  )
+}
+
+async function insertLegacyV4BoundaryResolution(
+  database: TestDatabase,
+  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+): Promise<void> {
+  const [primary, corroborating] = resolution.canonicalAttestations
+  await database.client.query(
+    `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
+        record_id, signer_invocation_id, boundary_started_at_unix_ms,
+        preparation_attempts, nonce_reservation_id, stage,
+        invoked_at_unix_ms, outcome, signed_transaction_hash,
+        provider_evidence_digest, resolution_evidence_digest,
+        primary_trust_domain_id, primary_independence_domain_id,
+        primary_evidence_digest, primary_attestation,
+        primary_attested_at_unix_ms, corroborating_trust_domain_id,
+        corroborating_independence_domain_id,
+        corroborating_evidence_digest, corroborating_attestation,
+        corroborating_attested_at_unix_ms, resolved_at_unix_ms,
+        provider_tombstone_receipt, provider_tombstone_at_unix_ms,
+        nonce_consumption_chain_id, nonce_consumption_nonce,
+        nonce_consumption_account_nonce, nonce_consumption_read_at_block,
+        nonce_consumption_transaction_hash,
+        nonce_consumption_finalized_block_number,
+        nonce_consumption_finalized_block_hash
+     ) VALUES (
+        decode($1, 'hex'), decode($2, 'hex'), $3, $4,
+        decode($5, 'hex'), $6, $7, $8,
+        CASE WHEN $9::text IS NULL THEN NULL ELSE decode($9, 'hex') END,
+        decode($10, 'hex'), decode($11, 'hex'), $12, $13,
+        decode($11, 'hex'), decode($14, 'hex'), $15, $16, $17,
+        decode($11, 'hex'), decode($18, 'hex'), $19, $20,
+        CASE WHEN $21::text IS NULL THEN NULL ELSE decode($21, 'hex') END,
+        $22, $23, $24, $25, $26,
+        CASE WHEN $27::text IS NULL THEN NULL ELSE decode($27, 'hex') END,
+        $28,
+        CASE WHEN $29::text IS NULL THEN NULL ELSE decode($29, 'hex') END
+     )`,
+    [
+      resolution.recordID.slice(2),
+      resolution.signerInvocationID.slice(2),
+      resolution.boundaryStartedAtUnixMs,
+      resolution.preparationAttempts,
+      resolution.nonceReservationID.slice(2),
+      resolution.stage,
+      resolution.invokedAtUnixMs,
+      resolution.outcome,
+      resolution.signedTransactionHash?.slice(2) ?? null,
+      resolution.providerEvidenceDigest.slice(2),
+      resolution.evidenceDigest.slice(2),
+      primary.trustDomainID,
+      primary.independenceDomainID,
+      primary.attestation.slice(2),
+      primary.attestedAtUnixMs,
+      corroborating.trustDomainID,
+      corroborating.independenceDomainID,
+      corroborating.attestation.slice(2),
+      corroborating.attestedAtUnixMs,
+      resolution.resolvedAtUnixMs,
+      resolution.providerTombstone?.receipt.slice(2) ?? null,
+      resolution.providerTombstone?.tombstonedAtUnixMs ?? null,
+      resolution.nonceConsumption?.chainID ?? null,
+      resolution.nonceConsumption?.transactionNonce ?? null,
+      resolution.nonceConsumption?.finalizedAccountNonce ?? null,
+      resolution.nonceConsumption?.accountNonceReadAtBlock ?? null,
+      resolution.nonceConsumption?.consumingTransaction.transactionHash.slice(
+        2
+      ) ?? null,
+      resolution.nonceConsumption?.finalizedThrough.blockNumber ?? null,
+      resolution.nonceConsumption?.finalizedThrough.blockHash.slice(2) ?? null,
+    ]
+  )
 }
 
 // The barrier is keyed per nonce lane, so the store-wide quantity these tests
@@ -3075,6 +3160,95 @@ async function orphanedSignerBoundary(
   await commit(database.client)
   return { initial, boundary }
 }
+
+postgresTest(
+  "replays grandfathered v4 signer-boundary evidence after migration 005",
+  async () => {
+    const database = await createTestDatabase(1_024, 4)
+    const { boundary } = await orphanedSignerBoundary(database, 209)
+    const currentConsumption = boundaryResolution(boundary, {
+      outcome: "nonce-consumed",
+    }).nonceConsumption!
+    const legacyResolution = legacyV4BoundaryResolution(boundary, {
+      outcome: "nonce-consumed",
+      nonceConsumption: {
+        ...currentConsumption,
+        observedHead: {
+          blockNumber: 512,
+          blockHash: currentConsumption.observedHead.blockHash,
+        },
+      },
+    })
+
+    await begin(database.client)
+    await insertLegacyV4BoundaryResolution(database, legacyResolution)
+    await commit(database.client)
+
+    await database.client.query(
+      await readFile(
+        new URL(
+          "../migrations/005_p2tr_signer_boundary_nonce_finality.sql",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    )
+    const grandfathered = await database.client.query<{
+      resolution_evidence_version: number
+    }>(
+      `SELECT resolution_evidence_version
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+        WHERE record_id = decode($1, 'hex')`,
+      [legacyResolution.recordID.slice(2)]
+    )
+    assert.deepEqual(grandfathered.rows, [{ resolution_evidence_version: 4 }])
+
+    // This exact pre-upgrade payload has only twelve observed-head blocks. The
+    // current v5 validator rejects it, but the immutable v4 row must still make
+    // a lost-response retry idempotent rather than a permanent false conflict.
+    await begin(database.client)
+    assert.equal(
+      await database.store.resolveOrphanedSignerBoundary(legacyResolution),
+      "acknowledged"
+    )
+    await commit(database.client)
+
+    await begin(database.client)
+    await assert.rejects(
+      database.store.resolveOrphanedSignerBoundary({
+        ...legacyResolution,
+        providerEvidenceDigest: `0x${"ab".repeat(32)}`,
+      }),
+      /Independent signer-boundary resolution conflicts/
+    )
+    await database.client.query("ROLLBACK")
+    await database.client.end()
+
+    // The compatibility branch is not an insertion escape hatch: ordinary
+    // post-upgrade resolutions continue to use and persist evidence version 5.
+    const currentDatabase = await createTestDatabase()
+    const { boundary: currentBoundary } = await orphanedSignerBoundary(
+      currentDatabase,
+      210
+    )
+    await begin(currentDatabase.client)
+    assert.equal(
+      await currentDatabase.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(currentBoundary, { outcome: "nonce-consumed" })
+      ),
+      "acknowledged"
+    )
+    await commit(currentDatabase.client)
+    const versions = await currentDatabase.client.query<{
+      resolution_evidence_version: number
+    }>(
+      `SELECT resolution_evidence_version
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution`
+    )
+    assert.deepEqual(versions.rows, [{ resolution_evidence_version: 5 }])
+    await currentDatabase.client.end()
+  }
+)
 
 postgresTest(
   "clears an orphaned signer boundary and reopens store-wide nonce-release I/O",

@@ -3,9 +3,10 @@
 --
 -- Migration 003 is checksum-tracked and may already be present in production,
 -- so this schema evolution must remain append-only. Existing v4 evidence rows
--- cannot be retroactively given an attested observed head; NOT VALID
--- grandfathers those immutable rows while PostgreSQL enforces the complete v5
--- evidence shape for every new insert.
+-- cannot be retroactively given an attested observed head. They are explicitly
+-- marked as version 4 so the runtime can recognize an exact retry, while NOT
+-- VALID constraints grandfather those immutable rows and enforce version 5
+-- plus the complete v5 evidence shape for every new insert.
 
 INSERT INTO p2tr_watchtower_schema_version (component, version)
 VALUES ('signer-boundary-nonce-finality', 1);
@@ -22,9 +23,18 @@ ALTER TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution
         CHECK (
             nonce_consumption_observed_head_block_hash IS NULL
             OR octet_length(nonce_consumption_observed_head_block_hash) = 32
-        );
+        ),
+    -- PostgreSQL fills every pre-existing row with 4 before the default moves
+    -- to 5. The NOT VALID constraint below then refuses an explicitly forged
+    -- v4 marker on every post-migration insert without rewriting old evidence.
+    ADD COLUMN resolution_evidence_version smallint NOT NULL DEFAULT 4;
 
 ALTER TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution
+    ALTER COLUMN resolution_evidence_version SET DEFAULT 5;
+
+ALTER TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution
+    ADD CONSTRAINT p2tr_signer_boundary_evidence_version_v5
+    CHECK (resolution_evidence_version = 5) NOT VALID,
     ADD CONSTRAINT p2tr_signer_boundary_nonce_finality_v5
     CHECK (
         (

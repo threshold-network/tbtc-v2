@@ -73,6 +73,7 @@ import {
   computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHash,
   computeP2TRSignatureFraudOutboxRecordID,
   computeP2TRSignatureFraudOutboxSeriesID,
+  computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest,
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
@@ -80,6 +81,7 @@ import {
   invalidateP2TRSignatureFraudCanonicalProvenance,
   quarantineLegacyP2TRSignatureFraudSubmissions,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
+  validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
 import {
   computeP2TRSignatureFraudSignerInvocationID,
@@ -4189,5 +4191,60 @@ test("requires consensus finality for direct orphaned-boundary nonce evidence", 
   )
   assert.ok(
     validateP2TRSignatureFraudIndependentSignerBoundaryResolution(build(564))
+  )
+
+  const {
+    evidenceDigest: ignoredCurrentDigest,
+    canonicalAttestations: ignoredCurrentAttestations,
+    resolvedAtUnixMs,
+    ...legacyBinding
+  } = build(512)
+  void ignoredCurrentDigest
+  void ignoredCurrentAttestations
+  const legacyDigest =
+    computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest(
+      legacyBinding
+    )
+  const legacyResolution: P2TRSignatureFraudIndependentSignerBoundaryResolution =
+    {
+      ...legacyBinding,
+      evidenceDigest: legacyDigest,
+      canonicalAttestations: [
+        {
+          trustDomainID: "primary",
+          independenceDomainID: "primary-infra",
+          evidenceDigest: legacyDigest,
+          attestation: "0x01",
+          attestedAtUnixMs: 1_200,
+        },
+        {
+          trustDomainID: "corroborating",
+          independenceDomainID: "corroborating-infra",
+          evidenceDigest: legacyDigest,
+          attestation: "0x02",
+          attestedAtUnixMs: 1_200,
+        },
+      ],
+      resolvedAtUnixMs,
+    }
+  assert.throws(
+    () =>
+      validateP2TRSignatureFraudIndependentSignerBoundaryResolution(
+        legacyResolution
+      ),
+    /finality depth must be at least 64 blocks/
+  )
+  assert.ok(
+    validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay(
+      legacyResolution
+    )
+  )
+  assert.throws(
+    () =>
+      validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay({
+        ...legacyResolution,
+        providerEvidenceDigest: `0x${"ff".repeat(32)}`,
+      }),
+    /resolution digest is invalid/
   )
 })

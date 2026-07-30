@@ -690,6 +690,18 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   )
   assert.match(
     nonceFinalityMigration,
+    /ADD COLUMN resolution_evidence_version smallint NOT NULL DEFAULT 4/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ALTER COLUMN resolution_evidence_version SET DEFAULT 5/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ADD CONSTRAINT p2tr_signer_boundary_evidence_version_v5\s+CHECK \(resolution_evidence_version = 5\) NOT VALID/
+  )
+  assert.match(
+    nonceFinalityMigration,
     /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_guard_signer_boundary_resolution\(\)/
   )
   assert.match(
