@@ -42,6 +42,12 @@ interface ISeatAllocatorWalletRegistry {
         uint96 fromAmount,
         uint96 toAmount
     ) external;
+
+    /// @notice The registry's own pool-eligibility floor. A provider is
+    ///         pool-eligible only while its synced authorization is at or
+    ///         above this value, so the allocator's uniform `equalSeatWeight`
+    ///         must never be set below it.
+    function minimumAuthorization() external view returns (uint96);
 }
 
 /// @notice The stake vault surface the seat allocator consumes beyond the
@@ -58,21 +64,32 @@ interface ISeatAllocatorStakeVault is IStakeVault {
 }
 
 /// @title SeatAllocator
-/// @notice Stake-derived authorization source for the FROST wallet registry.
-///         Replaces `FrostAllowlist` behind the same
-///         `IFrostAuthorizationSource` interface: instead of DAO-assigned
-///         weight constants, an operator's authorization weight is computed
-///         from the operator's self-bond and delegated stake held by the
-///         stake vault, capped by the delegation factor and the maximum
-///         operator weight, and gated on the signer registry operator
-///         status.
+/// @notice Curation-derived authorization source for the FROST wallet
+///         registry. Replaces `FrostAllowlist` behind the same
+///         `IFrostAuthorizationSource` interface, but seat/signing weight is
+///         UNIFORM (Option B): every allowlisted, active operator whose
+///         effective self-bond clears the vault's minimum self-bond receives
+///         the SAME `equalSeatWeight`, independent of how much stake is
+///         delegated to it. Signing power — the decentralization vector that
+///         protects custody — therefore comes purely from DAO allowlist
+///         curation, not from delegated capital. Delegation drives ONLY
+///         fee-reward distribution ({rewardWeight}, Model B) and slashing
+///         exposure, never seat weight. This removes the delegation-factor
+///         (λ) and maximum-operator-weight machinery and eliminates the
+///         delegation-concentration failure mode where a whale delegation
+///         could brick wallet formation. An operator's self-bond still gates
+///         eligibility (skin-in-the-game floor) but does not scale seat
+///         weight.
 /// @dev Weight synchronization to the registry is permissionless
 ///      (`refreshAuthorization`) and follows the registry's two-step
 ///      decrease machinery: increases apply immediately, decreases are
 ///      requested and only recorded as synced once the registry approves
-///      them after its authorization decrease delay. Malicious behavior
-///      reports are forwarded to the slashing module on a path that never
-///      reverts — the Bridge lifecycle depends on it.
+///      them after its authorization decrease delay. Because seat weight is
+///      flat, the only events that move it are (de)activation in the signer
+///      registry and a self-bond withdrawal that crosses `minSelfBond` — a
+///      pure delegation change never files an authorization decrease.
+///      Malicious behavior reports are forwarded to the slashing module on a
+///      path that never reverts — the Bridge lifecycle depends on it.
 contract SeatAllocator is
     Initializable,
     OwnableUpgradeable,
@@ -89,24 +106,31 @@ contract SeatAllocator is
     /// @notice Governance delay applied to every two-step parameter update.
     uint64 public governanceDelay;
 
-    /// @notice Delegation factor λ: delegated capacity counted towards the
-    ///         weight is capped at `selfBond * delegationFactor`.
-    uint16 public delegationFactor;
-    uint16 public newDelegationFactor;
-    uint256 public delegationFactorChangeInitiated;
-
-    /// @notice Absolute cap on a single operator's authorization weight.
-    uint96 public maxOperatorWeight;
-    uint96 public newMaxOperatorWeight;
-    uint256 public maxOperatorWeightChangeInitiated;
-
-    /// @notice Minimum authorization weight. Weights computing below this
-    ///         value resolve to zero. Kept as the allocator's own copy of
-    ///         the registry-side parameter so the weight function can
-    ///         resolve to a registry-acceptable value (0 or >= minimum).
-    uint96 public minimumAuthorization;
-    uint96 public newMinimumAuthorization;
-    uint256 public minimumAuthorizationChangeInitiated;
+    /// @notice The uniform seat/signing weight assigned to EVERY eligible
+    ///         operator — one that is allowlisted, `Active` in the signer
+    ///         registry, and whose effective self-bond clears the vault's
+    ///         minimum self-bond. Seat weight does NOT scale with delegation,
+    ///         so this single value is what `currentWeight` returns for every
+    ///         eligible operator and 0 for everyone else.
+    /// @dev CRITICAL INVARIANT: `equalSeatWeight` MUST be >= the FROST
+    ///      registry's own `minimumAuthorization` (40,000e18 at genesis).
+    ///      The registry treats a provider as pool-eligible only while its
+    ///      `eligibleStake >= minimumAuthorization`; since the allocator
+    ///      files exactly `equalSeatWeight` as every eligible operator's
+    ///      authorization, a value below the registry minimum would push
+    ///      EVERY eligible operator below the registry's pool-eligibility
+    ///      floor and brick wallet formation. Because the value is identical
+    ///      for all operators, its absolute magnitude does not affect
+    ///      selection (selection is uniform by curation); it only has to clear
+    ///      the registry floor and fit in a uint96. This invariant is now
+    ///      machine-enforced: both steps of the two-step setter reject a zero
+    ///      value (`ZeroEqualSeatWeight`) and any value below
+    ///      `frostWalletRegistry.minimumAuthorization()`
+    ///      (`EqualSeatWeightBelowRegistryMinimum`). Finalize re-reads the
+    ///      registry minimum because it can rise during the governance delay.
+    uint96 public equalSeatWeight;
+    uint96 public newEqualSeatWeight;
+    uint256 public equalSeatWeightChangeInitiated;
 
     /// @notice The weight the registry currently knows for each staking
     ///         provider. `authorizedWeight` returns this value — NOT the
@@ -138,23 +162,35 @@ contract SeatAllocator is
     ///         requested while the pool leaf was still stale could finalize
     ///         while a wallet its weight influenced during the pre-sync
     ///         window is still live.
-    /// @dev Residual (accepted, documented in the design's §5 weight model):
-    ///      when the provider's raw weight sits above the leverage or
-    ///      absolute cap, subtracting a pending exit may not move the
-    ///      min()-clamped synced weight, so no decrease is filed and the
-    ///      floor is not advanced by this path. The §5 weight invariant is
-    ///      intact — the exiting stake contributed zero marginal selection
-    ///      weight while capped — leaving only a bounded reduction of a
-    ///      post-request wallet's slashable delegated capacity, with the
-    ///      self-bond first-loss tranche unaffected.
+    /// @dev Honest disclosure of an accepted residual on the undelegation
+    ///      route (this documents behavior; it does NOT change the exit
+    ///      gate). Under equal seat weight a delegator undelegation does not
+    ///      move `currentWeight`, so `refreshAuthorization` files no
+    ///      authorization decrease and the exposure floor is not advanced;
+    ///      the exit gate therefore reduces to the plain epoch gate (finalize
+    ///      once wallets with epoch <= epochAtRequest close). Consequence: a
+    ///      delegator's still-pending capital that backs a wallet FORMED
+    ///      AFTER the undelegation request (Model-B slashing draws on the
+    ///      delegated pool of every wallet the operator is selected into) is
+    ///      NOT lifecycle-coupled on the undelegation route — it can be
+    ///      withdrawn, after the epoch-gated delay, while such a post-request
+    ///      wallet is still live. The GUARANTEED slashing collateral for any
+    ///      live wallet is its seats' self-bond first-loss tranche, which IS
+    ///      lifecycle-coupled (a self-bond withdrawal crossing `minSelfBond`
+    ///      drives `currentWeight` -> 0, the decrease two-step, and the floor
+    ///      advance). This is an accepted residual: given per-seat slash
+    ///      amounts are far below per-seat self-bond, self-bond first-loss
+    ///      over-covers realistic slashes regardless of delegated collateral.
     mapping(address => uint64) public exposureFloorEpoch;
 
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
-    // add up to 50 slots.
+    // add up to 50 slots. Removing the delegation-factor and
+    // maximum-operator-weight parameters (Option B: flat seat weight) freed
+    // slots, so the gap is widened to keep the reserve at 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[46] private __gap;
+    uint256[37] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -186,27 +222,17 @@ contract SeatAllocator is
         address[] stakingProviders
     );
     event AuthorizationSyncFailed(address indexed stakingProvider);
-    event DelegationFactorUpdateStarted(
-        uint16 newDelegationFactor,
+    event EqualSeatWeightUpdateStarted(
+        uint96 newEqualSeatWeight,
         uint256 timestamp
     );
-    event DelegationFactorUpdated(uint16 delegationFactor);
-    event MaxOperatorWeightUpdateStarted(
-        uint96 newMaxOperatorWeight,
-        uint256 timestamp
-    );
-    event MaxOperatorWeightUpdated(uint96 maxOperatorWeight);
-    event MinimumAuthorizationUpdateStarted(
-        uint96 newMinimumAuthorization,
-        uint256 timestamp
-    );
-    event MinimumAuthorizationUpdated(uint96 minimumAuthorization);
+    event EqualSeatWeightUpdated(uint96 equalSeatWeight);
 
     error ZeroAddress();
     error NotWalletRegistry();
     error NoDecreasePending();
-    error ZeroDelegationFactor();
-    error ZeroMaxOperatorWeight();
+    error ZeroEqualSeatWeight();
+    error EqualSeatWeightBelowRegistryMinimum();
 
     modifier onlyWalletRegistry() {
         if (msg.sender != address(frostWalletRegistry)) {
@@ -269,118 +295,85 @@ contract SeatAllocator is
         rewardsDistributor = IRewardsDistributor(_rewardsDistributor);
         governanceDelay = _governanceDelay;
 
-        delegationFactor = 4;
-        maxOperatorWeight = 2_000_000e18;
-        minimumAuthorization = 40_000e18;
+        // Default equals the FROST registry's genesis minimumAuthorization
+        // (40,000e18); see the storage-var invariant. Uniform across all
+        // eligible operators, so its magnitude does not affect selection.
+        equalSeatWeight = 40_000e18;
     }
 
-    /// @notice Begins the delegation factor update process.
-    /// @param _newDelegationFactor New delegation factor λ.
-    function beginDelegationFactorUpdate(uint16 _newDelegationFactor)
+    /// @notice Begins the equal seat weight update process.
+    /// @param _newEqualSeatWeight New uniform seat weight assigned to every
+    ///        eligible active operator.
+    /// @dev Reverts on a zero value (`ZeroEqualSeatWeight`) and, for fast
+    ///      feedback, on any value below the FROST registry's own
+    ///      `minimumAuthorization()` (`EqualSeatWeightBelowRegistryMinimum`):
+    ///      `_newEqualSeatWeight` MUST be >= the registry minimum, or every
+    ///      eligible operator's synced authorization would fall below the
+    ///      registry's pool-eligibility floor and no wallet could form. The
+    ///      binding enforcement is at {finalizeEqualSeatWeightUpdate} (the
+    ///      registry minimum can rise during the governance delay); this
+    ///      begin-time check only surfaces an obviously-invalid target early.
+    ///      The value's absolute magnitude is otherwise immaterial to
+    ///      selection — it is identical for all operators.
+    function beginEqualSeatWeightUpdate(uint96 _newEqualSeatWeight)
         external
         onlyOwner
     {
-        if (_newDelegationFactor == 0) {
-            revert ZeroDelegationFactor();
+        if (_newEqualSeatWeight == 0) {
+            revert ZeroEqualSeatWeight();
         }
-        newDelegationFactor = _newDelegationFactor;
-        /* solhint-disable not-rely-on-time */
-        delegationFactorChangeInitiated = block.timestamp;
-        emit DelegationFactorUpdateStarted(
-            _newDelegationFactor,
-            block.timestamp
-        );
-        /* solhint-enable not-rely-on-time */
-    }
-
-    /// @notice Finalizes the delegation factor update process.
-    /// @dev Can be called only after the governance delay elapsed.
-    function finalizeDelegationFactorUpdate()
-        external
-        onlyOwner
-        onlyAfterGovernanceDelay(delegationFactorChangeInitiated)
-    {
-        delegationFactor = newDelegationFactor;
-        emit DelegationFactorUpdated(newDelegationFactor);
-        delegationFactorChangeInitiated = 0;
-        newDelegationFactor = 0;
-    }
-
-    /// @notice Begins the maximum operator weight update process.
-    /// @param _newMaxOperatorWeight New maximum operator weight.
-    function beginMaxOperatorWeightUpdate(uint96 _newMaxOperatorWeight)
-        external
-        onlyOwner
-    {
-        if (_newMaxOperatorWeight == 0) {
-            revert ZeroMaxOperatorWeight();
+        if (_newEqualSeatWeight < frostWalletRegistry.minimumAuthorization()) {
+            revert EqualSeatWeightBelowRegistryMinimum();
         }
-        newMaxOperatorWeight = _newMaxOperatorWeight;
+        newEqualSeatWeight = _newEqualSeatWeight;
         /* solhint-disable not-rely-on-time */
-        maxOperatorWeightChangeInitiated = block.timestamp;
-        emit MaxOperatorWeightUpdateStarted(
-            _newMaxOperatorWeight,
-            block.timestamp
-        );
+        equalSeatWeightChangeInitiated = block.timestamp;
+        emit EqualSeatWeightUpdateStarted(_newEqualSeatWeight, block.timestamp);
         /* solhint-enable not-rely-on-time */
     }
 
-    /// @notice Finalizes the maximum operator weight update process.
-    /// @dev Can be called only after the governance delay elapsed.
-    function finalizeMaxOperatorWeightUpdate()
+    /// @notice Finalizes the equal seat weight update process.
+    /// @dev Can be called only after the governance delay elapsed. Re-checks
+    ///      the registry-minimum invariant here — this is the binding
+    ///      enforcement point — because the FROST registry's own
+    ///      `minimumAuthorization()` can rise during the governance delay: a
+    ///      pending target that cleared the floor at begin time but now sits
+    ///      below it is rejected (`EqualSeatWeightBelowRegistryMinimum`) so a
+    ///      finalize can never push every eligible operator under the
+    ///      registry floor and brick wallet formation.
+    function finalizeEqualSeatWeightUpdate()
         external
         onlyOwner
-        onlyAfterGovernanceDelay(maxOperatorWeightChangeInitiated)
+        onlyAfterGovernanceDelay(equalSeatWeightChangeInitiated)
     {
-        maxOperatorWeight = newMaxOperatorWeight;
-        emit MaxOperatorWeightUpdated(newMaxOperatorWeight);
-        maxOperatorWeightChangeInitiated = 0;
-        newMaxOperatorWeight = 0;
+        if (newEqualSeatWeight < frostWalletRegistry.minimumAuthorization()) {
+            revert EqualSeatWeightBelowRegistryMinimum();
+        }
+        equalSeatWeight = newEqualSeatWeight;
+        emit EqualSeatWeightUpdated(newEqualSeatWeight);
+        equalSeatWeightChangeInitiated = 0;
+        newEqualSeatWeight = 0;
     }
 
-    /// @notice Begins the minimum authorization update process.
-    /// @param _newMinimumAuthorization New minimum authorization weight.
-    function beginMinimumAuthorizationUpdate(uint96 _newMinimumAuthorization)
-        external
-        onlyOwner
-    {
-        newMinimumAuthorization = _newMinimumAuthorization;
-        /* solhint-disable not-rely-on-time */
-        minimumAuthorizationChangeInitiated = block.timestamp;
-        emit MinimumAuthorizationUpdateStarted(
-            _newMinimumAuthorization,
-            block.timestamp
-        );
-        /* solhint-enable not-rely-on-time */
-    }
-
-    /// @notice Finalizes the minimum authorization update process.
-    /// @dev Can be called only after the governance delay elapsed.
-    function finalizeMinimumAuthorizationUpdate()
-        external
-        onlyOwner
-        onlyAfterGovernanceDelay(minimumAuthorizationChangeInitiated)
-    {
-        minimumAuthorization = newMinimumAuthorization;
-        emit MinimumAuthorizationUpdated(newMinimumAuthorization);
-        minimumAuthorizationChangeInitiated = 0;
-        newMinimumAuthorization = 0;
-    }
-
-    /// @notice See {ISeatAllocator-currentWeight}. The live stake-derived
-    ///         weight:
+    /// @notice See {ISeatAllocator-currentWeight}. The uniform seat weight:
     ///         ```
-    ///         selfBond = selfBondOf(p) - pendingSelfBondWithdrawalOf(p)
-    ///         raw = selfBond
-    ///             + delegatedAssetsOf(p) - pendingUndelegationAssetsOf(p)
-    ///         w = min(raw, selfBond * delegationFactor, maxOperatorWeight)
+    ///         if (!isActive(p))            return 0;
+    ///         selfBond = selfBondOf(p) - pendingSelfBondWithdrawalOf(p);
+    ///         if (selfBond < minSelfBond)  return 0;
+    ///         return equalSeatWeight;
     ///         ```
-    ///         and zero if the operator is not `Active`, the effective
-    ///         self-bond is below the vault's minimum self-bond, or `w`
-    ///         falls below the minimum authorization.
-    /// @dev Subtractions are clamped at zero so a transiently inconsistent
-    ///      vault view can never make this function revert — it sits on
-    ///      permissionless refresh paths the vault itself calls into.
+    ///         Every allowlisted, active operator whose effective self-bond
+    ///         clears the vault's minimum self-bond receives the SAME
+    ///         `equalSeatWeight`; everyone else receives 0. Delegated stake,
+    ///         pending undelegations, and the removed delegation-factor (λ) /
+    ///         maximum-operator-weight caps have NO effect on seat weight —
+    ///         signing power is uniform-by-curation. Delegation drives fee
+    ///         rewards ({rewardWeight}) and slashing exposure only.
+    /// @dev The self-bond subtraction is clamped at zero so a transiently
+    ///      inconsistent vault view can never make this function revert — it
+    ///      sits on permissionless refresh paths the vault itself calls into.
+    ///      The effective-self-bond floor is the sole skin-in-the-game gate;
+    ///      it is deliberately NOT scaled into the returned weight.
     function currentWeight(address stakingProvider)
         public
         view
@@ -398,31 +391,11 @@ contract SeatAllocator is
             ? selfBondTotal - pendingSelfBondWithdrawal
             : 0;
 
-        uint256 delegated = stakeVault.delegatedAssetsOf(stakingProvider);
-        uint256 pendingUndelegation = stakeVault.pendingUndelegationAssetsOf(
-            stakingProvider
-        );
-        uint256 netDelegated = delegated > pendingUndelegation
-            ? delegated - pendingUndelegation
-            : 0;
-
-        uint256 weight = selfBond + netDelegated;
-
-        uint256 leverageCap = selfBond * delegationFactor;
-        if (weight > leverageCap) {
-            weight = leverageCap;
-        }
-        if (weight > maxOperatorWeight) {
-            weight = maxOperatorWeight;
-        }
-
-        if (
-            selfBond < stakeVault.minSelfBond() || weight < minimumAuthorization
-        ) {
+        if (selfBond < stakeVault.minSelfBond()) {
             return 0;
         }
 
-        return uint96(weight);
+        return equalSeatWeight;
     }
 
     /// @notice The staking provider's UNCAPPED reward weight: the total
@@ -430,19 +403,20 @@ contract SeatAllocator is
     ///         (`selfBondOf + delegatedAssetsOf`), used solely to apportion
     ///         fee-reward revenue across operators.
     /// @dev This is deliberately NOT the same quantity as {currentWeight}.
-    ///      Seat/signing weight ({currentWeight}) is capped by the delegation
-    ///      factor and the maximum operator weight because the decentralization
-    ///      vector that matters — how many signing seats an operator can win —
-    ///      is what those caps must bound. Revenue is a different axis: if an
-    ///      operator attracts more delegated capital it is fair the pool earns
+    ///      Seat/signing weight ({currentWeight}) is UNIFORM — every eligible
+    ///      operator gets the same `equalSeatWeight` — because the
+    ///      decentralization vector that matters (how many signing seats an
+    ///      operator can win) is set purely by DAO allowlist curation, not by
+    ///      delegated capital. Revenue is a different axis: if an operator
+    ///      attracts more delegated capital it is fair the pool earns
     ///      proportionally more, so the reward weight tracks the operator's
-    ///      full uncapped capital. This also removes the capped model's
-    ///      dilution cliff, where over-cap delegation diluted existing
-    ///      delegators for zero extra pool reward.
+    ///      full uncapped capital while seat weight stays flat. Delegation
+    ///      therefore never buys signing power, only a proportional share of
+    ///      rewards (and matching slashing exposure).
     ///
     ///      The eligibility gate is shared with {currentWeight}: this returns
     ///      0 whenever `currentWeight == 0`, so a provider that is not an
-    ///      active, allowlisted, sufficiently self-bonded, at-or-above-minimum
+    ///      active, allowlisted, sufficiently self-bonded operator
     ///      signer earns nothing — rewards are never paid to a non-signer.
     ///      Otherwise it returns the raw uncapped sum clamped to
     ///      `type(uint96).max` (the total T supply fits in a uint96, but the
@@ -487,8 +461,8 @@ contract SeatAllocator is
     ///         recorded as the pending target, to be finalized when the
     ///         registry calls `approveAuthorizationDecrease` after its
     ///         authorization decrease delay. Always forwards the provider's
-    ///         UNCAPPED reward weight ({rewardWeight}) — not the capped seat
-    ///         weight — to the rewards distributor so revenue tracks the
+    ///         UNCAPPED reward weight ({rewardWeight}) — not the flat, uniform
+    ///         seat weight — to the rewards distributor so revenue tracks the
     ///         operator's delegated capital (Model B). Pending-exit capital
     ///         keeps earning until finalization because {rewardWeight} does
     ///         not subtract it; only losing eligibility (weight to 0) or a
@@ -576,7 +550,7 @@ contract SeatAllocator is
         }
 
         // Reward accrual tracks the UNCAPPED reward weight (Model B), while
-        // the registry-sync calls above kept using the capped seat weight.
+        // the registry-sync calls above use the flat, uniform seat weight.
         // dev: the try/catch guards only the onWeightChanged call, NOT the
         // evaluation of the rewardWeight(p) argument — but that is safe:
         // rewardWeight cannot revert (non-reverting views plus a

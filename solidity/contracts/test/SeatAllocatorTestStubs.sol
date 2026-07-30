@@ -45,8 +45,19 @@ contract StakingMockWalletRegistry {
 
     bool public revertOnAuthorizationCalls;
 
+    /// @dev Mirrors the real FROST registry's pool-eligibility floor
+    ///      (`minimumAuthorization()`). Defaults to the genesis 40,000e18 so
+    ///      the allocator's equal-seat-weight setters enforce the same
+    ///      invariant they do in production; settable so tests can model a
+    ///      deployment with a different registry minimum.
+    uint96 public minimumAuthorization = 40_000e18;
+
     function setRevertOnAuthorizationCalls(bool _revert) external {
         revertOnAuthorizationCalls = _revert;
+    }
+
+    function setMinimumAuthorization(uint96 _minimumAuthorization) external {
+        minimumAuthorization = _minimumAuthorization;
     }
 
     function authorizationIncreased(

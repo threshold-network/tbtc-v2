@@ -54,14 +54,15 @@ describe("Model B reward weighting (real SeatAllocator + real RewardsDistributor
     ethers.utils.parseEther(String(n))
 
   const MIN_SELF_BOND = to18(40_000)
-  // Both operators sit at/above the seat cap (maxOperatorWeight = 2M) with the
-  // SAME capped seat weight, but different over-cap capital: 6M vs 3M (2:1).
+  // Option B: seat weight is FLAT — both operators get the same
+  // equalSeatWeight regardless of delegation — while their capital differs
+  // 2:1 (6M vs 3M reward weight). Signing power is uniform; rewards are not.
   const SELF_BOND = to18(1_000_000)
   const DELEGATED_1 = to18(5_000_000) // uncapped reward weight 6M
   const DELEGATED_2 = to18(2_000_000) // uncapped reward weight 3M
   const REWARD_WEIGHT_1 = to18(6_000_000)
   const REWARD_WEIGHT_2 = to18(3_000_000)
-  const SEAT_CAP = to18(2_000_000) // capped seat weight for both
+  const EQUAL_SEAT_WEIGHT = to18(40_000) // flat seat weight for both
   const COMMISSION_BPS = 1000 // 10%
 
   const fixture = async () => {
@@ -194,17 +195,17 @@ describe("Model B reward weighting (real SeatAllocator + real RewardsDistributor
     await signerRegistry.setCommissionBps(provider2.address, COMMISSION_BPS)
   })
 
-  it("keeps the capped seat weight equal for both operators (decentralization preserved)", async () => {
-    // The REAL allocator: both operators clamp to the same seat cap even
-    // though their capital differs 2:1.
+  it("keeps the flat seat weight equal for both operators (decentralization preserved)", async () => {
+    // The REAL allocator: both operators receive the same flat seat weight
+    // even though their capital differs 2:1.
     expect(await seatAllocator.currentWeight(provider1.address)).to.equal(
-      SEAT_CAP
+      EQUAL_SEAT_WEIGHT
     )
     expect(await seatAllocator.currentWeight(provider2.address)).to.equal(
-      SEAT_CAP
+      EQUAL_SEAT_WEIGHT
     )
 
-    // refreshAuthorization files the CAPPED seat weight to the registry —
+    // refreshAuthorization files the FLAT seat weight to the registry —
     // equal authorization, so signing power / decentralization is identical.
     await seatAllocator.refreshAuthorization(provider1.address)
     // The allocator's own reward leg forwarded the UNCAPPED reward weight;
@@ -223,13 +224,17 @@ describe("Model B reward weighting (real SeatAllocator + real RewardsDistributor
       provider2.address,
       ethers.constants.AddressZero
     )
-    expect(auth1).to.equal(SEAT_CAP)
+    expect(auth1).to.equal(EQUAL_SEAT_WEIGHT)
     expect(auth2).to.equal(auth1)
 
-    // The registry saw the same capped increase for both.
+    // The registry saw the same flat increase for both.
     expect(await walletRegistry.increaseCallsCount()).to.equal(2)
-    expect((await walletRegistry.increaseCalls(0)).toAmount).to.equal(SEAT_CAP)
-    expect((await walletRegistry.increaseCalls(1)).toAmount).to.equal(SEAT_CAP)
+    expect((await walletRegistry.increaseCalls(0)).toAmount).to.equal(
+      EQUAL_SEAT_WEIGHT
+    )
+    expect((await walletRegistry.increaseCalls(1)).toAmount).to.equal(
+      EQUAL_SEAT_WEIGHT
+    )
   })
 
   it("splits reward accrual and delegator yield by UNCAPPED capital, not by the equal seat weight", async () => {
@@ -307,7 +312,7 @@ describe("Model B reward weighting (real SeatAllocator + real RewardsDistributor
       provider2.address,
       ethers.constants.AddressZero
     )
-    expect(auth1).to.equal(SEAT_CAP)
+    expect(auth1).to.equal(EQUAL_SEAT_WEIGHT)
     expect(auth2).to.equal(auth1)
   })
 })
