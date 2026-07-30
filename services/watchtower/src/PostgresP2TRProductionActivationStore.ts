@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto"
 import {
-  deriveP2TRProductionCandidateObservationID,
   type P2TRActivationMigrationBinding,
   type P2TRProductionActivationEnvelope,
   type P2TRProductionBitcoinCandidate,
@@ -153,8 +152,10 @@ export class PostgresP2TRProductionActivationStore
            WHERE height BETWEEN $1 AND $2) AS minimum_height,
          (SELECT max(height) FROM p2tr_bitcoin_blocks
            WHERE height BETWEEN $1 AND $2) AS maximum_height,
-         (SELECT count(*) FROM p2tr_bitcoin_candidates
-           WHERE delivered = false) AS pending_candidates,
+         (SELECT count(*) FROM p2tr_bitcoin_candidate_observations
+           WHERE disposition IN (
+             'keypath_pending', 'malformed_blocking', 'ambiguous_blocking'
+           )) AS pending_candidates,
          (SELECT count(*) FROM p2tr_pending_deposit_reveals
            WHERE resolved_at IS NULL) AS pending_deposit_reveals,
          (SELECT count(*) FROM p2tr_unmatched_proofs
@@ -406,6 +407,12 @@ export class PostgresP2TRProductionActivationStore
     const result = await this.session.query<{ found: boolean }>(
       `SELECT true AS found
          FROM p2tr_bitcoin_candidates candidate
+         JOIN p2tr_bitcoin_candidate_observations observation
+           ON observation.block_hash = candidate.block_hash
+          AND observation.txid = candidate.txid
+          AND observation.wtxid = candidate.wtxid
+          AND observation.provenance_generation =
+              candidate.provenance_generation
          JOIN p2tr_bitcoin_cursor cursor ON cursor.singleton = true
          JOIN p2tr_bitcoin_blocks block
            ON block.height = candidate.block_height
@@ -415,12 +422,19 @@ export class PostgresP2TRProductionActivationStore
           AND candidate.block_height = $3
           AND candidate.block_hash = $4
           AND candidate.block_height <= cursor.current_height
-        FOR SHARE OF candidate, block`,
+          AND observation.input_index = $5
+          AND observation.occurrence_id = $6
+          AND observation.challenge_identity = $7
+          AND observation.disposition = 'keypath_delivered'
+        FOR SHARE OF candidate, observation, block`,
       [
         hexBuffer(normalized.txid, "candidate txid"),
         hexBuffer(normalized.wtxid, "candidate wtxid"),
         normalized.blockHeight,
         hexBuffer(normalized.blockHash, "candidate block hash"),
+        normalized.inputIndex,
+        hexBuffer(normalized.observationID, "candidate observation ID"),
+        hexBuffer(normalized.challengeKey, "candidate challenge key"),
       ]
     )
     if (result.rows.length !== 1 || result.rows[0].found !== true) {
@@ -443,14 +457,93 @@ export class PostgresP2TRProductionActivationStore
       [hexBuffer(normalized.candidateDigest, "candidate digest")]
     )
     const result = await this.session.query(
-      `INSERT INTO p2tr_candidate_enqueue_authorizations
-         (token_id, manifest_hash, candidate_digest, txid, wtxid,
+      `WITH eligible_observation AS (
+         SELECT observation.occurrence_id AS observation_id,
+                observation.challenge_identity AS challenge_key,
+                observation.input_index,
+                provenance.funding_block_hash,
+                provenance.funding_txid,
+                provenance.funding_vout,
+                provenance.wallet_id AS input_wallet_id,
+                provenance.output_key AS input_output_key,
+                CASE provenance.binding_kind
+                  WHEN 'wallet' THEN 'registered-wallet-output'
+                  WHEN 'deposit' THEN 'deposit-binding'
+                END AS input_binding_kind,
+                decode(
+                  regexp_replace(
+                    lower(provenance.source_event_id), '^0x', ''
+                  ),
+                  'hex'
+                )
+                  AS input_binding_source_event_id,
+                observation.provenance_generation
+                  AS candidate_provenance_generation,
+                observation.provenance_fingerprint,
+                certificate.certificate_id AS readiness_certificate_id,
+                certificate.certificate_generation
+                  AS readiness_certificate_generation
+           FROM p2tr_bitcoin_candidates candidate
+           JOIN p2tr_bitcoin_candidate_observations observation
+             ON observation.block_hash = candidate.block_hash
+            AND observation.txid = candidate.txid
+            AND observation.wtxid = candidate.wtxid
+            AND observation.provenance_generation =
+                candidate.provenance_generation
+           JOIN p2tr_bitcoin_candidate_ethereum_provenance provenance
+             ON provenance.block_hash = observation.block_hash
+            AND provenance.txid = observation.txid
+            AND provenance.wtxid = observation.wtxid
+            AND provenance.input_index = observation.input_index
+            AND provenance.provenance_generation =
+                observation.provenance_generation
+           JOIN p2tr_readiness_certificates certificate
+             ON certificate.is_current
+            AND certificate.invalidated_at IS NULL
+            AND certificate.manifest_hash = $2
+            AND certificate.bitcoin_height = $8
+            AND certificate.bitcoin_hash = $9
+            AND certificate.ethereum_block_number = $10
+            AND certificate.ethereum_block_hash = $11
+          WHERE candidate.txid = $4
+            AND candidate.wtxid = $5
+            AND candidate.block_height = $6
+            AND candidate.block_hash = $7
+            AND observation.input_index = $14
+            AND observation.occurrence_id = $15
+            AND observation.challenge_identity = $16
+            AND observation.disposition = 'keypath_delivered'
+            AND observation.challenge_identity IS NOT NULL
+            AND provenance.source_event_id ~*
+                '^(0x)?[0-9a-f]{64}$'
+       )
+       INSERT INTO p2tr_candidate_enqueue_authorizations
+         (token_id, manifest_hash, candidate_digest,
+          observation_id, challenge_key, txid, wtxid, input_index,
           bitcoin_block_height, bitcoin_block_hash,
           verified_bitcoin_height, verified_bitcoin_hash,
-          verified_ethereum_block, verified_ethereum_hash, expires_at)
-       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz
+          verified_ethereum_block, verified_ethereum_hash,
+          funding_block_hash, funding_txid, funding_vout,
+          input_wallet_id, input_output_key, input_binding_kind,
+          input_binding_source_event_id, candidate_provenance_generation,
+          provenance_fingerprint, readiness_certificate_id,
+          readiness_certificate_generation, expires_at)
+       SELECT $1, $2, $3,
+              eligible.observation_id, eligible.challenge_key,
+              $4, $5, eligible.input_index, $6, $7, $8, $9, $10, $11,
+              eligible.funding_block_hash, eligible.funding_txid,
+              eligible.funding_vout, eligible.input_wallet_id,
+              eligible.input_output_key, eligible.input_binding_kind,
+              eligible.input_binding_source_event_id,
+              eligible.candidate_provenance_generation,
+              eligible.provenance_fingerprint,
+              eligible.readiness_certificate_id,
+              eligible.readiness_certificate_generation,
+              $12::timestamptz
+         FROM eligible_observation eligible
         WHERE $12::timestamptz > clock_timestamp()
-          AND $12::timestamptz <= clock_timestamp() + ($13 * interval '1 millisecond')
+          AND $12::timestamptz <=
+              clock_timestamp() + ($13 * interval '1 millisecond')
           AND NOT EXISTS (
             SELECT 1 FROM p2tr_candidate_enqueue_authorizations
              WHERE candidate_digest = $3 AND consumed_at IS NOT NULL
@@ -472,6 +565,12 @@ export class PostgresP2TRProductionActivationStore
         ),
         normalized.expiresAt,
         this.maxCandidateAuthorizationLifetimeMs,
+        normalized.candidate.inputIndex,
+        hexBuffer(
+          normalized.candidate.observationID,
+          "candidate observation ID"
+        ),
+        hexBuffer(normalized.candidate.challengeKey, "candidate challenge key"),
       ]
     )
     if (result.rowCount !== 1) {
@@ -806,17 +905,11 @@ function normalizeCandidate(
       "candidate block height"
     ),
     blockHash: bytes32(candidate.blockHash, "candidate block hash"),
+    inputIndex: uint32(candidate.inputIndex, "candidate input index"),
+    observationID: bytes32(candidate.observationID, "candidate observation ID"),
+    challengeKey: bytes32(candidate.challengeKey, "candidate challenge key"),
   }
-  const observationID = deriveP2TRProductionCandidateObservationID(identity)
-  if (
-    bytes32(candidate.observationID, "candidate observation ID") !==
-    observationID
-  ) {
-    throw new Error(
-      "Candidate observation ID is not derived from durable identity"
-    )
-  }
-  return { observationID, ...identity }
+  return identity
 }
 
 function componentName(
@@ -885,6 +978,14 @@ function nonNegativeInteger(value: number, label: string): number {
     throw new Error(`${label} must be a non-negative safe integer`)
   }
   return value
+}
+
+function uint32(value: number, label: string): number {
+  const normalized = nonNegativeInteger(value, label)
+  if (normalized > 0xffffffff) {
+    throw new Error(`${label} must be a uint32`)
+  }
+  return normalized
 }
 
 function boundedString(value: string, maximum: number, label: string): string {

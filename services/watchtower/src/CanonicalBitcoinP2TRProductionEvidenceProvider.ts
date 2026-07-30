@@ -10,7 +10,6 @@ import type {
   P2TRProductionBitcoinEvidenceProvider,
   P2TRProductionBitcoinState,
 } from "./P2TRProductionActivation.js"
-import { deriveP2TRProductionCandidateObservationID } from "./P2TRProductionActivation.js"
 
 export type CanonicalBitcoinP2TRProductionEvidenceProviderOptions = {
   /** Stable audited operator identity; the adapter hashes it locally. */
@@ -123,6 +122,10 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
     if (matching.length !== 1) {
       throw new Error("Bitcoin candidate transaction is absent or duplicated")
     }
+    if (normalized.inputIndex >= matching[0].inputs.length) {
+      throw new Error("Bitcoin candidate input is absent from its transaction")
+    }
+    await this.authenticateTransactionPrevouts(block.transactions, matching[0])
     assertAuthenticatedTransaction(matching[0])
     // The gate independently verifies this returned point and both providers'
     // block hashes after the attestation, closing head-sampling races.
@@ -135,6 +138,74 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
       present: true,
     }
   }
+
+  private async authenticateTransactionPrevouts(
+    blockTransactions: readonly P2TRCanonicalBitcoinTransaction[],
+    transaction: P2TRCanonicalBitcoinTransaction
+  ): Promise<void> {
+    if (transaction.coinbase) return
+    const transactionIndex = blockTransactions.indexOf(transaction)
+    if (transactionIndex < 0) {
+      throw new Error("Bitcoin candidate transaction is absent from its block")
+    }
+    const sameBlockTransactions = new Map(
+      blockTransactions.map((candidate, index) => [
+        bitcoinHash(candidate.txid, "block transaction ID"),
+        { candidate, index },
+      ])
+    )
+    if (sameBlockTransactions.size !== blockTransactions.length) {
+      throw new Error("Bitcoin candidate block contains duplicate transactions")
+    }
+    const externalPrevoutTransactions = new Map<
+      string,
+      Promise<P2TRCanonicalBitcoinTransaction>
+    >()
+    for (const input of transaction.inputs) {
+      const inputTxid = bitcoinHash(input.txid, "candidate input txid")
+      const sameBlock = sameBlockTransactions.get(inputTxid)
+      if (sameBlock !== undefined && sameBlock.index >= transactionIndex) {
+        throw new Error(
+          "Bitcoin candidate input spends a non-preceding same-block transaction"
+        )
+      }
+      const fundingTransaction =
+        sameBlock?.candidate ??
+        (await loadExternalPrevoutTransaction(
+          this.source,
+          externalPrevoutTransactions,
+          inputTxid
+        ))
+      const output = fundingTransaction.outputs[input.vout]
+      if (
+        output === undefined ||
+        bitcoinHash(output.txid, "authenticated prevout txid") !== inputTxid ||
+        output.vout !== input.vout
+      ) {
+        throw new Error("Bitcoin candidate has an unauthenticated prevout")
+      }
+      input.authenticatedPrevout = output
+    }
+  }
+}
+
+async function loadExternalPrevoutTransaction(
+  source: P2TRCanonicalBitcoinBlockSource,
+  transactions: Map<string, Promise<P2TRCanonicalBitcoinTransaction>>,
+  txid: string
+): Promise<P2TRCanonicalBitcoinTransaction> {
+  let transaction = transactions.get(txid)
+  if (transaction === undefined) {
+    transaction = source.getRawTransaction(txid)
+    transactions.set(txid, transaction)
+  }
+  const resolved = await transaction
+  if (
+    bitcoinHash(resolved.txid, "authenticated funding transaction") !== txid
+  ) {
+    throw new Error("Bitcoin candidate funding transaction is unauthenticated")
+  }
+  return resolved
 }
 
 function assertAuthenticatedTransaction(
@@ -169,11 +240,11 @@ function normalizeCandidate(
       "candidate block height"
     ),
     blockHash: bitcoinHash(candidate.blockHash, "candidate block hash"),
+    inputIndex: uint32(candidate.inputIndex, "candidate input index"),
+    observationID: bytes32(candidate.observationID, "candidate observation ID"),
+    challengeKey: bytes32(candidate.challengeKey, "candidate challenge key"),
   }
-  return {
-    observationID: deriveP2TRProductionCandidateObservationID(identity),
-    ...identity,
-  }
+  return identity
 }
 
 function bitcoinHash(value: string, label: string): string {
@@ -220,4 +291,12 @@ function nonNegativeInteger(value: number, label: string): number {
     throw new Error(`${label} must be a non-negative safe integer`)
   }
   return value
+}
+
+function uint32(value: number, label: string): number {
+  const normalized = nonNegativeInteger(value, label)
+  if (normalized > 0xffffffff) {
+    throw new Error(`${label} must be a uint32`)
+  }
+  return normalized
 }

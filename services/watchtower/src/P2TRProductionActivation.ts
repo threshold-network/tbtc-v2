@@ -445,18 +445,23 @@ export type P2TRProductionBitcoinState = {
   finalizedThrough: P2TRProductionBitcoinPoint
 }
 
-export type P2TRProductionBitcoinCandidateIdentity = {
+export type P2TRProductionBitcoinCandidateTransactionIdentity = {
   txid: string
   wtxid: string
   blockHeight: number
   blockHash: string
 }
 
-export type P2TRProductionBitcoinCandidate =
-  P2TRProductionBitcoinCandidateIdentity & {
-    /** Deterministically derived by the gate; never accepted from a caller. */
+export type P2TRProductionBitcoinCandidateIdentity =
+  P2TRProductionBitcoinCandidateTransactionIdentity & {
+    /** Exact canonical input occurrence authorized for enqueue. */
+    inputIndex: number
     observationID: string
+    challengeKey: string
   }
+
+export type P2TRProductionBitcoinCandidate =
+  P2TRProductionBitcoinCandidateIdentity
 
 export type P2TRProductionBitcoinCandidateAttestation =
   P2TRProductionBitcoinCandidate & {
@@ -800,8 +805,22 @@ export class P2TRProductionActivationGate {
           this.dependencies.stateStore.readBitcoinIndexHealth(),
           this.dependencies.stateStore.readEthereumJournalHealth(),
         ])
+        const [indexedCursorHash, reconciledCursorHash] = await Promise.all([
+          this.dependencies.bitcoinIndexSource.getBlockHash(
+            bitcoinHealth.current.height
+          ),
+          this.dependencies.bitcoinReconciler.getBlockHash(
+            bitcoinHealth.current.height
+          ),
+        ])
         assertMigrationBindings(migrations, this.manifest.migrations)
-        assertBitcoinIndexHealth(bitcoinHealth, this.manifest, bitcoin.point)
+        assertP2TRProductionBitcoinIndexHealth(
+          bitcoinHealth,
+          this.manifest,
+          bitcoin.point,
+          indexedCursorHash,
+          reconciledCursorHash
+        )
         assertEthereumJournalHealth(ethereumHealth, this.manifest, ethereum)
       }
     )
@@ -1920,14 +1939,24 @@ function assertEthereumState(
   }
 }
 
-function assertBitcoinIndexHealth(
+export function assertP2TRProductionBitcoinIndexHealth(
   actual: P2TRProductionBitcoinIndexHealth,
   manifest: Readonly<P2TRProductionActivationManifest>,
-  canonical: P2TRProductionBitcoinPoint
+  canonical: P2TRProductionBitcoinPoint,
+  indexedCursorHash: string,
+  reconciledCursorHash: string
 ): void {
   const expected = manifest.bitcoin
   const checkpoint = bitcoinPoint(actual.checkpoint, "index checkpoint")
   const current = bitcoinPoint(actual.current, "index cursor")
+  const authenticatedIndexedCursorHash = bitcoinHash(
+    indexedCursorHash,
+    "indexed Bitcoin cursor block"
+  )
+  const authenticatedReconciledCursorHash = bitcoinHash(
+    reconciledCursorHash,
+    "reconciled Bitcoin cursor block"
+  )
   if (
     actual.storeID !== expected.storeID ||
     bytes32(actual.configurationFingerprint, "index fingerprint") !==
@@ -1941,6 +1970,8 @@ function assertBitcoinIndexHealth(
     actual.canonicalBlockCount !== current.height + 1 ||
     current.height > canonical.height ||
     canonical.height - current.height > expected.maxIndexLagBlocks ||
+    current.hash !== authenticatedIndexedCursorHash ||
+    current.hash !== authenticatedReconciledCursorHash ||
     actual.pendingCandidates !== 0 ||
     actual.pendingDepositReveals !== 0 ||
     actual.unmatchedProofs !== 0 ||
@@ -3141,15 +3172,15 @@ function normalizeCandidate(
       "candidate block height"
     ),
     blockHash: bitcoinHash(candidate.blockHash, "candidate block hash"),
+    inputIndex: uint32(candidate.inputIndex, "candidate input index"),
+    observationID: bytes32(candidate.observationID, "candidate observation ID"),
+    challengeKey: bytes32(candidate.challengeKey, "candidate challenge key"),
   }
-  return {
-    observationID: deriveP2TRProductionCandidateObservationID(identity),
-    ...identity,
-  }
+  return identity
 }
 
 export function deriveP2TRProductionCandidateObservationID(
-  candidate: P2TRProductionBitcoinCandidateIdentity
+  candidate: P2TRProductionBitcoinCandidateTransactionIdentity
 ): string {
   const identity = {
     txid: bitcoinHash(candidate.txid, "candidate txid"),
@@ -3537,6 +3568,14 @@ function nonNegativeInteger(value: number, label: string): number {
     throw new Error(`${label} must be a non-negative safe integer`)
   }
   return value
+}
+
+function uint32(value: number, label: string): number {
+  const normalized = nonNegativeInteger(value, label)
+  if (normalized > 0xffffffff) {
+    throw new Error(`${label} must be a uint32`)
+  }
+  return normalized
 }
 
 function fail(message: string): never {
