@@ -1945,10 +1945,28 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     // A boundary resolved as nonce-consumed has cleared its marker but still
     // retains the reservation, precisely so a late envelope stays capturable:
     // the bytes are inert once the nonce is spent, but losing the RECORD of a
-    // signer that leaked them is not acceptable.
+    // signer that leaked them is not acceptable. Authorize this exception from
+    // the append-only resolution itself rather than the mutable record status,
+    // which may advance again before the signer response arrives.
+    const resolvedNonceConsumption =
+      current.reservedNonce === undefined
+        ? { rowCount: 0 }
+        : await this.options.session.query(
+            `SELECT 1
+               FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+              WHERE record_id = decode($1, 'hex')
+                AND outcome = 'nonce-consumed'
+                AND nonce_reservation_id = decode($2, 'hex')
+              LIMIT 1`,
+            [
+              stripHex(current.recordID),
+              stripHex(current.reservedNonce.reservationID.toPrefixedString()),
+            ]
+          )
     const retainsResolvedBoundary =
-      current.status === "generation-required" &&
-      current.reservedNonce !== undefined
+      current.reservedNonce !== undefined &&
+      (current.status === "generation-required" ||
+        resolvedNonceConsumption.rowCount === 1)
     if (
       alreadyCaptured &&
       current.activeSignerInvocationStartedAtUnixMs === undefined &&

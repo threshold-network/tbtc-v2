@@ -1681,24 +1681,6 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   invocation?: P2TRSignatureFraudSignerInvocationRequest
 ): P2TRSignatureFraudPreparedChallengeTransaction => {
   validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
-  const echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
-    prepared.invocation
-  )
-  if (invocation !== undefined) {
-    const expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
-    if (
-      echo === undefined ||
-      echo.invocationID.toPrefixedString() !==
-        expected!.invocationID.toPrefixedString() ||
-      echo.requestDigest.toPrefixedString() !==
-        expected!.requestDigest.toPrefixedString()
-    ) {
-      throw new P2TRWitnessSignatureError(
-        "invalid-watchtower-state",
-        "Prepared challenge transaction does not echo its signer invocation request"
-      )
-    }
-  }
   const expectedIntentID = computeP2TRSignatureFraudSubmissionIntentID({
     protocol: intent.protocol,
     evidenceProtocolID: intent.evidenceProtocolID,
@@ -1803,6 +1785,39 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
       "invalid-watchtower-state",
       "Prepared challenge transaction sender or nonce does not match its raw bytes"
     )
+  }
+
+  // Authenticate the signed bytes before interpreting unauthenticated response
+  // metadata. The outbox's first pass deliberately omits `invocation` so it
+  // can retain exact, valid bytes even when the signer returns a malformed
+  // echo. Callers that supply the expected request still receive a normalized,
+  // exact-match echo.
+  let echo = prepared.invocation
+  if (invocation !== undefined) {
+    let expected: P2TRSignatureFraudSignerInvocationRequest | undefined
+    try {
+      echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
+        prepared.invocation
+      )
+      expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+    } catch {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared challenge transaction has a malformed signer invocation request echo"
+      )
+    }
+    if (
+      echo === undefined ||
+      echo.invocationID.toPrefixedString() !==
+        expected!.invocationID.toPrefixedString() ||
+      echo.requestDigest.toPrefixedString() !==
+        expected!.requestDigest.toPrefixedString()
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared challenge transaction does not echo its signer invocation request"
+      )
+    }
   }
 
   return {
@@ -1936,7 +1951,11 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
     parsed.nonce !== envelope.nonce ||
     parsed.chainId !== envelope.chainID ||
     !parsed.value.isZero() ||
-    parsed.data.toLowerCase() !== "0x"
+    parsed.data.toLowerCase() !== "0x" ||
+    // The burn's gas limit is exactly the intrinsic cost of an empty transfer,
+    // so a single access-list entry makes it unpayable and the escape hatch
+    // silently stops working.
+    (parsed.accessList !== undefined && parsed.accessList.length > 0)
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -1950,12 +1969,12 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
     parsed.maxPriorityFeePerGas === undefined ||
     !parsed.gasLimit.eq(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT) ||
     parsed.maxPriorityFeePerGas.gt(parsed.maxFeePerGas) ||
-    parsed.maxFeePerGas.gt(envelope.maxFeePerGas) ||
-    parsed.maxPriorityFeePerGas.gt(envelope.maxPriorityFeePerGas)
+    !parsed.maxFeePerGas.eq(envelope.maxFeePerGas) ||
+    !parsed.maxPriorityFeePerGas.eq(envelope.maxPriorityFeePerGas)
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "Prepared nonce burn exceeds its authorized EIP-1559 envelope"
+      "Prepared nonce burn does not match its authorized EIP-1559 envelope"
     )
   }
 

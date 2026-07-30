@@ -113,7 +113,7 @@ export class InMemoryOutboxStore
   readonly signerBoundaryResolutions = new Map<
     string,
     {
-      outcome: "never-invoked" | "signed" | "terminal-unsafe"
+      outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
       evidenceDigest: string
       signedTransactionHash?: string
       resolvedAtUnixMs: number
@@ -819,16 +819,26 @@ export class InMemoryOutboxStore
           normalizeKey(variant.preparedTransaction.transactionHash) ===
           capturedHash
       )
+    const reservation = current.reservedNonce
+    const retainsResolvedBoundary =
+      reservation !== undefined &&
+      (current.status === "generation-required" ||
+        [...this.signerBoundaryResolutions.entries()].some(
+          ([key, resolution]) =>
+            key.startsWith(`${normalizeKey(current.recordID)}:`) &&
+            resolution.outcome === "nonce-consumed"
+        ))
     if (
       alreadyCaptured &&
-      current.activeSignerInvocationStartedAtUnixMs === undefined
+      current.activeSignerInvocationStartedAtUnixMs === undefined &&
+      !retainsResolvedBoundary
     ) {
       return current
     }
-    const reservation = current.reservedNonce
     if (
       reservation === undefined ||
-      current.activeSignerInvocationStartedAtUnixMs === undefined ||
+      (current.activeSignerInvocationStartedAtUnixMs === undefined &&
+        !retainsResolvedBoundary) ||
       normalizeKey(reservation.reservationID) !==
         normalizeKey(artifact.expectedReservationID)
     ) {

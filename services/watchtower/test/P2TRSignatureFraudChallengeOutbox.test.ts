@@ -3605,6 +3605,65 @@ test("captures the bytes when the signer serves another invocation request", asy
   )
 })
 
+test("captures wrong-echo bytes when provenance invalidation wins the completion CAS", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.echoInvocation = (invocation) => ({
+    invocationID: Hex.from(`0x${"e7".repeat(32)}`),
+    requestDigest: invocation.requestDigest,
+  })
+  preparer.afterInitialSign = async () => {
+    await invalidateP2TRSignatureFraudCanonicalProvenance(
+      store,
+      provenanceInvalidationEvidence(record)
+    )
+  }
+
+  const settled = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.equal(settled.status, "provenance-invalidated-awaiting-reconciliation")
+  assert.equal(settled.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    settled.unexpectedSignedArtifacts?.[0].preparedTransaction.rawTransaction,
+    RAW_TRANSACTION
+  )
+  assert.equal(
+    settled.signerQuarantines?.[0]?.reasonCode,
+    "wrong-signer-invocation-request"
+  )
+})
+
+test("authenticates and captures signed bytes before rejecting a malformed invocation echo", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.echoInvocation = () =>
+    ({
+      invocationID: "not-a-bytes32",
+      requestDigest: "also-not-a-bytes32",
+    } as unknown as P2TRSignatureFraudSignerInvocationRequest)
+
+  const settled = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.match(String(settled.lastError), /malformed invocation request echo/)
+  assert.equal(settled.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    settled.unexpectedSignedArtifacts?.[0].preparedTransaction.rawTransaction,
+    RAW_TRANSACTION
+  )
+  assert.equal(
+    settled.signerQuarantines?.[0]?.reasonCode,
+    "wrong-signer-invocation-request"
+  )
+})
+
 test("rejects a signer that returns no invocation echo at all", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)

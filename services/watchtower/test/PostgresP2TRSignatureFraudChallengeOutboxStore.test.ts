@@ -107,6 +107,10 @@ async function createTestDatabase(
       "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
       import.meta.url
     ),
+    new URL(
+      "../migrations/005_p2tr_signer_boundary_late_artifact.sql",
+      import.meta.url
+    ),
   ]) {
     await client.query(await readFile(migration, "utf8"))
   }
@@ -3858,6 +3862,72 @@ postgresTest(
     assert.deepEqual(durable.rows, [
       { hash: transactionHash.slice(2), artifacts: "1" },
     ])
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "captures late signer bytes after nonce consumption clears an orphaned boundary",
+  async () => {
+    const database = await createTestDatabase()
+    const { initial, boundary } = await orphanedSignerBoundary(database, 215)
+    const rawTransaction = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: initial.intent.routerAddress,
+      data: initial.intent.calldata,
+      value: initial.intent.value,
+      nonce: 7,
+      gasLimit: 100_000,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 10,
+    })
+    const transactionHash = utils.keccak256(rawTransaction)
+
+    await begin(database.client)
+    assert.equal(
+      await database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary, { outcome: "nonce-consumed" })
+      ),
+      "acknowledged"
+    )
+    await commit(database.client)
+
+    const resolved = await database.store.get(initial.recordID)
+    assert.equal(resolved?.status, "quarantined")
+    assert.equal(resolved?.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(resolved?.signerInvocationStartedAtUnixMs, undefined)
+
+    const captured = await database.store.captureEscapedSignedArtifact(
+      initial.recordID,
+      initial.canonicalProvenance.provenanceFingerprint,
+      {
+        expectedReservationID:
+          boundary.reservedNonce!.reservationID.toPrefixedString(),
+        capturedAtUnixMs: 2_500,
+        reason:
+          "late signer bytes arrived after final nonce consumption resolution",
+        preparedTransaction: {
+          intentID: initial.intent.intentID,
+          rawTransaction,
+          transactionHash: Hex.from(transactionHash),
+          sender: WALLET.address,
+          nonce: 7,
+        },
+      }
+    )
+
+    assert.equal(captured.unexpectedSignedArtifacts?.length, 1)
+    assert.equal(
+      captured.unexpectedSignedArtifacts?.[0].preparedTransaction
+        .rawTransaction,
+      rawTransaction
+    )
+    const artifacts = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact`
+    )
+    assert.deepEqual(artifacts.rows, [{ count: "1" }])
     await database.client.end()
   }
 )
