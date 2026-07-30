@@ -1136,7 +1136,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
   computeVersionedSignerBoundaryResolutionEvidenceDigest(resolution, 5)
 
 /**
- * Computes the digest accepted before migration 005. This must only be used to
+ * Computes the digest accepted before migration 006. This must only be used to
  * recognize an exact replay of immutable evidence that the migration marked as
  * version 4; new resolutions must always use the v5 helper above.
  */
@@ -1401,7 +1401,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   validateVersionedIndependentSignerBoundaryResolution(resolution, 5)
 
 /**
- * Validates the exact evidence contract used before migration 005. The
+ * Validates the exact evidence contract used before migration 006. The
  * PostgreSQL adapter invokes this only after finding an immutable row that the
  * migration explicitly classified as version 4; it is never an insertion path.
  */
