@@ -1161,14 +1161,17 @@ export class P2TRProductionActivationGate {
     canonical: P2TRProductionEthereumState
   ): Promise<P2TRProductionEthereumHistoryState> {
     const normalizedPoint = ethereumPoint(point, "Ethereum journal cursor")
-    if (
-      canonicalJSON(normalizedPoint) ===
-      canonicalJSON(ethereumPoint(canonical.point, "canonical Ethereum point"))
-    ) {
-      return normalizeEthereumHistoryState(
+    const canonicalPoint = ethereumPoint(
+      canonical.point,
+      "canonical Ethereum point"
+    )
+    if (canonicalJSON(normalizedPoint) === canonicalJSON(canonicalPoint)) {
+      const history = normalizeEthereumHistoryState(
         canonical,
         "canonical Ethereum history"
       )
+      await this.assertVerifiedEthereumPointCanonical(canonicalPoint)
+      return history
     }
     const [sourceHash, verifierHash, sourceState, verifierState] =
       await Promise.all([
@@ -1207,7 +1210,33 @@ export class P2TRProductionActivationGate {
         "Independent Ethereum providers disagree on journal cursor history"
       )
     }
+    await this.assertVerifiedEthereumPointCanonical(canonicalPoint)
     return sourceHistory
+  }
+
+  private async assertVerifiedEthereumPointCanonical(
+    point: P2TRProductionEthereumPoint
+  ): Promise<void> {
+    const canonicalPoint = ethereumPoint(
+      point,
+      "verified canonical Ethereum point"
+    )
+    const [sourceHash, verifierHash] = await Promise.all([
+      this.dependencies.ethereumSource.getBlockHash(canonicalPoint.blockNumber),
+      this.dependencies.ethereumVerifier.getBlockHash(
+        canonicalPoint.blockNumber
+      ),
+    ])
+    if (
+      bytes32(sourceHash, "source verified Ethereum activation point") !==
+        canonicalPoint.blockHash ||
+      bytes32(verifierHash, "verifier verified Ethereum activation point") !==
+        canonicalPoint.blockHash
+    ) {
+      throw new Error(
+        "Verified Ethereum activation point changed during readiness"
+      )
+    }
   }
 
   private async readVerifiedBitcoin(): Promise<{

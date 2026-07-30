@@ -4,6 +4,9 @@ import {
   P2TRProductionActivationGate,
   type P2TRProductionBitcoinCandidateIdentity,
   type P2TRProductionCandidateAuthorizationToken,
+  type P2TRProductionEthereumHistoryState,
+  type P2TRProductionEthereumPoint,
+  type P2TRProductionEthereumState,
   type P2TRProductionReadySnapshot,
 } from "../src/P2TRProductionActivation.js"
 
@@ -79,6 +82,26 @@ describe("production activation readiness authority serialization", () => {
     await gate.assertReady()
     assert.equal(attempts, 2)
   })
+
+  it("rejects lag history when its verified activation point was orphaned", async () => {
+    const gate = ethereumHistoryGate(`0x${WORD("35")}`)
+    await assert.rejects(
+      gate.readVerifiedEthereumHistory(ethereumJournalPoint(), {
+        point: verifiedEthereumPoint(),
+      } as P2TRProductionEthereumState),
+      /activation point changed during readiness/
+    )
+  })
+
+  it("accepts lag history while its verified activation point remains canonical", async () => {
+    const gate = ethereumHistoryGate(verifiedEthereumPoint().blockHash)
+    assert.deepEqual(
+      await gate.readVerifiedEthereumHistory(ethereumJournalPoint(), {
+        point: verifiedEthereumPoint(),
+      } as P2TRProductionEthereumState),
+      ethereumJournalHistory()
+    )
+  })
 })
 
 function candidateIdentity(): P2TRProductionBitcoinCandidateIdentity {
@@ -101,6 +124,56 @@ function readySnapshot(): P2TRProductionReadySnapshot {
     readinessCertificate: {
       certificateID: WORD("23"),
       generation: 1,
+    },
+  }
+}
+
+function ethereumHistoryGate(canonicalHash: string): {
+  readVerifiedEthereumHistory(
+    point: P2TRProductionEthereumPoint,
+    canonical: P2TRProductionEthereumState
+  ): Promise<P2TRProductionEthereumHistoryState>
+} {
+  const provider = {
+    async getBlockHash(blockNumber: number): Promise<string> {
+      return blockNumber === ethereumJournalPoint().blockNumber
+        ? ethereumJournalPoint().blockHash
+        : canonicalHash
+    },
+    async readHistoryState(): Promise<P2TRProductionEthereumHistoryState> {
+      return ethereumJournalHistory()
+    },
+  }
+  const gate = Object.create(P2TRProductionActivationGate.prototype)
+  Object.assign(gate, {
+    manifest: { ethereum: { scanStartBlock: 1 } },
+    dependencies: {
+      ethereumSource: provider,
+      ethereumVerifier: provider,
+    },
+  })
+  return gate
+}
+
+function ethereumJournalPoint(): P2TRProductionEthereumPoint {
+  return { blockNumber: 10, blockHash: `0x${WORD("31")}` }
+}
+
+function verifiedEthereumPoint(): P2TRProductionEthereumPoint {
+  return { blockNumber: 12, blockHash: `0x${WORD("32")}` }
+}
+
+function ethereumJournalHistory(): P2TRProductionEthereumHistoryState {
+  return {
+    point: ethereumJournalPoint(),
+    requiredEventHistoryDigest: `0x${WORD("33")}`,
+    requiredEventCount: 1,
+    requiredEventCoverage: {
+      blocks: 10,
+      transactions: 1,
+      receipts: 1,
+      logs: 1,
+      requiredEvents: 1,
     },
   }
 }

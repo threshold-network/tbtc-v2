@@ -152,6 +152,14 @@ describe("production activation PostgreSQL schema contract", () => {
       verification,
       /ethereumSource\.getBlockHash[\s\S]*?ethereumVerifier\.getBlockHash[\s\S]*?ethereumSource\.readHistoryState[\s\S]*?ethereumVerifier\.readHistoryState/
     )
+    const historyRead = verification.indexOf(
+      "ethereumVerifier.readHistoryState"
+    )
+    const canonicalRecheck = verification.indexOf(
+      "assertVerifiedEthereumPointCanonical(canonicalPoint)",
+      historyRead
+    )
+    assert.ok(historyRead >= 0 && canonicalRecheck > historyRead)
   })
 })
 
