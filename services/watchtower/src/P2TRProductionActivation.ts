@@ -420,6 +420,14 @@ export type P2TRProductionEthereumState = {
   requiredEventCoverage: P2TREthereumHistoryCoverageCounters
 }
 
+export type P2TRProductionEthereumHistoryState = Pick<
+  P2TRProductionEthereumState,
+  | "point"
+  | "requiredEventHistoryDigest"
+  | "requiredEventCount"
+  | "requiredEventCoverage"
+>
+
 export type P2TRProductionEthereumProvider = P2TRProductionProviderIdentity & {
   /** Durable receipt-complete history store pinned by the signed manifest. */
   readonly historyStoreID: string
@@ -430,6 +438,10 @@ export type P2TRProductionEthereumProvider = P2TRProductionProviderIdentity & {
     confirmationDepth: number
   ): Promise<P2TRProductionEthereumPoint>
   getBlockHash(blockNumber: number): Promise<string>
+  readHistoryState(
+    point: P2TRProductionEthereumPoint,
+    scanStartBlock: number
+  ): Promise<P2TRProductionEthereumHistoryState>
   readActivationState(
     point: P2TRProductionEthereumPoint,
     scanStartBlock: number
@@ -838,13 +850,23 @@ export class P2TRProductionActivationGate {
               this.dependencies.stateStore.readEthereumJournalHealth(),
             ]
           )
-          const [indexedCursorHash, reconciledCursorHash] = await Promise.all([
+          assertEthereumJournalCursorHealth(
+            ethereumHealth,
+            this.manifest,
+            ethereum
+          )
+          const [
+            indexedCursorHash,
+            reconciledCursorHash,
+            verifiedEthereumJournalHistory,
+          ] = await Promise.all([
             this.dependencies.bitcoinIndexSource.getBlockHash(
               bitcoinHealth.current.height
             ),
             this.dependencies.bitcoinReconciler.getBlockHash(
               bitcoinHealth.current.height
             ),
+            this.readVerifiedEthereumHistory(ethereumHealth.current, ethereum),
           ])
           assertMigrationBindings(migrations, this.manifest.migrations)
           assertP2TRProductionBitcoinIndexHealth(
@@ -854,7 +876,12 @@ export class P2TRProductionActivationGate {
             indexedCursorHash,
             reconciledCursorHash
           )
-          assertEthereumJournalHealth(ethereumHealth, this.manifest, ethereum)
+          assertP2TRProductionEthereumJournalHealth(
+            ethereumHealth,
+            this.manifest,
+            ethereum,
+            verifiedEthereumJournalHistory
+          )
           return this.dependencies.stateStore.mintReadinessCertificate({
             manifestHash: this.manifestHash,
             verifiedEthereum: ethereum.point,
@@ -865,6 +892,7 @@ export class P2TRProductionActivationGate {
               schema: "tbtc-p2tr-production-readiness-certificate/v1",
               manifestHash: this.manifestHash,
               verifiedEthereumState: ethereum,
+              verifiedEthereumJournalHistory,
               verifiedBitcoin: bitcoin.point,
               migrations,
               bitcoinIndex: bitcoinHealth,
@@ -1126,6 +1154,60 @@ export class P2TRProductionActivationGate {
     }
     assertEthereumState(normalizedSource, this.manifest)
     return normalizedSource
+  }
+
+  private async readVerifiedEthereumHistory(
+    point: P2TRProductionEthereumPoint,
+    canonical: P2TRProductionEthereumState
+  ): Promise<P2TRProductionEthereumHistoryState> {
+    const normalizedPoint = ethereumPoint(point, "Ethereum journal cursor")
+    if (
+      canonicalJSON(normalizedPoint) ===
+      canonicalJSON(ethereumPoint(canonical.point, "canonical Ethereum point"))
+    ) {
+      return normalizeEthereumHistoryState(
+        canonical,
+        "canonical Ethereum history"
+      )
+    }
+    const [sourceHash, verifierHash, sourceState, verifierState] =
+      await Promise.all([
+        this.dependencies.ethereumSource.getBlockHash(
+          normalizedPoint.blockNumber
+        ),
+        this.dependencies.ethereumVerifier.getBlockHash(
+          normalizedPoint.blockNumber
+        ),
+        this.dependencies.ethereumSource.readHistoryState(
+          normalizedPoint,
+          this.manifest.ethereum.scanStartBlock
+        ),
+        this.dependencies.ethereumVerifier.readHistoryState(
+          normalizedPoint,
+          this.manifest.ethereum.scanStartBlock
+        ),
+      ])
+    const sourceHistory = normalizeEthereumHistoryState(
+      sourceState,
+      "source Ethereum journal history"
+    )
+    const verifierHistory = normalizeEthereumHistoryState(
+      verifierState,
+      "verifier Ethereum journal history"
+    )
+    if (
+      bytes32(sourceHash, "source Ethereum journal cursor") !==
+        normalizedPoint.blockHash ||
+      bytes32(verifierHash, "verifier Ethereum journal cursor") !==
+        normalizedPoint.blockHash ||
+      canonicalJSON(sourceHistory) !== canonicalJSON(verifierHistory) ||
+      canonicalJSON(sourceHistory.point) !== canonicalJSON(normalizedPoint)
+    ) {
+      throw new Error(
+        "Independent Ethereum providers disagree on journal cursor history"
+      )
+    }
+    return sourceHistory
   }
 
   private async readVerifiedBitcoin(): Promise<{
@@ -2072,10 +2154,10 @@ export function assertP2TRProductionBitcoinIndexHealth(
   }
 }
 
-function assertEthereumJournalHealth(
+function assertEthereumJournalCursorHealth(
   actual: P2TRProductionEthereumJournalHealth,
   manifest: Readonly<P2TRProductionActivationManifest>,
-  canonical: P2TRProductionEthereumState
+  canonical: Pick<P2TRProductionEthereumState, "point">
 ): void {
   const expected = manifest.ethereum
   const current = ethereumPoint(actual.current, "Ethereum journal cursor")
@@ -2097,22 +2179,37 @@ function assertEthereumJournalHealth(
     current.blockNumber > canonical.point.blockNumber ||
     canonical.point.blockNumber - current.blockNumber >
       expected.maxJournalLagBlocks ||
+    actual.failureGeneration !== actual.clearedFailureGeneration
+  ) {
+    throw new Error(
+      "Canonical Ethereum journal is incomplete, stale, or unhealthy"
+    )
+  }
+}
+
+export function assertP2TRProductionEthereumJournalHealth(
+  actual: P2TRProductionEthereumJournalHealth,
+  manifest: Readonly<P2TRProductionActivationManifest>,
+  canonical: Pick<P2TRProductionEthereumState, "point">,
+  providerHistory: P2TRProductionEthereumHistoryState
+): void {
+  assertEthereumJournalCursorHealth(actual, manifest, canonical)
+  const current = ethereumPoint(actual.current, "Ethereum journal cursor")
+  const history = normalizeEthereumHistoryState(
+    providerHistory,
+    "provider Ethereum journal history"
+  )
+  if (
+    canonicalJSON(current) !== canonicalJSON(history.point) ||
     bytes32(actual.requiredEventHistoryDigest, "journal event digest") !==
-      bytes32(canonical.requiredEventHistoryDigest, "provider event digest") ||
-    actual.requiredEventCount !== canonical.requiredEventCount ||
+      history.requiredEventHistoryDigest ||
+    actual.requiredEventCount !== history.requiredEventCount ||
     canonicalJSON(
       normalizeEthereumHistoryCoverageCounters(
         actual.requiredEventCoverage,
         "journal receipt coverage"
       )
-    ) !==
-      canonicalJSON(
-        normalizeEthereumHistoryCoverageCounters(
-          canonical.requiredEventCoverage,
-          "provider receipt coverage"
-        )
-      ) ||
-    actual.failureGeneration !== actual.clearedFailureGeneration
+    ) !== canonicalJSON(history.requiredEventCoverage)
   ) {
     throw new Error(
       "Canonical Ethereum journal is incomplete, stale, or unhealthy"
@@ -3264,6 +3361,27 @@ function normalizeEthereumState(
     requiredEventCoverage: normalizeEthereumHistoryCoverageCounters(
       state.requiredEventCoverage,
       "required Ethereum receipt coverage"
+    ),
+  }
+}
+
+function normalizeEthereumHistoryState(
+  state: P2TRProductionEthereumHistoryState,
+  label: string
+): P2TRProductionEthereumHistoryState {
+  return {
+    point: ethereumPoint(state.point, `${label} point`),
+    requiredEventHistoryDigest: bytes32(
+      state.requiredEventHistoryDigest,
+      `${label} digest`
+    ),
+    requiredEventCount: nonNegativeInteger(
+      state.requiredEventCount,
+      `${label} event count`
+    ),
+    requiredEventCoverage: normalizeEthereumHistoryCoverageCounters(
+      state.requiredEventCoverage,
+      `${label} receipt coverage`
     ),
   }
 }

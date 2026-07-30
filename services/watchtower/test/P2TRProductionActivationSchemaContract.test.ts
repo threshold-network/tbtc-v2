@@ -128,6 +128,31 @@ describe("production activation PostgreSQL schema contract", () => {
     assert.doesNotMatch(lock, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(lock, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
   })
+
+  it("binds independently verified history at the local Ethereum cursor", () => {
+    const readiness = methodSource(
+      activationGate,
+      "assertReadyUnderAuthority",
+      "assertCandidateReconciled"
+    )
+    assert.match(
+      readiness,
+      /readVerifiedEthereumHistory\(\s*ethereumHealth\.current,\s*ethereum\s*\)/
+    )
+    assert.match(
+      readiness,
+      /assertP2TRProductionEthereumJournalHealth\([\s\S]*?verifiedEthereumJournalHistory[\s\S]*?mintReadinessCertificate\([\s\S]*?verifiedEthereumJournalHistory/
+    )
+    const verification = methodSource(
+      activationGate,
+      "readVerifiedEthereumHistory",
+      "readVerifiedBitcoin"
+    )
+    assert.match(
+      verification,
+      /ethereumSource\.getBlockHash[\s\S]*?ethereumVerifier\.getBlockHash[\s\S]*?ethereumSource\.readHistoryState[\s\S]*?ethereumVerifier\.readHistoryState/
+    )
+  })
 })
 
 function requiredTableColumns(source: string, table: string): string[] {

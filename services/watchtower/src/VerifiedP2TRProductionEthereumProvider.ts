@@ -10,6 +10,7 @@ import {
   type P2TRActivationLinkedLibraryBinding,
   type P2TRProductionActivationManifest,
   type P2TRProductionEcdsaCutover,
+  type P2TRProductionEthereumHistoryState,
   type P2TRProductionEthereumPoint,
   type P2TRProductionEthereumProvider,
   type P2TRProductionEthereumState,
@@ -268,6 +269,71 @@ export class VerifiedP2TRProductionEthereumProvider
     )
     if (block === null) throw new Error("Ethereum block is absent")
     return block.blockHash
+  }
+
+  async readHistoryState(
+    point: P2TRProductionEthereumPoint,
+    scanStartBlock: number
+  ): Promise<P2TRProductionEthereumHistoryState> {
+    const deadlineAt = Date.now() + this.options.maxActivationReadMs
+    const normalizedPoint = {
+      blockNumber: nonNegativeInteger(
+        point.blockNumber,
+        "Ethereum history block"
+      ),
+      blockHash: bytes32(point.blockHash, "Ethereum history block hash"),
+    }
+    if (scanStartBlock !== this.options.scanStartBlock) {
+      throw new Error("Ethereum activation scan start is not pinned")
+    }
+    const [actualBlock, chainID] = await Promise.all([
+      this.provider.getBlock(normalizedPoint.blockNumber),
+      this.getChainID(),
+    ])
+    if (actualBlock?.blockHash !== normalizedPoint.blockHash) {
+      throw new Error("Ethereum history state point is noncanonical")
+    }
+    if (chainID !== this.options.chainID) {
+      throw new Error("Ethereum activation provider chain ID changed")
+    }
+    const history = await this.options.historyAccumulator.synchronizeTo({
+      provider: this.provider,
+      chainID,
+      checkpoint: this.options.checkpoint,
+      target: normalizedPoint,
+      descriptors: this.options.descriptors,
+      maxTailBlocks: this.options.maxTailBlocks,
+      maxTailTransactions: this.options.maxTailTransactions,
+      maxTailLogs: this.options.maxTailLogs,
+      maxDecodedPayloadBytes: this.options.maxDecodedPayloadBytes,
+      deadlineAt,
+    })
+    if (
+      Date.now() > deadlineAt ||
+      history.complete !== true ||
+      history.processedBlocks > this.options.maxTailBlocks ||
+      history.point.blockNumber !== normalizedPoint.blockNumber ||
+      bytes32(history.point.blockHash, "history accumulator point") !==
+        normalizedPoint.blockHash
+    ) {
+      throw new Error(
+        "Ethereum durable history tail is incomplete, stale, or exceeded its dispatch deadline"
+      )
+    }
+    return {
+      point: normalizedPoint,
+      requiredEventHistoryDigest: bytes32(
+        history.requiredEventHistoryDigest,
+        "Ethereum history accumulator root"
+      ),
+      requiredEventCount: nonNegativeInteger(
+        history.requiredEventCount,
+        "Ethereum history event count"
+      ),
+      requiredEventCoverage: normalizeCoverageCounters(
+        history.coverageCounters
+      ),
+    }
   }
 
   async readActivationState(

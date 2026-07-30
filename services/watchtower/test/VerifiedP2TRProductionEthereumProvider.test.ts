@@ -25,6 +25,29 @@ const point = { blockNumber: 11, blockHash: `0x${"11".repeat(32)}` }
 const code = "0x01"
 
 describe("verified production Ethereum provider", () => {
+  it("reads cursor history without requiring activation state at that point", async () => {
+    const provider = fakeProvider({
+      code: "0x02",
+      parentHash: checkpoint.blockHash,
+    })
+    const history = await configuredProvider(provider).readHistoryState(
+      point,
+      11
+    )
+    assert.deepEqual(history, {
+      point,
+      requiredEventHistoryDigest: `0x${"00".repeat(32)}`,
+      requiredEventCount: 0,
+      requiredEventCoverage: {
+        blocks: 0,
+        transactions: 0,
+        receipts: 0,
+        logs: 0,
+        requiredEvents: 0,
+      },
+    })
+  })
+
   it("hashes runtime code locally and ignores a malicious web3_sha3 answer", async () => {
     let maliciousHashCalls = 0
     const provider = fakeProvider({
