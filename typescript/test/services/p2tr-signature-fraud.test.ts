@@ -108,6 +108,15 @@ type SignatureFraudVectorCorpus = {
   negativeWitnessCases: NegativeWitnessVector[]
 }
 
+type CompleteChallengeEvidenceVectorCorpus = {
+  cases: {
+    id: string
+    walletKey: {
+      encodedEvidence: string
+    }
+  }[]
+}
+
 const vectorCorpusPath = path.resolve(
   __dirname,
   "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
@@ -115,6 +124,10 @@ const vectorCorpusPath = path.resolve(
 const fullSighashVectorCorpusPath = path.resolve(
   __dirname,
   "../../../docs/test-vectors/p2tr-signature-fraud-full-sighash-v0.json"
+)
+const completeChallengeEvidenceVectorCorpusPath = path.resolve(
+  __dirname,
+  "../../../docs/test-vectors/p2tr-complete-v2-challenge-evidence-v1.json"
 )
 
 const loadVectorCorpus = (): SignatureFraudVectorCorpus =>
@@ -127,14 +140,24 @@ const loadFullSighashVectorCorpus = (): { cases: SignatureFraudVector[] } =>
     cases: SignatureFraudVector[]
   }
 
+const loadCompleteChallengeEvidenceVectorCorpus =
+  (): CompleteChallengeEvidenceVectorCorpus =>
+    JSON.parse(
+      fs.readFileSync(completeChallengeEvidenceVectorCorpusPath, "utf8")
+    ) as CompleteChallengeEvidenceVectorCorpus
+
 const withInputWitness = (
   unsignedTransactionHex: string,
   inputIndex: number,
-  witnessSignatureHex: string
+  witnessSignatureHex: string,
+  annexHex?: string
 ): BitcoinRawTx => {
   const transaction = Transaction.fromHex(unsignedTransactionHex)
   transaction.ins[inputIndex].witness = [
     Buffer.from(witnessSignatureHex, "hex"),
+    ...(annexHex === undefined || annexHex.length === 0
+      ? []
+      : [Buffer.from(annexHex, "hex")]),
   ]
 
   return { transactionHex: transaction.toHex() }
@@ -229,6 +252,9 @@ const bridgeChallengeDomain = {
   chainID: 11155111,
   bridgeAddress: "0x1111111111111111111111111111111111111111",
 }
+
+const completeBridgeChallengeEvidenceAbiType =
+  "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
 const createDraftApprovedP2TRWatchtower = (
   store: P2TRWatchtowerChallengeStore,
@@ -883,7 +909,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("encodes Bridge challenge payloads from watchtower observations", () => {
+  it("preserves legacy Bridge challenge encoding for domainless observations", () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -893,11 +919,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observation] = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
       toObservationPrevouts(vector),
-      [vector.walletIDHex],
-      undefined,
-      undefined,
-      undefined,
-      bridgeChallengeDomain
+      [vector.walletIDHex]
     )
     const unsignedTransaction = Transaction.fromHex(
       vector.unsignedTransactionHex
@@ -932,7 +954,65 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("threads a BIP-341 annex through observation, persistence, sighash, and Bridge payload", () => {
+  it("matches COMPLETE_V2 evidence vectors for every supported sighash mode", () => {
+    const completeVectorsByID = new Map(
+      loadCompleteChallengeEvidenceVectorCorpus().cases.map((vector) => [
+        vector.id,
+        vector.walletKey.encodedEvidence,
+      ])
+    )
+
+    for (const vector of loadFullSighashVectorCorpus().cases) {
+      const expectedEvidence = completeVectorsByID.get(vector.id)
+      if (expectedEvidence === undefined) {
+        throw new Error(`Missing COMPLETE_V2 evidence vector ${vector.id}`)
+      }
+
+      const signedRawTransaction = withInputWitness(
+        vector.unsignedTransactionHex,
+        vector.signedInputIndex,
+        vector.witnessSignatureHex,
+        vector.annexHex
+      )
+      const transaction = Transaction.fromHex(
+        signedRawTransaction.transactionHex
+      )
+      vector.prevouts.forEach((prevout, inputIndex) => {
+        if (
+          inputIndex !== vector.signedInputIndex &&
+          extractP2TRWalletIDFromScriptPubKey(prevout.scriptPubKeyHex)?.equals(
+            Hex.from(vector.walletIDHex)
+          )
+        ) {
+          transaction.ins[inputIndex].witness = [
+            Buffer.from(vector.witnessSignatureHex, "hex"),
+          ]
+        }
+      })
+      const observations = extractP2TRSignatureFraudWitnessObservations(
+        { transactionHex: transaction.toHex() },
+        toObservationPrevouts(vector),
+        [vector.walletIDHex],
+        undefined,
+        undefined,
+        undefined,
+        bridgeChallengeDomain
+      )
+      const observation = observations.find(
+        ({ inputIndex }) => inputIndex === vector.signedInputIndex
+      )
+      if (observation === undefined) {
+        throw new Error(`Missing signed observation ${vector.id}`)
+      }
+      const encodedEvidence =
+        encodeP2TRSignatureFraudBridgeChallengePayload(observation)
+
+      expect(encodedEvidence, vector.id).to.equal(expectedEvidence)
+      expect(utils.arrayify(encodedEvidence), vector.id).to.have.lengthOf(224)
+    }
+  })
+
+  it("threads a BIP-341 annex through persistence and COMPLETE_V2 evidence", () => {
     const vectors = loadFullSighashVectorCorpus().cases
     const vector = vectors.find(
       ({ id }) => id === "bip341-keypath-default-with-annex"
@@ -1000,11 +1080,16 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(restored.annex?.toString()).to.equal(vector.annexHex)
     expect(payload.annex).to.equal(`0x${vector.annexHex}`)
 
-    const [decodedPayload] = utils.defaultAbiCoder.decode(
-      [P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE],
+    const encodedEvidence =
       encodeP2TRSignatureFraudBridgeChallengePayload(restored)
+    expect(utils.arrayify(encodedEvidence)).to.have.lengthOf(224)
+    const [decodedEvidence] = utils.defaultAbiCoder.decode(
+      [completeBridgeChallengeEvidenceAbiType],
+      encodedEvidence
     )
-    expect(decodedPayload.annex).to.equal(`0x${vector.annexHex}`)
+    expect(decodedEvidence.sighash).to.equal(
+      `0x${vector.expectedBip341SighashHex}`
+    )
   })
 
   it("validates stored observations against reconstructed witness data", () => {
@@ -1770,15 +1855,94 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(calls[0].walletMembersIDs).to.deep.equal([])
     expect(calls[0].value.toString()).to.equal("1234")
 
-    const [decodedPayload] = utils.defaultAbiCoder.decode(
-      [P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE],
+    expect(utils.arrayify(calls[0].payload)).to.have.lengthOf(224)
+    const [decodedEvidence] = utils.defaultAbiCoder.decode(
+      [completeBridgeChallengeEvidenceAbiType],
       calls[0].payload
     )
-    expect(decodedPayload.walletID).to.equal(`0x${vector.walletIDHex}`)
-    expect(decodedPayload.annex).to.equal("0x")
-    expect(decodedPayload.witnessSignature).to.equal(
-      `0x${vector.witnessSignatureHex}`
+    expect(decodedEvidence.walletID).to.equal(`0x${vector.walletIDHex}`)
+    expect(decodedEvidence.signingKey).to.equal(`0x${vector.walletIDHex}`)
+    expect(decodedEvidence.bindingTxHash).to.equal(constants.HashZero)
+    expect(decodedEvidence.bindingOutputIndex).to.equal(0)
+    expect(decodedEvidence.sighash).to.equal(
+      `0x${vector.expectedBip341SighashHex}`
     )
+    expect(decodedEvidence.nonceX).to.equal(
+      `0x${vector.bip340SignatureHex.slice(0, 64)}`
+    )
+    expect(decodedEvidence.signatureScalar).to.equal(
+      `0x${vector.bip340SignatureHex.slice(64)}`
+    )
+  })
+
+  it("rejects domainless COMPLETE_V2 submissions before contract access", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex]
+    )
+    let contractAccesses = 0
+    const submitter = new P2TRSignatureFraudBridgeChallengeSubmitter({
+      async fraudParameters() {
+        contractAccesses++
+        return { fraudChallengeDepositAmount: 1 }
+      },
+      async processP2TRSignatureFraudChallenge() {
+        contractAccesses++
+        return { hash: txHash("6") }
+      },
+    })
+
+    await expectWitnessRejection(
+      () => submitter.submitSignatureFraudChallenge(observation),
+      "invalid-watchtower-state"
+    )
+    expect(contractAccesses).to.equal(0)
+  })
+
+  it("rejects inconsistent COMPLETE_V2 keys before contract access", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    let contractAccesses = 0
+    const submitter = new P2TRSignatureFraudBridgeChallengeSubmitter({
+      async fraudParameters() {
+        contractAccesses++
+        return { fraudChallengeDepositAmount: 1 }
+      },
+      async processP2TRSignatureFraudChallenge() {
+        contractAccesses++
+        return { hash: txHash("6") }
+      },
+    })
+
+    await expectWitnessRejection(
+      () =>
+        submitter.submitSignatureFraudChallenge({
+          ...observation,
+          bridgeChallengeKey: Hex.from(txHash("0")),
+        }),
+      "invalid-observation-payload"
+    )
+    expect(contractAccesses).to.equal(0)
   })
 
   it("rejects zero-confirmation Bridge submissions", () => {
@@ -5421,6 +5585,20 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(observation.bridgeChallengeIdentity.equals(expectedIdentity)).to.be
       .true
     expect(observation.bridgeChallengeKey?.equals(expectedIdentity)).to.be.true
+    const encodedEvidence =
+      encodeP2TRSignatureFraudBridgeChallengePayload(observation)
+    expect(utils.arrayify(encodedEvidence)).to.have.lengthOf(224)
+    const [decodedEvidence] = utils.defaultAbiCoder.decode(
+      [completeBridgeChallengeEvidenceAbiType],
+      encodedEvidence
+    )
+    expect(decodedEvidence.walletID).to.equal(`0x${vector.walletIDHex}`)
+    expect(decodedEvidence.signingKey).to.equal(`0x${depositOutputKey}`)
+    expect(decodedEvidence.bindingTxHash).to.equal(`0x${signedPrevout.txidHex}`)
+    expect(decodedEvidence.bindingOutputIndex).to.equal(signedPrevout.vout)
+    expect(decodedEvidence.sighash).to.equal(
+      observation.sighash.toPrefixedString()
+    )
 
     expect(
       extractP2TRWalletInputWitnessCandidates(

@@ -519,8 +519,25 @@ export type P2TRSignatureFraudBridgeChallengePayload = {
   annex: string
 }
 
+/**
+ * Legacy variable-length challenge payload retained for domainless encoder
+ * compatibility. COMPLETE_V2 submissions use fixed-size evidence instead.
+ */
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE =
   "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"
+
+type P2TRSignatureFraudCompleteBridgeChallengeEvidence = {
+  walletID: string
+  signingKey: string
+  bindingTxHash: string
+  bindingOutputIndex: number
+  sighash: string
+  nonceX: string
+  signatureScalar: string
+}
+
+const P2TR_SIGNATURE_FRAUD_COMPLETE_BRIDGE_CHALLENGE_EVIDENCE_ABI_TYPE =
+  "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
 export type P2TRSignatureFraudBridgeFraudParameters = {
   fraudChallengeDepositAmount?: BigNumberish
@@ -3488,9 +3505,9 @@ export const computeP2TRSignatureFraudBridgeChallengeKey = (
 ): Hex =>
   toBytes32Hex(challenge.bridgeChallengeIdentity, "Bridge challenge identity")
 
-export const buildP2TRSignatureFraudBridgeChallengePayload = (
+const parseP2TRSignatureFraudBridgeChallengeTransaction = (
   observation: P2TRSignatureFraudWitnessObservation
-): P2TRSignatureFraudBridgeChallengePayload => {
+): Transaction => {
   const transaction = Transaction.fromHex(
     observation.unsignedTransaction.transactionHex
   )
@@ -3512,6 +3529,15 @@ export const buildP2TRSignatureFraudBridgeChallengePayload = (
       "Input index is outside the transaction input vector"
     )
   }
+
+  return transaction
+}
+
+export const buildP2TRSignatureFraudBridgeChallengePayload = (
+  observation: P2TRSignatureFraudWitnessObservation
+): P2TRSignatureFraudBridgeChallengePayload => {
+  const transaction =
+    parseP2TRSignatureFraudBridgeChallengeTransaction(observation)
 
   return {
     walletID: utils.hexlify(
@@ -3541,13 +3567,90 @@ export const buildP2TRSignatureFraudBridgeChallengePayload = (
   }
 }
 
+const buildP2TRSignatureFraudCompleteBridgeChallengeEvidence = (
+  observation: P2TRSignatureFraudWitnessObservation
+): P2TRSignatureFraudCompleteBridgeChallengeEvidence => {
+  const transaction =
+    parseP2TRSignatureFraudBridgeChallengeTransaction(observation)
+  const walletID = toBytes32Hex(observation.walletID, "Wallet ID")
+  const signingKey = extractP2TRWalletIDFromScriptPubKey(
+    observation.scriptPubKey
+  )
+  if (signingKey === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Taproot wallet input must expose a signing key"
+    )
+  }
+
+  const signature = toBuffer(observation.signature)
+  if (signature.length !== 64) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "BIP-340 signature must be 64 bytes"
+    )
+  }
+
+  if (
+    observation.bridgeChallengeKey !== undefined &&
+    !toBytes32Hex(
+      observation.bridgeChallengeKey,
+      "Bridge challenge key"
+    ).equals(
+      toBytes32Hex(
+        observation.bridgeChallengeIdentity,
+        "Bridge challenge identity"
+      )
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "COMPLETE_V2 challenge key must equal its Bridge challenge identity"
+    )
+  }
+
+  const signedInput = transaction.ins[observation.inputIndex]
+  const usesBaseWalletKey = signingKey.equals(walletID)
+
+  return {
+    walletID: walletID.toPrefixedString(),
+    signingKey: signingKey.toPrefixedString(),
+    bindingTxHash: usesBaseWalletKey
+      ? constants.HashZero
+      : BitcoinTxHash.from(signedInput.hash).reverse().toPrefixedString(),
+    bindingOutputIndex: usesBaseWalletKey ? 0 : signedInput.index,
+    sighash: toBytes32Hex(
+      observation.sighash,
+      "BIP-341 sighash"
+    ).toPrefixedString(),
+    nonceX: utils.hexlify(signature.subarray(0, 32)),
+    signatureScalar: utils.hexlify(signature.subarray(32)),
+  }
+}
+
+/**
+ * Encodes fixed-size COMPLETE_V2 evidence for domain-bound observations.
+ * Domainless observations retain the legacy encoding for callers that only
+ * use this helper; the COMPLETE_V2 submitter rejects them before contract
+ * access because they have no on-chain challenge identity.
+ * @param observation Parsed witness observation to encode.
+ * @returns ABI-encoded COMPLETE_V2 evidence or legacy domainless payload.
+ */
 export const encodeP2TRSignatureFraudBridgeChallengePayload = (
   observation: P2TRSignatureFraudWitnessObservation
-): string =>
-  utils.defaultAbiCoder.encode(
+): string => {
+  if (observation.bridgeChallengeKey !== undefined) {
+    return utils.defaultAbiCoder.encode(
+      [P2TR_SIGNATURE_FRAUD_COMPLETE_BRIDGE_CHALLENGE_EVIDENCE_ABI_TYPE],
+      [buildP2TRSignatureFraudCompleteBridgeChallengeEvidence(observation)]
+    )
+  }
+
+  return utils.defaultAbiCoder.encode(
     [P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE],
     [buildP2TRSignatureFraudBridgeChallengePayload(observation)]
   )
+}
 
 const resolveP2TRSignatureFraudChallengeDepositAmount = (
   fraudParameters: P2TRSignatureFraudBridgeFraudParameters
@@ -3579,7 +3682,9 @@ const validateP2TRSignatureFraudBridgeTxHash = (txHash: string): string => {
 }
 
 /**
- * Manual low-level Router adapter for explicitly submitted fraud challenges.
+ * Manual low-level COMPLETE_V2 Router adapter for explicitly submitted fraud
+ * challenges. Only domain-bound observations are accepted because their Bridge
+ * identity is the router's challenge key and lifecycle correlation key.
  *
  * This class is not an automatic production watchtower path and does not
  * activate the bounded/no-go FROST fraud layer. Callers remain responsible for
@@ -3623,10 +3728,18 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
     observation: P2TRSignatureFraudWitnessObservation,
     options?: P2TRSignatureFraudChallengeSubmissionOptions
   ): Promise<string> {
+    if (observation.bridgeChallengeKey === undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "COMPLETE_V2 submission requires a domain-bound Bridge challenge key"
+      )
+    }
+
+    const payload = encodeP2TRSignatureFraudBridgeChallengePayload(observation)
     const challengeDepositAmount = await this.challengeDepositAmount()
     const tx = await this.bridge.processP2TRSignatureFraudChallenge(
       P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT,
-      encodeP2TRSignatureFraudBridgeChallengePayload(observation),
+      payload,
       [],
       { value: challengeDepositAmount }
     )

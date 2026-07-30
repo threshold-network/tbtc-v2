@@ -11,7 +11,6 @@ import {
   extractP2TRSignatureFraudWitnessObservations,
   deserializeP2TRWatchtowerChallengeRecord,
   P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT,
-  P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
   P2TRSignatureFraudBridgeChallengeSubmitter,
   P2TRSignatureFraudChallengeSubmitter,
@@ -64,6 +63,12 @@ const requireVector = (id: string): SignatureFraudVector => {
 const annexVector = requireVector("bip341-keypath-default-with-annex")
 const inputZeroVector = requireVector("bip341-keypath-none-multi")
 const inputTwoVector = requireVector("bip341-keypath-single-multi")
+const bridgeChallengeDomain = {
+  chainID: 11155111,
+  bridgeAddress: "0x1111111111111111111111111111111111111111",
+}
+const completeBridgeChallengeEvidenceAbiType =
+  "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
 const buildAnnexTransaction = (): BitcoinRawTx => {
   if (annexVector.annexHex === undefined) {
@@ -177,10 +182,7 @@ const createWatchtower = (store: P2TRWatchtowerChallengeReplayStore) =>
     undefined,
     () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
     undefined,
-    {
-      chainID: 11155111,
-      bridgeAddress: "0x1111111111111111111111111111111111111111",
-    }
+    bridgeChallengeDomain
   )
 
 const extractAnnexObservation = (): P2TRSignatureFraudWitnessObservation => {
@@ -189,7 +191,9 @@ const extractAnnexObservation = (): P2TRSignatureFraudWitnessObservation => {
     toObservationPrevouts(),
     [annexVector.walletIDHex],
     undefined,
-    () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+    () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+    undefined,
+    bridgeChallengeDomain
   ).find(({ inputIndex }) => inputIndex === annexVector.signedInputIndex)
 
   if (observation === undefined) {
@@ -247,7 +251,7 @@ describe("P2TR signature-fraud bounded/no-go submission boundary", () => {
     expect(submitter.calls).to.equal(0)
   })
 
-  it("keeps the explicit low-level submitter available with annex-bearing calldata", async () => {
+  it("keeps the explicit COMPLETE_V2 submitter available for annex evidence", async () => {
     const observation = extractAnnexObservation()
     const calls: {
       action: number
@@ -281,8 +285,9 @@ describe("P2TR signature-fraud bounded/no-go submission boundary", () => {
     )
 
     const txHash = await submitter.submitSignatureFraudChallenge(observation)
-    const [decodedPayload] = utils.defaultAbiCoder.decode(
-      [P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE],
+    expect(utils.arrayify(calls[0].payload)).to.have.lengthOf(224)
+    const [decodedEvidence] = utils.defaultAbiCoder.decode(
+      [completeBridgeChallengeEvidenceAbiType],
       calls[0].payload
     )
 
@@ -291,9 +296,9 @@ describe("P2TR signature-fraud bounded/no-go submission boundary", () => {
     expect(calls[0].action).to.equal(P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT)
     expect(calls[0].walletMembersIDs).to.deep.equal([])
     expect(String(calls[0].value)).to.equal("17")
-    expect(decodedPayload.annex).to.equal(`0x${annexVector.annexHex}`)
-    expect(decodedPayload.signedInputIndex).to.equal(
-      annexVector.signedInputIndex
+    expect(observation.annex?.toString()).to.equal(annexVector.annexHex)
+    expect(decodedEvidence.sighash).to.equal(
+      observation.sighash.toPrefixedString()
     )
   })
 
