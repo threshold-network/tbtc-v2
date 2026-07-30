@@ -43,6 +43,7 @@ import {
   P2TRSignatureFraudChallengeOutboxScheduler,
   P2TRSignatureFraudChallengeOutboxStatus,
   P2TRSignatureFraudChallengeOutboxStore,
+  P2TRSignatureFraudIndependentSignerBoundaryResolution,
   P2TRSignatureFraudLegacySubmissionQuarantine,
   P2TRSignatureFraudIndependentNonceReleaseResolution,
   P2TRSignatureFraudAmbiguousNonceReleaseInvocation,
@@ -75,8 +76,10 @@ import {
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
+  computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
   invalidateP2TRSignatureFraudCanonicalProvenance,
   quarantineLegacyP2TRSignatureFraudSubmissions,
+  validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
 import {
   computeP2TRSignatureFraudSignerInvocationID,
@@ -2955,6 +2958,20 @@ test("enforces manifest-bound fee and exact value caps at every boundary", async
   )
   assert.equal(overGas.status, "quarantined")
 
+  // A low gas limit can be a perfectly valid EIP-1559 envelope while still
+  // guaranteeing an out-of-gas failure after the reserved nonce is consumed.
+  // The signer must use the manifest's exact challenge execution budget.
+  const underGasStore = new InMemoryOutboxStore()
+  const underGasRecord = await enqueue(underGasStore)
+  const underGasPreparer = new DynamicFeePreparer()
+  underGasPreparer.initialGasLimit = 21_000
+  const underGas = await dispatcher(underGasStore, underGasPreparer).prepare(
+    underGasRecord.recordID,
+    "worker"
+  )
+  assert.equal(underGas.status, "quarantined")
+  assert.match(underGas.lastError ?? "", /exact manifest-bound gas limit/)
+
   const wrongValueStore = new InMemoryOutboxStore()
   const wrongValueRecord = await enqueue(wrongValueStore)
   const wrongValuePreparer = new DynamicFeePreparer()
@@ -4100,5 +4117,77 @@ test("refuses a reconciler whose finality depth is below consensus finality", as
       new FixedRechecker(),
       deeper
     )
+  )
+})
+
+test("requires consensus finality for direct orphaned-boundary nonce evidence", () => {
+  const build = (
+    observedHeadBlockNumber: number
+  ): P2TRSignatureFraudIndependentSignerBoundaryResolution => {
+    const binding = {
+      recordID: `0x${"a1".repeat(32)}`,
+      signerInvocationID: `0x${"a2".repeat(32)}`,
+      boundaryStartedAtUnixMs: 1_000,
+      preparationAttempts: 1,
+      nonceReservationID: `0x${"a3".repeat(32)}`,
+      stage: "prepare" as const,
+      invokedAtUnixMs: 1_100,
+      outcome: "nonce-consumed" as const,
+      nonceConsumption: {
+        chainID: 11155111,
+        sender: TRANSACTION_SENDER,
+        transactionNonce: 7,
+        finalizedAccountNonce: 8,
+        accountNonceReadAtBlock: 500,
+        consumingTransaction: {
+          transactionHash: `0x${"a4".repeat(32)}`,
+          sender: TRANSACTION_SENDER,
+          nonce: 7,
+          blockNumber: 480,
+          blockHash: `0x${"a5".repeat(32)}`,
+        },
+        finalizedThrough: {
+          blockNumber: 500,
+          blockHash: `0x${"a6".repeat(32)}`,
+        },
+        observedHead: {
+          blockNumber: observedHeadBlockNumber,
+          blockHash: `0x${"a7".repeat(32)}`,
+        },
+      },
+      providerEvidenceDigest: `0x${"a8".repeat(32)}`,
+    }
+    const evidenceDigest =
+      computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest(binding)
+    return {
+      ...binding,
+      evidenceDigest,
+      canonicalAttestations: [
+        {
+          trustDomainID: "primary",
+          independenceDomainID: "primary-infra",
+          evidenceDigest,
+          attestation: "0x01",
+          attestedAtUnixMs: 1_200,
+        },
+        {
+          trustDomainID: "corroborating",
+          independenceDomainID: "corroborating-infra",
+          evidenceDigest,
+          attestation: "0x02",
+          attestedAtUnixMs: 1_200,
+        },
+      ],
+      resolvedAtUnixMs: 1_300,
+    }
+  }
+
+  assert.throws(
+    () =>
+      validateP2TRSignatureFraudIndependentSignerBoundaryResolution(build(563)),
+    /finality depth must be at least 64 blocks/
+  )
+  assert.ok(
+    validateP2TRSignatureFraudIndependentSignerBoundaryResolution(build(564))
   )
 })
