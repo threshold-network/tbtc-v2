@@ -392,6 +392,9 @@ function candidateStateStore(
 ): P2TRProductionStateStore {
   return {
     p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+    async lockReadinessSnapshot() {
+      throw new Error("unused test dependency")
+    },
     async readBitcoinIndexHealth() {
       throw new Error("unused test dependency")
     },
@@ -400,6 +403,9 @@ function candidateStateStore(
     },
     async readRuntimeAlertHealth() {
       return healthFor(journal)
+    },
+    async mintReadinessCertificate() {
+      throw new Error("unused test dependency")
     },
     async assertCandidateIndexed() {},
     async issueCandidateAuthorization() {
@@ -457,21 +463,29 @@ function gateForCandidate(
   token: P2TRProductionCandidateAuthorizationToken
   candidate: P2TRProductionBitcoinCandidateIdentity
 } {
-  const candidate: P2TRProductionBitcoinCandidateIdentity = {
+  const transactionIdentity = {
     txid: "55".repeat(32),
     wtxid: "66".repeat(32),
     blockHeight: 840_000,
     blockHash: "77".repeat(32),
   }
-  const normalized: P2TRProductionBitcoinCandidate = {
-    observationID: deriveP2TRProductionCandidateObservationID(candidate),
-    ...candidate,
+  const candidate: P2TRProductionBitcoinCandidateIdentity = {
+    ...transactionIdentity,
+    inputIndex: 0,
+    observationID:
+      deriveP2TRProductionCandidateObservationID(transactionIdentity),
+    challengeKey: `0x${"99".repeat(32)}`,
   }
+  const normalized: P2TRProductionBitcoinCandidate = candidate
   const receipt: P2TRProductionCandidateAuthorizationReceipt = {
     tokenID: TOKEN_ID,
     manifestHash: MANIFEST_HASH,
     candidateDigest: hashCandidate(normalized),
     candidate: normalized,
+    readinessCertificate: {
+      certificateID: `0x${"aa".repeat(32)}`,
+      generation: 1,
+    },
     verifiedBitcoin: {
       height: candidate.blockHeight,
       hash: candidate.blockHash,

@@ -951,11 +951,11 @@ export class P2TRProductionActivationGate {
             ethereumHealth,
             runtimeAlertHealth,
           ] = await Promise.all([
-              this.dependencies.migrations.listAppliedMigrations(),
-              this.dependencies.stateStore.readBitcoinIndexHealth(),
-              this.dependencies.stateStore.readEthereumJournalHealth(),
-              this.dependencies.stateStore.readRuntimeAlertHealth(),
-            ])
+            this.dependencies.migrations.listAppliedMigrations(),
+            this.dependencies.stateStore.readBitcoinIndexHealth(),
+            this.dependencies.stateStore.readEthereumJournalHealth(),
+            this.dependencies.stateStore.readRuntimeAlertHealth(),
+          ])
           assertEthereumJournalCursorHealth(
             ethereumHealth,
             this.manifest,
