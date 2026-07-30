@@ -1846,19 +1846,11 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         nonce_consumption_finalized_block_hash IS NULL
         OR octet_length(nonce_consumption_finalized_block_hash) = 32
     ),
-    nonce_consumption_observed_head_block_number bigint CHECK (
-        nonce_consumption_observed_head_block_number IS NULL
-        OR nonce_consumption_observed_head_block_number >= 0
-    ),
-    nonce_consumption_observed_head_block_hash bytea CHECK (
-        nonce_consumption_observed_head_block_hash IS NULL
-        OR octet_length(nonce_consumption_observed_head_block_hash) = 32
-    ),
     CHECK (
         (outcome = 'nonce-consumed')
             = (nonce_consumption_transaction_hash IS NOT NULL)
     ),
-    -- All nonce-consumption fields move together or none of them do.
+    -- All seven move together or none of them do.
     CHECK (
         (nonce_consumption_transaction_hash IS NULL)
             = (nonce_consumption_chain_id IS NULL)
@@ -1872,10 +1864,6 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
             = (nonce_consumption_finalized_block_number IS NULL)
         AND (nonce_consumption_transaction_hash IS NULL)
             = (nonce_consumption_finalized_block_hash IS NULL)
-        AND (nonce_consumption_transaction_hash IS NULL)
-            = (nonce_consumption_observed_head_block_number IS NULL)
-        AND (nonce_consumption_transaction_hash IS NULL)
-            = (nonce_consumption_observed_head_block_hash IS NULL)
     ),
     -- Strictly past the reserved nonce: equality would mean N is still spendable.
     CHECK (
@@ -1887,13 +1875,6 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         nonce_consumption_read_at_block IS NULL
         OR nonce_consumption_read_at_block
             = nonce_consumption_finalized_block_number
-    ),
-    -- The observed head is attestation-bound and must put the state-read
-    -- boundary at least two epochs behind it before nonce bytes become inert.
-    CHECK (
-        nonce_consumption_observed_head_block_number IS NULL
-        OR nonce_consumption_observed_head_block_number
-            - nonce_consumption_finalized_block_number >= 64
     ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
@@ -2039,7 +2020,7 @@ BEGIN
 
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
-               'tbtc-p2tr-signer-boundary-independent-resolution-v5',
+               'tbtc-p2tr-signer-boundary-independent-resolution-v4',
                'UTF8'
            )
            || NEW.record_id
@@ -2076,16 +2057,6 @@ BEGIN
               )
            || COALESCE(
                   NEW.nonce_consumption_finalized_block_hash,
-                  decode(repeat('00', 32), 'hex')
-              )
-           || int8send(
-                  COALESCE(
-                      NEW.nonce_consumption_observed_head_block_number,
-                      0
-                  )
-              )
-           || COALESCE(
-                  NEW.nonce_consumption_observed_head_block_hash,
                   decode(repeat('00', 32), 'hex')
               )
        ) THEN

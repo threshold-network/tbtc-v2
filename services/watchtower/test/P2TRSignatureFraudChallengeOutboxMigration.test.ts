@@ -18,6 +18,15 @@ const lateArtifactMigrationSource = readFileSync(
   "utf8"
 )
 const lateArtifactMigration = lateArtifactMigrationSource.replace(/\s+/g, " ")
+const nonceFinalityMigrationURL = new URL(
+  "006_p2tr_signer_boundary_nonce_finality.sql",
+  migrationsURL
+)
+const nonceFinalityMigrationSource = readFileSync(
+  nonceFinalityMigrationURL,
+  "utf8"
+)
+const nonceFinalityMigration = nonceFinalityMigrationSource.replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -51,9 +60,14 @@ test("leaves transaction ownership to the ordered migration runner", () => {
   const lateArtifactIndex = orderedMigrations.indexOf(
     "005_p2tr_signer_boundary_late_artifact.sql"
   )
+  const nonceFinalityIndex = orderedMigrations.indexOf(
+    "006_p2tr_signer_boundary_nonce_finality.sql"
+  )
   assert.notEqual(challengeOutboxIndex, -1)
   assert.notEqual(lateArtifactIndex, -1)
+  assert.notEqual(nonceFinalityIndex, -1)
   assert.ok(challengeOutboxIndex < lateArtifactIndex)
+  assert.ok(lateArtifactIndex < nonceFinalityIndex)
   if (canonicalJournalIndex !== -1) {
     assert.ok(canonicalJournalIndex < challengeOutboxIndex)
   }
@@ -661,7 +675,27 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
   )
-  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v5/)
+  // Migration 003 is immutable because the runner checksum-tracks its exact
+  // published bytes. The v5 digest and its observed-head columns are appended
+  // by migration 006 for both fresh databases and upgrades.
+  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v4/)
+  assert.doesNotMatch(migration, /nonce_consumption_observed_head/)
+  assert.match(
+    nonceFinalityMigration,
+    /ADD COLUMN nonce_consumption_observed_head_block_number bigint/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ADD COLUMN nonce_consumption_observed_head_block_hash bytea/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_guard_signer_boundary_resolution\(\)/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /tbtc-p2tr-signer-boundary-independent-resolution-v5/
+  )
   // The deterministic invocation ID is the row identity, so evidence can never
   // speak for a boundary other than the one it names — and unlike the wall-clock
   // tuple it replaced, it cannot drift while the boundary is open.
@@ -692,8 +726,12 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   )
   assert.match(migration, /nonce consumption names another sender lane/)
   assert.match(
-    migration,
+    nonceFinalityMigration,
     /nonce_consumption_observed_head_block_number\s+- nonce_consumption_finalized_block_number >= 64/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /p2tr_signer_boundary_nonce_finality_v5[\s\S]*NOT VALID/
   )
   assert.match(
     migration,
