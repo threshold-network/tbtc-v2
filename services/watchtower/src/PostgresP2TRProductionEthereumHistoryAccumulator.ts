@@ -554,7 +554,7 @@ export class PostgresP2TRProductionEthereumHistoryAccumulator
         WHERE accumulator_id = $1 AND block_number < $2
         ORDER BY block_number DESC
         LIMIT $3`,
-      [this.storeID, cursor.currentBlockNumber, this.maxReorgDepth + 1]
+      [this.storeID, cursor.currentBlockNumber, this.maxReorgDepth]
     )
     let ancestor: NormalizedAccumulatorBlock | undefined
     for (const row of candidates.rows) {

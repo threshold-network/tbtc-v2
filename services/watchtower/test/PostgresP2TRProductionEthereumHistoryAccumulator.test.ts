@@ -94,6 +94,42 @@ describe("durable production Ethereum history accumulator", () => {
     )
   })
 
+  it("fails closed when a reorg exceeds the configured rollback depth", async () => {
+    const harness = reorgAccumulatorHarness(2)
+
+    await assert.rejects(
+      harness.accumulator.synchronizeTo(request(harness.provider, 3, 3)),
+      /Ethereum history reorg exceeds its configured bound/
+    )
+    assert.equal(
+      harness.queries.some(({ sql }) =>
+        sql.includes("DELETE FROM p2tr_ethereum_history_accumulator_blocks")
+      ),
+      false
+    )
+  })
+
+  it("rolls back a reorg at exactly the configured depth", async () => {
+    const harness = reorgAccumulatorHarness(1)
+
+    const result = await harness.accumulator.synchronizeTo(
+      request(harness.provider, 3, 3)
+    )
+
+    assert.deepEqual(result.point, {
+      blockNumber: 3,
+      blockHash: harness.provider.testBlocks[3].blockHash,
+    })
+    assert.equal(result.processedBlocks, 1)
+    assert.equal(result.complete, true)
+    assert.equal(
+      harness.queries.some(({ sql }) =>
+        sql.includes("DELETE FROM p2tr_ethereum_history_accumulator_blocks")
+      ),
+      true
+    )
+  })
+
   it("destroys the database session when COMMIT outcome is ambiguous", async () => {
     const commitFailure = new Error("connection lost during commit")
     const harness = existingAccumulatorHarness({ commitFailure })
@@ -199,6 +235,89 @@ function existingAccumulatorHarness(options?: { commitFailure?: Error }) {
   }
 }
 
+function reorgAccumulatorHarness(commonAncestorDepth: number) {
+  const queries: { sql: string; values?: readonly unknown[] }[] = []
+  const descriptors = eventDescriptors()
+  const provider = providerFor([], [])
+  const storedBlocks = provider.testBlocks
+    .slice(0, 4)
+    .map((block) => structuredClone(block))
+  const commonAncestor = 3 - commonAncestorDepth
+  for (let blockNumber = commonAncestor + 1; blockNumber <= 3; blockNumber++) {
+    provider.testBlocks[blockNumber] = canonicalEmptyBlock(
+      blockNumber,
+      provider.testBlocks[blockNumber - 1].blockHash,
+      10_000 + blockNumber
+    )
+  }
+  let accumulator!: PostgresP2TRProductionEthereumHistoryAccumulator
+  const candidateRows = storedBlocks
+    .slice(1, 3)
+    .reverse()
+    .map((block) => ({
+      block_number: block.blockNumber,
+      block_hash: block.blockHash,
+      history_root: initialRoot(),
+      required_event_count: 0,
+      cumulative_block_count: block.blockNumber,
+      cumulative_transaction_count: 0,
+      cumulative_receipt_count: 0,
+      cumulative_log_count: 0,
+    }))
+  const client: P2TRPostgresClient = {
+    query: async <Row>(sql: string, values?: readonly unknown[]) => {
+      queries.push({ sql, values })
+      if (sql.includes("pg_control_system()")) {
+        return result<Row>([databaseIdentityRow() as Row])
+      }
+      if (
+        sql.startsWith("BEGIN") ||
+        sql.includes("set_config") ||
+        sql.includes("pg_advisory")
+      ) {
+        return result<Row>()
+      }
+      if (sql.includes("FROM p2tr_ethereum_history_accumulators")) {
+        return result<Row>([
+          {
+            accumulator_id: "history-a",
+            store_fingerprint: accumulator.storeFingerprint,
+            chain_id: 1,
+            descriptor_set_hash:
+              computeP2TRCanonicalEthereumDescriptorSetHash(descriptors),
+            checkpoint_block_number: 0,
+            checkpoint_block_hash: storedBlocks[0].blockHash,
+            current_block_number: 3,
+            current_block_hash: storedBlocks[3].blockHash,
+            history_root: initialRoot(),
+            required_event_count: 0,
+            cumulative_block_count: 3,
+            cumulative_transaction_count: 0,
+            cumulative_receipt_count: 0,
+            cumulative_log_count: 0,
+          } as Row,
+        ])
+      }
+      if (
+        sql.includes("FROM p2tr_ethereum_history_accumulator_blocks") &&
+        sql.includes("block_number < $2")
+      ) {
+        return result<Row>(candidateRows.slice(0, Number(values?.[2])) as Row[])
+      }
+      if (sql.startsWith("UPDATE p2tr_ethereum_history_accumulators")) {
+        return result<Row>([], 1)
+      }
+      return result<Row>([], 1)
+    },
+    release: () => undefined,
+  }
+  accumulator = new PostgresP2TRProductionEthereumHistoryAccumulator(
+    { connect: async () => client },
+    accumulatorOptions(1)
+  )
+  return { accumulator, provider, queries }
+}
+
 function request(
   provider: TestProvider,
   targetBlock: number,
@@ -269,7 +388,7 @@ function eventDescriptors(): P2TRCanonicalEthereumEventDescriptor[] {
   }))
 }
 
-function accumulatorOptions() {
+function accumulatorOptions(maxReorgDepth = 12) {
   return {
     storeID: "history-a",
     databaseIdentity: {
@@ -280,7 +399,7 @@ function accumulatorOptions() {
       databaseName: "watchtower_history_a",
       currentRole: "watchtower_history_reader",
     },
-    maxReorgDepth: 12,
+    maxReorgDepth,
   }
 }
 
