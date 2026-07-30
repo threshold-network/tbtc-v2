@@ -74,7 +74,7 @@ type TestDatabase = {
 
 async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
-  migrationCount = 5
+  migrationCount = 6
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   await client.connect()
@@ -3162,7 +3162,7 @@ async function orphanedSignerBoundary(
 }
 
 postgresTest(
-  "replays grandfathered v4 signer-boundary evidence after migration 005",
+  "replays grandfathered v4 signer-boundary evidence after migration 006",
   async () => {
     const database = await createTestDatabase(1_024, 4)
     const { boundary } = await orphanedSignerBoundary(database, 209)
@@ -3187,7 +3187,7 @@ postgresTest(
     await database.client.query(
       await readFile(
         new URL(
-          "../migrations/005_p2tr_signer_boundary_nonce_finality.sql",
+          "../migrations/006_p2tr_signer_boundary_nonce_finality.sql",
           import.meta.url
         ),
         "utf8"

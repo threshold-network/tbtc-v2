@@ -1599,10 +1599,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           resolution
         )
     } catch (validationError) {
-      // A pre-005 response may be retried after the database committed its v4
+      // A pre-006 response may be retried after the database committed its v4
       // evidence but before the caller observed the response. Look up only by
       // the two bounded identity fields, then accept solely an exact, fully
-      // validated replay of a row migration 005 marked as grandfathered.
+      // validated replay of a row migration 006 marked as grandfathered.
       const recordID = bytes32(
         resolution.recordID,
         "Orphaned signer boundary record ID"
