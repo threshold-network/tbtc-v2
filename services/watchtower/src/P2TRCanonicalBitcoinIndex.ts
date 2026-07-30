@@ -335,8 +335,13 @@ export type P2TRCanonicalGenerationIdentity = {
 }
 
 export type P2TRCandidateObservationPageCursor = {
-  generation: P2TRCanonicalGenerationIdentity
-  /** Opaque, checksummed exclusive lower bound within `generation`. */
+  /**
+   * A pinned generation is accepted for an uncommitted read continuation.
+   * Omit it after acknowledging a page so the next call pins the newly
+   * committed generation; acknowledgement itself advances canonical state.
+   */
+  generation?: P2TRCanonicalGenerationIdentity
+  /** Opaque, checksummed exclusive lower bound within a pinned `generation`. */
   after?: string
 }
 
@@ -381,6 +386,8 @@ export type P2TRCanonicalCandidateObservationSourceResult = {
     | { state: "indexing"; complete: false }
     | (P2TRCandidateObservationPageCursor & {
         state: "ready"
+        /** Generation against which the delivered page was authenticated. */
+        readGeneration: P2TRCanonicalGenerationIdentity
         complete: boolean
       })
   registeredWalletIDs: string[]

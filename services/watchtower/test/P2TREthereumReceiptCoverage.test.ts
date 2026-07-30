@@ -52,6 +52,21 @@ describe("Ethereum receipt-complete coverage commitment", () => {
     })
   })
 
+  it("covers a consensus-valid topicless LOG0 receipt entry", async () => {
+    const fixture = await canonicalReceiptCoverageFixture({
+      topiclessLogIndex: 1,
+    })
+    const coverage = await computeP2TRCanonicalEthereumBlockCoverage(
+      fixture.block,
+      fixture.receipts,
+      []
+    )
+
+    assert.equal(coverage.logCount, 3)
+    assert.equal(fixture.receipts[0].logs[1].topics.length, 0)
+    assert.equal(coverage.receiptsRoot, fixture.block.receiptsRoot)
+  })
+
   it("rejects omitted or reordered receipts and transactions", async () => {
     const { block, receipts } = await canonicalReceiptCoverageFixture()
     await assert.rejects(

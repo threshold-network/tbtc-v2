@@ -343,9 +343,10 @@ export class CanonicalBitcoinP2TRSignatureFraudTransactionSource
     const pending = await this.store.loadPendingCandidateObservations({
       limit: this.maxCandidateDeliveriesPerScan,
       atOrBelowHeight: rollbackTo.height,
-      ...(cursor === undefined
+      ...(cursor?.generation === undefined
         ? {}
-        : { generation: cursor.generation, after: cursor.after }),
+        : { generation: cursor.generation }),
+      ...(cursor?.after === undefined ? {} : { after: cursor.after }),
     })
     if (pending.observations.length > this.maxCandidateDeliveriesPerScan) {
       throw new Error(
@@ -392,10 +393,10 @@ export class CanonicalBitcoinP2TRSignatureFraudTransactionSource
           ? { state: "indexing", complete: false }
           : {
               state: "ready",
-              generation: pending.generation,
-              ...(pending.nextAfter === undefined
-                ? {}
-                : { after: pending.nextAfter }),
+              // Committing the acknowledgement seals a new canonical
+              // generation. Resume from that latest generation rather than
+              // returning the now-stale pinned cursor used for this read.
+              readGeneration: pending.generation,
               complete: pending.complete,
             },
       registeredWalletIDs: [...this.walletIDs].sort(),

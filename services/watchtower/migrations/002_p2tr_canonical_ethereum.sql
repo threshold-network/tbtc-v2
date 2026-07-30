@@ -313,9 +313,10 @@ VALUES (true, 1);
 
 -- Durable authority minted only while the global readiness lock excludes all
 -- Bitcoin/Ethereum journal and projection writers. The JSON payload contains
--- the complete normalized snapshots/read sets; the scalar columns are the
--- exact CAS boundary rechecked by authorization, outbox claim, signing,
--- replacement, and broadcast.
+-- the complete normalized independent-provider read sets and its digest binds
+-- them without pretending the external providers expose local DB generations.
+-- The scalar local generation/root columns form the exact CAS boundary
+-- rechecked by authorization, outbox claim, signing, replacement, and broadcast.
 CREATE TABLE p2tr_readiness_certificates (
     certificate_id bytea PRIMARY KEY CHECK (octet_length(certificate_id) = 32),
     certificate_generation bigint NOT NULL UNIQUE
@@ -329,20 +330,10 @@ CREATE TABLE p2tr_readiness_certificates (
         CHECK (octet_length(primary_bitcoin_root) = 32),
     primary_bitcoin_semantic_root bytea NOT NULL
         CHECK (octet_length(primary_bitcoin_semantic_root) = 32),
-    reconciliation_bitcoin_store_id text NOT NULL
-        CHECK (length(reconciliation_bitcoin_store_id) BETWEEN 1 AND 255),
-    reconciliation_bitcoin_generation bigint NOT NULL
-        CHECK (reconciliation_bitcoin_generation > 0),
-    reconciliation_bitcoin_root bytea NOT NULL
-        CHECK (octet_length(reconciliation_bitcoin_root) = 32),
-    reconciliation_bitcoin_semantic_root bytea NOT NULL
-        CHECK (octet_length(reconciliation_bitcoin_semantic_root) = 32),
     bitcoin_height bigint NOT NULL CHECK (bitcoin_height >= 0),
     bitcoin_hash bytea NOT NULL CHECK (octet_length(bitcoin_hash) = 32),
     ethereum_journal_generation bigint NOT NULL
         CHECK (ethereum_journal_generation > 0),
-    ethereum_journal_root bytea NOT NULL
-        CHECK (octet_length(ethereum_journal_root) = 32),
     ethereum_history_root bytea NOT NULL
         CHECK (octet_length(ethereum_history_root) = 32),
     ethereum_block_number bigint NOT NULL CHECK (ethereum_block_number >= 0),

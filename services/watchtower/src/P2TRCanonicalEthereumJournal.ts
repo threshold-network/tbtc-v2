@@ -1166,7 +1166,7 @@ function normalizeReceiptLog(
     ),
     removed: false,
   }
-  if (normalized.topics.length === 0 || normalized.topics.length > 4) {
+  if (normalized.topics.length > 4) {
     throw new Error("Canonical Ethereum receipt log has an invalid topic count")
   }
   return normalized

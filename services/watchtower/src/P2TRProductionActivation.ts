@@ -464,7 +464,8 @@ export type P2TRProductionBitcoinCandidate =
   P2TRProductionBitcoinCandidateIdentity
 
 export type P2TRProductionBitcoinCandidateAttestation =
-  P2TRProductionBitcoinCandidate & {
+  P2TRProductionBitcoinCandidateTransactionIdentity & {
+    inputIndex: number
     finalizedThrough: P2TRProductionBitcoinPoint
     present: true
   }
@@ -629,15 +630,35 @@ export type P2TRProductionCandidateAuthorizationReceipt = {
   manifestHash: string
   candidateDigest: string
   candidate: P2TRProductionBitcoinCandidate
+  readinessCertificate: P2TRProductionReadinessCertificateReference
   verifiedBitcoin: P2TRProductionBitcoinPoint
   verifiedEthereum: P2TRProductionEthereumPoint
   expiresAt: string
 }
 
+export type P2TRProductionReadinessCertificateReference = {
+  certificateID: string
+  generation: number
+}
+
+export type P2TRProductionReadinessCertificateInput = {
+  manifestHash: string
+  verifiedBitcoin: P2TRProductionBitcoinPoint
+  verifiedEthereum: P2TRProductionEthereumPoint
+  bitcoinIndex: P2TRProductionBitcoinIndexHealth
+  ethereumJournal: P2TRProductionEthereumJournalHealth
+  /** Complete normalized read set already checked by the activation gate. */
+  payload: Readonly<Record<string, unknown>>
+}
+
 export type P2TRProductionStateStore = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
+  lockReadinessSnapshot(): Promise<void>
   readBitcoinIndexHealth(): Promise<P2TRProductionBitcoinIndexHealth>
   readEthereumJournalHealth(): Promise<P2TRProductionEthereumJournalHealth>
+  mintReadinessCertificate(
+    input: P2TRProductionReadinessCertificateInput
+  ): Promise<P2TRProductionReadinessCertificateReference>
   assertCandidateIndexed(
     candidate: P2TRProductionBitcoinCandidate
   ): Promise<void>
@@ -697,6 +718,7 @@ export type P2TRProductionReadySnapshot = {
   manifestHash: string
   verifiedEthereum: P2TRProductionEthereumPoint
   verifiedBitcoin: P2TRProductionBitcoinPoint
+  readinessCertificate: P2TRProductionReadinessCertificateReference
 }
 
 const candidateTokenBrand: unique symbol = Symbol("P2TRCandidateAuthorization")
@@ -798,37 +820,70 @@ export class P2TRProductionActivationGate {
       ethereum.frostWalletGroupInventory
     )
 
-    await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-      async () => {
-        const [migrations, bitcoinHealth, ethereumHealth] = await Promise.all([
-          this.dependencies.migrations.listAppliedMigrations(),
-          this.dependencies.stateStore.readBitcoinIndexHealth(),
-          this.dependencies.stateStore.readEthereumJournalHealth(),
-        ])
-        const [indexedCursorHash, reconciledCursorHash] = await Promise.all([
-          this.dependencies.bitcoinIndexSource.getBlockHash(
-            bitcoinHealth.current.height
-          ),
-          this.dependencies.bitcoinReconciler.getBlockHash(
-            bitcoinHealth.current.height
-          ),
-        ])
-        assertMigrationBindings(migrations, this.manifest.migrations)
-        assertP2TRProductionBitcoinIndexHealth(
-          bitcoinHealth,
-          this.manifest,
-          bitcoin.point,
-          indexedCursorHash,
-          reconciledCursorHash
-        )
-        assertEthereumJournalHealth(ethereumHealth, this.manifest, ethereum)
-      }
-    )
+    const readinessCertificate =
+      await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          await this.dependencies.stateStore.lockReadinessSnapshot()
+          const [migrations, bitcoinHealth, ethereumHealth] = await Promise.all(
+            [
+              this.dependencies.migrations.listAppliedMigrations(),
+              this.dependencies.stateStore.readBitcoinIndexHealth(),
+              this.dependencies.stateStore.readEthereumJournalHealth(),
+            ]
+          )
+          const [indexedCursorHash, reconciledCursorHash] = await Promise.all([
+            this.dependencies.bitcoinIndexSource.getBlockHash(
+              bitcoinHealth.current.height
+            ),
+            this.dependencies.bitcoinReconciler.getBlockHash(
+              bitcoinHealth.current.height
+            ),
+          ])
+          assertMigrationBindings(migrations, this.manifest.migrations)
+          assertP2TRProductionBitcoinIndexHealth(
+            bitcoinHealth,
+            this.manifest,
+            bitcoin.point,
+            indexedCursorHash,
+            reconciledCursorHash
+          )
+          assertEthereumJournalHealth(ethereumHealth, this.manifest, ethereum)
+          return this.dependencies.stateStore.mintReadinessCertificate({
+            manifestHash: this.manifestHash,
+            verifiedEthereum: ethereum.point,
+            verifiedBitcoin: bitcoin.point,
+            bitcoinIndex: bitcoinHealth,
+            ethereumJournal: ethereumHealth,
+            payload: {
+              schema: "tbtc-p2tr-production-readiness-certificate/v1",
+              manifestHash: this.manifestHash,
+              verifiedEthereumState: ethereum,
+              verifiedBitcoin: bitcoin.point,
+              migrations,
+              bitcoinIndex: bitcoinHealth,
+              ethereumJournal: ethereumHealth,
+              bitcoinCursorAttestations: {
+                indexSource: bitcoinHash(
+                  indexedCursorHash,
+                  "indexed Bitcoin cursor block"
+                ),
+                reconciler: bitcoinHash(
+                  reconciledCursorHash,
+                  "reconciled Bitcoin cursor block"
+                ),
+              },
+              outboxHandshake: outboxHandshake.payload,
+              frostHandshake: frostHandshake.payload,
+            },
+          })
+        }
+      )
 
     return {
       manifestHash: this.manifestHash,
       verifiedEthereum: ethereum.point,
       verifiedBitcoin: bitcoin.point,
+      readinessCertificate,
     }
   }
 
@@ -888,6 +943,7 @@ export class P2TRProductionActivationGate {
       manifestHash: this.manifestHash,
       candidateDigest: hashCandidate(normalized),
       candidate: normalized,
+      readinessCertificate: ready.readinessCertificate,
       verifiedBitcoin: {
         height: commonHeight,
         hash: bitcoinHash(indexedCommonHash, "common finalized Bitcoin block"),
@@ -2057,12 +2113,32 @@ function assertCandidateAttestation(
   label: string
 ): void {
   if (
-    canonicalJSON(normalizeCandidate(actual)) !== canonicalJSON(expected) ||
+    canonicalJSON(normalizeCandidateBitcoinEvidence(actual)) !==
+      canonicalJSON(normalizeCandidateBitcoinEvidence(expected)) ||
     actual.present !== true ||
     bitcoinPoint(actual.finalizedThrough, `${label} finality`).height <
       expected.blockHeight
   ) {
     throw new Error(`${label} did not attest the exact Bitcoin candidate`)
+  }
+}
+
+function normalizeCandidateBitcoinEvidence(
+  candidate: P2TRProductionBitcoinCandidateTransactionIdentity & {
+    inputIndex: number
+  }
+): P2TRProductionBitcoinCandidateTransactionIdentity & {
+  inputIndex: number
+} {
+  return {
+    txid: bitcoinHash(candidate.txid, "candidate txid"),
+    wtxid: bitcoinHash(candidate.wtxid, "candidate wtxid"),
+    blockHeight: nonNegativeInteger(
+      candidate.blockHeight,
+      "candidate block height"
+    ),
+    blockHash: bitcoinHash(candidate.blockHash, "candidate block hash"),
+    inputIndex: uint32(candidate.inputIndex, "candidate input index"),
   }
 }
 

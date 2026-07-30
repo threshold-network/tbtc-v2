@@ -7,6 +7,8 @@ import {
   type P2TRProductionEthereumJournalHealth,
   type P2TRProductionBitcoinIndexHealth,
   type P2TRProductionMigrationReadback,
+  type P2TRProductionReadinessCertificateInput,
+  type P2TRProductionReadinessCertificateReference,
   type P2TRProductionStateStore,
 } from "./P2TRProductionActivation.js"
 import {
@@ -33,6 +35,19 @@ type ComponentHealthRow = {
   position_hash: string
   failure_generation: string | number
   cleared_failure_generation: string | number
+}
+
+type ReadinessCertificateStateRow = {
+  activation_sequence: string | number
+  primary_bitcoin_generation: string | number
+  primary_bitcoin_root: string
+  primary_bitcoin_semantic_root: string
+  local_bitcoin_height: string | number
+  local_bitcoin_hash: string
+  ethereum_journal_generation: string | number
+  ethereum_history_root: string
+  local_ethereum_block: string | number
+  local_ethereum_hash: string
 }
 
 const DEFAULT_MAX_MANIFEST_BYTES = 1_048_576
@@ -102,6 +117,147 @@ export class PostgresP2TRProductionActivationStore
         checksum: bytes32(row.checksum, "migration checksum"),
       }
     })
+  }
+
+  async lockReadinessSnapshot(): Promise<void> {
+    await this.session.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('p2tr-readiness-snapshot', 0))"
+    )
+  }
+
+  async mintReadinessCertificate(
+    input: P2TRProductionReadinessCertificateInput
+  ): Promise<P2TRProductionReadinessCertificateReference> {
+    const normalized = normalizeReadinessCertificateInput(input)
+    const payload = canonicalJSON(normalized.payload)
+    if (Buffer.byteLength(payload, "utf8") > this.maxManifestBytes) {
+      throw new Error("Readiness certificate payload exceeds its byte bound")
+    }
+    const state = await this.session.query<ReadinessCertificateStateRow>(
+      `SELECT manifest.activation_sequence,
+              generation.generation_id AS primary_bitcoin_generation,
+              encode(generation.bitcoin_chain_root, 'hex')
+                AS primary_bitcoin_root,
+              encode(generation.semantic_root, 'hex')
+                AS primary_bitcoin_semantic_root,
+              bitcoin.current_height AS local_bitcoin_height,
+              encode(bitcoin.current_hash, 'hex') AS local_bitcoin_hash,
+              ethereum.generation AS ethereum_journal_generation,
+              encode(ethereum_block.history_root, 'hex')
+                AS ethereum_history_root,
+              ethereum.current_block_number AS local_ethereum_block,
+              encode(ethereum.current_block_hash, 'hex')
+                AS local_ethereum_hash
+         FROM p2tr_watchtower_activation_manifest manifest
+         JOIN p2tr_bitcoin_cursor bitcoin ON bitcoin.singleton = true
+         JOIN p2tr_ethereum_cursor ethereum ON ethereum.singleton = true
+         JOIN p2tr_ethereum_blocks ethereum_block
+           ON ethereum_block.block_number = ethereum.current_block_number
+          AND ethereum_block.block_hash = ethereum.current_block_hash
+         JOIN p2tr_canonical_generations generation
+           ON generation.state = 'committed'
+          AND generation.bitcoin_height = bitcoin.current_height
+          AND generation.bitcoin_hash = bitcoin.current_hash
+          AND generation.ethereum_block_number = ethereum.current_block_number
+          AND generation.ethereum_block_hash = ethereum.current_block_hash
+        WHERE manifest.singleton = true
+          AND manifest.manifest_hash = $1
+        ORDER BY generation.generation_id DESC
+        LIMIT 1
+        FOR SHARE OF manifest, bitcoin, ethereum, ethereum_block, generation`,
+      [hexBuffer(normalized.manifestHash, "readiness manifest")]
+    )
+    if (state.rows.length !== 1) {
+      throw new Error(
+        "Readiness certificate requires the exact committed local snapshot"
+      )
+    }
+    const snapshot = normalizeReadinessCertificateState(state.rows[0])
+    if (
+      snapshot.localBitcoin.height !== normalized.bitcoinIndex.current.height ||
+      snapshot.localBitcoin.hash !== normalized.bitcoinIndex.current.hash ||
+      snapshot.localEthereum.blockNumber !==
+        normalized.ethereumJournal.current.blockNumber ||
+      snapshot.localEthereum.blockHash !==
+        normalized.ethereumJournal.current.blockHash
+    ) {
+      throw new Error(
+        "Readiness certificate local snapshot changed during verification"
+      )
+    }
+    const generation = await this.session.query<{
+      certificate_generation: string | number
+    }>(
+      `UPDATE p2tr_readiness_certificate_generation
+          SET next_generation = next_generation + 1
+        WHERE singleton = true
+      RETURNING next_generation - 1 AS certificate_generation`
+    )
+    if (generation.rows.length !== 1) {
+      throw new Error("Readiness certificate generation allocation failed")
+    }
+    const certificateGeneration = positiveInteger(
+      databaseInteger(
+        generation.rows[0].certificate_generation,
+        "readiness certificate generation"
+      ),
+      "readiness certificate generation"
+    )
+    const providerReadSetHash = `0x${createHash("sha256")
+      .update("tbtc-p2tr-production-readiness-read-set/v1\u0000", "utf8")
+      .update(payload, "utf8")
+      .digest("hex")}`
+    const certificateID = `0x${createHash("sha256")
+      .update("tbtc-p2tr-production-readiness-certificate/v1\u0000", "utf8")
+      .update(String(certificateGeneration), "utf8")
+      .update("\u0000", "utf8")
+      .update(hexBuffer(normalized.manifestHash, "readiness manifest"))
+      .update(hexBuffer(providerReadSetHash, "readiness provider read set"))
+      .digest("hex")}`
+    await this.session.query(
+      `UPDATE p2tr_readiness_certificates
+          SET is_current = false,
+              invalidated_at = clock_timestamp()
+        WHERE is_current`
+    )
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_readiness_certificates
+         (certificate_id, certificate_generation, manifest_hash,
+          manifest_activation_sequence, primary_bitcoin_generation,
+          primary_bitcoin_root, primary_bitcoin_semantic_root,
+          bitcoin_height, bitcoin_hash, ethereum_journal_generation,
+          ethereum_history_root, ethereum_block_number, ethereum_block_hash,
+          provider_read_set_hash, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+               $13, $14, $15::jsonb)`,
+      [
+        hexBuffer(certificateID, "readiness certificate"),
+        certificateGeneration,
+        hexBuffer(normalized.manifestHash, "readiness manifest"),
+        snapshot.activationSequence,
+        snapshot.primaryBitcoinGeneration,
+        hexBuffer(snapshot.primaryBitcoinRoot, "primary Bitcoin root"),
+        hexBuffer(
+          snapshot.primaryBitcoinSemanticRoot,
+          "primary Bitcoin semantic root"
+        ),
+        normalized.verifiedBitcoin.height,
+        hexBuffer(normalized.verifiedBitcoin.hash, "verified Bitcoin hash"),
+        snapshot.ethereumJournalGeneration,
+        hexBuffer(snapshot.ethereumHistoryRoot, "Ethereum history root"),
+        normalized.verifiedEthereum.blockNumber,
+        hexBuffer(
+          normalized.verifiedEthereum.blockHash,
+          "verified Ethereum hash"
+        ),
+        hexBuffer(providerReadSetHash, "readiness provider read set"),
+        payload,
+      ]
+    )
+    if (inserted.rowCount !== 1) {
+      throw new Error("Readiness certificate insertion failed")
+    }
+    return { certificateID, generation: certificateGeneration }
   }
 
   async readBitcoinIndexHealth(): Promise<P2TRProductionBitcoinIndexHealth> {
@@ -498,13 +654,44 @@ export class PostgresP2TRProductionActivationStore
             AND provenance.provenance_generation =
                 observation.provenance_generation
            JOIN p2tr_readiness_certificates certificate
-             ON certificate.is_current
+             ON certificate.certificate_id = $17
+            AND certificate.certificate_generation = $18
+            AND certificate.is_current
             AND certificate.invalidated_at IS NULL
             AND certificate.manifest_hash = $2
             AND certificate.bitcoin_height = $8
             AND certificate.bitcoin_hash = $9
             AND certificate.ethereum_block_number = $10
             AND certificate.ethereum_block_hash = $11
+           JOIN p2tr_canonical_generations certified_generation
+             ON certified_generation.generation_id =
+                  certificate.primary_bitcoin_generation
+            AND certified_generation.state = 'committed'
+            AND certified_generation.bitcoin_chain_root =
+                  certificate.primary_bitcoin_root
+            AND certified_generation.semantic_root =
+                  certificate.primary_bitcoin_semantic_root
+           JOIN p2tr_bitcoin_cursor certified_bitcoin
+             ON certified_bitcoin.singleton
+            AND certified_bitcoin.current_height =
+                  certified_generation.bitcoin_height
+            AND certified_bitcoin.current_hash =
+                  certified_generation.bitcoin_hash
+           JOIN p2tr_ethereum_cursor certified_ethereum
+             ON certified_ethereum.singleton
+            AND certified_ethereum.generation =
+                  certificate.ethereum_journal_generation
+            AND certified_ethereum.current_block_number =
+                  certified_generation.ethereum_block_number
+            AND certified_ethereum.current_block_hash =
+                  certified_generation.ethereum_block_hash
+           JOIN p2tr_ethereum_blocks certified_ethereum_block
+             ON certified_ethereum_block.block_number =
+                  certified_ethereum.current_block_number
+            AND certified_ethereum_block.block_hash =
+                  certified_ethereum.current_block_hash
+            AND certified_ethereum_block.history_root =
+                  certificate.ethereum_history_root
           WHERE candidate.txid = $4
             AND candidate.wtxid = $5
             AND candidate.block_height = $6
@@ -516,6 +703,11 @@ export class PostgresP2TRProductionActivationStore
             AND observation.challenge_identity IS NOT NULL
             AND provenance.source_event_id ~*
                 '^(0x)?[0-9a-f]{64}$'
+            AND certified_generation.generation_id = (
+              SELECT max(generation_id)
+                FROM p2tr_canonical_generations
+               WHERE state = 'committed'
+            )
        )
        INSERT INTO p2tr_candidate_enqueue_authorizations
          (token_id, manifest_hash, candidate_digest,
@@ -571,6 +763,11 @@ export class PostgresP2TRProductionActivationStore
           "candidate observation ID"
         ),
         hexBuffer(normalized.candidate.challengeKey, "candidate challenge key"),
+        hexBuffer(
+          normalized.readinessCertificate.certificateID,
+          "readiness certificate"
+        ),
+        normalized.readinessCertificate.generation,
       ]
     )
     if (result.rowCount !== 1) {
@@ -873,6 +1070,16 @@ function normalizeReceipt(
     manifestHash: bytes32(receipt.manifestHash, "candidate manifest"),
     candidateDigest: bytes32(receipt.candidateDigest, "candidate digest"),
     candidate: normalizeCandidate(receipt.candidate),
+    readinessCertificate: {
+      certificateID: bytes32(
+        receipt.readinessCertificate.certificateID,
+        "readiness certificate"
+      ),
+      generation: positiveInteger(
+        receipt.readinessCertificate.generation,
+        "readiness certificate generation"
+      ),
+    },
     verifiedBitcoin: {
       height: nonNegativeInteger(
         receipt.verifiedBitcoin.height,
@@ -891,6 +1098,161 @@ function normalizeReceipt(
       ),
     },
     expiresAt: expires.toISOString(),
+  }
+}
+
+function normalizeReadinessCertificateInput(
+  input: P2TRProductionReadinessCertificateInput
+): P2TRProductionReadinessCertificateInput {
+  if (
+    !isPlainObject(input.payload) ||
+    input.payload.schema !== "tbtc-p2tr-production-readiness-certificate/v1" ||
+    bytes32(
+      String(input.payload.manifestHash),
+      "readiness payload manifest"
+    ) !== bytes32(input.manifestHash, "readiness manifest")
+  ) {
+    throw new Error("Readiness certificate payload is malformed")
+  }
+  return {
+    manifestHash: bytes32(input.manifestHash, "readiness manifest"),
+    verifiedBitcoin: {
+      height: nonNegativeInteger(
+        input.verifiedBitcoin.height,
+        "verified Bitcoin height"
+      ),
+      hash: bytes32(input.verifiedBitcoin.hash, "verified Bitcoin hash"),
+    },
+    verifiedEthereum: {
+      blockNumber: nonNegativeInteger(
+        input.verifiedEthereum.blockNumber,
+        "verified Ethereum block"
+      ),
+      blockHash: bytes32(
+        input.verifiedEthereum.blockHash,
+        "verified Ethereum hash"
+      ),
+    },
+    bitcoinIndex: normalizeBitcoinIndexHealth(input.bitcoinIndex),
+    ethereumJournal: normalizeEthereumJournalHealth(input.ethereumJournal),
+    payload: input.payload,
+  }
+}
+
+function normalizeBitcoinIndexHealth(
+  value: P2TRProductionBitcoinIndexHealth
+): P2TRProductionBitcoinIndexHealth {
+  return {
+    ...value,
+    storeID: boundedString(value.storeID, 255, "Bitcoin store ID"),
+    configurationFingerprint: bytes32(
+      value.configurationFingerprint,
+      "Bitcoin configuration fingerprint"
+    ),
+    network: boundedString(value.network, 32, "Bitcoin network"),
+    checkpoint: {
+      height: nonNegativeInteger(
+        value.checkpoint.height,
+        "Bitcoin checkpoint height"
+      ),
+      hash: bytes32(value.checkpoint.hash, "Bitcoin checkpoint hash"),
+    },
+    current: {
+      height: nonNegativeInteger(value.current.height, "Bitcoin cursor height"),
+      hash: bytes32(value.current.hash, "Bitcoin cursor hash"),
+    },
+  }
+}
+
+function normalizeEthereumJournalHealth(
+  value: P2TRProductionEthereumJournalHealth
+): P2TRProductionEthereumJournalHealth {
+  return {
+    ...value,
+    storeID: boundedString(value.storeID, 255, "Ethereum store ID"),
+    chainID: positiveInteger(value.chainID, "Ethereum chain ID"),
+    configurationFingerprint: bytes32(
+      value.configurationFingerprint,
+      "Ethereum configuration fingerprint"
+    ),
+    descriptorSetHash: bytes32(
+      value.descriptorSetHash,
+      "Ethereum descriptor set"
+    ),
+    checkpoint: {
+      blockNumber: nonNegativeInteger(
+        value.checkpoint.blockNumber,
+        "Ethereum checkpoint block"
+      ),
+      blockHash: bytes32(
+        value.checkpoint.blockHash,
+        "Ethereum checkpoint hash"
+      ),
+    },
+    scanStartBlock: positiveInteger(
+      value.scanStartBlock,
+      "Ethereum scan start block"
+    ),
+    current: {
+      blockNumber: nonNegativeInteger(
+        value.current.blockNumber,
+        "Ethereum cursor block"
+      ),
+      blockHash: bytes32(value.current.blockHash, "Ethereum cursor hash"),
+    },
+    requiredEventHistoryDigest: bytes32(
+      value.requiredEventHistoryDigest,
+      "Ethereum event history digest"
+    ),
+  }
+}
+
+function normalizeReadinessCertificateState(row: ReadinessCertificateStateRow) {
+  return {
+    activationSequence: positiveInteger(
+      databaseInteger(row.activation_sequence, "activation sequence"),
+      "activation sequence"
+    ),
+    primaryBitcoinGeneration: positiveInteger(
+      databaseInteger(
+        row.primary_bitcoin_generation,
+        "primary Bitcoin generation"
+      ),
+      "primary Bitcoin generation"
+    ),
+    primaryBitcoinRoot: bytes32(
+      row.primary_bitcoin_root,
+      "primary Bitcoin root"
+    ),
+    primaryBitcoinSemanticRoot: bytes32(
+      row.primary_bitcoin_semantic_root,
+      "primary Bitcoin semantic root"
+    ),
+    localBitcoin: {
+      height: nonNegativeInteger(
+        databaseInteger(row.local_bitcoin_height, "local Bitcoin height"),
+        "local Bitcoin height"
+      ),
+      hash: bytes32(row.local_bitcoin_hash, "local Bitcoin hash"),
+    },
+    ethereumJournalGeneration: positiveInteger(
+      databaseInteger(
+        row.ethereum_journal_generation,
+        "Ethereum journal generation"
+      ),
+      "Ethereum journal generation"
+    ),
+    ethereumHistoryRoot: bytes32(
+      row.ethereum_history_root,
+      "Ethereum history root"
+    ),
+    localEthereum: {
+      blockNumber: nonNegativeInteger(
+        databaseInteger(row.local_ethereum_block, "local Ethereum block"),
+        "local Ethereum block"
+      ),
+      blockHash: bytes32(row.local_ethereum_hash, "local Ethereum hash"),
+    },
   }
 }
 

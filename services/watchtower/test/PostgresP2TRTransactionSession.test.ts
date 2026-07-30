@@ -6,6 +6,9 @@ import {
   type P2TRPostgresClient,
 } from "../src/PostgresP2TRCanonicalIndexStore.js"
 import { PostgresP2TRProductionActivationStore } from "../src/PostgresP2TRProductionActivationStore.js"
+import type { P2TRProductionReadinessCertificateInput } from "../src/P2TRProductionActivation.js"
+
+const WORD = (byte: string) => byte.repeat(32)
 
 describe("PostgreSQL production transaction capabilities", () => {
   it("rejects a structurally compatible autocommit session", () => {
@@ -40,6 +43,57 @@ describe("PostgreSQL production transaction capabilities", () => {
     ])
     assert.ok(client.queries.includes("SELECT 1"))
     assert.equal(client.releasedWith, undefined)
+  })
+
+  it("mints readiness authority before issuing a candidate authorization", async () => {
+    const client = new TransactionClient()
+    const coordinator = coordinatorFor(client)
+    const store =
+      coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) =>
+          new PostgresP2TRProductionActivationStore(session, {
+            storeID: "watchtower",
+            maxEventHistoryRecords: 10,
+          })
+      )
+
+    await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+      await store.lockReadinessSnapshot()
+      const readinessCertificate = await store.mintReadinessCertificate(
+        readinessInput()
+      )
+      assert.match(readinessCertificate.certificateID, /^0x[0-9a-f]{64}$/)
+      assert.equal(readinessCertificate.generation, 1)
+      await store.issueCandidateAuthorization({
+        tokenID: WORD("10"),
+        manifestHash: WORD("20"),
+        candidateDigest: WORD("30"),
+        candidate: {
+          txid: WORD("40"),
+          wtxid: WORD("41"),
+          blockHeight: 10,
+          blockHash: WORD("42"),
+          inputIndex: 0,
+          observationID: WORD("43"),
+          challengeKey: WORD("44"),
+        },
+        readinessCertificate,
+        verifiedBitcoin: { height: 10, hash: WORD("50") },
+        verifiedEthereum: { blockNumber: 20, blockHash: WORD("60") },
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      })
+    })
+
+    assert.ok(
+      client.queries.some((query) =>
+        query.includes("INSERT INTO p2tr_readiness_certificates")
+      )
+    )
+    assert.ok(
+      client.queries.some((query) =>
+        query.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")
+      )
+    )
   })
 
   it("destroys sessions after COMMIT or ROLLBACK ambiguity", async () => {
@@ -146,10 +200,100 @@ class TransactionClient implements P2TRPostgresClient {
         rowCount: 1,
       }
     }
+    if (text.includes("AS primary_bitcoin_generation")) {
+      return {
+        rows: [
+          {
+            activation_sequence: 1,
+            primary_bitcoin_generation: 1,
+            primary_bitcoin_root: WORD("70"),
+            primary_bitcoin_semantic_root: WORD("71"),
+            local_bitcoin_height: 10,
+            local_bitcoin_hash: WORD("42"),
+            ethereum_journal_generation: 1,
+            ethereum_history_root: WORD("72"),
+            local_ethereum_block: 20,
+            local_ethereum_hash: WORD("60"),
+          },
+        ] as Row[],
+        rowCount: 1,
+      }
+    }
+    if (text.includes("RETURNING next_generation - 1")) {
+      return {
+        rows: [{ certificate_generation: 1 }] as Row[],
+        rowCount: 1,
+      }
+    }
+    if (text.includes("INSERT INTO p2tr_readiness_certificates")) {
+      return { rows: [], rowCount: 1 }
+    }
+    if (
+      text.includes("SELECT encode(manifest_hash") &&
+      text.includes("p2tr_watchtower_activation_manifest")
+    ) {
+      return {
+        rows: [{ manifest_hash: WORD("20") }] as Row[],
+        rowCount: 1,
+      }
+    }
+    if (text.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")) {
+      return { rows: [], rowCount: 1 }
+    }
     return { rows: [], rowCount: 0 }
   }
 
   release(error?: Error): void {
     this.releasedWith = error
+  }
+}
+
+function readinessInput(): P2TRProductionReadinessCertificateInput {
+  const bitcoinIndex = {
+    storeID: "watchtower",
+    configurationFingerprint: WORD("80"),
+    network: "main",
+    checkpoint: { height: 0, hash: WORD("81") },
+    current: { height: 10, hash: WORD("42") },
+    canonicalBlockCount: 11,
+    pendingCandidates: 0,
+    pendingDepositReveals: 0,
+    unmatchedProofs: 0,
+    liveCandidateAuthorizations: 0,
+    unbackfilledFrostWalletBindings: 0,
+    failureGeneration: 0,
+    clearedFailureGeneration: 0,
+  }
+  const ethereumJournal = {
+    storeID: "watchtower",
+    chainID: 1,
+    configurationFingerprint: WORD("82"),
+    descriptorSetHash: WORD("83"),
+    checkpoint: { blockNumber: 9, blockHash: WORD("84") },
+    scanStartBlock: 10,
+    current: { blockNumber: 20, blockHash: WORD("60") },
+    requiredEventHistoryDigest: WORD("85"),
+    requiredEventCount: 1,
+    requiredEventCoverage: {
+      blocks: 11,
+      transactions: 1,
+      receipts: 1,
+      logs: 1,
+    },
+    failureGeneration: 0,
+    clearedFailureGeneration: 0,
+  }
+  return {
+    manifestHash: WORD("20"),
+    verifiedBitcoin: { height: 10, hash: WORD("50") },
+    verifiedEthereum: { blockNumber: 20, blockHash: WORD("60") },
+    bitcoinIndex,
+    ethereumJournal,
+    payload: {
+      schema: "tbtc-p2tr-production-readiness-certificate/v1",
+      manifestHash: WORD("20"),
+      bitcoinIndex,
+      ethereumJournal,
+    },
   }
 }

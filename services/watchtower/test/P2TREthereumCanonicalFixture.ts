@@ -39,7 +39,9 @@ export function canonicalEmptyBlock(
   }
 }
 
-export async function canonicalReceiptCoverageFixture(): Promise<{
+export async function canonicalReceiptCoverageFixture(
+  options: { topiclessLogIndex?: number } = {}
+): Promise<{
   block: P2TRCanonicalEthereumBlock
   receipts: P2TRCanonicalEthereumReceipt[]
   rpcTransactions: ReadonlyArray<Readonly<Record<string, unknown>>>
@@ -63,7 +65,8 @@ export async function canonicalReceiptCoverageFixture(): Promise<{
     transactionIndex,
     logIndex,
     data: `0x${(logIndex + 1).toString(16).padStart(2, "0")}`,
-    topics: [hash(200 + logIndex)],
+    topics:
+      options.topiclessLogIndex === logIndex ? [] : [hash(200 + logIndex)],
     removed: false as const,
   })
   const receipts: P2TRCanonicalEthereumReceipt[] = [

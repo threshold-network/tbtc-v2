@@ -40,6 +40,8 @@ export class NodePinnedSpkiP2TRHttpsTransport
   private readonly expectedSpkiSha256: string
   private readonly ca?: string | Buffer | readonly (string | Buffer)[]
   private readonly minVersion: "TLSv1.2" | "TLSv1.3"
+  /** Never shared across pins; Node's global pool key omits TLS policy. */
+  private readonly agent: HttpsAgent
 
   constructor(options: NodePinnedSpkiP2TRHttpsTransportOptions) {
     this.expectedSpkiSha256 = canonicalSha256Base64(
@@ -49,6 +51,7 @@ export class NodePinnedSpkiP2TRHttpsTransport
     this.authenticatedPeerPolicyIdentity = `spki-sha256:${this.expectedSpkiSha256}`
     this.ca = options.ca
     this.minVersion = options.minVersion ?? "TLSv1.3"
+    this.agent = new HttpsAgent({ keepAlive: true })
     this.transportIdentity = Object.freeze({
       implementation: "node-https-pkix-leaf-spki/v1",
       expectedPeerPolicy: this.authenticatedPeerPolicyIdentity,
@@ -84,6 +87,7 @@ export class NodePinnedSpkiP2TRHttpsTransport
           method: init.method ?? "GET",
           headers,
           signal: init.signal ?? undefined,
+          agent: this.agent,
           rejectUnauthorized: true,
           ca: this.ca as string | Buffer | Array<string | Buffer> | undefined,
           minVersion: this.minVersion,
@@ -318,6 +322,6 @@ function requestBody(value: RequestInit["body"]): Buffer | undefined {
   )
 }
 import { X509Certificate, createHash } from "node:crypto"
-import { request as httpsRequest } from "node:https"
+import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { Readable } from "node:stream"
 import { checkServerIdentity } from "node:tls"

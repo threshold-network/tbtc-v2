@@ -63,7 +63,7 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
     assert.equal(caughtUp.page.state, "ready")
     assert.equal(
       caughtUp.page.state === "ready"
-        ? caughtUp.page.generation.generationID
+        ? caughtUp.page.readGeneration.generationID
         : undefined,
       1
     )
@@ -71,12 +71,25 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
     await assert.doesNotReject(() =>
       fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage()
     )
-    fullHistoryStore.pendingObservations.push(candidateObservation())
+    fullHistoryStore.pendingObservations.push(
+      candidateObservation(0),
+      candidateObservation(1)
+    )
     const compact = await fullHistory.listConfirmedCandidateObservations()
     assert.equal(compact.observations.length, 1)
     assert.equal(compact.observations[0].inputIndex, 0)
+    assert.equal(compact.page.state, "ready")
+    assert.equal(compact.page.complete, false)
     await fullHistory.commitConfirmedCandidateObservationScan()
-    const acknowledged = await fullHistory.listConfirmedCandidateObservations()
+    const nextPage = await fullHistory.listConfirmedCandidateObservations(
+      compact.page.state === "ready" ? compact.page : undefined
+    )
+    assert.equal(nextPage.observations.length, 1)
+    assert.equal(nextPage.observations[0].inputIndex, 1)
+    await fullHistory.commitConfirmedCandidateObservationScan()
+    const acknowledged = await fullHistory.listConfirmedCandidateObservations(
+      nextPage.page.state === "ready" ? nextPage.page : undefined
+    )
     assert.deepEqual(acknowledged.observations, [])
     await fullHistory.commitConfirmedCandidateObservationScan()
     await assert.rejects(
@@ -399,6 +412,7 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
   pendingObservations: P2TRCompleteV2CandidateObservation[] = []
   nextGeneration = 1
   generationReady = false
+  canonicalGeneration = 0
   lastRegisteredParticipant?: object
 
   registerP2TRSignatureFraudWatchtowerTransactionalParticipant(
@@ -479,7 +493,7 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
       }
     }
     const currentGeneration = {
-      generationID: 1,
+      generationID: this.canonicalGeneration,
       manifestDigest: "c1".repeat(32),
       domainDigest: "c2".repeat(32),
     }
@@ -550,6 +564,7 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
       checkpoint: scan.checkpoint,
       current: scan.nextCursor,
     }
+    this.canonicalGeneration++
     this.generationReady = true
   }
 
@@ -612,14 +627,16 @@ const candidateKey = (candidate: {
   block: { hash: string }
 }): string => `${candidate.block.hash}:${candidate.txid}:${candidate.wtxid}`
 
-const candidateObservation = (): P2TRCompleteV2CandidateObservation => ({
+const candidateObservation = (
+  inputIndex = 0
+): P2TRCompleteV2CandidateObservation => ({
   schema: "tbtc-p2tr-complete-candidate/v2",
   protocolID: "12".repeat(32),
   txid: SPENDING_TXID,
   wtxid: ORIGINAL_WTXID,
   blockHeight: 2,
   blockHash: BLOCK_TWO_HASH,
-  inputIndex: 0,
+  inputIndex,
   evidence: {
     walletID: WALLET_ID,
     signingKey: WALLET_ID,
@@ -630,8 +647,8 @@ const candidateObservation = (): P2TRCompleteV2CandidateObservation => ({
     nonceX: "77".repeat(32),
     signatureScalar: "88".repeat(32),
   },
-  occurrenceID: "9a".repeat(32),
-  challengeIdentity: "99".repeat(32),
+  occurrenceID: (0x9a + inputIndex).toString(16).repeat(32),
+  challengeIdentity: (0x99 - inputIndex).toString(16).repeat(32),
   commitments: {
     rawTransactionDigest: "aa".repeat(32),
     rawTransactionBytes: 100,
@@ -649,7 +666,7 @@ const candidateObservation = (): P2TRCompleteV2CandidateObservation => ({
     fundingBlockHeaderHash: BLOCK_ONE_HASH,
   },
   inputProvenance: {
-    inputIndex: 0,
+    inputIndex,
     fundingBlockHash: BLOCK_ONE_HASH,
     fundingTxid: FUNDING_TXID,
     fundingVout: 0,

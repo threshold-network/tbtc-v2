@@ -31,6 +31,8 @@ describe("canonical Bitcoin production evidence", () => {
     })
 
     assert.equal(attestation.present, true)
+    assert.equal("observationID" in attestation, false)
+    assert.equal("challengeKey" in attestation, false)
     assert.deepEqual(
       fixture.candidate.inputs[0].authenticatedPrevout,
       fixture.funding.outputs[0]

@@ -130,7 +130,11 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
     // The gate independently verifies this returned point and both providers'
     // block hashes after the attestation, closing head-sampling races.
     return {
-      ...normalized,
+      txid: normalized.txid,
+      wtxid: normalized.wtxid,
+      blockHeight: normalized.blockHeight,
+      blockHash: normalized.blockHash,
+      inputIndex: normalized.inputIndex,
       finalizedThrough: {
         height: head.height,
         hash: bitcoinHash(head.hash, "Bitcoin attestation head"),

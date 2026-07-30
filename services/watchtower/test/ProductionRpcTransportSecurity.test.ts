@@ -28,6 +28,29 @@ describe("production RPC transport security", () => {
     )
   })
 
+  it("isolates pooled HTTPS sockets between SPKI policies", () => {
+    const left = new NodePinnedSpkiP2TRHttpsTransport({
+      expectedSpkiSha256: Buffer.alloc(32, 7).toString("base64"),
+    })
+    const right = new NodePinnedSpkiP2TRHttpsTransport({
+      expectedSpkiSha256: Buffer.alloc(32, 8).toString("base64"),
+    })
+    const leftAgent = (
+      left as unknown as {
+        agent: object
+      }
+    ).agent
+    const rightAgent = (
+      right as unknown as {
+        agent: object
+      }
+    ).agent
+
+    assert.ok(leftAgent)
+    assert.ok(rightAgent)
+    assert.notEqual(leftAgent, rightAgent)
+  })
+
   it("rejects remote HTTPS backed only by fetch or a claimed pin", () => {
     assert.throws(
       () =>
