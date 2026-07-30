@@ -26,7 +26,7 @@ Stable identities used for durable lane and signer quarantine records.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:750](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L750)
+[src/services/maintenance/p2tr-signature-fraud.ts:755](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L755)
 
 ___
 
@@ -36,7 +36,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:751](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L751)
+[src/services/maintenance/p2tr-signature-fraud.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L756)
 
 ___
 
@@ -48,7 +48,7 @@ Sender whose nonce lane is serialized by the durable outbox store.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:753](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L753)
+[src/services/maintenance/p2tr-signature-fraud.ts:758](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L758)
 
 ## Methods
 
@@ -76,7 +76,7 @@ this method and appends the returned raw bytes before any broadcast.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:793](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L793)
+[src/services/maintenance/p2tr-signature-fraud.ts:798](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L798)
 
 ___
 
@@ -103,7 +103,7 @@ MUST reject a reservation whose binding, sender, or nonce is not exact.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:781](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L781)
+[src/services/maintenance/p2tr-signature-fraud.ts:786](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L786)
 
 ___
 
@@ -135,7 +135,7 @@ reservation spends the same nonce on the same nothing.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:812](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L812)
+[src/services/maintenance/p2tr-signature-fraud.ts:817](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L817)
 
 ___
 
@@ -160,7 +160,7 @@ ambiguous response returns `already-released` for the same reservation.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:771](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L771)
+[src/services/maintenance/p2tr-signature-fraud.ts:776](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L776)
 
 ___
 
@@ -186,4 +186,4 @@ bytes. Its EIP-712 binding must recover to `transactionSender`.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:759](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L759)
+[src/services/maintenance/p2tr-signature-fraud.ts:764](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L764)
