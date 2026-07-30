@@ -31,7 +31,7 @@ Positive canonical confirmation depth required before proving absence.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:255](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L255)
+[src/services/maintenance/p2tr-signature-fraud.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L246)
 
 ___
 
@@ -43,7 +43,7 @@ Independent provider/trust-domain identity used for reconciliation.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:253](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L253)
+[src/services/maintenance/p2tr-signature-fraud.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L244)
 
 ## Methods
 
@@ -63,4 +63,4 @@ Independent provider/trust-domain identity used for reconciliation.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:256](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L256)
+[src/services/maintenance/p2tr-signature-fraud.ts:247](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L247)

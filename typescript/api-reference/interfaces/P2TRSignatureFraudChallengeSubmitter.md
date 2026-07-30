@@ -28,7 +28,7 @@ Provider/trust-domain identity used to broadcast, when declared.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:494](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L494)
+[src/services/maintenance/p2tr-signature-fraud.ts:485](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L485)
 
 ## Methods
 
@@ -49,4 +49,4 @@ Provider/trust-domain identity used to broadcast, when declared.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:495](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L495)
+[src/services/maintenance/p2tr-signature-fraud.ts:486](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L486)
