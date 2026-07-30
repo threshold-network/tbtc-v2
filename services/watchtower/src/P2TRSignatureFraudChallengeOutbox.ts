@@ -889,11 +889,14 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   resolvedAtUnixMs: number
 }
 
-export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
+type P2TRSignatureFraudSignerBoundaryResolutionEvidenceVersion = 4 | 5
+
+const computeVersionedSignerBoundaryResolutionEvidenceDigest = (
   resolution: Omit<
     P2TRSignatureFraudIndependentSignerBoundaryResolution,
     "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
-  >
+  >,
+  evidenceVersion: P2TRSignatureFraudSignerBoundaryResolutionEvidenceVersion
 ): string => {
   const uint64 = (value: number, label: string): Buffer => {
     requireNonNegativeSafeInteger(value, label)
@@ -941,8 +944,11 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       "Signer-boundary resolution names nonce consumption only for a nonce-consumed outcome"
     )
   }
-  return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v5", "utf8")
+  const digest = createHash("sha256")
+    .update(
+      `tbtc-p2tr-signer-boundary-independent-resolution-v${evidenceVersion}`,
+      "utf8"
+    )
     .update(
       Buffer.from(
         normalizeBytes32(
@@ -1098,25 +1104,50 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
             "hex"
           )
     )
-    .update(
-      uint64(
-        consumption === undefined ? 0 : consumption.observedHead.blockNumber,
-        "Signer-boundary nonce consumption observed head height"
+  if (evidenceVersion === 5) {
+    digest
+      .update(
+        uint64(
+          consumption === undefined ? 0 : consumption.observedHead.blockNumber,
+          "Signer-boundary nonce consumption observed head height"
+        )
       )
-    )
-    .update(
-      consumption === undefined
-        ? Buffer.alloc(32)
-        : Buffer.from(
-            normalizeBytes32(
-              consumption.observedHead.blockHash,
-              "Signer-boundary nonce consumption observed head hash"
-            ).slice(2),
-            "hex"
-          )
-    )
-    .digest("hex")}`
+      .update(
+        consumption === undefined
+          ? Buffer.alloc(32)
+          : Buffer.from(
+              normalizeBytes32(
+                consumption.observedHead.blockHash,
+                "Signer-boundary nonce consumption observed head hash"
+              ).slice(2),
+              "hex"
+            )
+      )
+  }
+  return `0x${digest.digest("hex")}`
 }
+
+export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
+  resolution: Omit<
+    P2TRSignatureFraudIndependentSignerBoundaryResolution,
+    "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
+  >
+): string =>
+  computeVersionedSignerBoundaryResolutionEvidenceDigest(resolution, 5)
+
+/**
+ * Computes the digest accepted before migration 005. This must only be used to
+ * recognize an exact replay of immutable evidence that the migration marked as
+ * version 4; new resolutions must always use the v5 helper above.
+ */
+export const computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest =
+  (
+    resolution: Omit<
+      P2TRSignatureFraudIndependentSignerBoundaryResolution,
+      "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
+    >
+  ): string =>
+    computeVersionedSignerBoundaryResolutionEvidenceDigest(resolution, 4)
 
 /**
  * The exact normalized form both the PostgreSQL adapter and the in-memory
@@ -1144,8 +1175,9 @@ export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   resolvedAtUnixMs: number
 }
 
-export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
-  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+const validateVersionedIndependentSignerBoundaryResolution = (
+  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution,
+  evidenceVersion: P2TRSignatureFraudSignerBoundaryResolutionEvidenceVersion
 ): P2TRSignatureFraudNormalizedSignerBoundaryResolution => {
   const recordID = normalizeBytes32(
     resolution.recordID,
@@ -1174,7 +1206,10 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   const nonceConsumption =
     resolution.nonceConsumption === undefined
       ? undefined
-      : normalizeSignerBoundaryNonceConsumption(resolution.nonceConsumption)
+      : normalizeSignerBoundaryNonceConsumption(
+          resolution.nonceConsumption,
+          evidenceVersion === 5
+        )
   const providerTombstone =
     resolution.providerTombstone === undefined
       ? undefined
@@ -1254,20 +1289,23 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
     "Independent signer-boundary resolution digest"
   )
   if (
-    computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest({
-      recordID,
-      signerInvocationID,
-      boundaryStartedAtUnixMs,
-      preparationAttempts,
-      nonceReservationID,
-      stage: resolution.stage,
-      invokedAtUnixMs,
-      outcome: resolution.outcome,
-      signedTransactionHash,
-      providerTombstone,
-      nonceConsumption,
-      providerEvidenceDigest,
-    }) !== evidenceDigest
+    computeVersionedSignerBoundaryResolutionEvidenceDigest(
+      {
+        recordID,
+        signerInvocationID,
+        boundaryStartedAtUnixMs,
+        preparationAttempts,
+        nonceReservationID,
+        stage: resolution.stage,
+        invokedAtUnixMs,
+        outcome: resolution.outcome,
+        signedTransactionHash,
+        providerTombstone,
+        nonceConsumption,
+        providerEvidenceDigest,
+      },
+      evidenceVersion
+    ) !== evidenceDigest
   ) {
     throw new Error("Independent signer-boundary resolution digest is invalid")
   }
@@ -1357,6 +1395,22 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   }
 }
 
+export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
+  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+): P2TRSignatureFraudNormalizedSignerBoundaryResolution =>
+  validateVersionedIndependentSignerBoundaryResolution(resolution, 5)
+
+/**
+ * Validates the exact evidence contract used before migration 005. The
+ * PostgreSQL adapter invokes this only after finding an immutable row that the
+ * migration explicitly classified as version 4; it is never an insertion path.
+ */
+export const validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay =
+  (
+    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+  ): P2TRSignatureFraudNormalizedSignerBoundaryResolution =>
+    validateVersionedIndependentSignerBoundaryResolution(resolution, 4)
+
 /**
  * The durable-state half of the resolver's precondition, evaluated identically
  * by both stores and re-evaluated independently by the PostgreSQL guard
@@ -1372,7 +1426,8 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
  * same either way — the nonce is spent regardless of who spent it.
  */
 const normalizeSignerBoundaryNonceConsumption = (
-  evidence: P2TRSignatureFraudNonceConsumptionEvidence
+  evidence: P2TRSignatureFraudNonceConsumptionEvidence,
+  enforceFinalityFloor: boolean
 ): P2TRSignatureFraudNonceConsumptionEvidence => {
   // The canonical validators are void-returning assertions, so the normalized
   // shape is rebuilt here from the same helpers they use.
@@ -1404,8 +1459,9 @@ const normalizeSignerBoundaryNonceConsumption = (
     )
   }
   if (
+    enforceFinalityFloor &&
     observedHead.blockNumber - finalizedThrough.blockNumber <
-    P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
   ) {
     throw new Error(
       `Signer-boundary nonce consumption finality depth must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`

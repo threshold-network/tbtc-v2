@@ -42,6 +42,7 @@ import {
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   normalizeP2TRSignatureFraudSigningLane,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
+  validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
 import type { P2TRSignatureFraudSigningLane } from "./P2TRSignatureFraudChallengeOutbox.js"
 import type { P2TRPostgresOutboxTransactionSession } from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
@@ -1556,8 +1557,69 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
     }
     this.assertSession()
-    const normalized =
-      validateP2TRSignatureFraudIndependentSignerBoundaryResolution(resolution)
+    type StoredSignerBoundaryResolution = {
+      outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
+      resolution_evidence_digest: Buffer
+      resolution_evidence_version: 4 | 5
+    }
+    const loadExisting = async (recordID: string, signerInvocationID: string) =>
+      this.options.session.query<StoredSignerBoundaryResolution>(
+        `SELECT outcome, resolution_evidence_digest,
+                resolution_evidence_version
+           FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+          WHERE record_id = decode($1, 'hex')
+            AND signer_invocation_id = decode($2, 'hex')`,
+        [stripHex(recordID), stripHex(signerInvocationID)]
+      )
+    const acceptLegacyV4Replay = (
+      existing: StoredSignerBoundaryResolution
+    ): "acknowledged" | "unsafe" => {
+      let legacy
+      try {
+        legacy =
+          validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay(
+            resolution
+          )
+      } catch {
+        throw new Error("Independent signer-boundary resolution conflicts")
+      }
+      if (
+        existing.outcome !== legacy.outcome ||
+        prefixedHex(existing.resolution_evidence_digest) !==
+          legacy.evidenceDigest
+      ) {
+        throw new Error("Independent signer-boundary resolution conflicts")
+      }
+      return legacy.outcome === "terminal-unsafe" ? "unsafe" : "acknowledged"
+    }
+    let normalized
+    try {
+      normalized =
+        validateP2TRSignatureFraudIndependentSignerBoundaryResolution(
+          resolution
+        )
+    } catch (validationError) {
+      // A pre-005 response may be retried after the database committed its v4
+      // evidence but before the caller observed the response. Look up only by
+      // the two bounded identity fields, then accept solely an exact, fully
+      // validated replay of a row migration 005 marked as grandfathered.
+      const recordID = bytes32(
+        resolution.recordID,
+        "Orphaned signer boundary record ID"
+      )
+      const signerInvocationID = bytes32(
+        resolution.signerInvocationID,
+        "Orphaned signer boundary invocation ID"
+      )
+      const existing = await loadExisting(recordID, signerInvocationID)
+      if (
+        existing.rows.length !== 1 ||
+        existing.rows[0].resolution_evidence_version !== 4
+      ) {
+        throw validationError
+      }
+      return acceptLegacyV4Replay(existing.rows[0])
+    }
     const currentRow = await this.lockRecord(normalized.recordID)
     if (currentRow === undefined) {
       throw new Error(
@@ -1565,17 +1627,14 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
     }
     const current = await this.hydrateRow(currentRow)
-    const existing = await this.options.session.query<{
-      outcome: "never-invoked" | "signed" | "terminal-unsafe"
-      resolution_evidence_digest: Buffer
-    }>(
-      `SELECT outcome, resolution_evidence_digest
-         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
-        WHERE record_id = decode($1, 'hex')
-          AND signer_invocation_id = decode($2, 'hex')`,
-      [stripHex(normalized.recordID), stripHex(normalized.signerInvocationID)]
+    const existing = await loadExisting(
+      normalized.recordID,
+      normalized.signerInvocationID
     )
     if (existing.rows.length === 1) {
+      if (existing.rows[0].resolution_evidence_version === 4) {
+        return acceptLegacyV4Replay(existing.rows[0])
+      }
       if (
         existing.rows[0].outcome !== normalized.outcome ||
         prefixedHex(existing.rows[0].resolution_evidence_digest) !==
@@ -1612,7 +1671,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           nonce_consumption_finalized_block_number,
           nonce_consumption_finalized_block_hash,
           nonce_consumption_observed_head_block_number,
-          nonce_consumption_observed_head_block_hash
+          nonce_consumption_observed_head_block_hash,
+          resolution_evidence_version
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), $3, $4,
           decode($5, 'hex'), $6, $7, $8,
@@ -1627,7 +1687,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           $28,
           CASE WHEN $29::text IS NULL THEN NULL ELSE decode($29, 'hex') END,
           $30,
-          CASE WHEN $31::text IS NULL THEN NULL ELSE decode($31, 'hex') END
+          CASE WHEN $31::text IS NULL THEN NULL ELSE decode($31, 'hex') END,
+          5
        )`,
       [
         stripHex(normalized.recordID),
