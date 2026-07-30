@@ -99,13 +99,23 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
   }
 
   async attestCandidate(
-    candidate: P2TRProductionBitcoinCandidateIdentity
+    candidate: P2TRProductionBitcoinCandidateIdentity,
+    confirmationDepth: number
   ): Promise<P2TRProductionBitcoinCandidateAttestation> {
     const normalized = normalizeCandidate(candidate)
+    const depth = positiveInteger(
+      confirmationDepth,
+      "Bitcoin confirmation depth"
+    )
     const head = await this.source.getSyncedHead()
     if (head.height < normalized.blockHeight) {
       throw new Error("Bitcoin candidate block is above the synchronized head")
     }
+    if (head.height < depth) {
+      throw new Error("Bitcoin chain has not reached the confirmation depth")
+    }
+    const finalizedHeight = head.height - depth
+    const finalizedHash = await this.source.getBlockHash(finalizedHeight)
     const block = await this.source.getBlock(normalized.blockHeight)
     if (
       bitcoinHash(block.hash, "candidate block hash") !== normalized.blockHash
@@ -136,8 +146,8 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
       blockHash: normalized.blockHash,
       inputIndex: normalized.inputIndex,
       finalizedThrough: {
-        height: head.height,
-        hash: bitcoinHash(head.hash, "Bitcoin attestation head"),
+        height: finalizedHeight,
+        hash: bitcoinHash(finalizedHash, "Bitcoin attestation finality"),
       },
       present: true,
     }

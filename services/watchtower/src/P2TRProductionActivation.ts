@@ -487,7 +487,8 @@ export type P2TRProductionBitcoinEvidenceProvider =
     readState(confirmationDepth: number): Promise<P2TRProductionBitcoinState>
     getBlockHash(height: number): Promise<string>
     attestCandidate(
-      candidate: P2TRProductionBitcoinCandidateIdentity
+      candidate: P2TRProductionBitcoinCandidateIdentity,
+      confirmationDepth: number
     ): Promise<P2TRProductionBitcoinCandidateAttestation>
   }
 
@@ -939,8 +940,14 @@ export class P2TRProductionActivationGate {
       throw new Error("Bitcoin candidate has not reached manifest finality")
     }
     const [indexed, reconciled] = await Promise.all([
-      this.dependencies.bitcoinIndexSource.attestCandidate(normalized),
-      this.dependencies.bitcoinReconciler.attestCandidate(normalized),
+      this.dependencies.bitcoinIndexSource.attestCandidate(
+        normalized,
+        this.manifest.bitcoin.confirmationDepth
+      ),
+      this.dependencies.bitcoinReconciler.attestCandidate(
+        normalized,
+        this.manifest.bitcoin.confirmationDepth
+      ),
     ])
     assertCandidateAttestation(indexed, normalized, "Bitcoin index source")
     assertCandidateAttestation(

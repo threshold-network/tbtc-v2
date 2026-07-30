@@ -20,17 +20,13 @@ describe("canonical Bitcoin production evidence", () => {
       { operatorIdentity: "independent-operator" }
     )
 
-    const attestation = await provider.attestCandidate({
-      txid: CANDIDATE_TXID,
-      wtxid: CANDIDATE_WTXID,
-      blockHeight: 10,
-      blockHash: BLOCK_HASH,
-      inputIndex: 0,
-      observationID: "aa".repeat(32),
-      challengeKey: "bb".repeat(32),
-    })
+    const attestation = await provider.attestCandidate(candidateIdentity(), 2)
 
     assert.equal(attestation.present, true)
+    assert.deepEqual(attestation.finalizedThrough, {
+      height: 10,
+      hash: BLOCK_HASH,
+    })
     assert.equal("observationID" in attestation, false)
     assert.equal("challengeKey" in attestation, false)
     assert.deepEqual(
@@ -38,6 +34,22 @@ describe("canonical Bitcoin production evidence", () => {
       fixture.funding.outputs[0]
     )
     assert.deepEqual(fixture.rawTransactionRequests, [FUNDING_TXID])
+  })
+
+  it("reapplies confirmation depth after the synchronized tip retreats", async () => {
+    const fixture = sourceFixture(11)
+    const provider = new CanonicalBitcoinP2TRProductionEvidenceProvider(
+      fixture.source,
+      { operatorIdentity: "independent-operator" }
+    )
+
+    const attestation = await provider.attestCandidate(candidateIdentity(), 2)
+
+    assert.deepEqual(attestation.finalizedThrough, {
+      height: 9,
+      hash: chainHash(9),
+    })
+    assert.ok(attestation.finalizedThrough.height < attestation.blockHeight)
   })
 
   it("rejects a funding transaction that does not authenticate the prevout", async () => {
@@ -49,21 +61,25 @@ describe("canonical Bitcoin production evidence", () => {
     )
 
     await assert.rejects(
-      provider.attestCandidate({
-        txid: CANDIDATE_TXID,
-        wtxid: CANDIDATE_WTXID,
-        blockHeight: 10,
-        blockHash: BLOCK_HASH,
-        inputIndex: 0,
-        observationID: "aa".repeat(32),
-        challengeKey: "bb".repeat(32),
-      }),
+      provider.attestCandidate(candidateIdentity(), 2),
       /funding transaction is unauthenticated/
     )
   })
 })
 
-function sourceFixture(): {
+function candidateIdentity() {
+  return {
+    txid: CANDIDATE_TXID,
+    wtxid: CANDIDATE_WTXID,
+    blockHeight: 10,
+    blockHash: BLOCK_HASH,
+    inputIndex: 0,
+    observationID: "aa".repeat(32),
+    challengeKey: "bb".repeat(32),
+  }
+}
+
+function sourceFixture(headHeight = 12): {
   source: P2TRCanonicalBitcoinBlockSource
   block: P2TRCanonicalBitcoinBlock
   candidate: P2TRCanonicalBitcoinTransaction
@@ -114,10 +130,11 @@ function sourceFixture(): {
     network: "main",
     genesisHash: "88".repeat(32),
     async getSyncedHead() {
-      return { height: 10, hash: BLOCK_HASH }
+      return { height: headHeight, hash: chainHash(headHeight) }
     },
     async getBlockHash(height) {
-      return height === 10 ? BLOCK_HASH : this.genesisHash
+      if (height === 0) return this.genesisHash
+      return height === 10 ? BLOCK_HASH : chainHash(height)
     },
     async getBlock() {
       return block
@@ -129,4 +146,8 @@ function sourceFixture(): {
   }
   Object.assign(source, { endpointFingerprint: `0x${"99".repeat(32)}` })
   return { source, block, candidate, funding, rawTransactionRequests }
+}
+
+function chainHash(height: number): string {
+  return height.toString(16).padStart(2, "0").repeat(32)
 }

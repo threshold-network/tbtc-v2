@@ -83,6 +83,48 @@ describe("production activation readiness authority serialization", () => {
     assert.equal(attempts, 2)
   })
 
+  it("reapplies manifest Bitcoin finality during candidate attestation", async () => {
+    const gate = Object.create(P2TRProductionActivationGate.prototype)
+    const confirmationDepths: number[] = []
+    const provider = {
+      async attestCandidate(
+        candidate: P2TRProductionBitcoinCandidateIdentity,
+        confirmationDepth: number
+      ) {
+        confirmationDepths.push(confirmationDepth)
+        return {
+          txid: candidate.txid,
+          wtxid: candidate.wtxid,
+          blockHeight: candidate.blockHeight,
+          blockHash: candidate.blockHash,
+          inputIndex: candidate.inputIndex,
+          finalizedThrough: { height: 9, hash: WORD("15") },
+          present: true as const,
+        }
+      },
+    }
+    Object.assign(gate, {
+      manifest: { bitcoin: { confirmationDepth: 6 } },
+      dependencies: {
+        bitcoinIndexSource: provider,
+        bitcoinReconciler: provider,
+      },
+    })
+    const mutable = gate as unknown as {
+      assertReadyUnderAuthority(): Promise<P2TRProductionReadySnapshot>
+      assertCandidateReconciledUnderAuthority(
+        candidate: P2TRProductionBitcoinCandidateIdentity
+      ): Promise<P2TRProductionCandidateAuthorizationToken>
+    }
+    mutable.assertReadyUnderAuthority = async () => readySnapshot()
+
+    await assert.rejects(
+      mutable.assertCandidateReconciledUnderAuthority(candidateIdentity()),
+      /did not attest the exact Bitcoin candidate/
+    )
+    assert.deepEqual(confirmationDepths, [6, 6])
+  })
+
   it("rejects lag history when its verified activation point was orphaned", async () => {
     const gate = ethereumHistoryGate(`0x${WORD("35")}`)
     await assert.rejects(
