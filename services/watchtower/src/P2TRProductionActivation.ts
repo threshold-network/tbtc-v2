@@ -577,19 +577,19 @@ export type P2TRProductionOutboxHandshakeState = {
   replacementPolicy: "append-only-same-intent-fee-bump-v1"
   migrationVersion: 3
   migrationChecksum: string
-  startupReconciliationComplete: true
-  ambiguousTransactionCount: 0
-  activationBlockingCriticalAlertCount: 0
-  unresolvedLegacyQuarantineCount: 0
+  startupReconciliationComplete: boolean
+  ambiguousTransactionCount: number
+  activationBlockingCriticalAlertCount: number
+  unresolvedLegacyQuarantineCount: number
   recoveryBacklogCount: number
-  liveCandidateAuthorizationCount: 0
+  liveCandidateAuthorizationCount: number
   senderLanes: readonly {
     laneID: string
     trustDomainID: string
     operatorFingerprint: string
-    healthy: true
+    healthy: boolean
   }[]
-  healthy: true
+  healthy: boolean
 }
 
 export type P2TRProductionFrostHandshakeState = {
@@ -934,7 +934,10 @@ export class P2TRProductionActivationGate {
       challenge,
       this.manifest.frostSigner.attestationSignerKeyHash
     )
-    assertOutboxHandshake(outboxHandshake.payload.state, this.manifest.outbox)
+    assertP2TRProductionOutboxHandshake(
+      outboxHandshake.payload.state,
+      this.manifest.outbox
+    )
     assertP2TRProductionFrostHandshake(
       frostHandshake.payload.state,
       this.manifest.frostSigner,
@@ -2521,7 +2524,7 @@ function normalizeCandidateBitcoinEvidence(
   }
 }
 
-function assertOutboxHandshake(
+export function assertP2TRProductionOutboxHandshake(
   actual: P2TRProductionOutboxHandshakeState,
   expected: Readonly<P2TRProductionActivationManifest["outbox"]>
 ): void {
@@ -3538,7 +3541,7 @@ function normalizeOutboxSenderLanes(
     laneID: string
     trustDomainID: string
     operatorFingerprint: string
-    healthy: true
+    healthy: boolean
   }[]
 ): readonly {
   laneID: string

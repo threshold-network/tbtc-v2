@@ -97,6 +97,27 @@ describe("production activation PostgreSQL schema contract", () => {
     const health = activationGate.indexOf("readBitcoinIndexHealth()", lock)
     const mint = activationGate.indexOf("mintReadinessCertificate({", health)
     assert.ok(lock >= 0 && health > lock && mint > health)
+    const mintMethod = methodSource(
+      activationStore,
+      "mintReadinessCertificate",
+      "readBitcoinIndexHealth"
+    )
+    assert.match(mintMethod, /await this\.lockReadinessSnapshot\(\)/)
+    assert.match(
+      mintMethod,
+      /p2tr_candidate_enqueue_authorizations[\s\S]*?consumed_at IS NULL[\s\S]*?invalidated_at IS NULL[\s\S]*?expires_at > clock_timestamp\(\)/
+    )
+    assert.ok(
+      mintMethod.indexOf("live_authorization_count") <
+        mintMethod.indexOf("UPDATE p2tr_readiness_certificate_generation"),
+      "live authorization check must precede certificate replacement"
+    )
+    const issueMethod = methodSource(
+      activationStore,
+      "issueCandidateAuthorization",
+      "lockCandidateAuthorization"
+    )
+    assert.match(issueMethod, /await this\.lockReadinessSnapshot\(\)/)
   })
 
   it("revalidates the readiness certificate CAS without localizing provider heads", () => {

@@ -132,6 +132,10 @@ export class PostgresP2TRProductionActivationStore
   async mintReadinessCertificate(
     input: P2TRProductionReadinessCertificateInput
   ): Promise<P2TRProductionReadinessCertificateReference> {
+    // Candidate issuance takes the same transaction-scoped lock. This makes
+    // certificate replacement and authorization issuance one cross-process
+    // serialization domain rather than relying on an in-memory gate mutex.
+    await this.lockReadinessSnapshot()
     const normalized = normalizeReadinessCertificateInput(input)
     const payload = canonicalJSON(normalized.payload)
     if (Buffer.byteLength(payload, "utf8") > this.maxManifestBytes) {
@@ -187,6 +191,33 @@ export class PostgresP2TRProductionActivationStore
     ) {
       throw new Error(
         "Readiness certificate local snapshot changed during verification"
+      )
+    }
+    const liveAuthorizations = await this.session.query<{
+      live_authorization_count: string | number
+    }>(
+      `SELECT count(*)::bigint AS live_authorization_count
+         FROM p2tr_candidate_enqueue_authorizations authorization
+         JOIN p2tr_readiness_certificates certificate
+           ON certificate.certificate_id =
+                authorization.readiness_certificate_id
+          AND certificate.certificate_generation =
+                authorization.readiness_certificate_generation
+          AND certificate.is_current
+          AND certificate.invalidated_at IS NULL
+        WHERE authorization.consumed_at IS NULL
+          AND authorization.invalidated_at IS NULL
+          AND authorization.expires_at > clock_timestamp()`
+    )
+    if (
+      liveAuthorizations.rows.length !== 1 ||
+      databaseInteger(
+        liveAuthorizations.rows[0].live_authorization_count,
+        "live candidate authorization count"
+      ) !== 0
+    ) {
+      throw new Error(
+        "Readiness certificate replacement is blocked by a live candidate authorization"
       )
     }
     const generation = await this.session.query<{
@@ -651,6 +682,7 @@ export class PostgresP2TRProductionActivationStore
   async issueCandidateAuthorization(
     receipt: P2TRProductionCandidateAuthorizationReceipt
   ): Promise<void> {
+    await this.lockReadinessSnapshot()
     const normalized = normalizeReceipt(receipt)
     await this.assertCurrentActivationManifest(normalized.manifestHash)
     await this.session.query(

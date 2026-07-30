@@ -35,7 +35,9 @@ import {
 import {
   P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA,
   PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider,
+  type P2TROutboxCurrentReadinessCertificate,
 } from "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
+import { assertP2TRProductionOutboxHandshake } from "../src/P2TRProductionActivation.js"
 import {
   PostgresP2TRSignatureFraudChallengeOutboxStore,
   computeP2TRProductionSignerLaneConfigurationHash,
@@ -51,6 +53,10 @@ const WALLET = new Wallet(`0x${"11".repeat(32)}`)
 const { Client } = pg
 const LANE_ID = "lane-a"
 const SIGNER_IDENTITY = "signer-a"
+const OUTBOX_PROTOCOL_ID = `0x${"a3".repeat(32)}`
+const OUTBOX_IMPLEMENTATION_CODE_HASH = `0x${"a4".repeat(32)}`
+const OUTBOX_MIGRATION_CHECKSUM = `0x${"a5".repeat(32)}`
+const OUTBOX_LANE_OPERATOR_FINGERPRINT = `0x${"a6".repeat(32)}`
 const CHAIN_ID = 11155111
 const BRIDGE_ADDRESS = `0x${"b1".repeat(20)}`
 const ROUTER_ADDRESS = `0x${"b2".repeat(20)}`
@@ -682,7 +688,18 @@ function invalidationEvidence(
 function activationProvider(
   client: PostgreSQLClient,
   now: () => number,
-  manifestHash = MANIFEST_HASH
+  manifestHash = MANIFEST_HASH,
+  readCurrentReadinessCertificate:
+    | (() => Promise<P2TROutboxCurrentReadinessCertificate | undefined>)
+    | null = async () => ({
+    certificateID: `0x${"e3".repeat(32)}`,
+    certificateGeneration: 1,
+    manifestHash,
+    ethereumPoint: {
+      blockNumber: 500,
+      blockHash: ETHEREUM_BLOCK_HASH,
+    },
+  })
 ) {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519")
   const publicDer = publicKey.export({ type: "spki", format: "der" })
@@ -694,15 +711,27 @@ function activationProvider(
       signerPublicKeySpki: publicDer.toString("base64"),
       signP2TRActivationPayload: async (bytes) => sign(null, bytes, privateKey),
     },
-    readCurrentReadinessCertificate: async () => ({
-      certificateID: `0x${"e3".repeat(32)}`,
-      certificateGeneration: 1,
-      manifestHash,
-      ethereumPoint: {
-        blockNumber: 500,
-        blockHash: ETHEREUM_BLOCK_HASH,
-      },
-    }),
+    activationBinding: {
+      protocolID: OUTBOX_PROTOCOL_ID,
+      sender: WALLET.address,
+      routerAddress: ROUTER_ADDRESS,
+      implementationCodeHash: OUTBOX_IMPLEMENTATION_CODE_HASH,
+      preparedTransactionPersistence: "durable-before-broadcast",
+      replacementPolicy: "append-only-same-intent-fee-bump-v1",
+      migrationVersion: 3,
+      migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
+      maxRecoveryBacklog: 0,
+      senderLanes: [
+        {
+          laneID: LANE_ID,
+          trustDomainID: "signer.trust.integration",
+          operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+        },
+      ],
+    },
+    ...(readCurrentReadinessCertificate === null
+      ? {}
+      : { readCurrentReadinessCertificate }),
     now,
   })
 }
@@ -1723,6 +1752,77 @@ postgresTest(
     assert.equal(response.payload.state.healthySignerLaneCount, 1)
     assert.equal(response.payload.state.danglingNonceGuardCount, 0)
     assert.equal(response.payload.state.activationBlocked, false)
+    assert.equal(response.payload.state.storeID, "postgres.integration")
+    assert.equal(response.payload.state.protocolID, OUTBOX_PROTOCOL_ID)
+    assert.equal(response.payload.state.sender, WALLET.address.toLowerCase())
+    assert.equal(
+      response.payload.state.routerAddress,
+      ROUTER_ADDRESS.toLowerCase()
+    )
+    assert.equal(
+      response.payload.state.databaseConstraintHash,
+      response.payload.state.schemaConstraintHash
+    )
+    assert.equal(response.payload.state.startupReconciliationComplete, true)
+    assert.equal(response.payload.state.ambiguousTransactionCount, 0)
+    assert.equal(response.payload.state.liveCandidateAuthorizationCount, 0)
+    assert.deepEqual(response.payload.state.senderLanes, [
+      {
+        laneID: LANE_ID,
+        trustDomainID: "signer.trust.integration",
+        operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+        healthy: true,
+      },
+    ])
+    assert.equal(response.payload.state.healthy, true)
+    assert.doesNotThrow(() =>
+      assertP2TRProductionOutboxHandshake(response.payload.state, {
+        storeID: "postgres.integration",
+        protocolID: OUTBOX_PROTOCOL_ID,
+        sender: WALLET.address,
+        routerAddress: ROUTER_ADDRESS,
+        implementationCodeHash: OUTBOX_IMPLEMENTATION_CODE_HASH,
+        databaseConstraintHash: response.payload.state.schemaConstraintHash,
+        attestationSignerKeyHash: `0x${"a7".repeat(32)}`,
+        handshakeEndpointFingerprint: `0x${"a8".repeat(32)}`,
+        handshakeOperatorFingerprint: `0x${"a9".repeat(32)}`,
+        signerTrustDomainID: "signer.trust.integration",
+        broadcastTrustDomainID: "broadcast.trust.integration",
+        reconciliationTrustDomainID: "reconciliation.trust.integration",
+        preparedTransactionPersistence: "durable-before-broadcast",
+        replacementPolicy: "append-only-same-intent-fee-bump-v1",
+        migrationVersion: 3,
+        migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
+        maxRecoveryBacklog: 0,
+        senderLanes: [
+          {
+            laneID: LANE_ID,
+            trustDomainID: "signer.trust.integration",
+            operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+          },
+        ],
+      })
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "bootstraps the production handshake before any readiness certificate exists",
+  async () => {
+    const database = await createTestDatabase()
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000,
+      MANIFEST_HASH,
+      null
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal("currentReadinessCertificate" in response.payload.state, false)
+    assert.equal(response.payload.state.startupReconciliationComplete, true)
+    assert.equal(response.payload.state.healthy, true)
     await database.client.end()
   }
 )

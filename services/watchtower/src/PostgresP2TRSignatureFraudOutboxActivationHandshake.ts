@@ -3,6 +3,7 @@ import {
   createPublicKey,
   verify as verifySignature,
 } from "node:crypto"
+import type { P2TRProductionOutboxHandshakeState } from "./P2TRProductionActivation.js"
 
 export const P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA =
   "tbtc-p2tr-production-activation-handshake/v1" as const
@@ -40,43 +41,62 @@ export type P2TROutboxCurrentReadinessCertificate = {
   ethereumPoint: P2TRProductionActivationEthereumPoint
 }
 
-export type P2TRProductionOutboxActivationState = {
-  storeID: string
-  schemaVersion: number
-  schemaConstraintHash: string
-  manifestActivationSequence: number
-  manifestOutboxCapacityConfigured: boolean
-  currentReadinessCertificate: P2TROutboxCurrentReadinessCertificate
-  statusCounts: Readonly<Record<string, number>>
-  activeGenerationCount: number
-  activeOldManifestGenerationCount: number
-  expiredPreparationLeaseCount: number
-  pendingNonceReleaseCount: number
-  pendingNonceReleaseSetHash: string
-  ambiguousNonceReleaseCount: number
-  ambiguousNonceReleaseSetHash: string
-  recoveryBacklogCount: number
-  activationBlockingAlertCount: number
-  activationBlockingAlertSetHash: string
-  provenanceIncidentCount: number
-  provenanceIncidentSetHash: string
-  unresolvedNonceGuardCount: number
-  danglingNonceGuardCount: number
-  configuredSignerLaneCount: number
-  configuredSignerLaneSetHash: string
-  quarantinedSignerLaneCount: number
-  healthySignerLaneCount: number
-  healthySignerLaneSetHash: string
-  stateHistoryMismatchCount: number
-  capacityCounterMismatchCount: number
-  activeNonceReleaseAttemptCount: number
-  activeSignerInvocationCount: number
-  unresolvedReleaseBarrierCount: number
-  nonceAllocatorContractMismatchBlocked: boolean
-  nonceAllocatorBarrierMismatchCount: number
-  activationBlocked: boolean
-  activationBlockingReasons: readonly string[]
-  sampledAtUnixMs: number
+export type P2TRProductionOutboxActivationState =
+  P2TRProductionOutboxHandshakeState & {
+    schemaVersion: number
+    schemaConstraintHash: string
+    manifestActivationSequence: number
+    manifestOutboxCapacityConfigured: boolean
+    currentReadinessCertificate?: P2TROutboxCurrentReadinessCertificate
+    statusCounts: Readonly<Record<string, number>>
+    activeGenerationCount: number
+    activeOldManifestGenerationCount: number
+    expiredPreparationLeaseCount: number
+    pendingNonceReleaseCount: number
+    pendingNonceReleaseSetHash: string
+    ambiguousNonceReleaseCount: number
+    ambiguousNonceReleaseSetHash: string
+    recoveryBacklogCount: number
+    activationBlockingAlertCount: number
+    activationBlockingAlertSetHash: string
+    provenanceIncidentCount: number
+    provenanceIncidentSetHash: string
+    unresolvedNonceGuardCount: number
+    danglingNonceGuardCount: number
+    configuredSignerLaneCount: number
+    configuredSignerLaneSetHash: string
+    quarantinedSignerLaneCount: number
+    healthySignerLaneCount: number
+    healthySignerLaneSetHash: string
+    stateHistoryMismatchCount: number
+    capacityCounterMismatchCount: number
+    activeNonceReleaseAttemptCount: number
+    activeSignerInvocationCount: number
+    unresolvedReleaseBarrierCount: number
+    nonceAllocatorContractMismatchBlocked: boolean
+    nonceAllocatorBarrierMismatchCount: number
+    activationBlocked: boolean
+    activationBlockingReasons: readonly string[]
+    sampledAtUnixMs: number
+  }
+
+export type P2TRProductionOutboxActivationBinding = Pick<
+  P2TRProductionOutboxHandshakeState,
+  | "protocolID"
+  | "sender"
+  | "routerAddress"
+  | "implementationCodeHash"
+  | "preparedTransactionPersistence"
+  | "replacementPolicy"
+  | "migrationVersion"
+  | "migrationChecksum"
+> & {
+  maxRecoveryBacklog: number
+  senderLanes: readonly {
+    laneID: string
+    trustDomainID: string
+    operatorFingerprint: string
+  }[]
 }
 
 export type P2TRPostgresQueryResult<Row> = {
@@ -102,11 +122,17 @@ export type PostgresP2TRSignatureFraudOutboxActivationHandshakeOptions = {
   session: P2TRPostgresOutboxTransactionSession
   assertTransactionSession(session: P2TRPostgresOutboxTransactionSession): void
   keyProvider: P2TRProductionActivationHandshakeKeyProvider
-  /** Must query the canonical readiness row through the same minted session. */
-  readCurrentReadinessCertificate(
+  /**
+   * Deployment-owned values independently bound to the running outbox. The
+   * provider combines these with live database health instead of echoing the
+   * activation challenge's manifest.
+   */
+  activationBinding: P2TRProductionOutboxActivationBinding
+  /** Optional during first-start bootstrap, before the gate mints generation 1. */
+  readCurrentReadinessCertificate?(
     session: P2TRPostgresOutboxTransactionSession,
     challenge: P2TRProductionActivationHandshakeRequest["challenge"]
-  ): Promise<P2TROutboxCurrentReadinessCertificate>
+  ): Promise<P2TROutboxCurrentReadinessCertificate | undefined>
   now?: () => number
 }
 
@@ -120,6 +146,9 @@ type ManifestAndCursorRow = {
 }
 
 type CountRow = { count: string | number }
+type LiveAuthorizationCountRow = {
+  live_authorization_count: string | number
+}
 type StatusCountRow = { status: string; count: string | number }
 type DigestRow = { id: string; details_digest: string }
 type CatalogDefinitionRow = {
@@ -163,6 +192,7 @@ const TERMINAL_STATUSES = [
  */
 export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
   private readonly now: () => number
+  private readonly activationBinding: P2TRProductionOutboxActivationBinding
 
   constructor(
     private readonly options: PostgresP2TRSignatureFraudOutboxActivationHandshakeOptions
@@ -173,6 +203,9 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     canonicalBase64(
       options.keyProvider.signerPublicKeySpki,
       "Activation signer public-key SPKI"
+    )
+    this.activationBinding = normalizeActivationBinding(
+      options.activationBinding
     )
   }
 
@@ -283,14 +316,14 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       )
     }
 
-    const readiness = await this.options.readCurrentReadinessCertificate(
+    const readiness = await this.options.readCurrentReadinessCertificate?.(
       session,
       challenge
     )
-    const currentReadinessCertificate = validateReadinessCertificate(
-      readiness,
-      challenge
-    )
+    const currentReadinessCertificate =
+      readiness === undefined
+        ? undefined
+        : validateReadinessCertificate(readiness, challenge)
 
     const [
       schemaVersionResult,
@@ -308,6 +341,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       capacityCounterResult,
       nonceAllocatorBarrierResult,
       catalogResult,
+      liveAuthorizationResult,
     ] = await Promise.all([
       session.query<{ version: string | number }>(
         `SELECT version
@@ -630,6 +664,13 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND p.proname LIKE 'p2tr_signature_fraud_%'
           ORDER BY object_kind, object_name, definition`
       ),
+      session.query<LiveAuthorizationCountRow>(
+        `SELECT count(*)::bigint AS live_authorization_count
+           FROM p2tr_candidate_enqueue_authorizations
+          WHERE consumed_at IS NULL
+            AND invalidated_at IS NULL
+            AND expires_at > clock_timestamp()`
+      ),
     ])
 
     if (schemaVersionResult.rows.length !== 1) {
@@ -715,6 +756,9 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     )
     const recoveryBacklogCount =
       expiredPreparationLeaseCount + pendingNonceReleaseCount
+    const liveCandidateAuthorizationCount = oneLiveAuthorizationCount(
+      liveAuthorizationResult
+    )
 
     const reasons: string[] = []
     if (activeOldManifestGenerationCount > 0) {
@@ -764,6 +808,59 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     if (configuredSignerLaneCount === 0 || healthySignerLaneCount === 0) {
       reasons.push("no-healthy-manifest-bound-signer-lane")
     }
+    if (liveCandidateAuthorizationCount > 0) {
+      reasons.push("live-candidate-authorization")
+    }
+
+    const binding = this.activationBinding
+    const senderLanes = binding.senderLanes.map((expected) => {
+      const configured = laneResult.rows.find(
+        (actual) => actual.signer_lane_id === expected.laneID
+      )
+      return {
+        laneID: expected.laneID,
+        trustDomainID: expected.trustDomainID,
+        operatorFingerprint: expected.operatorFingerprint,
+        healthy: configured !== undefined && !configured.quarantined,
+      }
+    })
+    const configuredLaneIDs = new Set(
+      laneResult.rows.map((lane) => lane.signer_lane_id)
+    )
+    const senderLaneSetMatches =
+      configuredLaneIDs.size === binding.senderLanes.length &&
+      binding.senderLanes.every((lane) => configuredLaneIDs.has(lane.laneID))
+    if (!senderLaneSetMatches) {
+      reasons.push("manifest-bound-signer-lane-mismatch")
+    }
+    if (quarantinedSignerLaneCount > 0) {
+      reasons.push("quarantined-manifest-bound-signer-lane")
+    }
+    const startupReconciliationComplete =
+      activeOldManifestGenerationCount === 0 &&
+      stateHistoryMismatchCount === 0 &&
+      capacityCounterMismatchCount === 0 &&
+      nonceAllocatorBarrierMismatchCount === 0 &&
+      unresolvedReleaseBarrierCount === pendingNonceReleaseCount &&
+      danglingNonceGuardCount === 0 &&
+      activeNonceReleaseAttemptCount === 0 &&
+      activeSignerInvocationCount === 0 &&
+      !nonceAllocatorContractMismatchBlocked
+    const ambiguousTransactionCount = ambiguousNonceReleaseCount
+    const activationBlockingCriticalAlertCount =
+      activationBlockingAlertCount + provenanceIncidentCount
+    const unresolvedLegacyQuarantineCount = quarantinedSignerLaneCount
+    const healthy =
+      startupReconciliationComplete &&
+      manifestOutboxCapacityConfigured &&
+      ambiguousTransactionCount === 0 &&
+      activationBlockingCriticalAlertCount === 0 &&
+      unresolvedLegacyQuarantineCount === 0 &&
+      recoveryBacklogCount <= binding.maxRecoveryBacklog &&
+      liveCandidateAuthorizationCount === 0 &&
+      senderLaneSetMatches &&
+      senderLanes.every((lane) => lane.healthy)
+    const schemaConstraintHash = sha256Canonical(catalogResult.rows)
 
     return {
       storeID: requireText(
@@ -771,14 +868,32 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
         "PostgreSQL outbox store ID",
         255
       ),
+      protocolID: binding.protocolID,
+      sender: binding.sender,
+      routerAddress: binding.routerAddress,
+      implementationCodeHash: binding.implementationCodeHash,
+      databaseConstraintHash: schemaConstraintHash,
+      preparedTransactionPersistence: binding.preparedTransactionPersistence,
+      replacementPolicy: binding.replacementPolicy,
+      migrationVersion: binding.migrationVersion,
+      migrationChecksum: binding.migrationChecksum,
+      startupReconciliationComplete,
+      ambiguousTransactionCount,
+      activationBlockingCriticalAlertCount,
+      unresolvedLegacyQuarantineCount,
+      liveCandidateAuthorizationCount,
+      senderLanes,
+      healthy,
       schemaVersion,
-      schemaConstraintHash: sha256Canonical(catalogResult.rows),
+      schemaConstraintHash,
       manifestActivationSequence: databaseSafeInteger(
         manifest.activation_sequence,
         "PostgreSQL manifest activation sequence"
       ),
       manifestOutboxCapacityConfigured,
-      currentReadinessCertificate,
+      ...(currentReadinessCertificate === undefined
+        ? {}
+        : { currentReadinessCertificate }),
       statusCounts,
       activeGenerationCount,
       activeOldManifestGenerationCount,
@@ -905,6 +1020,90 @@ function oneCount(
   return databaseSafeInteger(result.rows[0].count, `PostgreSQL ${label}`)
 }
 
+function oneLiveAuthorizationCount(
+  result: P2TRPostgresQueryResult<LiveAuthorizationCountRow>
+): number {
+  if (result.rows.length !== 1) {
+    throw new Error("PostgreSQL live candidate-authorization count is invalid")
+  }
+  return databaseSafeInteger(
+    result.rows[0].live_authorization_count,
+    "PostgreSQL live candidate-authorization count"
+  )
+}
+
+function normalizeActivationBinding(
+  value: P2TRProductionOutboxActivationBinding
+): P2TRProductionOutboxActivationBinding {
+  if (value === undefined || typeof value !== "object") {
+    throw new Error("Production outbox activation binding is absent")
+  }
+  if (
+    value.preparedTransactionPersistence !== "durable-before-broadcast" ||
+    value.replacementPolicy !== "append-only-same-intent-fee-bump-v1" ||
+    value.migrationVersion !== 3
+  ) {
+    throw new Error("Production outbox activation binding is unsupported")
+  }
+  if (
+    !Array.isArray(value.senderLanes) ||
+    value.senderLanes.length === 0 ||
+    value.senderLanes.length > 16
+  ) {
+    throw new Error(
+      "Production outbox activation binding has an invalid sender-lane count"
+    )
+  }
+  const senderLanes = value.senderLanes.map((lane) => ({
+    laneID: requireText(lane?.laneID, "Activation sender lane ID", 64),
+    trustDomainID: requireText(
+      lane?.trustDomainID,
+      "Activation sender lane trust domain",
+      128
+    ),
+    operatorFingerprint: bytes32(
+      lane?.operatorFingerprint,
+      "Activation sender lane operator fingerprint"
+    ),
+  }))
+  if (
+    new Set(senderLanes.map((lane) => lane.laneID)).size !==
+      senderLanes.length ||
+    new Set(senderLanes.map((lane) => lane.trustDomainID)).size !==
+      senderLanes.length ||
+    new Set(senderLanes.map((lane) => lane.operatorFingerprint)).size !==
+      senderLanes.length
+  ) {
+    throw new Error(
+      "Production outbox activation sender lanes are not independently pinned"
+    )
+  }
+  return {
+    protocolID: bytes32(value.protocolID, "Activation outbox protocol ID"),
+    sender: address(value.sender, "Activation outbox sender"),
+    routerAddress: address(
+      value.routerAddress,
+      "Activation outbox router address"
+    ),
+    implementationCodeHash: bytes32(
+      value.implementationCodeHash,
+      "Activation outbox implementation code hash"
+    ),
+    preparedTransactionPersistence: value.preparedTransactionPersistence,
+    replacementPolicy: value.replacementPolicy,
+    migrationVersion: value.migrationVersion,
+    migrationChecksum: bytes32(
+      value.migrationChecksum,
+      "Activation outbox migration checksum"
+    ),
+    maxRecoveryBacklog: nonNegativeSafeInteger(
+      value.maxRecoveryBacklog,
+      "Activation outbox recovery backlog bound"
+    ),
+    senderLanes,
+  }
+}
+
 function sha256Canonical(value: unknown): string {
   return `0x${createHash("sha256").update(canonicalJSON(value)).digest("hex")}`
 }
@@ -958,6 +1157,13 @@ function canonicalBase64(value: string, label: string): string {
 function bytes32(value: unknown, label: string): string {
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
     throw new Error(`${label} must be 32-byte hexadecimal data`)
+  }
+  return value.toLowerCase()
+}
+
+function address(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+    throw new Error(`${label} must be a 20-byte hexadecimal address`)
   }
   return value.toLowerCase()
 }

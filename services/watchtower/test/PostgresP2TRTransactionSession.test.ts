@@ -94,6 +94,45 @@ describe("PostgreSQL production transaction capabilities", () => {
         query.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")
       )
     )
+    assert.equal(
+      client.queries.filter((query) =>
+        query.includes("p2tr-readiness-snapshot")
+      ).length,
+      3,
+      "the caller, certificate mint, and authorization issue share the database lock"
+    )
+  })
+
+  it("preserves a current certificate while it backs a live authorization", async () => {
+    const client = new TransactionClient(undefined, 1)
+    const coordinator = coordinatorFor(client)
+    const store =
+      coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) =>
+          new PostgresP2TRProductionActivationStore(session, {
+            storeID: "watchtower",
+            maxEventHistoryRecords: 10,
+          })
+      )
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
+        store.mintReadinessCertificate(readinessInput())
+      ),
+      /live candidate authorization/
+    )
+    assert.equal(
+      client.queries.some((query) =>
+        query.includes("UPDATE p2tr_readiness_certificate_generation")
+      ),
+      false,
+      "a rejected replacement must not consume a generation"
+    )
+    assert.equal(
+      client.queries.some((query) => query.includes("SET is_current = false")),
+      false,
+      "a rejected replacement must leave the backing certificate current"
+    )
   })
 
   it("locks authorization against the certificate's exact current CAS", async () => {
@@ -186,7 +225,10 @@ class TransactionClient implements P2TRPostgresClient {
   readonly queries: string[] = []
   releasedWith: Error | undefined
 
-  constructor(private readonly failure?: "COMMIT" | "ROLLBACK") {}
+  constructor(
+    private readonly failure?: "COMMIT" | "ROLLBACK",
+    private readonly liveCandidateAuthorizationCount = 0
+  ) {}
 
   async query<Row>(
     text: string,
@@ -246,6 +288,16 @@ class TransactionClient implements P2TRPostgresClient {
             ethereum_history_root: WORD("72"),
             local_ethereum_block: 20,
             local_ethereum_hash: WORD("60"),
+          },
+        ] as Row[],
+        rowCount: 1,
+      }
+    }
+    if (text.includes("AS live_authorization_count")) {
+      return {
+        rows: [
+          {
+            live_authorization_count: this.liveCandidateAuthorizationCount,
           },
         ] as Row[],
         rowCount: 1,
