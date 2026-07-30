@@ -5526,7 +5526,7 @@ describe("P2TR signature-fraud witness parsing", () => {
   })
 
   it("binds a revealed deposit output key to its registered wallet and exact outpoint", () => {
-    const vector = vectorCorpus.cases[0]
+    const vector = vectorCorpus.cases[1]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
       vector.signedInputIndex,
@@ -5592,9 +5592,17 @@ describe("P2TR signature-fraud witness parsing", () => {
       [completeBridgeChallengeEvidenceAbiType],
       encodedEvidence
     )
+    const signedInputHash = utils.hexlify(
+      Transaction.fromHex(rawTransaction.transactionHex).ins[
+        vector.signedInputIndex
+      ].hash
+    )
     expect(decodedEvidence.walletID).to.equal(`0x${vector.walletIDHex}`)
     expect(decodedEvidence.signingKey).to.equal(`0x${depositOutputKey}`)
-    expect(decodedEvidence.bindingTxHash).to.equal(`0x${signedPrevout.txidHex}`)
+    expect(decodedEvidence.bindingTxHash).to.equal(signedInputHash)
+    expect(decodedEvidence.bindingTxHash).to.not.equal(
+      `0x${signedPrevout.txidHex}`
+    )
     expect(decodedEvidence.bindingOutputIndex).to.equal(signedPrevout.vout)
     expect(decodedEvidence.sighash).to.equal(
       observation.sighash.toPrefixedString()

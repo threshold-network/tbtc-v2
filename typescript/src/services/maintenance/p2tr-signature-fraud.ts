@@ -3617,7 +3617,7 @@ const buildP2TRSignatureFraudCompleteBridgeChallengeEvidence = (
     signingKey: signingKey.toPrefixedString(),
     bindingTxHash: usesBaseWalletKey
       ? constants.HashZero
-      : BitcoinTxHash.from(signedInput.hash).reverse().toPrefixedString(),
+      : utils.hexlify(signedInput.hash),
     bindingOutputIndex: usesBaseWalletKey ? 0 : signedInput.index,
     sighash: toBytes32Hex(
       observation.sighash,
