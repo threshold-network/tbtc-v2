@@ -5026,11 +5026,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "wrong-signer-invocation-request"
     )
     if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
-      return this.completeSignerFailureAfterLostCas(
+      return this.captureEscapedArtifactAfterLostCas(
         signerBoundary,
-        preparer,
-        reason,
-        "wrong-signer-invocation-request"
+        escaped,
+        `Wrong-invocation signed envelope returned after a concurrent outbox transition: ${reason}`,
+        requireLatestSignerQuarantine(failed)
       )
     }
     return this.requireRecord(signerBoundary.recordID)
@@ -6313,14 +6313,20 @@ const signerInvocationEchoMismatch = (
   if (echo === undefined) {
     return "Signer returned no invocation request echo"
   }
-  const echoedID = normalizeBytes32(
-    echo.invocationID,
-    "Echoed signer invocation ID"
-  )
-  const echoedDigest = normalizeBytes32(
-    echo.requestDigest,
-    "Echoed signer invocation request digest"
-  )
+  let echoedID: string
+  let echoedDigest: string
+  try {
+    echoedID = normalizeBytes32(
+      echo.invocationID,
+      "Echoed signer invocation ID"
+    )
+    echoedDigest = normalizeBytes32(
+      echo.requestDigest,
+      "Echoed signer invocation request digest"
+    )
+  } catch {
+    return "Signer returned a malformed invocation request echo"
+  }
   if (
     echoedID !== normalizeBytes32(expected.invocationID, "Invocation ID") ||
     echoedDigest !==

@@ -9,6 +9,15 @@ const migrationURL = new URL(
 )
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
+const lateArtifactMigrationURL = new URL(
+  "005_p2tr_signer_boundary_late_artifact.sql",
+  migrationsURL
+)
+const lateArtifactMigrationSource = readFileSync(
+  lateArtifactMigrationURL,
+  "utf8"
+)
+const lateArtifactMigration = lateArtifactMigrationSource.replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -39,7 +48,12 @@ test("leaves transaction ownership to the ordered migration runner", () => {
   const challengeOutboxIndex = orderedMigrations.indexOf(
     "003_p2tr_signature_fraud_challenge_outbox.sql"
   )
+  const lateArtifactIndex = orderedMigrations.indexOf(
+    "005_p2tr_signer_boundary_late_artifact.sql"
+  )
   assert.notEqual(challengeOutboxIndex, -1)
+  assert.notEqual(lateArtifactIndex, -1)
+  assert.ok(challengeOutboxIndex < lateArtifactIndex)
   if (canonicalJournalIndex !== -1) {
     assert.ok(canonicalJournalIndex < challengeOutboxIndex)
   }
@@ -507,6 +521,15 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   assert.match(
     migration,
     /late signed artifact does not match its durable signer boundary/
+  )
+  assert.match(lateArtifactMigration, /outcome = 'nonce-consumed'/)
+  assert.match(
+    lateArtifactMigration,
+    /nonce_reservation_id = NEW\.expected_reservation_id/
+  )
+  assert.match(
+    lateArtifactMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_late_signed_artifact_insert/
   )
   assert.match(
     migration,
