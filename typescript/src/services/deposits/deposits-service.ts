@@ -11,6 +11,7 @@ import { WalletIDUtils } from "../../lib/contracts/wallet-id"
 import {
   BitcoinAddressConverter,
   BitcoinClient,
+  BitcoinHashUtils,
   BitcoinLocktimeUtils,
   BitcoinScriptUtils,
 } from "../../lib/bitcoin"
@@ -282,14 +283,33 @@ export class DepositsService {
   ): Promise<DepositReceipt> {
     const blindingFactor = Hex.from(crypto.randomBytes(8))
 
-    const walletPublicKeyHash =
-      await this.tbtcContracts.bridge.activeWalletPublicKeyHash()
+    const activeWalletIdentity = this.tbtcContracts.bridge.activeWalletIdentity
+    if (typeof activeWalletIdentity !== "function") {
+      throw new Error("Deposit wallet identity verification is not available")
+    }
 
-    if (!walletPublicKeyHash) {
+    const walletIdentity = await activeWalletIdentity.call(
+      this.tbtcContracts.bridge
+    )
+    if (!walletIdentity) {
       throw new Error("Could not get active wallet public key hash")
     }
 
-    const activeWalletID = await this.tbtcContracts.bridge.activeWalletID()
+    const { walletPublicKeyHash, walletID: activeWalletID } = walletIdentity
+    const isLegacyWallet = WalletIDUtils.isLegacyWalletID(
+      activeWalletID,
+      walletPublicKeyHash
+    )
+    if (!isLegacyWallet) {
+      const derivedWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
+        Hex.from(
+          Buffer.concat([Buffer.from([0x02]), activeWalletID.toBuffer()])
+        )
+      )
+      if (!derivedWalletPublicKeyHash.equals(walletPublicKeyHash)) {
+        throw new Error("Active wallet identity is not canonically bound")
+      }
+    }
 
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
 
@@ -303,10 +323,7 @@ export class DepositsService {
     let refundXOnlyPublicKey: Hex | undefined
 
     if (scriptType == DepositScriptType.P2TR) {
-      if (
-        !activeWalletID ||
-        WalletIDUtils.isLegacyWalletID(activeWalletID, walletPublicKeyHash)
-      ) {
+      if (isLegacyWallet) {
         throw new Error(
           "Taproot deposits require an active FROST wallet with a P2TR wallet ID"
         )
@@ -326,10 +343,7 @@ export class DepositsService {
           refundXOnlyPublicKey
         )
     } else {
-      if (
-        activeWalletID &&
-        !WalletIDUtils.isLegacyWalletID(activeWalletID, walletPublicKeyHash)
-      ) {
+      if (!isLegacyWallet) {
         throw new Error(
           "Legacy deposits are not supported for FROST active wallets"
         )

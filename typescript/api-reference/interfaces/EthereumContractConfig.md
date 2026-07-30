@@ -2,6 +2,12 @@
 
 Represents a config set required to connect an Ethereum contract.
 
+## Hierarchy
+
+- **`EthereumContractConfig`**
+
+  ↳ [`EthereumBridgeConfig`](EthereumBridgeConfig.md)
+
 ## Table of contents
 
 ### Properties

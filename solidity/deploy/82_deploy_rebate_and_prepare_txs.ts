@@ -2,11 +2,22 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { deploy } = deployments
   const { deployer } = await getNamedAccounts()
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "82_deploy_rebate_and_prepare_txs"
+    )
+  }
 
   console.log("\n========== REBATE DEPLOYMENT STARTING ==========")
   console.log("Network:", hre.network.name)
@@ -110,29 +121,52 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     waitConfirmations: 1,
   }
 
-  // Step 2: Deploy the current Deposit and Redemption libraries.
+  // Step 2: Deploy the current P2TR libraries first, then every Bridge
+  // library that links P2TRReservation. This order is required because
+  // hardhat-deploy cannot construct dependent library bytecode while a link
+  // reference is unresolved.
   // This script builds Bridge from the checked-out source, so every linked
   // library must come from that same source tree.
   console.log("\nStep 2: Deploying current Bridge libraries...")
 
+  const P2TRReservation = await deploy("P2TRReservation", libraryDeployOptions)
+  const P2TRPreSigning = await deploy("P2TRPreSigning", libraryDeployOptions)
+  const p2trReservationLinkedOptions = {
+    ...libraryDeployOptions,
+    libraries: {
+      P2TRReservation: P2TRReservation.address,
+    },
+  }
+
   const Deposit = await deploy("Deposit", libraryDeployOptions)
-  const Redemption = await deploy("Redemption", libraryDeployOptions)
+  const Redemption = await deploy("Redemption", p2trReservationLinkedOptions)
 
   console.log("✓ Using current Deposit library at:", Deposit.address)
   console.log("✓ Using current Redemption library at:", Redemption.address)
+  console.log(
+    "✓ Using current P2TRReservation library at:",
+    P2TRReservation.address
+  )
+  console.log(
+    "✓ Using current P2TRPreSigning library at:",
+    P2TRPreSigning.address
+  )
 
   // Step 3: Deploy the remaining current Bridge libraries. Wallets uses a
   // fully-qualified contract name to avoid the Wallets interface/library name
   // collision. Fraud contains the legacy challenge migration entrypoint.
   console.log("\nStep 3: Deploying remaining current Bridge libraries...")
 
-  const DepositSweep = await deploy("DepositSweep", libraryDeployOptions)
+  const DepositSweep = await deploy(
+    "DepositSweep",
+    p2trReservationLinkedOptions
+  )
   const Wallets = await deploy("Wallets", {
     contract: "contracts/bridge/Wallets.sol:Wallets",
-    ...libraryDeployOptions,
+    ...p2trReservationLinkedOptions,
   })
   const Fraud = await deploy("Fraud", libraryDeployOptions)
-  const MovingFunds = await deploy("MovingFunds", libraryDeployOptions)
+  const MovingFunds = await deploy("MovingFunds", p2trReservationLinkedOptions)
 
   console.log("✓ Using current DepositSweep at:", DepositSweep.address)
   console.log("✓ Using current Wallets at:", Wallets.address)
@@ -159,10 +193,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       Wallets: Wallets.address,
       Fraud: Fraud.address,
       MovingFunds: MovingFunds.address,
+      P2TRPreSigning: P2TRPreSigning.address,
+      P2TRReservation: P2TRReservation.address,
     },
   })
 
-  const bridgeImplementation = await BridgeFactory.deploy()
+  const bridgeImplementation = await BridgeFactory.deploy(
+    ethers.constants.AddressZero
+  )
   await bridgeImplementation.deployed()
 
   console.log(
@@ -264,6 +302,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       walletsLibrary: Wallets.address,
       fraudLibrary: Fraud.address,
       movingFundsLibrary: MovingFunds.address,
+      p2trPreSigningLibrary: P2TRPreSigning.address,
+      p2trReservationLibrary: P2TRReservation.address,
       bridgeImplementation: bridgeImplementation.address,
     },
     existingContracts: {
@@ -329,6 +369,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("  Wallets Library:       ", Wallets.address)
   console.log("  Fraud Library:         ", Fraud.address)
   console.log("  MovingFunds Library:   ", MovingFunds.address)
+  console.log("  P2TRPreSigning Library:", P2TRPreSigning.address)
+  console.log("  P2TRReservation Library:", P2TRReservation.address)
   console.log("  Bridge Implementation: ", bridgeImplementation.address)
 
   console.log("\n================================================")
@@ -371,6 +413,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     await helpers.etherscan.verify(Wallets)
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
+    await helpers.etherscan.verify(P2TRPreSigning)
+    await helpers.etherscan.verify(P2TRReservation)
 
     await hre.run("verify", {
       address: rebateProxyDeployment.address,
@@ -389,6 +433,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
+          P2TRPreSigning: P2TRPreSigning.address,
+          P2TRReservation: P2TRReservation.address,
         },
       })
     } catch (error) {
@@ -432,6 +478,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     })
 
     await hre.tenderly.verify({
+      name: "P2TRPreSigning",
+      address: P2TRPreSigning.address,
+    })
+
+    await hre.tenderly.verify({
+      name: "P2TRReservation",
+      address: P2TRReservation.address,
+    })
+
+    await hre.tenderly.verify({
       name: "RebateStaking",
       address: rebateStaking.address,
     })
@@ -446,6 +502,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployRebateAndPrepareTxs"]
+func.dependencies = ["FrostCustodyNoGo"]
 // Dependencies remain removed so standalone live-network execution does not
-// rerun the full Bridge deployment chain.
+// rerun the full Bridge deployment chain. The write-free NO-GO dependency is
+// the sole exception and aborts non-ephemeral networks before this function.
 // func.dependencies = ["Bridge", "BridgeGovernance"]

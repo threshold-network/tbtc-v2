@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import type { FakeContract } from "@defi-wonderland/smock"
@@ -21,6 +21,7 @@ import type {
 import { fixture } from "./utils/fixture"
 import { walletState } from "../fixtures"
 import { ecdsaWalletTestData } from "../data/ecdsa"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -254,7 +255,7 @@ describeFn(
     let frostWalletPubKeyHash: string
 
     before(async () => {
-      const loaded = await waffle.loadFixture(fixture)
+      const loaded = await loadFixture(fixture)
       relay = loaded.relay
       spvMaintainer = loaded.spvMaintainer
       deployer = loaded.deployer

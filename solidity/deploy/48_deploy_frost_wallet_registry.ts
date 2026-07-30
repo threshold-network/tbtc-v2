@@ -1,5 +1,9 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 // Returns a signer for `address` only when that account is configured for the
 // current network. Used to decide whether a governance-gated call can be sent by
@@ -24,6 +28,13 @@ async function getConfiguredSigner(
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { getNamedAccounts, deployments, ethers, helpers } = hre
   const { deployer } = await getNamedAccounts()
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "48_deploy_frost_wallet_registry"
+    )
+  }
 
   const FrostSortitionPool = await deployments.get("FrostSortitionPool")
   const ReimbursementPool = await deployments.get("ReimbursementPool")
@@ -65,6 +76,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         kind: "transparent",
       },
     })
+
+  // Fresh proxies atomically enter the distinct Fresh archive state inside
+  // initialize. Existing proxies can only enter Pending through deploy 54's
+  // ProxyAdmin upgradeAndCall initializer.
+  const freshArchive = await frostWalletRegistry.getWalletArchiveMigration()
+  const freshArchiveManifestHash =
+    await frostWalletRegistry.getWalletArchiveMigrationManifestHash()
+  if (
+    freshArchive.state !== 4 ||
+    freshArchiveManifestHash === ethers.constants.HashZero ||
+    (await frostWalletRegistry.registered(ethers.constants.HashZero)) ||
+    (await frostWalletRegistry.registered(freshArchiveManifestHash))
+  ) {
+    throw new Error("fresh FrostWalletRegistry archive initialization failed")
+  }
 
   // Transfer FrostSortitionPool ownership to the registry so the
   // registry can lock/unlock + selectGroup. Mirrors the upstream
@@ -354,6 +380,7 @@ export default func
 
 func.tags = ["FrostWalletRegistry"]
 func.dependencies = [
+  "FrostCustodyNoGo",
   "Bridge",
   "BridgeGovernance",
   "FrostSortitionPool",

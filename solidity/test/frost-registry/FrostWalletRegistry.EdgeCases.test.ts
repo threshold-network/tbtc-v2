@@ -4,6 +4,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
 import chai, { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import type {
   Bridge,
   BridgeStub,
@@ -22,6 +23,7 @@ import {
   selectFrostGroup,
   signFrostDkgResult,
 } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
 
 // Register smock's chai matchers (`have.been.calledOnce`,
 // `have.been.calledWith`, etc.) for use against smock fakes.
@@ -84,7 +86,10 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await loadFixture(bridgeFixture))
+
+    // `bridgeFixture` installs the concrete COMPLETE_V2 router and immutable
+    // reservation registry required by the FROST activation handshake.
 
     const t = await deployments.get("T")
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
@@ -150,6 +155,21 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     // and lifecycle-owner stand-in.
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
+
+    // Swapping the Bridge's FROST registry orphans the authorization registry
+    // `bridgeFixture` installed -- its `frostRegistry` is immutable -- so
+    // `Wallets.requireCompleteP2TRFraudEvidence` fails closed and wallet
+    // registration reverts with P2TRFraudEvidenceUnavailable() before reaching
+    // what this suite asserts. Rebind the pair to the local registry.
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostWalletRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      deployer,
+      ethers
+    )
 
     await bridge.resetLifecycleRouterForTest(deployer.address)
 
@@ -341,6 +361,50 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       State.CHALLENGE,
       "submit is optimistic; state moves to CHALLENGE"
     )
+
+    // Simulate upgrading a proxy whose result was already pending: the new
+    // implementation starts with an empty migration marker and freezes every
+    // DKG transition. Keep it frozen beyond the original challenge period.
+    const archiveStateSlot = 205
+    const originalArchiveStateWord = ethers.BigNumber.from(
+      await ethers.provider.getStorageAt(
+        frostWalletRegistry.address,
+        archiveStateSlot
+      )
+    )
+    const archiveStateMask = ethers.BigNumber.from(0xff).shl(224)
+    const setArchiveState = async (state: number) => {
+      await hre.network.provider.send("hardhat_setStorageAt", [
+        frostWalletRegistry.address,
+        ethers.utils.hexValue(archiveStateSlot),
+        ethers.utils.hexZeroPad(
+          originalArchiveStateWord
+            .and(ethers.constants.MaxUint256.xor(archiveStateMask))
+            .or(ethers.BigNumber.from(state).shl(224))
+            .toHexString(),
+          32
+        ),
+      ])
+      // `hardhat_setStorageAt` leaves the write pending, and smock caches
+      // the state manager it installs fake bytecode through. Until a block
+      // is mined that cache is stale and every later `smock.fake()` in the
+      // process silently installs no code.
+      await hre.network.provider.send("evm_mine")
+    }
+    await setArchiveState(1)
+    await hre.network.provider.send("hardhat_mine", [
+      `0x${(RESULT_CHALLENGE_BLOCKS + 1).toString(16)}`,
+    ])
+
+    // Finalization must atomically rebase the pending result's challenge
+    // clock. Without the rebase, the malicious submitter could approve this
+    // invalid result immediately because the original deadline elapsed while
+    // every challenger was frozen by the migration gate.
+    await setArchiveState(2)
+    await frostWalletRegistry.connect(deployer).finalizeArchiveMigration()
+    await expect(
+      frostWalletRegistry.connect(submitter).approveDkgResult(badResult)
+    ).to.be.revertedWith("Challenge period has not passed yet")
 
     // Within the challenge window, an EOA challenger calls
     // challengeDkgResult. The contract requires `msg.sender ==

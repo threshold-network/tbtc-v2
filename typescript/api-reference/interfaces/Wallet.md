@@ -28,7 +28,7 @@ UNIX timestamp indicating the moment the wallet's closing period started.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:563](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L563)
+[src/lib/contracts/bridge.ts:599](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L599)
 
 ___
 
@@ -40,7 +40,7 @@ UNIX timestamp the wallet was created at.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:554](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L554)
+[src/lib/contracts/bridge.ts:590](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L590)
 
 ___
 
@@ -52,7 +52,7 @@ Identifier of a ECDSA Wallet registered in the ECDSA Wallet Registry.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:536](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L536)
+[src/lib/contracts/bridge.ts:572](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L572)
 
 ___
 
@@ -64,7 +64,7 @@ Latest wallet's main UTXO hash.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:546](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L546)
+[src/lib/contracts/bridge.ts:582](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L582)
 
 ___
 
@@ -77,7 +77,7 @@ funds.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:559](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L559)
+[src/lib/contracts/bridge.ts:595](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L595)
 
 ___
 
@@ -89,7 +89,7 @@ Moving funds target wallet commitment submitted by the wallet.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:575](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L575)
+[src/lib/contracts/bridge.ts:611](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L611)
 
 ___
 
@@ -101,7 +101,7 @@ Total count of pending moved funds sweep requests targeting this wallet.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:567](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L567)
+[src/lib/contracts/bridge.ts:603](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L603)
 
 ___
 
@@ -113,7 +113,7 @@ The total redeemable value of pending redemption requests targeting that wallet.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:550](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L550)
+[src/lib/contracts/bridge.ts:586](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L586)
 
 ___
 
@@ -125,7 +125,7 @@ Current state of the wallet.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:571](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L571)
+[src/lib/contracts/bridge.ts:607](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L607)
 
 ___
 
@@ -137,7 +137,7 @@ Canonical wallet identifier.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:532](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L532)
+[src/lib/contracts/bridge.ts:568](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L568)
 
 ___
 
@@ -151,4 +151,4 @@ WalletRegistry.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:542](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L542)
+[src/lib/contracts/bridge.ts:578](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L578)

@@ -4,6 +4,9 @@ pragma solidity 0.8.17;
 
 interface IBridgeFrostWalletCallback {
     function __frostWalletCreatedCallback(bytes32 xOnlyOutputKey) external;
+
+    function __frostWalletHeartbeatFailedCallback(bytes32 xOnlyOutputKey)
+        external;
 }
 
 contract FrostWalletRegistryStub {
@@ -17,6 +20,7 @@ contract FrostWalletRegistryStub {
     address public lastSeizeNotifier;
     bytes32 public lastSeizeWalletID;
     uint32[] private lastSeizeWalletMembersIDs;
+    mapping(bytes32 => bytes32) public retainedWalletMembersIdsHash;
     bool public isWalletMemberResult;
     bytes32 private expectedIsWalletMemberWalletID;
     uint32[] private expectedIsWalletMemberWalletMembersIDs;
@@ -55,6 +59,14 @@ contract FrostWalletRegistryStub {
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external onlyLifecycleOwner {
+        bytes32 expectedMembersIdsHash = retainedWalletMembersIdsHash[walletID];
+        if (expectedMembersIdsHash != bytes32(0)) {
+            require(
+                expectedMembersIdsHash ==
+                    keccak256(abi.encode(walletMembersIDs)),
+                "Invalid wallet members identifiers"
+            );
+        }
         seizeCalled = true;
         lastSeizeAmount = amount;
         lastSeizeRewardMultiplier = rewardMultiplier;
@@ -65,6 +77,13 @@ contract FrostWalletRegistryStub {
         for (uint256 i = 0; i < walletMembersIDs.length; i++) {
             lastSeizeWalletMembersIDs.push(walletMembersIDs[i]);
         }
+    }
+
+    function setRetainedWalletMembersIdsHash(
+        bytes32 walletID,
+        bytes32 membersIdsHash
+    ) external {
+        retainedWalletMembersIdsHash[walletID] = membersIdsHash;
     }
 
     function setExpectedIsWalletMember(
@@ -92,6 +111,15 @@ contract FrostWalletRegistryStub {
         IBridgeFrostWalletCallback(bridge).__frostWalletCreatedCallback(
             xOnlyOutputKey
         );
+    }
+
+    function callBridgeFrostWalletHeartbeatFailedCallback(
+        address bridge,
+        bytes32 xOnlyOutputKey
+    ) external {
+        IBridgeFrostWalletCallback(bridge).__frostWalletHeartbeatFailedCallback(
+                xOnlyOutputKey
+            );
     }
 
     function getLastSeizeWalletMembersIDs()

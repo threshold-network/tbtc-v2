@@ -1,0 +1,19 @@
+{
+  "network": "mainnet",
+  "chainId": 1,
+  "address": "0xcBCFA3eb5E067173b262ACe62f9dD87f1D2Cc0Cf",
+  "deploymentBlock": 23921022,
+  "runtimeCodeHash": "0x6ce2c67f26daaba5f47e5e195cfceb9ceb2e435b699f50f58d79e0d7a7ffbd44",
+  "storageLayoutHash": "0x96cc11a18ff6444c89a6729af2d05283d0f1d213e281880b86353427a5f3f736",
+  "storageSlots": {
+    "owner": 0,
+    "pendingParametersFirst": 1,
+    "pendingParametersLast": 68,
+    "bridge": 69,
+    "governanceDelay": 70,
+    "pendingGovernanceDelay": 71,
+    "governanceDelayChangeInitiated": 72,
+    "bridgeTransferChangeInitiated": 73,
+    "newBridgeGovernance": 74
+  }
+}

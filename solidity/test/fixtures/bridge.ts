@@ -21,6 +21,7 @@ import type {
   EcdsaFraudRouter,
   P2TRSignatureFraudRouter,
 } from "../../typechain"
+import { buildCoverageInitializationPayload } from "../utils/p2trCoverage"
 
 /**
  * Common fixture for tests suites targeting the Bridge contract.
@@ -209,9 +210,10 @@ export default async function bridgeFixture(): Promise<{
   // Deploy + wire the two fraud router sidecars. EcdsaFraudRouter
   // hosts the ECDSA fraud lifecycle (was inlined on Bridge);
   // P2TRSignatureFraudRouter is the sister sidecar for the P2TR
-  // signature-fraud lifecycle. Both routers are pinned to the
-  // Bridge address at construction and wired via the one-time
-  // setters on Bridge.
+  // signature-fraud lifecycle. Production BOUNDED_V1 is intentionally
+  // not wired because it cannot activate FROST custody. Tests install the
+  // concrete COMPLETE_V2 router and its immutable authorization registry so
+  // FROST activation exercises the full reservation/policy handshake.
   const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
   let ecdsaFraudRouter: EcdsaFraudRouter
   if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
@@ -220,12 +222,16 @@ export default async function bridgeFixture(): Promise<{
       deployer
     )
     ecdsaFraudRouter = (await EcdsaFraudRouterFactory.deploy(
-      bridge.address
+      bridge.address,
+      ethers.constants.AddressZero
     )) as EcdsaFraudRouter
     await ecdsaFraudRouter.deployed()
+    const ecdsaFraudRouterCodeHash = ethers.utils.keccak256(
+      await ethers.provider.getCode(ecdsaFraudRouter.address)
+    )
     await bridgeGovernance
       .connect(governance)
-      .setEcdsaFraudRouter(ecdsaFraudRouter.address)
+      .setEcdsaFraudRouter(ecdsaFraudRouter.address, ecdsaFraudRouterCodeHash)
   } else {
     ecdsaFraudRouter = (await ethers.getContractAt(
       "EcdsaFraudRouter",
@@ -236,17 +242,51 @@ export default async function bridgeFixture(): Promise<{
   const existingP2TRFraudRouter = await bridge.p2trFraudRouter()
   let p2trFraudRouter: P2TRSignatureFraudRouter
   if (existingP2TRFraudRouter === ethers.constants.AddressZero) {
+    const frostWalletRegistry = await helpers.contracts.getContract(
+      "FrostWalletRegistry"
+    )
+    const walletProposalValidator = await helpers.contracts.getContract(
+      "WalletProposalValidator"
+    )
+    const AuthorizationRegistryFactory = await ethers.getContractFactory(
+      "P2TRAuthorizationRegistry",
+      deployer
+    )
+    const authorizationRegistry = await AuthorizationRegistryFactory.deploy(
+      bridge.address,
+      frostWalletRegistry.address,
+      walletProposalValidator.address
+    )
+    await authorizationRegistry.deployed()
     const P2TRFraudRouterFactory = await ethers.getContractFactory(
-      "P2TRSignatureFraudRouter",
+      "CompleteP2TRSignatureFraudRouter",
       deployer
     )
     p2trFraudRouter = (await P2TRFraudRouterFactory.deploy(
-      bridge.address
+      bridge.address,
+      authorizationRegistry.address
     )) as P2TRSignatureFraudRouter
     await p2trFraudRouter.deployed()
+    const coverageInitialization = await buildCoverageInitializationPayload(
+      bridge,
+      deployer.address,
+      ethers.constants.HashZero,
+      0,
+      authorizationRegistry.address,
+      p2trFraudRouter.address,
+      deployer
+    )
     await bridgeGovernance
       .connect(governance)
-      .setP2TRFraudRouter(p2trFraudRouter.address)
+      .processTaprootOutputKeyCoverage(coverageInitialization.payload)
+    await bridgeGovernance
+      .connect(governance)
+      .processTaprootOutputKeyCoverage(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint8", "address"],
+          [8, p2trFraudRouter.address]
+        )
+      )
   } else {
     p2trFraudRouter = (await ethers.getContractAt(
       "P2TRSignatureFraudRouter",
@@ -258,7 +298,10 @@ export default async function bridgeFixture(): Promise<{
   // specify txProofDifficultyFactor. The new instance is deployed with
   // a random name to do not conflict with the main deployed instance.
   // Same parameters as in `05_deploy_bridge.ts` deployment script are used.
-  const deployBridge = async (txProofDifficultyFactor: number) =>
+  const deployBridge = async (
+    txProofDifficultyFactor: number,
+    p2trCoverageAuthority = deployer.address
+  ) =>
     helpers.upgrades.deployProxy(`Bridge_${randomBytes(8).toString("hex")}`, {
       contractName: "BridgeStub",
       initializerArgs: [
@@ -281,10 +324,17 @@ export default async function bridgeFixture(): Promise<{
           Fraud: (await helpers.contracts.getContract("Fraud")).address,
           MovingFunds: (await helpers.contracts.getContract("MovingFunds"))
             .address,
+          P2TRPreSigning: (
+            await helpers.contracts.getContract("P2TRPreSigning")
+          ).address,
+          P2TRReservation: (
+            await helpers.contracts.getContract("P2TRReservation")
+          ).address,
         },
       },
       proxyOpts: {
         kind: "transparent",
+        constructorArgs: [p2trCoverageAuthority],
         // Allow external libraries linking. We need to ensure manually that the
         // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.

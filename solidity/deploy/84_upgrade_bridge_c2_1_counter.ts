@@ -1,5 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 /// Phase C-2.1a upgrade script — deploys the current versions of all
 /// external libraries linked by `Bridge` and upgrades the proxy using
@@ -20,6 +24,13 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
   const { get, deploy, log } = deployments
   const { deployer, treasury } = await getNamedAccounts()
 
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "84_upgrade_bridge_c2_1_counter"
+    )
+  }
+
   const Bank = await get("Bank")
   const LightRelay = await get("LightRelay")
   const WalletRegistry = await get("WalletRegistry")
@@ -33,15 +44,24 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
     waitConfirmations: 1,
   }
 
+  const P2TRReservation = await deploy("P2TRReservation", deployOptions)
+  const P2TRPreSigning = await deploy("P2TRPreSigning", deployOptions)
+  const p2trReservationLinkedOptions: DeployOptions = {
+    ...deployOptions,
+    libraries: { P2TRReservation: P2TRReservation.address },
+  }
   const Deposit = await deploy("Deposit", deployOptions)
-  const DepositSweep = await deploy("DepositSweep", deployOptions)
-  const Redemption = await deploy("Redemption", deployOptions)
+  const DepositSweep = await deploy(
+    "DepositSweep",
+    p2trReservationLinkedOptions
+  )
+  const Redemption = await deploy("Redemption", p2trReservationLinkedOptions)
   const Wallets = await deploy("Wallets", {
     contract: "contracts/bridge/Wallets.sol:Wallets",
-    ...deployOptions,
+    ...p2trReservationLinkedOptions,
   })
   const Fraud = await deploy("Fraud", deployOptions)
-  const MovingFunds = await deploy("MovingFunds", deployOptions)
+  const MovingFunds = await deploy("MovingFunds", p2trReservationLinkedOptions)
 
   const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
     "Bridge",
@@ -65,10 +85,13 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
+          P2TRPreSigning: P2TRPreSigning.address,
+          P2TRReservation: P2TRReservation.address,
         },
       },
       proxyOpts: {
         kind: "transparent",
+        constructorArgs: [ethers.constants.AddressZero],
         unsafeAllow: ["external-library-linking"],
       },
     }
@@ -82,6 +105,8 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
       `  Wallets: ${Wallets.address}\n` +
       `  Fraud: ${Fraud.address}\n` +
       `  MovingFunds: ${MovingFunds.address}\n` +
+      `  P2TRPreSigning: ${P2TRPreSigning.address}\n` +
+      `  P2TRReservation: ${P2TRReservation.address}\n` +
       `  Bridge: ${bridge.address}`
   )
 
@@ -92,6 +117,8 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
     await helpers.etherscan.verify(Wallets)
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
+    await helpers.etherscan.verify(P2TRPreSigning)
+    await helpers.etherscan.verify(P2TRReservation)
     await hre.run("verify", {
       address: proxyDeployment.address,
       constructorArgsParams: proxyDeployment.args,
@@ -124,6 +151,14 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
       address: MovingFunds.address,
     })
     await hre.tenderly.verify({
+      name: "P2TRPreSigning",
+      address: P2TRPreSigning.address,
+    })
+    await hre.tenderly.verify({
+      name: "P2TRReservation",
+      address: P2TRReservation.address,
+    })
+    await hre.tenderly.verify({
       name: "Bridge",
       address: bridge.address,
     })
@@ -133,6 +168,7 @@ const func: DeployFunction = async function upgradeBridgeC21Counter(
 export default func
 
 func.tags = ["UpgradeBridgeC21Counter"]
+func.dependencies = ["FrostCustodyNoGo"]
 // Off by default. To run, set the environment variable
 // `RUN_UPGRADE_C2_1_COUNTER=1` and invoke:
 //

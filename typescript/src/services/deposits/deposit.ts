@@ -19,6 +19,7 @@ import {
 import { payments, Stack, script, opcodes } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
 import { TransactionReceipt } from "@ethersproject/providers"
+import { resolveBitcoinTxOutpoint } from "./utxo"
 
 export const DepositScriptType = {
   P2SH: "p2sh",
@@ -176,9 +177,22 @@ export class Deposit {
 
     const { transactionHash, outputIndex } = resolvedFundingOutpoint
 
-    const depositFundingTx = extractBitcoinRawTxVectors(
-      await this.bitcoinClient.getRawTransaction(transactionHash)
+    const rawFundingTransaction = await this.bitcoinClient.getRawTransaction(
+      transactionHash
     )
+    const { output: fundingOutput } = resolveBitcoinTxOutpoint(
+      resolvedFundingOutpoint,
+      rawFundingTransaction
+    )
+    const resolvedFundingUtxo = resolvedFundingOutpoint as Partial<BitcoinUtxo>
+    if (
+      resolvedFundingUtxo.value !== undefined &&
+      !resolvedFundingUtxo.value.eq(fundingOutput.value)
+    ) {
+      throw new Error("Funding output value does not match detected UTXO value")
+    }
+
+    const depositFundingTx = extractBitcoinRawTxVectors(rawFundingTransaction)
 
     const { bridge, tbtcVault } = this.tbtcContracts
 

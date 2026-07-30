@@ -2,8 +2,9 @@
 import hre, { deployments, ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
-import { expect } from "chai"
+import chai, { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import type {
   Bridge,
   BridgeStub,
@@ -18,6 +19,9 @@ import {
   registerOperators,
   selectFrostGroup,
 } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
+
+chai.use(smock.matchers)
 
 // B-1.5 slice 3: full-cycle DKG happy path.
 //
@@ -46,6 +50,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
   let frostSortitionPool: any
+  let frostAllowlist: any
   let randomBeacon: any
   let operators: Awaited<ReturnType<typeof registerOperators>>
 
@@ -54,7 +59,10 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await loadFixture(bridgeFixture))
+
+    // `bridgeFixture` installs the concrete COMPLETE_V2 router and immutable
+    // reservation registry required by the FROST activation handshake.
 
     const t = await deployments.get("T")
 
@@ -136,6 +144,21 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
 
+    // Swapping the Bridge's FROST registry orphans the authorization registry
+    // `bridgeFixture` installed -- its `frostRegistry` is immutable -- so
+    // `Wallets.requireCompleteP2TRFraudEvidence` fails closed and wallet
+    // registration reverts with P2TRFraudEvidenceUnavailable() before reaching
+    // what this suite asserts. Rebind the pair to the local registry.
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostWalletRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      deployer,
+      ethers
+    )
+
     // Bridge-side callback guard requires the registry lifecycle owner
     // to match Bridge.lifecycleRouter. The deploy chain sets the
     // one-time router slot before this test deploys a fresh registry,
@@ -158,8 +181,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       dkgParams.resultSubmissionTimeout,
       dkgParams.submitterPrecedencePeriodLength
     )
-
-    const [frostAllowlist] = await helpers.upgrades.deployProxy(
+    ;[frostAllowlist] = await helpers.upgrades.deployProxy(
       "FrostAllowlistHappyPathTest",
       {
         contractName: "FrostAllowlist",
@@ -188,7 +210,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     )
   })
 
-  it("registers a FROST wallet end-to-end (request → seed → submit → approve)", async function happyPath() {
+  it("registers a FROST wallet and rotates it after an authenticated heartbeat failure", async function happyPath() {
     this.timeout(120_000)
 
     // Step 1 — walletOwner (Bridge) requests a new wallet.
@@ -301,5 +323,181 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     // Confirm the WalletCreated + NewFrostWalletRegistered
     // events fired with consistent xOnlyOutputKey.
     expect(dkgResult.approveDkgResultTx).to.not.equal(undefined)
+
+    const buildInactivityClaim = async (
+      heartbeatFailed: boolean,
+      signaturesCount = 51
+    ) => {
+      const nonce = 0
+      const inactiveMembersIndices = [52]
+      const { chainId } = await ethers.provider.getNetwork()
+      const messageHash = ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256", "uint256", "bytes32", "uint256[]", "bool"],
+          [
+            chainId,
+            nonce,
+            xOnlyOutputKey,
+            inactiveMembersIndices,
+            heartbeatFailed,
+          ]
+        )
+      )
+
+      const signatures: string[] = []
+      const signingMembersIndices: number[] = []
+      for (let i = 0; i < signaturesCount; i++) {
+        signingMembersIndices.push(i + 1)
+        signatures.push(
+          await groupMembers[i].signer.signMessage(
+            ethers.utils.arrayify(messageHash)
+          )
+        )
+      }
+
+      return {
+        walletID: xOnlyOutputKey,
+        inactiveMembersIndices,
+        heartbeatFailed,
+        signatures: ethers.utils.hexConcat(signatures),
+        signingMembersIndices,
+      }
+    }
+
+    const groupMemberIds = groupMembers.getIds()
+    const [{ signer: submitter }] = groupMembers
+    const falseClaim = await buildInactivityClaim(false)
+    const heartbeatClaim = await buildInactivityClaim(true)
+
+    // A member-only inactivity report must remain a legitimate control: it
+    // consumes the nonce and applies the pool penalty without rotating the
+    // wallet or calling the heartbeat callback.
+    const walletOwnerFake = await smock.fake("IFrostWalletOwner")
+    let heartbeatSnapshot = await ethers.provider.send("evm_snapshot", [])
+    await frostWalletRegistry
+      .connect(deployer)
+      .updateWalletOwner(walletOwnerFake.address)
+    walletOwnerFake.__frostWalletHeartbeatFailedCallback.reset()
+
+    await frostWalletRegistry
+      .connect(submitter)
+      .notifyOperatorInactivity(falseClaim, 0, groupMemberIds)
+
+    expect(walletOwnerFake.__frostWalletHeartbeatFailedCallback).not.to.have
+      .been.called
+    expect(
+      await frostWalletRegistry.inactivityClaimNonce(xOnlyOutputKey)
+    ).to.equal(1)
+    expect((await bridge.wallets(pubKeyHash)).state).to.equal(1 /* Live */)
+    expect(await bridge.activeWalletID()).to.equal(xOnlyOutputKey)
+    await ethers.provider.send("evm_revert", [heartbeatSnapshot])
+
+    // Callback failure must roll the entire claim back. In particular, the
+    // authenticated warning remains retryable instead of being tombstoned by
+    // its nonce while Bridge is still Live and active.
+    heartbeatSnapshot = await ethers.provider.send("evm_snapshot", [])
+    await frostWalletRegistry
+      .connect(deployer)
+      .updateWalletOwner(walletOwnerFake.address)
+    walletOwnerFake.__frostWalletHeartbeatFailedCallback.reset()
+    walletOwnerFake.__frostWalletHeartbeatFailedCallback.reverts()
+
+    await expect(
+      frostWalletRegistry
+        .connect(submitter)
+        .notifyOperatorInactivity(heartbeatClaim, 0, groupMemberIds)
+    ).to.be.reverted
+    expect(
+      await frostWalletRegistry.inactivityClaimNonce(xOnlyOutputKey)
+    ).to.equal(0)
+    expect((await bridge.wallets(pubKeyHash)).state).to.equal(1 /* Live */)
+    expect(await bridge.activeWalletID()).to.equal(xOnlyOutputKey)
+    await ethers.provider.send("evm_revert", [heartbeatSnapshot])
+
+    // Preserve the threshold and submitter-authentication boundary while
+    // adding the lifecycle effect.
+    const undersignedClaim = await buildInactivityClaim(true, 50)
+    await expect(
+      frostWalletRegistry
+        .connect(submitter)
+        .notifyOperatorInactivity(undersignedClaim, 0, groupMemberIds)
+    ).to.be.revertedWith("Too few signatures")
+
+    const heartbeatTx = await frostWalletRegistry
+      .connect(submitter)
+      .notifyOperatorInactivity(heartbeatClaim, 0, groupMemberIds)
+
+    await expect(heartbeatTx)
+      .to.emit(frostWalletRegistry, "InactivityClaimed")
+      .withArgs(xOnlyOutputKey, 0, submitter.address)
+    await expect(heartbeatTx)
+      .to.emit(bridge, "WalletClosing")
+      .withArgs(ethers.constants.HashZero, pubKeyHash)
+    expect((await bridge.wallets(pubKeyHash)).state).to.equal(3 /* Closing */)
+    expect(await bridge.activeWalletPubKeyHash()).to.equal(
+      "0x0000000000000000000000000000000000000000"
+    )
+    expect(await bridge.activeWalletID()).to.equal(ethers.constants.HashZero)
+    expect(
+      await frostWalletRegistry.inactivityClaimNonce(xOnlyOutputKey)
+    ).to.equal(1)
+
+    await expect(
+      frostWalletRegistry
+        .connect(submitter)
+        .notifyOperatorInactivity(heartbeatClaim, 0, groupMemberIds)
+    ).to.be.revertedWith("Invalid nonce")
+
+    // Active membership may authorize protocol work, but closing the wallet
+    // must immediately remove that authority while retaining the immutable
+    // commitment for delayed settlement/conflict/recovery paths.
+    expect(
+      await frostWalletRegistry.isWalletMember(
+        xOnlyOutputKey,
+        groupMemberIds,
+        submitter.address,
+        1
+      )
+    ).to.equal(true)
+
+    await frostWalletRegistry.connect(deployer).closeWallet(xOnlyOutputKey)
+
+    const activeWallet = await frostWalletRegistry.getWallet(xOnlyOutputKey)
+    expect(activeWallet.membersIdsHash).to.equal(ethers.constants.HashZero)
+    expect(activeWallet.xOnlyOutputKey).to.equal(ethers.constants.HashZero)
+
+    expect(
+      await frostWalletRegistry.getRetainedWalletMembersIdsHash(xOnlyOutputKey)
+    ).to.equal(
+      ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(["uint32[]"], [groupMemberIds])
+      )
+    )
+    expect(
+      await frostWalletRegistry.isWalletRegistered(xOnlyOutputKey)
+    ).to.equal(false)
+
+    await expect(
+      frostWalletRegistry.isWalletMember(
+        xOnlyOutputKey,
+        groupMemberIds,
+        submitter.address,
+        1
+      )
+    ).to.be.reverted
+
+    const wrongGroupMemberIds = [...groupMemberIds]
+    wrongGroupMemberIds[0] += 1
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .seize(0, 0, deployer.address, xOnlyOutputKey, wrongGroupMemberIds)
+    ).to.be.revertedWith("Invalid wallet members identifiers")
+
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .seize(0, 0, deployer.address, xOnlyOutputKey, groupMemberIds)
+    ).to.emit(frostAllowlist, "MaliciousBehaviorIdentified")
   })
 })

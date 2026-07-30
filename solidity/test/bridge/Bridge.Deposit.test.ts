@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import chai, { expect } from "chai"
@@ -35,6 +35,7 @@ import {
   SingleP2WSHDeposit,
 } from "../data/deposit-sweep"
 import { to1e18 } from "../helpers/contract-test-helpers"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -43,6 +44,7 @@ const { lastBlockTime } = helpers.time
 const { impersonateAccount } = helpers.account
 
 const ZERO_ADDRESS = ethers.constants.AddressZero
+const LEGACY_ECDSA_WALLET_ID = ethers.utils.id("legacy ECDSA wallet")
 const redemptionOnlyRebateTreasuryFeeMode = 2
 
 const transactionHash = (tx: BitcoinTxInfoStruct): string =>
@@ -88,7 +90,7 @@ describe("Bridge - Deposit", () => {
       t,
       rebateStaking,
       deployBridge,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -288,7 +290,7 @@ describe("Bridge - Deposit", () => {
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
+          ecdsaWalletID: LEGACY_ECDSA_WALLET_ID,
           mainUtxoHash: ethers.constants.HashZero,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
@@ -302,6 +304,34 @@ describe("Bridge - Deposit", () => {
 
       after(async () => {
         await restoreSnapshot()
+      })
+
+      context("when wallet uses FROST", () => {
+        before(async () => {
+          await createSnapshot()
+
+          const wallet = await bridge.wallets(reveal.walletPubKeyHash)
+          await bridge.setWallet(reveal.walletPubKeyHash, {
+            ...wallet,
+            ecdsaWalletID: ethers.constants.HashZero,
+          })
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+        const legacyFundingTransactions = [
+          { name: "P2SH", fundingTx: P2SHFundingTx },
+          { name: "P2WSH", fundingTx: P2WSHFundingTx },
+        ]
+
+        legacyFundingTransactions.forEach(({ name, fundingTx }) => {
+          it(`should reject a legacy ${name} deposit`, async () => {
+            await expect(
+              bridge.connect(depositor).revealDeposit(fundingTx, reveal)
+            ).to.be.revertedWith("Legacy deposit requires an ECDSA wallet")
+          })
+        })
       })
 
       context("when reveal ahead period validation is disabled", () => {
@@ -982,7 +1012,7 @@ describe("Bridge - Deposit", () => {
 
               // Simulate the wallet is a Live one and is known in the system.
               await bridge.setWallet(walletPubKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
+                ecdsaWalletID: LEGACY_ECDSA_WALLET_ID,
                 mainUtxoHash: ethers.constants.HashZero,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
@@ -1181,7 +1211,7 @@ describe("Bridge - Deposit", () => {
           before(async () => {
             await createSnapshot()
             await bridge.setWallet(reveal.walletPubKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
+              ecdsaWalletID: LEGACY_ECDSA_WALLET_ID,
               mainUtxoHash: ethers.constants.HashZero,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
@@ -1428,7 +1458,7 @@ describe("Bridge - Deposit", () => {
 
           // Simulate the wallet is a Live one and is known in the system.
           await bridge.setWallet(reveal.walletPubKeyHash, {
-            ecdsaWalletID: ethers.constants.HashZero,
+            ecdsaWalletID: LEGACY_ECDSA_WALLET_ID,
             mainUtxoHash: ethers.constants.HashZero,
             pendingRedemptionsValue: 0,
             createdAt: await lastBlockTime(),
@@ -1442,6 +1472,36 @@ describe("Bridge - Deposit", () => {
 
         after(async () => {
           await restoreSnapshot()
+        })
+
+        context("when wallet uses FROST", () => {
+          before(async () => {
+            await createSnapshot()
+
+            const wallet = await bridge.wallets(reveal.walletPubKeyHash)
+            await bridge.setWallet(reveal.walletPubKeyHash, {
+              ...wallet,
+              ecdsaWalletID: ethers.constants.HashZero,
+            })
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+          const legacyFundingTransactions = [
+            { name: "P2SH", fundingTx: P2SHFundingTx },
+            { name: "P2WSH", fundingTx: P2WSHFundingTx },
+          ]
+
+          legacyFundingTransactions.forEach(({ name, fundingTx }) => {
+            it(`should reject a legacy ${name} deposit`, async () => {
+              await expect(
+                bridge
+                  .connect(depositor)
+                  .revealDepositWithExtraData(fundingTx, reveal, extraData)
+              ).to.be.revertedWith("Legacy deposit requires an ECDSA wallet")
+            })
+          })
         })
 
         context("when reveal ahead period validation is disabled", () => {
@@ -2205,7 +2265,7 @@ describe("Bridge - Deposit", () => {
             before(async () => {
               await createSnapshot()
               await bridge.setWallet(reveal.walletPubKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
+                ecdsaWalletID: LEGACY_ECDSA_WALLET_ID,
                 mainUtxoHash: ethers.constants.HashZero,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
@@ -2251,7 +2311,7 @@ describe("Bridge - Deposit", () => {
 
   describe("submitDepositSweepProof", () => {
     const walletDraft = {
-      ecdsaWalletID: ethers.constants.HashZero,
+      ecdsaWalletID: LEGACY_ECDSA_WALLET_ID,
       mainUtxoHash: ethers.constants.HashZero,
       pendingRedemptionsValue: 0,
       createdAt: 0,
@@ -4621,7 +4681,7 @@ describe("Bridge - Deposit", () => {
                   data.mainUtxo,
                   ethers.constants.AddressZero
                 )
-            ).to.be.revertedWith("Wallet must be in Live or MovingFunds state")
+            ).to.be.revertedWith("Wallet state is invalid for proof")
           })
         })
       })

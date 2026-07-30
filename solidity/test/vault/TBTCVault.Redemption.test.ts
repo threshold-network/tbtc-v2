@@ -1,5 +1,5 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumberish, ContractTransaction } from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
@@ -16,6 +16,7 @@ import type {
   TBTC,
   TBTCVault,
 } from "../../typechain"
+import { loadFixture } from "../helpers/fixture"
 
 const { to1e18 } = helpers.number
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -42,7 +43,7 @@ describe("TBTCVault - Redemption", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge, bank, tbtcVault, tbtc } = await waffle.loadFixture(
+    ;({ deployer, bridge, bank, tbtcVault, tbtc } = await loadFixture(
       bridgeFixture
     ))
 

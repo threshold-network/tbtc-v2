@@ -1,6 +1,7 @@
 import type {
   BitcoinClient,
   P2TRSignatureFraudBridgeChallengeDomain,
+  P2TRSignatureFraudChallengeBroadcastReconciler,
   P2TRSignatureFraudChallengeSubmitter,
   P2TRSignatureFraudPayloadBounds,
   P2TRSignatureFraudSpendTypeClassifier,
@@ -34,6 +35,7 @@ export type P2TRSignatureFraudWatchtowerStoreProfileProvider = {
 
 export type P2TRSignatureFraudWatchtowerSharedStoreAssertion = {
   persistence: P2TRWatchtowerChallengeRecordPersistence
+  transactionSource: P2TRSignatureFraudWatchtowerTransactionSource
   bridgeLifecycleEventSource: P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource
 }
 
@@ -56,6 +58,7 @@ export type P2TRSignatureFraudWatchtowerIdempotentChallengeSubmitter =
 export type P2TRSignatureFraudWatchtowerServiceDependencies = {
   bitcoinClient: BitcoinClient
   challengeSubmitter?: P2TRSignatureFraudChallengeSubmitter
+  challengeBroadcastReconciler?: P2TRSignatureFraudChallengeBroadcastReconciler
   transactionSource: P2TRSignatureFraudWatchtowerTransactionSource
   bridgeLifecycleEventSource: P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource
   persistence: P2TRWatchtowerChallengeRecordPersistence
@@ -69,6 +72,17 @@ export type P2TRSignatureFraudWatchtowerServiceAlertSeverity =
   | "error"
 
 export type P2TRSignatureFraudWatchtowerServiceAlert =
+  | {
+      code: "confirmed-transaction-cursor-commit-failed"
+      severity: "error"
+      message: string
+      fields: {
+        error: string
+        storeId: string
+        bridgeIdentifier: string
+        cycleStartedAt: string
+      }
+    }
   | {
       code: "bridge-lifecycle-cursor-commit-failed"
       severity: "error"

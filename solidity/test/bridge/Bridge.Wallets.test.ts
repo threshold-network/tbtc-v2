@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { smock } from "@defi-wonderland/smock"
@@ -20,11 +20,49 @@ import {
 } from "../data/fraud"
 import { constants, ecdsaDkgState, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
+
+async function expectCustomError(
+  promise: Promise<unknown>,
+  errorName: string
+): Promise<void> {
+  const expectedSelector = ethers.utils.id(`${errorName}()`).slice(0, 10)
+
+  try {
+    await promise
+  } catch (err) {
+    const errAny = err as {
+      data?: string
+      message?: string
+      error?: { data?: string }
+    }
+    const revertData = errAny.data || errAny.error?.data || ""
+    const errMsg = errAny.message || String(err)
+
+    if (
+      (revertData &&
+        revertData.toLowerCase().startsWith(expectedSelector.toLowerCase())) ||
+      errMsg.toLowerCase().includes(expectedSelector.toLowerCase()) ||
+      errMsg.includes(errorName)
+    ) {
+      return
+    }
+
+    throw new Error(
+      `expected revert with custom error ${errorName} ` +
+        `(selector ${expectedSelector}), got: ${errMsg}`
+    )
+  }
+
+  throw new Error(
+    `expected revert with custom error ${errorName} but tx succeeded`
+  )
+}
 
 describe("Bridge - Wallets", () => {
   let governance: SignerWithAddress
@@ -44,7 +82,7 @@ describe("Bridge - Wallets", () => {
       bridge,
       bridgeGovernance,
       ecdsaFraudRouter,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
   })
 
   describe("requestNewWallet", () => {
@@ -1716,6 +1754,84 @@ describe("Bridge - Wallets", () => {
             )
           ).to.be.revertedWith("Closing period has not elapsed yet")
         })
+      })
+    })
+
+    context("when a direct ECDSA fraud challenge is open", () => {
+      before(async () => {
+        await createSnapshot()
+
+        const closingStartedAt = await lastBlockTime()
+        await bridge.setWallet(fraudWallet.pubKeyHash160, {
+          ecdsaWalletID: fraudWallet.ecdsaWalletID,
+          mainUtxoHash: ethers.constants.HashZero,
+          pendingRedemptionsValue: 0,
+          createdAt: 0,
+          movingFundsRequestedAt: 0,
+          closingStartedAt,
+          pendingMovedFundsSweepRequestsCount: 0,
+          state: walletState.Closing,
+          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+        })
+        await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
+          ...walletDraft,
+          closingStartedAt,
+          state: walletState.Closing,
+        })
+
+        await ecdsaFraudRouter
+          .connect(thirdParty)
+          .submitFraudChallenge(
+            fraudWallet.publicKey,
+            nonWitnessSignSingleInputTx.preimageSha256,
+            nonWitnessSignSingleInputTx.signature,
+            { value: constants.fraudChallengeDepositAmount }
+          )
+
+        await increaseTime(
+          (
+            await bridge.walletParameters()
+          ).walletClosingPeriod
+        )
+      })
+
+      after(async () => {
+        walletRegistry.closeWallet.reset()
+        await restoreSnapshot()
+      })
+
+      it("blocks only the challenged wallet until the challenge is defeated", async () => {
+        await expectCustomError(
+          bridge.notifyWalletClosingPeriodElapsed(fraudWallet.pubKeyHash160),
+          "EcdsaFraudChallengePending"
+        )
+        expect(
+          (await bridge.wallets(fraudWallet.pubKeyHash160)).state
+        ).to.equal(walletState.Closing)
+
+        await bridge.notifyWalletClosingPeriodElapsed(
+          ecdsaWalletTestData.pubKeyHash160
+        )
+        expect(
+          (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)).state
+        ).to.equal(walletState.Closed)
+
+        await bridge.setProcessedMovedFundsSweepRequests(
+          nonWitnessSignSingleInputTx.movedFundsSweepRequests
+        )
+        await ecdsaFraudRouter.defeatFraudChallenge(
+          fraudWallet.publicKey,
+          nonWitnessSignSingleInputTx.preimage,
+          nonWitnessSignSingleInputTx.witness
+        )
+
+        await bridge.notifyWalletClosingPeriodElapsed(fraudWallet.pubKeyHash160)
+        expect(
+          (await bridge.wallets(fraudWallet.pubKeyHash160)).state
+        ).to.equal(walletState.Closed)
+        expect(walletRegistry.closeWallet).to.have.been.calledWith(
+          fraudWallet.ecdsaWalletID
+        )
       })
     })
 

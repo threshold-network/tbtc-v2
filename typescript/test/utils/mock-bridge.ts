@@ -11,6 +11,7 @@ import {
   DepositRevealedEvent,
   DepositRequest,
   TaprootDepositRevealedEvent,
+  ActiveWalletIdentity,
 } from "../../src/lib/contracts"
 import { WalletIDUtils } from "../../src/lib/contracts/wallet-id"
 import {
@@ -434,6 +435,16 @@ export class MockBridge implements Bridge {
 
   async activeWalletPublicKeyHash(): Promise<Hex | undefined> {
     return this._activeWalletPublicKeyHash
+  }
+
+  async activeWalletIdentity(): Promise<ActiveWalletIdentity | undefined> {
+    const walletPublicKeyHash = this._activeWalletPublicKeyHash
+    const walletID = await this.activeWalletID()
+    if (!walletPublicKeyHash || !walletID) {
+      return undefined
+    }
+
+    return { walletPublicKeyHash, walletID }
   }
 
   async activeWalletID(): Promise<Hex | undefined> {

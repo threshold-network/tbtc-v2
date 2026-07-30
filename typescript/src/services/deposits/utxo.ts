@@ -1,11 +1,54 @@
 import { BigNumber } from "ethers"
 import { Transaction } from "bitcoinjs-lib"
-import { BitcoinRawTx, BitcoinUtxo } from "../../lib/bitcoin"
+import { BitcoinRawTx, BitcoinTxOutpoint, BitcoinUtxo } from "../../lib/bitcoin"
 
-export type ResolvedBitcoinUtxo = {
+export type ResolvedBitcoinTxOutpoint = {
   transaction: Transaction
   output: Transaction["outs"][number]
+}
+
+export type ResolvedBitcoinUtxo = {
+  transaction: ResolvedBitcoinTxOutpoint["transaction"]
+  output: ResolvedBitcoinTxOutpoint["output"]
   value: BigNumber
+}
+
+/**
+ * Resolves an outpoint against provider-returned raw transaction bytes and
+ * rejects identity or index mismatches before the transaction is used.
+ * @param outpoint Expected transaction hash and output index.
+ * @param rawTransaction Raw transaction returned for the expected hash.
+ * @param errorContext Selects user-facing errors for funding or signing flows.
+ * @returns The authenticated transaction and selected output.
+ */
+export function resolveBitcoinTxOutpoint(
+  outpoint: BitcoinTxOutpoint,
+  rawTransaction: BitcoinRawTx,
+  errorContext: "funding" | "utxo" = "funding"
+): ResolvedBitcoinTxOutpoint {
+  const transaction = Transaction.fromHex(rawTransaction.transactionHex)
+
+  if (transaction.getId() !== outpoint.transactionHash.toString()) {
+    throw new Error(
+      errorContext === "utxo"
+        ? "Raw transaction does not match UTXO transaction hash"
+        : "Funding transaction bytes do not match requested transaction hash"
+    )
+  }
+
+  if (
+    !Number.isInteger(outpoint.outputIndex) ||
+    outpoint.outputIndex < 0 ||
+    outpoint.outputIndex >= transaction.outs.length
+  ) {
+    throw new Error(
+      errorContext === "utxo"
+        ? "UTXO output index is out of range"
+        : "Funding output index is out of range"
+    )
+  }
+
+  return { transaction, output: transaction.outs[outpoint.outputIndex] }
 }
 
 /**
@@ -17,21 +60,7 @@ export type ResolvedBitcoinUtxo = {
 export function resolveBitcoinUtxo(
   utxo: BitcoinUtxo & BitcoinRawTx
 ): ResolvedBitcoinUtxo {
-  const transaction = Transaction.fromHex(utxo.transactionHex)
-
-  if (transaction.getId() !== utxo.transactionHash.toString()) {
-    throw new Error("Raw transaction does not match UTXO transaction hash")
-  }
-
-  if (
-    !Number.isInteger(utxo.outputIndex) ||
-    utxo.outputIndex < 0 ||
-    utxo.outputIndex >= transaction.outs.length
-  ) {
-    throw new Error("UTXO output index is out of range")
-  }
-
-  const output = transaction.outs[utxo.outputIndex]
+  const { transaction, output } = resolveBitcoinTxOutpoint(utxo, utxo, "utxo")
   const value = BigNumber.from(output.value)
 
   if (!value.eq(utxo.value)) {

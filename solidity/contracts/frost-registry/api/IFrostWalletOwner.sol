@@ -24,11 +24,6 @@ pragma solidity 0.8.17;
 ///      `Wallets.registerNewFrostWallet` in Bridge for the
 ///      mapping rules).
 ///
-///      The heartbeat-failure callback is intentionally omitted from this
-///      interface (vs. the ECDSA version). The FROST registry does not
-///      participate in heartbeat-failure reporting in this phase; if and
-///      when a FROST heartbeat path is added, a new callback will be
-///      defined here.
 interface IFrostWalletOwner {
     /// @notice Callback function executed once a new FROST wallet is
     ///         created and approved.
@@ -39,4 +34,12 @@ interface IFrostWalletOwner {
     /// @param xOnlyOutputKey The 32-byte x-only Taproot output key
     ///        emitted by the FROST DKG.
     function __frostWalletCreatedCallback(bytes32 xOnlyOutputKey) external;
+
+    /// @notice Callback function executed once a FROST wallet heartbeat
+    ///         failure is detected.
+    /// @dev Should be callable only by the FROST wallet registry.
+    /// @param xOnlyOutputKey The 32-byte x-only Taproot output key of the
+    ///        wallet that failed the heartbeat.
+    function __frostWalletHeartbeatFailedCallback(bytes32 xOnlyOutputKey)
+        external;
 }

@@ -66,12 +66,23 @@ Here is a short example demonstrating SDK usage:
 ```typescript
 // Import SDK entrypoint component.
 import { TBTC } from "@keep-network/tbtc-v2.ts"
+import { providers } from "ethers"
 
-// Create an instance of ethers signer.
+// Create an instance of an ethers signer backed by the primary provider.
 const signer = (...)
 
-// Initialize the SDK.
-const sdk = await TBTC.initializeMainnet(signer)
+// Use a second provider operated in a different trust domain. Both providers
+// must support the Ethereum `finalized` block tag.
+const canonicalProvider = new providers.JsonRpcProvider(...)
+
+// Initialize the SDK with the finalized-state quorum required for deposits.
+const sdk = await TBTC.initializeMainnet(signer, {
+  sourceTrustDomainID: "primary-provider-operator",
+  canonicalProvider: {
+    trustDomainID: "independent-provider-operator",
+    provider: canonicalProvider,
+  },
+})
 
 // Access SDK features.
 sdk.deposits.(...)
@@ -83,6 +94,33 @@ sdk.tbtcContracts.(...)
 // Access Bitcoin client directly.
 sdk.bitcoinClient.(...)
 ```
+
+Deposit creation fails closed unless the two providers have different
+non-empty trust-domain IDs and are different provider instances on the same
+Ethereum chain. The SDK reads the active wallet hash, canonical wallet ID, and
+both forward and reverse identity mappings at each provider's own authenticated
+finalized head, then requires both fully bound identities to match. This rejects
+a stale provider that reports a genuine but retired wallet and prevents a
+compromised provider from downgrading a FROST wallet to a legacy deposit script.
+Trust-domain IDs are operator assertions: integrations must use providers with
+genuinely independent infrastructure, administration, and upstream failure
+domains. Wrapping one provider object or using two URLs operated by the same
+organization does not provide an independent quorum.
+
+Applications enabling cross-chain support pass the quorum as the third
+argument: `TBTC.initializeMainnet(signer, true, quorum)`. Ordinary contract
+reads remain available without a quorum, but `initiateDeposit`,
+`initiateTaprootDeposit`, proxy deposits, and cross-chain deposits will reject
+before deriving a custody address.
+
+This is a coordinated activation requirement for every SDK deposit path. The
+Bridge deployment must expose `activeWalletID`, `walletID`, and
+`walletPubKeyHashForWalletID` before applications enable this SDK version, and
+applications must configure both finalized-capable providers at the same time.
+If either the selectors or quorum configuration are missing, deposits stop
+before producing an address; there is no legacy fallback. Rollouts should verify
+the upgraded Bridge selectors and both provider trust domains before directing
+users to the new client.
 
 ## Contributing
 

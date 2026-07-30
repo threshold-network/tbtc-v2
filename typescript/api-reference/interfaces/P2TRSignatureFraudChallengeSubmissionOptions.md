@@ -1,5 +1,8 @@
 # Interface: P2TRSignatureFraudChallengeSubmissionOptions
 
+Options for the manual low-level challenge submission API. They do not
+enable the observation-only watchtower automatic submission path.
+
 ## Table of contents
 
 ### Properties
@@ -33,4 +36,4 @@ challenge is never re-broadcast on replay after a later failure.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:411](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L411)
+[src/services/maintenance/p2tr-signature-fraud.ts:497](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L497)

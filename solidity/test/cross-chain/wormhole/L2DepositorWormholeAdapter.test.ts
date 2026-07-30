@@ -1,4 +1,4 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -13,6 +13,7 @@ import {
   initializeDepositFixture,
   toWormholeAddress,
 } from "./L1BTCDepositorWormhole.test"
+import { loadFixture } from "../../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -86,7 +87,7 @@ describe("L2BTCDepositorWormhole", () => {
       l2WormholeGateway,
       l1BtcDepositor,
       l2BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("attachL1BtcDepositor", () => {

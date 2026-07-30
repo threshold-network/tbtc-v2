@@ -1,4 +1,4 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -11,6 +11,7 @@ import {
   TestERC20,
   TestBTCUtilsHelper,
 } from "../../../typechain"
+import { loadFixture } from "../../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -133,7 +134,7 @@ describe("L2BTCRedeemerWormhole", () => {
       tbtc,
       gateway,
       testBTCUtilsHelper,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
 
     // Debug BTCUtils.extractHashAt
     const payload = await testBTCUtilsHelper.getScriptPayload(

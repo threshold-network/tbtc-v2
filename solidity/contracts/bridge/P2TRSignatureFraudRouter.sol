@@ -6,8 +6,8 @@ import "./CheckBitcoinBIP341Sighash.sol";
 import "./CheckBitcoinP2TRSignatureFraud.sol";
 import "./Deposit.sol";
 import "./Fraud.sol";
-import "./MovingFunds.sol";
 import "./P2TRSignatureFraud.sol";
+import "./P2TRFraudEvidenceProtocol.sol";
 import "./Wallets.sol";
 
 /// @notice State the P2TR fraud router needs to read from Bridge while
@@ -41,36 +41,19 @@ interface IBridgeForP2TRFraud {
 
     function treasury() external view returns (address);
 
-    function deposits(uint256 depositKey)
-        external
-        view
-        returns (Deposit.DepositRequest memory);
-
     function taprootDepositOutputKeyCommitment(uint256 depositKey)
         external
         view
         returns (bytes32);
-
-    function spentMainUTXOs(uint256 utxoKey) external view returns (bool);
-
-    function movedFundsSweepRequests(uint256 requestKey)
-        external
-        view
-        returns (MovingFunds.MovedFundsSweepRequest memory);
 
     function legacyFraudChallengeExists(uint256 challengeKey)
         external
         view
         returns (bool);
 
-    /// @notice Privileged callback the P2TR router invokes from the
-    ///         timeout path. Bridge gates this with
-    ///         `onlyP2TRFraudRouter`.
-    function slashWalletForP2TRFraud(
-        bytes20 walletPubKeyHash,
-        uint32[] calldata walletMembersIDs,
-        address challenger
-    ) external;
+    function processP2TRWalletLifecycle(bytes calldata payload)
+        external
+        returns (bytes memory);
 }
 
 /// @title P2TRSignatureFraudRouter
@@ -228,6 +211,14 @@ contract P2TRSignatureFraudRouter {
         bridge = _bridge;
     }
 
+    /// @notice Identifies the evidence protocol implemented by this router.
+    /// @dev BOUNDED_V1 deliberately must not activate FROST custody. Its finite
+    ///      shape limits leave valid, larger Bitcoin transactions outside the
+    ///      on-chain adjudication boundary.
+    function evidenceProtocolID() public pure virtual returns (bytes32) {
+        return P2TRFraudEvidenceProtocol.BOUNDED_V1;
+    }
+
     /// @notice Accepts ETH + challenge records for legacy P2TR fraud
     ///         challenges migrated from Bridge.
     /// @dev Same contract as ECDSA router's `acceptMigration`. Called
@@ -243,7 +234,8 @@ contract P2TRSignatureFraudRouter {
     function acceptMigration(
         uint256[] calldata challengeKeys,
         Fraud.FraudChallenge[] calldata data
-    ) external payable {
+    ) external payable virtual {
+        _requireCompleteEvidenceProtocol();
         require(msg.sender == bridge, "Caller is not Bridge");
         require(challengeKeys.length == data.length, "Length mismatch");
 
@@ -291,7 +283,9 @@ contract P2TRSignatureFraudRouter {
         uint8 action,
         bytes calldata payload,
         uint32[] calldata walletMembersIDs
-    ) external payable {
+    ) external payable virtual {
+        _requireCompleteEvidenceProtocol();
+
         require(
             payload.length <= P2TRSignatureFraudMaxPayloadBytes,
             "P2TR payload too large"
@@ -377,44 +371,21 @@ contract P2TRSignatureFraudRouter {
         );
     }
 
+    function _requireCompleteEvidenceProtocol() internal view {
+        if (evidenceProtocolID() != P2TRFraudEvidenceProtocol.COMPLETE_V2) {
+            revert P2TRFraudEvidenceProtocol.P2TRFraudEvidenceUnavailable();
+        }
+    }
+
     function _defeat(
-        CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload
-            memory payload
+        CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload memory
     ) internal {
-        IBridgeForP2TRFraud b = IBridgeForP2TRFraud(bridge);
-
-        _validatePayloadShape(payload);
-
-        ChallengeContext memory context = _computeChallengeContext(
-            _resolveWalletPubKeyHash(b, payload.walletID),
-            payload
-        );
-
-        Fraud.FraudChallenge storage challenge = _unresolvedChallenge(
-            context.challengeKey
-        );
-
-        require(
-            _isHonestlySpent(b, _signedInputUtxoKey(payload)),
-            "Spent UTXO not found among correctly spent UTXOs"
-        );
-
-        challenge.resolved = true;
-        _decrementOpenFraudChallengeCount(context.challengeKey);
-
-        address treasury = b.treasury();
-        /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
-        treasury.call{gas: 100000, value: challenge.depositAmount}("");
-        /* solhint-enable avoid-low-level-calls */
-
-        emit P2TRSignatureFraudChallengeDefeated(
-            payload.walletID,
-            context.walletPubKeyHash,
-            context.bridgeChallengeIdentity,
-            context.challengeKey,
-            context.sighash
-        );
+        // BOUNDED_V1 cannot prove that an accepted Bitcoin authorization is
+        // identical to the challenged BIP-341 authorization. A Bitcoin txid
+        // does not commit witness/annex data or the prevout values and scripts
+        // used by the sighash. Keep defeat fail-closed until COMPLETE_V2
+        // supplies authenticated, authorization-complete evidence.
+        revert P2TRFraudEvidenceProtocol.P2TRFraudEvidenceUnavailable();
     }
 
     function _notifyTimeout(
@@ -454,10 +425,15 @@ contract P2TRSignatureFraudRouter {
         );
         /* solhint-enable avoid-low-level-calls */
 
-        b.slashWalletForP2TRFraud(
-            context.walletPubKeyHash,
-            walletMembersIDs,
-            challenge.challenger
+        b.processP2TRWalletLifecycle(
+            abi.encode(
+                uint8(2),
+                abi.encode(
+                    context.walletPubKeyHash,
+                    walletMembersIDs,
+                    challenge.challenger
+                )
+            )
         );
 
         // Keep the per-wallet counter as the graceful-closure lock across
@@ -541,18 +517,6 @@ contract P2TRSignatureFraudRouter {
             openFraudChallengeCountByWallet[walletPubKeyHash]--;
             delete fraudChallengeWalletPubKeyHash[challengeKey];
         }
-    }
-
-    function _isHonestlySpent(IBridgeForP2TRFraud b, uint256 utxoKey)
-        internal
-        view
-        returns (bool)
-    {
-        return
-            b.deposits(utxoKey).sweptAt > 0 ||
-            b.spentMainUTXOs(utxoKey) ||
-            b.movedFundsSweepRequests(utxoKey).state ==
-            MovingFunds.MovedFundsSweepRequestState.Processed;
     }
 
     /// @dev Deposit inputs verify against their tweaked output key only after

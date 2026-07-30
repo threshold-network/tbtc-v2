@@ -16,11 +16,22 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, deployments, getNamedAccounts } = hre
   const { get } = deployments
   const { deployer, treasury } = await getNamedAccounts()
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "80_upgrade_bridge_v2_DEPRECATED"
+    )
+  }
 
   const Bank = await deployments.get("Bank")
   const LightRelay = await deployments.get("LightRelay")
@@ -72,6 +83,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         log: true,
         waitConfirmations: 1,
         skipIfAlreadyDeployed: false,
+        args: [ethers.constants.AddressZero],
         libraries: bridgeLibraries,
       }
     )
@@ -147,6 +159,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["UpgradeBridge"]
+func.dependencies = ["FrostCustodyNoGo"]
 // Set UPGRADE_BRIDGE=true when running an upgrade.
 // yarn deploy --tags UpgradeBridge --network <NETWORK>
 func.skip = async () => process.env.UPGRADE_BRIDGE !== "true"

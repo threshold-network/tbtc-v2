@@ -187,6 +187,62 @@ library BitcoinTx {
         P2TR
     }
 
+    /// @notice Validates the stripped Bitcoin transaction representation and
+    ///         returns its internal-byte-order txid without requiring SPV.
+    /// @dev Pre-signing authorization must run this exact parser before any
+    ///      signature can be released. SPV proof paths reuse the same helper.
+    function validateInfo(Info calldata txInfo)
+        internal
+        view
+        returns (bytes32 txHash)
+    {
+        require(
+            txInfo.inputVector.validateVin(),
+            "Invalid input vector provided"
+        );
+        require(
+            txInfo.outputVector.validateVout(),
+            "Invalid output vector provided"
+        );
+
+        return
+            abi
+                .encodePacked(
+                    txInfo.version,
+                    txInfo.inputVector,
+                    txInfo.outputVector,
+                    txInfo.locktime
+                )
+                .hash256View();
+    }
+
+    /// @dev Memory counterpart used by the generic pre-signing dispatcher
+    ///      after decoding its action payload.
+    function validateInfoMemory(Info memory txInfo)
+        internal
+        view
+        returns (bytes32 txHash)
+    {
+        require(
+            txInfo.inputVector.validateVin(),
+            "Invalid input vector provided"
+        );
+        require(
+            txInfo.outputVector.validateVout(),
+            "Invalid output vector provided"
+        );
+
+        return
+            abi
+                .encodePacked(
+                    txInfo.version,
+                    txInfo.inputVector,
+                    txInfo.outputVector,
+                    txInfo.locktime
+                )
+                .hash256View();
+    }
+
     /// @notice Validates the SPV proof of the Bitcoin transaction.
     ///         Reverts in case the validation or proof verification fail.
     /// @param txInfo Bitcoin transaction data.
@@ -197,27 +253,11 @@ library BitcoinTx {
         Info calldata txInfo,
         Proof calldata proof
     ) internal view returns (bytes32 txHash) {
-        require(
-            txInfo.inputVector.validateVin(),
-            "Invalid input vector provided"
-        );
-        require(
-            txInfo.outputVector.validateVout(),
-            "Invalid output vector provided"
-        );
+        txHash = validateInfo(txInfo);
         require(
             proof.merkleProof.length == proof.coinbaseProof.length,
             "Tx not on same level of merkle tree as coinbase"
         );
-
-        txHash = abi
-            .encodePacked(
-                txInfo.version,
-                txInfo.inputVector,
-                txInfo.outputVector,
-                txInfo.locktime
-            )
-            .hash256View();
 
         bytes32 root = proof.bitcoinHeaders.extractMerkleRootLE();
 
@@ -404,6 +444,15 @@ library BitcoinTx {
 
         walletPubKeyHash = self.walletPubKeyHashByWalletID[walletKey];
         require(walletPubKeyHash != bytes20(0), "Unknown wallet ID");
+        require(
+            self.registeredWallets[walletPubKeyHash].ecdsaWalletID ==
+                bytes32(0),
+            "ECDSA wallet output must be legacy"
+        );
+        require(
+            self.walletIDByWalletPubKeyHash[walletPubKeyHash] == walletKey,
+            "P2TR wallet ID mismatch"
+        );
 
         return walletPubKeyHash;
     }

@@ -24,7 +24,7 @@ Deposit amount in satoshis.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:372](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L372)
+[src/lib/contracts/bridge.ts:396](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L396)
 
 ___
 
@@ -36,7 +36,7 @@ Depositor's chain identifier.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:367](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L367)
+[src/lib/contracts/bridge.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L391)
 
 ___
 
@@ -48,7 +48,7 @@ Optional 32-byte extra data committed by the deposit script.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:397](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L397)
+[src/lib/contracts/bridge.ts:421](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L421)
 
 ___
 
@@ -60,7 +60,7 @@ UNIX timestamp the deposit was revealed at.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:382](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L382)
+[src/lib/contracts/bridge.ts:406](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L406)
 
 ___
 
@@ -73,7 +73,7 @@ should have zero as value.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:387](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L387)
+[src/lib/contracts/bridge.ts:411](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L411)
 
 ___
 
@@ -86,7 +86,7 @@ Denominated in satoshi.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:392](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L392)
+[src/lib/contracts/bridge.ts:416](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L416)
 
 ___
 
@@ -98,4 +98,4 @@ Optional identifier of the vault the deposit should be routed in.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:377](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L377)
+[src/lib/contracts/bridge.ts:401](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L401)

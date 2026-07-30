@@ -1,12 +1,16 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { FakeContract } from "@defi-wonderland/smock"
 
 import { constants, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
-import { DepositSweepTestData, SingleP2SHDeposit } from "../data/deposit-sweep"
+import {
+  DepositSweepTestData,
+  SingleP2SHDeposit,
+  SingleP2SHDepositWalletID,
+} from "../data/deposit-sweep"
 
 import type {
   Bank,
@@ -18,6 +22,7 @@ import type {
   VendingMachine,
   IRelay,
 } from "../../typechain"
+import { loadFixture } from "../helpers/fixture"
 
 const { impersonateAccount } = helpers.account
 
@@ -59,7 +64,7 @@ describe("VendingMachine - Upgrade", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ tbtcVault, tbtc, vendingMachine, bank, bridge, relay } =
-      await waffle.loadFixture(bridgeFixture))
+      await loadFixture(bridgeFixture))
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.
@@ -155,9 +160,9 @@ describe("VendingMachine - Upgrade", () => {
         const { fundingTx, depositor, reveal } = data.deposits[0] // it's a single deposit
         reveal.vault = tbtcVault.address
 
-        // Simulate the wallet is a Live one and is known in the system.
+        // Simulate the wallet is a Live ECDSA one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
+          ecdsaWalletID: SingleP2SHDepositWalletID,
           mainUtxoHash: ethers.constants.HashZero,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
@@ -355,9 +360,9 @@ describe("VendingMachine - Upgrade", () => {
         const { fundingTx, reveal } = depositData.deposits[0] // it's a single deposit
         reveal.vault = tbtcVault.address
 
-        // Simulate the wallet is a Live one and is known in the system.
+        // Simulate the wallet is a Live ECDSA one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
+          ecdsaWalletID: SingleP2SHDepositWalletID,
           mainUtxoHash: ethers.constants.HashZero,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),

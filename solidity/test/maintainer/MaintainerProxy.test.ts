@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
 import { assert, expect } from "chai"
@@ -34,6 +34,7 @@ import {
   MultipleDepositsWithMainUtxo,
   NO_MAIN_UTXO,
   SingleP2SHDeposit,
+  SingleP2SHDepositWalletID,
   SingleP2WSHDeposit,
   DepositSweepTestData,
 } from "../data/deposit-sweep"
@@ -58,6 +59,7 @@ import {
 
 import bridgeFixture from "../fixtures/bridge"
 import { constants, walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { provider } = waffle
@@ -107,7 +109,7 @@ describe("MaintainerProxy", () => {
       reimbursementPool,
       maintainerProxy,
       deployer,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
     ;({ movingFundsTimeoutResetDelay } = await bridge.movingFundsParameters())
 
     walletRegistry = await smock.fake<IWalletRegistry>("IWalletRegistry", {
@@ -236,7 +238,7 @@ describe("MaintainerProxy", () => {
       const { walletPubKeyHash } = data.deposits[0].reveal
 
       await bridge.setWallet(walletPubKeyHash, {
-        ecdsaWalletID: ethers.constants.HashZero,
+        ecdsaWalletID: SingleP2SHDepositWalletID,
         mainUtxoHash: ethers.constants.HashZero,
         pendingRedemptionsValue: 0,
         createdAt: await lastBlockTime(),
@@ -1253,7 +1255,14 @@ describe("MaintainerProxy", () => {
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("7000000", "gwei") // 0,007 ETH
+                // Measured 6,391,600 gwei before this branch and 7,551,000
+                // after: routing the redemption proof through
+                // P2TRReservation's settlement and wallet-state lookups costs
+                // ~18% more gas, so the maintainer refund grew past the old
+                // 7,000,000 ceiling. Re-based on the new measurement with the
+                // same ~9% headroom the bound carried before, which lands on
+                // the 8,200,000 already used by the sibling scenario above.
+                ethers.utils.parseUnits("8200000", "gwei") // 0,0082 ETH
               )
             })
           }
