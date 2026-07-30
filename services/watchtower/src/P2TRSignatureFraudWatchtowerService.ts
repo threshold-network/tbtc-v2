@@ -38,12 +38,6 @@ export class P2TRSignatureFraudWatchtowerService {
     private readonly config: P2TRSignatureFraudWatchtowerServiceConfig,
     private readonly dependencies: P2TRSignatureFraudWatchtowerServiceDependencies
   ) {
-    if (config.registeredWalletIDs.length === 0) {
-      throw new Error(
-        "P2TR signature-fraud watchtower requires at least one registered wallet ID"
-      )
-    }
-
     if (config.submitChallenges === true) {
       throw new Error(
         "Automatic P2TR signature-fraud challenge submission is disabled while the FROST fraud layer is bounded/no-go; COMPLETE_V2 activation requires a separately reviewed durable outbox and canonical independent reconciliation design"
@@ -98,6 +92,7 @@ export class P2TRSignatureFraudWatchtowerService {
         return { result: cycleResult, metrics: cycleMetrics }
       })
     } catch (error) {
+      await abortConfirmedTransactionScan(this.dependencies.transactionSource)
       if (error instanceof ConfirmedTransactionCursorCommitError) {
         const fields = this.confirmedTransactionCursorCommitFailureFields(
           error,
@@ -415,6 +410,10 @@ type ConfirmedTransactionScanCommitter = {
   commitConfirmedTransactionScan(): Promise<void>
 }
 
+type ConfirmedTransactionScanAborter = {
+  abortConfirmedTransactionScan(): Promise<void> | void
+}
+
 async function commitConfirmedTransactionScanIfSafe(
   transactionSource: unknown,
   result: P2TRSignatureFraudWatchtowerCycleReport["result"]
@@ -425,13 +424,28 @@ async function commitConfirmedTransactionScanIfSafe(
     result.mempool.failures.length > 0 ||
     result.confirmed.failures.length > 0
   ) {
+    await abortConfirmedTransactionScan(transactionSource)
     return
   }
 
   try {
     await transactionSource.commitConfirmedTransactionScan()
   } catch (error) {
+    await abortConfirmedTransactionScan(transactionSource)
     throw new ConfirmedTransactionCursorCommitError(error)
+  }
+}
+
+async function abortConfirmedTransactionScan(value: unknown): Promise<void> {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "abortConfirmedTransactionScan" in value &&
+    typeof value.abortConfirmedTransactionScan === "function"
+  ) {
+    await (
+      value as ConfirmedTransactionScanAborter
+    ).abortConfirmedTransactionScan()
   }
 }
 

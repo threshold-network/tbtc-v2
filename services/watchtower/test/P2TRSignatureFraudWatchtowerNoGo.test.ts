@@ -63,6 +63,19 @@ test("service constructor rejects submit mode before invoking its submitter", ()
   assert.equal(submitter.calls, 0)
 })
 
+test("service permits zero-wallet observation startup before canonical registration", async () => {
+  const submitter = new CountingSubmitter()
+  const service = new P2TRSignatureFraudWatchtowerService(
+    { registeredWalletIDs: [], submitChallenges: false },
+    serviceDependencies(submitter)
+  )
+
+  const report = await service.processCycle()
+
+  assert.equal(report.metrics.totalRecords, 0)
+  assert.equal(submitter.calls, 0)
+})
+
 test("file-backed runtime rejects programmatic submit mode before invoking its submitter", () => {
   const submitter = new CountingSubmitter()
   const dependencies = serviceDependencies(submitter)

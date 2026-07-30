@@ -36,4 +36,4 @@ challenge is never re-broadcast on replay after a later failure.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:475](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L475)
+[src/services/maintenance/p2tr-signature-fraud.ts:497](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L497)

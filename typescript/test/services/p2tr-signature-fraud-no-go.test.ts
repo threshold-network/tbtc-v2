@@ -70,12 +70,51 @@ const bridgeChallengeDomain = {
 const completeBridgeChallengeEvidenceAbiType =
   "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
+// `resolveP2TRInputPrevouts` verifies that the bytes a Bitcoin client returns
+// for a prevout actually hash to the txid that was asked for -- without that, a
+// client can substitute any prevout it likes and the watchtower builds evidence
+// on it. The corpus records prevouts as (txid, vout, value, scriptPubKey) only,
+// with placeholder txids no real transaction hashes to, so a fixture cannot
+// satisfy the check while reusing those txids.
+//
+// These runner-level cases are about observation-only/no-go classification, not
+// about sighash correctness -- that is covered by the corpus-driven tests -- so
+// the funding transactions are built here and the spending transaction's inputs
+// are repointed at their real txids. Everything the client returns then hashes
+// to what was requested, exactly as it would in production.
+const fundingTransactions = annexVector.prevouts.map(
+  (prevout: PrevoutVector, index: number) => {
+    const transaction = new Transaction()
+    // A distinct sequence per index keeps two prevouts that happen to share a
+    // script and value from collapsing to one txid.
+    transaction.addInput(Buffer.alloc(32), 0xffffffff, index)
+
+    for (let i = 0; i <= prevout.vout; i++) {
+      transaction.addOutput(
+        Buffer.from(i === prevout.vout ? prevout.scriptPubKeyHex : "51", "hex"),
+        i === prevout.vout ? Number(prevout.valueSats) : 1
+      )
+    }
+
+    return transaction
+  }
+)
+
+/** Display-order txid, as a Bitcoin client would be asked for it. */
+const fundingTxids = fundingTransactions.map((transaction) =>
+  transaction.getId()
+)
+
 const buildAnnexTransaction = (): BitcoinRawTx => {
   if (annexVector.annexHex === undefined) {
     throw new Error("Missing annex bytes in P2TR signature-fraud vector")
   }
 
   const transaction = Transaction.fromHex(annexVector.unsignedTransactionHex)
+  // `ins[].hash` is internal byte order; `getId()` is display order.
+  fundingTxids.forEach((txid, index) => {
+    transaction.ins[index].hash = Buffer.from(txid, "hex").reverse()
+  })
   transaction.ins[0].witness = [
     Buffer.from(inputZeroVector.witnessSignatureHex, "hex"),
   ]
@@ -91,28 +130,12 @@ const buildAnnexTransaction = (): BitcoinRawTx => {
 }
 
 const toObservationPrevouts = () =>
-  annexVector.prevouts.map((prevout) => ({
-    txid: prevout.txidHex,
+  annexVector.prevouts.map((prevout, index) => ({
+    txid: fundingTxids[index],
     vout: prevout.vout,
     valueSats: prevout.valueSats,
     scriptPubKey: prevout.scriptPubKeyHex,
   }))
-
-const rawPreviousTransactionForPrevout = (
-  prevout: PrevoutVector
-): BitcoinRawTx => {
-  const transaction = new Transaction()
-  transaction.addInput(Buffer.alloc(32), 0xffffffff)
-
-  for (let i = 0; i <= prevout.vout; i++) {
-    transaction.addOutput(
-      Buffer.from(i === prevout.vout ? prevout.scriptPubKeyHex : "51", "hex"),
-      i === prevout.vout ? Number(prevout.valueSats) : 1
-    )
-  }
-
-  return { transactionHex: transaction.toHex() }
-}
 
 class CountingSubmitter implements P2TRSignatureFraudChallengeSubmitter {
   calls = 0
@@ -311,14 +334,12 @@ describe("P2TR signature-fraud bounded/no-go submission boundary", () => {
     ).getId()
     const bitcoinClient = {
       async getRawTransaction(txid: Hex): Promise<BitcoinRawTx> {
-        const prevout = annexVector.prevouts.find(
-          (candidate) => candidate.txidHex === txid.toString()
-        )
-        if (prevout === undefined) {
+        const index = fundingTxids.indexOf(txid.toString())
+        if (index === -1) {
           throw new Error("Unknown P2TR no-go test prevout")
         }
 
-        return rawPreviousTransactionForPrevout(prevout)
+        return { transactionHex: fundingTransactions[index].toHex() }
       },
     } as BitcoinClient
     const runner = new P2TRSignatureFraudWatchtowerRunner(
