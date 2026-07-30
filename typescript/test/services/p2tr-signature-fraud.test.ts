@@ -2144,7 +2144,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(intent.bridgeChallengeKey.toString()).to.equal(
       completeEvidence.bridgeChallengeIdentity.toString()
     )
-    expect(intent.bridgeChallengeKey.toString()).to.not.equal(
+    expect(intent.bridgeChallengeKey.toString()).to.equal(
       observation.bridgeChallengeKey?.toString()
     )
     expect(intent.calldata).to.equal(expectedCalldata)
