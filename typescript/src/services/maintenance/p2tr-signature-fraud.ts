@@ -1749,7 +1749,6 @@ export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
     },
   }
 }
-
 /**
  * Requires signed bytes to consume exactly the authenticated reservation.
  *
