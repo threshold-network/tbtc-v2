@@ -1246,6 +1246,39 @@ export class InMemoryOutboxStore
     current: P2TRSignatureFraudChallengeOutboxRecord,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): boolean {
+    const currentBurnClaim = current.contestedNonceBurnClaim
+    const nextBurnClaim = next.contestedNonceBurnClaim
+    if (currentBurnClaim !== undefined) {
+      if (next.reservedNonce === undefined) return false
+      if (nextBurnClaim !== undefined) {
+        if (
+          JSON.stringify(currentBurnClaim) !== JSON.stringify(nextBurnClaim)
+        ) {
+          return false
+        }
+      } else if (
+        next.contestedNonceBurn === undefined ||
+        normalizeKey(next.contestedNonceBurn.signerInvocationID) !==
+          normalizeKey(currentBurnClaim.signerInvocationID)
+      ) {
+        return false
+      }
+    } else if (nextBurnClaim !== undefined) {
+      if (
+        current.activeSignerInvocationStartedAtUnixMs === undefined ||
+        current.reservedNonce === undefined ||
+        nextBurnClaim.recordVersion !== current.version
+      ) {
+        return false
+      }
+    }
+    if (
+      current.contestedNonceBurn === undefined &&
+      next.contestedNonceBurn !== undefined &&
+      currentBurnClaim === undefined
+    ) {
+      return false
+    }
     if (current.contestedNonceBurn !== undefined) {
       if (next.contestedNonceBurn === undefined) return false
       const {

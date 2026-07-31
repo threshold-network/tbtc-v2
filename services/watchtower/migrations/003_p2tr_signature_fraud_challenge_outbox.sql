@@ -4372,6 +4372,77 @@ BEGIN
         END IF;
     END IF;
 
+    -- The burn signer is a second external signer boundary. Its record-state
+    -- claim is committed before that RPC and may outlive resolution of the
+    -- original boundary, so it must retain the exact reservation until signed
+    -- burn bytes replace the claim in the same CAS.
+    IF NOT (OLD.record_state ? 'contestedNonceBurnClaim')
+       AND NEW.record_state ? 'contestedNonceBurnClaim' THEN
+        IF OLD.active_signer_invocation_started_at_unix_ms IS NULL
+           OR OLD.nonce_reservation_id IS NULL
+           OR NEW.record_state ? 'contestedNonceBurn'
+           OR (NEW.record_state -> 'contestedNonceBurnClaim' ->> 'recordVersion')::bigint
+                IS DISTINCT FROM OLD.version
+           OR (NEW.record_state -> 'contestedNonceBurnClaim' ->> 'preparationAttempts')::integer
+                IS DISTINCT FROM OLD.preparation_attempts
+           OR lower(
+                NEW.record_state -> 'contestedNonceBurnClaim' ->> 'reservationID'
+              ) IS DISTINCT FROM (
+                '0x' || encode(OLD.nonce_reservation_id, 'hex')
+              ) THEN
+            RAISE EXCEPTION 'contested nonce burn claim lacks its exact pre-I/O boundary';
+        END IF;
+    END IF;
+
+    IF OLD.record_state ? 'contestedNonceBurnClaim' THEN
+        IF NEW.nonce_reservation_id IS NULL
+           OR ROW(
+                NEW.nonce_reservation_id,
+                NEW.signer_lane_id,
+                NEW.signer_identity,
+                NEW.reserved_sender,
+                NEW.reserved_nonce,
+                NEW.nonce_reservation_binding,
+                NEW.nonce_reserved_at_unix_ms
+              ) IS DISTINCT FROM ROW(
+                OLD.nonce_reservation_id,
+                OLD.signer_lane_id,
+                OLD.signer_identity,
+                OLD.reserved_sender,
+                OLD.reserved_nonce,
+                OLD.nonce_reservation_binding,
+                OLD.nonce_reserved_at_unix_ms
+              )
+           OR (
+                (NEW.record_state ? 'contestedNonceBurnClaim')
+                = (NEW.record_state ? 'contestedNonceBurn')
+              )
+           OR (
+                NEW.record_state ? 'contestedNonceBurnClaim'
+                AND OLD.record_state -> 'contestedNonceBurnClaim'
+                    IS DISTINCT FROM
+                    NEW.record_state -> 'contestedNonceBurnClaim'
+              )
+           OR (
+                NEW.record_state ? 'contestedNonceBurn'
+                AND lower(
+                    OLD.record_state -> 'contestedNonceBurnClaim'
+                        ->> 'signerInvocationID'
+                  ) IS DISTINCT FROM lower(
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'signerInvocationID'
+                  )
+              ) THEN
+            RAISE EXCEPTION 'contested nonce burn claim cannot release its reservation or change identity';
+        END IF;
+    END IF;
+
+    IF NOT (OLD.record_state ? 'contestedNonceBurn')
+       AND NEW.record_state ? 'contestedNonceBurn'
+       AND NOT (OLD.record_state ? 'contestedNonceBurnClaim') THEN
+        RAISE EXCEPTION 'signed contested nonce burn lacks its durable pre-I/O claim';
+    END IF;
+
     IF OLD.signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.signer_invocation_started_at_unix_ms IS DISTINCT FROM
            OLD.signer_invocation_started_at_unix_ms THEN

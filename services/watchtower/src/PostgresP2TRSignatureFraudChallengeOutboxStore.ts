@@ -4444,6 +4444,7 @@ const DURABLE_OUTBOX_RECORD_KEYS = new Set([
   "activeSignerInvocationID",
   "signerInvocationStartedAtUnixMs",
   "signerInvocationID",
+  "contestedNonceBurnClaim",
   "contestedNonceBurn",
   "preparedTransaction",
   "preparedTransactionVariants",
@@ -4612,6 +4613,15 @@ const DURABLE_CONTESTED_NONCE_BURN_KEYS = new Set([
   "broadcastAtUnixMs",
 ])
 
+const DURABLE_CONTESTED_NONCE_BURN_CLAIM_KEYS = new Set([
+  "signerInvocationID",
+  "signerRequestDigest",
+  "reservationID",
+  "recordVersion",
+  "preparationAttempts",
+  "claimedAtUnixMs",
+])
+
 const DURABLE_SIGNER_INVOCATION_KEYS = new Set([
   "invocationID",
   "requestDigest",
@@ -4757,6 +4767,7 @@ function assertCompactDurableOutboxRecord(
       "nonce reservation"
     )
   }
+  assertContestedNonceBurnClaim(record)
   assertContestedNonceBurn(record)
   const voidedReservations = record.voidedNonceReservations ?? []
   if (
@@ -4879,6 +4890,73 @@ function assertCompactDurableOutboxRecord(
   )
   if (serializedBytes > MAX_DURABLE_OUTBOX_RECORD_BYTES) {
     throw new Error("Durable outbox record exceeds the compact evidence bound")
+  }
+}
+
+function assertContestedNonceBurnClaim(
+  record: P2TRSignatureFraudChallengeOutboxRecord
+): void {
+  const claim = record.contestedNonceBurnClaim
+  if (claim === undefined) return
+  assertExactKeys(
+    claim,
+    DURABLE_CONTESTED_NONCE_BURN_CLAIM_KEYS,
+    "contested nonce burn claim"
+  )
+  if (record.contestedNonceBurn !== undefined) {
+    throw new Error(
+      "Contested nonce burn claim must be replaced by signed bytes atomically"
+    )
+  }
+  bytes32(
+    claim.signerInvocationID,
+    "Contested nonce burn claim signer invocation ID"
+  )
+  bytes32(
+    claim.signerRequestDigest,
+    "Contested nonce burn claim request digest"
+  )
+  const reservationID = bytes32(
+    claim.reservationID,
+    "Contested nonce burn claim reservation ID"
+  )
+  const recordVersion = nonNegativeSafeInteger(
+    claim.recordVersion,
+    "Contested nonce burn claim record version"
+  )
+  if (recordVersion >= record.version) {
+    throw new Error(
+      "Contested nonce burn claim must name the record version before its durable append"
+    )
+  }
+  if (
+    positiveSafeInteger(
+      claim.preparationAttempts,
+      "Contested nonce burn claim preparation attempt"
+    ) !== record.preparationAttempts
+  ) {
+    throw new Error(
+      "Contested nonce burn claim preparation attempt does not match the record"
+    )
+  }
+  const claimedAtUnixMs = unixMilliseconds(
+    claim.claimedAtUnixMs,
+    "Contested nonce burn claim time"
+  )
+  if (
+    claimedAtUnixMs < record.createdAtUnixMs ||
+    claimedAtUnixMs > record.updatedAtUnixMs
+  ) {
+    throw new Error("Contested nonce burn claim time is outside the record")
+  }
+  if (
+    record.reservedNonce === undefined ||
+    bytes32(
+      record.reservedNonce.reservationID,
+      "Contested nonce burn reserved nonce ID"
+    ) !== reservationID
+  ) {
+    throw new Error("Contested nonce burn claim lacks its durable reservation")
   }
 }
 
@@ -5906,6 +5984,43 @@ function preservesCASIdentities(
     ) {
       return false
     }
+  }
+  const currentBurnClaim = current.contestedNonceBurnClaim
+  const nextBurnClaim = next.contestedNonceBurnClaim
+  if (currentBurnClaim !== undefined) {
+    if (next.reservedNonce === undefined) return false
+    if (nextBurnClaim !== undefined) {
+      if (canonicalJSON(currentBurnClaim) !== canonicalJSON(nextBurnClaim)) {
+        return false
+      }
+    } else if (
+      next.contestedNonceBurn === undefined ||
+      bytes32(
+        next.contestedNonceBurn.signerInvocationID,
+        "Contested nonce burn signer invocation ID"
+      ) !==
+        bytes32(
+          currentBurnClaim.signerInvocationID,
+          "Contested nonce burn claim signer invocation ID"
+        )
+    ) {
+      return false
+    }
+  } else if (nextBurnClaim !== undefined) {
+    if (
+      current.activeSignerInvocationStartedAtUnixMs === undefined ||
+      current.reservedNonce === undefined ||
+      nextBurnClaim.recordVersion !== current.version
+    ) {
+      return false
+    }
+  }
+  if (
+    current.contestedNonceBurn === undefined &&
+    next.contestedNonceBurn !== undefined &&
+    currentBurnClaim === undefined
+  ) {
+    return false
   }
   if (nextVariantCount === currentVariantCount) {
     if (

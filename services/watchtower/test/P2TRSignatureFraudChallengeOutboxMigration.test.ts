@@ -332,6 +332,18 @@ test("requires a durable bound nonce guard before signer invocation", () => {
     /num_nonnulls\( voided_before_sign_at_unix_ms, void_reason, void_evidence_digest \) IN \(0, 3\)/
   )
   assert.match(migration, /only an unsigned selected reservation can be voided/)
+  assert.match(
+    migration,
+    /contested nonce burn claim lacks its exact pre-I\/O boundary/
+  )
+  assert.match(
+    migration,
+    /contested nonce burn claim cannot release its reservation or change identity/
+  )
+  assert.match(
+    migration,
+    /signed contested nonce burn lacks its durable pre-I\/O claim/
+  )
   assert.match(migration, /P2TR challenge nonce guards cannot be deleted/)
 })
 

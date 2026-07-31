@@ -1746,6 +1746,21 @@ export type P2TRSignatureFraudContestedNonceBurn = {
   broadcastAtUnixMs?: number
 }
 
+/**
+ * Durable pre-I/O fence for the burn signer. The original orphaned boundary
+ * may be independently resolved while this second signer call is in flight;
+ * this claim keeps the exact reservation non-releasable until signed bytes
+ * replace it atomically.
+ */
+export type P2TRSignatureFraudContestedNonceBurnClaim = {
+  signerInvocationID: string
+  signerRequestDigest: string
+  reservationID: string
+  recordVersion: number
+  preparationAttempts: number
+  claimedAtUnixMs: number
+}
+
 export type P2TRSignatureFraudChallengeOutboxRecord = {
   seriesID: string
   recordID: string
@@ -1793,6 +1808,8 @@ export type P2TRSignatureFraudChallengeOutboxRecord = {
   signerInvocationStartedAtUnixMs?: number
   /** Identity of the last boundary that reached a signer. */
   signerInvocationID?: string
+  /** Durable before the burn signer is invoked; replaced only by burn bytes. */
+  contestedNonceBurnClaim?: P2TRSignatureFraudContestedNonceBurnClaim
   /**
    * A signed transaction that spends the reserved nonce on nothing, made
    * durable before it is broadcast. Its presence means the lane's nonce race
@@ -4022,10 +4039,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
 
-    // A signed burn may have been captured after the original boundary was
-    // concurrently resolved. It is nonce escape evidence just like any other
-    // signed envelope: never void or release the reservation underneath it.
-    if (current.contestedNonceBurn !== undefined) {
+    // A burn claim is durable before its signer call, and signed burn bytes
+    // replace it without a releasable gap. The original signer boundary may
+    // have been concurrently resolved, but neither state permits recovery to
+    // hand this nonce back to the allocator.
+    if (
+      current.contestedNonceBurnClaim !== undefined ||
+      current.contestedNonceBurn !== undefined
+    ) {
       return current
     }
 
@@ -5260,11 +5281,10 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
    * whichever transaction wins. The result is decidable from public data and
    * resolvable through the `nonce-consumed` outcome.
    *
-   * It deliberately does NOT open a second signer boundary. The existing
-   * marker stays exactly as it is: it is immutable in flight, and a burn adds
-   * no new ambiguity to resolve — every burn for one reservation spends the
-   * same nonce on the same nothing, so an escaped burn is indistinguishable
-   * from the one we kept.
+   * The burn has its own durable pre-I/O claim. The existing boundary may be
+   * independently resolved while the burn signer is in flight, but recovery
+   * cannot release the reservation until the claim is atomically replaced by
+   * the exact signed burn bytes.
    */
   async burnContestedNonce(
     recordID: Hex | Buffer | string
@@ -5278,7 +5298,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       // a provider acknowledged them.
       return this.broadcastPersistedContestedNonceBurn(key, current)
     }
-    if (current.activeSignerInvocationStartedAtUnixMs === undefined) {
+    const existingClaim = current.contestedNonceBurnClaim
+    if (
+      existingClaim === undefined &&
+      current.activeSignerInvocationStartedAtUnixMs === undefined
+    ) {
       throw new Error(
         "Only a boundary with an unresolved signer invocation may burn its nonce"
       )
@@ -5294,16 +5318,68 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       )
     }
     const binding = this.buildIrreversibleBoundaryBinding(
-      current,
+      existingClaim === undefined
+        ? current
+        : { ...current, version: existingClaim.recordVersion },
       "burn",
-      current.preparationAttempts,
+      existingClaim?.preparationAttempts ?? current.preparationAttempts,
       contestedNonceBurnBoundaryFeePolicy(feePolicy, envelope)
     )
     const invocation = computeP2TRSignatureFraudSignerInvocationRequest(binding)
+    if (
+      existingClaim !== undefined &&
+      (normalizeBytes32(
+        existingClaim.signerInvocationID,
+        "Contested nonce burn claim invocation ID"
+      ) !== invocation.invocationID ||
+        normalizeBytes32(
+          existingClaim.signerRequestDigest,
+          "Contested nonce burn claim request digest"
+        ) !== invocation.requestDigest ||
+        normalizeBytes32(
+          existingClaim.reservationID,
+          "Contested nonce burn claim reservation ID"
+        ) !==
+          normalizeBytes32(
+            reservation.reservationID,
+            "Contested nonce burn reservation ID"
+          ))
+    ) {
+      throw new Error(
+        "Contested nonce burn claim does not match its durable signer request"
+      )
+    }
     const authorization =
       await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
         binding
       )
+    let claimed = current
+    if (existingClaim === undefined) {
+      const claimedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn claim time"
+      )
+      claimed = nextRecord(current, {
+        contestedNonceBurnClaim: {
+          signerInvocationID: invocation.invocationID,
+          signerRequestDigest: invocation.requestDigest,
+          reservationID: normalizeBytes32(
+            reservation.reservationID,
+            "Contested nonce burn claim reservation ID"
+          ),
+          recordVersion: current.version,
+          preparationAttempts: current.preparationAttempts,
+          claimedAtUnixMs,
+        },
+        updatedAtUnixMs: Math.max(current.updatedAtUnixMs, claimedAtUnixMs),
+      })
+      if (!(await this.store.compareAndSwap(key, current.version, claimed))) {
+        // Authorization is process-local and has not been consumed. Most
+        // importantly, no signer I/O occurs unless this exact claim won its
+        // durable CAS.
+        return this.requireRecord(key)
+      }
+    }
     this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
       authorization,
       binding,
@@ -5343,11 +5419,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       signerInvocationID: invocation.invocationID,
       signedAtUnixMs,
     }
-    let burned = nextRecord(current, {
+    let burned = nextRecord(claimed, {
+      contestedNonceBurnClaim: undefined,
       contestedNonceBurn,
       updatedAtUnixMs: signedAtUnixMs,
     })
-    if (!(await this.store.compareAndSwap(key, current.version, burned))) {
+    if (!(await this.store.compareAndSwap(key, claimed.version, burned))) {
       // Signed bytes already exist and may escape the signer even though a
       // concurrent completion moved the record. Retain the exact burn on top
       // of that durable state before permitting any lease recovery to consider
@@ -5376,11 +5453,33 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         }
         return durable
       }
+      const claim = durable.contestedNonceBurnClaim
+      if (
+        claim === undefined ||
+        normalizeBytes32(
+          claim.signerInvocationID,
+          "Durable contested nonce burn claim invocation ID"
+        ) !== burn.signerInvocationID ||
+        durable.reservedNonce === undefined ||
+        normalizeBytes32(
+          claim.reservationID,
+          "Durable contested nonce burn claim reservation ID"
+        ) !==
+          normalizeBytes32(
+            durable.reservedNonce.reservationID,
+            "Durable contested nonce burn reservation ID"
+          )
+      ) {
+        throw new Error(
+          "Signed contested nonce burn lost its durable pre-I/O claim"
+        )
+      }
       const capturedAtUnixMs = requireUnixMilliseconds(
         this.now(),
         "Contested nonce burn capture time"
       )
       const captured = nextRecord(durable, {
+        contestedNonceBurnClaim: undefined,
         contestedNonceBurn: burn,
         updatedAtUnixMs: Math.max(durable.updatedAtUnixMs, capturedAtUnixMs),
       })
@@ -5706,6 +5805,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     const signerBoundary =
       current.signerInvocationStartedAtUnixMs !== undefined ||
       (current.preparedTransactionVariants?.length ?? 0) > 0 ||
+      current.contestedNonceBurnClaim !== undefined ||
       current.contestedNonceBurn !== undefined
     const hasSignedVariants =
       (current.preparedTransactionVariants?.length ?? 0) > 0

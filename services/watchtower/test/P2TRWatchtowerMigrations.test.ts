@@ -17,7 +17,7 @@ import {
 // accidental edits remain visible, while allowing intentional schema resets
 // before the first deployment.
 const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
-  "88a0905f6806853fd362f56b51d6c9fdfa53618bd7125edb4dad60fe3f4baddb"
+  "82d105d492b9309743be26b7346f6bec72ea519ebcd2382a5358e14a0db78b59"
 
 describe("P2TR watchtower migration bodies", () => {
   it("pins the current pre-production migration 003 checksum", async () => {

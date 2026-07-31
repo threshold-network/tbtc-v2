@@ -4060,7 +4060,7 @@ test("does not acknowledge a contested burn under a mismatched provider hash", a
   assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
 })
 
-test("retains signed burn bytes when boundary resolution wins the first CAS", async () => {
+test("keeps a durable burn claim through boundary resolution and lease recovery", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
@@ -4100,19 +4100,34 @@ test("retains signed burn bytes when boundary resolution wins the first CAS", as
 
   const burning = outbox.burnContestedNonce(record.recordID)
   await signedBurn
+  const inFlight = await store.get(record.recordID)
+  assert.ok(inFlight?.contestedNonceBurnClaim)
+  assert.equal(inFlight.contestedNonceBurn, undefined)
+
+  now = 2_200
   await store.resolveOrphanedSignerBoundary(
     neverInvokedBoundaryResolution(stranded)
   )
+  await outbox.recoverExpiredPreparationLeases()
+  const protectedRecord = await store.get(record.recordID)
+  assert.equal(
+    protectedRecord?.activeSignerInvocationStartedAtUnixMs,
+    undefined
+  )
+  assert.ok(protectedRecord?.contestedNonceBurnClaim)
+  assert.ok(protectedRecord?.reservedNonce)
+  assert.equal(preparer.releasedReservations.length, 0)
+
   release()
   await assert.rejects(burning, /disconnected after send/)
   const captured = await store.get(record.recordID)
 
   assert.ok(captured)
   assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(captured.contestedNonceBurnClaim, undefined)
   assert.ok(captured.contestedNonceBurn)
   assert.equal(captured.reservedNonce?.nonce, stranded.reservedNonce?.nonce)
 
-  now = 2_200
   await outbox.recoverExpiredPreparationLeases()
   const afterRecovery = await store.get(record.recordID)
   assert.ok(afterRecovery?.contestedNonceBurn)
