@@ -4854,6 +4854,7 @@ postgresTest(
     assert.equal(response.payload.state.configuredSignerLaneCount, 1)
     assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 1)
     assert.equal(response.payload.state.activationBlocked, true)
+    assert.equal(response.payload.state.healthy, false)
     assert.equal(
       response.payload.state.activationBlockingReasons.includes(
         "nonce-allocator-barrier-mismatch"

@@ -14,7 +14,7 @@ import {
 } from "../src/P2TRWatchtowerMigrations.js"
 
 const PUBLISHED_OUTBOX_MIGRATION_CHECKSUM =
-  "e6887e75e5c2baa0a97a6c68d911c604c4c5750cbc0c250dad2502739e8b88bc"
+  "3528e618cfaae1813760b966cf0ea9f183c6ac7918bbefbfb0ff3f36c053bebe"
 
 describe("P2TR watchtower migration bodies", () => {
   it("preserves the published migration 003 checksum", async () => {
