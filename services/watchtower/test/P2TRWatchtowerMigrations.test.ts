@@ -308,7 +308,7 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
   })
 
   postgresIt(
-    "upgrades a checksum-tracked migration 003 database through migration 006",
+    "upgrades a checksum-tracked migration 003 database through migration 007",
     async () => {
       const migrationsURL = new URL("../migrations/", import.meta.url)
       const migrations = await loadP2TRWatchtowerMigrations(
@@ -338,9 +338,9 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
         const upgraded = await runP2TRWatchtowerMigrations(pool, migrations)
         assert.deepEqual(
           upgraded.applied.map(({ version }) => version),
-          [5, 6]
+          [5, 6, 7]
         )
-        assert.equal(upgraded.current.length, 6)
+        assert.equal(upgraded.current.length, 7)
 
         const columns = await client.query<{ column_name: string }>(
           `SELECT column_name
@@ -416,6 +416,23 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
         assert.match(
           guard.rows[0].definition,
           /nonce_consumption_observed_head_block_number/
+        )
+
+        // 007 replaces the variant trigger in place, so the live function in a
+        // database upgraded from 003 must carry the strict gas comparison.
+        const variantAppend = await client.query<{ definition: string }>(
+          `SELECT pg_get_functiondef(
+                    'p2tr_signature_fraud_validate_variant_append()'
+                    ::regprocedure
+                  ) AS definition`
+        )
+        assert.match(
+          variantAppend.rows[0].definition,
+          /NEW\.gas_limit <> fee_policy\.max_gas_limit/
+        )
+        assert.doesNotMatch(
+          variantAppend.rows[0].definition,
+          /NEW\.gas_limit > fee_policy\.max_gas_limit/
         )
       } finally {
         await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)

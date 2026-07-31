@@ -27,6 +27,12 @@ const nonceFinalityMigrationSource = readFileSync(
   "utf8"
 )
 const nonceFinalityMigration = nonceFinalityMigrationSource.replace(/\s+/g, " ")
+const exactGasMigrationURL = new URL(
+  "007_p2tr_signed_variant_exact_gas.sql",
+  migrationsURL
+)
+const exactGasMigrationSource = readFileSync(exactGasMigrationURL, "utf8")
+const exactGasMigration = exactGasMigrationSource.replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -830,4 +836,32 @@ test("protects serialized generation identity alongside normalized columns", () 
     migration,
     /serialized P2TR outbox generation identity and evidence are immutable/
   )
+})
+
+test("makes the durable signed-variant gas invariant the exact runtime one", () => {
+  // 003 is checksum-tracked, so the strict comparison arrives by replacing the
+  // trigger function in an append-only migration rather than editing it there.
+  assert.match(migration, /NEW\.gas_limit > fee_policy\.max_gas_limit/)
+  assert.doesNotMatch(migration, /NEW\.gas_limit <> fee_policy\.max_gas_limit/)
+  assert.match(
+    exactGasMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_variant_append\(\)/
+  )
+  assert.match(exactGasMigration, /NEW\.gas_limit <> fee_policy\.max_gas_limit/)
+  assert.doesNotMatch(
+    exactGasMigration,
+    /NEW\.gas_limit > fee_policy\.max_gas_limit/
+  )
+  // Everything else about the trigger has to survive the replacement.
+  for (const preserved of [
+    /signed variant does not match the durable bound nonce reservation/,
+    /signed variant exceeds its manifest-bound fee or value policy/,
+    /initial P2TR challenge variant is not append-only/,
+    /P2TR challenge variant sequence is not contiguous/,
+    /P2TR challenge replacement changed sender or nonce/,
+    /P2TR challenge replacement fee envelope did not strictly increase/,
+  ]) {
+    assert.match(migration, preserved)
+    assert.match(exactGasMigration, preserved)
+  }
 })

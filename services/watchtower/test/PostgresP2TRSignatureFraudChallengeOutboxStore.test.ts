@@ -84,7 +84,7 @@ type TestDatabase = {
 
 async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
-  migrationCount = 6
+  migrationCount = 7
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   await client.connect()
@@ -119,6 +119,10 @@ async function createTestDatabase(
     ),
     new URL(
       "../migrations/006_p2tr_signer_boundary_nonce_finality.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/007_p2tr_signed_variant_exact_gas.sql",
       import.meta.url
     ),
   ].slice(0, migrationCount)) {
@@ -345,7 +349,7 @@ function signerConfiguration() {
     laneID: LANE_ID,
     signerIdentity: SIGNER_IDENTITY,
     sender: WALLET.address,
-    maxGasLimit: "1000000",
+    maxGasLimit: "100000",
     maxFeePerGas: "100",
     maxPriorityFeePerGas: "10",
     maxTotalFeeWei: "100000000",
@@ -369,7 +373,7 @@ function feePolicy() {
         laneID: LANE_ID,
         signerIdentity: SIGNER_IDENTITY,
         sender: WALLET.address,
-        maxGasLimit: "1000000",
+        maxGasLimit: "100000",
         maxFeePerGas: "100",
         maxPriorityFeePerGas: "10",
         maxTotalFeeWei: "100000000",
@@ -1661,6 +1665,83 @@ postgresTest(
       alerts: "1",
       provenance_incidents: "0",
     })
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "refuses a signed variant that is not at the exact manifest gas limit",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(61)
+    await insertRecord(database, initial)
+    const current = await advanceToReservation(database, initial)
+    await begin(database.client)
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...current,
+      version: current.version + 1,
+      updatedAtUnixMs: 1_300,
+      signerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationID: boundaryInvocationID(1_300),
+    }
+    assert.equal(
+      await database.store.compareAndSwap(
+        current.recordID,
+        current.version,
+        signerBoundary
+      ),
+      true
+    )
+
+    // Under the manifest limit, not over it: the transaction is affordable but
+    // runs out of gas, and the reserved nonce is spent on nothing. Only the
+    // runtime validator used to catch this, so a worker that bypassed it could
+    // make the state durable.
+    const underGassed = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: initial.intent.routerAddress,
+      data: initial.intent.calldata,
+      value: initial.intent.value,
+      nonce: 7,
+      gasLimit: 21_000,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 10,
+    })
+    const preparedTransaction = {
+      intentID: initial.intent.intentID,
+      rawTransaction: underGassed,
+      transactionHash: Hex.from(utils.keccak256(underGassed)),
+      sender: WALLET.address,
+      nonce: 7,
+    }
+    await assert.rejects(
+      database.store.compareAndSwap(
+        signerBoundary.recordID,
+        signerBoundary.version,
+        {
+          ...signerBoundary,
+          status: "prepared",
+          version: signerBoundary.version + 1,
+          updatedAtUnixMs: 1_400,
+          preparationLease: undefined,
+          activeSignerInvocationStartedAtUnixMs: undefined,
+          activeSignerInvocationID: undefined,
+          preparedTransaction,
+          preparedTransactionVariants: [
+            {
+              sequence: 0,
+              preparedTransaction,
+              signedAtUnixMs: 1_400,
+              broadcastAttempts: 0,
+            },
+          ],
+        }
+      ),
+      /manifest-bound fee or value policy/
+    )
+    await database.client.query("ROLLBACK")
     await database.client.end()
   }
 )
@@ -4733,6 +4814,44 @@ postgresTest(
     await commit(database.client)
 
     assert.equal(response.payload.state.activeSignerInvocationCount, 0)
+    // Two: the whole-store sum no longer matches ground truth, and the lane is
+    // configured with no barrier row at all.
+    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 2)
+    assert.equal(response.payload.state.activationBlocked, true)
+    assert.equal(
+      response.payload.state.activationBlockingReasons.includes(
+        "nonce-allocator-barrier-mismatch"
+      ),
+      true
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "blocks activation when a configured lane loses its barrier row while idle",
+  async () => {
+    const database = await createTestDatabase()
+
+    // No signer or release I/O anywhere, so every rollup and truth total is
+    // zero on both sides and the sum equalities agree. Only an audit that
+    // starts from the configured lanes can see that the row the triggers
+    // require is gone.
+    await database.client.query(
+      `DELETE FROM p2tr_signature_fraud_nonce_allocator_safety_barrier`
+    )
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.activeSignerInvocationCount, 0)
+    assert.equal(response.payload.state.activeNonceReleaseAttemptCount, 0)
+    assert.equal(response.payload.state.unresolvedReleaseBarrierCount, 0)
+    assert.equal(response.payload.state.configuredSignerLaneCount, 1)
     assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 1)
     assert.equal(response.payload.state.activationBlocked, true)
     assert.equal(
@@ -4763,10 +4882,11 @@ postgresTest(
     await commit(database.client)
 
     // Every counter reads clean, which is precisely the failure mode: only the
-    // whole-store sum equality distinguishes this from an idle service.
+    // whole-store sum equality distinguishes this from an idle service, and the
+    // configured-lane audit adds the second mismatch.
     assert.equal(response.payload.state.activeSignerInvocationCount, 0)
     assert.equal(response.payload.state.activeNonceReleaseAttemptCount, 0)
-    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 1)
+    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 2)
     assert.equal(response.payload.state.activationBlocked, true)
     assert.equal(
       response.payload.state.activationBlockingReasons.includes(

@@ -579,10 +579,17 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       // barrier row is absent entirely. Per-lane equality alone cannot see a
       // missing row — a lane holding a live signer invocation with no barrier
       // row would produce zero failing groups and zero counters, and activation
-      // would pass. The whole-store SUM equalities below are what close that:
-      // together with per-lane equality they force any lane without a row to
-      // account for nothing, which is exactly the completeness the old
-      // single-row read got from the singleton.
+      // would pass. The whole-store SUM equalities below close that case, by
+      // forcing any lane without a row to account for nothing.
+      //
+      // They do not close the quiet case: a configured lane whose row is gone
+      // while that lane happens to have no I/O contributes zero to both the
+      // rollup and the truth totals, so the sums still agree. Barrier rows are
+      // seeded eagerly on lane configuration precisely so the row set is
+      // ground truth rather than a by-product of traffic, and every gate below
+      // reads a missing row as fail-closed — the first signer or release
+      // operation on such a lane fails. The `missing` audit is what makes the
+      // handshake see that before it signs instead of after.
       session.query<NonceAllocatorBarrierRow>(
         `WITH lane AS (
              SELECT b.active_release_request_id,
@@ -670,6 +677,16 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                               WHERE x.release_request_id = r.release_request_id
                        )
                     ) AS total_unresolved_count
+         ), missing AS (
+             SELECT count(*) AS missing_barrier_count
+               FROM p2tr_signature_fraud_signer_lane_configuration c
+              WHERE c.enabled
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
+                     WHERE b.chain_id = c.chain_id
+                       AND b.sender = c.sender
+                )
          ), global AS (
              SELECT contract_mismatch_blocked
                FROM p2tr_signature_fraud_nonce_allocator_global_barrier
@@ -725,8 +742,9 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                            )) THEN 0
                       ELSE 1
                     END
+                  + missing.missing_barrier_count
                 )::bigint AS mismatch_count
-           FROM rollup, truth`
+           FROM rollup, truth, missing`
       ),
       session.query<CatalogDefinitionRow>(
         `SELECT 'relation'::text AS object_kind,
