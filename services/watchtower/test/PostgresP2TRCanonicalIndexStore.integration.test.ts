@@ -1994,6 +1994,222 @@ const withIntegrationStore = async (
   }
 }
 
+describe(
+  "deposit-binding byte-order migration integration",
+  { skip: postgresURL === undefined },
+  () => {
+    it("preserves wallet observations and seals rewritten deposit evidence", async () => {
+      await withIntegrationStore(async ({ store, database }) => {
+        const checkpoint = checkpointBlock("byte-order-migration")
+        const walletID = "61".repeat(32)
+        const depositWalletID = "62".repeat(32)
+        const depositOutputKey = "63".repeat(32)
+        const funding = fundingTransaction("byte-order-migration:funding", [
+          { valueSats: 10, scriptPubKey: `5120${walletID}` },
+          { valueSats: 11, scriptPubKey: `5120${depositOutputKey}` },
+        ])
+        const fundingBlock = block(
+          1,
+          bitcoinPoint(checkpoint),
+          [funding],
+          "byte-order-migration:block:funding"
+        )
+        const fundingPoint = bitcoinPoint(fundingBlock)
+        await store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+          await store.addFrostWalletBindings([
+            walletBinding(walletID, "wallet:byte-order-migration", 0),
+          ])
+          await store.addTaprootDepositBindings([
+            depositBinding(
+              funding.txid,
+              1,
+              depositWalletID,
+              depositOutputKey,
+              "deposit:byte-order-migration",
+              0
+            ),
+          ])
+          await store.applyBitcoinScan(
+            canonicalMutationScan({ checkpoint, blocks: [fundingBlock] })
+          )
+        })
+
+        const spend = spendingTransaction(
+          "byte-order-migration:spend",
+          funding.outputs
+        )
+        const headBlock = block(
+          2,
+          fundingPoint,
+          [spend],
+          "byte-order-migration:block:head"
+        )
+        const head = bitcoinPoint(headBlock)
+        const staged = canonicalMutationScan({
+          checkpoint,
+          expected: fundingPoint,
+          blocks: [headBlock],
+        })
+        staged.trackedOutpointSpends = [0, 1].map((vout) => ({
+          txid: funding.txid,
+          vout,
+          spendingTxid: spend.txid,
+          spendingWtxid: spend.wtxid,
+          inputIndex: vout,
+          spentAt: head,
+        }))
+        staged.candidates = [
+          {
+            txid: spend.txid,
+            wtxid: spend.wtxid,
+            rawTransactionHex: spend.rawTransactionHex,
+            block: head,
+            inputPrevouts: spend.inputs.map(
+              ({ authenticatedPrevout }) => authenticatedPrevout!
+            ),
+            walletInputKeyBindings: [
+              {
+                txid: funding.txid,
+                vout: 1,
+                walletID: depositWalletID,
+                outputKey: depositOutputKey,
+              },
+            ],
+          },
+        ]
+        await store.applyBitcoinScan(staged)
+
+        const observations = await database.query<{
+          binding_kind: string
+          count: string
+        }>(
+          `SELECT binding_kind, count(*) AS count
+             FROM p2tr_bitcoin_candidate_observations
+            GROUP BY binding_kind
+            ORDER BY binding_kind`
+        )
+        assert.deepEqual(observations.rows, [
+          { binding_kind: "deposit", count: "1" },
+          { binding_kind: "wallet", count: "1" },
+        ])
+
+        // Reconstruct the pre-005 schema and seal a generation whose deposit
+        // observation still commits to the display-order funding txid.
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
+           ALTER TABLE p2tr_signature_fraud_challenge_outbox
+             DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+           UPDATE p2tr_bitcoin_candidate_observations
+              SET binding_tx_hash = local_funding_txid
+            WHERE binding_kind = 'deposit';
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             ADD CONSTRAINT p2tr_candidate_observation_legacy_binding
+             CHECK (
+               (binding_kind = 'wallet' AND signing_key = wallet_id AND
+                binding_tx_hash = decode(repeat('00', 32), 'hex') AND
+                binding_output_index = 0) OR
+               (binding_kind = 'deposit' AND signing_key = output_key AND
+                binding_tx_hash = local_funding_txid AND
+                binding_output_index = local_funding_vout)
+             )`
+        )
+        await store.applyBitcoinScan(
+          canonicalMutationScan({ checkpoint, expected: head })
+        )
+        const before = await database.query<{ generation_id: string }>(
+          `SELECT max(generation_id)::text AS generation_id
+             FROM p2tr_canonical_generations
+            WHERE state = 'committed'`
+        )
+
+        await database.query(
+          `UPDATE p2tr_watchtower_schema_version
+              SET version = 3
+            WHERE component = 'canonical-evidence-index';
+           DROP FUNCTION p2tr_reverse_bytea(bytea)`
+        )
+        const migration = await readFile(
+          new URL(
+            "../migrations/005_p2tr_deposit_binding_byte_order.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+
+        const migrated = await database.query<{
+          binding_kind: string
+          binding_tx_hash: string
+        }>(
+          `SELECT binding_kind, encode(binding_tx_hash, 'hex')
+                    AS binding_tx_hash
+             FROM p2tr_bitcoin_candidate_observations
+            ORDER BY binding_kind`
+        )
+        assert.deepEqual(migrated.rows, [
+          {
+            binding_kind: "deposit",
+            binding_tx_hash: Buffer.from(funding.txid, "hex")
+              .reverse()
+              .toString("hex"),
+          },
+          { binding_kind: "wallet", binding_tx_hash: "00".repeat(32) },
+        ])
+
+        const sealed = await database.query<{
+          generation_id: string
+          state: string
+          generation_projection_root: string
+          current_projection_root: string
+          generation_semantic_root: string
+          current_semantic_root: string
+          building_generation_id: string | null
+        }>(
+          `SELECT generation.generation_id::text AS generation_id,
+                  generation.state,
+                  encode(generation.projection_root, 'hex')
+                    AS generation_projection_root,
+                  encode(p2tr_muhash_finalize(
+                    projection.projection_numerator,
+                    projection.projection_denominator
+                  ), 'hex') AS current_projection_root,
+                  encode(generation.semantic_root, 'hex')
+                    AS generation_semantic_root,
+                  encode(p2tr_muhash_finalize(
+                    projection.semantic_numerator,
+                    projection.semantic_denominator
+                  ), 'hex') AS current_semantic_root,
+                  journal.building_generation_id::text
+                    AS building_generation_id
+             FROM p2tr_canonical_generations generation
+             JOIN p2tr_readiness_projection_state projection
+               ON projection.singleton = true
+             JOIN p2tr_canonical_change_journal_state journal
+               ON journal.singleton = true
+            WHERE generation.state = 'committed'
+            ORDER BY generation.generation_id DESC
+            LIMIT 1`
+        )
+        assert.equal(
+          Number(sealed.rows[0].generation_id),
+          Number(before.rows[0].generation_id) + 1
+        )
+        assert.equal(sealed.rows[0].state, "committed")
+        assert.equal(sealed.rows[0].building_generation_id, null)
+        assert.equal(
+          sealed.rows[0].generation_projection_root,
+          sealed.rows[0].current_projection_root
+        )
+        assert.equal(
+          sealed.rows[0].generation_semantic_root,
+          sealed.rows[0].current_semantic_root
+        )
+      })
+    })
+  }
+)
+
 const canonicalMutationScan = ({
   checkpoint,
   expected,

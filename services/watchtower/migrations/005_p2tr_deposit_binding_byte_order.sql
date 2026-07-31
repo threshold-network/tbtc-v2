@@ -14,6 +14,12 @@ AS $$
     FROM generate_series(0, octet_length(value) - 1) AS bytes(byte_index)
 $$;
 
+-- Serialize the evidence rewrite with readiness snapshots and every canonical
+-- writer for the duration of the migration transaction.
+SELECT pg_advisory_xact_lock(
+    hashtextextended('p2tr-readiness-snapshot', 0)
+);
+
 DO $$
 DECLARE
     legacy_constraint_name text;
@@ -41,14 +47,85 @@ BEGIN
 END
 $$;
 
-UPDATE p2tr_bitcoin_candidate_observations
-   SET binding_tx_hash = p2tr_reverse_bytea(local_funding_txid)
- WHERE binding_kind = 'deposit';
+DO $$
+DECLARE
+    migrated_deposit_count bigint;
+    configured_domain_digest bytea;
+    canonical_state record;
+    migration_generation bigint;
+BEGIN
+    UPDATE p2tr_bitcoin_candidate_observations
+       SET binding_tx_hash = p2tr_reverse_bytea(local_funding_txid)
+     WHERE binding_kind = 'deposit'
+       AND binding_tx_hash IS DISTINCT FROM
+            p2tr_reverse_bytea(local_funding_txid);
+    GET DIAGNOSTICS migrated_deposit_count = ROW_COUNT;
+
+    IF migrated_deposit_count = 0 THEN
+        RETURN;
+    END IF;
+
+    -- Rows that have never belonged to a committed generation remain in the
+    -- open epoch for the first normal checkpoint commit. If a committed
+    -- generation exists, however, seal the rewrite now so no readiness reader
+    -- can observe new projection roots paired with the previous generation.
+    SELECT domain_digest
+      INTO configured_domain_digest
+      FROM p2tr_canonical_generations
+     WHERE state = 'committed'
+     ORDER BY generation_id DESC
+     LIMIT 1;
+    IF configured_domain_digest IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT cursor.current_height AS bitcoin_height,
+           cursor.current_hash AS bitcoin_hash,
+           canonical_block.header_object_digest AS bitcoin_header_object_digest,
+           cursor.current_chain_commitment AS bitcoin_chain_root,
+           coalesce(watermark.ethereum_block_number, 0)
+               AS ethereum_block_number,
+           coalesce(watermark.ethereum_block_hash, decode(repeat('00', 32), 'hex'))
+               AS ethereum_block_hash,
+           p2tr_muhash_finalize(
+               projection.projection_numerator,
+               projection.projection_denominator
+           ) AS projection_root,
+           p2tr_muhash_finalize(
+               projection.semantic_numerator,
+               projection.semantic_denominator
+           ) AS semantic_root
+      INTO STRICT canonical_state
+      FROM p2tr_bitcoin_cursor cursor
+      JOIN p2tr_bitcoin_blocks canonical_block
+        ON canonical_block.height = cursor.current_height
+       AND canonical_block.hash = cursor.current_hash
+      JOIN p2tr_readiness_projection_state projection
+        ON projection.singleton = true
+      LEFT JOIN p2tr_cross_source_watermark watermark
+        ON watermark.singleton = true
+     WHERE cursor.singleton = true
+     FOR SHARE OF cursor, canonical_block, projection;
+
+    migration_generation := p2tr_begin_canonical_generation(
+        configured_domain_digest,
+        canonical_state.bitcoin_height,
+        canonical_state.bitcoin_hash,
+        canonical_state.bitcoin_header_object_digest,
+        canonical_state.ethereum_block_number,
+        canonical_state.ethereum_block_hash,
+        canonical_state.bitcoin_chain_root,
+        canonical_state.projection_root,
+        canonical_state.semantic_root
+    );
+    PERFORM p2tr_seal_canonical_generation(migration_generation);
+END
+$$;
 
 ALTER TABLE p2tr_bitcoin_candidate_observations
 ADD CONSTRAINT p2tr_candidate_observation_binding_matches_funding
 CHECK (
-    (binding_kind = 'registered-wallet-output' AND signing_key = wallet_id AND
+    (binding_kind = 'wallet' AND signing_key = wallet_id AND
      binding_tx_hash = decode(repeat('00', 32), 'hex') AND
      binding_output_index = 0) OR
     (binding_kind = 'deposit' AND signing_key = output_key AND

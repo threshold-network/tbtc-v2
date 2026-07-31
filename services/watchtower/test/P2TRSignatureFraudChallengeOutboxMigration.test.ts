@@ -277,7 +277,23 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   assert.match(canonicalIndexMigration, /binding_tx_hash = local_funding_txid/)
   assert.match(
     depositBindingByteOrderMigration,
-    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\) WHERE binding_kind = 'deposit'/
+    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\) WHERE binding_kind = 'deposit' AND binding_tx_hash IS DISTINCT FROM p2tr_reverse_bytea\(local_funding_txid\)/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /binding_kind = 'wallet' AND signing_key = wallet_id/
+  )
+  assert.doesNotMatch(
+    depositBindingByteOrderMigration,
+    /binding_kind = 'registered-wallet-output' AND signing_key = wallet_id/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /pg_advisory_xact_lock\( hashtextextended\('p2tr-readiness-snapshot', 0\) \)/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /migrated_deposit_count = 0 THEN RETURN; END IF;[\s\S]*?WHERE state = 'committed'[\s\S]*?p2tr_begin_canonical_generation\([\s\S]*?p2tr_seal_canonical_generation\(migration_generation\)/
   )
   assert.match(
     depositBindingByteOrderMigration,
