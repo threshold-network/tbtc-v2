@@ -505,8 +505,7 @@ class TransactionClient implements P2TRPostgresClient {
     if (text.includes("INSERT INTO p2tr_readiness_certificates")) {
       return {
         rows: [],
-        rowCount:
-          this.recoveryBacklogAtMint <= Number(values?.[15]) ? 1 : 0,
+        rowCount: this.recoveryBacklogAtMint <= Number(values?.[15]) ? 1 : 0,
       }
     }
     if (

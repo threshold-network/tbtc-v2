@@ -2625,10 +2625,7 @@ export function assertP2TRProductionOutboxHandshake(
       expected.senderLanes.map((lane) => ({ ...lane, healthy: true as const }))
     ),
   }
-  bytes32(
-    actual.configuredSignerLaneSetHash,
-    "configured signer lane set hash"
-  )
+  bytes32(actual.configuredSignerLaneSetHash, "configured signer lane set hash")
   if (
     canonicalJSON(normalized) !== canonicalJSON(wanted) ||
     actual.startupReconciliationComplete !== true ||

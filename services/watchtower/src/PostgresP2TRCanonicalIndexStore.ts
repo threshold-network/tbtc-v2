@@ -551,10 +551,9 @@ export class PostgresP2TRCanonicalIndexStore
           64,
           "PostgreSQL lock timeout setting"
         )
-        await rawClient.query(
-          "SELECT set_config('lock_timeout', $1, false)",
-          [`${this.statementTimeoutMs}ms`]
-        )
+        await rawClient.query("SELECT set_config('lock_timeout', $1, false)", [
+          `${this.statementTimeoutMs}ms`,
+        ])
         try {
           await rawClient.query(
             readinessFence === "exclusive"
