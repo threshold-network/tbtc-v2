@@ -1630,7 +1630,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       // A pre-006 response may be retried after the database committed its v4
       // evidence but before the caller observed the response. Look up only by
       // the two bounded identity fields, then accept solely an exact, fully
-      // validated replay of a row migration 006 marked as grandfathered.
+      // validated replay of a row migration 007 marked as grandfathered.
       const recordID = bytes32(
         resolution.recordID,
         "Orphaned signer boundary record ID"
@@ -4531,6 +4531,7 @@ const DURABLE_ETHEREUM_ELIGIBILITY_KEYS = new Set([
   "routerBridgeAddress",
   "routerChallengeKey",
   "routerChallengeAbsent",
+  "fraudChallengeDepositAmount",
   "completeAuthorizationRegistryAddress",
   "completeAuthorizationRegistryCodeHash",
   "completeAuthorizationRegistryProtocolID",
@@ -5596,6 +5597,10 @@ function outboxInsertColumns(
         record.canonicalEthereumEligibility.readSetHash,
         "Eligibility read-set hash"
       )
+    ),
+    fraud_challenge_deposit_amount: unsignedDecimal(
+      record.canonicalEthereumEligibility.fraudChallengeDepositAmount,
+      "Eligibility fraud challenge deposit amount"
     ),
     canonical_provenance_journal_store_id:
       record.canonicalProvenance.journalStoreID,

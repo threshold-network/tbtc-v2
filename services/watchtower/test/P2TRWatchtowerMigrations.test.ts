@@ -17,7 +17,7 @@ import {
 // accidental edits remain visible, while allowing intentional schema resets
 // before the first deployment.
 const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
-  "096b8082efb2c75e93ab33194c72c6a2b095a0fbbfb104e2c027f3a72130ede8"
+  "6c614a92705bc0ed4230ea90382d421269626d6046582dbb84d58d774e97723b"
 
 describe("P2TR watchtower migration bodies", () => {
   it("pins the current pre-production migration 003 checksum", async () => {
@@ -319,7 +319,7 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
   })
 
   postgresIt(
-    "upgrades a checksum-tracked migration 003 database through migration 007",
+    "upgrades a checksum-tracked migration 003 database through migration 008",
     async () => {
       const migrationsURL = new URL("../migrations/", import.meta.url)
       const migrations = await loadP2TRWatchtowerMigrations(
@@ -352,9 +352,9 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
         const upgraded = await runP2TRWatchtowerMigrations(pool, migrations)
         assert.deepEqual(
           upgraded.applied.map(({ version }) => version),
-          [5, 6, 7]
+          [5, 6, 7, 8]
         )
-        assert.equal(upgraded.current.length, 7)
+        assert.equal(upgraded.current.length, 8)
 
         const columns = await client.query<{ column_name: string }>(
           `SELECT column_name

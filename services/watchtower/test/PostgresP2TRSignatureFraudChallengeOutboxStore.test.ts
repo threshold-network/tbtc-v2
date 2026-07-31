@@ -85,7 +85,7 @@ type TestDatabase = {
 
 async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
-  migrationCount = 7
+  migrationCount = 8
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   await client.connect()
@@ -115,15 +115,19 @@ async function createTestDatabase(
       import.meta.url
     ),
     new URL(
-      "../migrations/005_p2tr_signer_boundary_late_artifact.sql",
+      "../migrations/005_p2tr_deposit_binding_byte_order.sql",
       import.meta.url
     ),
     new URL(
-      "../migrations/006_p2tr_signer_boundary_nonce_finality.sql",
+      "../migrations/006_p2tr_signer_boundary_late_artifact.sql",
       import.meta.url
     ),
     new URL(
-      "../migrations/007_p2tr_signed_variant_exact_gas.sql",
+      "../migrations/007_p2tr_signer_boundary_nonce_finality.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/008_p2tr_signed_variant_exact_gas.sql",
       import.meta.url
     ),
   ].slice(0, migrationCount)) {
@@ -523,6 +527,7 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
       routerBridgeAddress: intent.bridgeAddress,
       routerChallengeKey: intent.bridgeChallengeKey.toPrefixedString(),
       routerChallengeAbsent: true,
+      fraudChallengeDepositAmount: "1234",
       completeAuthorizationRegistryAddress:
         COMPLETE_AUTHORIZATION_REGISTRY_ADDRESS,
       completeAuthorizationRegistryCodeHash: hex(20),
@@ -804,6 +809,7 @@ function outboxManifest(databaseConstraintHash: string) {
     replacementPolicy: "append-only-same-intent-fee-bump-v1" as const,
     migrationVersion: 3 as const,
     migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
+    maxActiveOutboxRecords: 1_024,
     maxRecoveryBacklog: 0,
     senderLanes: [
       {
@@ -3958,7 +3964,7 @@ postgresTest(
 )
 
 postgresTest(
-  "replays grandfathered v4 signer-boundary evidence after migration 006",
+  "replays grandfathered v4 signer-boundary evidence after migration 007",
   async () => {
     const database = await createTestDatabase(1_024, 4)
     const { boundary } = await orphanedSignerBoundary(database, 209)
@@ -3983,7 +3989,7 @@ postgresTest(
     await database.client.query(
       await readFile(
         new URL(
-          "../migrations/006_p2tr_signer_boundary_nonce_finality.sql",
+          "../migrations/007_p2tr_signer_boundary_nonce_finality.sql",
           import.meta.url
         ),
         "utf8"

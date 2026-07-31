@@ -436,7 +436,7 @@ class TransactionClient implements P2TRPostgresClient {
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
       return {
-        rows: [{ version: 3 }] as Row[],
+        rows: [{ version: 4 }] as Row[],
         rowCount: 1,
       }
     }

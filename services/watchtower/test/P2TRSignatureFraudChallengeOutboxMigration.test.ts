@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { readdirSync, readFileSync } from "node:fs"
 import test from "node:test"
 
@@ -10,7 +11,7 @@ const migrationURL = new URL(
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
 const lateArtifactMigrationURL = new URL(
-  "005_p2tr_signer_boundary_late_artifact.sql",
+  "006_p2tr_signer_boundary_late_artifact.sql",
   migrationsURL
 )
 const lateArtifactMigrationSource = readFileSync(
@@ -19,7 +20,7 @@ const lateArtifactMigrationSource = readFileSync(
 )
 const lateArtifactMigration = lateArtifactMigrationSource.replace(/\s+/g, " ")
 const nonceFinalityMigrationURL = new URL(
-  "006_p2tr_signer_boundary_nonce_finality.sql",
+  "007_p2tr_signer_boundary_nonce_finality.sql",
   migrationsURL
 )
 const nonceFinalityMigrationSource = readFileSync(
@@ -28,13 +29,21 @@ const nonceFinalityMigrationSource = readFileSync(
 )
 const nonceFinalityMigration = nonceFinalityMigrationSource.replace(/\s+/g, " ")
 const exactGasMigrationURL = new URL(
-  "007_p2tr_signed_variant_exact_gas.sql",
+  "008_p2tr_signed_variant_exact_gas.sql",
   migrationsURL
 )
 const exactGasMigrationSource = readFileSync(exactGasMigrationURL, "utf8")
 const exactGasMigration = exactGasMigrationSource.replace(/\s+/g, " ")
-const canonicalIndexMigration = readFileSync(
+const canonicalIndexMigrationSource = readFileSync(
   new URL("001_p2tr_canonical_index.sql", migrationsURL),
+  "utf8"
+)
+const canonicalIndexMigration = canonicalIndexMigrationSource.replace(
+  /\s+/g,
+  " "
+)
+const depositBindingByteOrderMigration = readFileSync(
+  new URL("005_p2tr_deposit_binding_byte_order.sql", migrationsURL),
   "utf8"
 ).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
@@ -68,10 +77,10 @@ test("leaves transaction ownership to the ordered migration runner", () => {
     "003_p2tr_signature_fraud_challenge_outbox.sql"
   )
   const lateArtifactIndex = orderedMigrations.indexOf(
-    "005_p2tr_signer_boundary_late_artifact.sql"
+    "006_p2tr_signer_boundary_late_artifact.sql"
   )
   const nonceFinalityIndex = orderedMigrations.indexOf(
-    "006_p2tr_signer_boundary_nonce_finality.sql"
+    "007_p2tr_signer_boundary_nonce_finality.sql"
   )
   assert.notEqual(challengeOutboxIndex, -1)
   assert.notEqual(lateArtifactIndex, -1)
@@ -259,6 +268,14 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
     migration,
     /router_domain_chain_id numeric\(78, 0\) NOT NULL CHECK \( router_domain_chain_id = domain_chain_id \)/
   )
+  assert.match(
+    migration,
+    /fraud_challenge_deposit_amount numeric\(78, 0\) NOT NULL CHECK \( fraud_challenge_deposit_amount >= 0 \)/
+  )
+  assert.match(
+    migration,
+    /canonicalEthereumEligibility,fraudChallengeDepositAmount[\s\S]*?IS DISTINCT FROM NEW\.fraud_challenge_deposit_amount/
+  )
   assert.doesNotMatch(
     migration,
     /router_domain_chain_id = domain_chain_id\s+AND router_domain_chain_id = chain_id/
@@ -269,25 +286,43 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
   )
   assert.match(
     migration,
-    /signing_key <> wallet_id AND binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
+    /signing_key <> wallet_id AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
   )
   assert.match(
     migration,
     /UNIQUE \( chain_id, router_address, bridge_challenge_key, observation_id, intent_input_index, bitcoin_tx_hash, bitcoin_wtxid, canonical_candidate_provenance_generation, generation \)/
   )
+  assert.match(
+    migration,
+    /NEW\.generation_cause = 'provenance-restored'[\s\S]*?\(prior_record\.intent_id = NEW\.intent_id\)[\s\S]*?\(prior_record\.value_wei = NEW\.value_wei\)/
+  )
 })
 
 test("persists deposit binding hashes in the Bridge's native byte order", () => {
+  assert.equal(
+    createHash("sha256").update(canonicalIndexMigrationSource).digest("hex"),
+    "eb3df79d26d90b9acb59db776aacecb99b26a1788685f15dd4501cd95159c5cf"
+  )
+  assert.doesNotMatch(canonicalIndexMigration, /p2tr_reverse_bytea/)
   assert.match(
-    canonicalIndexMigration,
+    depositBindingByteOrderMigration,
     /CREATE FUNCTION p2tr_reverse_bytea\(value bytea\)[\s\S]*?ORDER BY byte_index DESC/
   )
+  assert.match(canonicalIndexMigration, /binding_tx_hash = local_funding_txid/)
   assert.match(
-    canonicalIndexMigration,
+    depositBindingByteOrderMigration,
+    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\) WHERE binding_kind = 'deposit'/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
     /binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\)/
   )
   assert.match(
-    migration,
+    depositBindingByteOrderMigration,
+    /component = 'canonical-evidence-index' AND version = 3/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
     /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\)/
   )
 })
@@ -745,7 +780,7 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   )
   // Migration 003 is immutable because the runner checksum-tracks its exact
   // published bytes. The v5 digest and its observed-head columns are appended
-  // by migration 006 for both fresh databases and upgrades.
+  // by migration 007 for both fresh databases and upgrades.
   assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v4/)
   assert.doesNotMatch(migration, /nonce_consumption_observed_head/)
   assert.match(

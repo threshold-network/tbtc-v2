@@ -228,8 +228,8 @@ const legacySignedTestTransaction = signLegacyTestChallengeTransaction(
 const LEGACY_RAW_TRANSACTION = legacySignedTestTransaction.rawTransaction
 const LEGACY_TRANSACTION_HASH = legacySignedTestTransaction.transactionHash
 
-const activationManifest = () => ({
-  manifestHash: ACTIVATION_MANIFEST_HASH,
+const activationManifest = (manifestHash = ACTIVATION_MANIFEST_HASH) => ({
+  manifestHash,
   routerCodeHash: ROUTER_CODE_HASH,
   routerProtocolID: P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID,
   routerDomainChainID: 11155111,
@@ -250,11 +250,15 @@ const DECOY_LANE = {
   maxTotalFeeWei: "99999999",
 }
 
-const feePolicyManifest = (leadingLanes: (typeof DECOY_LANE)[] = []) => {
+const feePolicyManifest = (
+  leadingLanes: (typeof DECOY_LANE)[] = [],
+  activationManifestHash = ACTIVATION_MANIFEST_HASH,
+  challengeValueWei = "1234"
+) => {
   const withoutHash = {
-    activationManifestHash: ACTIVATION_MANIFEST_HASH,
+    activationManifestHash,
     chainID: 11155111,
-    challengeValueWei: "1234",
+    challengeValueWei,
     lanes: [
       ...leadingLanes,
       {
@@ -285,7 +289,9 @@ const ethereumEligibility = (
   },
   blockNumber: number,
   blockHash: string,
-  unrelatedActiveReservationChallengeIdentity?: string
+  unrelatedActiveReservationChallengeIdentity?: string,
+  fraudChallengeDepositAmount = "1234",
+  activationManifestHash = ACTIVATION_MANIFEST_HASH
 ) => {
   const withoutHash = {
     readAtBlockNumber: blockNumber,
@@ -301,6 +307,7 @@ const ethereumEligibility = (
         ? identity.bridgeChallengeKey.toPrefixedString()
         : identity.bridgeChallengeKey,
     routerChallengeAbsent: true as const,
+    fraudChallengeDepositAmount,
     completeAuthorizationRegistryAddress: COMPLETE_REGISTRY_ADDRESS,
     completeAuthorizationRegistryCodeHash: COMPLETE_REGISTRY_CODE_HASH,
     completeAuthorizationRegistryProtocolID: COMPLETE_REGISTRY_PROTOCOL_ID,
@@ -321,7 +328,7 @@ const ethereumEligibility = (
       unrelatedActiveReservationChallengeIdentity,
     walletChallengeable: true as const,
     canonicalProofBacklogComplete: true as const,
-    activationManifestHash: ACTIVATION_MANIFEST_HASH,
+    activationManifestHash,
   }
   return {
     ...withoutHash,
@@ -1278,7 +1285,8 @@ const acceptedOwnResolution = (
 const externalResolution = (
   status:
     | "satisfied-external"
-    | "external-satisfied-awaiting-own-transaction" = "satisfied-external"
+    | "external-satisfied-awaiting-own-transaction" = "satisfied-external",
+  depositAmount = "1500"
 ): Extract<
   P2TRSignatureFraudChallengeOutboxResolution,
   {
@@ -1302,7 +1310,7 @@ const externalResolution = (
       transactionHash,
       sender,
       calldata: "0xdeadbeef",
-      value: "1500",
+      value: depositAmount,
       nonce: 3,
       decodedSubmissionCall: {
         ...own.transaction.decodedSubmissionCall,
@@ -1313,7 +1321,7 @@ const externalResolution = (
     routerChallenge: {
       ...own.routerChallenge,
       challenger: sender,
-      depositAmount: "1500",
+      depositAmount,
     },
     submittedEvent: { ...own.submittedEvent, transactionHash },
   } as Parameters<typeof withCanonicalAttestations>[0]) as Extract<
@@ -1511,17 +1519,25 @@ const canonicalEligibilitySnapshot =
     }
   }
 
-const scheduler = (store: InMemoryOutboxStore) =>
+const scheduler = (
+  store: InMemoryOutboxStore,
+  challengeDepositAmount = 1234,
+  manifestHash = ACTIVATION_MANIFEST_HASH
+) =>
   new P2TRSignatureFraudChallengeOutboxScheduler(store, {
     submissionIntent: {
       domainChainID: 11155111,
       chainID: 11155111,
       bridgeAddress: BRIDGE_ADDRESS,
       routerAddress: ROUTER_ADDRESS,
-      challengeDepositAmount: 1234,
+      challengeDepositAmount,
     },
-    activationManifest: activationManifest(),
-    feePolicyManifest: feePolicyManifest(),
+    activationManifest: activationManifest(manifestHash),
+    feePolicyManifest: feePolicyManifest(
+      [],
+      manifestHash,
+      challengeDepositAmount.toString()
+    ),
     observationValidation: {
       bridgeChallengeDomain: {
         chainID: 11155111,
@@ -1643,6 +1659,72 @@ test("derives enqueue intent only from the locked canonical witness candidate", 
       check.message
     )
   }
+})
+
+test("restores a provenance-invalidated series after challenge deposit rotation", async () => {
+  const store = new InMemoryOutboxStore()
+  store.eligibilitySnapshot = canonicalEligibilitySnapshot()
+  const observationID = store.eligibilitySnapshot.challengeRecord.observationID
+  const first = await scheduler(store).enqueueConfirmedChallenge(
+    observationID,
+    1_000
+  )
+  await invalidateP2TRSignatureFraudCanonicalProvenance(
+    store,
+    provenanceInvalidationEvidence(first)
+  )
+
+  const rotatedManifestHash = `0x${"93".repeat(32)}`
+  const rotatedBlockHash = `0x${"94".repeat(32)}`
+  const snapshot = store.eligibilitySnapshot
+  snapshot.evidenceCheckpoint = {
+    ...snapshot.evidenceCheckpoint,
+    ethereumLifecycleBlockNumber: 501,
+    ethereumLifecycleBlockHash: rotatedBlockHash,
+    activationManifest: activationManifest(rotatedManifestHash),
+  }
+  snapshot.canonicalEthereumEligibility = ethereumEligibility(
+    {
+      chainID: 11155111,
+      routerAddress: ROUTER_ADDRESS,
+      bridgeAddress: BRIDGE_ADDRESS,
+      bridgeChallengeKey: first.intent.bridgeChallengeKey,
+      bridgeChallengeIdentity: first.intent.bridgeChallengeIdentity,
+      walletID: first.intent.walletID,
+    },
+    501,
+    rotatedBlockHash,
+    undefined,
+    "1235",
+    rotatedManifestHash
+  )
+  snapshot.canonicalProvenance = refingerprintProvenance(
+    snapshot.canonicalProvenance,
+    {
+      throughBlockNumber: 501,
+      throughBlockHash: rotatedBlockHash,
+      historyRoot: `0x${"95".repeat(32)}`,
+      readinessCertificateID: `0x${"96".repeat(32)}`,
+      readinessCertificateGeneration: 2,
+      candidateProvenanceGeneration: 2,
+      manifestHash: rotatedManifestHash,
+    }
+  )
+
+  const restored = await scheduler(
+    store,
+    1235,
+    rotatedManifestHash
+  ).enqueueConfirmedChallenge(observationID, 3_000)
+
+  assert.equal(restored.generation, 1)
+  assert.equal(restored.generationTrigger.kind, "provenance-restored")
+  assert.equal(restored.seriesID, first.seriesID)
+  assert.notEqual(
+    restored.intent.intentID.toString(),
+    first.intent.intentID.toString()
+  )
+  assert.equal(restored.intent.value, "1235")
 })
 
 test("commits the generation-cap alert before rejecting enqueue", async () => {
@@ -3172,6 +3254,64 @@ test("pre-send recheck cancels only before the irreversible boundary", async () 
   assert.equal(reorgBroadcaster.rawTransactions.length, 1)
 })
 
+test("rechecks the finalized Bridge deposit before signing and broadcasting", async () => {
+  const raisedDepositEligibility = (
+    record: P2TRSignatureFraudChallengeOutboxRecord
+  ): P2TRSignatureFraudPreBroadcastRecheckResult => ({
+    status: "eligible",
+    canonicalCandidate: {
+      txid: record.evidenceCheckpoint.bitcoinTxHash,
+      wtxid: record.evidenceCheckpoint.bitcoinWitnessTxHash,
+      blockHash: record.evidenceCheckpoint.bitcoinBlockHash,
+      blockHeight: record.evidenceCheckpoint.bitcoinBlockHeight,
+      inputIndex: record.evidenceCheckpoint.bitcoinInputIndex,
+    },
+    canonicalEthereumEligibility: ethereumEligibility(
+      record.intent,
+      record.evidenceCheckpoint.ethereumLifecycleBlockNumber,
+      record.evidenceCheckpoint.ethereumLifecycleBlockHash,
+      undefined,
+      "1235"
+    ),
+    canonicalProvenance: record.canonicalProvenance,
+  })
+
+  const signStore = new InMemoryOutboxStore()
+  const signRecord = await enqueue(signStore)
+  const signPreparer = new FixedPreparer()
+  const signRechecker = new FixedRechecker()
+  signRechecker.resolution = raisedDepositEligibility(signRecord)
+  const unsigned = await dispatcher(
+    signStore,
+    signPreparer,
+    new RecordingBroadcaster(),
+    signRechecker
+  ).prepare(signRecord.recordID, "worker-a")
+  assert.equal(unsigned.status, "queued")
+  assert.equal(signPreparer.calls, 0)
+  assert.match(unsigned.lastError ?? "", /does not cover the finalized Bridge/)
+
+  const broadcastStore = new InMemoryOutboxStore()
+  const broadcastRecord = await enqueue(broadcastStore)
+  const broadcastRechecker = new FixedRechecker()
+  const broadcaster = new RecordingBroadcaster()
+  const broadcastOutbox = dispatcher(
+    broadcastStore,
+    new FixedPreparer(),
+    broadcaster,
+    broadcastRechecker
+  )
+  await broadcastOutbox.prepare(broadcastRecord.recordID, "worker-b")
+  broadcastRechecker.resolution = raisedDepositEligibility(broadcastRecord)
+  const unbroadcast = await broadcastOutbox.broadcast(broadcastRecord.recordID)
+  assert.equal(unbroadcast.status, "prepared")
+  assert.equal(broadcaster.rawTransactions.length, 0)
+  assert.match(
+    unbroadcast.lastError ?? "",
+    /does not cover the finalized Bridge/
+  )
+})
+
 test("recovers one bounded preparation page and reports remaining backlog", async () => {
   const store = new InMemoryOutboxStore()
   for (const seed of ["a1", "a2", "a3"]) {
@@ -3385,6 +3525,39 @@ test("external satisfaction retains lane after send until own nonce is final", a
   const terminal = await outbox.reconcile(record.recordID)
   assert.equal(terminal.status, "satisfied-external")
   assert.equal(terminal.preparationSender, normalizeKey(TRANSACTION_SENDER))
+})
+
+test("accepts a canonical external challenge after the deposit is lowered", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const reconciler = new FixedReconciler()
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    reconciler
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  await outbox.broadcast(record.recordID)
+  const external = externalResolution("satisfied-external", "1200")
+  const { canonicalAttestations: _ignored, ...externalEvidence } = external
+  reconciler.resolution = withCanonicalAttestations({
+    ...externalEvidence,
+    ownTransactionDisposition: {
+      status: "reverted",
+      receipt: {
+        transactionHash: TRANSACTION_HASH,
+        status: 0,
+        blockNumber: 102,
+        blockHash: `0x${"19".repeat(32)}`,
+      },
+    },
+  } as Parameters<typeof withCanonicalAttestations>[0])
+
+  const satisfied = await outbox.reconcile(record.recordID)
+
+  assert.equal(satisfied.status, "satisfied-external")
 })
 
 test("leaked prepared bytes retain the lane after external satisfaction", async () => {

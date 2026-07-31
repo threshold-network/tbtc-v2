@@ -1,9 +1,9 @@
 -- Make the durable signed-variant gas invariant the exact one the runtime
 -- enforces.
 --
--- Migration 003 is checksum-tracked and may already be present in production,
--- so the trigger function is replaced here rather than edited there. The only
--- change is the gas-limit comparison: 003 accepted anything at or below the
+-- Migration 003 is checksum-tracked, so the trigger function is replaced here
+-- rather than edited there. The only change is the gas-limit comparison: 003
+-- accepted anything at or below the
 -- manifest value, while the runtime validator has always required the exact
 -- manifest-bound limit. A variant signed below it is affordable and passes the
 -- fee ceilings, but runs out of gas on chain and consumes the reserved nonce
