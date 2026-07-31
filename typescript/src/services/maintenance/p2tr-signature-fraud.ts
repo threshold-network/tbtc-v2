@@ -1882,25 +1882,6 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
   prepared: P2TRSignatureFraudPreparedNonceBurnTransaction,
   invocation?: P2TRSignatureFraudSignerInvocationRequest
 ): P2TRSignatureFraudPreparedNonceBurnTransaction => {
-  const echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
-    prepared.invocation
-  )
-  if (invocation !== undefined) {
-    const expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
-    if (
-      echo === undefined ||
-      echo.invocationID.toPrefixedString() !==
-        expected!.invocationID.toPrefixedString() ||
-      echo.requestDigest.toPrefixedString() !==
-        expected!.requestDigest.toPrefixedString()
-    ) {
-      throw new P2TRWitnessSignatureError(
-        "invalid-watchtower-state",
-        "Prepared nonce burn does not echo its signer invocation request"
-      )
-    }
-  }
-
   const sender = normalizeP2TRSignatureFraudSubmissionAddress(
     envelope.sender,
     "Nonce burn sender"
@@ -1983,6 +1964,38 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
     )
   }
 
+  // Authenticate the signed bytes before interpreting unauthenticated echo
+  // metadata. Callers may deliberately omit `invocation` on a first pass so
+  // exact burn bytes can be retained even when the signer returns a missing or
+  // malformed echo; the metadata fault can then be handled independently.
+  let echo = prepared.invocation
+  if (invocation !== undefined) {
+    let expected: P2TRSignatureFraudSignerInvocationRequest | undefined
+    try {
+      echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
+        prepared.invocation
+      )
+      expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+    } catch {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared nonce burn has a malformed signer invocation request echo"
+      )
+    }
+    if (
+      echo === undefined ||
+      echo.invocationID.toPrefixedString() !==
+        expected!.invocationID.toPrefixedString() ||
+      echo.requestDigest.toPrefixedString() !==
+        expected!.requestDigest.toPrefixedString()
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared nonce burn does not echo its signer invocation request"
+      )
+    }
+  }
+
   return {
     rawTransaction: utils.hexlify(prepared.rawTransaction).toLowerCase(),
     transactionHash: parsedHash,
@@ -2017,11 +2030,12 @@ export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
     envelope.maxPriorityFeePerGas === undefined ||
     envelope.maxFeePerGas.isZero() ||
     envelope.maxPriorityFeePerGas.gt(envelope.maxFeePerGas) ||
-    envelope.gasLimit.isZero()
+    envelope.gasLimit.isZero() ||
+    (envelope.accessList?.length ?? 0) !== 0
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "Durable challenge outbox requires an EIP-1559 transaction envelope"
+      "Durable challenge outbox requires an EIP-1559 transaction envelope with an empty access list"
     )
   }
   // A challenge is one fixed call to a known Router, so an access list buys it
@@ -2045,7 +2059,6 @@ export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
     },
   }
 }
-
 /**
  * Requires signed bytes to consume exactly the authenticated reservation.
  *

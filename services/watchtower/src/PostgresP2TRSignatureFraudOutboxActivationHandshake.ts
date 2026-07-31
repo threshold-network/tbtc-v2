@@ -624,11 +624,16 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                     b.active_signer_invocation_count,
                     b.unresolved_release_count,
                     (
-                      SELECT count(*)
+                      SELECT count(*) FILTER (
+                                 WHERE o.active_signer_invocation_started_at_unix_ms
+                                       IS NOT NULL
+                             )
+                             + count(*) FILTER (
+                                 WHERE o.record_state
+                                       ? 'contestedNonceBurnClaim'
+                             )
                         FROM p2tr_signature_fraud_challenge_outbox o
-                       WHERE o.active_signer_invocation_started_at_unix_ms
-                             IS NOT NULL
-                         AND o.chain_id = b.chain_id
+                       WHERE o.chain_id = b.chain_id
                          AND o.selected_sender = b.sender
                     ) AS observed_signer_count,
                     (
@@ -691,10 +696,14 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                FROM lane
          ), truth AS (
              SELECT (
-                      SELECT count(*)
-                        FROM p2tr_signature_fraud_challenge_outbox o
-                       WHERE o.active_signer_invocation_started_at_unix_ms
-                             IS NOT NULL
+                      (SELECT count(*)
+                         FROM p2tr_signature_fraud_challenge_outbox o
+                        WHERE o.active_signer_invocation_started_at_unix_ms
+                              IS NOT NULL)
+                      +
+                      (SELECT count(*)
+                         FROM p2tr_signature_fraud_challenge_outbox o
+                        WHERE o.record_state ? 'contestedNonceBurnClaim')
                     ) AS total_signer_count,
                     (
                       SELECT count(*)

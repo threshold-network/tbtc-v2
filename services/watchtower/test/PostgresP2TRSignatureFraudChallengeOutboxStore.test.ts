@@ -3870,6 +3870,94 @@ async function orphanedSignerBoundary(
 }
 
 postgresTest(
+  "keeps a burn claim in the signer-I/O barrier after the original marker resolves",
+  async () => {
+    const database = await createTestDatabase()
+    const { boundary } = await orphanedSignerBoundary(database, 208)
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+
+    const claim: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...boundary,
+      version: boundary.version + 1,
+      updatedAtUnixMs: 1_400,
+      contestedNonceBurnClaim: {
+        signerInvocationID: `0x${"e1".repeat(32)}`,
+        signerRequestDigest: `0x${"e2".repeat(32)}`,
+        reservationID: boundary.reservedNonce!.reservationID.toPrefixedString(),
+        recordVersion: boundary.version,
+        preparationAttempts: boundary.preparationAttempts,
+        claimedAtUnixMs: 1_400,
+      },
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        boundary.recordID,
+        boundary.version,
+        claim
+      ),
+      true
+    )
+    await commit(database.client)
+    assert.equal(await barrierSignerInvocationCount(database), 2)
+
+    await begin(database.client)
+    assert.equal(
+      await database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary)
+      ),
+      "acknowledged"
+    )
+    await commit(database.client)
+    const resolved = (await database.store.get(boundary.recordID))!
+    assert.equal(resolved.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.ok(resolved.contestedNonceBurnClaim)
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+
+    const rawTransaction = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: WALLET.address,
+      data: "0x",
+      value: 0,
+      nonce: boundary.reservedNonce!.nonce,
+      gasLimit: 21_000,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 10,
+    })
+    const parsed = utils.parseTransaction(rawTransaction)
+    const burned: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...resolved,
+      version: resolved.version + 1,
+      updatedAtUnixMs: 2_500,
+      contestedNonceBurnClaim: undefined,
+      contestedNonceBurn: {
+        transactionHash: parsed.hash!,
+        rawTransaction,
+        nonce: parsed.nonce,
+        sender: WALLET.address,
+        maxFeePerGas: parsed.maxFeePerGas!.toString(),
+        maxPriorityFeePerGas: parsed.maxPriorityFeePerGas!.toString(),
+        signerInvocationID: claim.contestedNonceBurnClaim!.signerInvocationID,
+        signedAtUnixMs: 2_500,
+      },
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        resolved.recordID,
+        resolved.version,
+        burned
+      ),
+      true
+    )
+    await commit(database.client)
+    assert.equal(await barrierSignerInvocationCount(database), 0)
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "replays grandfathered v4 signer-boundary evidence after migration 006",
   async () => {
     const database = await createTestDatabase(1_024, 4)

@@ -672,6 +672,18 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   )
   assert.match(
     migration,
+    /NOT \(OLD\.record_state \? 'contestedNonceBurnClaim'\)[\s\S]*active_signer_invocation_count \+[\s\n]*1/
+  )
+  assert.match(
+    migration,
+    /OLD\.record_state \? 'contestedNonceBurnClaim'[\s\S]*active_signer_invocation_count -[\s\n]*1/
+  )
+  assert.match(
+    migration,
+    /contested nonce burn claim lacks its signer-I\/O barrier/
+  )
+  assert.match(
+    migration,
     /p2tr_signature_fraud_apply_nonce_release_result_barrier_trigger AFTER INSERT/
   )
   assert.match(
@@ -708,6 +720,21 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   assert.match(
     migration,
     /UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier SET contract_mismatch_blocked = true, incident_epoch = incident_epoch \+ 1/
+  )
+})
+
+test("counts durable burn claims in activation signer-I/O truth", () => {
+  assert.match(
+    activationHandshakeSource,
+    /count\(\*\) FILTER \([\s\S]*o\.record_state[\s\S]*\? 'contestedNonceBurnClaim'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /AS total_signer_count[\s\S]*rollup\.active_signer_invocation_count[\s\S]*truth\.total_signer_count/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_outbox_activation_revalidation[\s\S]*o\.record_state \? 'contestedNonceBurnClaim'/
   )
 })
 

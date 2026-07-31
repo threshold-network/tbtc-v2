@@ -1800,8 +1800,8 @@ export type P2TRSignatureFraudChallengeOutboxRecord = {
   /**
    * Deterministic identity of that boundary, committed in the same swap that
    * sets the marker above. Present exactly when the marker is: the activation
-   * barrier counts invocations by the marker's null transitions, so the two
-   * must never disagree about whether a signer call may be outstanding.
+   * barrier counts this marker and the burn claim below as distinct signer
+   * invocations, so each null transition is accounted independently.
    */
   activeSignerInvocationID?: string
   /** Historical proof that at least one signer invocation began. */
@@ -4040,14 +4040,39 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
 
     // A burn claim is durable before its signer call, and signed burn bytes
-    // replace it without a releasable gap. The original signer boundary may
-    // have been concurrently resolved, but neither state permits recovery to
-    // hand this nonce back to the allocator.
+    // replace it without a releasable gap. If the original signer boundary was
+    // independently resolved, retain the lane but leave the `preparing` status
+    // behind: both a claim and signed burn bytes are public nonce-race evidence
+    // that the reconciler can settle once canonical consumption is final.
     if (
       current.contestedNonceBurnClaim !== undefined ||
       current.contestedNonceBurn !== undefined
     ) {
-      return current
+      const retainedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn lease recovery time"
+      )
+      const reconcilable = nextRecord(current, {
+        status:
+          current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation",
+        preparationLease: undefined,
+        preparationResumeStatus: undefined,
+        updatedAtUnixMs: retainedAtUnixMs,
+        lastError:
+          "Original signer boundary was resolved while a contested nonce burn remained; retaining its lane for canonical nonce reconciliation",
+      })
+      if (
+        !(await this.store.compareAndSwap(
+          current.recordID,
+          current.version,
+          reconcilable
+        ))
+      ) {
+        return this.requireRecord(current.recordID)
+      }
+      return reconcilable
     }
 
     // A crash can occur after the non-signing allocator durably reserves a
@@ -5251,18 +5276,22 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     escaped: P2TRSignatureFraudPreparedChallengeTransaction,
     reason: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    // Invocation echoes are unsigned transport metadata. Keep them out of the
+    // durable artifact even when the completion CAS loses: malformed values
+    // must not make an otherwise authenticated record unreadable on hydrate.
+    const { invocation: _unsafeInvocation, ...durableEscaped } = escaped
     const failed = this.signerFailureRecord(
       signerBoundary,
       preparer,
       reason,
       true,
-      escaped,
+      durableEscaped,
       "wrong-signer-invocation-request"
     )
     if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
       return this.captureEscapedArtifactAfterLostCas(
         signerBoundary,
-        escaped,
+        durableEscaped,
         `Wrong-invocation signed envelope returned after a concurrent outbox transition: ${reason}`,
         requireLatestSignerQuarantine(failed)
       )
@@ -5386,6 +5415,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       requireUnixMilliseconds(this.now(), "Burn authorization consumption time")
     )
 
+    // First authenticate the raw transaction independently of the signer echo.
+    // Echo metadata is not signed and must never make exact nonce-consuming
+    // bytes disappear after the signer boundary has been crossed.
     const signed = validateP2TRSignatureFraudPreparedNonceBurnTransaction(
       reservation,
       envelope,
@@ -5393,9 +5425,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         reservation,
         envelope,
         signerInvocationRequest(invocation)
-      ),
-      signerInvocationRequest(invocation)
+      )
     )
+    const echoMismatch = signerInvocationEchoMismatch(signed, invocation)
 
     // Durable before the broadcaster is called, exactly as the challenge send
     // boundary is: a crash from here on can only re-send identical bytes.
@@ -5422,7 +5454,18 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     let burned = nextRecord(claimed, {
       contestedNonceBurnClaim: undefined,
       contestedNonceBurn,
+      signerQuarantines:
+        echoMismatch === undefined
+          ? claimed.signerQuarantines
+          : appendSignerQuarantine(
+              claimed.signerQuarantines,
+              reservation,
+              signedAtUnixMs,
+              echoMismatch,
+              "wrong-signer-invocation-request"
+            ),
       updatedAtUnixMs: signedAtUnixMs,
+      lastError: echoMismatch,
     })
     if (!(await this.store.compareAndSwap(key, claimed.version, burned))) {
       // Signed bytes already exist and may escape the signer even though a
@@ -5431,7 +5474,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       // the reservation releasable.
       burned = await this.captureContestedNonceBurnAfterLostCas(
         key,
-        contestedNonceBurn
+        contestedNonceBurn,
+        echoMismatch
       )
     }
     return this.broadcastPersistedContestedNonceBurn(key, burned)
@@ -5439,7 +5483,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
 
   private async captureContestedNonceBurnAfterLostCas(
     recordID: string,
-    burn: P2TRSignatureFraudContestedNonceBurn
+    burn: P2TRSignatureFraudContestedNonceBurn,
+    signerFault?: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     for (let retry = 0; retry < 8; retry++) {
       const durable = await this.requireRecord(recordID)
@@ -5451,7 +5496,34 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
             "A different contested nonce burn became durable while signing"
           )
         }
-        return durable
+        if (signerFault === undefined) return durable
+        if (durable.reservedNonce === undefined) {
+          throw new Error(
+            "Persisted contested nonce burn lost its durable reservation"
+          )
+        }
+        const quarantines = appendSignerQuarantine(
+          durable.signerQuarantines,
+          durable.reservedNonce,
+          burn.signedAtUnixMs,
+          signerFault,
+          "wrong-signer-invocation-request"
+        )
+        if (quarantines === durable.signerQuarantines) return durable
+        const faulted = nextRecord(durable, {
+          signerQuarantines: quarantines,
+          updatedAtUnixMs: Math.max(
+            durable.updatedAtUnixMs,
+            burn.signedAtUnixMs
+          ),
+          lastError: signerFault,
+        })
+        if (
+          await this.store.compareAndSwap(recordID, durable.version, faulted)
+        ) {
+          return faulted
+        }
+        continue
       }
       const claim = durable.contestedNonceBurnClaim
       if (
@@ -5481,7 +5553,33 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       const captured = nextRecord(durable, {
         contestedNonceBurnClaim: undefined,
         contestedNonceBurn: burn,
+        status:
+          durable.activeSignerInvocationStartedAtUnixMs === undefined &&
+          durable.status === "preparing"
+            ? durable.provenanceInvalidationEvidence === undefined
+              ? "quarantined"
+              : "provenance-invalidated-awaiting-reconciliation"
+            : durable.status,
+        preparationLease:
+          durable.activeSignerInvocationStartedAtUnixMs === undefined
+            ? undefined
+            : durable.preparationLease,
+        preparationResumeStatus:
+          durable.activeSignerInvocationStartedAtUnixMs === undefined
+            ? undefined
+            : durable.preparationResumeStatus,
+        signerQuarantines:
+          signerFault === undefined
+            ? durable.signerQuarantines
+            : appendSignerQuarantine(
+                durable.signerQuarantines,
+                durable.reservedNonce,
+                burn.signedAtUnixMs,
+                signerFault,
+                "wrong-signer-invocation-request"
+              ),
         updatedAtUnixMs: Math.max(durable.updatedAtUnixMs, capturedAtUnixMs),
+        lastError: signerFault ?? durable.lastError,
       })
       if (
         await this.store.compareAndSwap(recordID, durable.version, captured)
@@ -5631,25 +5729,32 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         durable.broadcastAttempts > 0
       const provenanceWasInvalidated =
         durable.provenanceInvalidationEvidence !== undefined
+      const retainedBurnState =
+        durable.contestedNonceBurnClaim !== undefined ||
+        durable.contestedNonceBurn !== undefined
       const restoreResumeStatus =
         durable.status === "preparing" &&
         resumeStatus !== undefined &&
-        !provenanceWasInvalidated
+        !provenanceWasInvalidated &&
+        !retainedBurnState
       const completed = nextRecord(durable, {
-        status:
-          provenanceWasInvalidated && hasPriorSignedState
+        status: retainedBurnState
+          ? provenanceWasInvalidated
             ? "provenance-invalidated-awaiting-reconciliation"
-            : restoreResumeStatus
-            ? resumeStatus
-            : durable.status,
+            : "quarantined"
+          : provenanceWasInvalidated && hasPriorSignedState
+          ? "provenance-invalidated-awaiting-reconciliation"
+          : restoreResumeStatus
+          ? resumeStatus
+          : durable.status,
         preparationLease:
-          provenanceWasInvalidated && hasPriorSignedState
+          retainedBurnState || (provenanceWasInvalidated && hasPriorSignedState)
             ? undefined
             : restoreResumeStatus
             ? undefined
             : durable.preparationLease,
         preparationResumeStatus:
-          provenanceWasInvalidated && hasPriorSignedState
+          retainedBurnState || (provenanceWasInvalidated && hasPriorSignedState)
             ? undefined
             : restoreResumeStatus
             ? undefined
@@ -6704,7 +6809,9 @@ const validateRecordFeePolicyManifest = (
  * separately and field by field by the SDK validators.
  */
 const signerInvocationEchoMismatch = (
-  prepared: P2TRSignatureFraudPreparedChallengeTransaction,
+  prepared: {
+    invocation?: P2TRSignatureFraudPreparedChallengeTransaction["invocation"]
+  },
   expected: { invocationID: string; requestDigest: string }
 ): string | undefined => {
   const echo = prepared.invocation
@@ -6983,7 +7090,7 @@ const validatePreparedTransactionFeePolicy = (
     gasLimit * maxFeePerGas > BigInt(policy.maxTotalFeeWei)
   ) {
     throw new Error(
-      "Prepared challenge transaction exceeds its manifest-bound fee or value policy"
+      "Prepared challenge transaction exceeds its manifest-bound fee or value policy or does not match its manifest-bound gas limit"
     )
   }
   return prepared
@@ -9788,10 +9895,16 @@ const appendUnexpectedSignedArtifact = (
   ) {
     return existing ?? []
   }
+  // Invocation echoes are unauthenticated response metadata. They are useful
+  // for accepting the expected signer response, but a malformed echo must not
+  // poison an otherwise authenticated artifact and make the durable record
+  // impossible to hydrate. The quarantine reason retains the mismatch.
+  const { invocation: _unsafeInvocation, ...durablePreparedTransaction } =
+    preparedTransaction
   return [
     ...(existing ?? []),
     {
-      preparedTransaction,
+      preparedTransaction: durablePreparedTransaction,
       expectedReservationID: normalizeBytes32(
         expectedReservationID,
         "Expected nonce reservation ID"

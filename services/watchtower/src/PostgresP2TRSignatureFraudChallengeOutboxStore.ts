@@ -1768,9 +1768,23 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       // The same retirement path a first-person uninvoked completion uses: the
       // swap that clears the marker and the retirement of the incidents raised
       // over that exact boundary must land in one transaction.
+      const retainedBurnState =
+        current.contestedNonceBurnClaim !== undefined ||
+        current.contestedNonceBurn !== undefined
       const cleared: P2TRSignatureFraudChallengeOutboxRecord = {
         ...current,
         version: current.version + 1,
+        status: retainedBurnState
+          ? current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation"
+          : current.status,
+        preparationLease: retainedBurnState
+          ? undefined
+          : current.preparationLease,
+        preparationResumeStatus: retainedBurnState
+          ? undefined
+          : current.preparationResumeStatus,
         activeSignerInvocationStartedAtUnixMs: undefined,
         activeSignerInvocationID: undefined,
         updatedAtUnixMs: Math.max(
@@ -4868,6 +4882,14 @@ function assertCompactDurableOutboxRecord(
         transaction.invocation,
         DURABLE_SIGNER_INVOCATION_KEYS,
         "prepared signer invocation request"
+      )
+      bytes32(
+        transaction.invocation.invocationID,
+        "Prepared signer invocation ID"
+      )
+      bytes32(
+        transaction.invocation.requestDigest,
+        "Prepared signer invocation request digest"
       )
     }
     if (transaction.eip1559 !== undefined) {

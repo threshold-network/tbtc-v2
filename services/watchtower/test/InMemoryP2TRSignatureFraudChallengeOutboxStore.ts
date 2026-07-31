@@ -625,9 +625,23 @@ export class InMemoryOutboxStore
       return "acknowledged"
     }
     if (normalized.outcome === "never-invoked") {
+      const retainedBurnState =
+        current.contestedNonceBurnClaim !== undefined ||
+        current.contestedNonceBurn !== undefined
       const cleared: P2TRSignatureFraudChallengeOutboxRecord = {
         ...current,
         version: current.version + 1,
+        status: retainedBurnState
+          ? current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation"
+          : current.status,
+        preparationLease: retainedBurnState
+          ? undefined
+          : current.preparationLease,
+        preparationResumeStatus: retainedBurnState
+          ? undefined
+          : current.preparationResumeStatus,
         activeSignerInvocationStartedAtUnixMs: undefined,
         activeSignerInvocationID: undefined,
         updatedAtUnixMs: Math.max(

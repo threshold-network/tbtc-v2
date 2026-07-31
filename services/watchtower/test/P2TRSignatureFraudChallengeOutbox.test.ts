@@ -1825,6 +1825,26 @@ test("requires independent bounded submission, recheck, and reconciliation domai
       dispatcher(store, preparer, broadcaster, longDomainRechecker, reconciler),
     /exceeds 128 characters/
   )
+
+  const shallowFinalityReconciler = new FixedReconciler()
+  Object.defineProperty(
+    shallowFinalityReconciler,
+    "finalityConfirmationBlocks",
+    {
+      value: 11,
+    }
+  )
+  assert.throws(
+    () =>
+      dispatcher(
+        store,
+        preparer,
+        broadcaster,
+        new FixedRechecker(),
+        shallowFinalityReconciler
+      ),
+    /finality confirmation depth must be at least 64 blocks/
+  )
 })
 
 test("refuses to construct without an irreversible-boundary authorizer", () => {
@@ -3771,6 +3791,10 @@ test("captures wrong-echo bytes when provenance invalidation wins the completion
     RAW_TRANSACTION
   )
   assert.equal(
+    settled.unexpectedSignedArtifacts?.[0].preparedTransaction.invocation,
+    undefined
+  )
+  assert.equal(
     settled.signerQuarantines?.[0]?.reasonCode,
     "wrong-signer-invocation-request"
   )
@@ -3796,6 +3820,10 @@ test("authenticates and captures signed bytes before rejecting a malformed invoc
   assert.equal(
     settled.unexpectedSignedArtifacts?.[0].preparedTransaction.rawTransaction,
     RAW_TRANSACTION
+  )
+  assert.equal(
+    settled.unexpectedSignedArtifacts?.[0].preparedTransaction.invocation,
+    undefined
   )
   assert.equal(
     settled.signerQuarantines?.[0]?.reasonCode,
@@ -3994,6 +4022,52 @@ test("re-burning re-sends the identical bytes and signs nothing new", async () =
   )
 })
 
+test("retains authenticated burn bytes before quarantining a malformed echo", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const broadcaster = new RecordingBroadcaster()
+  let atBroadcast: P2TRSignatureFraudChallengeOutboxRecord | undefined
+  broadcaster.inspectDurableBoundary = async () => {
+    atBroadcast = await store.get(record.recordID)
+  }
+  const outbox = dispatcher(
+    store,
+    preparer,
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+  preparer.echoInvocation = () =>
+    ({
+      invocationID: "not-a-bytes32",
+      requestDigest: "also-not-a-bytes32",
+    } as unknown as P2TRSignatureFraudSignerInvocationRequest)
+
+  const burned = await outbox.burnContestedNonce(record.recordID)
+
+  assert.ok(burned.contestedNonceBurn)
+  assert.equal(
+    atBroadcast?.contestedNonceBurn?.transactionHash,
+    burned.contestedNonceBurn.transactionHash
+  )
+  assert.equal(broadcaster.rawTransactions.length, 1)
+  assert.equal(
+    burned.signerQuarantines?.at(-1)?.reasonCode,
+    "wrong-signer-invocation-request"
+  )
+  assert.match(
+    burned.signerQuarantines?.at(-1)?.reason ?? "",
+    /malformed invocation request echo/
+  )
+})
+
 test("persists a successful contested-burn retry acknowledgement", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -4065,6 +4139,7 @@ test("keeps a durable burn claim through boundary resolution and lease recovery"
   const preparer = new FixedPreparer()
   const authorizer = new FixedBoundaryAuthorizer()
   const broadcaster = new RecordingBroadcaster()
+  const reconciler = new FixedReconciler()
   broadcaster.throwAfterSend = new Error("provider disconnected after send")
   let now = 2_000
   const outbox = dispatcher(
@@ -4072,7 +4147,7 @@ test("keeps a durable burn claim through boundary resolution and lease recovery"
     preparer,
     broadcaster,
     new FixedRechecker(),
-    new FixedReconciler(),
+    reconciler,
     () => now,
     100,
     undefined,
@@ -4115,6 +4190,7 @@ test("keeps a durable burn claim through boundary resolution and lease recovery"
   )
   assert.ok(protectedRecord?.contestedNonceBurnClaim)
   assert.ok(protectedRecord?.reservedNonce)
+  assert.equal(protectedRecord?.status, "quarantined")
   assert.equal(preparer.releasedReservations.length, 0)
 
   release()
@@ -4136,6 +4212,104 @@ test("keeps a durable burn claim through boundary resolution and lease recovery"
   broadcaster.throwAfterSend = undefined
   const retried = await outbox.burnContestedNonce(record.recordID)
   assert.equal(retried.contestedNonceBurn?.broadcastAtUnixMs, now)
+
+  reconciler.resolution = withCanonicalAttestations({
+    status: "terminal-nonce-consumed",
+    sender: TRANSACTION_SENDER,
+    transactionNonce: stranded.reservedNonce!.nonce,
+    finalizedAccountNonce: stranded.reservedNonce!.nonce + 1,
+    accountNonceReadAtBlock: 108,
+    transactionAbsent: true,
+    consumingTransaction: {
+      transactionHash: retried.contestedNonceBurn!.transactionHash,
+      sender: TRANSACTION_SENDER,
+      nonce: stranded.reservedNonce!.nonce,
+      blockNumber: 101,
+      blockHash: `0x${"56".repeat(32)}`,
+    },
+    observedHead: {
+      blockNumber: 172,
+      blockHash: `0x${"12".repeat(32)}`,
+    },
+    finalizedThrough: {
+      blockNumber: 108,
+      blockHash: `0x${"18".repeat(32)}`,
+    },
+    routerChallenge: {
+      exists: false,
+      challengeKey: CHALLENGE_KEY,
+      readAtBlock: 108,
+    },
+  } as Parameters<typeof withCanonicalAttestations>[0])
+  const reconciled = await outbox.reconcile(record.recordID)
+  assert.equal(reconciled.status, "generation-required")
+})
+
+test("makes a burn claim reconcilable when first-person authorization fails", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  let originalReached!: () => void
+  let rejectOriginal!: () => void
+  const atOriginalAuthorization = new Promise<void>((resolve) => {
+    originalReached = resolve
+  })
+  const originalAuthorizationGate = new Promise<void>((resolve) => {
+    rejectOriginal = resolve
+  })
+  authorizer.beforeAuthorize = async (binding) => {
+    if (binding.stage !== "prepare") return
+    originalReached()
+    await originalAuthorizationGate
+    throw new Error("first-person authorization rejected")
+  }
+
+  const preparing = outbox.prepare(record.recordID, "worker-a")
+  await atOriginalAuthorization
+
+  let burnReached!: () => void
+  let releaseBurn!: () => void
+  const atBurnSigner = new Promise<void>((resolve) => {
+    burnReached = resolve
+  })
+  const burnSignerGate = new Promise<void>((resolve) => {
+    releaseBurn = resolve
+  })
+  preparer.afterBurnSign = async () => {
+    burnReached()
+    await burnSignerGate
+  }
+  const burning = outbox.burnContestedNonce(record.recordID)
+  await atBurnSigner
+
+  rejectOriginal()
+  const resolvedOriginal = await preparing
+  assert.equal(resolvedOriginal.status, "quarantined")
+  assert.equal(
+    resolvedOriginal.activeSignerInvocationStartedAtUnixMs,
+    undefined
+  )
+  assert.ok(resolvedOriginal.contestedNonceBurnClaim)
+  assert.ok(resolvedOriginal.reservedNonce)
+
+  releaseBurn()
+  const burned = await burning
+  assert.equal(burned.status, "quarantined")
+  assert.equal(burned.contestedNonceBurnClaim, undefined)
+  assert.ok(burned.contestedNonceBurn)
 })
 
 test("treats a durable burn as signer escape evidence", async () => {

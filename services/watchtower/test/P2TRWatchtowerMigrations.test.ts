@@ -17,7 +17,7 @@ import {
 // accidental edits remain visible, while allowing intentional schema resets
 // before the first deployment.
 const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
-  "c832c40137ffca83a9d340072cb8bd52269ad4b3f6e9d9f70f34cd6dd218b036"
+  "096b8082efb2c75e93ab33194c72c6a2b095a0fbbfb104e2c027f3a72130ede8"
 
 describe("P2TR watchtower migration bodies", () => {
   it("pins the current pre-production migration 003 checksum", async () => {
@@ -108,6 +108,14 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /candidate enqueue resolution lacks exact consumed authority/
+    )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_authorizations candidate_authorization/
+    )
+    assert.doesNotMatch(
+      migration,
+      /p2tr_candidate_enqueue_authorizations authorization/
     )
     assert.match(migration, /generation-cap resolution lacks its durable alert/)
   })

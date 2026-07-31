@@ -120,12 +120,13 @@ BEGIN
         RAISE EXCEPTION 'candidate enqueue guard is already exhausted';
     END IF;
 
-    SELECT granted.consumed_at, granted.outbox_intent_id
+    SELECT candidate_authorization.consumed_at,
+           candidate_authorization.outbox_intent_id
       INTO authorization_consumed_at, authorization_outbox_intent_id
-      FROM p2tr_candidate_enqueue_authorizations granted
-     WHERE granted.manifest_hash = NEW.manifest_hash
-       AND granted.token_id = NEW.token_id
-       AND granted.candidate_digest = NEW.candidate_digest
+      FROM p2tr_candidate_enqueue_authorizations candidate_authorization
+     WHERE candidate_authorization.manifest_hash = NEW.manifest_hash
+       AND candidate_authorization.token_id = NEW.token_id
+       AND candidate_authorization.candidate_digest = NEW.candidate_digest
      FOR KEY SHARE;
     IF authorization_consumed_at IS NULL
        OR authorization_outbox_intent_id IS DISTINCT FROM NEW.outbox_intent_id THEN

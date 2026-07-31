@@ -4570,6 +4570,35 @@ BEGIN
             RAISE EXCEPTION 'active signer invocation barrier counter underflow';
         END IF;
     END IF;
+
+    -- The burn signer is a distinct external invocation. Count its durable
+    -- claim independently from the original boundary marker: both may coexist,
+    -- and clearing the original marker must leave one activation-blocking I/O
+    -- unit until signed burn bytes replace this claim.
+    IF NOT (OLD.record_state ? 'contestedNonceBurnClaim')
+       AND NEW.record_state ? 'contestedNonceBurnClaim' THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+           SET active_signer_invocation_count =
+                   active_signer_invocation_count + 1
+         WHERE chain_id = NEW.chain_id
+           AND sender = NEW.selected_sender
+           AND active_release_request_id IS NULL
+           AND unresolved_release_count = 0;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'contested nonce burn claim lacks its signer-I/O barrier';
+        END IF;
+    ELSIF OLD.record_state ? 'contestedNonceBurnClaim'
+       AND NOT (NEW.record_state ? 'contestedNonceBurnClaim') THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+           SET active_signer_invocation_count =
+                   active_signer_invocation_count - 1
+         WHERE chain_id = OLD.chain_id
+           AND sender = OLD.selected_sender
+           AND active_signer_invocation_count > 0;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'contested nonce burn signer-I/O barrier counter underflow';
+        END IF;
+    END IF;
     IF NEW.signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.nonce_reservation_id IS NULL THEN
         RAISE EXCEPTION 'signer invocation requires a durable bound nonce reservation';
@@ -5634,9 +5663,13 @@ AS $$
                 )
            )::bigint,
            (
-             SELECT count(*)
-               FROM p2tr_signature_fraud_challenge_outbox o
-              WHERE o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+             (SELECT count(*)
+                FROM p2tr_signature_fraud_challenge_outbox o
+               WHERE o.active_signer_invocation_started_at_unix_ms IS NOT NULL)
+             +
+             (SELECT count(*)
+                FROM p2tr_signature_fraud_challenge_outbox o
+               WHERE o.record_state ? 'contestedNonceBurnClaim')
            )::bigint,
            (
              SELECT count(*)
