@@ -458,6 +458,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   afterReplacementSign?: (
     prepared: P2TRSignatureFraudPreparedChallengeTransaction
   ) => Promise<void>
+  afterBurnSign?: (
+    prepared: P2TRSignatureFraudPreparedNonceBurnTransaction
+  ) => Promise<void>
 
   async reserveSignatureFraudChallengeNonce(
     intent: P2TRSignatureFraudSubmissionIntent,
@@ -590,7 +593,7 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
       maxPriorityFeePerGas: envelope.maxPriorityFeePerGas,
     })
     const parsed = utils.parseTransaction(rawTransaction)
-    return {
+    const prepared = {
       rawTransaction,
       transactionHash: Hex.from(parsed.hash!),
       sender: this.wallet.address,
@@ -603,6 +606,8 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
           ? invocation
           : this.echoInvocation(invocation),
     }
+    await this.afterBurnSign?.(prepared)
+    return prepared
   }
 
   async prepareSignatureFraudChallengeReplacementTransaction(
@@ -721,14 +726,14 @@ class RecordingBroadcaster
   readonly providerIdentity = {}
   readonly rawTransactions: string[] = []
   throwAfterSend?: Error
-  returnedHash = TRANSACTION_HASH
+  returnedHash?: string
   inspectDurableBoundary?: () => Promise<void>
 
   async broadcastRawTransaction(rawTransaction: string): Promise<string> {
     await this.inspectDurableBoundary?.()
     this.rawTransactions.push(rawTransaction)
     if (this.throwAfterSend !== undefined) throw this.throwAfterSend
-    return this.returnedHash
+    return this.returnedHash ?? utils.keccak256(rawTransaction)
   }
 }
 
@@ -3790,6 +3795,53 @@ const strandSignerBoundary = async (
   return stranded!
 }
 
+const neverInvokedBoundaryResolution = (
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  receipt = "0xfeed"
+): P2TRSignatureFraudIndependentSignerBoundaryResolution => {
+  const signerInvocationID = record.activeSignerInvocationID!
+  const boundaryStartedAtUnixMs = record.activeSignerInvocationStartedAtUnixMs!
+  const binding = {
+    recordID: record.recordID,
+    signerInvocationID,
+    providerTombstone: {
+      signerInvocationID,
+      receipt,
+      tombstonedAtUnixMs: boundaryStartedAtUnixMs,
+    },
+    boundaryStartedAtUnixMs,
+    preparationAttempts: record.preparationAttempts,
+    nonceReservationID: record.reservedNonce!.reservationID.toPrefixedString(),
+    stage: "prepare" as const,
+    invokedAtUnixMs: boundaryStartedAtUnixMs,
+    outcome: "never-invoked" as const,
+    providerEvidenceDigest: `0x${"c7".repeat(32)}`,
+  }
+  const evidenceDigest =
+    computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest(binding)
+  return {
+    ...binding,
+    evidenceDigest,
+    canonicalAttestations: [
+      {
+        trustDomainID: "signer-primary",
+        independenceDomainID: "signer-primary-infra",
+        evidenceDigest,
+        attestation: "0x01",
+        attestedAtUnixMs: boundaryStartedAtUnixMs,
+      },
+      {
+        trustDomainID: "signer-corroborating",
+        independenceDomainID: "signer-corroborating-infra",
+        evidenceDigest,
+        attestation: "0x02",
+        attestedAtUnixMs: boundaryStartedAtUnixMs,
+      },
+    ],
+    resolvedAtUnixMs: boundaryStartedAtUnixMs,
+  }
+}
+
 test("burns the contested nonce and makes the bytes durable before broadcast", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -3830,6 +3882,16 @@ test("burns the contested nonce and makes the bytes durable before broadcast", a
   assert.equal(parsed.value.isZero(), true)
   assert.equal(parsed.data, "0x")
   assert.equal(parsed.gasLimit.toString(), "21000")
+  const burnBinding = authorizer.bindings.at(-1)
+  assert.equal(burnBinding?.stage, "burn")
+  assert.equal(burnBinding?.challengeValueWei, "0")
+  assert.equal(burnBinding?.maxGasLimit, "21000")
+  assert.equal(burnBinding?.maxFeePerGas, burn.maxFeePerGas)
+  assert.equal(burnBinding?.maxPriorityFeePerGas, burn.maxPriorityFeePerGas)
+  assert.equal(
+    burnBinding?.maxTotalFeeWei,
+    (21_000n * BigInt(burn.maxFeePerGas)).toString()
+  )
 
   // Durable before the broadcaster ran, so a crash can only re-send it.
   assert.equal(
@@ -3871,6 +3933,240 @@ test("re-burning re-sends the identical bytes and signs nothing new", async () =
     again.contestedNonceBurn?.transactionHash,
     first.contestedNonceBurn?.transactionHash
   )
+})
+
+test("persists a successful contested-burn retry acknowledgement", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const broadcaster = new RecordingBroadcaster()
+  broadcaster.throwAfterSend = new Error("provider disconnected after send")
+  const outbox = dispatcher(
+    store,
+    preparer,
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+
+  await assert.rejects(
+    outbox.burnContestedNonce(record.recordID),
+    /disconnected after send/
+  )
+  assert.equal(
+    (await store.get(record.recordID))?.contestedNonceBurn?.broadcastAtUnixMs,
+    undefined
+  )
+
+  broadcaster.throwAfterSend = undefined
+  const retried = await outbox.burnContestedNonce(record.recordID)
+
+  assert.equal(preparer.burnCalls, 1)
+  assert.equal(broadcaster.rawTransactions.length, 2)
+  assert.equal(retried.contestedNonceBurn?.broadcastAtUnixMs, 2_000)
+})
+
+test("does not acknowledge a contested burn under a mismatched provider hash", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const broadcaster = new RecordingBroadcaster()
+  broadcaster.returnedHash = `0x${"99".repeat(32)}`
+  const outbox = dispatcher(
+    store,
+    preparer,
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+
+  const mismatched = await outbox.burnContestedNonce(record.recordID)
+
+  assert.equal(mismatched.contestedNonceBurn?.broadcastAtUnixMs, undefined)
+  assert.equal(mismatched.status, "quarantined")
+  assert.match(String(mismatched.lastError), /does not match the persisted/)
+  assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
+})
+
+test("retains signed burn bytes when boundary resolution wins the first CAS", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const broadcaster = new RecordingBroadcaster()
+  broadcaster.throwAfterSend = new Error("provider disconnected after send")
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now,
+    100,
+    undefined,
+    authorizer
+  )
+  const stranded = await strandSignerBoundary(
+    store,
+    outbox,
+    authorizer,
+    record.recordID
+  )
+  let signed!: () => void
+  let release!: () => void
+  const signedBurn = new Promise<void>((resolve) => {
+    signed = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  preparer.afterBurnSign = async () => {
+    signed()
+    await gate
+  }
+
+  const burning = outbox.burnContestedNonce(record.recordID)
+  await signedBurn
+  await store.resolveOrphanedSignerBoundary(
+    neverInvokedBoundaryResolution(stranded)
+  )
+  release()
+  await assert.rejects(burning, /disconnected after send/)
+  const captured = await store.get(record.recordID)
+
+  assert.ok(captured)
+  assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.ok(captured.contestedNonceBurn)
+  assert.equal(captured.reservedNonce?.nonce, stranded.reservedNonce?.nonce)
+
+  now = 2_200
+  await outbox.recoverExpiredPreparationLeases()
+  const afterRecovery = await store.get(record.recordID)
+  assert.ok(afterRecovery?.contestedNonceBurn)
+  assert.ok(afterRecovery?.reservedNonce)
+  assert.equal(preparer.releasedReservations.length, 0)
+
+  broadcaster.throwAfterSend = undefined
+  const retried = await outbox.burnContestedNonce(record.recordID)
+  assert.equal(retried.contestedNonceBurn?.broadcastAtUnixMs, now)
+})
+
+test("treats a durable burn as signer escape evidence", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  const stranded = await strandSignerBoundary(
+    store,
+    outbox,
+    authorizer,
+    record.recordID
+  )
+  await outbox.burnContestedNonce(record.recordID)
+
+  await assert.rejects(
+    store.resolveOrphanedSignerBoundary(
+      neverInvokedBoundaryResolution(stranded)
+    ),
+    /no signer escape evidence/
+  )
+})
+
+test("freezes a contested burn after its first durable append", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+  const burned = await outbox.burnContestedNonce(record.recordID)
+
+  assert.equal(
+    await store.compareAndSwap(burned.recordID, burned.version, {
+      ...burned,
+      version: burned.version + 1,
+      contestedNonceBurn: undefined,
+    }),
+    false
+  )
+  assert.equal(
+    await store.compareAndSwap(burned.recordID, burned.version, {
+      ...burned,
+      version: burned.version + 1,
+      contestedNonceBurn: {
+        ...burned.contestedNonceBurn!,
+        transactionHash: `0x${"44".repeat(32)}`,
+      },
+    }),
+    false
+  )
+})
+
+test("enforces provider tombstone receipt bounds before digest acceptance", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  const stranded = await strandSignerBoundary(
+    store,
+    outbox,
+    authorizer,
+    record.recordID
+  )
+
+  for (const receipt of ["0x", `0x${"ab".repeat(2_049)}`]) {
+    assert.throws(
+      () =>
+        validateP2TRSignatureFraudIndependentSignerBoundaryResolution(
+          neverInvokedBoundaryResolution(stranded, receipt)
+        ),
+      /between 1 and 2048 bytes/
+    )
+  }
 })
 
 test("refuses a burn that is not a self-transfer of nothing", async () => {

@@ -1246,6 +1246,26 @@ export class InMemoryOutboxStore
     current: P2TRSignatureFraudChallengeOutboxRecord,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): boolean {
+    if (current.contestedNonceBurn !== undefined) {
+      if (next.contestedNonceBurn === undefined) return false
+      const {
+        broadcastAtUnixMs: currentBroadcastAtUnixMs,
+        ...currentSignedBurn
+      } = current.contestedNonceBurn
+      const { broadcastAtUnixMs: nextBroadcastAtUnixMs, ...nextSignedBurn } =
+        next.contestedNonceBurn
+      if (
+        JSON.stringify(currentSignedBurn) !== JSON.stringify(nextSignedBurn)
+      ) {
+        return false
+      }
+      if (
+        currentBroadcastAtUnixMs !== undefined &&
+        nextBroadcastAtUnixMs !== currentBroadcastAtUnixMs
+      ) {
+        return false
+      }
+    }
     const previous = current.preparedTransactionVariants ?? []
     const following = next.preparedTransactionVariants ?? []
     if (

@@ -13,11 +13,14 @@ import {
   type P2TRWatchtowerMigrationClient,
 } from "../src/P2TRWatchtowerMigrations.js"
 
-const PUBLISHED_OUTBOX_MIGRATION_CHECKSUM =
+// This schema is still pre-production. Pin the branch's current migration so
+// accidental edits remain visible, while allowing intentional schema resets
+// before the first deployment.
+const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
   "3528e618cfaae1813760b966cf0ea9f183c6ac7918bbefbfb0ff3f36c053bebe"
 
 describe("P2TR watchtower migration bodies", () => {
-  it("preserves the published migration 003 checksum", async () => {
+  it("pins the current pre-production migration 003 checksum", async () => {
     const migration = await readFile(
       new URL(
         "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
@@ -27,7 +30,7 @@ describe("P2TR watchtower migration bodies", () => {
 
     assert.equal(
       createHash("sha256").update(migration).digest("hex"),
-      PUBLISHED_OUTBOX_MIGRATION_CHECKSUM
+      CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM
     )
   })
 
@@ -314,7 +317,10 @@ describe("P2TR watchtower migrations apply to PostgreSQL", () => {
       const migrations = await loadP2TRWatchtowerMigrations(
         fileURLToPath(migrationsURL)
       )
-      assert.equal(migrations[2].checksum, PUBLISHED_OUTBOX_MIGRATION_CHECKSUM)
+      assert.equal(
+        migrations[2].checksum,
+        CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM
+      )
 
       const client = new pg.Client({ connectionString: postgresURL })
       await client.connect()

@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
+import { utils } from "ethers"
 
 import {
   Hex,
   P2TRSignatureFraudBoundNonceReservation,
+  P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT,
   validateP2TRCompleteV2SignatureFraudSubmissionIntent,
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
@@ -4572,6 +4574,18 @@ const DURABLE_PREPARED_TRANSACTION_KEYS = new Set([
   "eip1559",
 ])
 
+const DURABLE_CONTESTED_NONCE_BURN_KEYS = new Set([
+  "transactionHash",
+  "rawTransaction",
+  "nonce",
+  "sender",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+  "signerInvocationID",
+  "signedAtUnixMs",
+  "broadcastAtUnixMs",
+])
+
 const DURABLE_SIGNER_INVOCATION_KEYS = new Set([
   "invocationID",
   "requestDigest",
@@ -4717,6 +4731,7 @@ function assertCompactDurableOutboxRecord(
       "nonce reservation"
     )
   }
+  assertContestedNonceBurn(record)
   const voidedReservations = record.voidedNonceReservations ?? []
   if (
     voidedReservations.length >
@@ -4838,6 +4853,92 @@ function assertCompactDurableOutboxRecord(
   )
   if (serializedBytes > MAX_DURABLE_OUTBOX_RECORD_BYTES) {
     throw new Error("Durable outbox record exceeds the compact evidence bound")
+  }
+}
+
+function assertContestedNonceBurn(
+  record: P2TRSignatureFraudChallengeOutboxRecord
+): void {
+  const burn = record.contestedNonceBurn
+  if (burn === undefined) return
+  assertExactKeys(
+    burn,
+    DURABLE_CONTESTED_NONCE_BURN_KEYS,
+    "contested nonce burn"
+  )
+  const rawTransaction = hexData(
+    burn.rawTransaction,
+    "Contested nonce burn raw transaction"
+  )
+  const byteLength = stripHex(rawTransaction).length / 2
+  if (byteLength === 0 || byteLength > MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES) {
+    throw new Error("Contested nonce burn exceeds the durable byte bound")
+  }
+  let parsed: ReturnType<typeof utils.parseTransaction>
+  try {
+    parsed = utils.parseTransaction(rawTransaction)
+  } catch {
+    throw new Error(
+      "Contested nonce burn must be a signed raw Ethereum transaction"
+    )
+  }
+  const sender = utils.getAddress(
+    address(burn.sender, "Contested nonce burn sender")
+  )
+  const nonce = nonNegativeSafeInteger(burn.nonce, "Contested nonce burn nonce")
+  const maxFeePerGas = unsignedDecimal(
+    burn.maxFeePerGas,
+    "Contested nonce burn maximum fee per gas"
+  )
+  const maxPriorityFeePerGas = unsignedDecimal(
+    burn.maxPriorityFeePerGas,
+    "Contested nonce burn maximum priority fee per gas"
+  )
+  if (
+    parsed.hash === undefined ||
+    parsed.from === undefined ||
+    bytes32(burn.transactionHash, "Contested nonce burn hash") !==
+      parsed.hash.toLowerCase() ||
+    parsed.to === undefined ||
+    utils.getAddress(parsed.from) !== sender ||
+    utils.getAddress(parsed.to) !== sender ||
+    parsed.chainId !== record.intent.chainID ||
+    parsed.nonce !== nonce ||
+    !parsed.value.isZero() ||
+    parsed.data.toLowerCase() !== "0x" ||
+    parsed.type !== 2 ||
+    parsed.maxFeePerGas === undefined ||
+    parsed.maxPriorityFeePerGas === undefined ||
+    !parsed.gasLimit.eq(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT) ||
+    !parsed.maxFeePerGas.eq(maxFeePerGas) ||
+    !parsed.maxPriorityFeePerGas.eq(maxPriorityFeePerGas) ||
+    parsed.maxPriorityFeePerGas.gt(parsed.maxFeePerGas) ||
+    (parsed.accessList !== undefined && parsed.accessList.length > 0)
+  ) {
+    throw new Error(
+      "Contested nonce burn does not match its signed self-transfer envelope"
+    )
+  }
+  if (
+    record.reservedNonce !== undefined &&
+    (utils.getAddress(record.reservedNonce.sender) !== sender ||
+      record.reservedNonce.nonce !== nonce)
+  ) {
+    throw new Error("Contested nonce burn names another durable reservation")
+  }
+  bytes32(burn.signerInvocationID, "Contested nonce burn signer invocation ID")
+  const signedAtUnixMs = unixMilliseconds(
+    burn.signedAtUnixMs,
+    "Contested nonce burn signing time"
+  )
+  if (
+    burn.broadcastAtUnixMs !== undefined &&
+    unixMilliseconds(
+      burn.broadcastAtUnixMs,
+      "Contested nonce burn broadcast time"
+    ) < signedAtUnixMs
+  ) {
+    throw new Error("Contested nonce burn broadcast precedes signing")
   }
 }
 
@@ -5761,6 +5862,24 @@ function preservesCASIdentities(
     canonicalJSON(current.reservedNonce) !== canonicalJSON(next.reservedNonce)
   ) {
     return false
+  }
+  if (current.contestedNonceBurn !== undefined) {
+    if (next.contestedNonceBurn === undefined) return false
+    const {
+      broadcastAtUnixMs: currentBroadcastAtUnixMs,
+      ...currentSignedBurn
+    } = current.contestedNonceBurn
+    const { broadcastAtUnixMs: nextBroadcastAtUnixMs, ...nextSignedBurn } =
+      next.contestedNonceBurn
+    if (canonicalJSON(currentSignedBurn) !== canonicalJSON(nextSignedBurn)) {
+      return false
+    }
+    if (
+      currentBroadcastAtUnixMs !== undefined &&
+      nextBroadcastAtUnixMs !== currentBroadcastAtUnixMs
+    ) {
+      return false
+    }
   }
   if (nextVariantCount === currentVariantCount) {
     if (

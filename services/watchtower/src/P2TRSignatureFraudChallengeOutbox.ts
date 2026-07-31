@@ -1213,20 +1213,29 @@ const validateVersionedIndependentSignerBoundaryResolution = (
   const providerTombstone =
     resolution.providerTombstone === undefined
       ? undefined
-      : {
-          signerInvocationID: normalizeBytes32(
-            resolution.providerTombstone.signerInvocationID,
-            "Orphaned signer boundary tombstone invocation ID"
-          ),
-          receipt: normalizeHexData(
+      : (() => {
+          const receipt = normalizeHexData(
             resolution.providerTombstone.receipt,
             "Orphaned signer boundary tombstone receipt"
-          ),
-          tombstonedAtUnixMs: requireUnixMilliseconds(
-            resolution.providerTombstone.tombstonedAtUnixMs,
-            "Orphaned signer boundary tombstone time"
-          ),
-        }
+          )
+          const receiptBytes = (receipt.length - 2) / 2
+          if (receiptBytes < 1 || receiptBytes > 2_048) {
+            throw new Error(
+              "Orphaned signer boundary tombstone receipt must contain between 1 and 2048 bytes"
+            )
+          }
+          return {
+            signerInvocationID: normalizeBytes32(
+              resolution.providerTombstone.signerInvocationID,
+              "Orphaned signer boundary tombstone invocation ID"
+            ),
+            receipt,
+            tombstonedAtUnixMs: requireUnixMilliseconds(
+              resolution.providerTombstone.tombstonedAtUnixMs,
+              "Orphaned signer boundary tombstone time"
+            ),
+          }
+        })()
   if (
     providerTombstone !== undefined &&
     providerTombstone.signerInvocationID !== signerInvocationID
@@ -1579,6 +1588,7 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
     (record.signerInvocationStartedAtUnixMs !== undefined ||
       (record.preparedTransactionVariants?.length ?? 0) > 0 ||
       (record.unexpectedSignedArtifacts?.length ?? 0) > 0 ||
+      record.contestedNonceBurn !== undefined ||
       record.broadcastAttempts > 0)
   ) {
     throw new Error(
@@ -4012,6 +4022,13 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
 
+    // A signed burn may have been captured after the original boundary was
+    // concurrently resolved. It is nonce escape evidence just like any other
+    // signed envelope: never void or release the reservation underneath it.
+    if (current.contestedNonceBurn !== undefined) {
+      return current
+    }
+
     // A crash can occur after the non-signing allocator durably reserves a
     // nonce but before this record stores the returned binding. Reservation
     // calls are required to be idempotent for the record generation, so
@@ -5255,20 +5272,18 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     this.store.assertExternalIOTransactionBoundary()
     const key = normalizeBytes32(recordID, "Challenge outbox record ID")
     const current = await this.requireRecord(key)
+    if (current.contestedNonceBurn !== undefined) {
+      // Once bytes are durable they remain the only burn this record may send,
+      // even if the original signer boundary was independently resolved before
+      // a provider acknowledged them.
+      return this.broadcastPersistedContestedNonceBurn(key, current)
+    }
     if (current.activeSignerInvocationStartedAtUnixMs === undefined) {
       throw new Error(
         "Only a boundary with an unresolved signer invocation may burn its nonce"
       )
     }
     const reservation = requireReservedNonce(current, "Contested nonce burn")
-    if (current.contestedNonceBurn !== undefined) {
-      // Already forced. Re-broadcasting the exact same bytes is safe and is the
-      // only retry a burn ever needs.
-      await this.broadcaster.broadcastRawTransaction(
-        current.contestedNonceBurn.rawTransaction
-      )
-      return current
-    }
 
     const feePolicy = feePolicyForReservation(current, reservation)
     const envelope = contestedNonceBurnEnvelope(current, feePolicy, reservation)
@@ -5282,7 +5297,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       current,
       "burn",
       current.preparationAttempts,
-      feePolicy
+      contestedNonceBurnBoundaryFeePolicy(feePolicy, envelope)
     )
     const invocation = computeP2TRSignatureFraudSignerInvocationRequest(binding)
     const authorization =
@@ -5312,44 +5327,135 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Contested nonce burn signing time"
     )
-    const burned = nextRecord(current, {
-      contestedNonceBurn: {
-        transactionHash: normalizeBytes32(
-          signed.transactionHash,
-          "Contested nonce burn hash"
-        ),
-        rawTransaction: normalizeHexData(
-          signed.rawTransaction,
-          "Contested nonce burn bytes"
-        ),
-        nonce: signed.nonce,
-        sender: normalizeAddress(signed.sender, "Contested nonce burn sender"),
-        maxFeePerGas: signed.maxFeePerGas,
-        maxPriorityFeePerGas: signed.maxPriorityFeePerGas,
-        signerInvocationID: invocation.invocationID,
-        signedAtUnixMs,
-      },
+    const contestedNonceBurn: P2TRSignatureFraudContestedNonceBurn = {
+      transactionHash: normalizeBytes32(
+        signed.transactionHash,
+        "Contested nonce burn hash"
+      ),
+      rawTransaction: normalizeHexData(
+        signed.rawTransaction,
+        "Contested nonce burn bytes"
+      ),
+      nonce: signed.nonce,
+      sender: normalizeAddress(signed.sender, "Contested nonce burn sender"),
+      maxFeePerGas: signed.maxFeePerGas,
+      maxPriorityFeePerGas: signed.maxPriorityFeePerGas,
+      signerInvocationID: invocation.invocationID,
+      signedAtUnixMs,
+    }
+    let burned = nextRecord(current, {
+      contestedNonceBurn,
       updatedAtUnixMs: signedAtUnixMs,
     })
     if (!(await this.store.compareAndSwap(key, current.version, burned))) {
-      return this.requireRecord(key)
+      // Signed bytes already exist and may escape the signer even though a
+      // concurrent completion moved the record. Retain the exact burn on top
+      // of that durable state before permitting any lease recovery to consider
+      // the reservation releasable.
+      burned = await this.captureContestedNonceBurnAfterLostCas(
+        key,
+        contestedNonceBurn
+      )
     }
-    await this.broadcaster.broadcastRawTransaction(signed.rawTransaction)
-    const acknowledged = nextRecord(burned, {
-      contestedNonceBurn: {
-        ...burned.contestedNonceBurn!,
-        broadcastAtUnixMs: requireUnixMilliseconds(
-          this.now(),
-          "Contested nonce burn broadcast time"
-        ),
-      },
-      updatedAtUnixMs: requireUnixMilliseconds(
+    return this.broadcastPersistedContestedNonceBurn(key, burned)
+  }
+
+  private async captureContestedNonceBurnAfterLostCas(
+    recordID: string,
+    burn: P2TRSignatureFraudContestedNonceBurn
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    for (let retry = 0; retry < 8; retry++) {
+      const durable = await this.requireRecord(recordID)
+      if (durable.contestedNonceBurn !== undefined) {
+        const { broadcastAtUnixMs: _broadcastAtUnixMs, ...durableSignedBurn } =
+          durable.contestedNonceBurn
+        if (JSON.stringify(durableSignedBurn) !== JSON.stringify(burn)) {
+          throw new Error(
+            "A different contested nonce burn became durable while signing"
+          )
+        }
+        return durable
+      }
+      const capturedAtUnixMs = requireUnixMilliseconds(
         this.now(),
-        "Contested nonce burn acknowledgement time"
-      ),
-    })
-    await this.store.compareAndSwap(key, burned.version, acknowledged)
-    return this.requireRecord(key)
+        "Contested nonce burn capture time"
+      )
+      const captured = nextRecord(durable, {
+        contestedNonceBurn: burn,
+        updatedAtUnixMs: Math.max(durable.updatedAtUnixMs, capturedAtUnixMs),
+      })
+      if (
+        await this.store.compareAndSwap(recordID, durable.version, captured)
+      ) {
+        return captured
+      }
+    }
+    throw new Error("Contested nonce burn capture did not converge")
+  }
+
+  private async broadcastPersistedContestedNonceBurn(
+    recordID: string,
+    durable: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const burn = durable.contestedNonceBurn
+    if (burn === undefined) {
+      throw new Error("Contested nonce burn broadcast lacks durable bytes")
+    }
+    const returnedHash = normalizeBytes32(
+      await this.broadcaster.broadcastRawTransaction(burn.rawTransaction),
+      "Broadcast contested nonce burn hash"
+    )
+    const expectedHash = normalizeBytes32(
+      burn.transactionHash,
+      "Persisted contested nonce burn hash"
+    )
+    if (returnedHash !== expectedHash) {
+      const reason =
+        "Contested nonce burn broadcaster returned a hash that does not match the persisted raw transaction"
+      return this.quarantine(durable, reason)
+    }
+
+    for (let retry = 0; retry < 8; retry++) {
+      const current = await this.requireRecord(recordID)
+      const currentBurn = current.contestedNonceBurn
+      if (currentBurn === undefined) {
+        throw new Error(
+          "Persisted contested nonce burn disappeared after broadcast"
+        )
+      }
+      if (
+        normalizeBytes32(
+          currentBurn.transactionHash,
+          "Current contested nonce burn hash"
+        ) !== expectedHash
+      ) {
+        throw new Error(
+          "Persisted contested nonce burn changed after broadcast"
+        )
+      }
+      if (currentBurn.broadcastAtUnixMs !== undefined) return current
+      const acknowledgedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn broadcast acknowledgement time"
+      )
+      const acknowledged = nextRecord(current, {
+        contestedNonceBurn: {
+          ...currentBurn,
+          broadcastAtUnixMs: acknowledgedAtUnixMs,
+        },
+        updatedAtUnixMs: Math.max(
+          current.updatedAtUnixMs,
+          acknowledgedAtUnixMs
+        ),
+        lastError: undefined,
+      })
+      if (
+        await this.store.compareAndSwap(recordID, current.version, acknowledged)
+      ) {
+        return acknowledged
+      }
+    }
+    throw new Error("Contested nonce burn acknowledgement did not converge")
   }
 
   /**
@@ -5599,7 +5705,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     const postSendBoundary = current.broadcastAttempts > 0
     const signerBoundary =
       current.signerInvocationStartedAtUnixMs !== undefined ||
-      (current.preparedTransactionVariants?.length ?? 0) > 0
+      (current.preparedTransactionVariants?.length ?? 0) > 0 ||
+      current.contestedNonceBurn !== undefined
     const hasSignedVariants =
       (current.preparedTransactionVariants?.length ?? 0) > 0
     if (signerBoundary) {
@@ -6597,6 +6704,22 @@ const contestedNonceBurnEnvelope = (
     maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
   }
 }
+
+/** The exact zero-value, fixed-gas envelope authorized for the burn signer. */
+const contestedNonceBurnBoundaryFeePolicy = (
+  feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+  envelope: ReturnType<typeof contestedNonceBurnEnvelope>
+): P2TRSignatureFraudChallengeTransactionFeePolicy => ({
+  ...feePolicy,
+  challengeValueWei: "0",
+  maxGasLimit: P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT.toString(),
+  maxFeePerGas: envelope.maxFeePerGas,
+  maxPriorityFeePerGas: envelope.maxPriorityFeePerGas,
+  maxTotalFeeWei: (
+    BigInt(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT) *
+    BigInt(envelope.maxFeePerGas)
+  ).toString(),
+})
 
 const requireReservedNonce = (
   record: P2TRSignatureFraudChallengeOutboxRecord,

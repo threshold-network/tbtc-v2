@@ -767,6 +767,7 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
     migration,
     /orphaned signer boundary resolution requires a boundary with no signer escape evidence/
   )
+  assert.match(nonceFinalityMigration, /record_state \? 'contestedNonceBurn'/)
   assert.match(
     migration,
     /p2tr_signature_fraud_guard_signer_boundary_resolution_trigger BEFORE INSERT/

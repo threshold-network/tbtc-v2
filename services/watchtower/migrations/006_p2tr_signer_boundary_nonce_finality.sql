@@ -1,11 +1,10 @@
 -- Bind orphaned signer-boundary nonce-consumption evidence to an observed head
 -- and enforce the same two-epoch finality floor as ordinary reconciliation.
 --
--- Migration 003 is checksum-tracked and may already be present in production,
--- so this schema evolution must remain append-only. Existing v4 evidence rows
--- cannot be retroactively given an attested observed head. They are explicitly
--- marked as version 4 so the runtime can recognize an exact retry, while NOT
--- VALID constraints grandfather those immutable rows and enforce version 5
+-- Migration 003 creates v4 evidence in this pre-production migration series.
+-- Those rows cannot be retroactively given an attested observed head, so they
+-- are explicitly marked as version 4 and remain recognizable for exact retry.
+-- NOT VALID constraints grandfather those immutable rows and enforce version 5
 -- plus the complete v5 evidence shape for every new insert.
 
 INSERT INTO p2tr_watchtower_schema_version (component, version)
@@ -181,6 +180,7 @@ BEGIN
             outbox_record.signer_invocation_started_at_unix_ms IS NOT NULL
             OR outbox_record.prepared_transaction_hash IS NOT NULL
             OR outbox_record.broadcast_attempts > 0
+            OR outbox_record.record_state ? 'contestedNonceBurn'
             OR coalesce(
                    jsonb_array_length(
                        outbox_record.record_state -> 'unexpectedSignedArtifacts'
