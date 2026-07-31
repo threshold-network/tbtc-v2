@@ -33,6 +33,10 @@ const exactGasMigrationURL = new URL(
 )
 const exactGasMigrationSource = readFileSync(exactGasMigrationURL, "utf8")
 const exactGasMigration = exactGasMigrationSource.replace(/\s+/g, " ")
+const canonicalIndexMigration = readFileSync(
+  new URL("001_p2tr_canonical_index.sql", migrationsURL),
+  "utf8"
+).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -253,7 +257,11 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
   )
   assert.match(
     migration,
-    /router_domain_chain_id numeric\(78, 0\) NOT NULL CHECK \( router_domain_chain_id = domain_chain_id AND router_domain_chain_id = chain_id \)/
+    /router_domain_chain_id numeric\(78, 0\) NOT NULL CHECK \( router_domain_chain_id = domain_chain_id \)/
+  )
+  assert.doesNotMatch(
+    migration,
+    /router_domain_chain_id = domain_chain_id\s+AND router_domain_chain_id = chain_id/
   )
   assert.match(
     migration,
@@ -261,11 +269,26 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
   )
   assert.match(
     migration,
-    /signing_key <> wallet_id AND binding_tx_hash = canonical_funding_txid AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
+    /signing_key <> wallet_id AND binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
   )
   assert.match(
     migration,
     /UNIQUE \( chain_id, router_address, bridge_challenge_key, observation_id, intent_input_index, bitcoin_tx_hash, bitcoin_wtxid, canonical_candidate_provenance_generation, generation \)/
+  )
+})
+
+test("persists deposit binding hashes in the Bridge's native byte order", () => {
+  assert.match(
+    canonicalIndexMigration,
+    /CREATE FUNCTION p2tr_reverse_bytea\(value bytea\)[\s\S]*?ORDER BY byte_index DESC/
+  )
+  assert.match(
+    canonicalIndexMigration,
+    /binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\)/
+  )
+  assert.match(
+    migration,
+    /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\)/
   )
 })
 
@@ -813,6 +836,21 @@ test("applies the manifest recovery bound to health and blocking reasons", () =>
   assert.doesNotMatch(
     activationHandshakeSource,
     /if \(recoveryBacklogCount > 0\) reasons\.push\("preparation-recovery-backlog"\)/
+  )
+})
+
+test("counts unresolved Ethereum broadcasts in activation health", () => {
+  assert.match(
+    activationHandshakeSource,
+    /p2tr_signature_fraud_challenge_outbox_broadcast_attempt attempt[\s\S]*?LEFT JOIN p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement acknowledgement[\s\S]*?outbox\.status <> ALL[\s\S]*?newer\.attempt_number > attempt\.attempt_number[\s\S]*?acknowledgement\.record_id IS NULL[\s\S]*?acknowledgement\.result = 'ambiguous'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /ambiguousNonceReleaseCount \+ ambiguousBroadcastCount/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_challenge_outbox_broadcast_attempt a[\s\S]*?LEFT JOIN p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement x[\s\S]*?o\.status NOT IN[\s\S]*?newer\.attempt_number > a\.attempt_number[\s\S]*?x\.record_id IS NULL OR x\.result = 'ambiguous'/
   )
 })
 

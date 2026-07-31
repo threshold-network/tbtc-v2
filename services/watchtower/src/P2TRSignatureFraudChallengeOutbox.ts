@@ -6004,19 +6004,14 @@ const validateSchedulerOptions = (
       "Challenge outbox observation and immutable Router domain chains differ"
     )
   }
-  const liveChainID = normalizePositiveSafeIntegerLike(
+  normalizePositiveSafeIntegerLike(
     options.submissionIntent.chainID,
     "Submission transaction chain ID"
   )
-  const domainChainID = normalizePositiveSafeIntegerLike(
+  normalizePositiveSafeIntegerLike(
     options.submissionIntent.domainChainID,
     "Submission immutable domain chain ID"
   )
-  if (liveChainID !== domainChainID) {
-    throw new Error(
-      "Challenge outbox activation requires the live chain ID to match the immutable Router domain chain ID"
-    )
-  }
   if (
     normalizeAddress(domain.bridgeAddress, "Observation Bridge address") !==
     normalizeAddress(
@@ -6136,7 +6131,7 @@ const validateCompleteV2IntentObservationBinding = (
   const baseWalletKey = normalizedSigningKey === walletID
   const expectedBindingTxHash = baseWalletKey
     ? `0x${"00".repeat(32)}`
-    : normalizeBytes32(prevout.txid, "Observation funding txid")
+    : reverseBytes32(prevout.txid, "Observation funding txid")
   const expectedBindingOutputIndex = baseWalletKey ? 0 : prevout.vout
   const observedSignature = normalizeFixedBytes(
     observation.signature,
@@ -9826,6 +9821,11 @@ const normalizeBytes32 = (
   value: Hex | Buffer | string,
   label: string
 ): string => normalizeFixedBytes(value, 32, label)
+
+const reverseBytes32 = (value: Hex | Buffer | string, label: string): string =>
+  `0x${Buffer.from(normalizeBytes32(value, label).slice(2), "hex")
+    .reverse()
+    .toString("hex")}`
 
 const normalizeBytes20 = (
   value: Hex | Buffer | string,

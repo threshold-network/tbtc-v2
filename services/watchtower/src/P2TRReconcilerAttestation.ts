@@ -1122,7 +1122,10 @@ function normalizeCandidateRequest(
         evidence.bindingTxHash !== zero ||
         evidence.bindingOutputIndex !== 0
       : evidence.signingKey === evidence.walletID ||
-        evidence.bindingTxHash !== inputProvenance.fundingTxid ||
+        evidence.bindingTxHash !==
+          Buffer.from(inputProvenance.fundingTxid, "hex")
+            .reverse()
+            .toString("hex") ||
         evidence.bindingOutputIndex !== inputProvenance.fundingVout)
   ) {
     throw new Error(

@@ -107,7 +107,6 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     ),
     router_domain_chain_id numeric(78, 0) NOT NULL CHECK (
         router_domain_chain_id = domain_chain_id
-        AND router_domain_chain_id = chain_id
     ),
     complete_authorization_registry_address bytea NOT NULL CHECK (octet_length(complete_authorization_registry_address) = 20),
     complete_authorization_registry_code_hash bytea NOT NULL CHECK (octet_length(complete_authorization_registry_code_hash) = 32),
@@ -205,7 +204,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
         OR
         (
             signing_key <> wallet_id
-            AND binding_tx_hash = canonical_funding_txid
+            AND binding_tx_hash = p2tr_reverse_bytea(canonical_funding_txid)
             AND binding_output_index = canonical_funding_vout
             AND canonical_input_binding_kind = 'deposit-binding'
         )
@@ -5479,26 +5478,59 @@ AS $$
              )
            )::bigint,
            (
-             SELECT count(*)
-               FROM p2tr_signature_fraud_challenge_nonce_release_request r
-               JOIN LATERAL (
-                 SELECT x.result_kind
-                   FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
-                   LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
-                     ON x.release_request_id = a.release_request_id
-                    AND x.attempt_sequence = a.attempt_sequence
-                  WHERE a.release_request_id = r.release_request_id
-                  ORDER BY a.attempt_sequence DESC
-                  LIMIT 1
-               ) latest ON true
-              WHERE NOT EXISTS (
-                    SELECT 1
-                      FROM p2tr_signature_fraud_challenge_nonce_release_terminal ok
-                     WHERE ok.release_request_id = r.release_request_id
+             (
+               SELECT count(*)
+                 FROM p2tr_signature_fraud_challenge_nonce_release_request r
+                 JOIN LATERAL (
+                   SELECT x.result_kind
+                     FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                     LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+                       ON x.release_request_id = a.release_request_id
+                      AND x.attempt_sequence = a.attempt_sequence
+                    WHERE a.release_request_id = r.release_request_id
+                    ORDER BY a.attempt_sequence DESC
+                    LIMIT 1
+                 ) latest ON true
+                WHERE NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_nonce_release_terminal ok
+                       WHERE ok.release_request_id = r.release_request_id
+                  )
+                  AND (latest.result_kind IS NULL OR latest.result_kind NOT IN (
+                      'released', 'already-released'
+                  ))
+             ) + (
+               SELECT count(*)
+                 FROM p2tr_signature_fraud_challenge_outbox_broadcast_attempt a
+                 JOIN p2tr_signature_fraud_challenge_outbox o
+                   ON o.record_id = a.record_id
+                  AND o.generation = a.generation
+                 LEFT JOIN p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement x
+                   ON x.record_id = a.record_id
+                  AND x.generation = a.generation
+                  AND x.variant_sequence = a.variant_sequence
+                  AND x.attempt_number = a.attempt_number
+                WHERE o.status NOT IN (
+                    'accepted-own',
+                    'satisfied-external',
+                    'terminal-reverted',
+                    'terminal-nonce-consumed',
+                    'generation-required',
+                    'cancelled-before-broadcast',
+                    'cancelled-honest-spend',
+                    'cancelled-reorg',
+                    'cancelled-provenance-invalidated'
                 )
-                AND (latest.result_kind IS NULL OR latest.result_kind NOT IN (
-                    'released', 'already-released'
-                ))
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_outbox_broadcast_attempt newer
+                       WHERE newer.record_id = a.record_id
+                         AND newer.generation = a.generation
+                         AND newer.variant_sequence = a.variant_sequence
+                         AND newer.attempt_number > a.attempt_number
+                  )
+                  AND (x.record_id IS NULL OR x.result = 'ambiguous')
+             )
            )::bigint,
            (
              SELECT count(*)

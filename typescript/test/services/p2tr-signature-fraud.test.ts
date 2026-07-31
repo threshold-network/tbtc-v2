@@ -2041,11 +2041,18 @@ describe("P2TR signature-fraud witness parsing", () => {
       const tweakedPayload = expectedCompleteV2Payload({
         walletID: tweakedWalletID,
         signingKey: signingKey.toPrefixedString(),
-        bindingTxHash: signedPrevout.txid.toString(),
+        bindingTxHash: Hex.from(signedPrevout.txid).reverse().toString(),
         bindingOutputIndex: signedPrevout.vout,
         sighash: vector.expectedBip341SighashHex,
         signature: vector.bip340SignatureHex,
       })
+      expect(tweakedEvidence.bindingTxHash.toPrefixedString()).to.equal(
+        utils.hexlify(
+          Transaction.fromHex(rawTransaction.transactionHex).ins[
+            vector.signedInputIndex
+          ].hash
+        )
+      )
       const tweakedIdentity = expectedCompleteV2Identity({
         chainID: completeV2ReferenceDomain.chainID,
         bridgeAddress: completeV2ReferenceDomain.bridgeAddress,

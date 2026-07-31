@@ -1530,9 +1530,9 @@ const scheduler = (store: InMemoryOutboxStore) =>
     },
   })
 
-test("fails activation when live and immutable COMPLETE_V2 chain domains differ", () => {
+test("keeps the live envelope chain separate from the immutable Router domain", () => {
   const store = new InMemoryOutboxStore()
-  assert.throws(
+  assert.doesNotThrow(
     () =>
       new P2TRSignatureFraudChallengeOutboxScheduler(store, {
         submissionIntent: {
@@ -1553,8 +1553,7 @@ test("fails activation when live and immutable COMPLETE_V2 chain domains differ"
             bridgeAddress: BRIDGE_ADDRESS,
           },
         },
-      }),
-    /live chain ID to match the immutable Router domain chain ID/
+      })
   )
 })
 

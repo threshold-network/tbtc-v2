@@ -962,7 +962,7 @@ export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
   const isBaseWalletKey = signingKey.equals(walletID)
   const bindingTxHash = isBaseWalletKey
     ? Hex.from(`0x${"00".repeat(32)}`)
-    : toBytes32Hex(prevout.txid, "COMPLETE_V2 deposit binding txid")
+    : toBytes32Hex(prevout.txid, "COMPLETE_V2 deposit binding txid").reverse()
   const bindingOutputIndex = isBaseWalletKey
     ? 0
     : requireUint32(prevout.vout, "COMPLETE_V2 deposit binding output index")
