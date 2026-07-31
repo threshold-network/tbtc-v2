@@ -525,6 +525,7 @@ export class PostgresP2TRCanonicalIndexStore
     let readinessFenceLocked = false
     let transactionPhase: "begin" | "active" | "commit" | "finished" = "begin"
     let releaseError: Error | boolean | undefined
+    let operationFailed = false
     let operationError: unknown
     let unlockError: Error | undefined
     let result!: T
@@ -632,6 +633,7 @@ export class PostgresP2TRCanonicalIndexStore
         throw error
       }
     } catch (error) {
+      operationFailed = true
       operationError = error
     } finally {
       if (readinessFenceLocked && releaseError === undefined) {
@@ -659,7 +661,7 @@ export class PostgresP2TRCanonicalIndexStore
       }
       rawClient.release(releaseError)
     }
-    if (operationError !== undefined) throw operationError
+    if (operationFailed) throw operationError
     if (unlockError !== undefined) throw unlockError
     return result
   }

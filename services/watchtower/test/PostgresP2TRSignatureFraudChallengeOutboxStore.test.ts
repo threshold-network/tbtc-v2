@@ -36,6 +36,7 @@ import {
   P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA,
   PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider,
   type P2TROutboxCurrentReadinessCertificate,
+  type P2TRPostgresOutboxTransactionSession,
 } from "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
 import {
   assertP2TRProductionOutboxHandshake,
@@ -806,6 +807,34 @@ const activationRequest = {
     },
   },
 }
+
+test("freezes signer-lane installation while readiness is current", async () => {
+  const queries: string[] = []
+  const session: P2TRPostgresOutboxTransactionSession = {
+    async query<Row>(text: string): Promise<{
+      rows: Row[]
+      rowCount: number | null
+    }> {
+      queries.push(text)
+      if (text.includes("p2tr_readiness_certificates")) {
+        return {
+          rows: [{ readiness_is_current: true } as Row],
+          rowCount: 1,
+        }
+      }
+      throw new Error("signer-lane INSERT must not run")
+    },
+  }
+  const store = createStore(session as unknown as PostgreSQLClient)
+
+  await assert.rejects(
+    store.installSignerLaneConfiguration(signerConfiguration()),
+    /Signer lane configuration is frozen while readiness is current/
+  )
+  assert.equal(queries.length, 1)
+  assert.match(queries[0], /p2tr_readiness_certificates/)
+  assert.doesNotMatch(queries[0], /INSERT INTO/)
+})
 
 postgresTest(
   "keeps eligibility enqueue and caller cursor effects atomic and invisible until commit",

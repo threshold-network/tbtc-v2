@@ -274,6 +274,32 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     ) {
       throw new Error("Signer lane configuration hash is invalid")
     }
+    // Every outbox operation enters the coordinator's shared pre-snapshot
+    // fence before BEGIN. If this writer wins the fence, readiness revalidates
+    // the inserted lane before minting; if readiness wins, its committed
+    // certificate is visible here after the shared fence is acquired.
+    const readiness = await this.options.session.query<{
+      readiness_is_current: boolean
+    }>(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM p2tr_readiness_certificates
+           WHERE is_current
+             AND manifest_hash = decode($1, 'hex')
+       ) AS readiness_is_current`,
+      [stripHex(normalized.activationManifestHash)]
+    )
+    if (
+      readiness.rows.length !== 1 ||
+      typeof readiness.rows[0].readiness_is_current !== "boolean"
+    ) {
+      throw new Error("Current readiness certificate state is unavailable")
+    }
+    if (readiness.rows[0].readiness_is_current) {
+      throw new Error(
+        "Signer lane configuration is frozen while readiness is current"
+      )
+    }
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_signer_lane_configuration (
           activation_manifest_hash, chain_id, policy_hash, signer_lane_id,

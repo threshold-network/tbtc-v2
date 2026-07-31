@@ -158,12 +158,35 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       /fail cycle/
     )
 
-    assert.deepEqual(pool.client.statements.slice(0, 2), [
+    assert.match(
+      pool.client.statements[0],
+      /pg_advisory_lock_shared\(hashtextextended\('p2tr-readiness-pre-snapshot-fence'/
+    )
+    assert.deepEqual(pool.client.statements.slice(1, 3), [
       "BEGIN ISOLATION LEVEL SERIALIZABLE",
       "SELECT set_config('statement_timeout', $1, true)",
     ])
-    assert.equal(pool.client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(pool.client.statements), "ROLLBACK")
     assert.equal(pool.client.released, true)
+    assert.equal(pool.client.releaseArgument, undefined)
+  })
+
+  it("propagates a callback rejection whose reason is undefined", async () => {
+    const pool = new FakePool()
+    const store = new PostgresP2TRCanonicalIndexStore(pool, storeOptions())
+
+    const outcome = await store
+      .runInP2TRSignatureFraudWatchtowerTransaction(() => Promise.reject())
+      .then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason })
+      )
+
+    assert.equal(outcome.status, "rejected")
+    if (outcome.status === "rejected") {
+      assert.equal(outcome.reason, undefined)
+    }
+    assert.equal(lastTransactionCommand(pool.client.statements), "ROLLBACK")
     assert.equal(pool.client.releaseArgument, undefined)
   })
 
@@ -183,7 +206,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       (error) => error === operationError
     )
 
-    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
     assert.equal(client.releaseArgument, rollbackError)
   })
 
@@ -202,7 +225,9 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       (error) => error === beginError
     )
 
-    assert.deepEqual(client.statements, ["BEGIN ISOLATION LEVEL SERIALIZABLE"])
+    assert.deepEqual(transactionCommands(client.statements), [
+      "BEGIN ISOLATION LEVEL SERIALIZABLE",
+    ])
     assert.equal(client.releaseArgument, beginError)
   })
 
@@ -239,7 +264,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     )
 
     assert.equal(invocations, 1)
-    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
     assert.equal(client.statements.includes("COMMIT"), false)
     assert.equal(client.releaseArgument, undefined)
   })
@@ -277,7 +302,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
         return true
       }
     )
-    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
   })
 
   it("never infers a confirmed abort from an arbitrary callback error code", async () => {
@@ -304,7 +329,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     )
 
     assert.equal(invocations, 1)
-    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
   })
 
   it("surfaces a server 40001 during COMMIT as a confirmed abort", async () => {
@@ -334,7 +359,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     )
 
     assert.equal(invocations, 1)
-    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(lastTransactionCommand(client.statements), "COMMIT")
     assert.equal(client.statements.includes("ROLLBACK"), false)
     assert.equal(client.releaseArgument, undefined)
   })
@@ -356,7 +381,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       }
     )
 
-    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(lastTransactionCommand(client.statements), "COMMIT")
     assert.equal(client.statements.includes("ROLLBACK"), false)
     assert.equal(client.releaseArgument, commitError)
   })
@@ -379,7 +404,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       }
     )
 
-    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(lastTransactionCommand(client.statements), "COMMIT")
     assert.equal(client.statements.includes("ROLLBACK"), false)
     assert.equal(client.releaseArgument, undefined)
   })
@@ -449,7 +474,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       ).length,
       1
     )
-    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
   })
 
   it("creates store-owned adapters with a transaction-scoped query capability", async () => {
@@ -516,7 +541,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
         ).readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(error),
         undefined
       )
-      assert.equal(pool.client.statements.at(-1), "ROLLBACK")
+      assert.equal(lastTransactionCommand(pool.client.statements), "ROLLBACK")
     }
   })
 
@@ -662,7 +687,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       ]),
       /1-item capacity/
     )
-    assert.equal(pool.client.statements.at(-1), "ROLLBACK")
+    assert.equal(lastTransactionCommand(pool.client.statements), "ROLLBACK")
     assert.equal(
       pool.client.statements.some((statement) =>
         statement.includes("UPDATE p2tr_bitcoin_cursor")
@@ -699,7 +724,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       ).length,
       2
     )
-    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(lastTransactionCommand(client.statements), "COMMIT")
   })
 })
 
@@ -736,6 +761,9 @@ class FakeClient implements P2TRPostgresClient {
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
       return { rows: [{ version: 3 } as Row], rowCount: 1 }
+    }
+    if (text.includes("pg_advisory_unlock")) {
+      return { rows: [{ unlocked: true } as Row], rowCount: 1 }
     }
     if (text.includes("p2tr_assert_complete_authorization_domain")) {
       const chainID = BigInt(String(values?.[1]))
@@ -775,6 +803,21 @@ class FakeClient implements P2TRPostgresClient {
     this.released = true
     this.releaseArgument = error
   }
+}
+
+function transactionCommands(statements: readonly string[]): string[] {
+  return statements.filter(
+    (statement) =>
+      statement === "BEGIN ISOLATION LEVEL SERIALIZABLE" ||
+      statement === "COMMIT" ||
+      statement === "ROLLBACK"
+  )
+}
+
+function lastTransactionCommand(
+  statements: readonly string[]
+): string | undefined {
+  return transactionCommands(statements).at(-1)
 }
 
 class PendingCapClient extends FakeClient {

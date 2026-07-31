@@ -148,6 +148,9 @@ class ReadinessClient implements P2TRPostgresClient {
         : CANONICAL_EVIDENCE_SCHEMA_VERSION
       return { rows: [{ version }] as Row[], rowCount: 1 }
     }
+    if (text.includes("pg_advisory_unlock")) {
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
     // Reproduce the persisted-digest SQL assertions the coordinator issues
     // before every transaction, exactly as the stored functions compute them.
     if (text.includes("p2tr_assert_complete_authorization_domain")) {
