@@ -74,12 +74,12 @@ const journalOptions = {
 }
 
 /**
- * The coordinator asserts migration 3 of `canonical-evidence-index`; the
+ * The coordinator asserts migration 4 of `canonical-evidence-index`; the
  * Ethereum journal adapter asserts migration 1 of `canonical-ethereum-journal`.
  * They are independent components, so the fixture answers each query with the
  * version its own owner requires.
  */
-const CANONICAL_EVIDENCE_SCHEMA_VERSION = 3
+const CANONICAL_EVIDENCE_SCHEMA_VERSION = 4
 const CANONICAL_ETHEREUM_JOURNAL_SCHEMA_VERSION = 1
 
 function coordinatorFor(client: P2TRPostgresClient) {

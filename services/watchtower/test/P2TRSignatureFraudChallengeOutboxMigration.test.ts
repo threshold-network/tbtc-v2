@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { readdirSync, readFileSync } from "node:fs"
 import test from "node:test"
 
@@ -9,8 +10,16 @@ const migrationURL = new URL(
 )
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
-const canonicalIndexMigration = readFileSync(
+const canonicalIndexMigrationSource = readFileSync(
   new URL("001_p2tr_canonical_index.sql", migrationsURL),
+  "utf8"
+)
+const canonicalIndexMigration = canonicalIndexMigrationSource.replace(
+  /\s+/g,
+  " "
+)
+const depositBindingByteOrderMigration = readFileSync(
+  new URL("005_p2tr_deposit_binding_byte_order.sql", migrationsURL),
   "utf8"
 ).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
@@ -225,6 +234,14 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
     migration,
     /router_domain_chain_id numeric\(78, 0\) NOT NULL CHECK \( router_domain_chain_id = domain_chain_id \)/
   )
+  assert.match(
+    migration,
+    /fraud_challenge_deposit_amount numeric\(78, 0\) NOT NULL CHECK \( fraud_challenge_deposit_amount >= 0 \)/
+  )
+  assert.match(
+    migration,
+    /canonicalEthereumEligibility,fraudChallengeDepositAmount[\s\S]*?IS DISTINCT FROM NEW\.fraud_challenge_deposit_amount/
+  )
   assert.doesNotMatch(
     migration,
     /router_domain_chain_id = domain_chain_id\s+AND router_domain_chain_id = chain_id/
@@ -235,25 +252,43 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
   )
   assert.match(
     migration,
-    /signing_key <> wallet_id AND binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
+    /signing_key <> wallet_id AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
   )
   assert.match(
     migration,
     /UNIQUE \( chain_id, router_address, bridge_challenge_key, observation_id, intent_input_index, bitcoin_tx_hash, bitcoin_wtxid, canonical_candidate_provenance_generation, generation \)/
   )
+  assert.match(
+    migration,
+    /NEW\.generation_cause = 'provenance-restored'[\s\S]*?\(prior_record\.intent_id = NEW\.intent_id\)[\s\S]*?\(prior_record\.value_wei = NEW\.value_wei\)/
+  )
 })
 
 test("persists deposit binding hashes in the Bridge's native byte order", () => {
+  assert.equal(
+    createHash("sha256").update(canonicalIndexMigrationSource).digest("hex"),
+    "eb3df79d26d90b9acb59db776aacecb99b26a1788685f15dd4501cd95159c5cf"
+  )
+  assert.doesNotMatch(canonicalIndexMigration, /p2tr_reverse_bytea/)
   assert.match(
-    canonicalIndexMigration,
+    depositBindingByteOrderMigration,
     /CREATE FUNCTION p2tr_reverse_bytea\(value bytea\)[\s\S]*?ORDER BY byte_index DESC/
   )
+  assert.match(canonicalIndexMigration, /binding_tx_hash = local_funding_txid/)
   assert.match(
-    canonicalIndexMigration,
+    depositBindingByteOrderMigration,
+    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\) WHERE binding_kind = 'deposit'/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
     /binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\)/
   )
   assert.match(
-    migration,
+    depositBindingByteOrderMigration,
+    /component = 'canonical-evidence-index' AND version = 3/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
     /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\)/
   )
 })

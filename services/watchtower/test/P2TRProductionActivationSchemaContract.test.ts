@@ -176,6 +176,18 @@ describe("production activation PostgreSQL schema contract", () => {
     )
   })
 
+  it("declares and validates the database-enforced outbox capacity", () => {
+    assert.match(activationGate, /maxActiveOutboxRecords: number/)
+    assert.match(
+      activationGate,
+      /positiveInteger\(\s*outbox\.maxActiveOutboxRecords,[\s\S]*?maxActiveOutboxRecords > 1_000_000/
+    )
+    assert.match(
+      outboxMigration,
+      /payload #>> '\{outbox,maxActiveOutboxRecords\}'/
+    )
+  })
+
   it("revalidates the readiness certificate CAS without localizing provider heads", () => {
     const lock = methodSource(
       activationStore,

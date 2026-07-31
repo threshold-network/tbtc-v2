@@ -67,6 +67,9 @@ describe(
         for (const filename of [
           "001_p2tr_canonical_index.sql",
           "002_p2tr_canonical_ethereum.sql",
+          "003_p2tr_signature_fraud_challenge_outbox.sql",
+          "004_p2tr_candidate_enqueue_retry_alerts.sql",
+          "005_p2tr_deposit_binding_byte_order.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -1966,6 +1969,9 @@ const withIntegrationStore = async (
     for (const filename of [
       "001_p2tr_canonical_index.sql",
       "002_p2tr_canonical_ethereum.sql",
+      "003_p2tr_signature_fraud_challenge_outbox.sql",
+      "004_p2tr_candidate_enqueue_retry_alerts.sql",
+      "005_p2tr_deposit_binding_byte_order.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),

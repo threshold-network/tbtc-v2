@@ -113,6 +113,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     complete_authorization_registry_protocol_id bytea NOT NULL CHECK (octet_length(complete_authorization_registry_protocol_id) = 32),
     complete_reservation_model bytea NOT NULL CHECK (octet_length(complete_reservation_model) = 32),
     ethereum_eligibility_read_set_hash bytea NOT NULL CHECK (octet_length(ethereum_eligibility_read_set_hash) = 32),
+    fraud_challenge_deposit_amount numeric(78, 0) NOT NULL CHECK (
+        fraud_challenge_deposit_amount >= 0
+    ),
     canonical_provenance_journal_store_id text NOT NULL CHECK (
         length(canonical_provenance_journal_store_id) BETWEEN 1 AND 128
     ),
@@ -204,7 +207,6 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
         OR
         (
             signing_key <> wallet_id
-            AND binding_tx_hash = p2tr_reverse_bytea(canonical_funding_txid)
             AND binding_output_index = canonical_funding_vout
             AND canonical_input_binding_kind = 'deposit-binding'
         )
@@ -3461,7 +3463,10 @@ BEGIN
             '0x' || encode(NEW.series_id, 'hex')
        OR (NEW.record_state ->> 'generation')::integer <> NEW.generation
        OR (NEW.record_state ->> 'version')::bigint <> NEW.version
-       OR NEW.record_state ->> 'status' <> NEW.status THEN
+       OR NEW.record_state ->> 'status' <> NEW.status
+       OR (NEW.record_state #>>
+              '{canonicalEthereumEligibility,fraudChallengeDepositAmount}')::numeric
+              IS DISTINCT FROM NEW.fraud_challenge_deposit_amount THEN
         RAISE EXCEPTION 'serialized P2TR outbox state does not match its normalized generation key';
     END IF;
 
@@ -3505,7 +3510,6 @@ BEGIN
 
     IF NOT FOUND
        OR prior_record.series_id <> NEW.series_id
-       OR prior_record.intent_id <> NEW.intent_id
        OR prior_record.generation + 1 <> NEW.generation
        OR prior_record.chain_id <> NEW.chain_id
        OR prior_record.bridge_address <> NEW.bridge_address
@@ -3515,7 +3519,6 @@ BEGIN
        OR prior_record.bridge_challenge_identity <> NEW.bridge_challenge_identity
        OR prior_record.sighash <> NEW.sighash
        OR prior_record.calldata <> NEW.calldata
-       OR prior_record.value_wei <> NEW.value_wei
        OR prior_record.bitcoin_tx_hash <> NEW.bitcoin_tx_hash
        OR prior_record.bitcoin_wtxid <> NEW.bitcoin_wtxid
        OR prior_record.bitcoin_input_index <> NEW.bitcoin_input_index
@@ -3542,7 +3545,9 @@ BEGIN
        OR (
            NEW.generation_cause <> 'provenance-restored'
            AND (
-               prior_record.fee_policy_hash <> NEW.fee_policy_hash
+               prior_record.intent_id <> NEW.intent_id
+               OR prior_record.value_wei <> NEW.value_wei
+               OR prior_record.fee_policy_hash <> NEW.fee_policy_hash
                OR prior_record.activation_manifest_hash <>
                     NEW.activation_manifest_hash
                OR prior_record.router_code_hash <> NEW.router_code_hash
@@ -3555,6 +3560,13 @@ BEGIN
                     NEW.complete_authorization_registry_protocol_id
                OR prior_record.complete_reservation_model <>
                     NEW.complete_reservation_model
+           )
+       )
+       OR (
+           NEW.generation_cause = 'provenance-restored'
+           AND (
+               (prior_record.intent_id = NEW.intent_id) <>
+                   (prior_record.value_wei = NEW.value_wei)
            )
        ) THEN
         RAISE EXCEPTION 'P2TR challenge generation does not extend the exact prior intent';
@@ -3778,6 +3790,7 @@ BEGIN
         NEW.complete_authorization_registry_protocol_id,
         NEW.complete_reservation_model,
         NEW.ethereum_eligibility_read_set_hash,
+        NEW.fraud_challenge_deposit_amount,
         NEW.canonical_provenance_journal_store_id,
         NEW.canonical_provenance_descriptor_set_hash,
         NEW.canonical_provenance_through_block_number,
@@ -3859,6 +3872,7 @@ BEGIN
         OLD.complete_authorization_registry_protocol_id,
         OLD.complete_reservation_model,
         OLD.ethereum_eligibility_read_set_hash,
+        OLD.fraud_challenge_deposit_amount,
         OLD.canonical_provenance_journal_store_id,
         OLD.canonical_provenance_descriptor_set_hash,
         OLD.canonical_provenance_through_block_number,

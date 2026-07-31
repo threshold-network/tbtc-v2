@@ -108,6 +108,10 @@ async function createTestDatabase(
       "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
       import.meta.url
     ),
+    new URL(
+      "../migrations/005_p2tr_deposit_binding_byte_order.sql",
+      import.meta.url
+    ),
   ]) {
     await client.query(await readFile(migration, "utf8"))
   }
@@ -505,6 +509,7 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
       routerBridgeAddress: intent.bridgeAddress,
       routerChallengeKey: intent.bridgeChallengeKey.toPrefixedString(),
       routerChallengeAbsent: true,
+      fraudChallengeDepositAmount: "1234",
       completeAuthorizationRegistryAddress:
         COMPLETE_AUTHORIZATION_REGISTRY_ADDRESS,
       completeAuthorizationRegistryCodeHash: hex(20),
@@ -786,6 +791,7 @@ function outboxManifest(databaseConstraintHash: string) {
     replacementPolicy: "append-only-same-intent-fee-bump-v1" as const,
     migrationVersion: 3 as const,
     migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
+    maxActiveOutboxRecords: 1_024,
     maxRecoveryBacklog: 0,
     senderLanes: [
       {

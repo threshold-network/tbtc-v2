@@ -132,6 +132,8 @@ export type P2TRSignatureFraudCanonicalEthereumEligibilityEvidence = {
   routerBridgeAddress: string
   routerChallengeKey: string
   routerChallengeAbsent: true
+  /** Finalized Bridge fraudChallengeDepositAmount at readAtBlockNumber. */
+  fraudChallengeDepositAmount: string
   completeAuthorizationRegistryAddress: string
   completeAuthorizationRegistryCodeHash: string
   completeAuthorizationRegistryProtocolID: string
@@ -5278,11 +5280,14 @@ const validateSeriesHead = (
   feePolicyManifest: P2TRSignatureFraudChallengeFeePolicyManifest,
   allowManifestBoundPolicyRotation = false
 ): void => {
+  const sameIntent = intentKey(head.intent) === intentKey(intent)
   if (
     normalizeBytes32(head.seriesID, "Stored outbox series ID") !==
       normalizeBytes32(seriesID, "Expected outbox series ID") ||
     computeP2TRSignatureFraudOutboxSeriesID(head.intent) !== seriesID ||
-    intentKey(head.intent) !== intentKey(intent) ||
+    (!sameIntent &&
+      (!allowManifestBoundPolicyRotation ||
+        !sameSubmissionIntentExceptValue(head.intent, intent))) ||
     (!allowManifestBoundPolicyRotation &&
       normalizeBytes32(
         head.feePolicyManifest.policyHash,
@@ -5299,6 +5304,38 @@ const validateSeriesHead = (
       "Challenge outbox series head does not match the canonical submission identity"
     )
   }
+}
+
+const sameSubmissionIntentExceptValue = (
+  left: P2TRSignatureFraudSubmissionIntent,
+  right: P2TRSignatureFraudSubmissionIntent
+): boolean => {
+  const {
+    intentID: _leftIntentID,
+    value: _leftValue,
+    ...leftWithoutValue
+  } = left
+  const {
+    intentID: _rightIntentID,
+    value: _rightValue,
+    ...rightWithoutValue
+  } = right
+  return (
+    normalizeBytes32(
+      computeP2TRSignatureFraudSubmissionIntentID({
+        ...leftWithoutValue,
+        value: "0",
+      }),
+      "Prior submission intent without value"
+    ) ===
+    normalizeBytes32(
+      computeP2TRSignatureFraudSubmissionIntentID({
+        ...rightWithoutValue,
+        value: "0",
+      }),
+      "Restored submission intent without value"
+    )
+  )
 }
 
 const validateNonceDispositionSuccessor = (
@@ -5982,6 +6019,10 @@ const normalizeEthereumEligibilityReadSet = (
     "Ethereum eligibility Router challenge key"
   ),
   routerChallengeAbsent: evidence.routerChallengeAbsent,
+  fraudChallengeDepositAmount: normalizeUnsignedDecimal(
+    evidence.fraudChallengeDepositAmount,
+    "Ethereum eligibility fraud challenge deposit amount"
+  ),
   completeAuthorizationRegistryAddress: normalizeAddress(
     evidence.completeAuthorizationRegistryAddress,
     "Ethereum eligibility COMPLETE authorization registry address"
@@ -6102,6 +6143,14 @@ const validateCanonicalEthereumEligibility = (
   ) {
     throw new Error(
       "Canonical Ethereum eligibility does not match the activation manifest and exact challenge identity"
+    )
+  }
+  if (
+    BigInt(normalizeUnsignedDecimal(intent.value, "Submission intent value")) <
+    BigInt(normalized.fraudChallengeDepositAmount)
+  ) {
+    throw new Error(
+      "Submission intent does not cover the finalized Bridge fraud challenge deposit"
     )
   }
   const expectedReadSetHash =
@@ -7427,15 +7476,9 @@ const validateCanonicalAcceptedTransaction = (
       "Canonical accepted transaction calldata"
     ) !== normalizeHexData(intent.calldata, "Submission intent calldata") ||
     transactionValue !== intentValue
-  const externalDepositTooSmall = BigInt(transactionValue) < BigInt(intentValue)
-  if (
-    (requireExactIntent && exactIntentMismatch) ||
-    (!requireExactIntent && externalDepositTooSmall)
-  ) {
+  if (requireExactIntent && exactIntentMismatch) {
     throw new Error(
-      requireExactIntent
-        ? "Canonical own transaction does not match the durable call intent"
-        : "Canonical external transaction does not cover the required challenge deposit"
+      "Canonical own transaction does not match the durable call intent"
     )
   }
   normalizeAddress(transaction.sender, "Canonical accepted transaction sender")

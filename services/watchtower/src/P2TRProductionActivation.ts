@@ -313,6 +313,7 @@ export type P2TRProductionActivationManifest = {
     replacementPolicy: "append-only-same-intent-fee-bump-v1"
     migrationVersion: 3
     migrationChecksum: string
+    maxActiveOutboxRecords: number
     maxRecoveryBacklog: number
     senderLanes: readonly {
       laneID: string
@@ -1849,6 +1850,15 @@ function validateManifestShape(
     "outbox handshake operator fingerprint"
   )
   bytes32(outbox.migrationChecksum, "outbox migration checksum")
+  const maxActiveOutboxRecords = positiveInteger(
+    outbox.maxActiveOutboxRecords,
+    "outbox active-record capacity"
+  )
+  if (maxActiveOutboxRecords > 1_000_000) {
+    throw new Error(
+      "Outbox active-record capacity exceeds its 1000000-record bound"
+    )
+  }
   nonNegativeInteger(outbox.maxRecoveryBacklog, "outbox recovery backlog bound")
   if (outbox.senderLanes.length < 2 || outbox.senderLanes.length > 16) {
     throw new Error("Outbox requires two to sixteen independent sender lanes")

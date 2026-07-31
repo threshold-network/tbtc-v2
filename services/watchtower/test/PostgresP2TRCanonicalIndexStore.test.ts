@@ -769,7 +769,7 @@ class FakeClient implements P2TRPostgresClient {
       return { rows: [{ lock_timeout: "0" } as Row], rowCount: 1 }
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
-      return { rows: [{ version: 3 } as Row], rowCount: 1 }
+      return { rows: [{ version: 4 } as Row], rowCount: 1 }
     }
     if (text.includes("pg_advisory_unlock")) {
       return { rows: [{ unlocked: true } as Row], rowCount: 1 }

@@ -4216,6 +4216,7 @@ const DURABLE_ETHEREUM_ELIGIBILITY_KEYS = new Set([
   "routerBridgeAddress",
   "routerChallengeKey",
   "routerChallengeAbsent",
+  "fraudChallengeDepositAmount",
   "completeAuthorizationRegistryAddress",
   "completeAuthorizationRegistryCodeHash",
   "completeAuthorizationRegistryProtocolID",
@@ -5084,6 +5085,10 @@ function outboxInsertColumns(
         record.canonicalEthereumEligibility.readSetHash,
         "Eligibility read-set hash"
       )
+    ),
+    fraud_challenge_deposit_amount: unsignedDecimal(
+      record.canonicalEthereumEligibility.fraudChallengeDepositAmount,
+      "Eligibility fraud challenge deposit amount"
     ),
     canonical_provenance_journal_store_id:
       record.canonicalProvenance.journalStoreID,
