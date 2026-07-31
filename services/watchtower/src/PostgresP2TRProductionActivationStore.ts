@@ -177,11 +177,11 @@ export class PostgresP2TRProductionActivationStore
   /**
    * Re-derives the outbox facts the signed handshake attested to. The
    * handshake is sampled in the outbox's own already-committed transaction, so
-   * on its own it says nothing about the moment readiness is minted. Reading
-   * these inside the readiness transaction makes them part of its read set,
-   * which is what binds the certificate to a live outbox state rather than a
-   * stale sample. Preparation leases expire on the clock rather than on a
-   * write, so the backlog is returned for a bound check, not for equality.
+   * on its own it says nothing about the moment readiness is minted. The
+   * coordinator's pre-snapshot exclusive fence stabilizes outbox writers while
+   * these facts are read and the certificate is inserted. Preparation leases
+   * expire on the clock rather than on a write, so the backlog is returned for
+   * a bound check, not for equality.
    */
   async readOutboxRevalidation(
     manifestHash: string,

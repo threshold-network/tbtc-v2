@@ -33,7 +33,8 @@ describe("PostgreSQL production transaction capabilities", () => {
     await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
       adapter.query()
     )
-    assert.deepEqual(client.queries.slice(0, 4), [
+    assert.deepEqual(client.queries.slice(0, 5), [
+      "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))",
       "BEGIN ISOLATION LEVEL SERIALIZABLE",
       "SELECT set_config('statement_timeout', $1, true)",
       "SELECT current_setting('server_version_num') AS server_version_num",
@@ -43,6 +44,108 @@ describe("PostgreSQL production transaction capabilities", () => {
     ])
     assert.ok(client.queries.includes("SELECT 1"))
     assert.equal(client.releasedWith, undefined)
+  })
+
+  it("takes the exclusive readiness fence before opening its snapshot", async () => {
+    const client = new TransactionClient()
+    const coordinator = coordinatorFor(client)
+
+    await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+      async () => undefined,
+      { readinessFence: "exclusive" }
+    )
+
+    assert.equal(
+      client.queries[0],
+      "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+    )
+    assert.ok(client.queries.indexOf("BEGIN ISOLATION LEVEL SERIALIZABLE") > 0)
+    assert.ok(
+      client.queries.indexOf("COMMIT") <
+        client.queries.findIndex((query) =>
+          query.includes("pg_advisory_unlock(")
+        )
+    )
+  })
+
+  it("serializes writers on both sides of the pre-snapshot readiness fence", async () => {
+    const fence = new ReadinessFence()
+    const firstWriterClient = new TransactionClient(undefined, 0, fence)
+    const readinessClient = new TransactionClient(undefined, 0, fence)
+    const secondWriterClient = new TransactionClient(undefined, 0, fence)
+    const firstWriterCoordinator = coordinatorFor(firstWriterClient)
+    const readinessCoordinator = coordinatorFor(readinessClient)
+    const secondWriterCoordinator = coordinatorFor(secondWriterClient)
+    const order: string[] = []
+
+    let releaseFirstWriter!: () => void
+    let markFirstWriterStarted!: () => void
+    const firstWriterGate = new Promise<void>((resolve) => {
+      releaseFirstWriter = resolve
+    })
+    const firstWriterStarted = new Promise<void>((resolve) => {
+      markFirstWriterStarted = resolve
+    })
+    const firstWriter =
+      firstWriterCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          order.push("first-writer-started")
+          markFirstWriterStarted()
+          await firstWriterGate
+          order.push("first-writer-finished")
+        }
+      )
+    await firstWriterStarted
+
+    let releaseReadiness!: () => void
+    let markReadinessStarted!: () => void
+    const readinessGate = new Promise<void>((resolve) => {
+      releaseReadiness = resolve
+    })
+    const readinessStarted = new Promise<void>((resolve) => {
+      markReadinessStarted = resolve
+    })
+    const readiness =
+      readinessCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          order.push("readiness-started")
+          markReadinessStarted()
+          await readinessGate
+          order.push("readiness-finished")
+        },
+        { readinessFence: "exclusive" }
+      )
+    await Promise.resolve()
+    assert.equal(
+      readinessClient.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+
+    releaseFirstWriter()
+    await firstWriter
+    await readinessStarted
+
+    const secondWriter =
+      secondWriterCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          order.push("second-writer-started")
+        }
+      )
+    await Promise.resolve()
+    assert.equal(
+      secondWriterClient.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+
+    releaseReadiness()
+    await Promise.all([readiness, secondWriter])
+    assert.deepEqual(order, [
+      "first-writer-started",
+      "first-writer-finished",
+      "readiness-started",
+      "readiness-finished",
+      "second-writer-started",
+    ])
   })
 
   it("mints readiness authority before issuing a candidate authorization", async () => {
@@ -95,9 +198,8 @@ describe("PostgreSQL production transaction capabilities", () => {
       )
     )
     assert.equal(
-      client.queries.filter((query) =>
-        query.includes("p2tr-readiness-snapshot")
-      ).length,
+      client.queries.filter((query) => query.includes("pg_advisory_xact_lock"))
+        .length,
       3,
       "the caller, certificate mint, and authorization issue share the database lock"
     )
@@ -227,7 +329,8 @@ class TransactionClient implements P2TRPostgresClient {
 
   constructor(
     private readonly failure?: "COMMIT" | "ROLLBACK",
-    private readonly liveCandidateAuthorizationCount = 0
+    private readonly liveCandidateAuthorizationCount = 0,
+    private readonly readinessFence?: ReadinessFence
   ) {}
 
   async query<Row>(
@@ -236,6 +339,29 @@ class TransactionClient implements P2TRPostgresClient {
   ): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
     if (text === this.failure) throw new Error(`${text} failed`)
+    if (text.includes("pg_advisory_unlock_shared(")) {
+      this.readinessFence?.release("shared")
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
+    if (text.includes("pg_advisory_unlock(")) {
+      this.readinessFence?.release("exclusive")
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
+    if (
+      text.includes("pg_advisory_lock_shared(") &&
+      !text.includes("pg_advisory_xact_lock_shared(")
+    ) {
+      await this.readinessFence?.acquire("shared")
+    }
+    if (
+      text.includes("pg_advisory_lock(") &&
+      !text.includes("pg_advisory_xact_lock(")
+    ) {
+      await this.readinessFence?.acquire("exclusive")
+    }
+    if (text.includes(" AS unlocked")) {
+      return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
+    }
     if (text.includes("server_version_num")) {
       return {
         rows: [{ server_version_num: "160000" }] as Row[],
@@ -346,6 +472,64 @@ class TransactionClient implements P2TRPostgresClient {
 
   release(error?: Error): void {
     this.releasedWith = error
+  }
+}
+
+class ReadinessFence {
+  private sharedHolders = 0
+  private exclusiveHolder = false
+  private readonly waiters: {
+    mode: "shared" | "exclusive"
+    resolve: () => void
+  }[] = []
+
+  async acquire(mode: "shared" | "exclusive"): Promise<void> {
+    if (this.waiters.length === 0 && this.canAcquire(mode)) {
+      this.grant(mode)
+      return
+    }
+    await new Promise<void>((resolve) => {
+      this.waiters.push({ mode, resolve })
+      this.drain()
+    })
+  }
+
+  release(mode: "shared" | "exclusive"): void {
+    if (mode === "exclusive") {
+      assert.equal(this.exclusiveHolder, true)
+      this.exclusiveHolder = false
+    } else {
+      assert.ok(this.sharedHolders > 0)
+      this.sharedHolders--
+    }
+    this.drain()
+  }
+
+  private canAcquire(mode: "shared" | "exclusive"): boolean {
+    return mode === "shared"
+      ? !this.exclusiveHolder
+      : !this.exclusiveHolder && this.sharedHolders === 0
+  }
+
+  private grant(mode: "shared" | "exclusive"): void {
+    if (mode === "exclusive") this.exclusiveHolder = true
+    else this.sharedHolders++
+  }
+
+  private drain(): void {
+    if (this.waiters.length === 0 || this.exclusiveHolder) return
+    if (this.waiters[0].mode === "exclusive") {
+      if (this.sharedHolders > 0) return
+      const waiter = this.waiters.shift()!
+      this.grant(waiter.mode)
+      waiter.resolve()
+      return
+    }
+    while (this.waiters[0]?.mode === "shared") {
+      const waiter = this.waiters.shift()!
+      this.grant(waiter.mode)
+      waiter.resolve()
+    }
   }
 }
 

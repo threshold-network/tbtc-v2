@@ -403,7 +403,7 @@ export class InMemoryOutboxStore
         const quarantine: P2TRSignatureFraudSignerQuarantine = {
           laneID: request.reservation.laneID,
           signerIdentity: request.reservation.signerIdentity,
-          expectedSender: request.reservation.sender.toPrefixedString(),
+          expectedSender: request.reservation.sender,
           reasonCode: "reservation-provider-failure",
           quarantinedAtUnixMs: result.recordedAtUnixMs,
           reason: result.detail,

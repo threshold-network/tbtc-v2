@@ -10,6 +10,10 @@ const activationGate = readFileSync(
   new URL("../src/P2TRProductionActivation.ts", import.meta.url),
   "utf8"
 )
+const transactionCoordinator = readFileSync(
+  new URL("../src/PostgresP2TRCanonicalIndexStore.ts", import.meta.url),
+  "utf8"
+)
 const canonicalEthereumMigration = readFileSync(
   new URL("../migrations/002_p2tr_canonical_ethereum.sql", import.meta.url),
   "utf8"
@@ -97,6 +101,23 @@ describe("production activation PostgreSQL schema contract", () => {
     const health = activationGate.indexOf("readBitcoinIndexHealth()", lock)
     const mint = activationGate.indexOf("mintReadinessCertificate({", health)
     assert.ok(lock >= 0 && health > lock && mint > health)
+    const readinessMethod = methodSource(
+      activationGate,
+      "assertReadyUnderAuthority",
+      "assertCandidateReconciled"
+    )
+    assert.match(readinessMethod, /readinessFence: "exclusive"/)
+    const sessionFence = transactionCoordinator.indexOf(
+      "SELECT pg_advisory_lock_shared"
+    )
+    const transactionBegin = transactionCoordinator.indexOf(
+      'client.query("BEGIN ISOLATION LEVEL SERIALIZABLE")',
+      sessionFence
+    )
+    assert.ok(
+      sessionFence >= 0 && transactionBegin > sessionFence,
+      "readiness writer fence must be acquired before the SERIALIZABLE transaction"
+    )
     const mintMethod = methodSource(
       activationStore,
       "mintReadinessCertificate",

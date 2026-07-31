@@ -2042,6 +2042,56 @@ postgresTest(
 )
 
 postgresTest(
+  "refuses an extra same-ID lane configured on another chain",
+  async () => {
+    const database = await createTestDatabase()
+    const {
+      configurationHash: _configurationHash,
+      configuredAtUnixMs: _configuredAtUnixMs,
+      ...primary
+    } = signerConfiguration()
+    const additionalBinding = {
+      ...primary,
+      chainID: CHAIN_ID + 1,
+      signerIdentity: "signer-b",
+      sender: `0x${"d6".repeat(20)}`,
+    }
+    await begin(database.client)
+    await database.store.installSignerLaneConfiguration({
+      ...additionalBinding,
+      configurationHash:
+        computeP2TRProductionSignerLaneConfigurationHash(additionalBinding),
+      configuredAtUnixMs: 1_001,
+    })
+    await commit(database.client)
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.configuredSignerLaneCount, 2)
+    assert.deepEqual(response.payload.state.senderLanes, [
+      {
+        laneID: LANE_ID,
+        trustDomainID: "signer.trust.integration",
+        operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+        healthy: true,
+      },
+    ])
+    assert.equal(response.payload.state.healthy, false)
+    assert.ok(
+      response.payload.state.activationBlockingReasons.includes(
+        "manifest-bound-signer-lane-mismatch"
+      )
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "re-derives the outbox safety sample inside the readiness transaction",
   async () => {
     const database = await createTestDatabase()

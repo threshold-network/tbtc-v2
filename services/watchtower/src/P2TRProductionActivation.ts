@@ -697,9 +697,11 @@ export type P2TRProductionCandidateEnqueueTransactionResolution = {
  * The outbox facts the readiness transaction re-derives for itself. The signed
  * handshake is sampled in the outbox's own committed transaction, so between
  * that sample and the certificate insert the outbox can transition into a
- * state the sample never saw. Reading these back inside the SERIALIZABLE
- * readiness transaction puts them in its read set: a concurrent writer either
- * loses the serialization race or is seen here.
+ * state the sample never saw. The coordinator acquires the exclusive readiness
+ * fence before opening this transaction's SERIALIZABLE snapshot, while every
+ * ordinary transaction acquires the shared side before its own snapshot.
+ * Re-reading these facts under that fence binds the certificate to the state
+ * after every earlier writer and before every later writer.
  */
 export type P2TRProductionOutboxRevalidation = {
   activationBlockingCriticalAlertCount: number
@@ -810,7 +812,10 @@ export class P2TRProductionCandidateEnqueueRetryExhaustedError extends Error {
 export type P2TRProductionTransactionCoordinator = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
   runInP2TRSignatureFraudWatchtowerTransaction<T>(
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    options?: {
+      readinessFence?: "shared" | "exclusive"
+    }
   ): Promise<T>
   assertP2TRSignatureFraudWatchtowerTransactionalParticipants(
     participants: readonly object[]
@@ -989,9 +994,12 @@ export class P2TRProductionActivationGate {
             ),
           ])
           // The handshake above was signed from the outbox's own committed
-          // transaction. Re-deriving its safety facts here, inside the
-          // SERIALIZABLE readiness transaction, is what stops a certificate
-          // from being minted on an outbox state that has already moved on.
+          // transaction. The coordinator acquired the exclusive readiness
+          // fence before this SERIALIZABLE snapshot; every ordinary writer
+          // acquires the shared side before its snapshot. Re-derive the safety
+          // facts while that fence is held so this certificate cannot cover a
+          // transition that committed before readiness or race one that began
+          // while readiness was being minted.
           assertP2TRProductionOutboxRevalidation(
             outboxRevalidation,
             outboxHandshake.payload.state,
@@ -1062,7 +1070,8 @@ export class P2TRProductionActivationGate {
               frostHandshake: frostHandshake.payload,
             },
           })
-        }
+        },
+        { readinessFence: "exclusive" }
       )
 
     return {
