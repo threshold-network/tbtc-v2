@@ -25,6 +25,8 @@ import {
   P2TRSignatureFraudWitnessObservation,
   P2TRSignatureFraudWatchtowerBridgeLifecycleEvent,
   P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource,
+  P2TRSignatureFraudSpendType,
+  P2TRWatchtowerChallengeRecord,
   P2TRSignatureFraudWatchtowerTransactionSource,
   P2TRWatchtowerConfirmedTransaction,
   P2TRWatchtowerChallengeRecordJSON,
@@ -308,6 +310,7 @@ const emptyCycleReport = (): P2TRSignatureFraudWatchtowerCycleReport => ({
       byStatus: {
         observed: 0,
         submitting: 0,
+        "broadcast-pending": 0,
         submitted: 0,
         rejected: 0,
         "defeat-eligible": 0,
@@ -352,6 +355,34 @@ const emptyCycleReport = (): P2TRSignatureFraudWatchtowerCycleReport => ({
     alertSinkFailures: 0,
   },
 })
+
+/**
+ * The service discovers each of these structurally rather than requiring it on
+ * the dependency interface, so a double that offers one has to widen its own
+ * type -- otherwise the excess-property check rejects the literal.
+ */
+type CommittingBridgeLifecycleEventSource =
+  P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource & {
+    commitBridgeLifecycleScan(): Promise<void>
+  }
+
+type IdempotentChallengeSubmitter = P2TRSignatureFraudChallengeSubmitter & {
+  p2trSignatureFraudWatchtowerIdempotentSubmissions: true
+}
+
+/**
+ * Attaches a capability probe the dependency interface deliberately omits. The
+ * spread keeps the base type, so only the probe is added -- and the result is
+ * no longer a fresh literal, which is what the excess-property check trips on.
+ */
+const withCapabilityProbe = <Base, Probe extends object>(
+  base: Base,
+  probe: Probe
+): Base & Probe => ({ ...base, ...probe })
+
+const committingBridgeLifecycleSource = (
+  source: CommittingBridgeLifecycleEventSource
+): CommittingBridgeLifecycleEventSource => source
 
 test("persists watchtower records to an operator state file atomically", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
@@ -712,7 +743,7 @@ test("keeps mutated persisted observations inert while automatic submission is d
       })),
       [vector.walletIDHex]
     )
-    const rejectedRecord = {
+    const rejectedRecord: P2TRWatchtowerChallengeRecord = {
       ...createP2TRWatchtowerChallengeRecord(observation.observationID),
       observation: {
         ...observation,
@@ -785,7 +816,7 @@ test("keeps stored rejected challenges inert during observation-only restart cyc
       draftPayloadBounds,
       draftBridgeChallengeDomain
     )
-    const rejectedRecord = {
+    const rejectedRecord: P2TRWatchtowerChallengeRecord = {
       ...createP2TRWatchtowerChallengeRecord(observation.observationID),
       observation: {
         ...observation,
@@ -886,13 +917,15 @@ test("keeps rejected challenges inert when lifecycle verification fails", async 
       },
       {
         bitcoinClient: {} as BitcoinClient,
-        challengeSubmitter: {
-          p2trSignatureFraudWatchtowerIdempotentSubmissions: true,
-          async submitSignatureFraudChallenge() {
-            submissionCount++
-            throw new Error("temporary submitter outage")
+        challengeSubmitter: withCapabilityProbe(
+          {
+            async submitSignatureFraudChallenge() {
+              submissionCount++
+              throw new Error("temporary submitter outage")
+            },
           },
-        },
+          { p2trSignatureFraudWatchtowerIdempotentSubmissions: true as const }
+        ),
         transactionSource: emptyTransactionSource,
         bridgeLifecycleEventSource: {
           async listBridgeLifecycleEvents() {
@@ -945,7 +978,7 @@ test("wires observation-only file-backed runtime config into service and loop op
       draftPayloadBounds,
       draftBridgeChallengeDomain
     )
-    const rejectedRecord = {
+    const rejectedRecord: P2TRWatchtowerChallengeRecord = {
       ...createP2TRWatchtowerChallengeRecord(observation.observationID),
       observation: {
         ...observation,
@@ -1039,7 +1072,7 @@ test("defaults service cycles to observation-only submission policy", async () =
       })),
       [vector.walletIDHex]
     )
-    const rejectedRecord = {
+    const rejectedRecord: P2TRWatchtowerChallengeRecord = {
       ...createP2TRWatchtowerChallengeRecord(observation.observationID),
       observation,
       status: "rejected" as const,
@@ -1280,14 +1313,14 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
             return { transactions: confirmedTransactions, complete: true }
           },
         },
-        bridgeLifecycleEventSource: {
+        bridgeLifecycleEventSource: committingBridgeLifecycleSource({
           async listBridgeLifecycleEvents() {
             return lifecycleEvents
           },
           async commitBridgeLifecycleScan() {
             committedBridgeLifecycleScan = true
           },
-        },
+        }),
         persistence,
       }
     )
@@ -1398,7 +1431,7 @@ test("reconciles honest-spend proofs after metadata-only confirmations", async (
         bitcoinClient: {} as BitcoinClient,
         challengeSubmitter: new FakeSubmitter(),
         transactionSource: emptyTransactionSource,
-        bridgeLifecycleEventSource: {
+        bridgeLifecycleEventSource: committingBridgeLifecycleSource({
           async listBridgeLifecycleEvents() {
             return [
               {
@@ -1411,7 +1444,7 @@ test("reconciles honest-spend proofs after metadata-only confirmations", async (
           async commitBridgeLifecycleScan() {
             committedBridgeLifecycleScan = true
           },
-        },
+        }),
         persistence,
       }
     )
@@ -1579,11 +1612,13 @@ test("hard-disables automatic submission before checking spend policy", () => {
 })
 
 test("hard-disables automatic submission for every unresolved spend type", () => {
-  ;[
-    P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED,
-    P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
-    P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT,
-  ].forEach((spendType) => {
+  ;(
+    [
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED,
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT,
+    ] as P2TRSignatureFraudSpendType[]
+  ).forEach((spendType) => {
     assert.throws(
       () =>
         new P2TRSignatureFraudWatchtowerService(
@@ -1859,11 +1894,10 @@ test("requires transactional-production dependencies for the production indexing
     () =>
       new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        transactionSource: {
-          ...emptyTransactionSource,
+        transactionSource: withCapabilityProbe(emptyTransactionSource, {
           p2trSignatureFraudWatchtowerStoreProfile:
             "single-process-rehearsal" as const,
-        },
+        }),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
         transactionCoordinator: transactionalCoordinator(),
@@ -1904,10 +1938,10 @@ test("requires transactional-production dependencies for the production indexing
         bitcoinClient: {} as BitcoinClient,
         transactionSource: transactionalConfirmedTransactionSource(),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
-        persistence: {
-          ...transactionalChallengeRecordPersistence(),
-          p2trSignatureFraudWatchtowerTransactionalStoreID: undefined,
-        },
+        persistence: withCapabilityProbe(
+          transactionalChallengeRecordPersistence(),
+          { p2trSignatureFraudWatchtowerTransactionalStoreID: undefined }
+        ),
         transactionCoordinator: transactionalCoordinator(),
         alertSink: noopAlertSink,
       }),
@@ -1918,10 +1952,10 @@ test("requires transactional-production dependencies for the production indexing
     () =>
       new P2TRSignatureFraudWatchtowerService(productionObservationConfig, {
         bitcoinClient: {} as BitcoinClient,
-        transactionSource: {
-          ...transactionalConfirmedTransactionSource(),
-          p2trSignatureFraudWatchtowerTransactionalStoreID: undefined,
-        },
+        transactionSource: withCapabilityProbe(
+          transactionalConfirmedTransactionSource(),
+          { p2trSignatureFraudWatchtowerTransactionalStoreID: undefined }
+        ),
         bridgeLifecycleEventSource: transactionalBridgeLifecycleSource(),
         persistence: transactionalChallengeRecordPersistence(),
         transactionCoordinator: transactionalCoordinator(),
@@ -2335,7 +2369,7 @@ test("does not retain rolled-back production lifecycle records across cycles", a
     draftPayloadBounds,
     draftBridgeChallengeDomain
   )
-  const rejectedRecord = {
+  const rejectedRecord: P2TRWatchtowerChallengeRecord = {
     ...createP2TRWatchtowerChallengeRecord(observation.observationID),
     observation: {
       ...observation,
@@ -2434,7 +2468,7 @@ test("applies Bridge lifecycle events and reports cycle metrics", async () => {
       ),
     ])
     let committedBridgeLifecycleScan = false
-    const bridgeLifecycleEventSource = {
+    const bridgeLifecycleEventSource: CommittingBridgeLifecycleEventSource = {
       async listBridgeLifecycleEvents() {
         return [
           {
@@ -2481,7 +2515,7 @@ test("commits Bridge lifecycle scans that only contain unrelated proof events", 
 
   try {
     let committedBridgeLifecycleScan = false
-    const bridgeLifecycleEventSource = {
+    const bridgeLifecycleEventSource: CommittingBridgeLifecycleEventSource = {
       async listBridgeLifecycleEvents() {
         return [
           {
@@ -2558,7 +2592,7 @@ test("surfaces Bridge lifecycle scan cursor commit failures", async () => {
         logs.push({ level: "error", message, fields })
       },
     }
-    const bridgeLifecycleEventSource = {
+    const bridgeLifecycleEventSource: CommittingBridgeLifecycleEventSource = {
       async listBridgeLifecycleEvents() {
         return [
           {
@@ -2971,7 +3005,7 @@ test("does not commit Bridge lifecycle scan cursor after event failures", async 
         bitcoinClient: {} as BitcoinClient,
         challengeSubmitter: new FakeSubmitter(),
         transactionSource: emptyTransactionSource,
-        bridgeLifecycleEventSource: {
+        bridgeLifecycleEventSource: committingBridgeLifecycleSource({
           async listBridgeLifecycleEvents() {
             return [
               {
@@ -2983,7 +3017,7 @@ test("does not commit Bridge lifecycle scan cursor after event failures", async 
           async commitBridgeLifecycleScan() {
             committedBridgeLifecycleScan = true
           },
-        },
+        }),
         persistence: new FileBackedP2TRWatchtowerChallengeRecordPersistence(
           statePath
         ),
@@ -3019,7 +3053,9 @@ test("runs watchtower loop cycles sequentially with report callbacks", async () 
       pollIntervalMs: 1,
       maxCycles: 3,
       delay: async () => {},
-      onCycleReport: (report) => reports.push(report),
+      onCycleReport: (report) => {
+        reports.push(report)
+      },
     }
   )
 
@@ -3082,7 +3118,9 @@ test("makes watchtower loop cycle failure policy explicit", async () => {
       maxCycles: 2,
       continueOnError: true,
       delay: async () => {},
-      onCycleError: (error) => failures.push((error as Error).message),
+      onCycleError: (error) => {
+        failures.push((error as Error).message)
+      },
     }
   )
 

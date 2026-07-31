@@ -561,7 +561,9 @@ test("rejects a partial confirmed view when a raw transaction is unavailable", a
       taprootDepositRevealSource: taprootDepositRevealSource([
         taprootDepositEvent(),
       ]),
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch({
         [addressConfirmedPath(address)]: [
           confirmedSummary(confirmedTxid, blockHash, 123),
@@ -613,7 +615,9 @@ test("reports every deposit binding when a shared raw transaction is unavailable
           fundingOutputIndex: 3,
         }),
       ]),
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch(
         {
           [addressMempoolPath(address)]: [{ txid: mempoolTxid }],
@@ -668,7 +672,9 @@ test("rejects raw transaction failures for wallet-only candidates", async () => 
     [walletID],
     {
       taprootDepositRevealSource: emptyTaprootDepositRevealSource,
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch({
         [addressMempoolPath(address)]: [
           { txid: mempoolTxid },
@@ -701,7 +707,7 @@ test("rejects a failed deposit request after scanning honest siblings", async ()
     fundingOutputIndex: 3,
   })
   const failures: P2TRDepositScanFailure[] = []
-  const revealSource: P2TRTaprootDepositRevealSource = {
+  const revealSource: TestEsploraOptions["taprootDepositRevealSource"] = {
     async getTaprootDepositRevealedEvents() {
       return [firstEvent, secondEvent] as never[]
     },
@@ -725,7 +731,9 @@ test("rejects a failed deposit request after scanning honest siblings", async ()
     [walletID],
     {
       taprootDepositRevealSource: revealSource,
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch({
         [addressMempoolPath(address)]: [],
         [depositOutspendPath(secondFundingTxid, 3)]: {
@@ -771,7 +779,9 @@ test("rejects a failed deposit commitment read", async () => {
           throw new Error("unexpected deposit request read")
         },
       },
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch({
         [addressMempoolPath(address)]: [{ txid: mempoolTxid }],
         [`/tx/${mempoolTxid}/hex`]: rawMempoolTx,
@@ -819,7 +829,9 @@ test("rejects a fulfilled reveal-history omission against the independent source
       confirmedHistoryCursorStore: new MemoryConfirmedHistoryCursorStore(),
       taprootDepositRevealChainID: "31337",
       taprootDepositRevealBridgeAddress: `0x${"11".repeat(20)}`,
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch({ [addressMempoolPath(address)]: [] }, requestedPaths),
     }
   )
@@ -901,7 +913,9 @@ test("rejects the transaction view when reveal-history retrieval fails", async (
           throw new Error("unexpected deposit read")
         },
       },
-      onDepositScanFailure: (failure) => failures.push(failure),
+      onDepositScanFailure: (failure) => {
+        failures.push(failure)
+      },
       fetchFn: fakeFetch({
         [addressMempoolPath(address)]: [{ txid: mempoolTxid }],
         [`/tx/${mempoolTxid}/hex`]: rawMempoolTx,
