@@ -35,7 +35,9 @@ import {
   P2TRSignatureFraudSignerQuarantine,
   P2TRSignatureFraudUnexpectedSignedArtifact,
   P2TRSignatureFraudVoidedNonceReservation,
+  P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER,
   computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHash,
+  computeP2TRSignatureFraudChallengeFeePolicyHash,
   computeP2TRSignatureFraudDispositionHash,
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
@@ -103,6 +105,15 @@ export type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions = {
   assertIndependentNonceReleaseResolution(
     invocation: P2TRSignatureFraudAmbiguousNonceReleaseInvocation,
     resolution: P2TRSignatureFraudIndependentNonceReleaseResolution
+  ): true | Promise<true>
+  /**
+   * Pure, local verification boundary for orphaned signer evidence. It must
+   * authenticate the provider tombstone or terminal provider evidence and
+   * both independent attestations without network or database I/O; this
+   * callback runs while the exact outbox boundary is locked.
+   */
+  assertIndependentSignerBoundaryResolution(
+    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
   ): true | Promise<true>
   broadcastProviderID: string
 }
@@ -1675,6 +1686,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         : "acknowledged"
     }
     assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership(current, normalized)
+    if (
+      (await this.options.assertIndependentSignerBoundaryResolution(
+        resolution
+      )) !== true
+    ) {
+      throw new Error(
+        "Independent signer-boundary resolution authentication failed"
+      )
+    }
     const [primary, corroborating] = normalized.attestations
     // Appended BEFORE the barrier-clearing swap so the guard trigger still sees
     // the live boundary it must bind, and so a rejected swap can never leave
@@ -5047,11 +5067,63 @@ function assertContestedNonceBurn(
     )
   }
   if (
-    record.reservedNonce !== undefined &&
-    (utils.getAddress(record.reservedNonce.sender) !== sender ||
-      record.reservedNonce.nonce !== nonce)
+    record.reservedNonce === undefined ||
+    utils.getAddress(record.reservedNonce.sender) !== sender ||
+    record.reservedNonce.nonce !== nonce
   ) {
     throw new Error("Contested nonce burn names another durable reservation")
+  }
+  const reservation = record.reservedNonce
+  const lane = record.feePolicyManifest.lanes.find(
+    (candidate) =>
+      candidate.laneID === reservation.laneID &&
+      candidate.signerIdentity === reservation.signerIdentity &&
+      utils.getAddress(candidate.sender) === sender
+  )
+  if (lane === undefined) {
+    throw new Error(
+      "Contested nonce burn reservation lacks its committed fee-policy lane"
+    )
+  }
+  const { policyHash, ...feePolicyWithoutHash } = record.feePolicyManifest
+  if (
+    bytes32(policyHash, "Contested nonce burn fee-policy hash") !==
+    computeP2TRSignatureFraudChallengeFeePolicyHash(feePolicyWithoutHash)
+  ) {
+    throw new Error("Contested nonce burn fee-policy manifest is invalid")
+  }
+  const expectedMaxFeePerGas =
+    BigInt(
+      unsignedDecimal(lane.maxFeePerGas, "Contested nonce burn lane fee cap")
+    ) * P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER
+  const expectedMaxPriorityFeePerGas =
+    BigInt(
+      unsignedDecimal(
+        lane.maxPriorityFeePerGas,
+        "Contested nonce burn lane priority cap"
+      )
+    ) * P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER
+  const maxTotalFeeWei = BigInt(
+    unsignedDecimal(
+      lane.maxTotalFeeWei,
+      "Contested nonce burn lane total fee cap"
+    )
+  )
+  if (
+    BigInt(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT) * expectedMaxFeePerGas >
+    maxTotalFeeWei
+  ) {
+    throw new Error(
+      "Contested nonce burn exceeds its committed lane total fee cap"
+    )
+  }
+  if (
+    maxFeePerGas !== expectedMaxFeePerGas.toString() ||
+    maxPriorityFeePerGas !== expectedMaxPriorityFeePerGas.toString()
+  ) {
+    throw new Error(
+      "Contested nonce burn does not match its authorized fee-policy envelope"
+    )
   }
   bytes32(burn.signerInvocationID, "Contested nonce burn signer invocation ID")
   const signedAtUnixMs = unixMilliseconds(

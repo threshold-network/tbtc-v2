@@ -157,7 +157,10 @@ function createStore(
     throw new Error(
       "Eligibility loading is outside this adapter integration test"
     )
-  }
+  },
+  assertIndependentSignerBoundaryResolution: (
+    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+  ) => true | Promise<true> = () => true as const
 ) {
   return new PostgresP2TRSignatureFraudChallengeOutboxStore({
     storeID: "postgres.integration",
@@ -166,6 +169,7 @@ function createStore(
     assertTransactionSession,
     broadcastProviderID: "broadcast.integration",
     assertIndependentNonceReleaseResolution: () => true as const,
+    assertIndependentSignerBoundaryResolution,
     lockAndAssertCurrentCanonicalProvenance: async (session, binding) => {
       await session.query("SELECT pg_advisory_xact_lock_shared(7142001)")
       const result = await session.query<{ current: boolean }>(
@@ -3920,34 +3924,54 @@ postgresTest(
     assert.ok(resolved.contestedNonceBurnClaim)
     assert.equal(await barrierSignerInvocationCount(database), 1)
 
-    const rawTransaction = await WALLET.signTransaction({
-      type: 2,
-      chainId: CHAIN_ID,
-      to: WALLET.address,
-      data: "0x",
-      value: 0,
-      nonce: boundary.reservedNonce!.nonce,
-      gasLimit: 21_000,
-      maxFeePerGas: 100,
-      maxPriorityFeePerGas: 10,
-    })
-    const parsed = utils.parseTransaction(rawTransaction)
-    const burned: P2TRSignatureFraudChallengeOutboxRecord = {
-      ...resolved,
-      version: resolved.version + 1,
-      updatedAtUnixMs: 2_500,
-      contestedNonceBurnClaim: undefined,
-      contestedNonceBurn: {
-        transactionHash: parsed.hash!,
-        rawTransaction,
-        nonce: parsed.nonce,
-        sender: WALLET.address,
-        maxFeePerGas: parsed.maxFeePerGas!.toString(),
-        maxPriorityFeePerGas: parsed.maxPriorityFeePerGas!.toString(),
-        signerInvocationID: claim.contestedNonceBurnClaim!.signerInvocationID,
-        signedAtUnixMs: 2_500,
-      },
+    const signedBurn = async (
+      maxFeePerGas: number,
+      maxPriorityFeePerGas: number
+    ): Promise<P2TRSignatureFraudChallengeOutboxRecord> => {
+      const rawTransaction = await WALLET.signTransaction({
+        type: 2,
+        chainId: CHAIN_ID,
+        to: WALLET.address,
+        data: "0x",
+        value: 0,
+        nonce: boundary.reservedNonce!.nonce,
+        gasLimit: 21_000,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      })
+      const parsed = utils.parseTransaction(rawTransaction)
+      return {
+        ...resolved,
+        version: resolved.version + 1,
+        updatedAtUnixMs: 2_500,
+        contestedNonceBurnClaim: undefined,
+        contestedNonceBurn: {
+          transactionHash: parsed.hash!,
+          rawTransaction,
+          nonce: parsed.nonce,
+          sender: WALLET.address,
+          maxFeePerGas: parsed.maxFeePerGas!.toString(),
+          maxPriorityFeePerGas: parsed.maxPriorityFeePerGas!.toString(),
+          signerInvocationID: claim.contestedNonceBurnClaim!.signerInvocationID,
+          signedAtUnixMs: 2_500,
+        },
+      }
     }
+
+    // The raw self-transfer is valid, but the selected lane commits 100/10
+    // caps and authorizes burns only at the derived 2x envelope.
+    await begin(database.client)
+    await assert.rejects(
+      database.store.compareAndSwap(
+        resolved.recordID,
+        resolved.version,
+        await signedBurn(100, 10)
+      ),
+      /does not match its authorized fee-policy envelope/
+    )
+    await database.client.query("ROLLBACK")
+
+    const burned = await signedBurn(200, 20)
     await begin(database.client)
     assert.equal(
       await database.store.compareAndSwap(
@@ -4049,6 +4073,43 @@ postgresTest(
     )
     assert.deepEqual(versions.rows, [{ resolution_evidence_version: 5 }])
     await currentDatabase.client.end()
+  }
+)
+
+postgresTest(
+  "authenticates orphaned signer-boundary evidence before applying it",
+  async () => {
+    const database = await createTestDatabase()
+    const { boundary } = await orphanedSignerBoundary(database, 210)
+    const resolution = boundaryResolution(boundary)
+    let authenticationCalls = 0
+    const rejectingStore = createStore(
+      database.client,
+      undefined,
+      undefined,
+      undefined,
+      (candidate) => {
+        authenticationCalls++
+        assert.equal(candidate, resolution)
+        throw new Error("forged signer-boundary evidence")
+      }
+    )
+
+    await begin(database.client)
+    await assert.rejects(
+      rejectingStore.resolveOrphanedSignerBoundary(resolution),
+      /forged signer-boundary evidence/
+    )
+    await database.client.query("ROLLBACK")
+
+    assert.equal(authenticationCalls, 1)
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+    const evidence = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution`
+    )
+    assert.equal(evidence.rows[0].count, "0")
+    await database.client.end()
   }
 )
 

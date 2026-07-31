@@ -3858,6 +3858,11 @@ test("hands the signer its invocation request and requires the echo back", async
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
+  preparer.echoInvocation = (invocation) =>
+    ({
+      ...invocation,
+      untrustedProviderMetadata: "must-not-be-persisted",
+    } as typeof invocation)
   const authorizer = new FixedBoundaryAuthorizer()
   const outbox = dispatcher(
     store,
@@ -3896,6 +3901,10 @@ test("hands the signer its invocation request and requires the echo back", async
   assert.equal(
     durable?.preparedTransaction?.invocation?.invocationID.toPrefixedString(),
     expected.invocationID
+  )
+  assert.deepEqual(
+    Object.keys(durable?.preparedTransaction?.invocation ?? {}),
+    ["invocationID", "requestDigest"]
   )
 })
 
@@ -4296,12 +4305,25 @@ test("does not acknowledge a contested burn under a mismatched provider hash", a
     undefined,
     authorizer
   )
-  await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+  const stranded = await strandSignerBoundary(
+    store,
+    outbox,
+    authorizer,
+    record.recordID
+  )
 
   const mismatched = await outbox.burnContestedNonce(record.recordID)
 
   assert.equal(mismatched.contestedNonceBurn?.broadcastAtUnixMs, undefined)
   assert.equal(mismatched.status, "quarantined")
+  assert.equal(
+    mismatched.activeSignerInvocationStartedAtUnixMs,
+    stranded.activeSignerInvocationStartedAtUnixMs
+  )
+  assert.equal(
+    mismatched.activeSignerInvocationID,
+    stranded.activeSignerInvocationID
+  )
   assert.match(String(mismatched.lastError), /does not match the persisted/)
   assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
 })

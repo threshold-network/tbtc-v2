@@ -5611,7 +5611,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     if (returnedHash !== expectedHash) {
       const reason =
         "Contested nonce burn broadcaster returned a hash that does not match the persisted raw transaction"
-      return this.quarantine(durable, reason)
+      return this.quarantine(durable, reason, true)
     }
 
     for (let retry = 0; retry < 8; retry++) {
@@ -5902,7 +5902,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
 
   private async quarantine(
     current: P2TRSignatureFraudChallengeOutboxRecord,
-    reason: string
+    reason: string,
+    preserveActiveSignerBoundary = false
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     const normalizedReason = requireReason(
       reason,
@@ -5930,8 +5931,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           : "quarantined",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
-      activeSignerInvocationStartedAtUnixMs: undefined,
-      activeSignerInvocationID: undefined,
+      activeSignerInvocationStartedAtUnixMs: preserveActiveSignerBoundary
+        ? current.activeSignerInvocationStartedAtUnixMs
+        : undefined,
+      activeSignerInvocationID: preserveActiveSignerBoundary
+        ? current.activeSignerInvocationID
+        : undefined,
       preparationSender: signerBoundary ? current.preparationSender : undefined,
       selectedLaneID: signerBoundary ? current.selectedLaneID : undefined,
       selectedSignerIdentity: signerBoundary
@@ -6902,7 +6907,7 @@ const signerInvocationRequest = (invocation: {
  * `maxTotalFeeWei` the manifest already commits. A lane whose committed total
  * cannot cover a burn cannot authorize one, and fails closed.
  */
-const P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER = 2n
+export const P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER = 2n
 
 const contestedNonceBurnEnvelope = (
   record: P2TRSignatureFraudChallengeOutboxRecord,

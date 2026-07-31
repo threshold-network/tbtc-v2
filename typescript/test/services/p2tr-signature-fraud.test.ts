@@ -2375,6 +2375,30 @@ describe("P2TR signature-fraud witness parsing", () => {
         "invalid-watchtower-state"
       )
     })
+
+    it("strips untrusted fields from a valid nonce-burn echo", async () => {
+      const invocation = {
+        invocationID: Hex.from(`0x${"93".repeat(32)}`),
+        requestDigest: Hex.from(`0x${"94".repeat(32)}`),
+      }
+      const authenticated =
+        validateP2TRSignatureFraudPreparedNonceBurnTransaction(
+          reservation,
+          envelope,
+          {
+            ...(await build({})),
+            invocation: {
+              ...invocation,
+              untrustedProviderMetadata: "must-not-be-persisted",
+            },
+          } as never
+        )
+
+      expect(Object.keys(authenticated.invocation!)).to.deep.equal([
+        "invocationID",
+        "requestDigest",
+      ])
+    })
   })
 
   // A challenge is one fixed call to a known Router, so an access list buys it
@@ -2842,6 +2866,19 @@ describe("P2TR signature-fraud witness parsing", () => {
       correctRawTransaction.toLowerCase()
     )
     expect(authenticated.invocation).to.equal(malformedEcho)
+
+    const canonicalizedEcho =
+      validateP2TRSignatureFraudPreparedChallengeTransaction(intent, {
+        ...malformedEchoCandidate,
+        invocation: {
+          ...expectedInvocation,
+          untrustedProviderMetadata: "must-not-be-persisted",
+        },
+      } as never)
+    expect(Object.keys(canonicalizedEcho.invocation!)).to.deep.equal([
+      "invocationID",
+      "requestDigest",
+    ])
 
     expect(() =>
       validateP2TRSignatureFraudPreparedChallengeTransaction(

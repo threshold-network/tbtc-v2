@@ -1793,24 +1793,24 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   }
 
   // Authenticate the signed bytes before interpreting unauthenticated response
-  // metadata. The outbox's first pass deliberately omits `invocation` so it
-  // can retain exact, valid bytes even when the signer returns a malformed
-  // echo. Callers that supply the expected request still receive a normalized,
-  // exact-match echo.
+  // metadata. A structurally valid echo is canonicalized even when the
+  // outbox's first pass omits `invocation`, so extra signer-controlled fields
+  // can never reach durable state. A malformed echo remains attached only
+  // long enough for that bytes-first pass to retain and quarantine the
+  // transaction.
   let echo = prepared.invocation
-  if (invocation !== undefined) {
-    let expected: P2TRSignatureFraudSignerInvocationRequest | undefined
-    try {
-      echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
-        prepared.invocation
-      )
-      expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
-    } catch {
+  let expected: P2TRSignatureFraudSignerInvocationRequest | undefined
+  try {
+    echo = normalizeP2TRSignatureFraudSignerInvocationEcho(prepared.invocation)
+    expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+  } catch {
+    if (invocation !== undefined)
       throw new P2TRWitnessSignatureError(
         "invalid-watchtower-state",
         "Prepared challenge transaction has a malformed signer invocation request echo"
       )
-    }
+  }
+  if (invocation !== undefined) {
     if (
       echo === undefined ||
       echo.invocationID.toPrefixedString() !==
@@ -1958,18 +1958,18 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
   }
 
   let echo = prepared.invocation
-  if (invocation !== undefined) {
-    try {
-      echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
-        prepared.invocation
-      )
-    } catch {
+  let expected: P2TRSignatureFraudSignerInvocationRequest | undefined
+  try {
+    echo = normalizeP2TRSignatureFraudSignerInvocationEcho(prepared.invocation)
+    expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+  } catch {
+    if (invocation !== undefined)
       throw new P2TRWitnessSignatureError(
         "invalid-watchtower-state",
         "Prepared nonce burn has a malformed signer invocation request echo"
       )
-    }
-    const expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+  }
+  if (invocation !== undefined) {
     if (
       echo === undefined ||
       echo.invocationID.toPrefixedString() !==
