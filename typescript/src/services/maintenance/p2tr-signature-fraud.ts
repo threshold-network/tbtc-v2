@@ -1926,10 +1926,7 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
       "Prepared nonce burn hash does not match its raw bytes"
     )
   }
-
-  // A burn spends the nonce and does nothing else: it pays its own sender, and
-  // carries neither value nor calldata. Anything else is a different
-  // transaction wearing a burn's name.
+  // A burn pays its own sender and carries neither value nor calldata.
   if (
     parsed.to === undefined ||
     utils.getAddress(parsed.to) !== sender ||
@@ -1938,9 +1935,6 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
     parsed.chainId !== envelope.chainID ||
     !parsed.value.isZero() ||
     parsed.data.toLowerCase() !== "0x" ||
-    // The burn's gas limit is exactly the intrinsic cost of an empty transfer,
-    // so a single access-list entry makes it unpayable and the escape hatch
-    // silently stops working.
     (parsed.accessList !== undefined && parsed.accessList.length > 0)
   ) {
     throw new P2TRWitnessSignatureError(
@@ -1948,7 +1942,6 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
       "Prepared nonce burn does not spend exactly its reserved nonce on nothing"
     )
   }
-
   if (
     parsed.type !== 2 ||
     parsed.maxFeePerGas === undefined ||
@@ -1964,24 +1957,19 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
     )
   }
 
-  // Authenticate the signed bytes before interpreting unauthenticated echo
-  // metadata. Callers may deliberately omit `invocation` on a first pass so
-  // exact burn bytes can be retained even when the signer returns a missing or
-  // malformed echo; the metadata fault can then be handled independently.
   let echo = prepared.invocation
   if (invocation !== undefined) {
-    let expected: P2TRSignatureFraudSignerInvocationRequest | undefined
     try {
       echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
         prepared.invocation
       )
-      expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
     } catch {
       throw new P2TRWitnessSignatureError(
         "invalid-watchtower-state",
         "Prepared nonce burn has a malformed signer invocation request echo"
       )
     }
+    const expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
     if (
       echo === undefined ||
       echo.invocationID.toPrefixedString() !==
@@ -1995,7 +1983,6 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
       )
     }
   }
-
   return {
     rawTransaction: utils.hexlify(prepared.rawTransaction).toLowerCase(),
     transactionHash: parsedHash,
