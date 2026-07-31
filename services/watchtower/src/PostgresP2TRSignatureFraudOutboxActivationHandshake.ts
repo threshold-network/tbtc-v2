@@ -352,6 +352,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       oldManifestResult,
       leaseResult,
       pendingReleaseResult,
+      ambiguousBroadcastResult,
       ambiguousReleaseResult,
       alertResult,
       incidentResult,
@@ -404,6 +405,30 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                  WHERE x.release_request_id = r.release_request_id
           )
           ORDER BY r.release_request_id`
+      ),
+      session.query<CountRow>(
+        `SELECT count(*)::bigint AS count
+           FROM p2tr_signature_fraud_challenge_outbox_broadcast_attempt attempt
+           JOIN p2tr_signature_fraud_challenge_outbox outbox
+             ON outbox.record_id = attempt.record_id
+            AND outbox.generation = attempt.generation
+           LEFT JOIN p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement acknowledgement
+             ON acknowledgement.record_id = attempt.record_id
+            AND acknowledgement.generation = attempt.generation
+            AND acknowledgement.variant_sequence = attempt.variant_sequence
+            AND acknowledgement.attempt_number = attempt.attempt_number
+          WHERE outbox.status <> ALL($1::text[])
+            AND NOT EXISTS (
+                  SELECT 1
+                    FROM p2tr_signature_fraud_challenge_outbox_broadcast_attempt newer
+                   WHERE newer.record_id = attempt.record_id
+                     AND newer.generation = attempt.generation
+                     AND newer.variant_sequence = attempt.variant_sequence
+                     AND newer.attempt_number > attempt.attempt_number
+                )
+            AND (acknowledgement.record_id IS NULL
+                 OR acknowledgement.result = 'ambiguous')`,
+        [TERMINAL_STATUSES]
       ),
       session.query<DigestRow>(
         `SELECT encode(r.release_request_id, 'hex') AS id,
@@ -770,6 +795,10 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     )
     const pendingNonceReleaseCount = pendingReleaseResult.rows.length
     const ambiguousNonceReleaseCount = ambiguousReleaseResult.rows.length
+    const ambiguousBroadcastCount = oneCount(
+      ambiguousBroadcastResult,
+      "ambiguous broadcast count"
+    )
     const activationBlockingAlertCount = alertResult.rows.length
     const provenanceIncidentCount = incidentResult.rows.length
     const unresolvedLegacyQuarantineCount = legacyQuarantineResult.rows.length
@@ -854,6 +883,9 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     }
     if (ambiguousNonceReleaseCount > 0) {
       reasons.push("ambiguous-nonce-release-response")
+    }
+    if (ambiguousBroadcastCount > 0) {
+      reasons.push("ambiguous-broadcast-response")
     }
     if (activationBlockingAlertCount > 0) {
       reasons.push("activation-blocking-outbox-alert")
@@ -962,7 +994,8 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       activeNonceReleaseAttemptCount === 0 &&
       activeSignerInvocationCount === 0 &&
       !nonceAllocatorContractMismatchBlocked
-    const ambiguousTransactionCount = ambiguousNonceReleaseCount
+    const ambiguousTransactionCount =
+      ambiguousNonceReleaseCount + ambiguousBroadcastCount
     const activationBlockingCriticalAlertCount =
       activationBlockingAlertCount + provenanceIncidentCount
     const healthy =

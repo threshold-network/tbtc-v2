@@ -5569,15 +5569,21 @@ function hydrateIntent(
   if (intent === undefined || typeof intent !== "object") {
     throw new Error("Stored outbox intent is absent")
   }
+  const hydrated = intent as unknown as Record<string, unknown>
   for (const key of [
+    "evidenceProtocolID",
     "intentID",
     "observationID",
     "bridgeChallengeKey",
     "walletID",
+    "signingKey",
+    "bindingTxHash",
     "bridgeChallengeIdentity",
     "sighash",
+    "nonceX",
+    "signatureScalar",
   ] as const) {
-    intent[key] = Hex.from(hexValue(intent[key], `Stored intent ${key}`))
+    hydrated[key] = Hex.from(hexValue(intent[key], `Stored intent ${key}`))
   }
 }
 

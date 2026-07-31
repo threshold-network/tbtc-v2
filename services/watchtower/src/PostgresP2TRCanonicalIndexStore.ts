@@ -551,10 +551,9 @@ export class PostgresP2TRCanonicalIndexStore
           64,
           "PostgreSQL lock timeout setting"
         )
-        await rawClient.query(
-          "SELECT set_config('lock_timeout', $1, false)",
-          [`${this.statementTimeoutMs}ms`]
-        )
+        await rawClient.query("SELECT set_config('lock_timeout', $1, false)", [
+          `${this.statementTimeoutMs}ms`,
+        ])
         try {
           await rawClient.query(
             readinessFence === "exclusive"
@@ -2957,7 +2956,7 @@ export class PostgresP2TRCanonicalIndexStore
       const bindingTxHash =
         provenance.bindingKind === "wallet"
           ? "00".repeat(32)
-          : provenance.fundingTxid
+          : Buffer.from(provenance.fundingTxid, "hex").reverse().toString("hex")
       const bindingOutputIndex =
         provenance.bindingKind === "wallet" ? 0 : provenance.fundingVout
 

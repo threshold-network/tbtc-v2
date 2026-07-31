@@ -1773,6 +1773,22 @@ postgresTest(
     const restartedClient = await openSchemaClient(database.schema)
     const restarted = createStore(restartedClient)
     const durable = await restarted.get(initial.recordID)
+    assert.ok(durable?.intent.evidenceProtocolID instanceof Hex)
+    assert.ok(durable.intent.signingKey instanceof Hex)
+    assert.ok(durable.intent.bindingTxHash instanceof Hex)
+    assert.ok(durable.intent.nonceX instanceof Hex)
+    assert.ok(durable.intent.signatureScalar instanceof Hex)
+    assert.ok(
+      durable.intent.evidenceProtocolID.equals(
+        initial.intent.evidenceProtocolID
+      )
+    )
+    assert.ok(durable.intent.signingKey.equals(initial.intent.signingKey))
+    assert.ok(durable.intent.bindingTxHash.equals(initial.intent.bindingTxHash))
+    assert.ok(durable.intent.nonceX.equals(initial.intent.nonceX))
+    assert.ok(
+      durable.intent.signatureScalar.equals(initial.intent.signatureScalar)
+    )
     assert.equal(
       durable?.preparedTransactionVariants?.[0].preparedTransaction
         .rawTransaction,
@@ -1787,6 +1803,60 @@ postgresTest(
        (SELECT count(*) FROM p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement)::text AS acknowledgements`
     )
     assert.deepEqual(ledger.rows[0], { attempts: "1", acknowledgements: "0" })
+
+    const readActivationAmbiguity = async () => {
+      await beginSerializable(restartedClient)
+      const response = await activationProvider(
+        restartedClient,
+        () => 5_000
+      ).attestActivationChallenge(activationRequest)
+      const revalidation = normalizeOutboxRevalidation(
+        (
+          await restartedClient.query<Record<string, string | number>>(
+            `SELECT *
+               FROM p2tr_signature_fraud_outbox_activation_revalidation($1, $2)`,
+            [Buffer.from(MANIFEST_HASH.slice(2), "hex"), 5_000]
+          )
+        ).rows[0]
+      )
+      await commit(restartedClient)
+      return { response, revalidation }
+    }
+    const unacknowledged = await readActivationAmbiguity()
+    assert.equal(
+      unacknowledged.response.payload.state.ambiguousTransactionCount,
+      1
+    )
+    assert.equal(unacknowledged.revalidation.ambiguousTransactionCount, 1)
+    assert.ok(
+      unacknowledged.response.payload.state.activationBlockingReasons.includes(
+        "ambiguous-broadcast-response"
+      )
+    )
+
+    await restartedClient.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement (
+          record_id, generation, variant_sequence, attempt_number, result,
+          returned_transaction_hash, error, acknowledged_at_unix_ms
+       ) VALUES (decode($1, 'hex'), $2, $3, $4, 'ambiguous', NULL, $5, $6)`,
+      [
+        initial.recordID.toString().replace(/^0x/, ""),
+        0,
+        0,
+        1,
+        "provider response was ambiguous",
+        1_600,
+      ]
+    )
+    const acknowledgedAmbiguous = await readActivationAmbiguity()
+    assert.equal(
+      acknowledgedAmbiguous.response.payload.state.ambiguousTransactionCount,
+      1
+    )
+    assert.equal(
+      acknowledgedAmbiguous.revalidation.ambiguousTransactionCount,
+      1
+    )
     await begin(restartedClient)
     const mutatedRawTransaction = `${rawTransaction}00`
     const mutatedPreparedTransaction = {

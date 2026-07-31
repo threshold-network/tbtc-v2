@@ -7,6 +7,22 @@ CREATE TABLE p2tr_watchtower_schema_version (
 INSERT INTO p2tr_watchtower_schema_version (component, version)
 VALUES ('canonical-evidence-index', 3);
 
+-- Bitcoin transaction IDs are persisted in display order, while COMPLETE_V2
+-- evidence must carry the native uint256/wire byte order used by the Bridge.
+CREATE FUNCTION p2tr_reverse_bytea(value bytea)
+RETURNS bytea
+LANGUAGE sql
+IMMUTABLE
+STRICT
+PARALLEL SAFE
+AS $$
+    SELECT decode(coalesce(string_agg(
+        lpad(to_hex(get_byte(value, byte_index)), 2, '0'),
+        '' ORDER BY byte_index DESC
+    ), ''), 'hex')
+    FROM generate_series(0, octet_length(value) - 1) AS bytes(byte_index)
+$$;
+
 -- Evidence is stored independently from the mutable canonical projection.
 -- Reorganizations may delete projection rows, but cannot rewrite an object or
 -- an ordered chunk once its content address has been published. Objects are
@@ -1084,7 +1100,7 @@ CREATE TABLE p2tr_bitcoin_candidate_observations (
          binding_tx_hash = decode(repeat('00', 32), 'hex') AND
          binding_output_index = 0) OR
         (binding_kind = 'deposit' AND signing_key = output_key AND
-         binding_tx_hash = local_funding_txid AND
+         binding_tx_hash = p2tr_reverse_bytea(local_funding_txid) AND
          binding_output_index = local_funding_vout)
     ),
     CHECK (
