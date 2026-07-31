@@ -10,6 +10,7 @@ import {
   type P2TRProductionEthereumJournalHealth,
   type P2TRProductionBitcoinIndexHealth,
   type P2TRProductionMigrationReadback,
+  type P2TRProductionOutboxRevalidation,
   type P2TRProductionReadinessCertificateInput,
   type P2TRProductionReadinessCertificateReference,
   type P2TRProductionRuntimeAlertHealth,
@@ -56,6 +57,50 @@ type ReadinessCertificateStateRow = {
 
 const DEFAULT_MAX_MANIFEST_BYTES = 1_048_576
 const DEFAULT_MAX_AUTHORIZATION_LIFETIME_MS = 60_000
+
+/** Reads the revalidation function's row into the gate's comparison shape. */
+export function normalizeOutboxRevalidation(
+  row: Record<string, string | number>
+): P2TRProductionOutboxRevalidation {
+  return {
+    activationBlockingCriticalAlertCount: databaseInteger(
+      row.activation_blocking_critical_alert_count,
+      "revalidated activation-blocking alert count"
+    ),
+    ambiguousTransactionCount: databaseInteger(
+      row.ambiguous_transaction_count,
+      "revalidated ambiguous transaction count"
+    ),
+    unresolvedLegacyQuarantineCount: databaseInteger(
+      row.unresolved_legacy_quarantine_count,
+      "revalidated legacy quarantine count"
+    ),
+    recoveryBacklogCount: databaseInteger(
+      row.recovery_backlog_count,
+      "revalidated recovery backlog count"
+    ),
+    quarantinedSignerLaneCount: databaseInteger(
+      row.quarantined_signer_lane_count,
+      "revalidated quarantined signer lane count"
+    ),
+    activeOldManifestGenerationCount: databaseInteger(
+      row.active_old_manifest_generation_count,
+      "revalidated old-manifest generation count"
+    ),
+    staleManifestGenerationSuccessorCount: databaseInteger(
+      row.stale_manifest_generation_successor_count,
+      "revalidated stale-manifest generation successor count"
+    ),
+    activeSignerInvocationCount: databaseInteger(
+      row.active_signer_invocation_count,
+      "revalidated active signer invocation count"
+    ),
+    activeNonceReleaseAttemptCount: databaseInteger(
+      row.active_nonce_release_attempt_count,
+      "revalidated active nonce release attempt count"
+    ),
+  }
+}
 
 /**
  * Activation readback and one-use authorization journal bound to the exact
@@ -127,6 +172,33 @@ export class PostgresP2TRProductionActivationStore
     await this.session.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('p2tr-readiness-snapshot', 0))"
     )
+  }
+
+  /**
+   * Re-derives the outbox facts the signed handshake attested to. The
+   * handshake is sampled in the outbox's own already-committed transaction, so
+   * on its own it says nothing about the moment readiness is minted. Reading
+   * these inside the readiness transaction makes them part of its read set,
+   * which is what binds the certificate to a live outbox state rather than a
+   * stale sample. Preparation leases expire on the clock rather than on a
+   * write, so the backlog is returned for a bound check, not for equality.
+   */
+  async readOutboxRevalidation(
+    manifestHash: string,
+    sampledAtUnixMs: number
+  ): Promise<P2TRProductionOutboxRevalidation> {
+    const result = await this.session.query<Record<string, string | number>>(
+      `SELECT *
+         FROM p2tr_signature_fraud_outbox_activation_revalidation($1, $2)`,
+      [
+        hexBuffer(manifestHash, "outbox revalidation manifest"),
+        nonNegativeInteger(sampledAtUnixMs, "outbox revalidation sample time"),
+      ]
+    )
+    if (result.rows.length !== 1) {
+      throw new Error("Outbox activation revalidation is unavailable")
+    }
+    return normalizeOutboxRevalidation(result.rows[0])
   }
 
   async mintReadinessCertificate(

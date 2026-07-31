@@ -5008,3 +5008,179 @@ CREATE TABLE p2tr_signature_fraud_legacy_submission_quarantine (
         quarantined_at_unix_ms BETWEEN 0 AND 9007199254740991
     )
 );
+
+-- A quarantined legacy submission is an unauthenticated broadcast whose chain
+-- effect the outbox cannot reconstruct, so it is never retried automatically
+-- and never expires on its own. The activation handshake counts every row that
+-- has no resolution here, which keeps the gate closed until an operator has
+-- established what the legacy broadcast actually did and recorded that finding
+-- against the observation. Without this journal the quarantine would either
+-- block activation forever or -- as it did before -- not block it at all.
+CREATE TABLE p2tr_signature_fraud_legacy_submission_quarantine_resolution (
+    observation_id bytea PRIMARY KEY
+        REFERENCES p2tr_signature_fraud_legacy_submission_quarantine(
+            observation_id
+        ) ON DELETE RESTRICT,
+    outcome text NOT NULL CHECK (outcome IN (
+        'legacy-submission-never-landed',
+        'legacy-submission-canonically-settled',
+        'legacy-submission-superseded-by-outbox'
+    )),
+    resolution_digest bytea NOT NULL CHECK (
+        octet_length(resolution_digest) = 32
+    ),
+    reason text NOT NULL CHECK (length(reason) BETWEEN 1 AND 1024),
+    resolved_at_unix_ms bigint NOT NULL CHECK (
+        resolved_at_unix_ms BETWEEN 0 AND 9007199254740991
+    )
+);
+
+-- The activation gate signs the outbox handshake in the outbox's own committed
+-- transaction and then mints readiness in a second, separate transaction. This
+-- function is what the readiness transaction re-derives for itself, so the two
+-- samples can be compared and the second one joins the minting transaction's
+-- SERIALIZABLE read set. Keeping it here rather than in the gate's TypeScript
+-- means the handshake and the revalidation cannot drift apart into two
+-- different definitions of the same safety facts.
+CREATE FUNCTION p2tr_signature_fraud_outbox_activation_revalidation(
+    activation_manifest_hash bytea,
+    sampled_at_unix_ms bigint
+)
+RETURNS TABLE (
+    activation_blocking_critical_alert_count bigint,
+    ambiguous_transaction_count bigint,
+    unresolved_legacy_quarantine_count bigint,
+    recovery_backlog_count bigint,
+    quarantined_signer_lane_count bigint,
+    active_old_manifest_generation_count bigint,
+    stale_manifest_generation_successor_count bigint,
+    active_signer_invocation_count bigint,
+    active_nonce_release_attempt_count bigint
+)
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT (
+             (
+               SELECT count(*)
+                 FROM p2tr_signature_fraud_challenge_critical_alert a
+                WHERE a.activation_blocking
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                       WHERE ar.alert_id = a.alert_id
+                  )
+             ) + (
+               SELECT count(*)
+                 FROM p2tr_signature_fraud_challenge_provenance_incident i
+                WHERE i.activation_blocking
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_provenance_incident_resolution ir
+                       WHERE ir.incident_id = i.incident_id
+                  )
+             )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_challenge_nonce_release_request r
+               JOIN LATERAL (
+                 SELECT x.result_kind
+                   FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                   LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+                     ON x.release_request_id = a.release_request_id
+                    AND x.attempt_sequence = a.attempt_sequence
+                  WHERE a.release_request_id = r.release_request_id
+                  ORDER BY a.attempt_sequence DESC
+                  LIMIT 1
+               ) latest ON true
+              WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_signature_fraud_challenge_nonce_release_terminal ok
+                     WHERE ok.release_request_id = r.release_request_id
+                )
+                AND (latest.result_kind IS NULL OR latest.result_kind NOT IN (
+                    'released', 'already-released'
+                ))
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_legacy_submission_quarantine q
+              WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_signature_fraud_legacy_submission_quarantine_resolution qr
+                     WHERE qr.observation_id = q.observation_id
+                )
+           )::bigint,
+           (
+             (
+               SELECT count(*)
+                 FROM p2tr_signature_fraud_challenge_outbox o
+                WHERE o.status = 'preparing'
+                  AND o.preparation_lease_expires_at_unix_ms
+                      <= p2tr_signature_fraud_outbox_activation_revalidation.sampled_at_unix_ms
+             ) + (
+               SELECT count(*)
+                 FROM p2tr_signature_fraud_challenge_nonce_release_request r
+                WHERE NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                       WHERE x.release_request_id = r.release_request_id
+                  )
+             )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_signer_lane_configuration c
+              WHERE c.activation_manifest_hash
+                    = p2tr_signature_fraud_outbox_activation_revalidation.activation_manifest_hash
+                AND c.enabled
+                AND EXISTS (
+                    SELECT 1
+                      FROM p2tr_signature_fraud_challenge_signer_quarantine q
+                     WHERE q.chain_id = c.chain_id
+                       AND (q.signer_lane_id = c.signer_lane_id
+                            OR q.signer_identity = c.signer_identity
+                            OR q.expected_sender = c.sender)
+                )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_challenge_outbox o
+              WHERE o.activation_manifest_hash
+                    <> p2tr_signature_fraud_outbox_activation_revalidation.activation_manifest_hash
+                AND o.status NOT IN (
+                    'accepted-own',
+                    'satisfied-external',
+                    'terminal-reverted',
+                    'terminal-nonce-consumed',
+                    'generation-required',
+                    'cancelled-before-broadcast',
+                    'cancelled-honest-spend',
+                    'cancelled-reorg',
+                    'cancelled-provenance-invalidated'
+                )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_challenge_outbox o
+              WHERE o.status = 'generation-required'
+                AND o.activation_manifest_hash
+                    <> p2tr_signature_fraud_outbox_activation_revalidation.activation_manifest_hash
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_signature_fraud_challenge_outbox s
+                     WHERE s.previous_record_id = o.record_id
+                )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_challenge_outbox o
+              WHERE o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
+              WHERE b.active_release_request_id IS NOT NULL
+           )::bigint;
+$$;

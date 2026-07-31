@@ -37,7 +37,11 @@ import {
   PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider,
   type P2TROutboxCurrentReadinessCertificate,
 } from "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
-import { assertP2TRProductionOutboxHandshake } from "../src/P2TRProductionActivation.js"
+import {
+  assertP2TRProductionOutboxHandshake,
+  assertP2TRProductionOutboxRevalidation,
+} from "../src/P2TRProductionActivation.js"
+import { normalizeOutboxRevalidation } from "../src/PostgresP2TRProductionActivationStore.js"
 import {
   PostgresP2TRSignatureFraudChallengeOutboxStore,
   computeP2TRProductionSignerLaneConfigurationHash,
@@ -286,6 +290,36 @@ async function seedCanonicalPoint(
       JSON.stringify({ outbox: { maxActiveOutboxRecords } }),
     ]
   )
+}
+
+/**
+ * The deployment-owned lane binding the handshake compares the configuration
+ * row against. It mirrors `signerConfiguration()` exactly, so a test that wants
+ * a mismatch overrides one field.
+ */
+function boundSenderLane(
+  overrides: Partial<{
+    chainID: number
+    signerIdentity: string
+    sender: string
+    policyHash: string
+    signerCodeHash: string
+    configurationHash: string
+  }> = {}
+) {
+  const configuration = signerConfiguration()
+  return {
+    laneID: LANE_ID,
+    trustDomainID: "signer.trust.integration",
+    operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+    chainID: CHAIN_ID,
+    signerIdentity: SIGNER_IDENTITY,
+    sender: WALLET.address.toLowerCase(),
+    policyHash: configuration.policyHash,
+    signerCodeHash: configuration.signerCodeHash,
+    configurationHash: configuration.configurationHash,
+    ...overrides,
+  }
 }
 
 function signerConfiguration() {
@@ -699,7 +733,8 @@ function activationProvider(
       blockNumber: 500,
       blockHash: ETHEREUM_BLOCK_HASH,
     },
-  })
+  }),
+  senderLanes = [boundSenderLane()]
 ) {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519")
   const publicDer = publicKey.export({ type: "spki", format: "der" })
@@ -721,19 +756,43 @@ function activationProvider(
       migrationVersion: 3,
       migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
       maxRecoveryBacklog: 0,
-      senderLanes: [
-        {
-          laneID: LANE_ID,
-          trustDomainID: "signer.trust.integration",
-          operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
-        },
-      ],
+      senderLanes,
     },
     ...(readCurrentReadinessCertificate === null
       ? {}
       : { readCurrentReadinessCertificate }),
     now,
   })
+}
+
+/** The manifest half of the gate's assertion, bound to the sampled catalog. */
+function outboxManifest(databaseConstraintHash: string) {
+  return {
+    storeID: "postgres.integration",
+    protocolID: OUTBOX_PROTOCOL_ID,
+    sender: WALLET.address,
+    routerAddress: ROUTER_ADDRESS,
+    implementationCodeHash: OUTBOX_IMPLEMENTATION_CODE_HASH,
+    databaseConstraintHash,
+    attestationSignerKeyHash: `0x${"a7".repeat(32)}`,
+    handshakeEndpointFingerprint: `0x${"a8".repeat(32)}`,
+    handshakeOperatorFingerprint: `0x${"a9".repeat(32)}`,
+    signerTrustDomainID: "signer.trust.integration",
+    broadcastTrustDomainID: "broadcast.trust.integration",
+    reconciliationTrustDomainID: "reconciliation.trust.integration",
+    preparedTransactionPersistence: "durable-before-broadcast" as const,
+    replacementPolicy: "append-only-same-intent-fee-bump-v1" as const,
+    migrationVersion: 3 as const,
+    migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
+    maxRecoveryBacklog: 0,
+    senderLanes: [
+      {
+        laneID: LANE_ID,
+        trustDomainID: "signer.trust.integration",
+        operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+      },
+    ],
+  }
 }
 
 const activationRequest = {
@@ -1776,32 +1835,10 @@ postgresTest(
     ])
     assert.equal(response.payload.state.healthy, true)
     assert.doesNotThrow(() =>
-      assertP2TRProductionOutboxHandshake(response.payload.state, {
-        storeID: "postgres.integration",
-        protocolID: OUTBOX_PROTOCOL_ID,
-        sender: WALLET.address,
-        routerAddress: ROUTER_ADDRESS,
-        implementationCodeHash: OUTBOX_IMPLEMENTATION_CODE_HASH,
-        databaseConstraintHash: response.payload.state.schemaConstraintHash,
-        attestationSignerKeyHash: `0x${"a7".repeat(32)}`,
-        handshakeEndpointFingerprint: `0x${"a8".repeat(32)}`,
-        handshakeOperatorFingerprint: `0x${"a9".repeat(32)}`,
-        signerTrustDomainID: "signer.trust.integration",
-        broadcastTrustDomainID: "broadcast.trust.integration",
-        reconciliationTrustDomainID: "reconciliation.trust.integration",
-        preparedTransactionPersistence: "durable-before-broadcast",
-        replacementPolicy: "append-only-same-intent-fee-bump-v1",
-        migrationVersion: 3,
-        migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
-        maxRecoveryBacklog: 0,
-        senderLanes: [
-          {
-            laneID: LANE_ID,
-            trustDomainID: "signer.trust.integration",
-            operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
-          },
-        ],
-      })
+      assertP2TRProductionOutboxHandshake(
+        response.payload.state,
+        outboxManifest(response.payload.state.schemaConstraintHash)
+      )
     )
     await database.client.end()
   }
@@ -1823,6 +1860,250 @@ postgresTest(
     assert.equal("currentReadinessCertificate" in response.payload.state, false)
     assert.equal(response.payload.state.startupReconciliationComplete, true)
     assert.equal(response.payload.state.healthy, true)
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "blocks activation on an unresolved legacy submission quarantine",
+  async () => {
+    const database = await createTestDatabase()
+    await database.store.saveLegacyQuarantine({
+      observationID: `0x${"c1".repeat(32)}`,
+      legacyStatus: "submitting",
+      submissionAttempts: 1,
+      reason: "legacy submission has no authenticated outbox record",
+      quarantinedAtUnixMs: 2_000,
+    })
+
+    await beginSerializable(database.client)
+    const blocked = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    // The signer lanes are healthy, which is exactly the case that used to
+    // report zero here because the count aliased the lane quarantine.
+    assert.equal(blocked.payload.state.quarantinedSignerLaneCount, 0)
+    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 1)
+    assert.equal(blocked.payload.state.healthy, false)
+    assert.ok(
+      blocked.payload.state.activationBlockingReasons.includes(
+        "unresolved-legacy-submission-quarantine"
+      )
+    )
+    assert.throws(
+      () =>
+        assertP2TRProductionOutboxHandshake(
+          blocked.payload.state,
+          outboxManifest(blocked.payload.state.schemaConstraintHash)
+        ),
+      /not activation-ready/
+    )
+
+    await database.client.query(
+      `INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine_resolution (
+          observation_id, outcome, resolution_digest, reason, resolved_at_unix_ms
+       ) VALUES (decode($1, 'hex'), $2, decode($3, 'hex'), $4, $5)`,
+      [
+        "c1".repeat(32),
+        "legacy-submission-never-landed",
+        "c2".repeat(32),
+        "operator confirmed the legacy broadcast never landed",
+        4_000,
+      ]
+    )
+
+    await beginSerializable(database.client)
+    const cleared = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    assert.equal(cleared.payload.state.unresolvedLegacyQuarantineCount, 0)
+    assert.equal(cleared.payload.state.healthy, true)
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "blocks a generation-required record stranded by a rotated-out manifest",
+  async () => {
+    const database = await createTestDatabase()
+    const record = outboxRecord(240)
+    await insertRecord(database, record)
+    // A restore or replication path can land a row without running the status
+    // triggers; that is precisely the state the audit has to see.
+    await database.client.query("SET session_replication_role = replica")
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_challenge_outbox
+          SET status = 'generation-required',
+              nonce_disposition_id = decode($2, 'hex'),
+              lane_released_at_unix_ms = $3
+        WHERE record_id = decode($1, 'hex')`,
+      [record.recordID.slice(2), "e9".repeat(32), 3_000]
+    )
+    // The capacity counter is trigger-maintained, so it has to follow the row
+    // into its terminal status by hand or the audit reports that mismatch
+    // instead of the one under test.
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_challenge_outbox_capacity
+          SET active_generation_count = 0
+        WHERE singleton = true`
+    )
+    await database.client.query("SET session_replication_role = origin")
+
+    await beginSerializable(database.client)
+    const pending = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    // Its successor is created by the enqueue path this same gate authorizes,
+    // so a current-manifest record owing one is reported, never blocking.
+    assert.equal(pending.payload.state.pendingGenerationSuccessorCount, 1)
+    assert.equal(pending.payload.state.staleManifestGenerationSuccessorCount, 0)
+    assert.equal(pending.payload.state.activeOldManifestGenerationCount, 0)
+    assert.equal(pending.payload.state.healthy, true)
+
+    await database.client.query("SET session_replication_role = replica")
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_challenge_outbox
+          SET activation_manifest_hash = decode($2, 'hex'),
+              canonical_provenance_manifest_hash = decode($2, 'hex')
+        WHERE record_id = decode($1, 'hex')`,
+      [record.recordID.slice(2), "d4".repeat(32)]
+    )
+    await database.client.query("SET session_replication_role = origin")
+
+    await beginSerializable(database.client)
+    const stranded = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    // Terminal for capacity, so the old-manifest generation count still reads
+    // zero -- the successor audit is the only thing that sees this record.
+    assert.equal(stranded.payload.state.activeOldManifestGenerationCount, 0)
+    assert.equal(
+      stranded.payload.state.staleManifestGenerationSuccessorCount,
+      1
+    )
+    assert.equal(stranded.payload.state.startupReconciliationComplete, false)
+    assert.equal(stranded.payload.state.healthy, false)
+    assert.ok(
+      stranded.payload.state.activationBlockingReasons.includes(
+        "stale-manifest-generation-successor"
+      )
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "refuses a lane whose stored configuration is not the bound one",
+  async () => {
+    const database = await createTestDatabase()
+    for (const drifted of [
+      boundSenderLane({ signerCodeHash: `0x${"d1".repeat(32)}` }),
+      boundSenderLane({ signerIdentity: "signer-b" }),
+      boundSenderLane({ sender: `0x${"d2".repeat(20)}` }),
+      boundSenderLane({ policyHash: `0x${"d3".repeat(32)}` }),
+      boundSenderLane({ chainID: CHAIN_ID + 1 }),
+      boundSenderLane({ configurationHash: `0x${"d5".repeat(32)}` }),
+    ]) {
+      await beginSerializable(database.client)
+      const response = await activationProvider(
+        database.client,
+        () => 5_000,
+        MANIFEST_HASH,
+        undefined,
+        [drifted]
+      ).attestActivationChallenge(activationRequest)
+      await commit(database.client)
+      // The lane ID is present and unquarantined, which is all the old
+      // predicate looked at.
+      assert.equal(response.payload.state.configuredSignerLaneCount, 1)
+      assert.equal(response.payload.state.quarantinedSignerLaneCount, 0)
+      assert.equal(response.payload.state.laneConfigurationMismatchCount, 1)
+      assert.deepEqual(
+        response.payload.state.senderLanes.map((lane) => lane.healthy),
+        [false]
+      )
+      assert.equal(response.payload.state.healthy, false)
+      assert.ok(
+        response.payload.state.activationBlockingReasons.includes(
+          "manifest-bound-signer-lane-configuration-mismatch"
+        )
+      )
+    }
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "re-derives the outbox safety sample inside the readiness transaction",
+  async () => {
+    const database = await createTestDatabase()
+    const revalidate = async (sampledAtUnixMs: number) =>
+      normalizeOutboxRevalidation(
+        (
+          await database.client.query<Record<string, string | number>>(
+            `SELECT *
+               FROM p2tr_signature_fraud_outbox_activation_revalidation($1, $2)`,
+            [Buffer.from(MANIFEST_HASH.slice(2), "hex"), sampledAtUnixMs]
+          )
+        ).rows[0]
+      )
+
+    await beginSerializable(database.client)
+    const signed = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    const clean = await revalidate(5_000)
+    await commit(database.client)
+    assert.deepEqual(clean, {
+      activationBlockingCriticalAlertCount: 0,
+      ambiguousTransactionCount: 0,
+      unresolvedLegacyQuarantineCount: 0,
+      recoveryBacklogCount: 0,
+      quarantinedSignerLaneCount: 0,
+      activeOldManifestGenerationCount: 0,
+      staleManifestGenerationSuccessorCount: 0,
+      activeSignerInvocationCount: 0,
+      activeNonceReleaseAttemptCount: 0,
+    })
+    assert.doesNotThrow(() =>
+      assertP2TRProductionOutboxRevalidation(
+        clean,
+        signed.payload.state,
+        outboxManifest(signed.payload.state.schemaConstraintHash)
+      )
+    )
+
+    // The outbox transitions after signing: exactly the window the readiness
+    // transaction could previously mint straight through.
+    await database.store.saveLegacyQuarantine({
+      observationID: `0x${"c3".repeat(32)}`,
+      legacyStatus: "broadcast-pending",
+      submissionAttempts: 2,
+      reason: "legacy submission has no authenticated outbox record",
+      quarantinedAtUnixMs: 6_000,
+    })
+    await beginSerializable(database.client)
+    const moved = await revalidate(6_000)
+    await commit(database.client)
+    assert.equal(moved.unresolvedLegacyQuarantineCount, 1)
+    assert.throws(
+      () =>
+        assertP2TRProductionOutboxRevalidation(
+          moved,
+          signed.payload.state,
+          outboxManifest(signed.payload.state.schemaConstraintHash)
+        ),
+      /changed after its activation handshake was signed/
+    )
     await database.client.end()
   }
 )
@@ -2014,11 +2295,12 @@ postgresTest(
     }
     delete nextWithoutHash.configurationHash
     delete nextWithoutHash.configuredAtUnixMs
+    const nextConfigurationHash =
+      computeP2TRProductionSignerLaneConfigurationHash(nextWithoutHash)
     await begin(database.client)
     await database.store.installSignerLaneConfiguration({
       ...nextWithoutHash,
-      configurationHash:
-        computeP2TRProductionSignerLaneConfigurationHash(nextWithoutHash),
+      configurationHash: nextConfigurationHash,
       configuredAtUnixMs: 2_000,
     })
     await database.client.query(
@@ -2036,7 +2318,17 @@ postgresTest(
     const response = await activationProvider(
       database.client,
       () => 5_000,
-      nextManifest
+      nextManifest,
+      undefined,
+      // The rotation replaces the lane's policy, so the deployment binding has
+      // to name the rotated configuration -- binding the retired one is now
+      // exactly the mismatch the handshake refuses.
+      [
+        boundSenderLane({
+          policyHash: nextWithoutHash.policyHash,
+          configurationHash: nextConfigurationHash,
+        }),
+      ]
     ).attestActivationChallenge(activationRequestFor(nextManifest))
     const rotated = await database.store.get(initial.recordID)
     await commit(database.client)

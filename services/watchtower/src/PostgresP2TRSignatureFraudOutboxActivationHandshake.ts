@@ -61,10 +61,14 @@ export type P2TRProductionOutboxActivationState =
     activationBlockingAlertSetHash: string
     provenanceIncidentCount: number
     provenanceIncidentSetHash: string
+    unresolvedLegacyQuarantineSetHash: string
+    pendingGenerationSuccessorCount: number
+    staleManifestGenerationSuccessorCount: number
     unresolvedNonceGuardCount: number
     danglingNonceGuardCount: number
     configuredSignerLaneCount: number
     configuredSignerLaneSetHash: string
+    laneConfigurationMismatchCount: number
     quarantinedSignerLaneCount: number
     healthySignerLaneCount: number
     healthySignerLaneSetHash: string
@@ -92,10 +96,24 @@ export type P2TRProductionOutboxActivationBinding = Pick<
   | "migrationChecksum"
 > & {
   maxRecoveryBacklog: number
+  /**
+   * The deployment's full expected signer-lane configuration. The trust domain
+   * and operator fingerprint are deployment-only facts the database does not
+   * hold, but every remaining field is compared against the row the store and
+   * dispatcher actually select. Echoing the deployment's own metadata for a
+   * lane whose database row differs would sign a handshake describing lanes
+   * that are not the ones in use.
+   */
   senderLanes: readonly {
     laneID: string
     trustDomainID: string
     operatorFingerprint: string
+    chainID: number
+    signerIdentity: string
+    sender: string
+    policyHash: string
+    signerCodeHash: string
+    configurationHash: string
   }[]
 }
 
@@ -334,6 +352,8 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       ambiguousReleaseResult,
       alertResult,
       incidentResult,
+      legacyQuarantineResult,
+      generationSuccessorResult,
       guardResult,
       laneResult,
       danglingGuardResult,
@@ -433,6 +453,50 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                          p2tr_signature_fraud_challenge_provenance_incident.incident_id
                 )
           ORDER BY incident_id`
+      ),
+      // Legacy submission ambiguity has its own journal. It is not the signer
+      // lane quarantine and must be read from where migration and
+      // saveLegacyQuarantine actually write it, or a store with healthy lanes
+      // reports zero and activates over an unreconstructed legacy broadcast.
+      session.query<DigestRow>(
+        `SELECT encode(q.observation_id, 'hex') AS id,
+                encode(sha256(
+                  q.observation_id ||
+                  convert_to(q.legacy_status, 'UTF8') ||
+                  int8send(q.quarantined_at_unix_ms)
+                ), 'hex') AS details_digest
+           FROM p2tr_signature_fraud_legacy_submission_quarantine q
+          WHERE NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_legacy_submission_quarantine_resolution qr
+                 WHERE qr.observation_id = q.observation_id
+          )
+          ORDER BY q.observation_id`
+      ),
+      // 'generation-required' is terminal for capacity accounting but not for
+      // the fraud evidence: the record is still eligible and owes a successor
+      // generation. A successor may only extend a series inside the manifest
+      // that opened it, so one left under a rotated-out manifest can never be
+      // created and has to hold activation closed. A pending successor under
+      // the current manifest is reported but not blocking: it is created by
+      // the enqueue path, which this same gate authorizes, so blocking on it
+      // would deadlock the mechanism that resolves it.
+      session.query<{
+        pending_count: string | number
+        stale_manifest_count: string | number
+      }>(
+        `SELECT count(*)::bigint AS pending_count,
+                count(*) FILTER (
+                    WHERE o.activation_manifest_hash <> decode($1, 'hex')
+                )::bigint AS stale_manifest_count
+           FROM p2tr_signature_fraud_challenge_outbox o
+          WHERE o.status = 'generation-required'
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_outbox s
+                 WHERE s.previous_record_id = o.record_id
+            )`,
+        [strip0x(challenge.manifestHash)]
       ),
       session.query<CountRow>(
         `SELECT count(*)::bigint AS count
@@ -705,6 +769,18 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     const ambiguousNonceReleaseCount = ambiguousReleaseResult.rows.length
     const activationBlockingAlertCount = alertResult.rows.length
     const provenanceIncidentCount = incidentResult.rows.length
+    const unresolvedLegacyQuarantineCount = legacyQuarantineResult.rows.length
+    if (generationSuccessorResult.rows.length !== 1) {
+      throw new Error("PostgreSQL generation-successor audit is invalid")
+    }
+    const pendingGenerationSuccessorCount = databaseSafeInteger(
+      generationSuccessorResult.rows[0].pending_count,
+      "pending generation-successor count"
+    )
+    const staleManifestGenerationSuccessorCount = databaseSafeInteger(
+      generationSuccessorResult.rows[0].stale_manifest_count,
+      "stale-manifest generation-successor count"
+    )
     const unresolvedNonceGuardCount = oneCount(
       guardResult,
       "unresolved nonce-guard count"
@@ -777,6 +853,12 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     if (provenanceIncidentCount > 0) {
       reasons.push("provenance-reconciliation-incident")
     }
+    if (unresolvedLegacyQuarantineCount > 0) {
+      reasons.push("unresolved-legacy-submission-quarantine")
+    }
+    if (staleManifestGenerationSuccessorCount > 0) {
+      reasons.push("stale-manifest-generation-successor")
+    }
     if (stateHistoryMismatchCount > 0) {
       reasons.push("outbox-state-history-mismatch")
     }
@@ -821,9 +903,26 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
         laneID: expected.laneID,
         trustDomainID: expected.trustDomainID,
         operatorFingerprint: expected.operatorFingerprint,
-        healthy: configured !== undefined && !configured.quarantined,
+        healthy:
+          configured !== undefined &&
+          !configured.quarantined &&
+          laneConfigurationMatches(configured, expected),
       }
     })
+    const laneConfigurationMismatchCount = binding.senderLanes.filter(
+      (expected) => {
+        const configured = laneResult.rows.find(
+          (actual) => actual.signer_lane_id === expected.laneID
+        )
+        return (
+          configured !== undefined &&
+          !laneConfigurationMatches(configured, expected)
+        )
+      }
+    ).length
+    if (laneConfigurationMismatchCount > 0) {
+      reasons.push("manifest-bound-signer-lane-configuration-mismatch")
+    }
     const configuredLaneIDs = new Set(
       laneResult.rows.map((lane) => lane.signer_lane_id)
     )
@@ -838,6 +937,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     }
     const startupReconciliationComplete =
       activeOldManifestGenerationCount === 0 &&
+      staleManifestGenerationSuccessorCount === 0 &&
       stateHistoryMismatchCount === 0 &&
       capacityCounterMismatchCount === 0 &&
       nonceAllocatorBarrierMismatchCount === 0 &&
@@ -849,7 +949,6 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     const ambiguousTransactionCount = ambiguousNonceReleaseCount
     const activationBlockingCriticalAlertCount =
       activationBlockingAlertCount + provenanceIncidentCount
-    const unresolvedLegacyQuarantineCount = quarantinedSignerLaneCount
     const healthy =
       startupReconciliationComplete &&
       manifestOutboxCapacityConfigured &&
@@ -909,10 +1008,16 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       activationBlockingAlertSetHash: sha256Canonical(alertResult.rows),
       provenanceIncidentCount,
       provenanceIncidentSetHash: sha256Canonical(incidentResult.rows),
+      unresolvedLegacyQuarantineSetHash: sha256Canonical(
+        legacyQuarantineResult.rows
+      ),
+      pendingGenerationSuccessorCount,
+      staleManifestGenerationSuccessorCount,
       unresolvedNonceGuardCount,
       danglingNonceGuardCount,
       configuredSignerLaneCount,
       configuredSignerLaneSetHash: sha256Canonical(laneResult.rows),
+      laneConfigurationMismatchCount,
       quarantinedSignerLaneCount,
       healthySignerLaneCount,
       healthySignerLaneSetHash: sha256Canonical(healthySignerLanes),
@@ -1065,6 +1170,22 @@ function normalizeActivationBinding(
       lane?.operatorFingerprint,
       "Activation sender lane operator fingerprint"
     ),
+    chainID: positiveSafeInteger(lane?.chainID, "Activation sender lane chain"),
+    signerIdentity: requireText(
+      lane?.signerIdentity,
+      "Activation sender lane signer identity",
+      128
+    ),
+    sender: address(lane?.sender, "Activation sender lane sender"),
+    policyHash: bytes32(lane?.policyHash, "Activation sender lane policy hash"),
+    signerCodeHash: bytes32(
+      lane?.signerCodeHash,
+      "Activation sender lane signer code hash"
+    ),
+    configurationHash: bytes32(
+      lane?.configurationHash,
+      "Activation sender lane configuration hash"
+    ),
   }))
   if (
     new Set(senderLanes.map((lane) => lane.laneID)).size !==
@@ -1159,6 +1280,29 @@ function bytes32(value: unknown, label: string): string {
     throw new Error(`${label} must be 32-byte hexadecimal data`)
   }
   return value.toLowerCase()
+}
+
+/**
+ * Compares every field the lane query selects against the deployment-bound
+ * configuration. Matching only the lane ID would let a row that shares the ID
+ * but carries a different chain, signer, sender, policy, code, or
+ * configuration hash be reported as the healthy lane the deployment expects.
+ */
+function laneConfigurationMatches(
+  configured: SignerLaneStateRow,
+  expected: P2TRProductionOutboxActivationBinding["senderLanes"][number]
+): boolean {
+  return (
+    configured.chain_id === String(expected.chainID) &&
+    configured.signer_lane_id === expected.laneID &&
+    configured.signer_identity === expected.signerIdentity &&
+    `0x${configured.sender}`.toLowerCase() === expected.sender &&
+    `0x${configured.policy_hash}`.toLowerCase() === expected.policyHash &&
+    `0x${configured.signer_code_hash}`.toLowerCase() ===
+      expected.signerCodeHash &&
+    `0x${configured.configuration_hash}`.toLowerCase() ===
+      expected.configurationHash
+  )
 }
 
 function address(value: unknown, label: string): string {

@@ -401,6 +401,9 @@ function candidateStateStore(
     async readEthereumJournalHealth() {
       throw new Error("unused test dependency")
     },
+    async readOutboxRevalidation() {
+      throw new Error("unused test dependency")
+    },
     async readRuntimeAlertHealth() {
       return healthFor(journal)
     },

@@ -693,11 +693,35 @@ export type P2TRProductionCandidateEnqueueTransactionResolution = {
   outcomeKind: P2TRProductionCandidateEnqueueOutcome["kind"]
 }
 
+/**
+ * The outbox facts the readiness transaction re-derives for itself. The signed
+ * handshake is sampled in the outbox's own committed transaction, so between
+ * that sample and the certificate insert the outbox can transition into a
+ * state the sample never saw. Reading these back inside the SERIALIZABLE
+ * readiness transaction puts them in its read set: a concurrent writer either
+ * loses the serialization race or is seen here.
+ */
+export type P2TRProductionOutboxRevalidation = {
+  activationBlockingCriticalAlertCount: number
+  ambiguousTransactionCount: number
+  unresolvedLegacyQuarantineCount: number
+  recoveryBacklogCount: number
+  quarantinedSignerLaneCount: number
+  activeOldManifestGenerationCount: number
+  staleManifestGenerationSuccessorCount: number
+  activeSignerInvocationCount: number
+  activeNonceReleaseAttemptCount: number
+}
+
 export type P2TRProductionStateStore = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
   lockReadinessSnapshot(): Promise<void>
   readBitcoinIndexHealth(): Promise<P2TRProductionBitcoinIndexHealth>
   readEthereumJournalHealth(): Promise<P2TRProductionEthereumJournalHealth>
+  readOutboxRevalidation(
+    manifestHash: string,
+    sampledAtUnixMs: number
+  ): Promise<P2TRProductionOutboxRevalidation>
   mintReadinessCertificate(
     input: P2TRProductionReadinessCertificateInput
   ): Promise<P2TRProductionReadinessCertificateReference>
@@ -953,12 +977,26 @@ export class P2TRProductionActivationGate {
             bitcoinHealth,
             ethereumHealth,
             runtimeAlertHealth,
+            outboxRevalidation,
           ] = await Promise.all([
             this.dependencies.migrations.listAppliedMigrations(),
             this.dependencies.stateStore.readBitcoinIndexHealth(),
             this.dependencies.stateStore.readEthereumJournalHealth(),
             this.dependencies.stateStore.readRuntimeAlertHealth(),
+            this.dependencies.stateStore.readOutboxRevalidation(
+              this.manifestHash,
+              Date.now()
+            ),
           ])
+          // The handshake above was signed from the outbox's own committed
+          // transaction. Re-deriving its safety facts here, inside the
+          // SERIALIZABLE readiness transaction, is what stops a certificate
+          // from being minted on an outbox state that has already moved on.
+          assertP2TRProductionOutboxRevalidation(
+            outboxRevalidation,
+            outboxHandshake.payload.state,
+            this.manifest.outbox
+          )
           assertEthereumJournalCursorHealth(
             ethereumHealth,
             this.manifest,
@@ -2586,6 +2624,62 @@ export function assertP2TRProductionOutboxHandshake(
     actual.healthy !== true
   ) {
     throw new Error("Transactional outbox handshake is not activation-ready")
+  }
+}
+
+/**
+ * Requires the readiness transaction's own read of the outbox to agree with
+ * the signed sample. Every counter here changes only by a write, so equality
+ * is the right test: a difference means the outbox transitioned after it
+ * signed. The recovery backlog is the exception -- preparation leases expire
+ * on the clock -- so it is held to the manifest bound instead.
+ */
+export function assertP2TRProductionOutboxRevalidation(
+  revalidation: P2TRProductionOutboxRevalidation,
+  signed: P2TRProductionOutboxHandshakeState,
+  expected: Readonly<P2TRProductionActivationManifest["outbox"]>
+): void {
+  if (
+    nonNegativeInteger(
+      revalidation.activationBlockingCriticalAlertCount,
+      "revalidated activation-blocking alert count"
+    ) !== signed.activationBlockingCriticalAlertCount ||
+    nonNegativeInteger(
+      revalidation.ambiguousTransactionCount,
+      "revalidated ambiguous transaction count"
+    ) !== signed.ambiguousTransactionCount ||
+    nonNegativeInteger(
+      revalidation.unresolvedLegacyQuarantineCount,
+      "revalidated legacy quarantine count"
+    ) !== signed.unresolvedLegacyQuarantineCount ||
+    nonNegativeInteger(
+      revalidation.quarantinedSignerLaneCount,
+      "revalidated quarantined signer lane count"
+    ) !== 0 ||
+    nonNegativeInteger(
+      revalidation.activeOldManifestGenerationCount,
+      "revalidated old-manifest generation count"
+    ) !== 0 ||
+    nonNegativeInteger(
+      revalidation.staleManifestGenerationSuccessorCount,
+      "revalidated stale-manifest generation successor count"
+    ) !== 0 ||
+    nonNegativeInteger(
+      revalidation.activeSignerInvocationCount,
+      "revalidated active signer invocation count"
+    ) !== 0 ||
+    nonNegativeInteger(
+      revalidation.activeNonceReleaseAttemptCount,
+      "revalidated active nonce release attempt count"
+    ) !== 0 ||
+    nonNegativeInteger(
+      revalidation.recoveryBacklogCount,
+      "revalidated recovery backlog count"
+    ) > expected.maxRecoveryBacklog
+  ) {
+    throw new Error(
+      "Transactional outbox state changed after its activation handshake was signed"
+    )
   }
 }
 
