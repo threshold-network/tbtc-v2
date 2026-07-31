@@ -583,6 +583,8 @@ export type P2TRProductionOutboxHandshakeState = {
   unresolvedLegacyQuarantineCount: number
   recoveryBacklogCount: number
   liveCandidateAuthorizationCount: number
+  configuredSignerLaneCount: number
+  configuredSignerLaneSetHash: string
   senderLanes: readonly {
     laneID: string
     trustDomainID: string
@@ -697,15 +699,19 @@ export type P2TRProductionCandidateEnqueueTransactionResolution = {
  * The outbox facts the readiness transaction re-derives for itself. The signed
  * handshake is sampled in the outbox's own committed transaction, so between
  * that sample and the certificate insert the outbox can transition into a
- * state the sample never saw. Reading these back inside the SERIALIZABLE
- * readiness transaction puts them in its read set: a concurrent writer either
- * loses the serialization race or is seen here.
+ * state the sample never saw. The coordinator acquires the exclusive readiness
+ * fence before opening this transaction's SERIALIZABLE snapshot, while every
+ * ordinary transaction acquires the shared side before its own snapshot.
+ * Re-reading these facts under that fence binds the certificate to the state
+ * after every earlier writer and before every later writer.
  */
 export type P2TRProductionOutboxRevalidation = {
   activationBlockingCriticalAlertCount: number
   ambiguousTransactionCount: number
   unresolvedLegacyQuarantineCount: number
   recoveryBacklogCount: number
+  configuredSignerLaneCount: number
+  configuredSignerLaneSetHash: string
   quarantinedSignerLaneCount: number
   activeOldManifestGenerationCount: number
   staleManifestGenerationSuccessorCount: number
@@ -810,7 +816,10 @@ export class P2TRProductionCandidateEnqueueRetryExhaustedError extends Error {
 export type P2TRProductionTransactionCoordinator = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
   runInP2TRSignatureFraudWatchtowerTransaction<T>(
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    options?: {
+      readinessFence?: "shared" | "exclusive"
+    }
   ): Promise<T>
   assertP2TRSignatureFraudWatchtowerTransactionalParticipants(
     participants: readonly object[]
@@ -989,9 +998,12 @@ export class P2TRProductionActivationGate {
             ),
           ])
           // The handshake above was signed from the outbox's own committed
-          // transaction. Re-deriving its safety facts here, inside the
-          // SERIALIZABLE readiness transaction, is what stops a certificate
-          // from being minted on an outbox state that has already moved on.
+          // transaction. The coordinator acquired the exclusive readiness
+          // fence before this SERIALIZABLE snapshot; every ordinary writer
+          // acquires the shared side before its snapshot. Re-derive the safety
+          // facts while that fence is held so this certificate cannot cover a
+          // transition that committed before readiness or race one that began
+          // while readiness was being minted.
           assertP2TRProductionOutboxRevalidation(
             outboxRevalidation,
             outboxHandshake.payload.state,
@@ -1062,7 +1074,8 @@ export class P2TRProductionActivationGate {
               frostHandshake: frostHandshake.payload,
             },
           })
-        }
+        },
+        { readinessFence: "exclusive" }
       )
 
     return {
@@ -2612,6 +2625,10 @@ export function assertP2TRProductionOutboxHandshake(
       expected.senderLanes.map((lane) => ({ ...lane, healthy: true as const }))
     ),
   }
+  bytes32(
+    actual.configuredSignerLaneSetHash,
+    "configured signer lane set hash"
+  )
   if (
     canonicalJSON(normalized) !== canonicalJSON(wanted) ||
     actual.startupReconciliationComplete !== true ||
@@ -2619,6 +2636,10 @@ export function assertP2TRProductionOutboxHandshake(
     actual.activationBlockingCriticalAlertCount !== 0 ||
     actual.unresolvedLegacyQuarantineCount !== 0 ||
     actual.liveCandidateAuthorizationCount !== 0 ||
+    nonNegativeInteger(
+      actual.configuredSignerLaneCount,
+      "configured signer lane count"
+    ) !== expected.senderLanes.length ||
     nonNegativeInteger(actual.recoveryBacklogCount, "outbox recovery backlog") >
       expected.maxRecoveryBacklog ||
     actual.healthy !== true
@@ -2653,6 +2674,19 @@ export function assertP2TRProductionOutboxRevalidation(
       "revalidated legacy quarantine count"
     ) !== signed.unresolvedLegacyQuarantineCount ||
     nonNegativeInteger(
+      revalidation.configuredSignerLaneCount,
+      "revalidated configured signer lane count"
+    ) !== signed.configuredSignerLaneCount ||
+    bytes32(
+      revalidation.configuredSignerLaneSetHash,
+      "revalidated configured signer lane set hash"
+    ) !==
+      bytes32(
+        signed.configuredSignerLaneSetHash,
+        "signed configured signer lane set hash"
+      ) ||
+    revalidation.configuredSignerLaneCount !== expected.senderLanes.length ||
+    nonNegativeInteger(
       revalidation.quarantinedSignerLaneCount,
       "revalidated quarantined signer lane count"
     ) !== 0 ||
@@ -2681,6 +2715,30 @@ export function assertP2TRProductionOutboxRevalidation(
       "Transactional outbox state changed after its activation handshake was signed"
     )
   }
+}
+
+/**
+ * Commits to the exact manifest-bound signer-lane configurations. Each
+ * configuration hash already binds its manifest, chain, lane, signer, sender,
+ * policy, code, and fee envelope; fixed-width sorted hashes make the set
+ * encoding deterministic in both TypeScript and PostgreSQL.
+ */
+export function computeP2TRProductionSignerLaneSetHash(
+  lanes: readonly { configurationHash: string }[]
+): string {
+  const digest = createHash("sha256").update(
+    "tbtc-p2tr-production-signer-lane-set/v1\u0000",
+    "utf8"
+  )
+  const configurationHashes = lanes
+    .map((lane) =>
+      bytes32(lane.configurationHash, "signer lane configuration hash")
+    )
+    .sort()
+  for (const configurationHash of configurationHashes) {
+    digest.update(Buffer.from(configurationHash.slice(2), "hex"))
+  }
+  return `0x${digest.digest("hex")}`
 }
 
 export function assertP2TRProductionFrostHandshake(

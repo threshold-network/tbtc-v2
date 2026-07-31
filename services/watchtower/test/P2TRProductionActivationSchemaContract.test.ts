@@ -10,8 +10,19 @@ const activationGate = readFileSync(
   new URL("../src/P2TRProductionActivation.ts", import.meta.url),
   "utf8"
 )
+const transactionCoordinator = readFileSync(
+  new URL("../src/PostgresP2TRCanonicalIndexStore.ts", import.meta.url),
+  "utf8"
+)
 const canonicalEthereumMigration = readFileSync(
   new URL("../migrations/002_p2tr_canonical_ethereum.sql", import.meta.url),
+  "utf8"
+)
+const outboxMigration = readFileSync(
+  new URL(
+    "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
+    import.meta.url
+  ),
   "utf8"
 )
 
@@ -97,6 +108,28 @@ describe("production activation PostgreSQL schema contract", () => {
     const health = activationGate.indexOf("readBitcoinIndexHealth()", lock)
     const mint = activationGate.indexOf("mintReadinessCertificate({", health)
     assert.ok(lock >= 0 && health > lock && mint > health)
+    const readinessMethod = methodSource(
+      activationGate,
+      "assertReadyUnderAuthority",
+      "assertCandidateReconciled"
+    )
+    assert.match(readinessMethod, /readinessFence: "exclusive"/)
+    const sessionFence = transactionCoordinator.indexOf(
+      "SELECT pg_advisory_lock_shared"
+    )
+    const lockTimeoutSetup = transactionCoordinator.indexOf(
+      "set_config('lock_timeout'"
+    )
+    const transactionBegin = transactionCoordinator.indexOf(
+      'client.query("BEGIN ISOLATION LEVEL SERIALIZABLE")',
+      sessionFence
+    )
+    assert.ok(
+      lockTimeoutSetup >= 0 &&
+        sessionFence > lockTimeoutSetup &&
+        transactionBegin > sessionFence,
+      "readiness writer fence must be acquired before the SERIALIZABLE transaction"
+    )
     const mintMethod = methodSource(
       activationStore,
       "mintReadinessCertificate",
@@ -112,12 +145,35 @@ describe("production activation PostgreSQL schema contract", () => {
         mintMethod.indexOf("UPDATE p2tr_readiness_certificate_generation"),
       "live authorization check must precede certificate replacement"
     )
+    assert.match(
+      mintMethod,
+      /p2tr_signature_fraud_outbox_activation_revalidation\([\s\S]*?clock_timestamp\(\)[\s\S]*?recovery_backlog_count <= \$16/
+    )
+    assert.match(
+      mintMethod,
+      /manifest\.payload #>> '\{outbox,maxRecoveryBacklog\}'[\s\S]*?snapshot\.outboxMaxRecoveryBacklog/
+    )
     const issueMethod = methodSource(
       activationStore,
       "issueCandidateAuthorization",
       "lockCandidateAuthorization"
     )
     assert.match(issueMethod, /await this\.lockReadinessSnapshot\(\)/)
+  })
+
+  it("revalidates the exact manifest-bound signer-lane set", () => {
+    assert.match(
+      outboxMigration,
+      /configured_signer_lane_count bigint[\s\S]*?configured_signer_lane_set_hash text/
+    )
+    assert.match(
+      outboxMigration,
+      /string_agg\([\s\S]*?c\.configuration_hash[\s\S]*?ORDER BY c\.configuration_hash/
+    )
+    assert.match(
+      activationGate,
+      /revalidation\.configuredSignerLaneCount[\s\S]*?signed\.configuredSignerLaneCount[\s\S]*?revalidation\.configuredSignerLaneSetHash[\s\S]*?signed\.configuredSignerLaneSetHash/
+    )
   })
 
   it("revalidates the readiness certificate CAS without localizing provider heads", () => {

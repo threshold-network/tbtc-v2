@@ -37,6 +37,7 @@ import {
   P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA,
   PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider,
   type P2TROutboxCurrentReadinessCertificate,
+  type P2TRPostgresOutboxTransactionSession,
 } from "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
 import {
   assertP2TRProductionOutboxHandshake,
@@ -752,7 +753,8 @@ function activationProvider(
       blockHash: ETHEREUM_BLOCK_HASH,
     },
   }),
-  senderLanes = [boundSenderLane()]
+  senderLanes = [boundSenderLane()],
+  maxRecoveryBacklog = 0
 ) {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519")
   const publicDer = publicKey.export({ type: "spki", format: "der" })
@@ -773,7 +775,7 @@ function activationProvider(
       replacementPolicy: "append-only-same-intent-fee-bump-v1",
       migrationVersion: 3,
       migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
-      maxRecoveryBacklog: 0,
+      maxRecoveryBacklog,
       senderLanes,
     },
     ...(readCurrentReadinessCertificate === null
@@ -824,6 +826,34 @@ const activationRequest = {
     },
   },
 }
+
+test("freezes signer-lane installation while readiness is current", async () => {
+  const queries: string[] = []
+  const session: P2TRPostgresOutboxTransactionSession = {
+    async query<Row>(text: string): Promise<{
+      rows: Row[]
+      rowCount: number | null
+    }> {
+      queries.push(text)
+      if (text.includes("p2tr_readiness_certificates")) {
+        return {
+          rows: [{ readiness_is_current: true } as Row],
+          rowCount: 1,
+        }
+      }
+      throw new Error("signer-lane INSERT must not run")
+    },
+  }
+  const store = createStore(session as unknown as PostgreSQLClient)
+
+  await assert.rejects(
+    store.installSignerLaneConfiguration(signerConfiguration()),
+    /Signer lane configuration is frozen while readiness is current/
+  )
+  assert.equal(queries.length, 1)
+  assert.match(queries[0], /p2tr_readiness_certificates/)
+  assert.doesNotMatch(queries[0], /INSERT INTO/)
+})
 
 postgresTest(
   "keeps eligibility enqueue and caller cursor effects atomic and invisible until commit",
@@ -1948,6 +1978,42 @@ postgresTest(
 )
 
 postgresTest(
+  "does not report an in-bound recovery backlog as activation-blocking",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(87)
+    await insertRecord(database, initial)
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        initial.recordID,
+        initial.version,
+        selectedRecord(initial)
+      ),
+      true
+    )
+    await commit(database.client)
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 20_000,
+      MANIFEST_HASH,
+      undefined,
+      [boundSenderLane()],
+      1
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.recoveryBacklogCount, 1)
+    assert.equal(response.payload.state.healthy, true)
+    assert.equal(response.payload.state.activationBlocked, false)
+    assert.deepEqual(response.payload.state.activationBlockingReasons, [])
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "bootstraps the production handshake before any readiness certificate exists",
   async () => {
     const database = await createTestDatabase()
@@ -2025,6 +2091,19 @@ postgresTest(
     await commit(database.client)
     assert.equal(cleared.payload.state.unresolvedLegacyQuarantineCount, 0)
     assert.equal(cleared.payload.state.healthy, true)
+    await assert.rejects(
+      database.client.query(
+        `UPDATE p2tr_signature_fraud_legacy_submission_quarantine_resolution
+            SET reason = 'rewritten audit evidence'`
+      ),
+      /append-only/
+    )
+    await assert.rejects(
+      database.client.query(
+        `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine_resolution`
+      ),
+      /append-only/
+    )
     await database.client.end()
   }
 )
@@ -2145,6 +2224,89 @@ postgresTest(
 )
 
 postgresTest(
+  "refuses an extra same-ID lane configured on another chain",
+  async () => {
+    const database = await createTestDatabase()
+    await beginSerializable(database.client)
+    const signed = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    const {
+      configurationHash: _configurationHash,
+      configuredAtUnixMs: _configuredAtUnixMs,
+      ...primary
+    } = signerConfiguration()
+    const additionalBinding = {
+      ...primary,
+      chainID: CHAIN_ID + 1,
+      signerIdentity: "signer-b",
+      sender: `0x${"d6".repeat(20)}`,
+    }
+    await begin(database.client)
+    await database.store.installSignerLaneConfiguration({
+      ...additionalBinding,
+      configurationHash:
+        computeP2TRProductionSignerLaneConfigurationHash(additionalBinding),
+      configuredAtUnixMs: 1_001,
+    })
+    await commit(database.client)
+
+    await beginSerializable(database.client)
+    const revalidated = normalizeOutboxRevalidation(
+      (
+        await database.client.query<Record<string, string | number>>(
+          `SELECT *
+             FROM p2tr_signature_fraud_outbox_activation_revalidation($1, $2)`,
+          [Buffer.from(MANIFEST_HASH.slice(2), "hex"), 5_000]
+        )
+      ).rows[0]
+    )
+    await commit(database.client)
+    assert.equal(revalidated.configuredSignerLaneCount, 2)
+    assert.notEqual(
+      revalidated.configuredSignerLaneSetHash,
+      signed.payload.state.configuredSignerLaneSetHash
+    )
+    assert.throws(
+      () =>
+        assertP2TRProductionOutboxRevalidation(
+          revalidated,
+          signed.payload.state,
+          outboxManifest(signed.payload.state.schemaConstraintHash)
+        ),
+      /changed after its activation handshake was signed/
+    )
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.configuredSignerLaneCount, 2)
+    assert.deepEqual(response.payload.state.senderLanes, [
+      {
+        laneID: LANE_ID,
+        trustDomainID: "signer.trust.integration",
+        operatorFingerprint: OUTBOX_LANE_OPERATOR_FINGERPRINT,
+        healthy: true,
+      },
+    ])
+    assert.equal(response.payload.state.healthy, false)
+    assert.ok(
+      response.payload.state.activationBlockingReasons.includes(
+        "manifest-bound-signer-lane-mismatch"
+      )
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "re-derives the outbox safety sample inside the readiness transaction",
   async () => {
     const database = await createTestDatabase()
@@ -2171,6 +2333,9 @@ postgresTest(
       ambiguousTransactionCount: 0,
       unresolvedLegacyQuarantineCount: 0,
       recoveryBacklogCount: 0,
+      configuredSignerLaneCount: 1,
+      configuredSignerLaneSetHash:
+        signed.payload.state.configuredSignerLaneSetHash,
       quarantinedSignerLaneCount: 0,
       activeOldManifestGenerationCount: 0,
       staleManifestGenerationSuccessorCount: 0,

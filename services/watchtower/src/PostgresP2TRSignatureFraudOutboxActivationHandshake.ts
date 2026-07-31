@@ -3,7 +3,10 @@ import {
   createPublicKey,
   verify as verifySignature,
 } from "node:crypto"
-import type { P2TRProductionOutboxHandshakeState } from "./P2TRProductionActivation.js"
+import {
+  computeP2TRProductionSignerLaneSetHash,
+  type P2TRProductionOutboxHandshakeState,
+} from "./P2TRProductionActivation.js"
 
 export const P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA =
   "tbtc-p2tr-production-activation-handshake/v1" as const
@@ -932,14 +935,19 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     const liveCandidateAuthorizationCount = oneLiveAuthorizationCount(
       liveAuthorizationResult
     )
+    const binding = this.activationBinding
 
     const reasons: string[] = []
     if (activeOldManifestGenerationCount > 0) {
       reasons.push("active-old-manifest-generation")
     }
-    if (recoveryBacklogCount > 0) reasons.push("preparation-recovery-backlog")
-    if (pendingNonceReleaseCount > 0) {
-      reasons.push("nonce-release-recovery-backlog")
+    if (recoveryBacklogCount > binding.maxRecoveryBacklog) {
+      if (expiredPreparationLeaseCount > 0) {
+        reasons.push("preparation-recovery-backlog")
+      }
+      if (pendingNonceReleaseCount > 0) {
+        reasons.push("nonce-release-recovery-backlog")
+      }
     }
     if (ambiguousNonceReleaseCount > 0) {
       reasons.push("ambiguous-nonce-release-response")
@@ -991,10 +999,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       reasons.push("live-candidate-authorization")
     }
 
-    const binding = this.activationBinding
     const senderLanes = binding.senderLanes.map((expected) => {
       const configured = laneResult.rows.find(
-        (actual) => actual.signer_lane_id === expected.laneID
+        (actual) =>
+          actual.chain_id === String(expected.chainID) &&
+          actual.signer_lane_id === expected.laneID
       )
       return {
         laneID: expected.laneID,
@@ -1009,7 +1018,9 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     const laneConfigurationMismatchCount = binding.senderLanes.filter(
       (expected) => {
         const configured = laneResult.rows.find(
-          (actual) => actual.signer_lane_id === expected.laneID
+          (actual) =>
+            actual.chain_id === String(expected.chainID) &&
+            actual.signer_lane_id === expected.laneID
         )
         return (
           configured !== undefined &&
@@ -1020,12 +1031,17 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     if (laneConfigurationMismatchCount > 0) {
       reasons.push("manifest-bound-signer-lane-configuration-mismatch")
     }
-    const configuredLaneIDs = new Set(
-      laneResult.rows.map((lane) => lane.signer_lane_id)
+    const configuredLaneKeys = new Set(
+      laneResult.rows.map((lane) =>
+        signerLaneKey(lane.chain_id, lane.signer_lane_id)
+      )
     )
     const senderLaneSetMatches =
-      configuredLaneIDs.size === binding.senderLanes.length &&
-      binding.senderLanes.every((lane) => configuredLaneIDs.has(lane.laneID))
+      laneResult.rows.length === binding.senderLanes.length &&
+      configuredLaneKeys.size === binding.senderLanes.length &&
+      binding.senderLanes.every((lane) =>
+        configuredLaneKeys.has(signerLaneKey(lane.chainID, lane.laneID))
+      )
     if (!senderLaneSetMatches) {
       reasons.push("manifest-bound-signer-lane-mismatch")
     }
@@ -1113,7 +1129,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       unresolvedNonceGuardCount,
       danglingNonceGuardCount,
       configuredSignerLaneCount,
-      configuredSignerLaneSetHash: sha256Canonical(laneResult.rows),
+      configuredSignerLaneSetHash: computeP2TRProductionSignerLaneSetHash(
+        laneResult.rows.map((lane) => ({
+          configurationHash: `0x${lane.configuration_hash}`,
+        }))
+      ),
       laneConfigurationMismatchCount,
       quarantinedSignerLaneCount,
       healthySignerLaneCount,
@@ -1400,6 +1420,10 @@ function laneConfigurationMatches(
     `0x${configured.configuration_hash}`.toLowerCase() ===
       expected.configurationHash
   )
+}
+
+function signerLaneKey(chainID: string | number, laneID: string): string {
+  return `${String(chainID)}:${laneID}`
 }
 
 function address(value: unknown, label: string): string {

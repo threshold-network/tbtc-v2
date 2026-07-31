@@ -2372,6 +2372,66 @@ test("keeps an ambiguous allocator invocation sticky until independent resolutio
   )
 })
 
+test("records a contract-mismatch quarantine with the reserved sender", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const reservation = await preparer.reserveSignatureFraudChallengeNonce(
+    record.intent,
+    Hex.from(record.recordID),
+    record.generation,
+    1
+  )
+  const voidEvidenceDigest = `0x${"91".repeat(32)}`
+  const releaseRequestID = normalizeKey(
+    computeP2TRSignatureFraudNonceReleaseRequestID(
+      record.recordID,
+      reservation.reservationID,
+      voidEvidenceDigest
+    )
+  )
+  store.nonceReleaseRequests.set(releaseRequestID, {
+    releaseRequestID,
+    recordID: record.recordID,
+    generation: record.generation,
+    reservation,
+    voidEvidenceDigest,
+    requestedAtUnixMs: 2_000,
+    attemptCount: 0,
+    ambiguous: false,
+  })
+  const attempt = await store.claimNonceReleaseAttempt(
+    releaseRequestID,
+    "worker-a",
+    2_100,
+    2_200
+  )
+  assert.ok(attempt)
+  assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_101), true)
+
+  assert.equal(
+    await store.recordNonceReleaseAttemptResult(attempt, {
+      kind: "contract-mismatch",
+      responseDigest: `0x${"92".repeat(32)}`,
+      detail: "allocator returned another reservation",
+      recordedAtUnixMs: 2_102,
+    }),
+    "ambiguous"
+  )
+
+  const quarantined = await store.get(record.recordID)
+  assert.equal(
+    quarantined?.signerQuarantines?.[0].expectedSender,
+    reservation.sender
+  )
+  assert.equal(
+    store.criticalAlerts.some(
+      (alert) => alert.code === "reservation-release-failed"
+    ),
+    true
+  )
+})
+
 test("keeps normal lease-recovery release ambiguous until an exact ack", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)

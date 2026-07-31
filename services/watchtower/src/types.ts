@@ -46,7 +46,10 @@ export type P2TRSignatureFraudWatchtowerTransactionCoordinator =
       dependencies: P2TRSignatureFraudWatchtowerSharedStoreAssertion
     ): void
     runInP2TRSignatureFraudWatchtowerTransaction<T>(
-      operation: () => Promise<T>
+      operation: () => Promise<T>,
+      options?: {
+        readinessFence?: "shared" | "exclusive"
+      }
     ): Promise<T>
     isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
   }

@@ -5354,6 +5354,11 @@ CREATE TABLE p2tr_signature_fraud_legacy_submission_quarantine_resolution (
     )
 );
 
+CREATE TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_resolution_mutation_trigger
+BEFORE UPDATE OR DELETE
+ON p2tr_signature_fraud_legacy_submission_quarantine_resolution
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
 -- The activation gate signs the outbox handshake in the outbox's own committed
 -- transaction and then mints readiness in a second, separate transaction. This
 -- function is what the readiness transaction re-derives for itself, so the two
@@ -5370,6 +5375,8 @@ RETURNS TABLE (
     ambiguous_transaction_count bigint,
     unresolved_legacy_quarantine_count bigint,
     recovery_backlog_count bigint,
+    configured_signer_lane_count bigint,
+    configured_signer_lane_set_hash text,
     quarantined_signer_lane_count bigint,
     active_old_manifest_generation_count bigint,
     stale_manifest_generation_successor_count bigint,
@@ -5448,6 +5455,37 @@ AS $$
                   )
              )
            )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_signer_lane_configuration c
+              WHERE c.activation_manifest_hash
+                    = p2tr_signature_fraud_outbox_activation_revalidation.activation_manifest_hash
+                AND c.enabled
+           )::bigint,
+           (
+             '0x' || encode(
+               sha256(
+                 convert_to(
+                   'tbtc-p2tr-production-signer-lane-set/v1',
+                   'UTF8'
+                 ) || decode('00', 'hex') || coalesce(
+                   (
+                     SELECT string_agg(
+                              c.configuration_hash,
+                              ''::bytea
+                              ORDER BY c.configuration_hash
+                            )
+                       FROM p2tr_signature_fraud_signer_lane_configuration c
+                      WHERE c.activation_manifest_hash
+                            = p2tr_signature_fraud_outbox_activation_revalidation.activation_manifest_hash
+                        AND c.enabled
+                   ),
+                   ''::bytea
+                 )
+               ),
+               'hex'
+             )
+           )::text,
            (
              SELECT count(*)
                FROM p2tr_signature_fraud_signer_lane_configuration c
