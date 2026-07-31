@@ -424,9 +424,9 @@ const refingerprintProvenance = (
 }
 
 class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
-  readonly laneID = SIGNER_LANE_ID
-  readonly signerIdentity = SIGNER_IDENTITY
-  readonly transactionSender = TRANSACTION_SENDER
+  readonly laneID: string = SIGNER_LANE_ID
+  readonly signerIdentity: string = SIGNER_IDENTITY
+  readonly transactionSender: string = TRANSACTION_SENDER
   readonly wallet = new Wallet(`0x${"42".repeat(32)}`)
   calls = 0
   replacementCalls = 0
@@ -529,8 +529,8 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     this.releasedReservations.push(reservation.reservationID.toPrefixedString())
     const key = releaseRequestID.toPrefixedString()
     const outcome = this.acknowledgedReleaseRequests.has(key)
-      ? "already-released"
-      : "released"
+      ? ("already-released" as const)
+      : ("released" as const)
     this.acknowledgedReleaseRequests.add(key)
     return {
       releaseRequestID,
@@ -1168,18 +1168,14 @@ const dispatcher = (
     }
   )
 
-const withCanonicalAttestations = (
-  resolution: Omit<
-    Exclude<
-      P2TRSignatureFraudChallengeOutboxResolution,
-      { status: "pending" | "unknown" }
-    >,
-    "canonicalAttestations"
+const withCanonicalAttestations = <
+  Resolution extends Exclude<
+    P2TRSignatureFraudChallengeOutboxResolution,
+    { status: "pending" | "unknown" }
   >
-): Exclude<
-  P2TRSignatureFraudChallengeOutboxResolution,
-  { status: "pending" | "unknown" }
-> => {
+>(
+  resolution: Omit<Resolution, "canonicalAttestations">
+): Resolution => {
   const placeholderDigest = `0x${"00".repeat(32)}`
   const provisional = {
     ...resolution,
@@ -1199,10 +1195,7 @@ const withCanonicalAttestations = (
         attestedAtUnixMs: 1_500,
       },
     ],
-  } as unknown as Exclude<
-    P2TRSignatureFraudChallengeOutboxResolution,
-    { status: "pending" | "unknown" }
-  >
+  } as unknown as Resolution
   const evidenceDigest =
     computeP2TRSignatureFraudResolutionEvidenceDigest(provisional)
   return {
@@ -1656,7 +1649,14 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
     observationID,
     1_000
   )
-  const disposition = withCanonicalAttestations({
+  // Naming the variant keeps the literal narrow: inferring it back out of
+  // `Omit<Resolution, ...>` is not reliable.
+  const disposition = withCanonicalAttestations<
+    Extract<
+      P2TRSignatureFraudChallengeOutboxResolution,
+      { status: "terminal-reverted" }
+    >
+  >({
     status: "terminal-reverted",
     observedHead: {
       blockNumber: 500,
@@ -1677,7 +1677,7 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
       challengeKey: first.intent.bridgeChallengeKey.toPrefixedString(),
       readAtBlock: 500,
     },
-  } as Parameters<typeof withCanonicalAttestations>[0])
+  })
   const capped: P2TRSignatureFraudChallengeOutboxRecord = {
     ...first,
     status: "generation-required",

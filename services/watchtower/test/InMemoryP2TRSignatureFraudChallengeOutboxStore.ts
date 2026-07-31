@@ -27,6 +27,7 @@ import {
   P2TRSignatureFraudNonceReleaseRequest,
   P2TRSignatureFraudOutboxCriticalAlert,
   P2TRSignatureFraudSignerQuarantine,
+  P2TRSignatureFraudSigningLane,
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   appendSignerQuarantine,
@@ -443,7 +444,7 @@ export class InMemoryOutboxStore
         const quarantine: P2TRSignatureFraudSignerQuarantine = {
           laneID: request.reservation.laneID,
           signerIdentity: request.reservation.signerIdentity,
-          expectedSender: request.reservation.sender.toPrefixedString(),
+          expectedSender: request.reservation.sender,
           reasonCode: "reservation-provider-failure",
           quarantinedAtUnixMs: result.recordedAtUnixMs,
           reason: result.detail,
