@@ -1667,6 +1667,26 @@ test("requires independent bounded submission, recheck, and reconciliation domai
       dispatcher(store, preparer, broadcaster, longDomainRechecker, reconciler),
     /exceeds 128 characters/
   )
+
+  const shallowFinalityReconciler = new FixedReconciler()
+  Object.defineProperty(
+    shallowFinalityReconciler,
+    "finalityConfirmationBlocks",
+    {
+      value: 11,
+    }
+  )
+  assert.throws(
+    () =>
+      dispatcher(
+        store,
+        preparer,
+        broadcaster,
+        new FixedRechecker(),
+        shallowFinalityReconciler
+      ),
+    /finality confirmation depth must be at least 12 blocks/
+  )
 })
 
 test("refuses to construct without an irreversible-boundary authorizer", () => {
@@ -2800,6 +2820,17 @@ test("enforces manifest-bound fee and exact value caps at every boundary", async
     "worker"
   )
   assert.equal(overGas.status, "quarantined")
+
+  const underGasStore = new InMemoryOutboxStore()
+  const underGasRecord = await enqueue(underGasStore)
+  const underGasPreparer = new DynamicFeePreparer()
+  underGasPreparer.initialGasLimit = 999_999
+  const underGas = await dispatcher(underGasStore, underGasPreparer).prepare(
+    underGasRecord.recordID,
+    "worker"
+  )
+  assert.equal(underGas.status, "quarantined")
+  assert.match(underGas.lastError ?? "", /manifest-bound gas limit/)
 
   const wrongValueStore = new InMemoryOutboxStore()
   const wrongValueRecord = await enqueue(wrongValueStore)

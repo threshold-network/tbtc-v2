@@ -85,6 +85,14 @@ describe("P2TR watchtower migration bodies", () => {
       migration,
       /candidate enqueue resolution lacks exact consumed authority/
     )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_authorizations candidate_authorization/
+    )
+    assert.doesNotMatch(
+      migration,
+      /p2tr_candidate_enqueue_authorizations authorization/
+    )
     assert.match(migration, /generation-cap resolution lacks its durable alert/)
   })
 })

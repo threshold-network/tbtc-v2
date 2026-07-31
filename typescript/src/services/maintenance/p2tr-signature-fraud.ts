@@ -1731,11 +1731,12 @@ export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
     envelope.maxPriorityFeePerGas === undefined ||
     envelope.maxFeePerGas.isZero() ||
     envelope.maxPriorityFeePerGas.gt(envelope.maxFeePerGas) ||
-    envelope.gasLimit.isZero()
+    envelope.gasLimit.isZero() ||
+    (envelope.accessList?.length ?? 0) !== 0
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "Durable challenge outbox requires an EIP-1559 transaction envelope"
+      "Durable challenge outbox requires an EIP-1559 transaction envelope with an empty access list"
     )
   }
   return {

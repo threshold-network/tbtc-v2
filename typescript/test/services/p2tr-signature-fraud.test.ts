@@ -75,6 +75,7 @@ import {
   validateP2TRInputPrevouts,
   validateP2TRSignatureFraudBoundNonceReservation,
   validateP2TRSignatureFraudPreparedChallengeReplacementTransaction,
+  validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudWitnessObservationConsistency,
@@ -2208,6 +2209,36 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(validated.transactionHash.toPrefixedString()).to.equal(parsed.hash)
     expect(validated.sender).to.equal(wallet.address)
     expect(validated.nonce).to.equal(7)
+
+    const accessListRawTransaction = await wallet.signTransaction({
+      type: 2,
+      to: intent.routerAddress,
+      data: intent.calldata,
+      value: BigNumber.from(intent.value),
+      chainId: intent.chainID,
+      nonce: 7,
+      gasLimit: 1_000_000,
+      maxFeePerGas: 20,
+      maxPriorityFeePerGas: 2,
+      accessList: [
+        {
+          address: intent.routerAddress,
+          storageKeys: [`0x${"00".repeat(32)}`],
+        },
+      ],
+    })
+    const accessListParsed = utils.parseTransaction(accessListRawTransaction)
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(intent, {
+          intentID: intent.intentID,
+          rawTransaction: accessListRawTransaction,
+          transactionHash: Hex.from(accessListParsed.hash!),
+          sender: wallet.address,
+          nonce: 7,
+        }),
+      "invalid-watchtower-state"
+    )
   })
 
   it("accepts only strictly increasing same-nonce EIP-1559 replacements", async () => {

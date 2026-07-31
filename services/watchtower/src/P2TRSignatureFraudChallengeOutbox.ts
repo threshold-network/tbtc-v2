@@ -38,6 +38,7 @@ export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_CURSOR_LENGTH = 512
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PROTOCOL_ID_LENGTH = 128
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_SIGNED_VARIANTS = 16
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_GENERATIONS = 32
+export const P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS = 12
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_SERIES_ID_DOMAIN =
   "tbtc-p2tr-signature-fraud-outbox-series-v1"
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_RECORD_ID_DOMAIN =
@@ -5627,13 +5628,13 @@ const validatePreparedTransactionFeePolicy = (
     ) !== normalizePolicyUint256(intent.value, "Challenge intent value") ||
     normalizeAddress(policy.sender, "Challenge fee policy sender") !==
       normalizeAddress(prepared.sender, "Prepared challenge sender") ||
-    gasLimit > BigInt(policy.maxGasLimit) ||
+    gasLimit !== BigInt(policy.maxGasLimit) ||
     maxFeePerGas > BigInt(policy.maxFeePerGas) ||
     maxPriorityFeePerGas > BigInt(policy.maxPriorityFeePerGas) ||
     gasLimit * maxFeePerGas > BigInt(policy.maxTotalFeeWei)
   ) {
     throw new Error(
-      "Prepared challenge transaction exceeds its manifest-bound fee or value policy"
+      "Prepared challenge transaction exceeds its manifest-bound fee or value policy or does not match its manifest-bound gas limit"
     )
   }
   return prepared
@@ -5715,10 +5716,18 @@ const validateIndependentTransport = (
       "Challenge broadcasting, recheck, cancellation, reconciliation, and canonical verification require independent provider, trust, and infrastructure domains"
     )
   }
-  requirePositiveSafeInteger(
+  const finalityConfirmationBlocks = requirePositiveSafeInteger(
     reconciler.finalityConfirmationBlocks,
     "Challenge reconciliation finality confirmation depth"
   )
+  if (
+    finalityConfirmationBlocks <
+    P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
+  ) {
+    throw new Error(
+      `Challenge reconciliation finality confirmation depth must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
+    )
+  }
   validateCanonicalSubmissionSelectors(reconciler.canonicalSubmissionSelectors)
 }
 
