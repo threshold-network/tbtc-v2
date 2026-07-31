@@ -644,6 +644,28 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   )
 })
 
+test("keeps legacy quarantine resolutions append-only", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_legacy_submission_quarantine_resolution/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_reject_legacy_quarantine_resolution_mutation_trigger BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_legacy_submission_quarantine_resolution/
+  )
+})
+
+test("applies the manifest recovery bound to health and blocking reasons", () => {
+  assert.match(
+    activationHandshakeSource,
+    /if \(recoveryBacklogCount > binding\.maxRecoveryBacklog\)[\s\S]*?reasons\.push\("preparation-recovery-backlog"\)[\s\S]*?reasons\.push\("nonce-release-recovery-backlog"\)/
+  )
+  assert.doesNotMatch(
+    activationHandshakeSource,
+    /if \(recoveryBacklogCount > 0\) reasons\.push\("preparation-recovery-backlog"\)/
+  )
+})
+
 test("rotates manifests and outbox provenance in one database trigger", () => {
   assert.match(
     migration,

@@ -44,6 +44,7 @@ type ComponentHealthRow = {
 
 type ReadinessCertificateStateRow = {
   activation_sequence: string | number
+  outbox_max_recovery_backlog: string | number
   primary_bitcoin_generation: string | number
   primary_bitcoin_root: string
   primary_bitcoin_semantic_root: string
@@ -78,6 +79,14 @@ export function normalizeOutboxRevalidation(
     recoveryBacklogCount: databaseInteger(
       row.recovery_backlog_count,
       "revalidated recovery backlog count"
+    ),
+    configuredSignerLaneCount: databaseInteger(
+      row.configured_signer_lane_count,
+      "revalidated configured signer lane count"
+    ),
+    configuredSignerLaneSetHash: bytes32(
+      String(row.configured_signer_lane_set_hash),
+      "revalidated configured signer lane set hash"
     ),
     quarantinedSignerLaneCount: databaseInteger(
       row.quarantined_signer_lane_count,
@@ -215,6 +224,8 @@ export class PostgresP2TRProductionActivationStore
     }
     const state = await this.session.query<ReadinessCertificateStateRow>(
       `SELECT manifest.activation_sequence,
+              manifest.payload #>> '{outbox,maxRecoveryBacklog}'
+                AS outbox_max_recovery_backlog,
               generation.generation_id AS primary_bitcoin_generation,
               encode(generation.bitcoin_chain_root, 'hex')
                 AS primary_bitcoin_root,
@@ -335,8 +346,13 @@ export class PostgresP2TRProductionActivationStore
           bitcoin_height, bitcoin_hash, ethereum_journal_generation,
           ethereum_history_root, ethereum_block_number, ethereum_block_hash,
           provider_read_set_hash, payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-               $13, $14, $15::jsonb)`,
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+              $13, $14, $15::jsonb
+         FROM p2tr_signature_fraud_outbox_activation_revalidation(
+                $3,
+                floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
+              ) revalidation
+        WHERE revalidation.recovery_backlog_count <= $16`,
       [
         hexBuffer(certificateID, "readiness certificate"),
         certificateGeneration,
@@ -359,10 +375,13 @@ export class PostgresP2TRProductionActivationStore
         ),
         hexBuffer(providerReadSetHash, "readiness provider read set"),
         payload,
+        snapshot.outboxMaxRecoveryBacklog,
       ]
     )
     if (inserted.rowCount !== 1) {
-      throw new Error("Readiness certificate insertion failed")
+      throw new Error(
+        "Readiness certificate insertion failed because the outbox recovery backlog exceeded its manifest bound"
+      )
     }
     return { certificateID, generation: certificateGeneration }
   }
@@ -1705,6 +1724,13 @@ function normalizeReadinessCertificateState(row: ReadinessCertificateStateRow) {
     activationSequence: positiveInteger(
       databaseInteger(row.activation_sequence, "activation sequence"),
       "activation sequence"
+    ),
+    outboxMaxRecoveryBacklog: nonNegativeInteger(
+      databaseInteger(
+        row.outbox_max_recovery_backlog,
+        "outbox recovery backlog bound"
+      ),
+      "outbox recovery backlog bound"
     ),
     primaryBitcoinGeneration: positiveInteger(
       databaseInteger(

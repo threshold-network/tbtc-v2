@@ -3,7 +3,10 @@ import {
   createPublicKey,
   verify as verifySignature,
 } from "node:crypto"
-import type { P2TRProductionOutboxHandshakeState } from "./P2TRProductionActivation.js"
+import {
+  computeP2TRProductionSignerLaneSetHash,
+  type P2TRProductionOutboxHandshakeState,
+} from "./P2TRProductionActivation.js"
 
 export const P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA =
   "tbtc-p2tr-production-activation-handshake/v1" as const
@@ -835,14 +838,19 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     const liveCandidateAuthorizationCount = oneLiveAuthorizationCount(
       liveAuthorizationResult
     )
+    const binding = this.activationBinding
 
     const reasons: string[] = []
     if (activeOldManifestGenerationCount > 0) {
       reasons.push("active-old-manifest-generation")
     }
-    if (recoveryBacklogCount > 0) reasons.push("preparation-recovery-backlog")
-    if (pendingNonceReleaseCount > 0) {
-      reasons.push("nonce-release-recovery-backlog")
+    if (recoveryBacklogCount > binding.maxRecoveryBacklog) {
+      if (expiredPreparationLeaseCount > 0) {
+        reasons.push("preparation-recovery-backlog")
+      }
+      if (pendingNonceReleaseCount > 0) {
+        reasons.push("nonce-release-recovery-backlog")
+      }
     }
     if (ambiguousNonceReleaseCount > 0) {
       reasons.push("ambiguous-nonce-release-response")
@@ -894,7 +902,6 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       reasons.push("live-candidate-authorization")
     }
 
-    const binding = this.activationBinding
     const senderLanes = binding.senderLanes.map((expected) => {
       const configured = laneResult.rows.find(
         (actual) =>
@@ -1025,7 +1032,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       unresolvedNonceGuardCount,
       danglingNonceGuardCount,
       configuredSignerLaneCount,
-      configuredSignerLaneSetHash: sha256Canonical(laneResult.rows),
+      configuredSignerLaneSetHash: computeP2TRProductionSignerLaneSetHash(
+        laneResult.rows.map((lane) => ({
+          configurationHash: `0x${lane.configuration_hash}`,
+        }))
+      ),
       laneConfigurationMismatchCount,
       quarantinedSignerLaneCount,
       healthySignerLaneCount,

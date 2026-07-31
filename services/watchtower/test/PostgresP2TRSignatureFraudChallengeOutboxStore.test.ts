@@ -735,7 +735,8 @@ function activationProvider(
       blockHash: ETHEREUM_BLOCK_HASH,
     },
   }),
-  senderLanes = [boundSenderLane()]
+  senderLanes = [boundSenderLane()],
+  maxRecoveryBacklog = 0
 ) {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519")
   const publicDer = publicKey.export({ type: "spki", format: "der" })
@@ -756,7 +757,7 @@ function activationProvider(
       replacementPolicy: "append-only-same-intent-fee-bump-v1",
       migrationVersion: 3,
       migrationChecksum: OUTBOX_MIGRATION_CHECKSUM,
-      maxRecoveryBacklog: 0,
+      maxRecoveryBacklog,
       senderLanes,
     },
     ...(readCurrentReadinessCertificate === null
@@ -1874,6 +1875,42 @@ postgresTest(
 )
 
 postgresTest(
+  "does not report an in-bound recovery backlog as activation-blocking",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(87)
+    await insertRecord(database, initial)
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        initial.recordID,
+        initial.version,
+        selectedRecord(initial)
+      ),
+      true
+    )
+    await commit(database.client)
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 20_000,
+      MANIFEST_HASH,
+      undefined,
+      [boundSenderLane()],
+      1
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.recoveryBacklogCount, 1)
+    assert.equal(response.payload.state.healthy, true)
+    assert.equal(response.payload.state.activationBlocked, false)
+    assert.deepEqual(response.payload.state.activationBlockingReasons, [])
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "bootstraps the production handshake before any readiness certificate exists",
   async () => {
     const database = await createTestDatabase()
@@ -1951,6 +1988,19 @@ postgresTest(
     await commit(database.client)
     assert.equal(cleared.payload.state.unresolvedLegacyQuarantineCount, 0)
     assert.equal(cleared.payload.state.healthy, true)
+    await assert.rejects(
+      database.client.query(
+        `UPDATE p2tr_signature_fraud_legacy_submission_quarantine_resolution
+            SET reason = 'rewritten audit evidence'`
+      ),
+      /append-only/
+    )
+    await assert.rejects(
+      database.client.query(
+        `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine_resolution`
+      ),
+      /append-only/
+    )
     await database.client.end()
   }
 )
@@ -2074,6 +2124,13 @@ postgresTest(
   "refuses an extra same-ID lane configured on another chain",
   async () => {
     const database = await createTestDatabase()
+    await beginSerializable(database.client)
+    const signed = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
     const {
       configurationHash: _configurationHash,
       configuredAtUnixMs: _configuredAtUnixMs,
@@ -2093,6 +2150,32 @@ postgresTest(
       configuredAtUnixMs: 1_001,
     })
     await commit(database.client)
+
+    await beginSerializable(database.client)
+    const revalidated = normalizeOutboxRevalidation(
+      (
+        await database.client.query<Record<string, string | number>>(
+          `SELECT *
+             FROM p2tr_signature_fraud_outbox_activation_revalidation($1, $2)`,
+          [Buffer.from(MANIFEST_HASH.slice(2), "hex"), 5_000]
+        )
+      ).rows[0]
+    )
+    await commit(database.client)
+    assert.equal(revalidated.configuredSignerLaneCount, 2)
+    assert.notEqual(
+      revalidated.configuredSignerLaneSetHash,
+      signed.payload.state.configuredSignerLaneSetHash
+    )
+    assert.throws(
+      () =>
+        assertP2TRProductionOutboxRevalidation(
+          revalidated,
+          signed.payload.state,
+          outboxManifest(signed.payload.state.schemaConstraintHash)
+        ),
+      /changed after its activation handshake was signed/
+    )
 
     await beginSerializable(database.client)
     const response = await activationProvider(
@@ -2147,6 +2230,9 @@ postgresTest(
       ambiguousTransactionCount: 0,
       unresolvedLegacyQuarantineCount: 0,
       recoveryBacklogCount: 0,
+      configuredSignerLaneCount: 1,
+      configuredSignerLaneSetHash:
+        signed.payload.state.configuredSignerLaneSetHash,
       quarantinedSignerLaneCount: 0,
       activeOldManifestGenerationCount: 0,
       staleManifestGenerationSuccessorCount: 0,

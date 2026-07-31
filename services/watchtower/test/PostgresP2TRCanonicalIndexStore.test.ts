@@ -158,14 +158,20 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       /fail cycle/
     )
 
+    const fenceLockIndex = pool.client.statements.findIndex((statement) =>
+      statement.includes("pg_advisory_lock_shared(")
+    )
     assert.match(
-      pool.client.statements[0],
+      pool.client.statements[fenceLockIndex],
       /pg_advisory_lock_shared\(hashtextextended\('p2tr-readiness-pre-snapshot-fence'/
     )
-    assert.deepEqual(pool.client.statements.slice(1, 3), [
-      "BEGIN ISOLATION LEVEL SERIALIZABLE",
-      "SELECT set_config('statement_timeout', $1, true)",
-    ])
+    assert.deepEqual(
+      pool.client.statements.slice(fenceLockIndex + 2, fenceLockIndex + 4),
+      [
+        "BEGIN ISOLATION LEVEL SERIALIZABLE",
+        "SELECT set_config('statement_timeout', $1, true)",
+      ]
+    )
     assert.equal(lastTransactionCommand(pool.client.statements), "ROLLBACK")
     assert.equal(pool.client.released, true)
     assert.equal(pool.client.releaseArgument, undefined)
@@ -758,6 +764,9 @@ class FakeClient implements P2TRPostgresClient {
         rows: [{ server_version_num: "160000" } as Row],
         rowCount: 1,
       }
+    }
+    if (text.includes("current_setting('lock_timeout')")) {
+      return { rows: [{ lock_timeout: "0" } as Row], rowCount: 1 }
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
       return { rows: [{ version: 3 } as Row], rowCount: 1 }

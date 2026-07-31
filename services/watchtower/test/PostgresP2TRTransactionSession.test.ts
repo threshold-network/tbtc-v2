@@ -33,14 +33,14 @@ describe("PostgreSQL production transaction capabilities", () => {
     await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
       adapter.query()
     )
-    assert.deepEqual(client.queries.slice(0, 5), [
+    assert.deepEqual(client.queries.slice(0, 7), [
+      "SELECT current_setting('lock_timeout') AS lock_timeout",
+      "SELECT set_config('lock_timeout', $1, false)",
       "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))",
+      "SELECT set_config('lock_timeout', $1, false)",
       "BEGIN ISOLATION LEVEL SERIALIZABLE",
       "SELECT set_config('statement_timeout', $1, true)",
       "SELECT current_setting('server_version_num') AS server_version_num",
-      `SELECT version
-         FROM p2tr_watchtower_schema_version
-        WHERE component = 'canonical-evidence-index'`,
     ])
     assert.ok(client.queries.includes("SELECT 1"))
     assert.equal(client.releasedWith, undefined)
@@ -56,7 +56,7 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
 
     assert.equal(
-      client.queries[0],
+      client.queries[2],
       "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
     )
     assert.ok(client.queries.indexOf("BEGIN ISOLATION LEVEL SERIALIZABLE") > 0)
@@ -66,6 +66,30 @@ describe("PostgreSQL production transaction capabilities", () => {
           query.includes("pg_advisory_unlock(")
         )
     )
+  })
+
+  it("bounds the pre-snapshot fence wait and restores lock_timeout", async () => {
+    const client = new TransactionClient("FENCE")
+    const coordinator = coordinatorFor(client)
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => undefined
+      ),
+      /readiness fence lock timeout/
+    )
+
+    assert.deepEqual(client.queries.slice(0, 4), [
+      "SELECT current_setting('lock_timeout') AS lock_timeout",
+      "SELECT set_config('lock_timeout', $1, false)",
+      "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))",
+      "SELECT set_config('lock_timeout', $1, false)",
+    ])
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.ok(client.releasedWith instanceof Error)
   })
 
   it("serializes writers on both sides of the pre-snapshot readiness fence", async () => {
@@ -192,6 +216,15 @@ describe("PostgreSQL production transaction capabilities", () => {
         query.includes("INSERT INTO p2tr_readiness_certificates")
       )
     )
+    const certificateInsert = client.queries.find((query) =>
+      query.includes("INSERT INTO p2tr_readiness_certificates")
+    )!
+    assert.match(
+      certificateInsert,
+      /p2tr_signature_fraud_outbox_activation_revalidation/
+    )
+    assert.match(certificateInsert, /clock_timestamp\(\)/)
+    assert.match(certificateInsert, /recovery_backlog_count <= \$16/)
     assert.ok(
       client.queries.some((query) =>
         query.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")
@@ -202,6 +235,26 @@ describe("PostgreSQL production transaction capabilities", () => {
         .length,
       3,
       "the caller, certificate mint, and authorization issue share the database lock"
+    )
+  })
+
+  it("refuses to mint when a preparation lease expires at INSERT time", async () => {
+    const client = new TransactionClient(undefined, 0, undefined, 1)
+    const coordinator = coordinatorFor(client)
+    const store =
+      coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) =>
+          new PostgresP2TRProductionActivationStore(session, {
+            storeID: "watchtower",
+            maxEventHistoryRecords: 10,
+          })
+      )
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(() =>
+        store.mintReadinessCertificate(readinessInput())
+      ),
+      /outbox recovery backlog exceeded its manifest bound/
     )
   })
 
@@ -328,9 +381,10 @@ class TransactionClient implements P2TRPostgresClient {
   releasedWith: Error | undefined
 
   constructor(
-    private readonly failure?: "COMMIT" | "ROLLBACK",
+    private readonly failure?: "COMMIT" | "ROLLBACK" | "FENCE",
     private readonly liveCandidateAuthorizationCount = 0,
-    private readonly readinessFence?: ReadinessFence
+    private readonly readinessFence?: ReadinessFence,
+    private readonly recoveryBacklogAtMint = 0
   ) {}
 
   async query<Row>(
@@ -339,6 +393,18 @@ class TransactionClient implements P2TRPostgresClient {
   ): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
     if (text === this.failure) throw new Error(`${text} failed`)
+    if (
+      this.failure === "FENCE" &&
+      text.includes("pg_advisory_lock_shared(") &&
+      !text.includes("pg_advisory_xact_lock_shared(")
+    ) {
+      throw Object.assign(new Error("readiness fence lock timeout"), {
+        code: "55P03",
+      })
+    }
+    if (text.includes("current_setting('lock_timeout')")) {
+      return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }
+    }
     if (text.includes("pg_advisory_unlock_shared(")) {
       this.readinessFence?.release("shared")
       return { rows: [{ unlocked: true }] as Row[], rowCount: 1 }
@@ -405,6 +471,7 @@ class TransactionClient implements P2TRPostgresClient {
         rows: [
           {
             activation_sequence: 1,
+            outbox_max_recovery_backlog: 0,
             primary_bitcoin_generation: 1,
             primary_bitcoin_root: WORD("70"),
             primary_bitcoin_semantic_root: WORD("71"),
@@ -436,7 +503,11 @@ class TransactionClient implements P2TRPostgresClient {
       }
     }
     if (text.includes("INSERT INTO p2tr_readiness_certificates")) {
-      return { rows: [], rowCount: 1 }
+      return {
+        rows: [],
+        rowCount:
+          this.recoveryBacklogAtMint <= Number(values?.[15]) ? 1 : 0,
+      }
     }
     if (
       text.includes("SELECT encode(manifest_hash") &&

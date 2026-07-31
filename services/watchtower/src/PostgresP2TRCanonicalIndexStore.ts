@@ -536,14 +536,38 @@ export class PostgresP2TRCanonicalIndexStore
       // that writer committed. Acquire the session fence before BEGIN so a
       // readiness transaction cannot establish its snapshot until every
       // earlier writer has committed, and later writers remain blocked until
-      // readiness has committed.
+      // readiness has committed. This lock is taken before the transaction's
+      // LOCAL statement timeout exists, so install a bounded session lock
+      // timeout and restore the pool client's prior setting before BEGIN.
       try {
-        await rawClient.query(
-          readinessFence === "exclusive"
-            ? "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
-            : "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+        const lockTimeout = await rawClient.query<{ lock_timeout: string }>(
+          "SELECT current_setting('lock_timeout') AS lock_timeout"
         )
-        readinessFenceLocked = true
+        if (lockTimeout.rows.length !== 1) {
+          throw new Error("PostgreSQL lock timeout setting is unavailable")
+        }
+        const priorLockTimeout = boundedString(
+          lockTimeout.rows[0].lock_timeout,
+          64,
+          "PostgreSQL lock timeout setting"
+        )
+        await rawClient.query(
+          "SELECT set_config('lock_timeout', $1, false)",
+          [`${this.statementTimeoutMs}ms`]
+        )
+        try {
+          await rawClient.query(
+            readinessFence === "exclusive"
+              ? "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+              : "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+          )
+          readinessFenceLocked = true
+        } finally {
+          await rawClient.query(
+            "SELECT set_config('lock_timeout', $1, false)",
+            [priorLockTimeout]
+          )
+        }
       } catch (error) {
         releaseError = postgresClientError(
           error,
