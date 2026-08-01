@@ -48,7 +48,7 @@ a separately reviewed `COMPLETE_V2` protocol and operational controls.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:5270](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5270)
+[src/services/maintenance/p2tr-signature-fraud.ts:5295](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5295)
 
 ## Properties
 
@@ -64,7 +64,7 @@ The P2TR signature-fraud entry-point contract.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:5271](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5271)
+[src/services/maintenance/p2tr-signature-fraud.ts:5296](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5296)
 
 ___
 
@@ -74,7 +74,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:5256](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5256)
+[src/services/maintenance/p2tr-signature-fraud.ts:5281](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5281)
 
 ___
 
@@ -90,7 +90,7 @@ Submitter options. If `challengeDepositAmount` is
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:5272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5272)
+[src/services/maintenance/p2tr-signature-fraud.ts:5297](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5297)
 
 ## Methods
 
@@ -104,7 +104,7 @@ Submitter options. If `challengeDepositAmount` is
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:5340](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5340)
+[src/services/maintenance/p2tr-signature-fraud.ts:5365](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5365)
 
 ___
 
@@ -129,4 +129,4 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:5287](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5287)
+[src/services/maintenance/p2tr-signature-fraud.ts:5312](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L5312)

@@ -72,7 +72,7 @@ Error.message
 
 #### Defined in
 
-node_modules/typescript/lib/lib.es5.d.ts:1077
+node_modules/.ignored/typescript/lib/lib.es5.d.ts:1077
 
 ___
 
@@ -86,7 +86,7 @@ Error.name
 
 #### Defined in
 
-node_modules/typescript/lib/lib.es5.d.ts:1076
+node_modules/.ignored/typescript/lib/lib.es5.d.ts:1076
 
 ___
 
@@ -100,7 +100,7 @@ Error.stack
 
 #### Defined in
 
-node_modules/typescript/lib/lib.es5.d.ts:1078
+node_modules/.ignored/typescript/lib/lib.es5.d.ts:1078
 
 ___
 
@@ -124,7 +124,7 @@ Error.stackTraceLimit
 
 #### Defined in
 
-node_modules/@types/node/globals.d.ts:68
+node_modules/.ignored/@types/node/globals.d.ts:68
 
 ## Methods
 
@@ -193,7 +193,7 @@ Error.captureStackTrace
 
 #### Defined in
 
-node_modules/@types/node/globals.d.ts:52
+node_modules/.ignored/@types/node/globals.d.ts:52
 
 ___
 
@@ -222,4 +222,4 @@ Error.prepareStackTrace
 
 #### Defined in
 
-node_modules/@types/node/globals.d.ts:56
+node_modules/.ignored/@types/node/globals.d.ts:56
