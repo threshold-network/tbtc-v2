@@ -1085,6 +1085,13 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
       "Orphaned signer boundary resolution does not name the durable boundary"
     )
   }
+  const expectedStage =
+    record.preparationResumeStatus === undefined ? "prepare" : "replacement"
+  if (resolution.stage !== expectedStage) {
+    throw new Error(
+      "Orphaned signer boundary resolution does not name the durable signer stage"
+    )
+  }
   if (
     resolution.outcome === "never-invoked" &&
     (record.signerInvocationStartedAtUnixMs !== undefined ||

@@ -15,6 +15,7 @@ import {
   P2TRSignatureFraudCanonicalProvenanceBinding,
   P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence,
   P2TRSignatureFraudIndependentSignerBoundaryResolution,
+  P2TRSignatureFraudNormalizedSignerBoundaryResolution,
   P2TRSignatureFraudChallengeOutboxEligibilitySnapshot,
   P2TRSignatureFraudChallengeOutboxPage,
   P2TRSignatureFraudChallengeOutboxPageRequest,
@@ -97,6 +98,16 @@ export type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions = {
   assertIndependentNonceReleaseResolution(
     invocation: P2TRSignatureFraudAmbiguousNonceReleaseInvocation,
     resolution: P2TRSignatureFraudIndependentNonceReleaseResolution
+  ): true | Promise<true>
+  /**
+   * Pure, local verification boundary for orphaned signer recovery. It must
+   * authenticate both attestations and their exact provider evidence without
+   * network or database I/O; this callback runs while the outbox row is
+   * locked and before any durable resolution evidence is appended.
+   */
+  assertIndependentSignerBoundaryResolution(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    resolution: P2TRSignatureFraudNormalizedSignerBoundaryResolution
   ): true | Promise<true>
   broadcastProviderID: string
 }
@@ -1547,6 +1558,16 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         : "acknowledged"
     }
     assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership(current, normalized)
+    if (
+      (await this.options.assertIndependentSignerBoundaryResolution(
+        current,
+        normalized
+      )) !== true
+    ) {
+      throw new Error(
+        "Independent signer-boundary resolution authentication failed"
+      )
+    }
     const [primary, corroborating] = normalized.attestations
     // Appended BEFORE the barrier-clearing swap so the guard trigger still sees
     // the live boundary it must bind, and so a rejected swap can never leave
@@ -1854,21 +1875,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     ) {
       throw new Error("Escaped signed artifact provenance mismatch")
     }
-    const alreadyCaptured = hasSignedTransactionHash(
-      current,
-      artifact.preparedTransaction.transactionHash.toPrefixedString()
-    )
+    const reservation = current.reservedNonce
     if (
-      alreadyCaptured &&
-      current.activeSignerInvocationStartedAtUnixMs === undefined
-    ) {
-      return current
-    }
-    if (
-      current.reservedNonce === undefined ||
-      current.activeSignerInvocationStartedAtUnixMs === undefined ||
+      reservation === undefined ||
       bytes32(
-        current.reservedNonce.reservationID.toPrefixedString(),
+        reservation.reservationID.toPrefixedString(),
         "Stored signer-boundary reservation ID"
       ) !==
         bytes32(artifact.expectedReservationID, "Late artifact reservation ID")
@@ -1878,6 +1889,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
     }
     let captureRecord = current
+    let quarantineAdded = false
     if (signerQuarantine !== undefined) {
       const existingQuarantineIDs = new Set(
         (current.signerQuarantines ?? []).map(signerQuarantineID)
@@ -1890,10 +1902,66 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             signerQuarantine,
           ],
         }
-        // The quarantine and any actual-nonce guard must exist before the
-        // escaped-envelope trigger validates the returned wrong-lane bytes.
-        await this.syncSignerQuarantines(current, captureRecord)
+        quarantineAdded = true
       }
+    }
+    // Transaction bytes, derived hash/sender, nonce, fee policy, reason, and
+    // wrong-lane quarantine evidence must all be valid before a hash match can
+    // take the idempotent path. A caller-declared hash is never validation.
+    this.validateUnexpectedArtifact(captureRecord, artifact)
+    const alreadyCaptured = hasSignedTransactionHash(
+      current,
+      artifact.preparedTransaction.transactionHash.toPrefixedString()
+    )
+    if (
+      alreadyCaptured &&
+      current.activeSignerInvocationStartedAtUnixMs === undefined
+    ) {
+      return current
+    }
+    if (current.activeSignerInvocationStartedAtUnixMs === undefined) {
+      throw new Error(
+        "Late signed artifact has no retained durable signer boundary"
+      )
+    }
+    const signedResolution = await this.options.session.query<{
+      signed_transaction_hash: Buffer
+    }>(
+      `SELECT signed_transaction_hash
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+        WHERE record_id = decode($1, 'hex')
+          AND boundary_started_at_unix_ms = $2
+          AND preparation_attempts = $3
+          AND nonce_reservation_id = decode($4, 'hex')
+          AND outcome = 'signed'`,
+      [
+        stripHex(bytes32(current.recordID, "Signed orphan record ID")),
+        current.activeSignerInvocationStartedAtUnixMs,
+        current.preparationAttempts,
+        stripHex(
+          bytes32(
+            reservation.reservationID.toPrefixedString(),
+            "Signed orphan reservation ID"
+          )
+        ),
+      ]
+    )
+    if (
+      signedResolution.rows.length === 1 &&
+      prefixedHex(signedResolution.rows[0].signed_transaction_hash) !==
+        hexValue(
+          artifact.preparedTransaction.transactionHash,
+          "Authenticated orphan transaction hash"
+        )
+    ) {
+      throw new Error(
+        "Escaped signed artifact does not match the authenticated orphan resolution"
+      )
+    }
+    if (quarantineAdded) {
+      // The quarantine and any actual-nonce guard must exist before the
+      // escaped-envelope trigger validates the returned wrong-lane bytes.
+      await this.syncSignerQuarantines(current, captureRecord)
     }
     if (!alreadyCaptured) {
       await this.insertUnexpectedArtifact(captureRecord, artifact)
@@ -1955,8 +2023,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       address(
         artifact.preparedTransaction.sender,
         "Captured signed artifact sender"
-      ) === address(current.reservedNonce.sender, "Reserved signer sender") &&
-      artifact.preparedTransaction.nonce === current.reservedNonce.nonce
+      ) === address(reservation.sender, "Reserved signer sender") &&
+      artifact.preparedTransaction.nonce === reservation.nonce
     if (!alreadyCaptured) {
       await this.saveCriticalAlert({
         code: expectedLaneArtifact
@@ -3765,10 +3833,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
   }
 
-  private async insertUnexpectedArtifact(
+  private validateUnexpectedArtifact(
     record: P2TRSignatureFraudChallengeOutboxRecord,
     artifact: P2TRSignatureFraudUnexpectedSignedArtifact
-  ): Promise<void> {
+  ) {
     const reservation = record.reservedNonce
     if (reservation === undefined) {
       throw new Error("Unexpected signed artifact lacks its nonce reservation")
@@ -3779,12 +3847,54 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         record.intent,
         transaction
       )
+    const reason = requireText(artifact.reason, "Late artifact reason", 1024)
     const sameLane =
       address(transaction.sender, "Unexpected signed sender") ===
         address(reservation.sender, "Reserved sender") &&
       transaction.nonce === reservation.nonce
+    if (sameLane && validatedTransaction.eip1559?.transactionType !== 2) {
+      throw new Error("Unexpected production artifact must be EIP-1559")
+    }
+    const quarantine = sameLane
+      ? undefined
+      : [...(record.signerQuarantines ?? [])]
+          .reverse()
+          .find(
+            (candidate) =>
+              candidate.reasonCode === "wrong-sender" ||
+              candidate.reasonCode === "wrong-nonce" ||
+              candidate.reasonCode === "ambiguous-signer-invocation"
+          )
+    if (!sameLane && quarantine === undefined) {
+      throw new Error(
+        "Escaped wrong-lane envelope lacks signer quarantine evidence"
+      )
+    }
+    return {
+      reservation,
+      transaction,
+      validatedTransaction,
+      reason,
+      sameLane,
+      quarantine,
+    }
+  }
+
+  private async insertUnexpectedArtifact(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    artifact: P2TRSignatureFraudUnexpectedSignedArtifact
+  ): Promise<void> {
+    const {
+      reservation,
+      transaction,
+      validatedTransaction,
+      reason,
+      sameLane,
+      quarantine,
+    } = this.validateUnexpectedArtifact(record, artifact)
     if (sameLane) {
-      if (validatedTransaction.eip1559?.transactionType !== 2) {
+      const eip1559 = validatedTransaction.eip1559
+      if (eip1559?.transactionType !== 2) {
         throw new Error("Unexpected production artifact must be EIP-1559")
       }
       await this.options.session.query(
@@ -3833,34 +3943,19 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           ),
           stripHex(address(transaction.sender, "Late artifact sender")),
           transaction.nonce,
+          unsignedDecimal(eip1559.gasLimit, "Late artifact gas limit"),
+          unsignedDecimal(eip1559.maxFeePerGas, "Late artifact maximum fee"),
           unsignedDecimal(
-            validatedTransaction.eip1559.gasLimit,
-            "Late artifact gas limit"
-          ),
-          unsignedDecimal(
-            validatedTransaction.eip1559.maxFeePerGas,
-            "Late artifact maximum fee"
-          ),
-          unsignedDecimal(
-            validatedTransaction.eip1559.maxPriorityFeePerGas,
+            eip1559.maxPriorityFeePerGas,
             "Late artifact priority fee"
           ),
           artifact.capturedAtUnixMs,
-          requireText(artifact.reason, "Late artifact reason", 1024),
-          stripHex(hashText(artifact.reason)),
+          reason,
+          stripHex(hashText(reason)),
         ]
       )
       return
     }
-
-    const quarantine = [...(record.signerQuarantines ?? [])]
-      .reverse()
-      .find(
-        (candidate) =>
-          candidate.reasonCode === "wrong-sender" ||
-          candidate.reasonCode === "wrong-nonce" ||
-          candidate.reasonCode === "ambiguous-signer-invocation"
-      )
     if (quarantine === undefined) {
       throw new Error(
         "Escaped wrong-lane envelope lacks signer quarantine evidence"

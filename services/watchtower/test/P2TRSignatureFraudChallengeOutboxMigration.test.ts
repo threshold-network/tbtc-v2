@@ -726,7 +726,15 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   )
   assert.match(
     migration,
+    /preparation_resume_status IS NULL[\s\S]*?orphaned signer boundary resolution does not name the durable signer stage/
+  )
+  assert.match(
+    migration,
     /orphaned signer boundary resolution requires a boundary with no signer escape evidence/
+  )
+  assert.match(
+    migration,
+    /resolution\.signed_transaction_hash <> NEW\.transaction_hash[\s\S]*?escaped signed artifact does not match the authenticated orphan resolution/
   )
   assert.match(
     migration,

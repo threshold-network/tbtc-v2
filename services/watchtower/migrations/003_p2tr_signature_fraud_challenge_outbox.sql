@@ -1814,6 +1814,14 @@ BEGIN
             'orphaned signer boundary resolution does not name the durable boundary';
     END IF;
 
+    IF (outbox_record.preparation_resume_status IS NULL
+            AND NEW.stage <> 'prepare')
+       OR (outbox_record.preparation_resume_status IS NOT NULL
+            AND NEW.stage <> 'replacement') THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary resolution does not name the durable signer stage';
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
                'tbtc-p2tr-signer-boundary-independent-resolution-v1',
@@ -2706,6 +2714,26 @@ BEGIN
         RAISE EXCEPTION 'escaped signed envelope does not match its quarantine reason';
     END IF;
 
+    IF EXISTS (
+        SELECT 1
+          FROM p2tr_signature_fraud_challenge_outbox outbox_record
+          JOIN p2tr_signature_fraud_challenge_signer_boundary_resolution
+               resolution
+            ON resolution.record_id = outbox_record.record_id
+           AND resolution.boundary_started_at_unix_ms =
+               outbox_record.active_signer_invocation_started_at_unix_ms
+           AND resolution.preparation_attempts =
+               outbox_record.preparation_attempts
+           AND resolution.nonce_reservation_id =
+               outbox_record.nonce_reservation_id
+           AND resolution.outcome = 'signed'
+         WHERE outbox_record.record_id = NEW.record_id
+           AND resolution.signed_transaction_hash <> NEW.transaction_hash
+    ) THEN
+        RAISE EXCEPTION
+            'escaped signed artifact does not match the authenticated orphan resolution';
+    END IF;
+
     -- The actual guard is a global (chain, sender, nonce) exclusion. Multiple
     -- records may independently retain signed bytes that collide with it; the
     -- envelope's separate expected-reservation FK preserves each invocation's
@@ -2758,6 +2786,24 @@ BEGIN
                 outbox_record.active_signer_invocation_started_at_unix_ms
        ) THEN
         RAISE EXCEPTION 'late signed artifact does not match its durable signer boundary';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+          FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+               resolution
+         WHERE resolution.record_id = outbox_record.record_id
+           AND resolution.boundary_started_at_unix_ms =
+               outbox_record.active_signer_invocation_started_at_unix_ms
+           AND resolution.preparation_attempts =
+               outbox_record.preparation_attempts
+           AND resolution.nonce_reservation_id =
+               outbox_record.nonce_reservation_id
+           AND resolution.outcome = 'signed'
+           AND resolution.signed_transaction_hash <> NEW.transaction_hash
+    ) THEN
+        RAISE EXCEPTION
+            'escaped signed artifact does not match the authenticated orphan resolution';
     END IF;
 
     SELECT * INTO fee_policy
