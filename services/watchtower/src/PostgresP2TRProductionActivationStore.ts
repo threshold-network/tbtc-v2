@@ -7,6 +7,7 @@ import {
   type P2TRProductionCandidateEnqueueNonRetryableFailure,
   type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
   type P2TRProductionCandidateEnqueueTransactionGuard,
+  type P2TRProductionCandidateEnqueueTransactionRecovery,
   type P2TRProductionCandidateEnqueueTransactionResolution,
   type P2TRProductionEthereumJournalHealth,
   type P2TRProductionBitcoinIndexHealth,
@@ -16,6 +17,7 @@ import {
   type P2TRProductionReadinessCertificateReference,
   type P2TRProductionRuntimeAlertHealth,
   type P2TRProductionStateStore,
+  computeP2TRProductionCandidateDigest,
 } from "./P2TRProductionActivation.js"
 import {
   assertP2TRPostgresTransactionSession,
@@ -1429,6 +1431,161 @@ export class PostgresP2TRProductionActivationStore
     }
   }
 
+  async listUnresolvedCandidateEnqueueTransactionGuards(): Promise<
+    readonly P2TRProductionCandidateEnqueueTransactionRecovery[]
+  > {
+    const result = await this.session.query<{
+      token_id: string
+      manifest_hash: string
+      candidate_digest: string
+      max_attempt_count: string | number
+      txid: string
+      wtxid: string
+      bitcoin_block_height: string | number
+      bitcoin_block_hash: string
+      input_index: string | number
+      observation_id: string
+      challenge_key: string
+      readiness_certificate_id: string
+      readiness_certificate_generation: string | number
+      verified_bitcoin_height: string | number
+      verified_bitcoin_hash: string
+      verified_ethereum_block: string | number
+      verified_ethereum_hash: string
+      expires_at: Date | string
+    }>(
+      `SELECT encode(authz.token_id, 'hex') AS token_id,
+              encode(authz.manifest_hash, 'hex') AS manifest_hash,
+              encode(authz.candidate_digest, 'hex') AS candidate_digest,
+              guard_row.max_attempt_count,
+              encode(authz.txid, 'hex') AS txid,
+              encode(authz.wtxid, 'hex') AS wtxid,
+              authz.bitcoin_block_height,
+              encode(authz.bitcoin_block_hash, 'hex') AS bitcoin_block_hash,
+              authz.input_index,
+              encode(authz.observation_id, 'hex') AS observation_id,
+              encode(authz.challenge_key, 'hex') AS challenge_key,
+              encode(authz.readiness_certificate_id, 'hex')
+                AS readiness_certificate_id,
+              authz.readiness_certificate_generation,
+              authz.verified_bitcoin_height,
+              encode(authz.verified_bitcoin_hash, 'hex')
+                AS verified_bitcoin_hash,
+              authz.verified_ethereum_block,
+              encode(authz.verified_ethereum_hash, 'hex')
+                AS verified_ethereum_hash,
+              authz.expires_at
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_watchtower_activation_manifest manifest
+           ON manifest.singleton = true
+          AND manifest.manifest_hash = guard_row.manifest_hash
+        WHERE NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                 WHERE resolution.manifest_hash = guard_row.manifest_hash
+                   AND resolution.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                 WHERE alert.manifest_hash = guard_row.manifest_hash
+                   AND alert.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                 WHERE failure.manifest_hash = guard_row.manifest_hash
+                   AND failure.token_id = guard_row.token_id
+              )
+        ORDER BY guard_row.token_id
+        FOR SHARE OF guard_row, authz, manifest`
+    )
+    return result.rows.map((row) => {
+      const candidate = normalizeRecoveryCandidate({
+        txid: row.txid,
+        wtxid: row.wtxid,
+        blockHeight: databaseInteger(
+          row.bitcoin_block_height,
+          "recovery candidate block height"
+        ),
+        blockHash: row.bitcoin_block_hash,
+        inputIndex: databaseInteger(
+          row.input_index,
+          "recovery candidate input index"
+        ),
+        observationID: row.observation_id,
+        challengeKey: row.challenge_key,
+      })
+      const candidateDigest = bytes32(
+        row.candidate_digest,
+        "recovery candidate digest"
+      )
+      if (
+        candidateDigest !== computeP2TRProductionCandidateDigest(candidate)
+      ) {
+        throw new Error(
+          "Candidate enqueue recovery row does not match its candidate digest"
+        )
+      }
+      const manifestHash = bytes32(row.manifest_hash, "recovery manifest hash")
+      const tokenID = bytes32(row.token_id, "recovery token")
+      const maxAttemptCount = boundedPositiveInteger(
+        databaseInteger(row.max_attempt_count, "recovery guard attempt bound"),
+        8,
+        "recovery guard attempt bound"
+      )
+      return {
+        guard: {
+          tokenID,
+          manifestHash,
+          candidateDigest,
+          maxAttemptCount,
+        },
+        authorization: {
+          tokenID,
+          manifestHash,
+          candidateDigest,
+          candidate,
+          readinessCertificate: {
+            certificateID: bytes32(
+              row.readiness_certificate_id,
+              "recovery readiness certificate"
+            ),
+            generation: databaseInteger(
+              row.readiness_certificate_generation,
+              "recovery readiness certificate generation"
+            ),
+          },
+          verifiedBitcoin: {
+            height: databaseInteger(
+              row.verified_bitcoin_height,
+              "recovery verified Bitcoin height"
+            ),
+            hash: bytes32(
+              row.verified_bitcoin_hash,
+              "recovery verified Bitcoin hash"
+            ).slice(2),
+          },
+          verifiedEthereum: {
+            blockNumber: databaseInteger(
+              row.verified_ethereum_block,
+              "recovery verified Ethereum block"
+            ),
+            blockHash: bytes32(
+              row.verified_ethereum_hash,
+              "recovery verified Ethereum hash"
+            ),
+          },
+          expiresAt: new Date(row.expires_at).toISOString(),
+        },
+      }
+    })
+  }
+
   async resolveCandidateEnqueueTransactionGuard(
     resolution: P2TRProductionCandidateEnqueueTransactionResolution
   ): Promise<void> {
@@ -2248,6 +2405,32 @@ function candidateEnqueueTransactionGuardDigest(
     "tbtc-p2tr-candidate-enqueue-transaction-guard/v1",
     guard
   )
+}
+
+function normalizeRecoveryCandidate(
+  candidate: P2TRProductionBitcoinCandidate
+): P2TRProductionBitcoinCandidate {
+  return {
+    txid: bytes32(candidate.txid, "recovery candidate txid").slice(2),
+    wtxid: bytes32(candidate.wtxid, "recovery candidate wtxid").slice(2),
+    blockHeight: nonNegativeInteger(
+      candidate.blockHeight,
+      "recovery candidate block height"
+    ),
+    blockHash: bytes32(
+      candidate.blockHash,
+      "recovery candidate block hash"
+    ).slice(2),
+    inputIndex: uint32(candidate.inputIndex, "recovery candidate input index"),
+    observationID: bytes32(
+      candidate.observationID,
+      "recovery candidate observation ID"
+    ),
+    challengeKey: bytes32(
+      candidate.challengeKey,
+      "recovery candidate challenge key"
+    ),
+  }
 }
 
 function candidateEnqueueTransactionResolutionDigest(

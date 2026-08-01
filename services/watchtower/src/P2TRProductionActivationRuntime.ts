@@ -134,7 +134,10 @@ export async function createPostgresP2TRProductionActivationRuntime(
     }
   )
   // Startup is not considered successful until every live, signed, pinned
-  // dependency and every durable health/readback invariant passes.
+  // dependency and every durable health/readback invariant passes. Resume or
+  // terminalize guards left between the durable arm and enqueue transactions
+  // before readiness rejects unresolved runtime state.
+  await gate.recoverCandidateEnqueueTransactionGuards()
   await gate.assertReady()
 
   return Object.freeze({

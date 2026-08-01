@@ -3048,7 +3048,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
           signerBoundary.intent,
           previous,
-          escaped
+          escaped,
+          selectedFeePolicy.minimumReplacementFeeBumpBps
         )
       replacement =
         validateP2TRSignatureFraudPreparedChallengeTransactionReservation(
@@ -6257,6 +6258,11 @@ const normalizeChallengeFeePolicyManifestWithoutHash = (
         lane.maxTotalFeeWei,
         "Challenge fee policy total fee"
       )
+      const minimumReplacementFeeBumpBps = requireBoundedPositiveSafeInteger(
+        lane.minimumReplacementFeeBumpBps,
+        10_000,
+        "Challenge replacement fee bump"
+      )
       if (BigInt(maxPriorityFeePerGas) > BigInt(maxFeePerGas)) {
         throw new Error("Challenge fee policy priority fee exceeds its max fee")
       }
@@ -6276,6 +6282,7 @@ const normalizeChallengeFeePolicyManifestWithoutHash = (
         maxFeePerGas,
         maxPriorityFeePerGas,
         maxTotalFeeWei,
+        minimumReplacementFeeBumpBps,
       }
     })
     .sort((left, right) => {
@@ -8702,7 +8709,8 @@ const validatePreparedTransactionVariantLedger = (
         : validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
             record.intent,
             previous,
-            variant.preparedTransaction
+            variant.preparedTransaction,
+            feePolicy.minimumReplacementFeeBumpBps
           )
     prepared =
       validateP2TRSignatureFraudPreparedChallengeTransactionReservation(

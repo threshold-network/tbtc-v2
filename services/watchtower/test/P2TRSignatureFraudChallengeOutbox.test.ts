@@ -208,6 +208,63 @@ const signLegacyTestChallengeTransaction = (calldata: string) => {
   }
 }
 
+const signEIP7702TestChallengeTransaction = (calldata: string) => {
+  const wallet = new Wallet(`0x${"42".repeat(32)}`)
+  const authority = new Wallet(`0x${"43".repeat(32)}`)
+  const quantity = (value: number): string =>
+    value === 0 ? "0x" : utils.hexlify(utils.stripZeros(utils.arrayify(value)))
+  const authorizationUnsigned = [
+    quantity(11155111),
+    ROUTER_ADDRESS,
+    quantity(0),
+  ]
+  const authorizationSignature = authority._signingKey().signDigest(
+    utils.keccak256(
+      utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+    )
+  )
+  const authorization = [
+    ...authorizationUnsigned,
+    quantity(authorizationSignature.recoveryParam),
+    utils.hexlify(
+      utils.stripZeros(utils.arrayify(authorizationSignature.r))
+    ),
+    utils.hexlify(
+      utils.stripZeros(utils.arrayify(authorizationSignature.s))
+    ),
+  ]
+  const unsigned = [
+    quantity(11155111),
+    quantity(7),
+    quantity(2),
+    quantity(20),
+    quantity(1_000_000),
+    ROUTER_ADDRESS,
+    quantity(1234),
+    calldata,
+    [],
+    [authorization],
+  ]
+  const signature = wallet
+    ._signingKey()
+    .signDigest(
+      utils.keccak256(utils.concat(["0x04", utils.RLP.encode(unsigned)]))
+    )
+  const rawTransaction = utils.hexConcat([
+    "0x04",
+    utils.RLP.encode([
+      ...unsigned,
+      quantity(signature.recoveryParam),
+      utils.hexlify(utils.stripZeros(utils.arrayify(signature.r))),
+      utils.hexlify(utils.stripZeros(utils.arrayify(signature.s))),
+    ]),
+  ])
+  return {
+    rawTransaction,
+    transactionHash: utils.keccak256(rawTransaction),
+  }
+}
+
 const defaultTestCall = completeV2TestCall(SIGHASH)
 const signedTestTransaction = signTestChallengeTransaction(
   defaultTestCall.calldata,
@@ -230,6 +287,9 @@ const legacySignedTestTransaction = signLegacyTestChallengeTransaction(
 )
 const LEGACY_RAW_TRANSACTION = legacySignedTestTransaction.rawTransaction
 const LEGACY_TRANSACTION_HASH = legacySignedTestTransaction.transactionHash
+const eip7702SignedTestTransaction = signEIP7702TestChallengeTransaction(
+  defaultTestCall.calldata
+)
 
 const activationManifest = (manifestHash = ACTIVATION_MANIFEST_HASH) => ({
   manifestHash,
@@ -259,6 +319,7 @@ const feePolicyManifest = (
         maxFeePerGas: "100",
         maxPriorityFeePerGas: "10",
         maxTotalFeeWei: "100000000",
+        minimumReplacementFeeBumpBps: 1000,
       },
     ],
   }
@@ -3404,6 +3465,31 @@ test("rejects non-replaceable legacy envelopes after retaining the signer lane",
   assert.match(result.lastError ?? "", /requires an EIP-1559/)
 })
 
+test("retains and guards EIP-7702 signer bytes before rejecting broadcast policy", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.rawTransaction = eip7702SignedTestTransaction.rawTransaction
+  preparer.transactionHash = eip7702SignedTestTransaction.transactionHash
+  const outbox = dispatcher(store, preparer)
+
+  const result = await outbox.prepare(record.recordID, "worker-a")
+  assert.equal(result.status, "quarantined")
+  assert.equal(
+    result.preparationSender?.toLowerCase(),
+    TRANSACTION_SENDER.toLowerCase()
+  )
+  assert.equal(result.preparedTransactionVariants, undefined)
+  assert.equal(result.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    normalizeKey(
+      result.unexpectedSignedArtifacts![0].preparedTransaction.transactionHash
+    ),
+    eip7702SignedTestTransaction.transactionHash.toLowerCase()
+  )
+  assert.match(result.lastError ?? "", /requires an EIP-1559|unsupported/)
+})
+
 test("persists send boundary and retries only identical signed bytes", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -3530,7 +3616,31 @@ test("rejects non-increasing replacements without forgetting signed state", asyn
     ),
     TRANSACTION_HASH
   )
-  assert.match(quarantined.lastError ?? "", /strictly increase|distinct/)
+  assert.match(
+    quarantined.lastError ?? "",
+    /policy-bound transaction-pool fee bump|distinct/
+  )
+  assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
+})
+
+test("rejects a replacement below the manifest transaction-pool bump", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new DynamicFeePreparer()
+  const outbox = dispatcher(store, preparer)
+
+  await outbox.prepare(record.recordID, "worker-a")
+  const quarantined = await outbox.prepareReplacement(
+    record.recordID,
+    "worker-b"
+  )
+
+  assert.equal(quarantined.status, "prepared")
+  assert.equal(quarantined.preparedTransactionVariants?.length, 1)
+  assert.match(
+    quarantined.lastError ?? "",
+    /policy-bound transaction-pool fee bump/
+  )
   assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
 })
 

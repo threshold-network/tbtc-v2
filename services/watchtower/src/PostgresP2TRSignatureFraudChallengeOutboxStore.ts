@@ -130,6 +130,7 @@ export type P2TRProductionSignerLaneConfiguration = {
   maxFeePerGas: string
   maxPriorityFeePerGas: string
   maxTotalFeeWei: string
+  minimumReplacementFeeBumpBps: number
   signerCodeHash: string
   configurationHash: string
   configuredAtUnixMs: number
@@ -322,12 +323,13 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           activation_manifest_hash, chain_id, policy_hash, signer_lane_id,
           signer_identity, sender, challenge_value_wei, max_gas_limit,
           max_fee_per_gas, max_priority_fee_per_gas, max_total_fee_wei,
-          signer_code_hash, configuration_hash, enabled,
+          minimum_replacement_fee_bump_bps, signer_code_hash,
+          configuration_hash, enabled,
           configured_at_unix_ms
        ) VALUES (
           decode($1, 'hex'), $2, decode($3, 'hex'), $4, $5,
-          decode($6, 'hex'), $7, $8, $9, $10, $11, decode($12, 'hex'),
-          decode($13, 'hex'), true, $14
+          decode($6, 'hex'), $7, $8, $9, $10, $11, $12,
+          decode($13, 'hex'), decode($14, 'hex'), true, $15
        )`,
       [
         stripHex(normalized.activationManifestHash),
@@ -341,6 +343,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         normalized.maxFeePerGas,
         normalized.maxPriorityFeePerGas,
         normalized.maxTotalFeeWei,
+        normalized.minimumReplacementFeeBumpBps,
         stripHex(normalized.signerCodeHash),
         stripHex(
           bytes32(configuration.configurationHash, "Signer configuration hash")
@@ -3066,10 +3069,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             record_id, policy_hash, activation_manifest_hash, chain_id,
             challenge_value_wei, signer_lane_id, signer_identity, sender,
             max_gas_limit, max_fee_per_gas, max_priority_fee_per_gas,
-            max_total_fee_wei
+            max_total_fee_wei, minimum_replacement_fee_bump_bps
          ) VALUES (
             decode($1, 'hex'), decode($2, 'hex'), decode($3, 'hex'), $4,
-            $5, $6, $7, decode($8, 'hex'), $9, $10, $11, $12
+            $5, $6, $7, decode($8, 'hex'), $9, $10, $11, $12, $13
          )`,
         [
           stripHex(bytes32(record.recordID, "Fee-policy record ID")),
@@ -3097,6 +3100,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             "Maximum priority fee per gas"
           ),
           unsignedDecimal(lane.maxTotalFeeWei, "Maximum total fee"),
+          lane.minimumReplacementFeeBumpBps,
         ]
       )
     }
@@ -4683,6 +4687,7 @@ const DURABLE_FEE_POLICY_LANE_KEYS = new Set([
   "maxFeePerGas",
   "maxPriorityFeePerGas",
   "maxTotalFeeWei",
+  "minimumReplacementFeeBumpBps",
 ])
 
 const DURABLE_NONCE_RESERVATION_KEYS = new Set([
@@ -6219,6 +6224,15 @@ function normalizeProductionSignerLaneConfiguration(
   if (BigInt(maxPriorityFeePerGas) > BigInt(maxFeePerGas)) {
     throw new Error("Signer priority fee exceeds its maximum fee")
   }
+  const minimumReplacementFeeBumpBps = positiveSafeInteger(
+    configuration.minimumReplacementFeeBumpBps,
+    "Signer minimum replacement fee bump"
+  )
+  if (minimumReplacementFeeBumpBps > 10_000) {
+    throw new Error(
+      "Signer minimum replacement fee bump exceeds 10000 basis points"
+    )
+  }
   return {
     activationManifestHash: bytes32(
       configuration.activationManifestHash,
@@ -6247,6 +6261,7 @@ function normalizeProductionSignerLaneConfiguration(
       configuration.maxTotalFeeWei,
       "Signer maximum total fee"
     ),
+    minimumReplacementFeeBumpBps,
     signerCodeHash: bytes32(configuration.signerCodeHash, "Signer code hash"),
   }
 }

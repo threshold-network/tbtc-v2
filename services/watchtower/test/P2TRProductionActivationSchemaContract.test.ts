@@ -10,6 +10,10 @@ const activationGate = readFileSync(
   new URL("../src/P2TRProductionActivation.ts", import.meta.url),
   "utf8"
 )
+const activationRuntime = readFileSync(
+  new URL("../src/P2TRProductionActivationRuntime.ts", import.meta.url),
+  "utf8"
+)
 const transactionCoordinator = readFileSync(
   new URL("../src/PostgresP2TRCanonicalIndexStore.ts", import.meta.url),
   "utf8"
@@ -301,6 +305,23 @@ describe("production activation PostgreSQL schema contract", () => {
     assert.match(issuance, /readinessFence: "exclusive"/)
     assert.doesNotMatch(lock, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(lock, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
+  })
+
+  it("recovers armed candidate guards before startup readiness", () => {
+    const recovery = methodSource(
+      activationStore,
+      "listUnresolvedCandidateEnqueueTransactionGuards",
+      "resolveCandidateEnqueueTransactionGuard"
+    )
+    assert.match(
+      recovery,
+      /FROM p2tr_candidate_enqueue_transaction_guard guard_row[\s\S]*?JOIN p2tr_candidate_enqueue_authorizations authz/
+    )
+    assert.match(recovery, /ORDER BY guard_row\.token_id/)
+    assert.match(
+      activationRuntime,
+      /await gate\.recoverCandidateEnqueueTransactionGuards\(\)[\s\S]*?await gate\.assertReady\(\)/
+    )
   })
 
   it("binds independently verified history at the local Ethereum cursor", () => {

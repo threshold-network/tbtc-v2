@@ -1228,6 +1228,7 @@ Immutable activation-manifest fee/value envelope for one signer lane.
 | `maxGasLimit` | `string` |
 | `maxPriorityFeePerGas` | `string` |
 | `maxTotalFeeWei` | `string` |
+| `minimumReplacementFeeBumpBps` | `number` |
 | `policyHash` | [`Hex`](classes/Hex.md) |
 | `sender` | `string` |
 | `signerIdentity` | `string` |
@@ -1344,11 +1345,11 @@ ___
 
 ### P2TRSignatureFraudPreparedTransactionEnvelope
 
-Ƭ **P2TRSignatureFraudPreparedTransactionEnvelope**: \{ `transactionType`: ``0`` \| ``1``  } \| \{ `gasLimit`: `string` ; `maxFeePerGas`: `string` ; `maxPriorityFeePerGas`: `string` ; `transactionType`: ``2``  }
+Ƭ **P2TRSignatureFraudPreparedTransactionEnvelope**: \{ `transactionType`: ``0`` \| ``1`` \| ``3`` \| ``4``  } \| \{ `gasLimit`: `string` ; `maxFeePerGas`: `string` ; `maxPriorityFeePerGas`: `string` ; `transactionType`: ``2``  }
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2043](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2043)
+[src/services/maintenance/p2tr-signature-fraud.ts:2212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2212)
 
 ___
 
@@ -4220,7 +4221,7 @@ ___
 
 ### getP2TRSignatureFraudPreparedTransactionType
 
-▸ **getP2TRSignatureFraudPreparedTransactionType**(`rawTransaction`): ``0`` \| ``1`` \| ``2``
+▸ **getP2TRSignatureFraudPreparedTransactionType**(`rawTransaction`): ``0`` \| ``1`` \| ``2`` \| ``3`` \| ``4``
 
 Returns the parsed Ethereum envelope type, treating untyped RLP as type 0.
 
@@ -4232,11 +4233,11 @@ Returns the parsed Ethereum envelope type, treating untyped RLP as type 0.
 
 #### Returns
 
-``0`` \| ``1`` \| ``2``
+``0`` \| ``1`` \| ``2`` \| ``3`` \| ``4``
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2095](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2095)
+[src/services/maintenance/p2tr-signature-fraud.ts:2282](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2282)
 
 ___
 
@@ -5211,11 +5212,12 @@ ___
 
 ### validateP2TRSignatureFraudPreparedChallengeReplacementTransaction
 
-▸ **validateP2TRSignatureFraudPreparedChallengeReplacementTransaction**(`intent`, `previous`, `replacement`): [`P2TRSignatureFraudPreparedChallengeTransaction`](README.md#p2trsignaturefraudpreparedchallengetransaction)
+▸ **validateP2TRSignatureFraudPreparedChallengeReplacementTransaction**(`intent`, `previous`, `replacement`, `minimumReplacementFeeBumpBps`): [`P2TRSignatureFraudPreparedChallengeTransaction`](README.md#p2trsignaturefraudpreparedchallengetransaction)
 
 Authenticates an EIP-1559 replacement against an already-persisted variant.
-Both fee caps must strictly increase, gas limit cannot decrease, and every
-call/identity field remains protected by the durable-intent validator.
+Both fee caps must satisfy the policy-bound minimum replacement bump, gas
+limit cannot decrease, and every call/identity field remains protected by the
+durable-intent validator.
 
 #### Parameters
 
@@ -5224,6 +5226,7 @@ call/identity field remains protected by the durable-intent validator.
 | `intent` | [`P2TRSignatureFraudSubmissionIntent`](README.md#p2trsignaturefraudsubmissionintent) | Durable submission intent both variants must satisfy. |
 | `previous` | [`P2TRSignatureFraudPreparedChallengeTransaction`](README.md#p2trsignaturefraudpreparedchallengetransaction) | Already-persisted variant being replaced. |
 | `replacement` | [`P2TRSignatureFraudPreparedChallengeTransaction`](README.md#p2trsignaturefraudpreparedchallengetransaction) | Candidate replacement transaction. |
+| `minimumReplacementFeeBumpBps` | `number` | Policy-bound minimum transaction-pool bump for both fee caps. |
 
 #### Returns
 
@@ -5233,7 +5236,7 @@ The validated replacement transaction.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2189](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2189)
+[src/services/maintenance/p2tr-signature-fraud.ts:2378](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2378)
 
 ___
 

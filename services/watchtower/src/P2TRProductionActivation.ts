@@ -689,6 +689,11 @@ export type P2TRProductionCandidateEnqueueTransactionGuard = {
   maxAttemptCount: number
 }
 
+export type P2TRProductionCandidateEnqueueTransactionRecovery = {
+  guard: P2TRProductionCandidateEnqueueTransactionGuard
+  authorization: P2TRProductionCandidateAuthorizationReceipt
+}
+
 export type P2TRProductionCandidateEnqueueTransactionResolution = {
   tokenID: string
   manifestHash: string
@@ -768,6 +773,9 @@ export type P2TRProductionStateStore = {
   armCandidateEnqueueTransactionGuard(
     guard: P2TRProductionCandidateEnqueueTransactionGuard
   ): Promise<void>
+  listUnresolvedCandidateEnqueueTransactionGuards(): Promise<
+    readonly P2TRProductionCandidateEnqueueTransactionRecovery[]
+  >
   resolveCandidateEnqueueTransactionGuard(
     resolution: P2TRProductionCandidateEnqueueTransactionResolution
   ): Promise<void>
@@ -1171,7 +1179,7 @@ export class P2TRProductionActivationGate {
     const receipt: P2TRProductionCandidateAuthorizationReceipt = {
       tokenID: `0x${randomBytes(32).toString("hex")}`,
       manifestHash: this.manifestHash,
-      candidateDigest: hashCandidate(normalized),
+      candidateDigest: computeP2TRProductionCandidateDigest(normalized),
       candidate: normalized,
       readinessCertificate: ready.readinessCertificate,
       verifiedBitcoin: {
@@ -1225,7 +1233,8 @@ export class P2TRProductionActivationGate {
     if (
       record === undefined ||
       record.consumed ||
-      record.receipt.candidateDigest !== hashCandidate(normalized) ||
+      record.receipt.candidateDigest !==
+        computeP2TRProductionCandidateDigest(normalized) ||
       Date.parse(record.receipt.expiresAt) <= Date.now()
     ) {
       throw new Error(
@@ -1259,6 +1268,35 @@ export class P2TRProductionActivationGate {
       )
     }
     return outcome.outboxIntentID
+  }
+
+  /**
+   * Resumes every guard that committed before a prior process exited. This is
+   * called before readiness, while no runtime API can issue new candidate
+   * authority. Each failed resume either writes its terminal disposition in
+   * runCandidateEnqueueTransactionWithRetry or remains visible to the ensuing
+   * readiness check as an activation blocker.
+   */
+  async recoverCandidateEnqueueTransactionGuards(): Promise<void> {
+    const recoveries =
+      await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        () =>
+          this.dependencies.stateStore.listUnresolvedCandidateEnqueueTransactionGuards(),
+        { readinessFence: "exclusive" }
+      )
+    for (const recovery of recoveries) {
+      try {
+        await this.runCandidateEnqueueTransactionWithRetry(
+          recovery.authorization,
+          recovery.authorization.candidate,
+          recovery.guard.maxAttemptCount
+        )
+      } catch {
+        // Continue through the complete bounded recovery set. Readiness below
+        // independently rejects any guard that could not be terminalized and
+        // any activation-blocking retry-exhaustion alert.
+      }
+    }
   }
 
   private async armCandidateEnqueueTransactionGuardWithRetry(
@@ -1301,11 +1339,12 @@ export class P2TRProductionActivationGate {
 
   private async runCandidateEnqueueTransactionWithRetry(
     receipt: P2TRProductionCandidateAuthorizationReceipt,
-    candidate: P2TRProductionBitcoinCandidate
+    candidate: P2TRProductionBitcoinCandidate,
+    maxAttemptCount = this.candidateEnqueueTransactionMaxAttempts
   ): Promise<P2TRProductionCandidateEnqueueOutcome> {
     for (
       let attemptCount = 1;
-      attemptCount <= this.candidateEnqueueTransactionMaxAttempts;
+      attemptCount <= maxAttemptCount;
       attemptCount++
     ) {
       try {
@@ -1387,7 +1426,7 @@ export class P2TRProductionActivationGate {
           )
           throw error
         }
-        if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
+        if (attemptCount < maxAttemptCount) {
           continue
         }
         const alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
@@ -3944,7 +3983,9 @@ export function deriveP2TRProductionCandidateObservationID(
     .digest("hex")}`
 }
 
-function hashCandidate(candidate: P2TRProductionBitcoinCandidate): string {
+export function computeP2TRProductionCandidateDigest(
+  candidate: P2TRProductionBitcoinCandidate
+): string {
   return `0x${createHash("sha256")
     .update(canonicalJSON(normalizeCandidate(candidate)))
     .digest("hex")}`

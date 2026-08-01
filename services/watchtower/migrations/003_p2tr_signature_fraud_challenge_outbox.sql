@@ -686,6 +686,7 @@ CREATE FUNCTION p2tr_signature_fraud_signer_lane_configuration_hash(
     _max_fee_per_gas numeric,
     _max_priority_fee_per_gas numeric,
     _max_total_fee_wei numeric,
+    _minimum_replacement_fee_bump_bps integer,
     _signer_code_hash bytea
 )
 RETURNS bytea
@@ -705,6 +706,8 @@ AS $$
         ',"maxGasLimit":' || to_json(_max_gas_limit::text)::text ||
         ',"maxPriorityFeePerGas":' || to_json(_max_priority_fee_per_gas::text)::text ||
         ',"maxTotalFeeWei":' || to_json(_max_total_fee_wei::text)::text ||
+        ',"minimumReplacementFeeBumpBps":' ||
+            _minimum_replacement_fee_bump_bps::text ||
         ',"policyHash":' ||
             to_json(('0x' || encode(_policy_hash, 'hex'))::text)::text ||
         ',"sender":' || to_json(('0x' || encode(_sender, 'hex'))::text)::text ||
@@ -748,6 +751,9 @@ CREATE TABLE p2tr_signature_fraud_signer_lane_configuration (
         max_total_fee_wei BETWEEN 1 AND
             115792089237316195423570985008687907853269984665640564039457584007913129639935
     ),
+    minimum_replacement_fee_bump_bps integer NOT NULL CHECK (
+        minimum_replacement_fee_bump_bps BETWEEN 1 AND 10000
+    ),
     signer_code_hash bytea NOT NULL CHECK (octet_length(signer_code_hash) = 32),
     configuration_hash bytea NOT NULL CHECK (
         octet_length(configuration_hash) = 32
@@ -764,6 +770,7 @@ CREATE TABLE p2tr_signature_fraud_signer_lane_configuration (
                 max_fee_per_gas,
                 max_priority_fee_per_gas,
                 max_total_fee_wei,
+                minimum_replacement_fee_bump_bps,
                 signer_code_hash
             )
     ),
@@ -795,7 +802,8 @@ CREATE TABLE p2tr_signature_fraud_signer_lane_configuration (
         max_gas_limit,
         max_fee_per_gas,
         max_priority_fee_per_gas,
-        max_total_fee_wei
+        max_total_fee_wei,
+        minimum_replacement_fee_bump_bps
     )
 );
 
@@ -833,6 +841,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_fee_policy (
         max_total_fee_wei BETWEEN 1 AND
             115792089237316195423570985008687907853269984665640564039457584007913129639935
     ),
+    minimum_replacement_fee_bump_bps integer NOT NULL CHECK (
+        minimum_replacement_fee_bump_bps BETWEEN 1 AND 10000
+    ),
     PRIMARY KEY (record_id, signer_lane_id),
     UNIQUE (record_id, signer_identity),
     UNIQUE (record_id, sender),
@@ -868,7 +879,8 @@ CREATE TABLE p2tr_signature_fraud_challenge_fee_policy (
         max_gas_limit,
         max_fee_per_gas,
         max_priority_fee_per_gas,
-        max_total_fee_wei
+        max_total_fee_wei,
+        minimum_replacement_fee_bump_bps
     ) REFERENCES p2tr_signature_fraud_signer_lane_configuration (
         activation_manifest_hash,
         chain_id,
@@ -880,7 +892,8 @@ CREATE TABLE p2tr_signature_fraud_challenge_fee_policy (
         max_gas_limit,
         max_fee_per_gas,
         max_priority_fee_per_gas,
-        max_total_fee_wei
+        max_total_fee_wei,
+        minimum_replacement_fee_bump_bps
     ) ON DELETE RESTRICT
 );
 
@@ -2263,7 +2276,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     actual_guard_signer_identity text NOT NULL CHECK (
         length(actual_guard_signer_identity) BETWEEN 1 AND 128
     ),
-    transaction_type smallint NOT NULL CHECK (transaction_type IN (0, 1, 2)),
+    transaction_type smallint NOT NULL CHECK (
+        transaction_type IN (0, 1, 2, 3, 4)
+    ),
     to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
     calldata bytea NOT NULL CHECK (octet_length(calldata) <= 4096),
     transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
@@ -2348,7 +2363,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     ),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
-    transaction_type smallint NOT NULL CHECK (transaction_type IN (0, 1, 2)),
+    transaction_type smallint NOT NULL CHECK (
+        transaction_type IN (0, 1, 2, 3, 4)
+    ),
     gas_limit numeric(78, 0),
     max_fee_per_gas numeric(78, 0),
     max_priority_fee_per_gas numeric(78, 0),
@@ -2362,7 +2379,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
             AND max_fee_per_gas >= 0
             AND max_priority_fee_per_gas >= 0
         ) OR (
-            transaction_type IN (0, 1)
+            transaction_type IN (0, 1, 3, 4)
             AND gas_limit IS NULL
             AND max_fee_per_gas IS NULL
             AND max_priority_fee_per_gas IS NULL
@@ -3585,8 +3602,14 @@ BEGIN
         END IF;
         IF NEW.max_fee_per_gas <= previous_variant.max_fee_per_gas
            OR NEW.max_priority_fee_per_gas <= previous_variant.max_priority_fee_per_gas
+           OR NEW.max_fee_per_gas * 10000 <
+                previous_variant.max_fee_per_gas *
+                (10000 + fee_policy.minimum_replacement_fee_bump_bps)
+           OR NEW.max_priority_fee_per_gas * 10000 <
+                previous_variant.max_priority_fee_per_gas *
+                (10000 + fee_policy.minimum_replacement_fee_bump_bps)
            OR NEW.gas_limit < previous_variant.gas_limit THEN
-            RAISE EXCEPTION 'P2TR challenge replacement fee envelope did not strictly increase';
+            RAISE EXCEPTION 'P2TR challenge replacement fee envelope did not satisfy its manifest bump';
         END IF;
     END IF;
     RETURN NEW;

@@ -527,6 +527,10 @@ test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
   )
   assert.match(
     migration,
+    /minimum_replacement_fee_bump_bps integer NOT NULL CHECK \( minimum_replacement_fee_bump_bps BETWEEN 1 AND 10000 \)/
+  )
+  assert.match(
+    migration,
     /selected signer lane lacks its manifest-bound fee and value policy/
   )
   assert.match(
@@ -559,7 +563,11 @@ test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
   )
   assert.match(
     migration,
-    /NEW\.max_fee_per_gas <= previous_variant\.max_fee_per_gas OR NEW\.max_priority_fee_per_gas <= previous_variant\.max_priority_fee_per_gas OR NEW\.gas_limit < previous_variant\.gas_limit/
+    /NEW\.max_fee_per_gas \* 10000 < previous_variant\.max_fee_per_gas \* \(10000 \+ fee_policy\.minimum_replacement_fee_bump_bps\)/
+  )
+  assert.match(
+    migration,
+    /NEW\.max_priority_fee_per_gas \* 10000 < previous_variant\.max_priority_fee_per_gas \* \(10000 \+ fee_policy\.minimum_replacement_fee_bump_bps\)/
   )
   assert.match(
     migration,
@@ -712,7 +720,7 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   )
   assert.match(
     migration,
-    /p2tr_signature_fraud_challenge_late_signed_artifact[\s\S]*?transaction_type smallint NOT NULL CHECK \(transaction_type IN \(0, 1, 2\)\)[\s\S]*?transaction_type = 2[\s\S]*?gas_limit IS NOT NULL[\s\S]*?max_fee_per_gas IS NOT NULL[\s\S]*?max_priority_fee_per_gas IS NOT NULL[\s\S]*?transaction_type IN \(0, 1\)[\s\S]*?gas_limit IS NULL/
+    /p2tr_signature_fraud_challenge_late_signed_artifact[\s\S]*?transaction_type IN \(0, 1, 2, 3, 4\)[\s\S]*?transaction_type = 2[\s\S]*?gas_limit IS NOT NULL[\s\S]*?max_fee_per_gas IS NOT NULL[\s\S]*?max_priority_fee_per_gas IS NOT NULL[\s\S]*?transaction_type IN \(0, 1, 3, 4\)[\s\S]*?gas_limit IS NULL/
   )
   assert.match(migration, /expected_provenance_fingerprint bytea NOT NULL/)
   assert.match(

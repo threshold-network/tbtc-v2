@@ -727,6 +727,8 @@ export type P2TRSignatureFraudChallengeTransactionFeePolicy = {
   maxFeePerGas: string
   maxPriorityFeePerGas: string
   maxTotalFeeWei: string
+  /** Minimum transaction-pool replacement bump applied to both fee caps. */
+  minimumReplacementFeeBumpBps: number
 }
 
 export interface P2TRSignatureFraudChallengeTransactionPreparer {
@@ -1684,6 +1686,7 @@ export const computeP2TRSignatureFraudSigningRequestDigest = (
           "uint256",
           "uint256",
           "uint256",
+          "uint32",
           "bytes32",
           "bytes32",
         ],
@@ -1720,6 +1723,9 @@ export const computeP2TRSignatureFraudSigningRequestDigest = (
             feePolicy.maxPriorityFeePerGas
           ),
           normalizeP2TRSignatureFraudSubmissionValue(feePolicy.maxTotalFeeWei),
+          normalizeP2TRSignatureFraudReplacementFeeBumpBps(
+            feePolicy.minimumReplacementFeeBumpBps
+          ),
           bytes32(signerInvocationID, "Signer invocation ID"),
           previousHash,
         ]
@@ -1900,9 +1906,32 @@ export const buildP2TRSignatureFraudSubmissionIntent = (
 export const recoverP2TRSignatureFraudSignedTransactionEnvelope = (
   rawTransaction: string
 ): P2TRSignatureFraudSignedTransactionEnvelope => {
+  let normalizedRawTransaction: string
+  try {
+    normalizedRawTransaction = utils.hexlify(rawTransaction).toLowerCase()
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction must be a signed raw Ethereum transaction"
+    )
+  }
+  const firstByte = utils.arrayify(normalizedRawTransaction)[0]
+  if (firstByte === 3 || firstByte === 4) {
+    try {
+      return recoverP2TRSignatureFraudNewTypedTransactionEnvelope(
+        normalizedRawTransaction,
+        firstByte
+      )
+    } catch {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared challenge transaction must be a signed raw Ethereum transaction"
+      )
+    }
+  }
   let parsed: ReturnType<typeof utils.parseTransaction>
   try {
-    parsed = utils.parseTransaction(utils.hexlify(rawTransaction))
+    parsed = utils.parseTransaction(normalizedRawTransaction)
   } catch {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -1930,7 +1959,7 @@ export const recoverP2TRSignatureFraudSignedTransactionEnvelope = (
   }
 
   return {
-    rawTransaction: utils.hexlify(rawTransaction).toLowerCase(),
+    rawTransaction: normalizedRawTransaction,
     transactionHash: toBytes32Hex(
       parsed.hash,
       "Prepared challenge transaction hash"
@@ -1948,6 +1977,140 @@ export const recoverP2TRSignatureFraudSignedTransactionEnvelope = (
     calldata: utils.hexlify(parsed.data).toLowerCase(),
     value: parsed.value.toString(),
   }
+}
+
+type P2TRSignatureFraudRLPValue = string | P2TRSignatureFraudRLPValue[]
+
+const recoverP2TRSignatureFraudNewTypedTransactionEnvelope = (
+  rawTransaction: string,
+  transactionType: 3 | 4
+): P2TRSignatureFraudSignedTransactionEnvelope => {
+  const bytes = utils.arrayify(rawTransaction)
+  const decoded = utils.RLP.decode(
+    utils.hexlify(bytes.slice(1))
+  ) as P2TRSignatureFraudRLPValue
+  if (!Array.isArray(decoded)) {
+    throw new Error("Typed transaction payload is not an RLP list")
+  }
+  // EIP-4844's pooled network form wraps the signed transaction body with
+  // blobs, commitments, and proofs. Its transaction hash and signature still
+  // cover the first (payload-body) element only.
+  const body =
+    transactionType === 3 &&
+    decoded.length === 4 &&
+    Array.isArray(decoded[0])
+      ? decoded[0]
+      : decoded
+  const expectedLength = transactionType === 3 ? 14 : 13
+  if (body.length !== expectedLength) {
+    throw new Error("Typed transaction has an invalid signed field count")
+  }
+  const signatureOffset = expectedLength - 3
+  const chainID = p2trSignatureFraudSafeRLPQuantity(
+    body[0],
+    "typed transaction chain ID"
+  )
+  const nonce = p2trSignatureFraudSafeRLPQuantity(
+    body[1],
+    "typed transaction nonce"
+  )
+  const to = p2trSignatureFraudRLPScalar(
+    body[5],
+    "typed transaction destination"
+  )
+  if (utils.arrayify(to).length !== 0 && utils.arrayify(to).length !== 20) {
+    throw new Error("Typed transaction destination has an invalid length")
+  }
+  const value = p2trSignatureFraudRLPQuantity(
+    body[6],
+    "typed transaction value"
+  )
+  const calldata = p2trSignatureFraudRLPScalar(
+    body[7],
+    "typed transaction calldata"
+  )
+  const yParity = p2trSignatureFraudSafeRLPQuantity(
+    body[signatureOffset],
+    "typed transaction signature parity"
+  )
+  if (yParity !== 0 && yParity !== 1) {
+    throw new Error("Typed transaction signature parity is invalid")
+  }
+  const r = p2trSignatureFraudSignatureScalar(
+    body[signatureOffset + 1],
+    "typed transaction signature r"
+  )
+  const s = p2trSignatureFraudSignatureScalar(
+    body[signatureOffset + 2],
+    "typed transaction signature s"
+  )
+  const typePrefix = utils.hexlify(transactionType)
+  const signedBody = utils.RLP.encode(body)
+  const signingDigest = utils.keccak256(
+    utils.concat([
+      typePrefix,
+      utils.RLP.encode(body.slice(0, signatureOffset)),
+    ])
+  )
+  const sender = utils.recoverAddress(signingDigest, {
+    r,
+    s,
+    recoveryParam: yParity,
+  })
+  return {
+    rawTransaction,
+    transactionHash: Hex.from(
+      utils.keccak256(utils.concat([typePrefix, signedBody]))
+    ),
+    sender: utils.getAddress(sender),
+    nonce,
+    chainID,
+    to: utils.arrayify(to).length === 0 ? undefined : utils.getAddress(to),
+    calldata: utils.hexlify(calldata).toLowerCase(),
+    value: value.toString(),
+  }
+}
+
+const p2trSignatureFraudRLPScalar = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): string => {
+  if (typeof value !== "string") throw new Error(`${label} is not scalar`)
+  return utils.hexlify(value).toLowerCase()
+}
+
+const p2trSignatureFraudRLPQuantity = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): bigint => {
+  const encoded = p2trSignatureFraudRLPScalar(value, label)
+  const bytes = utils.arrayify(encoded)
+  if (bytes.length > 0 && bytes[0] === 0) {
+    throw new Error(`${label} is not minimally encoded`)
+  }
+  return bytes.length === 0 ? 0n : BigInt(encoded)
+}
+
+const p2trSignatureFraudSafeRLPQuantity = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): number => {
+  const numeric = p2trSignatureFraudRLPQuantity(value, label)
+  if (numeric > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} exceeds a safe integer`)
+  }
+  return Number(numeric)
+}
+
+const p2trSignatureFraudSignatureScalar = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): string => {
+  const scalar = p2trSignatureFraudRLPQuantity(value, label)
+  if (scalar === 0n || scalar >= 1n << 256n) {
+    throw new Error(`${label} is invalid`)
+  }
+  return utils.hexZeroPad(utils.hexlify(value as string), 32)
 }
 
 /**
@@ -2047,7 +2210,7 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
 }
 
 export type P2TRSignatureFraudPreparedTransactionEnvelope =
-  | { transactionType: 0 | 1 }
+  | { transactionType: 0 | 1 | 3 | 4 }
   | {
       transactionType: 2
       gasLimit: string
@@ -2063,9 +2226,27 @@ export type P2TRSignatureFraudPreparedTransactionEnvelope =
 export const inspectP2TRSignatureFraudPreparedTransactionEnvelope = (
   rawTransaction: string
 ): P2TRSignatureFraudPreparedTransactionEnvelope => {
+  let normalizedRawTransaction: string
+  try {
+    normalizedRawTransaction = utils.hexlify(rawTransaction)
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction envelope type is unavailable"
+    )
+  }
+  const firstByte = utils.arrayify(normalizedRawTransaction)[0]
+  if (firstByte === 3 || firstByte === 4) {
+    // Perform full signed-envelope recovery here too; type inspection must not
+    // make malformed new typed bytes eligible for durable nonce guarding.
+    recoverP2TRSignatureFraudSignedTransactionEnvelope(
+      normalizedRawTransaction
+    )
+    return { transactionType: firstByte }
+  }
   let parsed: ReturnType<typeof utils.parseTransaction>
   try {
-    parsed = utils.parseTransaction(utils.hexlify(rawTransaction))
+    parsed = utils.parseTransaction(normalizedRawTransaction)
   } catch {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -2100,7 +2281,7 @@ export const inspectP2TRSignatureFraudPreparedTransactionEnvelope = (
 /** Returns the parsed Ethereum envelope type, treating untyped RLP as type 0. */
 export const getP2TRSignatureFraudPreparedTransactionType = (
   rawTransaction: string
-): 0 | 1 | 2 =>
+): 0 | 1 | 2 | 3 | 4 =>
   inspectP2TRSignatureFraudPreparedTransactionEnvelope(rawTransaction)
     .transactionType
 
@@ -2183,19 +2364,23 @@ export const validateP2TRSignatureFraudPreparedChallengeTransactionReservation =
 
 /**
  * Authenticates an EIP-1559 replacement against an already-persisted variant.
- * Both fee caps must strictly increase, gas limit cannot decrease, and every
- * call/identity field remains protected by the durable-intent validator.
+ * Both fee caps must satisfy the policy-bound minimum replacement bump, gas
+ * limit cannot decrease, and every call/identity field remains protected by
+ * the durable-intent validator.
  *
  * @param intent Durable submission intent both variants must satisfy.
  * @param previous Already-persisted variant being replaced.
  * @param replacement Candidate replacement transaction.
+ * @param minimumReplacementFeeBumpBps Policy-bound minimum transaction-pool
+ *        bump for both fee caps.
  * @returns The validated replacement transaction.
  */
 export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
   (
     intent: P2TRSignatureFraudSubmissionIntent,
     previous: P2TRSignatureFraudPreparedChallengeTransaction,
-    replacement: P2TRSignatureFraudPreparedChallengeTransaction
+    replacement: P2TRSignatureFraudPreparedChallengeTransaction,
+    minimumReplacementFeeBumpBps: number
   ): P2TRSignatureFraudPreparedChallengeTransaction => {
     const validatedPrevious =
       validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
@@ -2236,15 +2421,23 @@ export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
       )
     }
     if (
-      replacementEnvelope.maxFeePerGas.lte(previousEnvelope.maxFeePerGas) ||
-      replacementEnvelope.maxPriorityFeePerGas.lte(
-        previousEnvelope.maxPriorityFeePerGas
+      replacementEnvelope.maxFeePerGas.lt(
+        minimumP2TRSignatureFraudReplacementFee(
+          previousEnvelope.maxFeePerGas,
+          minimumReplacementFeeBumpBps
+        )
+      ) ||
+      replacementEnvelope.maxPriorityFeePerGas.lt(
+        minimumP2TRSignatureFraudReplacementFee(
+          previousEnvelope.maxPriorityFeePerGas,
+          minimumReplacementFeeBumpBps
+        )
       ) ||
       replacementEnvelope.gasLimit.lt(previousEnvelope.gasLimit)
     ) {
       throw new P2TRWitnessSignatureError(
         "invalid-watchtower-state",
-        "Challenge fee replacement must strictly increase both EIP-1559 fee caps without decreasing gas limit"
+        "Challenge fee replacement does not satisfy its policy-bound transaction-pool fee bump or decreases gas limit"
       )
     }
     if (
@@ -2260,6 +2453,46 @@ export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
 
     return validatedReplacement
   }
+
+const P2TR_SIGNATURE_FRAUD_REPLACEMENT_FEE_BPS_DENOMINATOR = 10_000
+const P2TR_SIGNATURE_FRAUD_MAX_REPLACEMENT_FEE_BUMP_BPS = 10_000
+
+const normalizeP2TRSignatureFraudReplacementFeeBumpBps = (
+  value: number
+): number => {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > P2TR_SIGNATURE_FRAUD_MAX_REPLACEMENT_FEE_BUMP_BPS
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge replacement fee bump must be between 1 and 10000 basis points"
+    )
+  }
+  return value
+}
+
+const minimumP2TRSignatureFraudReplacementFee = (
+  previous: BigNumber,
+  minimumReplacementFeeBumpBps: number
+): BigNumber => {
+  const bump = normalizeP2TRSignatureFraudReplacementFeeBumpBps(
+    minimumReplacementFeeBumpBps
+  )
+  const denominator = BigNumber.from(
+    P2TR_SIGNATURE_FRAUD_REPLACEMENT_FEE_BPS_DENOMINATOR
+  )
+  const percentageMinimum = previous
+    .mul(denominator.add(bump))
+    .add(denominator.sub(1))
+    .div(denominator)
+  // Preserve the existing requirement that both caps strictly increase even
+  // when a zero priority fee would otherwise round to zero.
+  return percentageMinimum.gt(previous)
+    ? percentageMinimum
+    : previous.add(1)
+}
 
 export type P2TRSignatureFraudBridgeChallengePayloadInput = {
   txid: string

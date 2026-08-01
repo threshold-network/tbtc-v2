@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { readFile } from "node:fs/promises"
 import { generateKeyPairSync, sign } from "node:crypto"
-import test from "node:test"
+import test, { type TestContext } from "node:test"
 
 import { BigNumber, Wallet, utils } from "ethers"
 import pg from "pg"
@@ -56,7 +56,6 @@ import type { P2TRSignatureFraudWatchtowerTransactionCoordinator } from "../src/
 import { InMemoryOutboxStore } from "./InMemoryP2TRSignatureFraudChallengeOutboxStore.js"
 
 const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
-const postgresTest = postgresURL === undefined ? test.skip : test
 const MANIFEST_HASH = `0x${"a1".repeat(32)}`
 const ETHEREUM_BLOCK_HASH = `0x${"a2".repeat(32)}`
 const WALLET = new Wallet(`0x${"11".repeat(32)}`)
@@ -91,14 +90,103 @@ type TestDatabase = {
   store: PostgresP2TRSignatureFraudChallengeOutboxStore
 }
 
+type PostgresTestResources = {
+  clients: Set<PostgreSQLClient>
+  schemas: Set<string>
+}
+
+type CleanupAwarePostgreSQLClient = PostgreSQLClient & {
+  _ended?: boolean
+  _ending?: boolean
+}
+
+const postgresTestResources = new AsyncLocalStorage<PostgresTestResources>()
+
+function postgresTest(
+  name: string,
+  body: (context: TestContext) => void | Promise<void>
+) {
+  if (postgresURL === undefined) return test.skip(name, body)
+  return test(name, async (context) => {
+    const resources: PostgresTestResources = {
+      clients: new Set(),
+      schemas: new Set(),
+    }
+    let bodyError: unknown
+    try {
+      await postgresTestResources.run(resources, () => body(context))
+    } catch (error) {
+      bodyError = error
+    }
+    let cleanupError: unknown
+    try {
+      await cleanupPostgresTestResources(resources)
+    } catch (error) {
+      cleanupError = error
+    }
+    if (bodyError !== undefined) throw bodyError
+    if (cleanupError !== undefined) throw cleanupError
+  })
+}
+
+async function cleanupPostgresTestResources(
+  resources: PostgresTestResources
+): Promise<void> {
+  const errors: unknown[] = []
+  for (const client of [...resources.clients].reverse()) {
+    const cleanupAwareClient = client as CleanupAwarePostgreSQLClient
+    if (cleanupAwareClient._ending || cleanupAwareClient._ended) continue
+    try {
+      await client.query("ROLLBACK")
+    } catch {
+      // The test may already have closed the client or left no transaction.
+    }
+    if (cleanupAwareClient._ending || cleanupAwareClient._ended) continue
+    try {
+      await client.end()
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  if (resources.schemas.size > 0) {
+    const cleanupClient = new Client({ connectionString: postgresURL })
+    try {
+      await cleanupClient.connect()
+      for (const schema of [...resources.schemas].reverse()) {
+        if (!/^p2tr_outbox_[0-9]+_[0-9]+$/.test(schema)) {
+          throw new Error("Refusing to drop an unexpected test schema")
+        }
+        await cleanupClient.query(`DROP SCHEMA ${schema} CASCADE`)
+      }
+    } catch (error) {
+      errors.push(error)
+    } finally {
+      try {
+        await cleanupClient.end()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "PostgreSQL test resource cleanup failed")
+  }
+}
+
 async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
+  const resources = postgresTestResources.getStore()
+  if (resources === undefined) {
+    throw new Error("PostgreSQL test database was opened outside postgresTest")
+  }
+  resources.clients.add(client)
   await client.connect()
   const schema = `p2tr_outbox_${process.pid}_${++schemaSequence}`
   await client.query(`CREATE SCHEMA ${schema}`)
+  resources.schemas.add(schema)
   await client.query(`SET search_path TO ${schema}`)
   for (const migration of [
     runtimeMigrationDirectory === undefined
@@ -378,6 +466,7 @@ function signerConfiguration(manifestHash = MANIFEST_HASH) {
     maxFeePerGas: "100",
     maxPriorityFeePerGas: "10",
     maxTotalFeeWei: "100000000",
+    minimumReplacementFeeBumpBps: 1000,
     signerCodeHash: `0x${"a3".repeat(32)}`,
   }
   return {
@@ -408,6 +497,7 @@ function secondarySignerConfiguration(
     maxFeePerGas: "100",
     maxPriorityFeePerGas: "10",
     maxTotalFeeWei: "100000000",
+    minimumReplacementFeeBumpBps: 1000,
     signerCodeHash: `0x${"a8".repeat(32)}`,
   }
   return {
@@ -432,6 +522,7 @@ function feePolicy(manifestHash = MANIFEST_HASH) {
         maxFeePerGas: "100",
         maxPriorityFeePerGas: "10",
         maxTotalFeeWei: "100000000",
+        minimumReplacementFeeBumpBps: 1000,
       },
     ],
   }
@@ -761,6 +852,11 @@ async function commit(client: PostgreSQLClient): Promise<void> {
 
 async function openSchemaClient(schema: string): Promise<PostgreSQLClient> {
   const client = new Client({ connectionString: postgresURL })
+  const resources = postgresTestResources.getStore()
+  if (resources === undefined || !resources.schemas.has(schema)) {
+    throw new Error("PostgreSQL schema client was opened outside postgresTest")
+  }
+  resources.clients.add(client)
   await client.connect()
   await client.query(`SET search_path TO ${schema}`)
   return client
@@ -4314,7 +4410,7 @@ type EscapedCaptureRequest = {
   to?: string
   calldata?: string
   value?: string
-  transactionType?: 0 | 1 | 2
+  transactionType?: 0 | 1 | 2 | 4
   maxFeePerGas?: number
   includeAccessList?: boolean
   reason?: string
@@ -4357,26 +4453,33 @@ async function escapedCaptureArtifact(
   const signer = request.signer ?? WALLET
   const nonce = request.nonce ?? 7
   const transactionType = request.transactionType ?? 2
-  const rawTransaction = await signer.signTransaction({
-    ...(transactionType === 0 ? {} : { type: transactionType }),
-    ...(request.chainID === null
-      ? {}
-      : { chainId: request.chainID ?? CHAIN_ID }),
-    to: request.to ?? record.intent.routerAddress,
-    data: request.calldata ?? record.intent.calldata,
-    value: BigNumber.from(request.value ?? record.intent.value),
-    nonce,
-    gasLimit: 100_000,
-    ...(transactionType === 2
-      ? {
-          maxFeePerGas: request.maxFeePerGas ?? 100,
-          maxPriorityFeePerGas: 10,
-          ...(request.includeAccessList
-            ? { accessList: [{ address: signer.address, storageKeys: [] }] }
-            : {}),
-        }
-      : { gasPrice: 100 }),
-  })
+  const rawTransaction =
+    transactionType === 4
+      ? signEscapedEIP7702Transaction(record, request, signer, nonce)
+      : await signer.signTransaction({
+          ...(transactionType === 0 ? {} : { type: transactionType }),
+          ...(request.chainID === null
+            ? {}
+            : { chainId: request.chainID ?? CHAIN_ID }),
+          to: request.to ?? record.intent.routerAddress,
+          data: request.calldata ?? record.intent.calldata,
+          value: BigNumber.from(request.value ?? record.intent.value),
+          nonce,
+          gasLimit: 100_000,
+          ...(transactionType === 2
+            ? {
+                maxFeePerGas: request.maxFeePerGas ?? 100,
+                maxPriorityFeePerGas: 10,
+                ...(request.includeAccessList
+                  ? {
+                      accessList: [
+                        { address: signer.address, storageKeys: [] },
+                      ],
+                    }
+                  : {}),
+              }
+            : { gasPrice: 100 }),
+        })
   return {
     expectedReservationID:
       request.expectedReservationID ??
@@ -4391,6 +4494,74 @@ async function escapedCaptureArtifact(
       nonce,
     },
   }
+}
+
+function signEscapedEIP7702Transaction(
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  request: EscapedCaptureRequest,
+  signer: Wallet,
+  nonce: number
+): string {
+  if (request.chainID === null) {
+    throw new Error("EIP-7702 test transactions require a chain ID")
+  }
+  const quantity = (value: string | number): string => {
+    const numeric = BigNumber.from(value)
+    return numeric.isZero()
+      ? "0x"
+      : utils.hexlify(utils.stripZeros(utils.arrayify(numeric)))
+  }
+  const chainID = request.chainID ?? CHAIN_ID
+  const destination = request.to ?? record.intent.routerAddress
+  const authorizationUnsigned = [
+    quantity(chainID),
+    destination,
+    quantity(0),
+  ]
+  const authorizationSignature = new Wallet(`0x${"44".repeat(32)}`)
+    ._signingKey()
+    .signDigest(
+      utils.keccak256(
+        utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+      )
+    )
+  const unsigned = [
+    quantity(chainID),
+    quantity(nonce),
+    quantity(10),
+    quantity(request.maxFeePerGas ?? 100),
+    quantity(100_000),
+    destination,
+    quantity(request.value ?? record.intent.value),
+    request.calldata ?? record.intent.calldata,
+    [],
+    [
+      [
+        ...authorizationUnsigned,
+        quantity(authorizationSignature.recoveryParam),
+        utils.hexlify(
+          utils.stripZeros(utils.arrayify(authorizationSignature.r))
+        ),
+        utils.hexlify(
+          utils.stripZeros(utils.arrayify(authorizationSignature.s))
+        ),
+      ],
+    ],
+  ]
+  const signature = signer
+    ._signingKey()
+    .signDigest(
+      utils.keccak256(utils.concat(["0x04", utils.RLP.encode(unsigned)]))
+    )
+  return utils.hexConcat([
+    "0x04",
+    utils.RLP.encode([
+      ...unsigned,
+      quantity(signature.recoveryParam),
+      utils.hexlify(utils.stripZeros(utils.arrayify(signature.r))),
+      utils.hexlify(utils.stripZeros(utils.arrayify(signature.s))),
+    ]),
+  ])
 }
 
 function escapedCaptureResult(
@@ -4729,6 +4900,12 @@ const escapedCaptureParityScenarios: EscapedCaptureParityScenario[] = [
     seed: 70,
     boundary: signerBoundaryOnly,
     captures: [{ capturedAtUnixMs: 2_100, transactionType: 1 }],
+  },
+  {
+    name: "captures an expected-lane policy-invalid EIP-7702 artifact",
+    seed: 79,
+    boundary: signerBoundaryOnly,
+    captures: [{ capturedAtUnixMs: 2_100, transactionType: 4 }],
   },
   {
     name: "captures an expected-lane type-2 artifact above fee policy",
