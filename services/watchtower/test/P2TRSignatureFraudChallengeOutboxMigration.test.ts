@@ -192,6 +192,16 @@ test("stores only compact fixed per-input evidence", () => {
     ).length,
     3
   )
+  assert.equal(
+    (
+      migration.match(/payload_omitted_for_size boolean NOT NULL/g) ?? []
+    ).length,
+    2
+  )
+  assert.match(
+    migration,
+    /payload_omitted_for_size[\s\S]*?calldata IS NULL[\s\S]*?raw_transaction IS NULL[\s\S]*?calldata_byte_length > 4096[\s\S]*?raw_transaction_byte_length > 4096/
+  )
 })
 
 test("requires every durable signed variant to use the exact policy gas limit", () => {

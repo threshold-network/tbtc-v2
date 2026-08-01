@@ -2252,7 +2252,10 @@ BEFORE INSERT ON p2tr_signature_fraud_challenge_signer_quarantine
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_signer_quarantine_insert();
 
 -- If a signer returns a parseable envelope on an unexpected chain, sender, or
--- nonce, its exact bytes/call/value and actual nonce guard are retained forever.
+-- nonce, its recovered identity and actual nonce guard are retained forever.
+-- Exact bytes are retained when they fit the fixed forensic bound; otherwise
+-- the same append-only row keeps bounded metadata and explicitly records why
+-- the payload was omitted.
 CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     escaped_envelope_id bytea PRIMARY KEY CHECK (octet_length(escaped_envelope_id) = 32),
     record_id bytea NOT NULL REFERENCES p2tr_signature_fraud_challenge_outbox(record_id) ON DELETE RESTRICT,
@@ -2280,10 +2283,20 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
         transaction_type IN (0, 1, 2, 3, 4)
     ),
     to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
-    calldata bytea NOT NULL CHECK (octet_length(calldata) <= 4096),
+    calldata bytea CHECK (
+        calldata IS NULL OR octet_length(calldata) <= 4096
+    ),
     transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
-    raw_transaction bytea NOT NULL CHECK (
+    raw_transaction bytea CHECK (
+        raw_transaction IS NULL OR
         octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
+    payload_omitted_for_size boolean NOT NULL,
+    calldata_byte_length bigint NOT NULL CHECK (
+        calldata_byte_length BETWEEN 0 AND 9007199254740991
+    ),
+    raw_transaction_byte_length bigint NOT NULL CHECK (
+        raw_transaction_byte_length BETWEEN 1 AND 9007199254740991
     ),
     transaction_hash bytea NOT NULL UNIQUE CHECK (octet_length(transaction_hash) = 32),
     captured_at_unix_ms bigint NOT NULL CHECK (
@@ -2330,14 +2343,32 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
         actual_chain_id <> expected_chain_id
         OR actual_sender <> expected_sender
         OR actual_nonce <> expected_nonce
+    ),
+    CHECK (
+        (
+            payload_omitted_for_size
+            AND calldata IS NULL
+            AND raw_transaction IS NULL
+            AND (
+                calldata_byte_length > 4096
+                OR raw_transaction_byte_length > 4096
+            )
+        ) OR (
+            NOT payload_omitted_for_size
+            AND calldata IS NOT NULL
+            AND raw_transaction IS NOT NULL
+            AND calldata_byte_length = octet_length(calldata)
+            AND raw_transaction_byte_length = octet_length(raw_transaction)
+        )
     )
 );
 
 -- A signer can return the exact expected sender/nonce envelope after any
 -- concurrent transition (including lease expiry or canonical invalidation)
--- has already won the normal state CAS. Those bytes are not a normal variant,
--- but they are still capable of reaching the network and are an immutable,
--- activation-blocking incident independent from the mutable outbox head.
+-- has already won the normal state CAS. The exact bytes are retained when
+-- bounded; an oversized payload instead retains the same recovered metadata.
+-- Either form is an immutable, activation-blocking incident independent from
+-- the mutable outbox head.
 CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     artifact_id bytea PRIMARY KEY CHECK (octet_length(artifact_id) = 32),
     record_id bytea NOT NULL,
@@ -2353,10 +2384,20 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     intent_id bytea NOT NULL CHECK (octet_length(intent_id) = 32),
     to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
-    calldata bytea NOT NULL CHECK (octet_length(calldata) <= 4096),
+    calldata bytea CHECK (
+        calldata IS NULL OR octet_length(calldata) <= 4096
+    ),
     transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
-    raw_transaction bytea NOT NULL CHECK (
+    raw_transaction bytea CHECK (
+        raw_transaction IS NULL OR
         octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
+    payload_omitted_for_size boolean NOT NULL,
+    calldata_byte_length bigint NOT NULL CHECK (
+        calldata_byte_length BETWEEN 0 AND 9007199254740991
+    ),
+    raw_transaction_byte_length bigint NOT NULL CHECK (
+        raw_transaction_byte_length BETWEEN 1 AND 9007199254740991
     ),
     transaction_hash bytea NOT NULL UNIQUE CHECK (
         octet_length(transaction_hash) = 32
@@ -2383,6 +2424,23 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
             AND gas_limit IS NULL
             AND max_fee_per_gas IS NULL
             AND max_priority_fee_per_gas IS NULL
+        )
+    ),
+    CHECK (
+        (
+            payload_omitted_for_size
+            AND calldata IS NULL
+            AND raw_transaction IS NULL
+            AND (
+                calldata_byte_length > 4096
+                OR raw_transaction_byte_length > 4096
+            )
+        ) OR (
+            NOT payload_omitted_for_size
+            AND calldata IS NOT NULL
+            AND raw_transaction IS NOT NULL
+            AND calldata_byte_length = octet_length(calldata)
+            AND raw_transaction_byte_length = octet_length(raw_transaction)
         )
     ),
     captured_at_unix_ms bigint NOT NULL CHECK (

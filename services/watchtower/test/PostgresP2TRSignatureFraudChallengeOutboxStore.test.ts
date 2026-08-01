@@ -15,6 +15,7 @@ import {
   P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID,
   computeP2TRCompleteV2SignatureFraudChallengeIdentity,
   computeP2TRSignatureFraudSubmissionIntentID,
+  getP2TRSignatureFraudPreparedTransactionType,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
@@ -175,7 +176,8 @@ async function cleanupPostgresTestResources(
 
 async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
-  domainChainID = CHAIN_ID
+  domainChainID = CHAIN_ID,
+  initialSignerConfiguration = signerConfiguration()
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -224,7 +226,7 @@ async function createTestDatabase(
   await seedCanonicalPoint(client, maxActiveOutboxRecords, domainChainID)
   await client.query("BEGIN")
   const store = createStore(client)
-  await store.installSignerLaneConfiguration(signerConfiguration())
+  await store.installSignerLaneConfiguration(initialSignerConfiguration)
   await client.query("COMMIT")
   return { client, schema, store }
 }
@@ -453,11 +455,14 @@ function boundSenderLane(
   }
 }
 
-function signerConfiguration(manifestHash = MANIFEST_HASH) {
+function signerConfiguration(
+  manifestHash = MANIFEST_HASH,
+  policyHash = feePolicy(manifestHash).policyHash
+) {
   const withoutHash = {
     activationManifestHash: manifestHash,
     chainID: CHAIN_ID,
-    policyHash: feePolicy(manifestHash).policyHash,
+    policyHash,
     challengeValueWei: "1234",
     laneID: LANE_ID,
     signerIdentity: SIGNER_IDENTITY,
@@ -483,12 +488,13 @@ function secondarySignerConfiguration(
     laneID: string
     signerIdentity: string
     configuredAtUnixMs: number
+    policyHash: string
   }> = {}
 ) {
   const withoutHash = {
     activationManifestHash: MANIFEST_HASH,
     chainID: overrides.chainID ?? CHAIN_ID,
-    policyHash: feePolicy().policyHash,
+    policyHash: overrides.policyHash ?? feePolicy().policyHash,
     challengeValueWei: "1234",
     laneID: overrides.laneID ?? "lane-b",
     signerIdentity: overrides.signerIdentity ?? "signer-b",
@@ -508,7 +514,7 @@ function secondarySignerConfiguration(
   }
 }
 
-function feePolicy(manifestHash = MANIFEST_HASH) {
+function feePolicy(manifestHash = MANIFEST_HASH, includeSecondaryLane = false) {
   const withoutHash = {
     activationManifestHash: manifestHash,
     chainID: CHAIN_ID,
@@ -524,6 +530,20 @@ function feePolicy(manifestHash = MANIFEST_HASH) {
         maxTotalFeeWei: "100000000",
         minimumReplacementFeeBumpBps: 1000,
       },
+      ...(includeSecondaryLane
+        ? [
+            {
+              laneID: "lane-b",
+              signerIdentity: "signer-b",
+              sender: SECONDARY_WALLET.address,
+              maxGasLimit: "1000000",
+              maxFeePerGas: "100",
+              maxPriorityFeePerGas: "10",
+              maxTotalFeeWei: "100000000",
+              minimumReplacementFeeBumpBps: 1000,
+            },
+          ]
+        : []),
     ],
   }
   return {
@@ -2383,6 +2403,8 @@ postgresTest("rejects incomplete type-2 late signed artifacts", async () => {
     maxPriorityFeePerGas: 10,
   })
   const transactionHash = utils.keccak256(rawTransaction)
+  const calldataByteLength = utils.arrayify(initial.intent.calldata).length
+  const rawTransactionByteLength = utils.arrayify(rawTransaction).length
   for (const feeEnvelope of [
     [null, "100", "10"],
     ["100000", null, "10"],
@@ -2394,15 +2416,17 @@ postgresTest("rejects incomplete type-2 late signed artifacts", async () => {
               artifact_id, record_id, generation,
               expected_provenance_fingerprint, expected_reservation_id,
               chain_id, signer_lane_id, signer_identity, intent_id,
-              to_address, calldata, transaction_value,
-              raw_transaction, transaction_hash, sender, transaction_nonce,
+              to_address, calldata, transaction_value, raw_transaction,
+              payload_omitted_for_size, calldata_byte_length,
+              raw_transaction_byte_length,
+              transaction_hash, sender, transaction_nonce,
               transaction_type, gas_limit, max_fee_per_gas,
               max_priority_fee_per_gas, captured_at_unix_ms, reason,
               reason_digest
            ) VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-              $11, $12, $13, $14, $15, $16, 2, $17, $18, $19,
-              $20, $21, $22
+              $11, $12, $13, $14, $15, $16, $17, $18, $19,
+              2, $20, $21, $22, $23, $24, $25
            )`,
         [
           hexBuffer(transactionHash),
@@ -2420,6 +2444,9 @@ postgresTest("rejects incomplete type-2 late signed artifacts", async () => {
           hexBuffer(initial.intent.calldata),
           initial.intent.value,
           hexBuffer(rawTransaction),
+          false,
+          calldataByteLength,
+          rawTransactionByteLength,
           hexBuffer(transactionHash),
           hexBuffer(WALLET.address),
           7,
@@ -3090,15 +3117,6 @@ postgresTest(
     assert.equal(migrationState.rows[0].constraint_validated, true)
     assert.equal(migrationState.rows[0].active_generation_count, "0")
 
-    await beginSerializable(database.client)
-    const activation = await activationProvider(
-      database.client,
-      () => 5_000
-    ).attestActivationChallenge(activationRequest)
-    await commit(database.client)
-    assert.equal(activation.payload.state.unresolvedLegacyQuarantineCount, 0)
-    assert.equal(activation.payload.state.healthy, true)
-
     // Reconstruct the state an old migration runner could leave when an
     // already-authorized enqueue committed after migration 005's snapshot.
     const missedRecord = depositBoundOutboxRecord(239)
@@ -3166,6 +3184,15 @@ postgresTest(
         active_generation_count: "0",
       },
     ])
+
+    await beginSerializable(database.client)
+    const activation = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    assert.equal(activation.payload.state.unresolvedLegacyQuarantineCount, 0)
+    assert.equal(activation.payload.state.healthy, true)
 
     await assert.rejects(
       database.client.query(
@@ -4749,9 +4776,10 @@ async function inMemoryEscapedCaptureOutcome(
     transactionTypes: (
       (await store.get(initial.recordID))?.unexpectedSignedArtifacts ?? []
     )
-      .map(
-        ({ preparedTransaction }) =>
-          utils.parseTransaction(preparedTransaction.rawTransaction).type ?? 0
+      .map(({ preparedTransaction }) =>
+        getP2TRSignatureFraudPreparedTransactionType(
+          preparedTransaction.rawTransaction
+        )
       )
       .sort(),
     envelopes: (
@@ -5037,6 +5065,122 @@ for (const scenario of escapedCaptureParityScenarios) {
 }
 
 postgresTest(
+  "retains guard and quarantine metadata for an oversized escaped envelope",
+  async () => {
+    const database = await createTestDatabase()
+    try {
+      const initial = outboxRecord(80)
+      await insertRecord(database, initial)
+      const reserved = await advanceToReservation(database, initial)
+      let current = reserved
+      for (const transition of await replacementSignerBoundary(reserved)) {
+        await begin(database.client)
+        assert.equal(
+          await database.store.compareAndSwap(
+            current.recordID,
+            current.version,
+            transition
+          ),
+          true
+        )
+        await commit(database.client)
+        current = transition
+      }
+
+      const managed = createManagedStore(
+        database.client,
+        eligibilitySnapshotFor(initial)
+      )
+      const artifact = await escapedCaptureArtifact(current, {
+        capturedAtUnixMs: 2_100,
+        nonce: 8,
+        calldata: `0x${"ab".repeat(4_100)}`,
+        quarantine: wrongLaneQuarantine(),
+      })
+      assert.ok(
+        utils.arrayify(artifact.preparedTransaction.rawTransaction).length >
+          4_096
+      )
+
+      const captured = await managed.captureEscapedSignedArtifact(
+        initial.recordID,
+        initial.canonicalProvenance.provenanceFingerprint,
+        artifact,
+        wrongLaneQuarantine()
+      )
+      assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+      assert.equal(captured.unexpectedSignedArtifacts?.length ?? 0, 0)
+      assert.equal(captured.signerQuarantines?.length, 1)
+
+      const retained = await database.client.query<{
+        payload_omitted_for_size: boolean
+        calldata: Buffer | null
+        raw_transaction: Buffer | null
+        calldata_byte_length: string
+        raw_transaction_byte_length: string
+        transaction_hash: string
+        actual_sender: string
+        actual_nonce: string
+        guard_sender: string
+        guard_nonce: string
+        quarantine_reason: string
+      }>(
+        `SELECT envelope.payload_omitted_for_size,
+                envelope.calldata,
+                envelope.raw_transaction,
+                envelope.calldata_byte_length::text,
+                envelope.raw_transaction_byte_length::text,
+                encode(envelope.transaction_hash, 'hex') AS transaction_hash,
+                encode(envelope.actual_sender, 'hex') AS actual_sender,
+                envelope.actual_nonce::text AS actual_nonce,
+                encode(guard.sender, 'hex') AS guard_sender,
+                guard.transaction_nonce::text AS guard_nonce,
+                quarantine.quarantine_reason
+           FROM p2tr_signature_fraud_challenge_escaped_envelope envelope
+           JOIN p2tr_signature_fraud_challenge_nonce_guard guard
+             ON guard.record_id = envelope.actual_guard_record_id
+            AND guard.nonce_guard_id = envelope.actual_nonce_guard_id
+           JOIN p2tr_signature_fraud_challenge_signer_quarantine quarantine
+             ON quarantine.record_id = envelope.record_id
+            AND quarantine.signer_quarantine_id =
+                  envelope.signer_quarantine_id
+          WHERE envelope.record_id = decode($1, 'hex')`,
+        [initial.recordID.slice(2)]
+      )
+      assert.deepEqual(retained.rows, [
+        {
+          payload_omitted_for_size: true,
+          calldata: null,
+          raw_transaction: null,
+          calldata_byte_length: "4100",
+          raw_transaction_byte_length: String(
+            utils.arrayify(artifact.preparedTransaction.rawTransaction).length
+          ),
+          transaction_hash: artifact.preparedTransaction.transactionHash
+            .toPrefixedString()
+            .slice(2),
+          actual_sender: WALLET.address.slice(2).toLowerCase(),
+          actual_nonce: "8",
+          guard_sender: WALLET.address.slice(2).toLowerCase(),
+          guard_nonce: "8",
+          quarantine_reason: "wrong-nonce",
+        },
+      ])
+
+      const repeated = await managed.captureEscapedSignedArtifact(
+        initial.recordID,
+        initial.canonicalProvenance.provenanceFingerprint,
+        artifact,
+        wrongLaneQuarantine()
+      )
+      assert.equal(repeated.version, captured.version)
+    } finally {
+      await database.client.end()
+    }
+  }
+)
+
+postgresTest(
   "guards a chainless escaped signature on every configured sender chain",
   async () => {
     const database = await createTestDatabase()
@@ -5155,15 +5299,23 @@ postgresTest(
 postgresTest(
   "prevents voiding an unsigned reservation adopted by chainless signed evidence",
   async () => {
-    const database = await createTestDatabase()
+    const ownerFeePolicy = feePolicy(MANIFEST_HASH, true)
+    const database = await createTestDatabase(
+      1_024,
+      CHAIN_ID,
+      signerConfiguration(MANIFEST_HASH, ownerFeePolicy.policyHash)
+    )
     try {
       await begin(database.client)
       await database.store.installSignerLaneConfiguration(
-        secondarySignerConfiguration()
+        secondarySignerConfiguration({ policyHash: ownerFeePolicy.policyHash })
       )
       await commit(database.client)
 
-      const owner = outboxRecord(77)
+      const owner: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...outboxRecord(77),
+        feePolicyManifest: ownerFeePolicy,
+      }
       await insertRecord(database, owner)
       const ownerSelected: P2TRSignatureFraudChallengeOutboxRecord = {
         ...selectedRecord(owner),
@@ -5201,7 +5353,10 @@ postgresTest(
       )
       await commit(database.client)
 
-      const initial = outboxRecord(78)
+      const initial: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...outboxRecord(78),
+        feePolicyManifest: ownerFeePolicy,
+      }
       await insertRecord(database, initial)
       const reserved = await advanceToReservation(database, initial)
       let current = reserved

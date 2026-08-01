@@ -126,4 +126,4 @@ jobs:
         # PostgreSQL advisory fences are database-wide, while these files use
         # per-test schemas in one database. Keep the PostgreSQL-backed files
         # from contending on the same production lock keys.
-        run: pnpm test -- --test-concurrency=1
+        run: pnpm test

@@ -1936,10 +1936,18 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       ...artifact,
       preparedTransaction: recoveredTransaction,
     }
-    const alreadyCaptured = hasSignedTransactionHash(
+    const alreadyCapturedInState = hasSignedTransactionHash(
       current,
       recoveredTransaction.transactionHash.toPrefixedString()
     )
+    const persistedArtifact = alreadyCapturedInState
+      ? "complete"
+      : await this.findPersistedUnexpectedArtifact(
+          current.recordID,
+          recoveredTransaction.transactionHash.toPrefixedString()
+        )
+    const alreadyCaptured = persistedArtifact !== undefined
+    let payloadRetained = persistedArtifact !== "metadata-only"
     if (
       alreadyCaptured &&
       current.activeSignerInvocationStartedAtUnixMs === undefined
@@ -1991,7 +1999,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       await this.syncSignerQuarantines(current, captureRecord)
     }
     if (!alreadyCaptured) {
-      await this.insertUnexpectedArtifact(captureRecord, normalizedArtifact)
+      payloadRetained = await this.insertUnexpectedArtifact(
+        captureRecord,
+        normalizedArtifact
+      )
     }
     if (
       !alreadyCaptured &&
@@ -2040,7 +2051,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         current.activeSignerInvocationStartedAtUnixMs,
       unexpectedSignedArtifacts: alreadyCaptured
         ? artifacts
-        : [...artifacts, normalizedArtifact],
+        : payloadRetained
+        ? [...artifacts, normalizedArtifact]
+        : artifacts,
     }
     assertCompactDurableOutboxRecord(next)
     const updated = await this.updateMutableState(current, next)
@@ -3955,10 +3968,38 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
   }
 
+  private async findPersistedUnexpectedArtifact(
+    recordID: string,
+    transactionHash: string
+  ): Promise<"complete" | "metadata-only" | undefined> {
+    const result = await this.options.session.query<{
+      payload_omitted_for_size: boolean
+    }>(
+      `SELECT payload_omitted_for_size
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact
+        WHERE record_id = decode($1, 'hex')
+          AND transaction_hash = decode($2, 'hex')
+       UNION ALL
+       SELECT payload_omitted_for_size
+         FROM p2tr_signature_fraud_challenge_escaped_envelope
+        WHERE record_id = decode($1, 'hex')
+          AND transaction_hash = decode($2, 'hex')
+       LIMIT 1`,
+      [
+        stripHex(bytes32(recordID, "Unexpected artifact record ID")),
+        stripHex(bytes32(transactionHash, "Unexpected transaction hash")),
+      ]
+    )
+    if (result.rows.length === 0) return undefined
+    return result.rows[0].payload_omitted_for_size
+      ? "metadata-only"
+      : "complete"
+  }
+
   private async insertUnexpectedArtifact(
     record: P2TRSignatureFraudChallengeOutboxRecord,
     artifact: P2TRSignatureFraudUnexpectedSignedArtifact
-  ): Promise<void> {
+  ): Promise<boolean> {
     const {
       reservation,
       transaction,
@@ -3968,6 +4009,20 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       sameLane,
       quarantine,
     } = this.validateUnexpectedArtifact(record, artifact)
+    const calldata = hexData(transaction.calldata, "Unexpected calldata")
+    const rawTransaction = hexData(
+      transaction.rawTransaction,
+      "Unexpected raw transaction"
+    )
+    const calldataByteLength = stripHex(calldata).length / 2
+    const rawTransactionByteLength = stripHex(rawTransaction).length / 2
+    const payloadOmittedForSize =
+      calldataByteLength > MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES ||
+      rawTransactionByteLength > MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES
+    const retainedCalldata = payloadOmittedForSize ? null : stripHex(calldata)
+    const retainedRawTransaction = payloadOmittedForSize
+      ? null
+      : stripHex(rawTransaction)
     if (sameLane) {
       const eip1559 = envelope.transactionType === 2 ? envelope : undefined
       await this.options.session.query(
@@ -3975,8 +4030,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             artifact_id, record_id, generation,
             expected_provenance_fingerprint, expected_reservation_id,
             chain_id, signer_lane_id, signer_identity, intent_id,
-            to_address, calldata, transaction_value,
-            raw_transaction, transaction_hash, sender, transaction_nonce,
+            to_address, calldata, transaction_value, raw_transaction,
+            payload_omitted_for_size, calldata_byte_length,
+            raw_transaction_byte_length,
+            transaction_hash, sender, transaction_nonce,
             transaction_type, gas_limit, max_fee_per_gas,
             max_priority_fee_per_gas, captured_at_unix_ms, reason,
             reason_digest
@@ -3984,8 +4041,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             decode($1, 'hex'), decode($2, 'hex'), $3, decode($4, 'hex'),
             decode($5, 'hex'), $6, $7, $8, decode($9, 'hex'),
             decode($10, 'hex'), decode($11, 'hex'), $12,
-            decode($13, 'hex'), decode($14, 'hex'), decode($15, 'hex'),
-            $16, $17, $18, $19, $20, $21, $22, decode($23, 'hex')
+            decode($13, 'hex'), $14, $15, $16, decode($17, 'hex'),
+            decode($18, 'hex'), $19, $20, $21, $22, $23, $24, $25,
+            decode($26, 'hex')
          )`,
         [
           stripHex(hexValue(transaction.transactionHash, "Late artifact ID")),
@@ -4010,11 +4068,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           transaction.to === undefined
             ? null
             : stripHex(address(transaction.to, "Late artifact destination")),
-          stripHex(hexData(transaction.calldata, "Late artifact calldata")),
+          retainedCalldata,
           unsignedDecimal(transaction.value, "Late artifact value"),
-          stripHex(
-            hexData(transaction.rawTransaction, "Late artifact raw transaction")
-          ),
+          retainedRawTransaction,
+          payloadOmittedForSize,
+          calldataByteLength,
+          rawTransactionByteLength,
           stripHex(
             hexValue(
               transaction.transactionHash,
@@ -4044,7 +4103,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           stripHex(hashText(reason)),
         ]
       )
-      return
+      return !payloadOmittedForSize
     }
     if (quarantine === undefined) {
       throw new Error(
@@ -4185,14 +4244,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           expected_sender, expected_nonce, actual_sender, actual_nonce,
           actual_guard_signer_lane_id, actual_guard_signer_identity,
           transaction_type, to_address, calldata, transaction_value,
-          raw_transaction, transaction_hash,
+          raw_transaction, payload_omitted_for_size, calldata_byte_length,
+          raw_transaction_byte_length, transaction_hash,
           captured_at_unix_ms
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), decode($3, 'hex'),
           decode($4, 'hex'), decode($5, 'hex'), decode($6, 'hex'), $7, $8,
           $9, $10, decode($11, 'hex'), $12, decode($13, 'hex'), $14,
           $15, $16, $17, decode($18, 'hex'), decode($19, 'hex'), $20,
-          decode($21, 'hex'), decode($22, 'hex'), $23
+          decode($21, 'hex'), $22, $23, $24, decode($25, 'hex'), $26
        )`,
       [
         stripHex(hexValue(transaction.transactionHash, "Escaped envelope ID")),
@@ -4217,11 +4277,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         transaction.to === undefined
           ? null
           : stripHex(address(transaction.to, "Escaped destination")),
-        stripHex(hexData(transaction.calldata, "Escaped calldata")),
+        retainedCalldata,
         unsignedDecimal(transaction.value, "Escaped transaction value"),
-        stripHex(
-          hexData(transaction.rawTransaction, "Escaped raw transaction")
-        ),
+        retainedRawTransaction,
+        payloadOmittedForSize,
+        calldataByteLength,
+        rawTransactionByteLength,
         stripHex(
           hexValue(transaction.transactionHash, "Escaped transaction hash")
         ),
@@ -4243,6 +4304,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         }
       )
     }
+    return !payloadOmittedForSize
   }
 
   private async guardChainlessEscapedTransaction(
