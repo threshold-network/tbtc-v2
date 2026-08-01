@@ -73,12 +73,13 @@ CREATE INDEX p2tr_candidate_enqueue_retry_exhaustion_manifest_idx
     ON p2tr_candidate_enqueue_retry_exhaustion_alert
         (manifest_hash, exhausted_at);
 
--- An unresolved guard owns one global active-generation slot. This closes the
--- cross-transaction gap between committing the crash marker and inserting the
--- outbox generation: ordinary writers count every reservation, while the exact
+-- An unresolved guard backed by a live authorization for the current manifest
+-- owns one global active-generation slot. This closes the cross-transaction gap
+-- between committing the crash marker and inserting the outbox generation:
+-- ordinary writers count every live reservation, while the exact
 -- manifest/candidate/observation-bound holder may consume its own slot. A
--- resolution or retry-exhaustion alert releases the reservation without
--- mutating the append-only guard.
+-- resolution, retry-exhaustion alert, authorization expiry, or manifest
+-- invalidation releases the reservation without mutating the append-only guard.
 CREATE OR REPLACE FUNCTION p2tr_signature_fraud_consume_generation_capacity()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -122,7 +123,18 @@ BEGIN
     SELECT count(*)
       INTO unresolved_capacity_reservation_count
       FROM p2tr_candidate_enqueue_transaction_guard guard_row
-     WHERE NOT EXISTS (
+      JOIN p2tr_candidate_enqueue_authorizations candidate_authorization
+        ON candidate_authorization.manifest_hash = guard_row.manifest_hash
+       AND candidate_authorization.token_id = guard_row.token_id
+       AND candidate_authorization.candidate_digest =
+            guard_row.candidate_digest
+      JOIN p2tr_watchtower_activation_manifest current_manifest
+        ON current_manifest.singleton = true
+       AND current_manifest.manifest_hash = guard_row.manifest_hash
+     WHERE candidate_authorization.consumed_at IS NULL
+       AND candidate_authorization.invalidated_at IS NULL
+       AND candidate_authorization.expires_at > clock_timestamp()
+       AND NOT EXISTS (
                SELECT 1
                  FROM p2tr_candidate_enqueue_transaction_resolution resolution
                 WHERE resolution.manifest_hash = guard_row.manifest_hash

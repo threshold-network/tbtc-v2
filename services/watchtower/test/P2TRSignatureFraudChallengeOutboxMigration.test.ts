@@ -120,6 +120,13 @@ test("stores only compact fixed per-input evidence", () => {
   )
 })
 
+test("requires every durable signed variant to use the exact policy gas limit", () => {
+  assert.match(
+    migration,
+    /OR NEW\.gas_limit <> fee_policy\.max_gas_limit/
+  )
+})
+
 test("serializes a manifest-bound global active-record capacity", () => {
   assert.match(migration, /payload #>> '\{outbox,maxActiveOutboxRecords\}'/)
   assert.match(
@@ -781,6 +788,17 @@ test("applies the manifest recovery bound to health and blocking reasons", () =>
   )
 })
 
+test("keeps capacity saturation as enqueue backpressure instead of an activation blocker", () => {
+  assert.doesNotMatch(
+    activationHandshakeSource,
+    /manifest-bound-active-outbox-capacity-exhausted/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /const healthy =[\s\S]*?manifestOutboxCapacityConfigured/
+  )
+})
+
 test("counts unresolved Ethereum broadcasts in activation health", () => {
   assert.match(
     activationHandshakeSource,
@@ -812,6 +830,10 @@ test("rotates manifests and outbox provenance in one database trigger", () => {
   assert.match(
     migration,
     /activation manifest rotation invalidated the generation provenance/
+  )
+  assert.match(
+    migration,
+    /UPDATE p2tr_readiness_certificates SET is_current = false, invalidated_at = rotation_at WHERE is_current; UPDATE p2tr_candidate_enqueue_authorizations/
   )
   assert.match(migration, /record_state = jsonb_set\(/)
   assert.match(

@@ -186,6 +186,41 @@ describe("production activation PostgreSQL schema contract", () => {
       outboxMigration,
       /payload #>> '\{outbox,maxActiveOutboxRecords\}'/
     )
+    assert.doesNotMatch(
+      activationGate,
+      /actual\.activeGenerationCount[\s\S]*?>= expected\.maxActiveOutboxRecords/
+    )
+    assert.doesNotMatch(
+      activationGate,
+      /revalidation\.activeGenerationCount[\s\S]*?signed\.activeGenerationCount/
+    )
+  })
+
+  it("reserves enqueue capacity only for current live authorizations", () => {
+    const runtimeAlerts = methodSource(
+      activationStore,
+      "readRuntimeAlertHealth",
+      "readEthereumJournalHealth"
+    )
+    const armGuard = methodSource(
+      activationStore,
+      "armCandidateEnqueueTransactionGuard",
+      "resolveCandidateEnqueueTransactionGuard"
+    )
+    for (const source of [runtimeAlerts, armGuard]) {
+      assert.match(
+        source,
+        /JOIN p2tr_candidate_enqueue_authorizations authorization/
+      )
+      assert.match(
+        source,
+        /authorization\.consumed_at IS NULL[\s\S]*?authorization\.invalidated_at IS NULL[\s\S]*?authorization\.expires_at > clock_timestamp\(\)/
+      )
+    }
+    assert.match(
+      armGuard,
+      /JOIN p2tr_watchtower_activation_manifest current_manifest[\s\S]*?current_manifest\.manifest_hash = guard_row\.manifest_hash/
+    )
   })
 
   it("revalidates the readiness certificate CAS without localizing provider heads", () => {

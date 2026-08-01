@@ -104,6 +104,14 @@ describe("P2TR watchtower migration bodies", () => {
     )
     assert.match(migration, /unresolved_capacity_reservation_count/)
     assert.match(migration, /has_exact_capacity_reservation/)
+    assert.match(
+      migration,
+      /JOIN p2tr_watchtower_activation_manifest current_manifest[\s\S]*?current_manifest\.manifest_hash = guard_row\.manifest_hash/
+    )
+    assert.match(
+      migration,
+      /candidate_authorization\.consumed_at IS NULL[\s\S]*?candidate_authorization\.invalidated_at IS NULL[\s\S]*?candidate_authorization\.expires_at > clock_timestamp\(\)/
+    )
     assert.match(migration, /active outbox capacity is exhausted or reserved/)
   })
 })

@@ -2596,6 +2596,10 @@ export function assertP2TRProductionOutboxHandshake(
   actual: P2TRProductionOutboxHandshakeState,
   expected: Readonly<P2TRProductionActivationManifest["outbox"]>
 ): void {
+  nonNegativeInteger(
+    actual.activeGenerationCount,
+    "active outbox generation count"
+  )
   const normalized = {
     storeID: boundedString(actual.storeID, 255, "outbox handshake store"),
     protocolID: bytes32(actual.protocolID, "outbox handshake protocol"),
@@ -2651,10 +2655,6 @@ export function assertP2TRProductionOutboxHandshake(
     actual.unresolvedLegacyQuarantineCount !== 0 ||
     actual.liveCandidateAuthorizationCount !== 0 ||
     nonNegativeInteger(
-      actual.activeGenerationCount,
-      "active outbox generation count"
-    ) >= expected.maxActiveOutboxRecords ||
-    nonNegativeInteger(
       actual.configuredSignerLaneCount,
       "configured signer lane count"
     ) !== expected.senderLanes.length ||
@@ -2667,17 +2667,22 @@ export function assertP2TRProductionOutboxHandshake(
 }
 
 /**
- * Requires the readiness transaction's own read of the outbox to agree with
- * the signed sample. Every counter here changes only by a write, so equality
- * is the right test: a difference means the outbox transitioned after it
- * signed. The recovery backlog is the exception -- preparation leases expire
- * on the clock -- so it is held to the manifest bound instead.
+ * Requires the readiness transaction's own read of activation-blocking outbox
+ * state to agree with the signed sample. Active generations may legitimately
+ * enqueue or terminalise between the signed sample and the readiness fence;
+ * capacity backpressure is enforced atomically by the database on enqueue.
+ * The recovery backlog is clock-driven, so it is held to the manifest bound
+ * instead of exact equality.
  */
 export function assertP2TRProductionOutboxRevalidation(
   revalidation: P2TRProductionOutboxRevalidation,
   signed: P2TRProductionOutboxHandshakeState,
   expected: Readonly<P2TRProductionActivationManifest["outbox"]>
 ): void {
+  nonNegativeInteger(
+    revalidation.activeGenerationCount,
+    "revalidated active outbox generation count"
+  )
   if (
     nonNegativeInteger(
       revalidation.activationBlockingCriticalAlertCount,
@@ -2691,15 +2696,6 @@ export function assertP2TRProductionOutboxRevalidation(
       revalidation.unresolvedLegacyQuarantineCount,
       "revalidated legacy quarantine count"
     ) !== signed.unresolvedLegacyQuarantineCount ||
-    nonNegativeInteger(
-      revalidation.activeGenerationCount,
-      "revalidated active outbox generation count"
-    ) !==
-      nonNegativeInteger(
-        signed.activeGenerationCount,
-        "signed active outbox generation count"
-      ) ||
-    revalidation.activeGenerationCount >= expected.maxActiveOutboxRecords ||
     nonNegativeInteger(
       revalidation.configuredSignerLaneCount,
       "revalidated configured signer lane count"

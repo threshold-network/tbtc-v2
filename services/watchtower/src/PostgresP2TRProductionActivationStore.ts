@@ -530,7 +530,15 @@ export class PostgresP2TRProductionActivationStore
       `SELECT encode(manifest.manifest_hash, 'hex') AS manifest_hash,
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
+                 JOIN p2tr_candidate_enqueue_authorizations authorization
+                   ON authorization.manifest_hash = guard_row.manifest_hash
+                  AND authorization.token_id = guard_row.token_id
+                  AND authorization.candidate_digest =
+                       guard_row.candidate_digest
                 WHERE guard_row.manifest_hash = manifest.manifest_hash
+                  AND authorization.consumed_at IS NULL
+                  AND authorization.invalidated_at IS NULL
+                  AND authorization.expires_at > clock_timestamp()
                   AND NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
@@ -1130,7 +1138,17 @@ export class PostgresP2TRProductionActivationStore
        ), unresolved_capacity AS MATERIALIZED (
          SELECT count(*)::bigint AS reservation_count
            FROM p2tr_candidate_enqueue_transaction_guard guard_row
-          WHERE NOT EXISTS (
+           JOIN p2tr_candidate_enqueue_authorizations authorization
+             ON authorization.manifest_hash = guard_row.manifest_hash
+            AND authorization.token_id = guard_row.token_id
+            AND authorization.candidate_digest = guard_row.candidate_digest
+           JOIN p2tr_watchtower_activation_manifest current_manifest
+             ON current_manifest.singleton = true
+            AND current_manifest.manifest_hash = guard_row.manifest_hash
+          WHERE authorization.consumed_at IS NULL
+            AND authorization.invalidated_at IS NULL
+            AND authorization.expires_at > clock_timestamp()
+            AND NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
                      WHERE resolution.manifest_hash = guard_row.manifest_hash
@@ -1191,12 +1209,23 @@ export class PostgresP2TRProductionActivationStore
       max_attempt_count: string | number
       guard_digest: string
     }>(
-      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
-              max_attempt_count,
-              encode(guard_digest, 'hex') AS guard_digest
-         FROM p2tr_candidate_enqueue_transaction_guard
-        WHERE manifest_hash = $1 AND token_id = $2
-        FOR SHARE`,
+      `SELECT encode(guard_row.candidate_digest, 'hex') AS candidate_digest,
+              guard_row.max_attempt_count,
+              encode(guard_row.guard_digest, 'hex') AS guard_digest
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authorization
+           ON authorization.manifest_hash = guard_row.manifest_hash
+          AND authorization.token_id = guard_row.token_id
+          AND authorization.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_watchtower_activation_manifest manifest
+           ON manifest.singleton = true
+          AND manifest.manifest_hash = guard_row.manifest_hash
+        WHERE guard_row.manifest_hash = $1
+          AND guard_row.token_id = $2
+          AND authorization.consumed_at IS NULL
+          AND authorization.invalidated_at IS NULL
+          AND authorization.expires_at > clock_timestamp()
+        FOR SHARE OF guard_row, authorization, manifest`,
       [
         hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
         hexBuffer(normalized.tokenID, "enqueue guard token"),

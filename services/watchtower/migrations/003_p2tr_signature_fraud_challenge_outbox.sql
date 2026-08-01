@@ -3499,11 +3499,11 @@ BEGIN
     FOR SHARE;
 
     IF NOT FOUND
-       OR NEW.gas_limit > fee_policy.max_gas_limit
+       OR NEW.gas_limit <> fee_policy.max_gas_limit
        OR NEW.max_fee_per_gas > fee_policy.max_fee_per_gas
        OR NEW.max_priority_fee_per_gas > fee_policy.max_priority_fee_per_gas
        OR NEW.gas_limit * NEW.max_fee_per_gas > fee_policy.max_total_fee_wei THEN
-        RAISE EXCEPTION 'signed variant exceeds its manifest-bound fee or value policy';
+        RAISE EXCEPTION 'signed variant does not match its manifest-bound fee or value policy';
     END IF;
 
     IF NEW.variant_sequence = 0 THEN
@@ -4720,6 +4720,11 @@ BEGIN
 
     rotation_at := clock_timestamp();
     rotation_at_unix_ms := floor(extract(epoch FROM rotation_at) * 1000)::bigint;
+
+    UPDATE p2tr_readiness_certificates
+       SET is_current = false,
+           invalidated_at = rotation_at
+     WHERE is_current;
 
     UPDATE p2tr_candidate_enqueue_authorizations
        SET invalidated_at = rotation_at

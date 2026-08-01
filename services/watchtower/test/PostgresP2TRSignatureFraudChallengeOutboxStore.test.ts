@@ -343,11 +343,11 @@ function boundSenderLane(
   }
 }
 
-function signerConfiguration() {
+function signerConfiguration(manifestHash = MANIFEST_HASH) {
   const withoutHash = {
-    activationManifestHash: MANIFEST_HASH,
+    activationManifestHash: manifestHash,
     chainID: CHAIN_ID,
-    policyHash: feePolicy().policyHash,
+    policyHash: feePolicy(manifestHash).policyHash,
     challengeValueWei: "1234",
     laneID: LANE_ID,
     signerIdentity: SIGNER_IDENTITY,
@@ -366,9 +366,9 @@ function signerConfiguration() {
   }
 }
 
-function feePolicy() {
+function feePolicy(manifestHash = MANIFEST_HASH) {
   const withoutHash = {
-    activationManifestHash: MANIFEST_HASH,
+    activationManifestHash: manifestHash,
     chainID: CHAIN_ID,
     challengeValueWei: "1234",
     lanes: [
@@ -560,6 +560,53 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
     preparationAttempts: 0,
     broadcastAttempts: 0,
     reconciliationAttempts: 0,
+  }
+}
+
+function outboxRecordForManifest(
+  seed: number,
+  manifestHash: string
+): P2TRSignatureFraudChallengeOutboxRecord {
+  const record = outboxRecord(seed)
+  const {
+    readSetHash: _readSetHash,
+    ...eligibilityWithoutReadSetHash
+  } = record.canonicalEthereumEligibility
+  const eligibilityWithoutHash = {
+    ...eligibilityWithoutReadSetHash,
+    activationManifestHash: manifestHash,
+  }
+  const {
+    provenanceFingerprint: _provenanceFingerprint,
+    ...provenanceWithoutFingerprint
+  } = record.canonicalProvenance
+  const nextProvenanceWithoutFingerprint = {
+    ...provenanceWithoutFingerprint,
+    manifestHash,
+  }
+  return {
+    ...record,
+    evidenceCheckpoint: {
+      ...record.evidenceCheckpoint,
+      activationManifest: {
+        ...record.evidenceCheckpoint.activationManifest,
+        manifestHash,
+      },
+    },
+    canonicalEthereumEligibility: {
+      ...eligibilityWithoutHash,
+      readSetHash: computeP2TRSignatureFraudEthereumEligibilityReadSetHash(
+        eligibilityWithoutHash
+      ),
+    },
+    canonicalProvenance: {
+      ...nextProvenanceWithoutFingerprint,
+      provenanceFingerprint:
+        computeP2TRSignatureFraudCanonicalProvenanceFingerprint(
+          nextProvenanceWithoutFingerprint
+        ),
+    },
+    feePolicyManifest: feePolicy(manifestHash),
   }
 }
 
@@ -906,6 +953,65 @@ function outboxManifest(databaseConstraintHash: string) {
   }
 }
 
+test("accepts saturated capacity and active-count drift in readiness assertions", () => {
+  const databaseConstraintHash = `0x${"b4".repeat(32)}`
+  const configuredSignerLaneSetHash = `0x${"b5".repeat(32)}`
+  const expected = {
+    ...outboxManifest(databaseConstraintHash),
+    maxActiveOutboxRecords: 1,
+  }
+  const signed = {
+    storeID: expected.storeID,
+    protocolID: expected.protocolID,
+    sender: expected.sender,
+    routerAddress: expected.routerAddress,
+    implementationCodeHash: expected.implementationCodeHash,
+    databaseConstraintHash,
+    preparedTransactionPersistence: expected.preparedTransactionPersistence,
+    replacementPolicy: expected.replacementPolicy,
+    migrationVersion: expected.migrationVersion,
+    migrationChecksum: expected.migrationChecksum,
+    startupReconciliationComplete: true,
+    ambiguousTransactionCount: 0,
+    activationBlockingCriticalAlertCount: 0,
+    unresolvedLegacyQuarantineCount: 0,
+    recoveryBacklogCount: 0,
+    liveCandidateAuthorizationCount: 0,
+    activeGenerationCount: 1,
+    configuredSignerLaneCount: 1,
+    configuredSignerLaneSetHash,
+    senderLanes: expected.senderLanes.map((lane) => ({
+      ...lane,
+      healthy: true as const,
+    })),
+    healthy: true,
+  }
+
+  assert.doesNotThrow(() =>
+    assertP2TRProductionOutboxHandshake(signed, expected)
+  )
+  assert.doesNotThrow(() =>
+    assertP2TRProductionOutboxRevalidation(
+      {
+        activationBlockingCriticalAlertCount: 0,
+        ambiguousTransactionCount: 0,
+        unresolvedLegacyQuarantineCount: 0,
+        recoveryBacklogCount: 0,
+        activeGenerationCount: 0,
+        configuredSignerLaneCount: 1,
+        configuredSignerLaneSetHash,
+        quarantinedSignerLaneCount: 0,
+        activeOldManifestGenerationCount: 0,
+        staleManifestGenerationSuccessorCount: 0,
+        activeSignerInvocationCount: 0,
+        activeNonceReleaseAttemptCount: 0,
+      },
+      signed,
+      expected
+    )
+  )
+})
+
 const activationRequest = {
   schema: P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA,
   challenge: {
@@ -1153,40 +1259,36 @@ postgresTest(
   }
 )
 
-postgresTest(
-  "protects a pre-armed candidate capacity reservation from ordinary writers",
-  async () => {
-    const database = await createTestDatabase(2)
-    await insertRecord(database, outboxRecord(10))
-    const reserved = outboxRecord(11)
-    const unrelated = outboxRecord(12)
-    const certificateID = reserved.canonicalProvenance.readinessCertificateID
-    const tokenID = `0x${"e1".repeat(32)}`
-
-    await database.client.query(
-      `INSERT INTO p2tr_readiness_certificates (
+async function insertCandidateEnqueueGuard(
+  database: TestDatabase,
+  reserved: P2TRSignatureFraudChallengeOutboxRecord,
+  tokenID: string
+): Promise<void> {
+  const certificateID = reserved.canonicalProvenance.readinessCertificateID
+  await database.client.query(
+    `INSERT INTO p2tr_readiness_certificates (
           certificate_id, certificate_generation, manifest_hash,
           manifest_activation_sequence, primary_bitcoin_generation,
           primary_bitcoin_root, primary_bitcoin_semantic_root,
           bitcoin_height, bitcoin_hash, ethereum_journal_generation,
           ethereum_history_root, ethereum_block_number, ethereum_block_hash,
           provider_read_set_hash, payload
-       ) VALUES ($1, 1, $2, 1, 1, $3, $4, $5, $6, 1, $7, $8, $9, $10, '{}'::jsonb)`,
-      [
-        hexBuffer(certificateID),
-        hexBuffer(MANIFEST_HASH),
-        hexBuffer(reserved.canonicalProvenance.historyRoot),
-        hexBuffer(reserved.canonicalProvenance.eventSetHash),
-        reserved.evidenceCheckpoint.bitcoinCursorBlockHeight,
-        hexBuffer(reserved.evidenceCheckpoint.bitcoinCursorBlockHash),
-        hexBuffer(reserved.canonicalProvenance.historyRoot),
-        reserved.canonicalProvenance.throughBlockNumber,
-        hexBuffer(reserved.canonicalProvenance.throughBlockHash),
-        hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
-      ]
-    )
-    await database.client.query(
-      `INSERT INTO p2tr_candidate_enqueue_authorizations (
+     ) VALUES ($1, 1, $2, 1, 1, $3, $4, $5, $6, 1, $7, $8, $9, $10, '{}'::jsonb)`,
+    [
+      hexBuffer(certificateID),
+      hexBuffer(MANIFEST_HASH),
+      hexBuffer(reserved.canonicalProvenance.historyRoot),
+      hexBuffer(reserved.canonicalProvenance.eventSetHash),
+      reserved.evidenceCheckpoint.bitcoinCursorBlockHeight,
+      hexBuffer(reserved.evidenceCheckpoint.bitcoinCursorBlockHash),
+      hexBuffer(reserved.canonicalProvenance.historyRoot),
+      reserved.canonicalProvenance.throughBlockNumber,
+      hexBuffer(reserved.canonicalProvenance.throughBlockHash),
+      hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
+    ]
+  )
+  await database.client.query(
+    `INSERT INTO p2tr_candidate_enqueue_authorizations (
           token_id, manifest_hash, candidate_digest, observation_id,
           challenge_key, txid, wtxid, input_index, bitcoin_block_height,
           bitcoin_block_hash, verified_bitcoin_height, verified_bitcoin_hash,
@@ -1196,49 +1298,63 @@ postgresTest(
           candidate_provenance_generation, provenance_fingerprint,
           readiness_certificate_id, readiness_certificate_generation,
           expires_at
-       ) VALUES (
+     ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
           $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 1,
           clock_timestamp() + interval '1 minute'
-       )`,
-      [
-        hexBuffer(tokenID),
-        hexBuffer(MANIFEST_HASH),
-        hexBuffer(reserved.canonicalProvenance.candidateDigest),
-        hexBuffer(reserved.intent.observationID.toPrefixedString()),
-        hexBuffer(reserved.intent.bridgeChallengeKey.toPrefixedString()),
-        hexBuffer(reserved.evidenceCheckpoint.bitcoinTxHash),
-        hexBuffer(reserved.evidenceCheckpoint.bitcoinWitnessTxHash),
-        reserved.evidenceCheckpoint.bitcoinInputIndex,
-        reserved.evidenceCheckpoint.bitcoinBlockHeight,
-        hexBuffer(reserved.evidenceCheckpoint.bitcoinBlockHash),
-        reserved.evidenceCheckpoint.bitcoinCursorBlockHeight,
-        hexBuffer(reserved.evidenceCheckpoint.bitcoinCursorBlockHash),
-        reserved.canonicalProvenance.throughBlockNumber,
-        hexBuffer(reserved.canonicalProvenance.throughBlockHash),
-        hexBuffer(reserved.canonicalProvenance.fundingBlockHash),
-        hexBuffer(reserved.canonicalProvenance.fundingTxid),
-        reserved.canonicalProvenance.fundingVout,
-        hexBuffer(reserved.canonicalProvenance.inputWalletID),
-        hexBuffer(reserved.canonicalProvenance.inputOutputKey),
-        reserved.canonicalProvenance.inputBindingKind,
-        hexBuffer(reserved.canonicalProvenance.inputBindingSourceEventID),
-        reserved.canonicalProvenance.candidateProvenanceGeneration,
-        hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
-        hexBuffer(certificateID),
-      ]
-    )
-    await database.client.query(
-      `INSERT INTO p2tr_candidate_enqueue_transaction_guard (
+     )`,
+    [
+      hexBuffer(tokenID),
+      hexBuffer(MANIFEST_HASH),
+      hexBuffer(reserved.canonicalProvenance.candidateDigest),
+      hexBuffer(reserved.intent.observationID.toPrefixedString()),
+      hexBuffer(reserved.intent.bridgeChallengeKey.toPrefixedString()),
+      hexBuffer(reserved.evidenceCheckpoint.bitcoinTxHash),
+      hexBuffer(reserved.evidenceCheckpoint.bitcoinWitnessTxHash),
+      reserved.evidenceCheckpoint.bitcoinInputIndex,
+      reserved.evidenceCheckpoint.bitcoinBlockHeight,
+      hexBuffer(reserved.evidenceCheckpoint.bitcoinBlockHash),
+      reserved.evidenceCheckpoint.bitcoinCursorBlockHeight,
+      hexBuffer(reserved.evidenceCheckpoint.bitcoinCursorBlockHash),
+      reserved.canonicalProvenance.throughBlockNumber,
+      hexBuffer(reserved.canonicalProvenance.throughBlockHash),
+      hexBuffer(reserved.canonicalProvenance.fundingBlockHash),
+      hexBuffer(reserved.canonicalProvenance.fundingTxid),
+      reserved.canonicalProvenance.fundingVout,
+      hexBuffer(reserved.canonicalProvenance.inputWalletID),
+      hexBuffer(reserved.canonicalProvenance.inputOutputKey),
+      reserved.canonicalProvenance.inputBindingKind,
+      hexBuffer(reserved.canonicalProvenance.inputBindingSourceEventID),
+      reserved.canonicalProvenance.candidateProvenanceGeneration,
+      hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
+      hexBuffer(certificateID),
+    ]
+  )
+  await database.client.query(
+    `INSERT INTO p2tr_candidate_enqueue_transaction_guard (
           manifest_hash, token_id, candidate_digest, max_attempt_count,
           guard_digest
-       ) VALUES ($1, $2, $3, 3, $4)`,
-      [
-        hexBuffer(MANIFEST_HASH),
-        hexBuffer(tokenID),
-        hexBuffer(reserved.canonicalProvenance.candidateDigest),
-        hexBuffer(`0x${"e2".repeat(32)}`),
-      ]
+     ) VALUES ($1, $2, $3, 3, $4)`,
+    [
+      hexBuffer(MANIFEST_HASH),
+      hexBuffer(tokenID),
+      hexBuffer(reserved.canonicalProvenance.candidateDigest),
+      hexBuffer(`0x${"e2".repeat(32)}`),
+    ]
+  )
+}
+
+postgresTest(
+  "protects a pre-armed candidate capacity reservation from ordinary writers",
+  async () => {
+    const database = await createTestDatabase(2)
+    await insertRecord(database, outboxRecord(10))
+    const reserved = outboxRecord(11)
+    const unrelated = outboxRecord(12)
+    await insertCandidateEnqueueGuard(
+      database,
+      reserved,
+      `0x${"e1".repeat(32)}`
     )
 
     await begin(database.client)
@@ -1257,6 +1373,48 @@ postgresTest(
         WHERE singleton = true`
     )
     assert.equal(capacity.rows[0].active_generation_count, "2")
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "releases an invalidated manifest guard from global capacity accounting",
+  async () => {
+    const database = await createTestDatabase(1)
+    const nextManifest = `0x${"e4".repeat(32)}`
+    await begin(database.client)
+    await database.store.installSignerLaneConfiguration(
+      signerConfiguration(nextManifest)
+    )
+    await commit(database.client)
+
+    const staleReservation = outboxRecord(13)
+    await insertCandidateEnqueueGuard(
+      database,
+      staleReservation,
+      `0x${"e3".repeat(32)}`
+    )
+    await rotateActivationManifest(database, nextManifest, 1)
+
+    const invalidated = await database.client.query<{
+      invalidated: boolean
+    }>(
+      `SELECT invalidated_at IS NOT NULL AS invalidated
+         FROM p2tr_candidate_enqueue_authorizations
+        WHERE token_id = $1`,
+      [hexBuffer(`0x${"e3".repeat(32)}`)]
+    )
+    assert.deepEqual(invalidated.rows, [{ invalidated: true }])
+
+    await insertRecord(database, outboxRecordForManifest(14, nextManifest))
+    const capacity = await database.client.query<{
+      active_generation_count: string
+    }>(
+      `SELECT active_generation_count::text AS active_generation_count
+         FROM p2tr_signature_fraud_challenge_outbox_capacity
+        WHERE singleton = true`
+    )
+    assert.equal(capacity.rows[0].active_generation_count, "1")
     await database.client.end()
   }
 )
@@ -1931,6 +2089,81 @@ postgresTest(
 )
 
 postgresTest(
+  "rejects an under-gassed signed variant in the PostgreSQL trigger",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(59)
+    await insertRecord(database, initial)
+    const reserved = await advanceToReservation(database, initial)
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...reserved,
+      version: reserved.version + 1,
+      updatedAtUnixMs: 1_300,
+      signerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationStartedAtUnixMs: 1_300,
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        reserved.recordID,
+        reserved.version,
+        signerBoundary
+      ),
+      true
+    )
+    await commit(database.client)
+
+    const rawTransaction = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: initial.intent.routerAddress,
+      data: initial.intent.calldata,
+      value: initial.intent.value,
+      nonce: 7,
+      gasLimit: 999_999,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 10,
+    })
+    const preparedTransaction = {
+      intentID: initial.intent.intentID,
+      rawTransaction,
+      transactionHash: Hex.from(utils.keccak256(rawTransaction)),
+      sender: WALLET.address,
+      nonce: 7,
+    }
+    const prepared: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...signerBoundary,
+      status: "prepared",
+      version: signerBoundary.version + 1,
+      updatedAtUnixMs: 1_400,
+      preparationLease: undefined,
+      activeSignerInvocationStartedAtUnixMs: undefined,
+      preparedTransaction,
+      preparedTransactionVariants: [
+        {
+          sequence: 0,
+          preparedTransaction,
+          signedAtUnixMs: 1_400,
+          broadcastAttempts: 0,
+        },
+      ],
+    }
+
+    await begin(database.client)
+    await assert.rejects(
+      database.store.compareAndSwap(
+        signerBoundary.recordID,
+        signerBoundary.version,
+        prepared
+      ),
+      /signed variant does not match its manifest-bound fee or value policy/
+    )
+    await database.client.query("ROLLBACK")
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "recovers the exact signed bytes after a committed send boundary",
   async () => {
     const database = await createTestDatabase()
@@ -1961,7 +2194,7 @@ postgresTest(
       data: current.intent.calldata,
       value: current.intent.value,
       nonce: 7,
-      gasLimit: 100_000,
+      gasLimit: 1_000_000,
       maxFeePerGas: 100,
       maxPriorityFeePerGas: 10,
     })
@@ -2200,7 +2433,7 @@ postgresTest(
 )
 
 postgresTest(
-  "reports a manifest-bound full outbox as unavailable for activation",
+  "keeps a manifest-bound full outbox activation-ready while enqueue backpressure remains",
   async () => {
     const database = await createTestDatabase(1)
     await insertRecord(database, outboxRecord(9))
@@ -2213,12 +2446,14 @@ postgresTest(
     await commit(database.client)
 
     assert.equal(response.payload.state.activeGenerationCount, 1)
-    assert.equal(response.payload.state.healthy, false)
-    assert.equal(response.payload.state.activationBlocked, true)
-    assert.ok(
-      response.payload.state.activationBlockingReasons.includes(
-        "manifest-bound-active-outbox-capacity-exhausted"
-      )
+    assert.equal(response.payload.state.healthy, true)
+    assert.equal(response.payload.state.activationBlocked, false)
+    assert.deepEqual(response.payload.state.activationBlockingReasons, [])
+    assert.doesNotThrow(() =>
+      assertP2TRProductionOutboxHandshake(response.payload.state, {
+        ...outboxManifest(response.payload.state.schemaConstraintHash),
+        maxActiveOutboxRecords: 1,
+      })
     )
     await database.client.end()
   }
@@ -2768,6 +3003,22 @@ postgresTest(
       )
     )
 
+    // Ordinary enqueue activity can commit after the provider signs and before
+    // the readiness transaction acquires its exclusive fence. Capacity is
+    // enforced by the INSERT trigger, so this drift is not a readiness blocker.
+    await insertRecord(database, outboxRecord(184))
+    await beginSerializable(database.client)
+    const activeGenerationMoved = await revalidate(5_500)
+    await commit(database.client)
+    assert.equal(activeGenerationMoved.activeGenerationCount, 1)
+    assert.doesNotThrow(() =>
+      assertP2TRProductionOutboxRevalidation(
+        activeGenerationMoved,
+        signed.payload.state,
+        outboxManifest(signed.payload.state.schemaConstraintHash)
+      )
+    )
+
     // The outbox transitions after signing: exactly the window the readiness
     // transaction could previously mint straight through.
     await database.store.saveLegacyQuarantine({
@@ -3006,7 +3257,7 @@ postgresTest(
 )
 
 postgresTest(
-  "rotates policy manifests atomically and ignores historical lanes",
+  "rotates policy manifests atomically, invalidates readiness, and ignores historical lanes",
   async () => {
     const database = await createTestDatabase()
     const initial = outboxRecord(150)
@@ -3030,6 +3281,30 @@ postgresTest(
       configurationHash: nextConfigurationHash,
       configuredAtUnixMs: 2_000,
     })
+    await commit(database.client)
+    await database.client.query(
+      `INSERT INTO p2tr_readiness_certificates (
+          certificate_id, certificate_generation, manifest_hash,
+          manifest_activation_sequence, primary_bitcoin_generation,
+          primary_bitcoin_root, primary_bitcoin_semantic_root,
+          bitcoin_height, bitcoin_hash, ethereum_journal_generation,
+          ethereum_history_root, ethereum_block_number, ethereum_block_hash,
+          provider_read_set_hash, payload
+       ) VALUES ($1, 1, $2, 1, 1, $3, $4, $5, $6, 1, $7, $8, $9, $10, '{}'::jsonb)`,
+      [
+        hexBuffer(initial.canonicalProvenance.readinessCertificateID),
+        hexBuffer(MANIFEST_HASH),
+        hexBuffer(initial.canonicalProvenance.historyRoot),
+        hexBuffer(initial.canonicalProvenance.eventSetHash),
+        initial.evidenceCheckpoint.bitcoinCursorBlockHeight,
+        hexBuffer(initial.evidenceCheckpoint.bitcoinCursorBlockHash),
+        hexBuffer(initial.canonicalProvenance.historyRoot),
+        initial.canonicalProvenance.throughBlockNumber,
+        hexBuffer(initial.canonicalProvenance.throughBlockHash),
+        hexBuffer(initial.canonicalProvenance.provenanceFingerprint),
+      ]
+    )
+    await begin(database.client)
     await database.client.query(
       `UPDATE p2tr_watchtower_activation_manifest
         SET activation_sequence = 2,
@@ -3059,7 +3334,19 @@ postgresTest(
     ).attestActivationChallenge(activationRequestFor(nextManifest))
     const rotated = await database.store.get(initial.recordID)
     await commit(database.client)
+    const readiness = await database.client.query<{
+      is_current: boolean
+      invalidated: boolean
+    }>(
+      `SELECT is_current, invalidated_at IS NOT NULL AS invalidated
+         FROM p2tr_readiness_certificates
+        WHERE certificate_id = $1`,
+      [hexBuffer(initial.canonicalProvenance.readinessCertificateID)]
+    )
     assert.equal(rotated?.status, "cancelled-provenance-invalidated")
+    assert.deepEqual(readiness.rows, [
+      { is_current: false, invalidated: true },
+    ])
     assert.equal(response.payload.state.manifestActivationSequence, 2)
     assert.equal(response.payload.state.configuredSignerLaneCount, 1)
     assert.equal(response.payload.state.healthySignerLaneCount, 1)
@@ -3111,17 +3398,23 @@ function reconciliationTransition(
 
 async function rotateActivationManifest(
   database: TestDatabase,
-  manifestHash: string
+  manifestHash: string,
+  maxActiveOutboxRecords = 1_024
 ): Promise<void> {
   await begin(database.client)
   await database.client.query(
     `UPDATE p2tr_watchtower_activation_manifest
         SET activation_sequence = 2,
             manifest_hash = decode($1, 'hex'),
-            payload = '{"sequence":2,"outbox":{"maxActiveOutboxRecords":1024}}'::jsonb,
+            payload = jsonb_build_object(
+              'sequence', 2,
+              'outbox', jsonb_build_object(
+                'maxActiveOutboxRecords', $2::integer
+              )
+            ),
             envelope = '{"sequence":2}'::jsonb
       WHERE singleton`,
-    [manifestHash.slice(2)]
+    [manifestHash.slice(2), maxActiveOutboxRecords]
   )
   await commit(database.client)
 }
@@ -3756,7 +4049,7 @@ async function replacementSignerBoundary(
     data: reserved.intent.calldata,
     value: reserved.intent.value,
     nonce: 7,
-    gasLimit: 100_000,
+    gasLimit: 1_000_000,
     maxFeePerGas: 100,
     maxPriorityFeePerGas: 10,
   })
