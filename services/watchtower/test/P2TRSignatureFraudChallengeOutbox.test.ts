@@ -1574,6 +1574,106 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
   assert.equal(restored.intent.value, "1235")
 })
 
+test("restores a reorg-cancelled series after manifest-bound policy rotation", async () => {
+  const store = new InMemoryOutboxStore()
+  store.eligibilitySnapshot = canonicalEligibilitySnapshot()
+  const observationID = store.eligibilitySnapshot.challengeRecord.observationID
+  const first = await scheduler(store).enqueueConfirmedChallenge(
+    observationID,
+    1_000
+  )
+  const rechecker = new FixedRechecker()
+  rechecker.resolution = {
+    status: "cancelled-reorg",
+    reason: "candidate left the canonical chain",
+    evidence: cancellationEvidence(first, "canonical-reorg"),
+  }
+  const cancelled = await dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    rechecker
+  ).prepare(first.recordID, "worker-reorg")
+  assert.equal(cancelled.status, "cancelled-reorg")
+
+  const rotatedManifestHash = `0x${"97".repeat(32)}`
+  const rotatedEthereumBlockHash = `0x${"98".repeat(32)}`
+  const reappearedBlockHash = `0x${"99".repeat(32)}`
+  const snapshot = store.eligibilitySnapshot
+  const reappearedCandidate = {
+    ...snapshot.canonicalCandidate,
+    blockHash: reappearedBlockHash,
+    blockHeight: snapshot.canonicalCandidate.blockHeight + 1,
+  }
+  snapshot.challengeRecord = {
+    ...snapshot.challengeRecord,
+    bitcoinBlockHash: Hex.from(reappearedBlockHash),
+    bitcoinBlockHeight: reappearedCandidate.blockHeight,
+  }
+  snapshot.canonicalCandidate = reappearedCandidate
+  snapshot.evidenceCheckpoint = {
+    ...snapshot.evidenceCheckpoint,
+    bitcoinBlockHash: reappearedBlockHash,
+    bitcoinBlockHeight: reappearedCandidate.blockHeight,
+    bitcoinCursorBlockHash: `0x${"9a".repeat(32)}`,
+    bitcoinCursorBlockHeight:
+      snapshot.evidenceCheckpoint.bitcoinCursorBlockHeight + 1,
+    ethereumLifecycleBlockNumber: 501,
+    ethereumLifecycleBlockHash: rotatedEthereumBlockHash,
+    activationManifest: activationManifest(rotatedManifestHash),
+  }
+  snapshot.canonicalEthereumEligibility = ethereumEligibility(
+    {
+      chainID: 11155111,
+      routerAddress: ROUTER_ADDRESS,
+      bridgeAddress: BRIDGE_ADDRESS,
+      bridgeChallengeKey: first.intent.bridgeChallengeKey,
+      bridgeChallengeIdentity: first.intent.bridgeChallengeIdentity,
+      walletID: first.intent.walletID,
+    },
+    501,
+    rotatedEthereumBlockHash,
+    undefined,
+    "1235",
+    rotatedManifestHash
+  )
+  snapshot.canonicalProvenance = refingerprintProvenance(
+    snapshot.canonicalProvenance,
+    {
+      throughBlockNumber: 501,
+      throughBlockHash: rotatedEthereumBlockHash,
+      historyRoot: `0x${"9b".repeat(32)}`,
+      candidateDigest: computeP2TRSignatureFraudCanonicalCandidateDigest(
+        reappearedCandidate,
+        observationID
+      ),
+      readinessCertificateID: `0x${"9c".repeat(32)}`,
+      readinessCertificateGeneration: 2,
+      candidateProvenanceGeneration: 2,
+      manifestHash: rotatedManifestHash,
+    }
+  )
+
+  const restored = await scheduler(
+    store,
+    1235,
+    rotatedManifestHash
+  ).enqueueConfirmedChallenge(observationID, 3_000)
+
+  assert.equal(restored.generation, 1)
+  assert.equal(restored.generationTrigger.kind, "canonical-reappearance")
+  assert.equal(restored.seriesID, first.seriesID)
+  assert.notEqual(
+    restored.intent.intentID.toString(),
+    first.intent.intentID.toString()
+  )
+  assert.equal(restored.intent.value, "1235")
+  assert.notEqual(
+    restored.feePolicyManifest.policyHash,
+    first.feePolicyManifest.policyHash
+  )
+})
+
 test("commits the generation-cap alert before rejecting enqueue", async () => {
   const store = new RollbackAwareInMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()

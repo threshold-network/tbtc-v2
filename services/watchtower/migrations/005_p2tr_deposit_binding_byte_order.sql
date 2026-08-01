@@ -53,13 +53,57 @@ DECLARE
     configured_domain_digest bytea;
     canonical_state record;
     migration_generation bigint;
+    original_disposition_guard_definition text;
 BEGIN
+    -- The disposition row is otherwise immutable after insert (and especially
+    -- after delivery). Temporarily replace only that guard for this schema
+    -- repair; ALTER TABLE ... DISABLE/ENABLE cannot be toggled back while the
+    -- update has deferred trigger events pending. The replacement admits only
+    -- the exact legacy-to-native binding rewrite, and the original definition
+    -- is restored before this block can continue. The evidence, readiness, and
+    -- membership-journal triggers remain enabled throughout.
+    SELECT pg_get_functiondef(
+               'p2tr_guard_candidate_input_disposition()'::regprocedure
+           )
+      INTO STRICT original_disposition_guard_definition;
+    EXECUTE $replacement_guard$
+        CREATE OR REPLACE FUNCTION p2tr_guard_candidate_input_disposition()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $repair_guard$
+        BEGIN
+            IF TG_OP <> 'UPDATE' OR
+               OLD.binding_kind <> 'deposit' OR
+               OLD.binding_tx_hash IS DISTINCT FROM OLD.local_funding_txid OR
+               NEW.binding_tx_hash IS DISTINCT FROM
+                   p2tr_reverse_bytea(OLD.local_funding_txid) OR
+               (to_jsonb(NEW) - ARRAY[
+                   'binding_tx_hash',
+                   'disposition_evidence_object_digest'
+               ]) IS DISTINCT FROM
+               (to_jsonb(OLD) - ARRAY[
+                   'binding_tx_hash',
+                   'disposition_evidence_object_digest'
+               ]) THEN
+                RAISE EXCEPTION
+                    'candidate input disposition migration changed unsupported fields';
+            END IF;
+            RETURN NEW;
+        END
+        $repair_guard$
+    $replacement_guard$;
     UPDATE p2tr_bitcoin_candidate_observations
-       SET binding_tx_hash = p2tr_reverse_bytea(local_funding_txid)
+       SET binding_tx_hash = p2tr_reverse_bytea(local_funding_txid),
+           disposition_evidence_object_digest = NULL
      WHERE binding_kind = 'deposit'
        AND binding_tx_hash IS DISTINCT FROM
             p2tr_reverse_bytea(local_funding_txid);
     GET DIAGNOSTICS migrated_deposit_count = ROW_COUNT;
+    EXECUTE original_disposition_guard_definition;
+    -- Drain deferred foreign-key trigger events before the replacement CHECK
+    -- constraint is installed later in this transaction. PostgreSQL refuses
+    -- ALTER TABLE while a table still has pending trigger events.
+    SET CONSTRAINTS ALL IMMEDIATE;
 
     IF migrated_deposit_count = 0 THEN
         RETURN;
@@ -138,7 +182,49 @@ ADD CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order
 CHECK (
     canonical_input_binding_kind <> 'deposit-binding' OR
     binding_tx_hash = p2tr_reverse_bytea(canonical_funding_txid)
-);
+) NOT VALID;
+
+-- A v3 outbox intent may already be signed, broadcast, or terminal, so its
+-- calldata-bound hash and derived identities cannot be rewritten safely. Keep
+-- those rows in place for audit/reconciliation, prevent any future mutation by
+-- the NOT VALID check above, and add an unresolved durable quarantine that the
+-- existing activation handshake counts. New inserts are still checked by a
+-- NOT VALID PostgreSQL CHECK constraint.
+INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine (
+    observation_id,
+    bridge_challenge_key,
+    legacy_status,
+    submission_attempts,
+    challenge_transaction_hash,
+    reason,
+    quarantined_at_unix_ms
+)
+SELECT sha256(
+           convert_to(
+               'tbtc/p2tr/legacy-deposit-binding-byte-order/v1',
+               'UTF8'
+           ) || outbox.record_id
+       ),
+       outbox.bridge_challenge_key,
+       'outbox-' || outbox.status,
+       (
+           SELECT count(*)::integer
+             FROM p2tr_signature_fraud_challenge_outbox_broadcast_attempt attempt
+            WHERE attempt.record_id = outbox.record_id
+              AND attempt.generation = outbox.generation
+       ),
+       outbox.prepared_transaction_hash,
+       'legacy outbox intent uses display-order deposit binding hash; automatic mutation is unsafe',
+       (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+  FROM p2tr_signature_fraud_challenge_outbox outbox
+ WHERE outbox.canonical_input_binding_kind = 'deposit-binding'
+   AND outbox.binding_tx_hash IS DISTINCT FROM
+       p2tr_reverse_bytea(outbox.canonical_funding_txid);
+
+CREATE TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
+BEFORE UPDATE OR DELETE
+ON p2tr_signature_fraud_legacy_submission_quarantine
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
 
 UPDATE p2tr_watchtower_schema_version
    SET version = 4,

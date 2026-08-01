@@ -2079,6 +2079,22 @@ describe(
         ]
         await store.applyBitcoinScan(staged)
 
+        const pendingObservations =
+          await store.loadPendingCandidateObservations({
+            limit: 10,
+            atOrBelowHeight: head.height,
+          })
+        assert.equal(pendingObservations.state, "ready")
+        assert.equal(pendingObservations.observations.length, 2)
+        await store.applyBitcoinScan(
+          canonicalMutationScan({
+            checkpoint,
+            expected: head,
+            candidateObservationAcknowledgement:
+              compactObservationAcknowledgement(pendingObservations),
+          })
+        )
+
         const observations = await database.query<{
           binding_kind: string
           count: string
@@ -2100,9 +2116,20 @@ describe(
              DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
            ALTER TABLE p2tr_signature_fraud_challenge_outbox
              DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
-           UPDATE p2tr_bitcoin_candidate_observations
-              SET binding_tx_hash = local_funding_txid
-            WHERE binding_kind = 'deposit';
+           DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
+             ON p2tr_signature_fraud_legacy_submission_quarantine;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             DISABLE TRIGGER p2tr_candidate_input_disposition_guard;`
+        )
+        await database.query(
+          `UPDATE p2tr_bitcoin_candidate_observations
+              SET binding_tx_hash = local_funding_txid,
+                  disposition_evidence_object_digest = NULL
+            WHERE binding_kind = 'deposit'`
+        )
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             ENABLE TRIGGER p2tr_candidate_input_disposition_guard;
            ALTER TABLE p2tr_bitcoin_candidate_observations
              ADD CONSTRAINT p2tr_candidate_observation_legacy_binding
              CHECK (
@@ -2113,6 +2140,14 @@ describe(
                 binding_tx_hash = local_funding_txid AND
                 binding_output_index = local_funding_vout)
              )`
+        )
+        const legacyEvidence = await database.query<{
+          evidence_digest: string
+        }>(
+          `SELECT encode(disposition_evidence_object_digest, 'hex')
+                    AS evidence_digest
+             FROM p2tr_bitcoin_candidate_observations
+            WHERE binding_kind = 'deposit'`
         )
         await store.applyBitcoinScan(
           canonicalMutationScan({ checkpoint, expected: head })
@@ -2141,21 +2176,30 @@ describe(
         const migrated = await database.query<{
           binding_kind: string
           binding_tx_hash: string
+          disposition: string
+          evidence_digest: string
         }>(
           `SELECT binding_kind, encode(binding_tx_hash, 'hex')
-                    AS binding_tx_hash
+                    AS binding_tx_hash,
+                  disposition,
+                  encode(disposition_evidence_object_digest, 'hex')
+                    AS evidence_digest
              FROM p2tr_bitcoin_candidate_observations
             ORDER BY binding_kind`
         )
-        assert.deepEqual(migrated.rows, [
-          {
-            binding_kind: "deposit",
-            binding_tx_hash: Buffer.from(funding.txid, "hex")
-              .reverse()
-              .toString("hex"),
-          },
-          { binding_kind: "wallet", binding_tx_hash: "00".repeat(32) },
-        ])
+        assert.equal(migrated.rows[0].binding_kind, "deposit")
+        assert.equal(
+          migrated.rows[0].binding_tx_hash,
+          Buffer.from(funding.txid, "hex").reverse().toString("hex")
+        )
+        assert.equal(migrated.rows[0].disposition, "keypath_delivered")
+        assert.notEqual(
+          migrated.rows[0].evidence_digest,
+          legacyEvidence.rows[0].evidence_digest
+        )
+        assert.equal(migrated.rows[1].binding_kind, "wallet")
+        assert.equal(migrated.rows[1].binding_tx_hash, "00".repeat(32))
+        assert.equal(migrated.rows[1].disposition, "keypath_delivered")
 
         const sealed = await database.query<{
           generation_id: string

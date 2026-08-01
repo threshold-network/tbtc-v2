@@ -3543,7 +3543,10 @@ BEGIN
        OR prior_record.canonical_binding_ethereum_block_hash <>
             NEW.canonical_binding_ethereum_block_hash
        OR (
-           NEW.generation_cause <> 'provenance-restored'
+           NEW.generation_cause NOT IN (
+               'canonical-reappearance',
+               'provenance-restored'
+           )
            AND (
                prior_record.intent_id <> NEW.intent_id
                OR prior_record.value_wei <> NEW.value_wei
@@ -3563,7 +3566,10 @@ BEGIN
            )
        )
        OR (
-           NEW.generation_cause = 'provenance-restored'
+           NEW.generation_cause IN (
+               'canonical-reappearance',
+               'provenance-restored'
+           )
            AND (
                (prior_record.intent_id = NEW.intent_id) <>
                    (prior_record.value_wei = NEW.value_wei)

@@ -260,7 +260,7 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
   )
   assert.match(
     migration,
-    /NEW\.generation_cause = 'provenance-restored'[\s\S]*?\(prior_record\.intent_id = NEW\.intent_id\)[\s\S]*?\(prior_record\.value_wei = NEW\.value_wei\)/
+    /NEW\.generation_cause IN \( 'canonical-reappearance', 'provenance-restored' \)[\s\S]*?\(prior_record\.intent_id = NEW\.intent_id\)[\s\S]*?\(prior_record\.value_wei = NEW\.value_wei\)/
   )
 })
 
@@ -277,7 +277,7 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   assert.match(canonicalIndexMigration, /binding_tx_hash = local_funding_txid/)
   assert.match(
     depositBindingByteOrderMigration,
-    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\) WHERE binding_kind = 'deposit' AND binding_tx_hash IS DISTINCT FROM p2tr_reverse_bytea\(local_funding_txid\)/
+    /pg_get_functiondef\( 'p2tr_guard_candidate_input_disposition\(\)'::regprocedure \)[\s\S]*?OLD\.binding_tx_hash IS DISTINCT FROM OLD\.local_funding_txid[\s\S]*?UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\), disposition_evidence_object_digest = NULL WHERE binding_kind = 'deposit' AND binding_tx_hash IS DISTINCT FROM p2tr_reverse_bytea\(local_funding_txid\)[\s\S]*?EXECUTE original_disposition_guard_definition/
   )
   assert.match(
     depositBindingByteOrderMigration,
@@ -305,7 +305,15 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   )
   assert.match(
     depositBindingByteOrderMigration,
-    /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\)/
+    /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) \) NOT VALID/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine[\s\S]*?legacy outbox intent uses display-order deposit binding hash/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /reject_legacy_quarantine_mutation_trigger BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_legacy_submission_quarantine/
   )
 })
 

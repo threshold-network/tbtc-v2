@@ -29,6 +29,7 @@ import {
   computeP2TRSignatureFraudCanonicalProvenanceFingerprint,
   computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHash,
   computeP2TRSignatureFraudChallengeFeePolicyHash,
+  computeP2TRSignatureFraudEthereumEligibilityReadSetHash,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
@@ -544,6 +545,93 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
     preparationAttempts: 0,
     broadcastAttempts: 0,
     reconciliationAttempts: 0,
+  }
+}
+
+function depositBoundOutboxRecord(
+  seed: number
+): P2TRSignatureFraudChallengeOutboxRecord {
+  const record = outboxRecord(seed)
+  const signingKey = Hex.from(`0x${"f1".repeat(32)}`)
+  const fundingTxid = `0x${Buffer.from(
+    Array.from({ length: 32 }, (_, index) => (seed + index) % 256)
+  ).toString("hex")}`
+  const bindingTxHash = Hex.from(
+    `0x${Buffer.from(fundingTxid.slice(2), "hex").reverse().toString("hex")}`
+  )
+  const bridgeChallengeIdentity =
+    computeP2TRCompleteV2SignatureFraudChallengeIdentity({
+      domainChainID: CHAIN_ID,
+      bridgeAddress: BRIDGE_ADDRESS,
+      walletID: record.intent.walletID,
+      signingKey,
+      sighash: record.intent.sighash,
+    })
+  const challengePayload = utils.defaultAbiCoder.encode(
+    [P2TR_SIGNATURE_FRAUD_COMPLETE_V2_CHALLENGE_EVIDENCE_ABI_TYPE],
+    [
+      {
+        walletID: record.intent.walletID.toPrefixedString(),
+        signingKey: signingKey.toPrefixedString(),
+        bindingTxHash: bindingTxHash.toPrefixedString(),
+        bindingOutputIndex: 1,
+        sighash: record.intent.sighash.toPrefixedString(),
+        nonceX: record.intent.nonceX.toPrefixedString(),
+        signatureScalar: record.intent.signatureScalar.toPrefixedString(),
+      },
+    ]
+  )
+  const calldata = new utils.Interface([
+    "function processP2TRSignatureFraudChallenge(uint8 action, bytes payload, uint32[] walletMembersIDs)",
+  ]).encodeFunctionData("processP2TRSignatureFraudChallenge", [
+    0,
+    challengePayload,
+    [],
+  ])
+  const intentWithoutID = {
+    ...record.intent,
+    signingKey,
+    bindingTxHash,
+    bindingOutputIndex: 1,
+    bridgeChallengeKey: bridgeChallengeIdentity,
+    bridgeChallengeIdentity,
+    calldata,
+  }
+  const intent = {
+    ...intentWithoutID,
+    intentID: computeP2TRSignatureFraudSubmissionIntentID(intentWithoutID),
+  }
+  const { provenanceFingerprint: _oldProvenanceFingerprint, ...oldProvenance } =
+    record.canonicalProvenance
+  const provenanceWithoutFingerprint = {
+    ...oldProvenance,
+    challengeKey: bridgeChallengeIdentity.toPrefixedString(),
+    inputBindingKind: "deposit-binding" as const,
+    fundingTxid,
+    fundingVout: 1,
+    inputOutputKey: signingKey.toPrefixedString(),
+  }
+  const eligibilityWithoutHash = {
+    ...record.canonicalEthereumEligibility,
+    routerChallengeKey: bridgeChallengeIdentity.toPrefixedString(),
+    completeChallengeIdentity: bridgeChallengeIdentity.toPrefixedString(),
+  }
+  return {
+    ...record,
+    intent,
+    canonicalEthereumEligibility: {
+      ...eligibilityWithoutHash,
+      readSetHash: computeP2TRSignatureFraudEthereumEligibilityReadSetHash(
+        eligibilityWithoutHash
+      ),
+    },
+    canonicalProvenance: {
+      ...provenanceWithoutFingerprint,
+      provenanceFingerprint:
+        computeP2TRSignatureFraudCanonicalProvenanceFingerprint(
+          provenanceWithoutFingerprint
+        ),
+    },
   }
 }
 
@@ -2074,6 +2162,122 @@ postgresTest(
     await assert.rejects(
       database.client.query(
         `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine_resolution`
+      ),
+      /append-only/
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "quarantines legacy display-order deposit outbox intents during migration",
+  async () => {
+    const database = await createTestDatabase()
+    const record = depositBoundOutboxRecord(239)
+    await insertRecord(database, record)
+    const displayOrderFundingHash = record.canonicalProvenance.fundingTxid
+
+    // Reconstruct the v3 constraints and one legacy row without mutating its
+    // signed serialized intent. Migration 005 must preserve and quarantine it,
+    // not attempt to manufacture new derived identities in place.
+    await database.client.query(
+      `ALTER TABLE p2tr_bitcoin_candidate_observations
+         DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
+       ALTER TABLE p2tr_bitcoin_candidate_observations
+         ADD CONSTRAINT p2tr_candidate_observation_legacy_binding
+         CHECK (
+           (binding_kind = 'wallet' AND signing_key = wallet_id AND
+            binding_tx_hash = decode(repeat('00', 32), 'hex') AND
+            binding_output_index = 0) OR
+           (binding_kind = 'deposit' AND signing_key = output_key AND
+            binding_tx_hash = local_funding_txid AND
+            binding_output_index = local_funding_vout)
+         );
+       ALTER TABLE p2tr_signature_fraud_challenge_outbox
+         DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+       DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
+         ON p2tr_signature_fraud_legacy_submission_quarantine;
+       UPDATE p2tr_watchtower_schema_version
+          SET version = 3
+        WHERE component = 'canonical-evidence-index'`
+    )
+    await database.client.query("SET session_replication_role = replica")
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_challenge_outbox
+          SET binding_tx_hash = decode($2, 'hex')
+        WHERE record_id = decode($1, 'hex')`,
+      [record.recordID.slice(2), displayOrderFundingHash.slice(2)]
+    )
+    await database.client.query("SET session_replication_role = origin")
+    await database.client.query("DROP FUNCTION p2tr_reverse_bytea(bytea)")
+
+    const migration = await readFile(
+      new URL(
+        "../migrations/005_p2tr_deposit_binding_byte_order.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    await database.client.query(`BEGIN;\n${migration}\nCOMMIT;`)
+
+    const durable = await database.client.query<{
+      binding_tx_hash: string
+      canonical_funding_txid: string
+      quarantine_count: string
+      constraint_validated: boolean
+    }>(
+      `SELECT encode(outbox.binding_tx_hash, 'hex') AS binding_tx_hash,
+              encode(outbox.canonical_funding_txid, 'hex')
+                AS canonical_funding_txid,
+              (SELECT count(*)::text
+                 FROM p2tr_signature_fraud_legacy_submission_quarantine
+                WHERE reason LIKE 'legacy outbox intent uses display-order%')
+                AS quarantine_count,
+              constraint_record.convalidated AS constraint_validated
+         FROM p2tr_signature_fraud_challenge_outbox outbox
+         JOIN pg_constraint constraint_record
+           ON constraint_record.conrelid =
+                'p2tr_signature_fraud_challenge_outbox'::regclass
+          AND constraint_record.conname =
+                'p2tr_outbox_deposit_binding_uses_bridge_byte_order'
+        WHERE outbox.record_id = decode($1, 'hex')`,
+      [record.recordID.slice(2)]
+    )
+    assert.equal(
+      durable.rows[0].binding_tx_hash,
+      displayOrderFundingHash.slice(2)
+    )
+    assert.equal(
+      durable.rows[0].canonical_funding_txid,
+      displayOrderFundingHash.slice(2)
+    )
+    assert.equal(durable.rows[0].quarantine_count, "1")
+    assert.equal(durable.rows[0].constraint_validated, false)
+
+    await beginSerializable(database.client)
+    const blocked = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 1)
+    assert.equal(blocked.payload.state.healthy, false)
+
+    await database.client.query("SET session_replication_role = replica")
+    await assert.rejects(
+      database.client.query(
+        `UPDATE p2tr_signature_fraud_challenge_outbox
+            SET updated_at_unix_ms = updated_at_unix_ms + 1
+          WHERE record_id = decode($1, 'hex')`,
+        [record.recordID.slice(2)]
+      ),
+      /p2tr_outbox_deposit_binding_uses_bridge_byte_order/
+    )
+    await database.client.query("SET session_replication_role = origin")
+    await assert.rejects(
+      database.client.query(
+        `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine
+          WHERE reason LIKE 'legacy outbox intent uses display-order%'`
       ),
       /append-only/
     )
