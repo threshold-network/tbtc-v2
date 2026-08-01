@@ -2515,7 +2515,8 @@ export class P2TRSignatureFraudChallengeOutboxScheduler {
             intent,
             seriesID,
             this.options.feePolicyManifest,
-            latest.status === "cancelled-provenance-invalidated"
+            latest.status === "cancelled-reorg" ||
+              latest.status === "cancelled-provenance-invalidated"
           )
           if (latest.status === "generation-required") {
             if (latest.generationDisposition === undefined) {
