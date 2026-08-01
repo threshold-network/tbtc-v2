@@ -2163,7 +2163,7 @@ test("refuses to construct without an irreversible-boundary authorizer", () => {
   )
 })
 
-test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", async () => {
+test("authorizes exact signer and projected pre-CAS broadcast boundaries", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
@@ -2173,7 +2173,6 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
   authorizer.beforeAuthorize = async (binding) => {
     const durable = await store.get(binding.recordID)
     assert.ok(durable)
-    assert.equal(durable.version, binding.recordVersion)
     assert.equal(durable.generation, binding.generation)
     assert.equal(
       durable.reservedNonce === undefined
@@ -2197,8 +2196,9 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
       binding.activationManifestHash
     )
     if (binding.stage === "broadcast") {
-      assert.equal(durable.status, "broadcast-pending")
-      assert.equal(durable.broadcastAttempts, binding.attempt)
+      assert.equal(durable.status, "prepared")
+      assert.equal(durable.version + 1, binding.recordVersion)
+      assert.equal(durable.broadcastAttempts + 1, binding.attempt)
       assert.equal(
         durable.preparedTransaction === undefined
           ? undefined
@@ -2206,6 +2206,7 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
         binding.preparedTransactionHash
       )
     } else {
+      assert.equal(durable.version, binding.recordVersion)
       assert.equal(durable.status, "preparing")
       assert.equal(
         durable.activeSignerInvocationStartedAtUnixMs !== undefined,
@@ -3641,6 +3642,41 @@ test("keeps wrong broadcaster hash post-send pending and reconcilable", async ()
     result.lastError ?? "",
     /does not match the persisted raw transaction/
   )
+})
+
+test("does not journal a broadcast attempt when pre-send authorization fails", async () => {
+  for (const rejection of ["acquisition", "consumption"] as const) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const broadcaster = new RecordingBroadcaster()
+    const authorizer = new FixedBoundaryAuthorizer()
+    const outbox = dispatcher(
+      store,
+      new FixedPreparer(),
+      broadcaster,
+      new FixedRechecker(),
+      new FixedReconciler(),
+      () => 2_000,
+      100,
+      undefined,
+      authorizer
+    )
+    await outbox.prepare(record.recordID, "worker-a")
+    if (rejection === "acquisition") {
+      authorizer.rejectAuthorization = new Error("evidence provider unavailable")
+    } else {
+      authorizer.rejectConsumption = new Error("authorization became stale")
+    }
+
+    const result = await outbox.broadcast(record.recordID)
+
+    assert.equal(result.status, "prepared")
+    assert.equal(result.broadcastAttempts, 0)
+    assert.equal(result.preparedTransactionVariants?.[0].broadcastAttempts, 0)
+    assert.equal(result.lastBroadcastAtUnixMs, undefined)
+    assert.equal(broadcaster.rawTransactions.length, 0)
+    assert.match(result.lastError ?? "", /authorization .*before send/)
+  }
 })
 
 test("pre-send recheck cancels only before the irreversible boundary", async () => {

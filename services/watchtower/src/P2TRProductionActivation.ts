@@ -1244,10 +1244,7 @@ export class P2TRProductionActivationGate {
     // Commit the guard before entering any replayable transaction. A crash,
     // non-retryable failure, or exhausted retry loop therefore leaves a
     // restart-visible activation blocker rather than an untracked authority.
-    await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-      () =>
-        this.dependencies.stateStore.armCandidateEnqueueTransactionGuard(guard)
-    )
+    await this.armCandidateEnqueueTransactionGuardWithRetry(guard)
     const outcome = await this.runCandidateEnqueueTransactionWithRetry(
       record.receipt,
       normalized
@@ -1262,6 +1259,44 @@ export class P2TRProductionActivationGate {
       )
     }
     return outcome.outboxIntentID
+  }
+
+  private async armCandidateEnqueueTransactionGuardWithRetry(
+    guard: P2TRProductionCandidateEnqueueTransactionGuard
+  ): Promise<void> {
+    for (
+      let attemptCount = 1;
+      attemptCount <= this.candidateEnqueueTransactionMaxAttempts;
+      attemptCount++
+    ) {
+      try {
+        await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          () =>
+            this.dependencies.stateStore.armCandidateEnqueueTransactionGuard(
+              guard
+            )
+        )
+        return
+      } catch (error) {
+        if (
+          this.dependencies.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+            error
+          )
+        ) {
+          throw error
+        }
+        const sqlState =
+          this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+            error
+          )
+        if (
+          sqlState === undefined ||
+          attemptCount === this.candidateEnqueueTransactionMaxAttempts
+        ) {
+          throw error
+        }
+      }
+    }
   }
 
   private async runCandidateEnqueueTransactionWithRetry(

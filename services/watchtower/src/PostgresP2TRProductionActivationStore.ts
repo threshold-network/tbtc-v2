@@ -915,7 +915,8 @@ export class PostgresP2TRProductionActivationStore
           input_binding_source_event_id, candidate_provenance_generation,
           provenance_fingerprint, readiness_certificate_id,
           readiness_certificate_generation, expires_at,
-          generation_authority_version, expected_outbox_generation,
+          generation_authority_version, expected_outbox_series_id,
+          expected_outbox_generation,
           expected_outbox_disposition, expected_outbox_predecessor_id,
           expected_outbox_evidence_id)
        SELECT $1, $2, $3,
@@ -929,12 +930,14 @@ export class PostgresP2TRProductionActivationStore
               eligible.provenance_fingerprint,
               eligible.readiness_certificate_id,
               eligible.readiness_certificate_generation,
-              $12::timestamptz, 1, authority.expected_generation,
+              $12::timestamptz, 1, authority.expected_series_id,
+              authority.expected_generation,
               authority.expected_disposition,
               authority.expected_predecessor_id,
               authority.expected_evidence_id
          FROM eligible_observation eligible
          CROSS JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+           $2,
            eligible.observation_id,
            eligible.challenge_key,
            $4,
@@ -951,12 +954,16 @@ export class PostgresP2TRProductionActivationStore
           AND NOT EXISTS (
             SELECT 1
               FROM p2tr_candidate_enqueue_authorizations prior
-             WHERE prior.candidate_digest = $3
-               AND prior.consumed_at IS NOT NULL
+             WHERE prior.consumed_at IS NOT NULL
                AND (
-                 prior.generation_authority_version = 0
+                 (
+                   prior.generation_authority_version = 0
+                   AND prior.candidate_digest = $3
+                 )
                  OR (
-                   prior.expected_outbox_generation =
+                   prior.expected_outbox_series_id =
+                     authority.expected_series_id
+                   AND prior.expected_outbox_generation =
                      authority.expected_generation
                    AND prior.expected_outbox_disposition =
                      authority.expected_disposition
@@ -1076,6 +1083,7 @@ export class PostgresP2TRProductionActivationStore
                 floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
               ) outbox_health ON true
          JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+              authz.manifest_hash,
               authz.observation_id,
               authz.challenge_key,
               authz.txid,
@@ -1101,6 +1109,8 @@ export class PostgresP2TRProductionActivationStore
                 certificate.payload #>>
                   '{outboxHandshake,state,configuredSignerLaneSetHash}'
           AND authz.generation_authority_version = 1
+          AND authz.expected_outbox_series_id =
+                expected_authority.expected_series_id
           AND authz.expected_outbox_generation =
                 expected_authority.expected_generation
           AND authz.expected_outbox_disposition =
@@ -1161,6 +1171,8 @@ export class PostgresP2TRProductionActivationStore
             SELECT 1
               FROM p2tr_signature_fraud_challenge_outbox outbox
              WHERE outbox.record_id = $2
+               AND outbox.series_id =
+                     p2tr_candidate_enqueue_authorizations.expected_outbox_series_id
                AND outbox.observation_id =
                      p2tr_candidate_enqueue_authorizations.observation_id
                AND outbox.bridge_challenge_key =

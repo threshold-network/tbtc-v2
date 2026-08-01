@@ -4224,6 +4224,193 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         artifact.capturedAtUnixMs,
       ]
     )
+    if (transaction.chainID === 0) {
+      await this.guardChainlessEscapedTransaction(
+        record,
+        reservation,
+        {
+          transactionHash: hexValue(
+            transaction.transactionHash,
+            "Chainless escaped transaction hash"
+          ),
+          sender: address(transaction.sender, "Chainless escaped sender"),
+          nonce: transaction.nonce,
+          capturedAtUnixMs: artifact.capturedAtUnixMs,
+        }
+      )
+    }
+  }
+
+  private async guardChainlessEscapedTransaction(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    reservation: P2TRSignatureFraudBoundNonceReservation,
+    transaction: {
+      transactionHash: string
+      sender: string
+      nonce: number
+      capturedAtUnixMs: number
+    }
+  ): Promise<void> {
+    const configuredLanes = await this.options.session.query<{
+      chain_id: string | number
+      signer_lane_id: string
+      signer_identity: string
+    }>(
+      `SELECT chain_id, signer_lane_id, signer_identity
+         FROM p2tr_signature_fraud_signer_lane_configuration
+        WHERE activation_manifest_hash = decode($1, 'hex')
+          AND sender = decode($2, 'hex')
+          AND enabled = true
+        ORDER BY chain_id, signer_lane_id
+        FOR SHARE`,
+      [
+        stripHex(
+          bytes32(
+            record.feePolicyManifest.activationManifestHash,
+            "Chainless signer manifest"
+          )
+        ),
+        stripHex(transaction.sender),
+      ]
+    )
+    for (const configuredLane of configuredLanes.rows) {
+      const chainID = databaseSafeInteger(
+        configuredLane.chain_id,
+        "Chainless replay chain ID"
+      )
+      let durableGuard = await this.options.session.query<{
+        nonce_guard_id: Buffer
+        record_id: Buffer
+        signer_lane_id: string
+        signer_identity: string
+      }>(
+        `SELECT nonce_guard_id, record_id, signer_lane_id, signer_identity
+           FROM p2tr_signature_fraud_challenge_nonce_guard
+          WHERE chain_id = $1
+            AND sender = decode($2, 'hex')
+            AND transaction_nonce = $3
+            AND voided_before_sign_at_unix_ms IS NULL
+          ORDER BY guarded_at_unix_ms DESC, nonce_guard_id
+          LIMIT 1
+          FOR SHARE`,
+        [chainID, stripHex(transaction.sender), transaction.nonce]
+      )
+      if (durableGuard.rows.length === 0) {
+        const wildcardGuardID = hashStructured({
+          domain: "tbtc-p2tr-signature-fraud-chainless-replay-guard-v1",
+          recordID: record.recordID,
+          chainID,
+          transactionHash: transaction.transactionHash,
+          sender: transaction.sender,
+          nonce: transaction.nonce,
+        })
+        await this.options.session.query(
+          `INSERT INTO p2tr_signature_fraud_challenge_nonce_guard (
+              nonce_guard_id, record_id, guard_kind, chain_id, signer_lane_id,
+              signer_identity, sender, transaction_nonce,
+              parent_reservation_id, guarded_at_unix_ms
+           ) VALUES (
+              decode($1, 'hex'), decode($2, 'hex'), 'escaped-envelope', $3,
+              $4, $5, decode($6, 'hex'), $7, decode($8, 'hex'), $9
+           ) ON CONFLICT (chain_id, sender, transaction_nonce)
+               WHERE voided_before_sign_at_unix_ms IS NULL
+               DO NOTHING`,
+          [
+            stripHex(wildcardGuardID),
+            stripHex(bytes32(record.recordID, "Chainless guard record ID")),
+            chainID,
+            configuredLane.signer_lane_id,
+            configuredLane.signer_identity,
+            stripHex(transaction.sender),
+            transaction.nonce,
+            stripHex(
+              hexValue(
+                reservation.reservationID,
+                "Chainless parent reservation ID"
+              )
+            ),
+            transaction.capturedAtUnixMs,
+          ]
+        )
+        durableGuard = await this.options.session.query<{
+          nonce_guard_id: Buffer
+          record_id: Buffer
+          signer_lane_id: string
+          signer_identity: string
+        }>(
+          `SELECT nonce_guard_id, record_id, signer_lane_id, signer_identity
+             FROM p2tr_signature_fraud_challenge_nonce_guard
+            WHERE chain_id = $1
+              AND sender = decode($2, 'hex')
+              AND transaction_nonce = $3
+              AND voided_before_sign_at_unix_ms IS NULL
+            ORDER BY nonce_guard_id
+            LIMIT 1
+            FOR SHARE`,
+          [chainID, stripHex(transaction.sender), transaction.nonce]
+        )
+      }
+      if (durableGuard.rows.length !== 1) {
+        throw new Error("Chainless replay nonce guard could not be acquired")
+      }
+      const guard = durableGuard.rows[0]
+      await this.options.session.query(
+        `INSERT INTO p2tr_signature_fraud_challenge_chainless_replay_guard (
+            escaped_envelope_id, replay_chain_id, nonce_guard_record_id,
+            nonce_guard_id, sender, transaction_nonce, guard_signer_lane_id,
+            guard_signer_identity, guarded_at_unix_ms
+         ) VALUES (
+            decode($1, 'hex'), $2, decode($3, 'hex'), decode($4, 'hex'),
+            decode($5, 'hex'), $6, $7, $8, $9
+         )`,
+        [
+          stripHex(transaction.transactionHash),
+          chainID,
+          guard.record_id.toString("hex"),
+          guard.nonce_guard_id.toString("hex"),
+          stripHex(transaction.sender),
+          transaction.nonce,
+          guard.signer_lane_id,
+          guard.signer_identity,
+          transaction.capturedAtUnixMs,
+        ]
+      )
+
+      const detailsDigest = hashStructured({
+        domain: "tbtc-p2tr-signature-fraud-chainless-lane-quarantine-v1",
+        transactionHash: transaction.transactionHash,
+        chainID,
+        laneID: configuredLane.signer_lane_id,
+        signerIdentity: configuredLane.signer_identity,
+        sender: transaction.sender,
+        nonce: transaction.nonce,
+      })
+      const quarantineID = hashStructured({
+        domain: "tbtc-p2tr-signature-fraud-signer-quarantine-v1",
+        recordID: record.recordID,
+        detailsDigest,
+      })
+      await this.options.session.query(
+        `INSERT INTO p2tr_signature_fraud_challenge_signer_quarantine (
+            signer_quarantine_id, record_id, nonce_reservation_id, chain_id,
+            signer_lane_id, signer_identity, expected_sender, expected_nonce,
+            quarantine_reason, details_digest, quarantined_at_unix_ms
+         ) VALUES (
+            decode($1, 'hex'), decode($2, 'hex'), NULL, $3, $4, $5,
+            decode($6, 'hex'), NULL, 'chainless-envelope', decode($7, 'hex'), $8
+         ) ON CONFLICT DO NOTHING`,
+        [
+          stripHex(quarantineID),
+          stripHex(bytes32(record.recordID, "Chainless quarantine record ID")),
+          chainID,
+          configuredLane.signer_lane_id,
+          configuredLane.signer_identity,
+          stripHex(transaction.sender),
+          stripHex(detailsDigest),
+          transaction.capturedAtUnixMs,
+        ]
+      )
+    }
   }
 
   private async insertProvenanceInvalidation(

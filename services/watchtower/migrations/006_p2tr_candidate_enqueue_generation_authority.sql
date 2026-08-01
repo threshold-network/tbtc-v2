@@ -118,8 +118,390 @@ $$;
 ALTER TABLE p2tr_bitcoin_candidate_observations
 VALIDATE CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
 
+-- The same old-runner race could admit an outbox row after migration 005's
+-- snapshot but before its readiness lock was acquired. Repeat the immutable
+-- marker, safe pre-boundary retirement, and durable quarantine scan while the
+-- runner's session fence excludes every canonical/outbox writer before BEGIN.
+DO $$
+DECLARE
+    original_marker_guard_definition text;
+BEGIN
+    SELECT pg_get_functiondef(
+               'p2tr_signature_fraud_guard_legacy_deposit_binding_marker()'::regprocedure
+           )
+      INTO STRICT original_marker_guard_definition;
+    EXECUTE $replacement_guard$
+        CREATE OR REPLACE FUNCTION
+            p2tr_signature_fraud_guard_legacy_deposit_binding_marker()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $repair_guard$
+        BEGIN
+            IF (TG_OP = 'INSERT' AND NEW.legacy_deposit_binding_byte_order)
+               OR (TG_OP = 'UPDATE'
+                   AND NEW.legacy_deposit_binding_byte_order IS DISTINCT FROM
+                       OLD.legacy_deposit_binding_byte_order
+                   AND NOT (
+                       NOT OLD.legacy_deposit_binding_byte_order
+                       AND NEW.legacy_deposit_binding_byte_order
+                       AND OLD.canonical_input_binding_kind = 'deposit-binding'
+                       AND OLD.binding_tx_hash IS DISTINCT FROM
+                           p2tr_reverse_bytea(OLD.canonical_funding_txid)
+                   )) THEN
+                RAISE EXCEPTION
+                    'legacy deposit-binding byte-order marker is migration-owned and immutable';
+            END IF;
+            RETURN NEW;
+        END
+        $repair_guard$
+    $replacement_guard$;
+
+    WITH migration_clock AS (
+        SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+                   AS now_unix_ms
+    )
+    UPDATE p2tr_signature_fraud_challenge_outbox outbox
+       SET legacy_deposit_binding_byte_order = true,
+           version = outbox.version + 1,
+           updated_at_unix_ms = greatest(
+               outbox.updated_at_unix_ms,
+               migration_clock.now_unix_ms
+           ),
+           last_error =
+               'legacy display-order deposit binding requires operator resolution',
+           record_state = outbox.record_state || jsonb_build_object(
+               'version', outbox.version + 1,
+               'updatedAtUnixMs', greatest(
+                   outbox.updated_at_unix_ms,
+                   migration_clock.now_unix_ms
+               ),
+               'lastError',
+                   'legacy display-order deposit binding requires operator resolution'
+           )
+      FROM migration_clock
+     WHERE NOT outbox.legacy_deposit_binding_byte_order
+       AND outbox.canonical_input_binding_kind = 'deposit-binding'
+       AND outbox.binding_tx_hash IS DISTINCT FROM
+           p2tr_reverse_bytea(outbox.canonical_funding_txid);
+
+    EXECUTE original_marker_guard_definition;
+END
+$$;
+
+-- A missed preparing row that has still not crossed any nonce/signer/send
+-- boundary is reversible. The migration-005 AFTER trigger turns this queued
+-- transition into the terminal cancellation in the same transaction.
+WITH migration_clock AS (
+    SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+               AS now_unix_ms
+)
+UPDATE p2tr_signature_fraud_challenge_outbox outbox
+   SET status = 'queued',
+       version = outbox.version + 1,
+       preparation_lease_owner = NULL,
+       preparation_lease_expires_at_unix_ms = NULL,
+       preparation_resume_status = NULL,
+       selected_signer_lane_id = NULL,
+       selected_signer_identity = NULL,
+       selected_sender = NULL,
+       updated_at_unix_ms = greatest(
+           outbox.updated_at_unix_ms,
+           migration_clock.now_unix_ms
+       ),
+       last_error =
+           'legacy display-order deposit binding returned for safe retirement',
+       record_state = (
+           outbox.record_state - ARRAY[
+               'preparationLease',
+               'preparationResumeStatus',
+               'preparationSender',
+               'selectedLaneID',
+               'selectedSignerIdentity'
+           ]
+       ) || jsonb_build_object(
+           'status', 'queued',
+           'version', outbox.version + 1,
+           'updatedAtUnixMs', greatest(
+               outbox.updated_at_unix_ms,
+               migration_clock.now_unix_ms
+           ),
+           'lastError',
+               'legacy display-order deposit binding returned for safe retirement'
+       )
+  FROM migration_clock
+ WHERE outbox.legacy_deposit_binding_byte_order
+   AND outbox.status = 'preparing'
+   AND outbox.nonce_reservation_id IS NULL
+   AND outbox.signer_invocation_started_at_unix_ms IS NULL
+   AND outbox.active_signer_invocation_started_at_unix_ms IS NULL
+   AND outbox.prepared_transaction_hash IS NULL
+   AND outbox.broadcast_attempts = 0
+   AND outbox.signer_quarantine_id IS NULL
+   AND NOT EXISTS (
+       SELECT 1
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact artifact
+        WHERE artifact.record_id = outbox.record_id
+   )
+   AND NOT EXISTS (
+       SELECT 1
+         FROM p2tr_signature_fraud_challenge_escaped_envelope envelope
+        WHERE envelope.record_id = outbox.record_id
+   );
+
+INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine (
+    observation_id,
+    bridge_challenge_key,
+    legacy_status,
+    submission_attempts,
+    challenge_transaction_hash,
+    reason,
+    quarantined_at_unix_ms
+)
+SELECT sha256(
+           convert_to(
+               'tbtc/p2tr/legacy-deposit-binding-byte-order/v1',
+               'UTF8'
+           ) || outbox.record_id
+       ),
+       outbox.bridge_challenge_key,
+       'outbox-' || outbox.status,
+       (
+           SELECT count(*)::integer
+             FROM p2tr_signature_fraud_challenge_outbox_broadcast_attempt attempt
+            WHERE attempt.record_id = outbox.record_id
+              AND attempt.generation = outbox.generation
+       ),
+       outbox.prepared_transaction_hash,
+       'legacy outbox intent uses display-order deposit binding hash; automatic mutation is unsafe',
+       (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+  FROM p2tr_signature_fraud_challenge_outbox outbox
+ WHERE outbox.canonical_input_binding_kind = 'deposit-binding'
+   AND outbox.binding_tx_hash IS DISTINCT FROM
+       p2tr_reverse_bytea(outbox.canonical_funding_txid)
+   AND NOT (
+       outbox.status = 'cancelled-before-broadcast'
+       AND outbox.legacy_deposit_binding_byte_order
+   )
+   AND NOT EXISTS (
+       SELECT 1
+         FROM p2tr_signature_fraud_legacy_submission_quarantine quarantine
+        WHERE quarantine.observation_id = sha256(
+                  convert_to(
+                      'tbtc/p2tr/legacy-deposit-binding-byte-order/v1',
+                      'UTF8'
+                  ) || outbox.record_id
+              )
+   );
+
+-- Migration 005 could have marked this CHECK valid from its stale snapshot.
+-- Recreate and validate it after the replayed scan so every pre-existing row
+-- is examined under the new session-level fence.
+ALTER TABLE p2tr_signature_fraud_challenge_outbox
+    DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+
+ALTER TABLE p2tr_signature_fraud_challenge_outbox
+    ADD CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order
+    CHECK (
+        legacy_deposit_binding_byte_order OR
+        canonical_input_binding_kind <> 'deposit-binding' OR
+        binding_tx_hash = p2tr_reverse_bytea(canonical_funding_txid)
+    ) NOT VALID;
+
+ALTER TABLE p2tr_signature_fraud_challenge_outbox
+    VALIDATE CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+
+-- An unprotected legacy type-0 signature has no replay-domain chain ID. Keep
+-- the forensic chain-zero guard on its escaped envelope, and journal the
+-- concrete active guard that excludes the same sender/nonce on every chain
+-- where that sender is configured under the record's activation manifest.
+CREATE TABLE p2tr_signature_fraud_challenge_chainless_replay_guard (
+    escaped_envelope_id bytea NOT NULL REFERENCES
+        p2tr_signature_fraud_challenge_escaped_envelope(escaped_envelope_id)
+        ON DELETE RESTRICT,
+    replay_chain_id numeric(78, 0) NOT NULL CHECK (
+        replay_chain_id BETWEEN 1 AND 9007199254740991
+    ),
+    nonce_guard_record_id bytea NOT NULL CHECK (
+        octet_length(nonce_guard_record_id) = 32
+    ),
+    nonce_guard_id bytea NOT NULL CHECK (octet_length(nonce_guard_id) = 32),
+    sender bytea NOT NULL CHECK (octet_length(sender) = 20),
+    transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
+    guard_signer_lane_id text NOT NULL CHECK (
+        length(guard_signer_lane_id) BETWEEN 1 AND 128
+    ),
+    guard_signer_identity text NOT NULL CHECK (
+        length(guard_signer_identity) BETWEEN 1 AND 128
+    ),
+    guarded_at_unix_ms bigint NOT NULL CHECK (
+        guarded_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    PRIMARY KEY (escaped_envelope_id, replay_chain_id),
+    FOREIGN KEY (
+        nonce_guard_record_id,
+        nonce_guard_id,
+        replay_chain_id,
+        sender,
+        transaction_nonce,
+        guard_signer_lane_id,
+        guard_signer_identity
+    ) REFERENCES p2tr_signature_fraud_challenge_nonce_guard (
+        record_id,
+        nonce_guard_id,
+        chain_id,
+        sender,
+        transaction_nonce,
+        signer_lane_id,
+        signer_identity
+    ) ON DELETE RESTRICT
+);
+
+CREATE TRIGGER p2tr_signature_fraud_reject_chainless_replay_guard_mutation_trigger
+BEFORE UPDATE OR DELETE
+ON p2tr_signature_fraud_challenge_chainless_replay_guard
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+-- Chainless evidence quarantines every matching configured lane even though
+-- those lanes did not own the original reservation. Extend the existing
+-- permanent quarantine journal with this evidence-bound, nonce-less reason.
+DO $$
+DECLARE
+    constraint_name text;
+BEGIN
+    FOR constraint_name IN
+        SELECT constraint_record.conname
+          FROM pg_constraint constraint_record
+         WHERE constraint_record.conrelid =
+                   'p2tr_signature_fraud_challenge_signer_quarantine'::regclass
+           AND constraint_record.contype = 'c'
+           AND pg_get_constraintdef(constraint_record.oid) LIKE
+                   '%quarantine_reason%'
+    LOOP
+        EXECUTE format(
+            'ALTER TABLE p2tr_signature_fraud_challenge_signer_quarantine DROP CONSTRAINT %I',
+            constraint_name
+        );
+    END LOOP;
+END
+$$;
+
+ALTER TABLE p2tr_signature_fraud_challenge_signer_quarantine
+    ADD CONSTRAINT p2tr_signature_fraud_signer_quarantine_reason_check CHECK (
+        quarantine_reason IN (
+            'ambiguous-signer-invocation',
+            'wrong-chain',
+            'wrong-sender',
+            'wrong-nonce',
+            'malformed-signed-envelope',
+            'invalid-replacement-envelope',
+            'reservation-binding-mismatch',
+            'reservation-provider-failure',
+            'chainless-envelope'
+        )
+    ),
+    ADD CONSTRAINT p2tr_signature_fraud_signer_quarantine_shape_check CHECK (
+        (
+            quarantine_reason IN (
+                'reservation-binding-mismatch',
+                'reservation-provider-failure',
+                'chainless-envelope'
+            )
+            AND nonce_reservation_id IS NULL
+            AND expected_nonce IS NULL
+        )
+        OR
+        (
+            quarantine_reason NOT IN (
+                'reservation-binding-mismatch',
+                'reservation-provider-failure',
+                'chainless-envelope'
+            )
+            AND nonce_reservation_id IS NOT NULL
+            AND expected_nonce IS NOT NULL
+        )
+    );
+
+CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_signer_quarantine_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    record_manifest_hash bytea;
+BEGIN
+    SELECT activation_manifest_hash INTO record_manifest_hash
+      FROM p2tr_signature_fraud_challenge_outbox
+     WHERE record_id = NEW.record_id
+     FOR SHARE;
+
+    PERFORM 1
+      FROM p2tr_signature_fraud_signer_lane_configuration
+     WHERE activation_manifest_hash = record_manifest_hash
+       AND chain_id = NEW.chain_id
+       AND signer_lane_id = NEW.signer_lane_id
+       AND signer_identity = NEW.signer_identity
+       AND sender = NEW.expected_sender
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'signer quarantine lacks its exact manifest-bound lane';
+    END IF;
+
+    IF NEW.quarantine_reason IN (
+        'reservation-binding-mismatch',
+        'reservation-provider-failure',
+        'chainless-envelope'
+    ) AND NEW.nonce_reservation_id IS NOT NULL THEN
+        RAISE EXCEPTION 'pre-reservation quarantine cannot claim a durable nonce';
+    END IF;
+
+    IF NEW.quarantine_reason = 'chainless-envelope'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_escaped_envelope envelope
+            WHERE envelope.record_id = NEW.record_id
+              AND envelope.actual_chain_id = 0
+              AND envelope.actual_sender = NEW.expected_sender
+       ) THEN
+        RAISE EXCEPTION
+            'chainless signer quarantine lacks its immutable escaped envelope';
+    END IF;
+
+    IF NEW.quarantine_reason = 'reservation-provider-failure'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_nonce_release_result x
+             JOIN p2tr_signature_fraud_challenge_nonce_release_request r
+               ON r.release_request_id = x.release_request_id
+             LEFT JOIN p2tr_signature_fraud_challenge_nonce_guard returned_guard
+               ON returned_guard.nonce_guard_id = x.returned_reservation_id
+             LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_request returned_request
+               ON returned_request.release_request_id = x.returned_release_request_id
+            WHERE x.result_kind = 'contract-mismatch'
+              AND (
+                  (r.chain_id = NEW.chain_id
+                   AND r.signer_lane_id = NEW.signer_lane_id
+                   AND r.signer_identity = NEW.signer_identity
+                   AND r.sender = NEW.expected_sender)
+                  OR
+                  (returned_guard.chain_id = NEW.chain_id
+                   AND returned_guard.signer_lane_id = NEW.signer_lane_id
+                   AND returned_guard.signer_identity = NEW.signer_identity
+                   AND returned_guard.sender = NEW.expected_sender)
+                  OR
+                  (returned_request.chain_id = NEW.chain_id
+                   AND returned_request.signer_lane_id = NEW.signer_lane_id
+                   AND returned_request.signer_identity = NEW.signer_identity
+                   AND returned_request.sender = NEW.expected_sender)
+              )
+       ) THEN
+        RAISE EXCEPTION 'nonce allocator quarantine lacks an immutable contract mismatch';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 ALTER TABLE p2tr_candidate_enqueue_authorizations
     ADD COLUMN generation_authority_version smallint NOT NULL DEFAULT 0,
+    ADD COLUMN expected_outbox_series_id bytea,
     ADD COLUMN expected_outbox_generation integer,
     ADD COLUMN expected_outbox_disposition text,
     ADD COLUMN expected_outbox_predecessor_id bytea,
@@ -130,6 +512,7 @@ ALTER TABLE p2tr_candidate_enqueue_authorizations
     CHECK (
         (
             generation_authority_version = 0
+            AND expected_outbox_series_id IS NULL
             AND expected_outbox_generation IS NULL
             AND expected_outbox_disposition IS NULL
             AND expected_outbox_predecessor_id IS NULL
@@ -138,6 +521,8 @@ ALTER TABLE p2tr_candidate_enqueue_authorizations
         OR
         (
             generation_authority_version = 1
+            AND expected_outbox_series_id IS NOT NULL
+            AND octet_length(expected_outbox_series_id) = 32
             AND expected_outbox_generation IS NOT NULL
             AND expected_outbox_generation BETWEEN 0 AND 32
             AND expected_outbox_disposition IS NOT NULL
@@ -167,11 +552,93 @@ ALTER TABLE p2tr_candidate_enqueue_authorizations
         )
     );
 
--- The exact series identity used by the scheduler contains these immutable
--- candidate/binding fields. The activation manifest may rotate between a
--- cancelled predecessor and its authorized successor, so it is deliberately
--- not used to hide the retained series head.
+-- Reproduce the scheduler's exact JSON-ordered series digest from the current
+-- manifest and immutable candidate binding. In particular, Router or chain
+-- rotation creates a new generation-zero series even when every Bitcoin field
+-- is unchanged. Fee/policy-only manifest rotation retains the same digest.
+CREATE FUNCTION p2tr_candidate_enqueue_series_id(
+    manifest_hash_value bytea,
+    observation_id_value bytea,
+    challenge_key_value bytea,
+    input_index_value bigint,
+    input_output_key_value bytea,
+    input_binding_kind_value text,
+    funding_txid_value bytea,
+    funding_vout_value bigint
+)
+RETURNS bytea
+LANGUAGE plpgsql
+STABLE
+STRICT
+AS $body$
+DECLARE
+    manifest_payload jsonb;
+    chain_id_value numeric;
+    router_address_value bytea;
+    binding_tx_hash_value bytea;
+    binding_output_index_value bigint;
+BEGIN
+    SELECT payload
+      INTO STRICT manifest_payload
+      FROM p2tr_watchtower_activation_manifest
+     WHERE manifest_hash = manifest_hash_value;
+
+    IF (manifest_payload #>> '{ethereum,chainID}') !~ '^[1-9][0-9]{0,15}$'
+       OR (manifest_payload #>> '{outbox,routerAddress}') !~*
+              '^0x[0-9a-f]{40}$' THEN
+        RAISE EXCEPTION
+            'candidate enqueue manifest lacks its series domain';
+    END IF;
+    chain_id_value := (manifest_payload #>> '{ethereum,chainID}')::numeric;
+    IF chain_id_value > 9007199254740991 THEN
+        RAISE EXCEPTION 'candidate enqueue series chain ID is unsafe';
+    END IF;
+    router_address_value := decode(
+        regexp_replace(
+            lower(manifest_payload #>> '{outbox,routerAddress}'),
+            '^0x',
+            ''
+        ),
+        'hex'
+    );
+    binding_tx_hash_value := CASE input_binding_kind_value
+        WHEN 'registered-wallet-output' THEN decode(repeat('00', 32), 'hex')
+        WHEN 'deposit-binding' THEN p2tr_reverse_bytea(funding_txid_value)
+    END;
+    binding_output_index_value := CASE input_binding_kind_value
+        WHEN 'registered-wallet-output' THEN 0
+        WHEN 'deposit-binding' THEN funding_vout_value
+    END;
+    IF binding_tx_hash_value IS NULL OR binding_output_index_value IS NULL THEN
+        RAISE EXCEPTION 'candidate enqueue series binding kind is invalid';
+    END IF;
+
+    RETURN sha256(convert_to(
+        '{"domain":"tbtc-p2tr-signature-fraud-outbox-series-v1"' ||
+        ',"protocol":"COMPLETE_V2"' ||
+        ',"evidenceProtocolID":"0x12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef"' ||
+        ',"chainID":' || chain_id_value::text ||
+        ',"domainChainID":' || chain_id_value::text ||
+        ',"routerAddress":' ||
+            to_json(('0x' || encode(router_address_value, 'hex'))::text)::text ||
+        ',"observationID":' ||
+            to_json(('0x' || encode(observation_id_value, 'hex'))::text)::text ||
+        ',"inputIndex":' || input_index_value::text ||
+        ',"bridgeChallengeKey":' ||
+            to_json(('0x' || encode(challenge_key_value, 'hex'))::text)::text ||
+        ',"signingKey":' ||
+            to_json(('0x' || encode(input_output_key_value, 'hex'))::text)::text ||
+        ',"bindingTxHash":' ||
+            to_json(('0x' || encode(binding_tx_hash_value, 'hex'))::text)::text ||
+        ',"bindingOutputIndex":' || binding_output_index_value::text ||
+        '}',
+        'UTF8'
+    ));
+END;
+$body$;
+
 CREATE FUNCTION p2tr_candidate_enqueue_expected_authority(
+    manifest_hash_value bytea,
     observation_id_value bytea,
     challenge_key_value bytea,
     txid_value bytea,
@@ -183,6 +650,7 @@ CREATE FUNCTION p2tr_candidate_enqueue_expected_authority(
     funding_vout_value bigint
 )
 RETURNS TABLE (
+    expected_series_id bytea,
     expected_generation integer,
     expected_disposition text,
     expected_predecessor_id bytea,
@@ -195,10 +663,21 @@ DECLARE
     head_count bigint;
     head_record record;
 BEGIN
+    expected_series_id := p2tr_candidate_enqueue_series_id(
+        manifest_hash_value,
+        observation_id_value,
+        challenge_key_value,
+        input_index_value,
+        input_output_key_value,
+        input_binding_kind_value,
+        funding_txid_value,
+        funding_vout_value
+    );
     SELECT count(*)
       INTO head_count
       FROM p2tr_signature_fraud_challenge_outbox outbox
-     WHERE outbox.observation_id = observation_id_value
+     WHERE outbox.series_id = expected_series_id
+       AND outbox.observation_id = observation_id_value
        AND outbox.bridge_challenge_key = challenge_key_value
        AND outbox.bitcoin_tx_hash = txid_value
        AND outbox.bitcoin_wtxid = wtxid_value
@@ -228,7 +707,8 @@ BEGIN
     SELECT outbox.*
       INTO head_record
       FROM p2tr_signature_fraud_challenge_outbox outbox
-     WHERE outbox.observation_id = observation_id_value
+     WHERE outbox.series_id = expected_series_id
+       AND outbox.observation_id = observation_id_value
        AND outbox.bridge_challenge_key = challenge_key_value
        AND outbox.bitcoin_tx_hash = txid_value
        AND outbox.bitcoin_wtxid = wtxid_value
@@ -321,6 +801,7 @@ $body$;
 -- those candidates because their exact generation cannot be reconstructed.
 WITH linked_authorities AS (
     SELECT authz.token_id,
+           outbox.series_id,
            outbox.record_id,
            outbox.generation,
            outbox.generation_cause,
@@ -342,6 +823,7 @@ WITH linked_authorities AS (
 )
 UPDATE p2tr_candidate_enqueue_authorizations authz
    SET generation_authority_version = 1,
+       expected_outbox_series_id = linked.series_id,
        expected_outbox_generation = CASE
            WHEN linked.outcome_kind = 'generation-cap-exhausted'
                THEN linked.generation + 1
@@ -393,12 +875,14 @@ UPDATE p2tr_candidate_enqueue_authorizations authz
 -- session fence excludes canonical and outbox writers.
 WITH expected_authorities AS (
     SELECT authz.token_id,
+           authority.expected_series_id,
            authority.expected_generation,
            authority.expected_disposition,
            authority.expected_predecessor_id,
            authority.expected_evidence_id
       FROM p2tr_candidate_enqueue_authorizations authz
       CROSS JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+          authz.manifest_hash,
           authz.observation_id,
           authz.challenge_key,
           authz.txid,
@@ -410,10 +894,13 @@ WITH expected_authorities AS (
           authz.funding_vout
       ) authority
      WHERE authz.consumed_at IS NULL
+       AND authz.invalidated_at IS NULL
+       AND authz.expires_at > clock_timestamp()
        AND authz.generation_authority_version = 0
 )
 UPDATE p2tr_candidate_enqueue_authorizations authz
    SET generation_authority_version = 1,
+       expected_outbox_series_id = authority.expected_series_id,
        expected_outbox_generation = authority.expected_generation,
        expected_outbox_disposition = authority.expected_disposition,
        expected_outbox_predecessor_id = authority.expected_predecessor_id,
@@ -425,7 +912,7 @@ DROP INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx;
 
 CREATE UNIQUE INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx
     ON p2tr_candidate_enqueue_authorizations (
-        candidate_digest,
+        expected_outbox_series_id,
         expected_outbox_generation,
         expected_outbox_disposition
     )
@@ -443,6 +930,8 @@ BEGIN
     IF TG_OP = 'UPDATE' AND (
         NEW.generation_authority_version IS DISTINCT FROM
             OLD.generation_authority_version
+        OR NEW.expected_outbox_series_id IS DISTINCT FROM
+            OLD.expected_outbox_series_id
         OR NEW.expected_outbox_generation IS DISTINCT FROM
             OLD.expected_outbox_generation
         OR NEW.expected_outbox_disposition IS DISTINCT FROM

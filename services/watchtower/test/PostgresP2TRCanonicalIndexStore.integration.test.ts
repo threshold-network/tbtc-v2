@@ -2244,7 +2244,8 @@ describe(
         // Reconstruct the pre-005 schema and seal a generation whose deposit
         // observation still commits to the display-order funding txid.
         await database.query(
-          `DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
+          `DROP TABLE p2tr_signature_fraud_challenge_chainless_replay_guard;
+           DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
              ON p2tr_candidate_enqueue_authorizations;
            DROP FUNCTION p2tr_candidate_enqueue_generation_authority_guard();
            DROP INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx;
@@ -2252,11 +2253,16 @@ describe(
              ON p2tr_candidate_enqueue_authorizations (candidate_digest)
              WHERE consumed_at IS NOT NULL;
            DROP FUNCTION p2tr_candidate_enqueue_expected_authority(
-             bytea, bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
+             bytea, bytea, bytea, bytea, bytea, bigint, bytea, text,
+             bytea, bigint
+           );
+           DROP FUNCTION p2tr_candidate_enqueue_series_id(
+             bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
            );
            ALTER TABLE p2tr_candidate_enqueue_authorizations
              DROP CONSTRAINT p2tr_candidate_enqueue_generation_authority_shape,
              DROP COLUMN generation_authority_version,
+             DROP COLUMN expected_outbox_series_id,
              DROP COLUMN expected_outbox_generation,
              DROP COLUMN expected_outbox_disposition,
              DROP COLUMN expected_outbox_predecessor_id,

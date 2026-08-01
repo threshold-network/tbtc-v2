@@ -80,6 +80,10 @@ test("binds candidate authority to an exact successor generation", () => {
   )
   assert.match(
     candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_series_id/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
     /expected_outbox_generation/
   )
   assert.match(
@@ -101,6 +105,26 @@ test("binds candidate authority to an exact successor generation", () => {
   assert.doesNotMatch(
     candidateEnqueueGenerationAuthorityMigration,
     /UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /p2tr_candidate_enqueue_authorizations_generation_consumed_idx ON p2tr_candidate_enqueue_authorizations \( expected_outbox_series_id, expected_outbox_generation, expected_outbox_disposition \)/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /p2tr_candidate_enqueue_series_id\([\s\S]*?ethereum,chainID[\s\S]*?outbox,routerAddress[\s\S]*?tbtc-p2tr-signature-fraud-outbox-series-v1[\s\S]*?COMPLETE_V2/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /WHERE outbox\.series_id = expected_series_id/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /UPDATE p2tr_signature_fraud_challenge_outbox outbox SET legacy_deposit_binding_byte_order = true[\s\S]*?INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine[\s\S]*?VALIDATE CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_chainless_replay_guard[\s\S]*?PRIMARY KEY \(escaped_envelope_id, replay_chain_id\)/
   )
 })
 

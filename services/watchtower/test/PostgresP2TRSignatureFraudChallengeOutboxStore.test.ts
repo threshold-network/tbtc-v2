@@ -32,6 +32,7 @@ import {
   computeP2TRSignatureFraudChallengeFeePolicyHash,
   computeP2TRSignatureFraudEthereumEligibilityReadSetHash,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
+  computeP2TRSignatureFraudOutboxSeriesID,
   computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
   computeP2TRSignatureFraudSignerInvocationID,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
@@ -313,7 +314,13 @@ async function seedCanonicalPoint(
     [
       Buffer.from(MANIFEST_HASH.slice(2), "hex"),
       zero,
-      JSON.stringify({ outbox: { maxActiveOutboxRecords } }),
+      JSON.stringify({
+        ethereum: { chainID: CHAIN_ID },
+        outbox: {
+          maxActiveOutboxRecords,
+          routerAddress: ROUTER_ADDRESS,
+        },
+      }),
     ]
   )
 }
@@ -371,14 +378,21 @@ function signerConfiguration(manifestHash = MANIFEST_HASH) {
   }
 }
 
-function secondarySignerConfiguration() {
+function secondarySignerConfiguration(
+  overrides: Partial<{
+    chainID: number
+    laneID: string
+    signerIdentity: string
+    configuredAtUnixMs: number
+  }> = {}
+) {
   const withoutHash = {
     activationManifestHash: MANIFEST_HASH,
-    chainID: CHAIN_ID,
+    chainID: overrides.chainID ?? CHAIN_ID,
     policyHash: feePolicy().policyHash,
     challengeValueWei: "1234",
-    laneID: "lane-b",
-    signerIdentity: "signer-b",
+    laneID: overrides.laneID ?? "lane-b",
+    signerIdentity: overrides.signerIdentity ?? "signer-b",
     sender: SECONDARY_WALLET.address,
     maxGasLimit: "1000000",
     maxFeePerGas: "100",
@@ -390,7 +404,7 @@ function secondarySignerConfiguration() {
     ...withoutHash,
     configurationHash:
       computeP2TRProductionSignerLaneConfigurationHash(withoutHash),
-    configuredAtUnixMs: 1_001,
+    configuredAtUnixMs: overrides.configuredAtUnixMs ?? 1_001,
   }
 }
 
@@ -1324,11 +1338,12 @@ async function insertCandidateEnqueueGuard(
           candidate_provenance_generation, provenance_fingerprint,
           readiness_certificate_id, readiness_certificate_generation,
           expires_at, generation_authority_version,
-          expected_outbox_generation, expected_outbox_disposition
+          expected_outbox_series_id, expected_outbox_generation,
+          expected_outbox_disposition
      ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
           $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 1,
-          clock_timestamp() + interval '1 minute', 1, 0, 'initial'
+          clock_timestamp() + interval '1 minute', 1, $25, 0, 'initial'
      )`,
     [
       hexBuffer(tokenID),
@@ -1355,6 +1370,7 @@ async function insertCandidateEnqueueGuard(
       reserved.canonicalProvenance.candidateProvenanceGeneration,
       hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
       hexBuffer(certificateID),
+      hexBuffer(reserved.seriesID),
     ]
   )
   await database.client.query(
@@ -2821,7 +2837,7 @@ postgresTest(
 )
 
 postgresTest(
-  "retires queued and reversible preparing legacy deposit intents",
+  "retires legacy deposit intents, including rows missed by migration 005",
   async () => {
     const database = await createTestDatabase()
     const queuedRecord = depositBoundOutboxRecord(236)
@@ -2842,7 +2858,8 @@ postgresTest(
     // Reconstruct v3 and make both normalized deposit hashes legacy
     // display-order values without manufacturing replacement signed intents.
     await database.client.query(
-      `DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
+      `DROP TABLE p2tr_signature_fraud_challenge_chainless_replay_guard;
+       DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
          ON p2tr_candidate_enqueue_authorizations;
        DROP FUNCTION p2tr_candidate_enqueue_generation_authority_guard();
        DROP INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx;
@@ -2850,11 +2867,16 @@ postgresTest(
          ON p2tr_candidate_enqueue_authorizations (candidate_digest)
          WHERE consumed_at IS NOT NULL;
        DROP FUNCTION p2tr_candidate_enqueue_expected_authority(
-         bytea, bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
+         bytea, bytea, bytea, bytea, bytea, bigint, bytea, text, bytea,
+         bigint
+       );
+       DROP FUNCTION p2tr_candidate_enqueue_series_id(
+         bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
        );
        ALTER TABLE p2tr_candidate_enqueue_authorizations
          DROP CONSTRAINT p2tr_candidate_enqueue_generation_authority_shape,
          DROP COLUMN generation_authority_version,
+         DROP COLUMN expected_outbox_series_id,
          DROP COLUMN expected_outbox_generation,
          DROP COLUMN expected_outbox_disposition,
          DROP COLUMN expected_outbox_predecessor_id,
@@ -2971,6 +2993,74 @@ postgresTest(
     assert.equal(activation.payload.state.unresolvedLegacyQuarantineCount, 0)
     assert.equal(activation.payload.state.healthy, true)
 
+    // Reconstruct the state an old migration runner could leave when an
+    // already-authorized enqueue committed after migration 005's snapshot.
+    const missedRecord = depositBoundOutboxRecord(239)
+    await insertRecord(database, missedRecord)
+    await database.client.query(
+      `ALTER TABLE p2tr_signature_fraud_challenge_outbox
+         DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order`
+    )
+    await database.client.query("SET session_replication_role = replica")
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_challenge_outbox
+          SET binding_tx_hash = decode($2, 'hex')
+        WHERE record_id = decode($1, 'hex')`,
+      [
+        missedRecord.recordID.slice(2),
+        missedRecord.canonicalProvenance.fundingTxid.slice(2),
+      ]
+    )
+    await database.client.query("SET session_replication_role = origin")
+    await database.client.query(
+      `ALTER TABLE p2tr_signature_fraud_challenge_outbox
+         ADD CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order
+         CHECK (
+           legacy_deposit_binding_byte_order OR
+           canonical_input_binding_kind <> 'deposit-binding' OR
+           binding_tx_hash = p2tr_reverse_bytea(canonical_funding_txid)
+         ) NOT VALID`
+    )
+
+    const fenceRepairMigration = await readFile(
+      new URL(
+        "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    await database.client.query(`BEGIN;\n${fenceRepairMigration}\nCOMMIT;`)
+    const repairedMiss = await database.client.query<{
+      status: string
+      legacy_marker: boolean
+      constraint_validated: boolean
+      active_generation_count: string
+    }>(
+      `SELECT outbox.status,
+              outbox.legacy_deposit_binding_byte_order AS legacy_marker,
+              constraint_record.convalidated AS constraint_validated,
+              capacity.active_generation_count::text
+                AS active_generation_count
+         FROM p2tr_signature_fraud_challenge_outbox outbox
+         CROSS JOIN pg_constraint constraint_record
+         CROSS JOIN p2tr_signature_fraud_challenge_outbox_capacity capacity
+        WHERE outbox.record_id = decode($1, 'hex')
+          AND constraint_record.conrelid =
+                'p2tr_signature_fraud_challenge_outbox'::regclass
+          AND constraint_record.conname =
+                'p2tr_outbox_deposit_binding_uses_bridge_byte_order'
+          AND capacity.singleton = true`,
+      [missedRecord.recordID.slice(2)]
+    )
+    assert.deepEqual(repairedMiss.rows, [
+      {
+        status: "cancelled-before-broadcast",
+        legacy_marker: true,
+        constraint_validated: true,
+        active_generation_count: "0",
+      },
+    ])
+
     await assert.rejects(
       database.client.query(
         `UPDATE p2tr_signature_fraud_challenge_outbox
@@ -2988,7 +3078,11 @@ postgresTest(
   "blocks a generation-required record stranded by a rotated-out manifest",
   async () => {
     const database = await createTestDatabase()
-    const record = outboxRecord(240)
+    const initialRecord = outboxRecord(240)
+    const record = {
+      ...initialRecord,
+      seriesID: computeP2TRSignatureFraudOutboxSeriesID(initialRecord.intent),
+    }
     await insertRecord(database, record)
     // A restore or replication path can land a row without running the status
     // triggers; that is precisely the state the audit has to see.
@@ -3011,43 +3105,88 @@ postgresTest(
     )
     await database.client.query("SET session_replication_role = origin")
 
-    const successorAuthority = await database.client.query<{
+    type CandidateAuthority = {
+      expected_series_id: Buffer
       expected_generation: number
       expected_disposition: string
-      expected_predecessor_id: Buffer
-      expected_evidence_id: Buffer
-    }>(
-      `SELECT *
-         FROM p2tr_candidate_enqueue_expected_authority(
-           decode($1, 'hex'), decode($2, 'hex'),
-           decode($3, 'hex'), decode($4, 'hex'), $5,
-           decode($6, 'hex'), $7, decode($8, 'hex'), $9
-         )`,
-      [
-        record.intent.observationID.toPrefixedString().slice(2),
-        record.intent.bridgeChallengeKey.toPrefixedString().slice(2),
-        record.evidenceCheckpoint.bitcoinTxHash.slice(2),
-        record.evidenceCheckpoint.bitcoinWitnessTxHash.slice(2),
-        record.evidenceCheckpoint.bitcoinInputIndex,
-        record.canonicalProvenance.inputOutputKey.slice(2),
-        record.canonicalProvenance.inputBindingKind,
-        record.canonicalProvenance.fundingTxid.slice(2),
-        record.canonicalProvenance.fundingVout,
-      ]
-    )
-    assert.equal(successorAuthority.rows[0].expected_generation, 1)
+      expected_predecessor_id: Buffer | null
+      expected_evidence_id: Buffer | null
+    }
+    const readAuthority = async (): Promise<CandidateAuthority> =>
+      (
+        await database.client.query<CandidateAuthority>(
+          `SELECT *
+             FROM p2tr_candidate_enqueue_expected_authority(
+               decode($1, 'hex'), decode($2, 'hex'), decode($3, 'hex'),
+               decode($4, 'hex'), decode($5, 'hex'), $6,
+               decode($7, 'hex'), $8, decode($9, 'hex'), $10
+             )`,
+          [
+            record.canonicalProvenance.manifestHash.slice(2),
+            record.intent.observationID.toPrefixedString().slice(2),
+            record.intent.bridgeChallengeKey.toPrefixedString().slice(2),
+            record.evidenceCheckpoint.bitcoinTxHash.slice(2),
+            record.evidenceCheckpoint.bitcoinWitnessTxHash.slice(2),
+            record.evidenceCheckpoint.bitcoinInputIndex,
+            record.canonicalProvenance.inputOutputKey.slice(2),
+            record.canonicalProvenance.inputBindingKind,
+            record.canonicalProvenance.fundingTxid.slice(2),
+            record.canonicalProvenance.fundingVout,
+          ]
+        )
+      ).rows[0]
+    const successorAuthority = await readAuthority()
     assert.equal(
-      successorAuthority.rows[0].expected_disposition,
+      successorAuthority.expected_series_id.toString("hex"),
+      record.seriesID.slice(2)
+    )
+    assert.equal(successorAuthority.expected_generation, 1)
+    assert.equal(
+      successorAuthority.expected_disposition,
       "nonce-disposition"
     )
     assert.equal(
-      successorAuthority.rows[0].expected_predecessor_id.toString("hex"),
+      successorAuthority.expected_predecessor_id?.toString("hex"),
       record.recordID.slice(2)
     )
     assert.equal(
-      successorAuthority.rows[0].expected_evidence_id.toString("hex"),
+      successorAuthority.expected_evidence_id?.toString("hex"),
       "e9".repeat(32)
     )
+
+    await database.client.query("SET session_replication_role = replica")
+    await database.client.query(
+      `UPDATE p2tr_watchtower_activation_manifest
+          SET payload = jsonb_set(
+                payload,
+                '{outbox,routerAddress}',
+                to_jsonb($1::text)
+              )
+        WHERE singleton = true`,
+      [`0x${"d5".repeat(20)}`]
+    )
+    await database.client.query("SET session_replication_role = origin")
+    const routerRotatedAuthority = await readAuthority()
+    assert.notEqual(
+      routerRotatedAuthority.expected_series_id.toString("hex"),
+      record.seriesID.slice(2)
+    )
+    assert.equal(routerRotatedAuthority.expected_generation, 0)
+    assert.equal(routerRotatedAuthority.expected_disposition, "initial")
+    assert.equal(routerRotatedAuthority.expected_predecessor_id, null)
+    assert.equal(routerRotatedAuthority.expected_evidence_id, null)
+    await database.client.query("SET session_replication_role = replica")
+    await database.client.query(
+      `UPDATE p2tr_watchtower_activation_manifest
+          SET payload = jsonb_set(
+                payload,
+                '{outbox,routerAddress}',
+                to_jsonb($1::text)
+              )
+        WHERE singleton = true`,
+      [ROUTER_ADDRESS]
+    )
+    await database.client.query("SET session_replication_role = origin")
 
     await beginSerializable(database.client)
     const pending = await activationProvider(
@@ -4125,7 +4264,7 @@ type EscapedCaptureRequest = {
   expectedReservationID?: string
   sender?: string
   nonce?: number
-  chainID?: number
+  chainID?: number | null
   to?: string
   calldata?: string
   value?: string
@@ -4174,7 +4313,9 @@ async function escapedCaptureArtifact(
   const transactionType = request.transactionType ?? 2
   const rawTransaction = await signer.signTransaction({
     ...(transactionType === 0 ? {} : { type: transactionType }),
-    chainId: request.chainID ?? CHAIN_ID,
+    ...(request.chainID === null
+      ? {}
+      : { chainId: request.chainID ?? CHAIN_ID }),
     to: request.to ?? record.intent.routerAddress,
     data: request.calldata ?? record.intent.calldata,
     value: BigNumber.from(request.value ?? record.intent.value),
@@ -4671,6 +4812,115 @@ for (const scenario of escapedCaptureParityScenarios) {
     }
   )
 }
+
+postgresTest(
+  "guards a chainless escaped signature on every configured sender chain",
+  async () => {
+    const database = await createTestDatabase()
+    try {
+      await begin(database.client)
+      await database.store.installSignerLaneConfiguration(
+        secondarySignerConfiguration()
+      )
+      await database.store.installSignerLaneConfiguration(
+        secondarySignerConfiguration({
+          chainID: CHAIN_ID + 1,
+          laneID: "lane-b-secondary-chain",
+          signerIdentity: "signer-b-secondary-chain",
+          configuredAtUnixMs: 1_002,
+        })
+      )
+      await commit(database.client)
+
+      const initial = outboxRecord(76)
+      await insertRecord(database, initial)
+      const reserved = await advanceToReservation(database, initial)
+      let current = reserved
+      for (const transition of await replacementSignerBoundary(reserved)) {
+        await begin(database.client)
+        assert.equal(
+          await database.store.compareAndSwap(
+            current.recordID,
+            current.version,
+            transition
+          ),
+          true
+        )
+        await commit(database.client)
+        current = transition
+      }
+      const managed = createManagedStore(
+        database.client,
+        eligibilitySnapshotFor(initial)
+      )
+      const artifact = await escapedCaptureArtifact(current, {
+        capturedAtUnixMs: 2_100,
+        transactionType: 0,
+        chainID: null,
+        signer: SECONDARY_WALLET,
+        quarantine: wrongLaneQuarantine("wrong-chain"),
+      })
+      await managed.captureEscapedSignedArtifact(
+        initial.recordID,
+        initial.canonicalProvenance.provenanceFingerprint,
+        artifact,
+        wrongLaneQuarantine("wrong-chain")
+      )
+
+      const guards = await database.client.query<{ chain_id: string }>(
+        `SELECT chain_id::text
+           FROM p2tr_signature_fraud_challenge_nonce_guard
+          WHERE sender = decode($1, 'hex')
+            AND transaction_nonce = 7
+            AND voided_before_sign_at_unix_ms IS NULL
+          ORDER BY chain_id`,
+        [SECONDARY_WALLET.address.slice(2)]
+      )
+      assert.deepEqual(
+        guards.rows.map(({ chain_id }) => Number(chain_id)),
+        [0, CHAIN_ID, CHAIN_ID + 1]
+      )
+      const replayGuards = await database.client.query<{ chain_id: string }>(
+        `SELECT replay_chain_id::text AS chain_id
+           FROM p2tr_signature_fraud_challenge_chainless_replay_guard
+          ORDER BY replay_chain_id`
+      )
+      assert.deepEqual(
+        replayGuards.rows.map(({ chain_id }) => Number(chain_id)),
+        [CHAIN_ID, CHAIN_ID + 1]
+      )
+      const quarantines = await database.client.query<{
+        chain_id: string
+        reason: string
+      }>(
+        `SELECT chain_id::text, quarantine_reason AS reason
+           FROM p2tr_signature_fraud_challenge_signer_quarantine
+          WHERE expected_sender = decode($1, 'hex')
+          ORDER BY chain_id`,
+        [SECONDARY_WALLET.address.slice(2)]
+      )
+      assert.deepEqual(quarantines.rows, [
+        { chain_id: String(CHAIN_ID), reason: "chainless-envelope" },
+        { chain_id: String(CHAIN_ID + 1), reason: "chainless-envelope" },
+      ])
+      await begin(database.client)
+      assert.equal(
+        await database.store.isSignerQuarantined(CHAIN_ID, "signer-b"),
+        true
+      )
+      assert.equal(
+        await database.store.isSignerQuarantined(
+          CHAIN_ID + 1,
+          "signer-b-secondary-chain"
+        ),
+        true
+      )
+      await commit(database.client)
+    } finally {
+      await database.client.end()
+    }
+  }
+)
 
 // ---------------------------------------------------------------------------
 // Orphaned signer boundary resolution.

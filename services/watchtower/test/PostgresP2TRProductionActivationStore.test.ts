@@ -74,7 +74,9 @@ describe(
               outbox: {
                 maxActiveOutboxRecords: 16,
                 maxRecoveryBacklog: 16,
+                routerAddress: "0x1234567890abcdef1234567890abcdef12345678",
               },
+              ethereum: { chainID: 31337 },
             }),
           ]
         )
@@ -239,6 +241,7 @@ describe(
                    readiness_certificate_id,
                    readiness_certificate_generation, expires_at,
                    generation_authority_version,
+                   expected_outbox_series_id,
                    expected_outbox_generation,
                    expected_outbox_disposition
                  ) VALUES (
@@ -246,7 +249,7 @@ describe(
                    500, $10, $11, $12, 0, $13, $14,
                    'registered-wallet-output', $15, 1, $16, $17, $18,
                    clock_timestamp() + interval '1 minute',
-                   1, 0, 'initial'
+                   1, $19, 0, 'initial'
                  )`,
               [
                 bytes(tokenID),
@@ -267,6 +270,7 @@ describe(
                 bytes(WORD("5d")),
                 bytes(certificate.certificateID),
                 certificate.generation,
+                bytes(WORD("5e")),
               ]
             )
             await stateStore.armCandidateEnqueueTransactionGuard({

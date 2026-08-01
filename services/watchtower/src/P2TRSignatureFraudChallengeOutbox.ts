@@ -3265,9 +3265,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
 
-    // Persist the irreversible-attempt boundary before the external call. A
-    // crash from this point onward can only cause the exact same raw bytes to
-    // be sent again.
+    // Project the exact durable attempt before acquiring its one-use boundary
+    // authorization. Authorization/provider failures are still pre-send and
+    // therefore must not create a broadcast-attempt ledger entry.
     const attempted = nextRecord(current, {
       // Once an external challenge is final, broadcasting the already-signed
       // exact bytes is a nonce-disposition action. Keep the external-awaiting
@@ -3291,6 +3291,49 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       updatedAtUnixMs: nowUnixMs,
       lastError: undefined,
     })
+    const broadcastAuthorizationBinding =
+      this.buildIrreversibleBoundaryBinding(
+        attempted,
+        "broadcast",
+        attempted.broadcastAttempts,
+        preparedTransaction.transactionHash
+      )
+    let broadcastAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
+    try {
+      broadcastAuthorization =
+        await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+          broadcastAuthorizationBinding
+        )
+    } catch (error) {
+      return this.applyPreBroadcastAuthorizationFailure(
+        current,
+        `Broadcast authorization failed before send: ${errorMessage(error)}`
+      )
+    }
+    try {
+      // Consume before the attempt CAS. The binding already names the projected
+      // version and attempt; a lost CAS burns this process-local capability but
+      // cannot send bytes or append an ambiguous acknowledgement.
+      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+        broadcastAuthorization,
+        broadcastAuthorizationBinding,
+        requireUnixMilliseconds(
+          this.now(),
+          "Broadcast authorization consumption time"
+        )
+      )
+    } catch (error) {
+      return this.applyPreBroadcastAuthorizationFailure(
+        current,
+        `Broadcast authorization was rejected before send: ${errorMessage(
+          error
+        )}`
+      )
+    }
+
+    // Persist the irreversible-attempt boundary before the external call. A
+    // crash from this point onward can only cause the exact same raw bytes to
+    // be sent again.
     if (
       !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
         key,
@@ -3303,27 +3346,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
 
     try {
-      const broadcastAuthorizationBinding =
-        this.buildIrreversibleBoundaryBinding(
-          attempted,
-          "broadcast",
-          attempted.broadcastAttempts,
-          preparedTransaction.transactionHash
-        )
-      const broadcastAuthorization =
-        await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
-          broadcastAuthorizationBinding
-        )
-      // This synchronous one-use check is intentionally the final operation
-      // before invoking the broadcaster with the exact persisted bytes.
-      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
-        broadcastAuthorization,
-        broadcastAuthorizationBinding,
-        requireUnixMilliseconds(
-          this.now(),
-          "Broadcast authorization consumption time"
-        )
-      )
       // A canonical rollback can win immediately after this durable send
       // boundary and before the provider call. No process-local check can
       // eliminate that external race. The store therefore treats an active
@@ -4404,6 +4426,26 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       lastError: requireReason(
         result.reason,
         "Challenge outbox pre-broadcast recheck reason"
+      ),
+    })
+    await this.store.compareAndSwap(current.recordID, current.version, next)
+    return this.requireRecord(current.recordID)
+  }
+
+  private async applyPreBroadcastAuthorizationFailure(
+    current: P2TRSignatureFraudChallengeOutboxRecord,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const nowUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Challenge outbox pre-broadcast authorization failure time"
+    )
+    const next = nextRecord(current, {
+      status: current.status,
+      updatedAtUnixMs: nowUnixMs,
+      lastError: requireReason(
+        reason,
+        "Challenge outbox pre-broadcast authorization failure"
       ),
     })
     await this.store.compareAndSwap(current.recordID, current.version, next)

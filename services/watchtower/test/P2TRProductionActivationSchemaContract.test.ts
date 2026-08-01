@@ -96,7 +96,7 @@ describe("production activation PostgreSQL schema contract", () => {
     )
     assert.match(
       activationStore,
-      /p2tr_candidate_enqueue_expected_authority\([\s\S]*?generation_authority_version[\s\S]*?expected_outbox_generation[\s\S]*?expected_outbox_disposition/
+      /p2tr_candidate_enqueue_expected_authority\([\s\S]*?generation_authority_version[\s\S]*?expected_outbox_series_id[\s\S]*?expected_outbox_generation[\s\S]*?expected_outbox_disposition/
     )
     assert.doesNotMatch(
       activationStore,
