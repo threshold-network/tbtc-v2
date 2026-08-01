@@ -2129,12 +2129,206 @@ postgresTest(
       `SELECT active_release_request_id AS active,
               unresolved_release_count AS unresolved
          FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-        WHERE singleton = true`
+        WHERE chain_id = $1
+          AND sender = decode($2, 'hex')`,
+      [CHAIN_ID, WALLET.address.slice(2)]
     )
     assert.deepEqual(barrier.rows[0], { active: null, unresolved: 0 })
 
     await restartedClient.end()
     await database.client.end()
+  }
+)
+
+postgresTest(
+  "serializes recovery and signer I/O per chain and sender",
+  async () => {
+    const multiLanePolicy = feePolicy(MANIFEST_HASH, true)
+    const database = await createTestDatabase(
+      1_024,
+      CHAIN_ID,
+      signerConfiguration(MANIFEST_HASH, multiLanePolicy.policyHash)
+    )
+    try {
+      await begin(database.client)
+      await database.store.installSignerLaneConfiguration(
+        secondarySignerConfiguration({ policyHash: multiLanePolicy.policyHash })
+      )
+      await commit(database.client)
+
+      const primary = {
+        ...outboxRecord(82),
+        feePolicyManifest: multiLanePolicy,
+      }
+      await insertRecord(database, primary)
+      const primaryReserved = await advanceToReservation(database, primary)
+      const primaryVoided: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...primaryReserved,
+        status: "queued",
+        version: primaryReserved.version + 1,
+        preparationLease: undefined,
+        preparationSender: undefined,
+        selectedLaneID: undefined,
+        selectedSignerIdentity: undefined,
+        reservedNonce: undefined,
+        nonceReservedAtUnixMs: undefined,
+        voidedNonceReservations: [
+          {
+            reservation: primaryReserved.reservedNonce!,
+            voidedAtUnixMs: 1_300,
+            reasonCode: "reservation-expired",
+            reason: "primary lane recovery remains pending",
+            evidenceDigest: `0x${"e1".repeat(32)}`,
+          },
+        ],
+        updatedAtUnixMs: 1_300,
+      }
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          primaryReserved.recordID,
+          primaryReserved.version,
+          primaryVoided
+        ),
+        true
+      )
+      await commit(database.client)
+
+      const secondary = {
+        ...outboxRecord(83),
+        feePolicyManifest: multiLanePolicy,
+      }
+      await insertRecord(database, secondary)
+      const secondarySelected: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...selectedRecord(secondary),
+        preparationSender: SECONDARY_WALLET.address,
+        selectedLaneID: "lane-b",
+        selectedSignerIdentity: "signer-b",
+      }
+      const secondaryReserved: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...reservedRecord(secondarySelected),
+        reservedNonce: {
+          ...reservedRecord(secondarySelected).reservedNonce!,
+          reservationID: Hex.from(`0x${"d2".repeat(32)}`),
+          laneID: "lane-b",
+          signerIdentity: "signer-b",
+          sender: SECONDARY_WALLET.address,
+        },
+      }
+      const secondaryBoundary = signerBoundaryRecord(secondaryReserved)
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          secondary.recordID,
+          secondary.version,
+          secondarySelected
+        ),
+        true
+      )
+      assert.equal(
+        await database.store.compareAndSwap(
+          secondarySelected.recordID,
+          secondarySelected.version,
+          secondaryReserved
+        ),
+        true
+      )
+      assert.equal(
+        await database.store.compareAndSwap(
+          secondaryReserved.recordID,
+          secondaryReserved.version,
+          secondaryBoundary
+        ),
+        true
+      )
+      await commit(database.client)
+
+      assert.equal(
+        await database.store.hasPendingNonceReleasesForLane(
+          CHAIN_ID,
+          WALLET.address
+        ),
+        true
+      )
+      assert.equal(
+        await database.store.hasPendingNonceReleasesForLane(
+          CHAIN_ID,
+          SECONDARY_WALLET.address
+        ),
+        false
+      )
+      const barriers = await database.client.query<{
+        sender: string
+        active: number
+        unresolved: number
+      }>(
+        `SELECT encode(sender, 'hex') AS sender,
+                active_signer_invocation_count AS active,
+                unresolved_release_count AS unresolved
+           FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+          ORDER BY sender`
+      )
+      assert.deepEqual(barriers.rows, [
+        {
+          sender: WALLET.address.slice(2).toLowerCase(),
+          active: 0,
+          unresolved: 1,
+        },
+        {
+          sender: SECONDARY_WALLET.address.slice(2).toLowerCase(),
+          active: 1,
+          unresolved: 0,
+        },
+      ].sort((left, right) => left.sender.localeCompare(right.sender)))
+
+      const pending = await database.store.listPendingNonceReleases({
+        limit: 10,
+      })
+      assert.equal(pending.requests.length, 1)
+      const releaseAttempt = await database.store.claimNonceReleaseAttempt(
+        pending.requests[0].releaseRequestID,
+        "lane-isolation-worker",
+        2_000,
+        3_000
+      )
+      assert.ok(releaseAttempt)
+      assert.equal(
+        await database.store.beginNonceReleaseAttempt(releaseAttempt, 2_100),
+        true
+      )
+      assert.equal(
+        await database.store.recordNonceReleaseAttemptResult(releaseAttempt, {
+          kind: "contract-mismatch",
+          responseDigest: `0x${"e2".repeat(32)}`,
+          returnedReleaseRequestID: pending.requests[0].releaseRequestID,
+          returnedReservationID:
+            secondaryReserved.reservedNonce!.reservationID.toPrefixedString(),
+          detail: "allocator returned another sender's reservation",
+          recordedAtUnixMs: 2_101,
+        }),
+        "ambiguous"
+      )
+      const blockedBarriers = await database.client.query<{
+        sender: string
+        blocked: boolean
+      }>(
+        `SELECT encode(sender, 'hex') AS sender,
+                contract_mismatch_blocked AS blocked
+           FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+          ORDER BY sender`
+      )
+      assert.deepEqual(
+        blockedBarriers.rows,
+        [WALLET, SECONDARY_WALLET]
+          .map((wallet) => ({
+            sender: wallet.address.slice(2).toLowerCase(),
+            blocked: true,
+          }))
+          .sort((left, right) => left.sender.localeCompare(right.sender))
+      )
+    } finally {
+      await database.client.end()
+    }
   }
 )
 
@@ -5181,6 +5375,61 @@ postgresTest(
 )
 
 postgresTest(
+  "quarantines an oversized initial signer capture without an expiring lease",
+  async () => {
+    const database = await createTestDatabase()
+    try {
+      const initial = outboxRecord(81)
+      await insertRecord(database, initial)
+      const reserved = await advanceToReservation(database, initial)
+      const boundary = signerBoundaryRecord(reserved)
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          reserved.recordID,
+          reserved.version,
+          boundary
+        ),
+        true
+      )
+      await commit(database.client)
+
+      const artifact = await escapedCaptureArtifact(boundary, {
+        capturedAtUnixMs: 2_100,
+        nonce: 7,
+        calldata: `0x${"ab".repeat(4_100)}`,
+      })
+      const captured = await createManagedStore(
+        database.client,
+        eligibilitySnapshotFor(initial)
+      ).captureEscapedSignedArtifact(
+        initial.recordID,
+        initial.canonicalProvenance.provenanceFingerprint,
+        artifact
+      )
+
+      assert.equal(captured.status, "quarantined")
+      assert.equal(captured.preparationLease, undefined)
+      assert.equal(captured.preparationResumeStatus, undefined)
+      assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+      assert.equal(captured.signerInvocationStartedAtUnixMs, 1_300)
+      assert.equal(captured.unexpectedSignedArtifacts?.length ?? 0, 0)
+      assert.equal(
+        captured.signerQuarantines?.at(-1)?.reasonCode,
+        "oversized-signed-envelope"
+      )
+      assert.equal(await database.store.hasExpiredPreparationLeases(50_000), false)
+      assert.equal(
+        (await database.store.get(initial.recordID))?.status,
+        "quarantined"
+      )
+    } finally {
+      await database.client.end()
+    }
+  }
+)
+
+postgresTest(
   "guards a chainless escaped signature on every configured sender chain",
   async () => {
     const database = await createTestDatabase()
@@ -5440,10 +5689,9 @@ postgresTest(
 // `activeSignerInvocationStartedAtUnixMs` is committed BEFORE boundary
 // authorization and therefore before the signer RPC. When the owning process
 // dies mid-call nothing in the normal recovery path may clear that marker —
-// lease expiry is not proof a remote call stopped — so the singleton
-// `active_signer_invocation_count` stays at one, every nonce release is blocked
-// store-wide, and challenge signing freezes on every lane. These tests drive
-// the out-of-band resolver that is the only way out.
+// lease expiry is not proof a remote call stopped — so the lane's
+// `active_signer_invocation_count` stays at one and that sender's nonce I/O is
+// blocked. These tests drive the out-of-band resolver that is the only way out.
 // ---------------------------------------------------------------------------
 
 const BOUNDARY_PROVIDER_DIGEST = `0x${"c7".repeat(32)}`
@@ -5576,9 +5824,8 @@ async function barrierSignerInvocationCount(
   database: TestDatabase
 ): Promise<number> {
   const result = await database.client.query<{ count: string }>(
-    `SELECT active_signer_invocation_count::text AS count
-       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-      WHERE singleton = true`
+    `SELECT coalesce(sum(active_signer_invocation_count), 0)::text AS count
+       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier`
   )
   return Number(result.rows[0].count)
 }
@@ -5625,7 +5872,7 @@ async function orphanedSignerBoundary(
 }
 
 postgresTest(
-  "clears an orphaned signer boundary and reopens store-wide nonce-release I/O",
+  "clears an orphaned signer boundary and reopens its nonce-release lane",
   async () => {
     const database = await createTestDatabase()
     const { initial, boundary } = await orphanedSignerBoundary(database, 210)
@@ -5644,7 +5891,7 @@ postgresTest(
     ])
 
     // While the orphan stands the record cannot even void its own reservation,
-    // which is what makes the freeze store-wide rather than record-local.
+    // which is what keeps this nonce lane closed rather than merely the record.
     const voidedAtUnixMs = 3_000
     const voided: P2TRSignatureFraudChallengeOutboxRecord = {
       ...boundary,
@@ -5705,7 +5952,7 @@ postgresTest(
     assert.equal(unblocked.payload.state.activationBlocked, false)
 
     // The same void is now admitted, and the release it creates can reach the
-    // allocator: the store-wide signer barrier is genuinely open again.
+    // allocator: this sender's signer barrier is genuinely open again.
     await begin(database.client)
     assert.equal(
       await database.store.compareAndSwap(cleared!.recordID, cleared!.version, {
@@ -5976,7 +6223,7 @@ postgresTest(
       /Orphaned signer boundary resolution requires a boundary with no signer escape evidence/
     )
     await database.client.query("ROLLBACK")
-    // The marker therefore still holds the store-wide barrier closed.
+    // The marker therefore still holds its nonce-lane barrier closed.
     assert.equal(await barrierSignerInvocationCount(database), 1)
     await database.client.end()
   }

@@ -481,6 +481,7 @@ ALTER TABLE p2tr_signature_fraud_challenge_signer_quarantine
             'wrong-sender',
             'wrong-nonce',
             'malformed-signed-envelope',
+            'oversized-signed-envelope',
             'invalid-replacement-envelope',
             'reservation-binding-mismatch',
             'reservation-provider-failure',

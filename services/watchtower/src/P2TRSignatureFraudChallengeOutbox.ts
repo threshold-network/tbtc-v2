@@ -764,10 +764,10 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
  * authorization and therefore before the signer RPC, so a lost owner leaves a
  * marker that nothing in the process-local recovery path may clear: lease
  * expiry is not proof that a remote call stopped. The marker keeps the
- * singleton `active_signer_invocation_count` at one, which blocks every
- * nonce-release invocation store-wide and freezes challenge signing on every
- * lane. Only an out-of-band, dual-attested observation of what the signer
- * actually did can resolve that, and this is that evidence.
+ * lane's `active_signer_invocation_count` above zero, which blocks allocator
+ * recovery and new signing only for that `(chainID, sender)`. Only an
+ * out-of-band, dual-attested observation of what the signer actually did can
+ * resolve that, and this is that evidence.
  */
 export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   recordID: string
@@ -1316,6 +1316,7 @@ export type P2TRSignatureFraudSignerQuarantine = {
     | "wrong-sender"
     | "wrong-nonce"
     | "malformed-signed-envelope"
+    | "oversized-signed-envelope"
     | "invalid-replacement-envelope"
     | "reservation-binding-mismatch"
     | "reservation-provider-failure"
@@ -1614,6 +1615,15 @@ export interface P2TRSignatureFraudChallengeOutboxStore
   isSignerQuarantined(chainID: number, signerIdentity: string): Promise<boolean>
   hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean>
   hasPendingNonceReleases(): Promise<boolean>
+  hasExpiredPreparationLeasesForLane(
+    chainID: number,
+    sender: string,
+    nowUnixMs: number
+  ): Promise<boolean>
+  hasPendingNonceReleasesForLane(
+    chainID: number,
+    sender: string
+  ): Promise<boolean>
   getNonceReleaseRequest(
     releaseRequestID: string
   ): Promise<P2TRSignatureFraudNonceReleaseRequest | undefined>
@@ -1621,8 +1631,8 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     request: P2TRSignatureFraudNonceReleasePageRequest
   ): Promise<P2TRSignatureFraudNonceReleasePage>
   /**
-   * Reconstructs the exact singleton barrier-owned invocation after restart.
-   * A still-live resultless call is not exposed for independent resolution.
+   * Reconstructs one exact lane-barrier-owned invocation after restart. A
+   * still-live resultless call is not exposed for independent resolution.
    */
   getActiveAmbiguousNonceReleaseInvocation(
     nowUnixMs: number
@@ -2286,7 +2296,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
     await this.assertVoidedReservationCapacity(current)
-    await this.assertRecoveryBarrier()
+    await this.establishRecoveryBarrierIfNeeded()
 
     const nowUnixMs = requireUnixMilliseconds(
       this.now(),
@@ -2348,6 +2358,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ) {
         continue
       }
+      if (
+        await this.hasRecoveryBacklogForLane(
+          laneClaim.intent.chainID,
+          candidate.transactionSender
+        )
+      ) {
+        continue
+      }
       const selectedAt = requireUnixMilliseconds(
         this.now(),
         "Challenge signer lane selection time"
@@ -2397,6 +2415,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       await this.store.compareAndSwap(key, laneClaim.version, unavailable)
       return this.requireRecord(key)
     }
+
+    await this.assertSelectedLaneRecoveryBarrier(laneClaim)
 
     let unvalidatedReservation: P2TRSignatureFraudBoundNonceReservation
     try {
@@ -2485,7 +2505,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge outbox signer invocation time"
     )
-    await this.assertRecoveryBarrier()
+    await this.assertSelectedLaneRecoveryBarrier(reserved)
     const signerBoundary = nextRecord(reserved, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
@@ -2765,7 +2785,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     ) {
       return current
     }
-    await this.assertRecoveryBarrier()
+    await this.establishRecoveryBarrierIfNeeded()
 
     let variants: readonly P2TRSignatureFraudPreparedTransactionVariant[]
     try {
@@ -2793,6 +2813,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       )
     }
     const selectedFeePolicy = feePolicyForPreparer(current, selectedPreparer)
+    await this.assertSelectedLaneRecoveryBarrier(current)
     if (variants.length >= P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_SIGNED_VARIANTS) {
       await this.store.saveCriticalAlert({
         code: "signed-variant-cap-exhausted",
@@ -2875,7 +2896,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge outbox replacement signer invocation time"
     )
-    await this.assertRecoveryBarrier()
+    await this.assertSelectedLaneRecoveryBarrier(claimed)
     const signerBoundary = nextRecord(claimed, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
@@ -3608,8 +3629,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     // The marker is established before asynchronous boundary authorization.
     // Lease expiry cannot prove that another replica's authorization or signer
     // call stopped. Only an independently attested provider outcome may clear
-    // the global signer-I/O barrier, so startup stays deliberately activation-
-    // blocked on this record until the store's out-of-band orphaned-boundary
+    // the lane-scoped signer-I/O barrier, so startup stays deliberately
+    // activation-blocked on this record until the store's out-of-band boundary
     // resolver (`resolveOrphanedSignerBoundary`) supplies that evidence.
     if (signerWasInvoked) return current
 
@@ -4293,22 +4314,58 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
   }
 
-  private async assertRecoveryBarrier(): Promise<void> {
-    if (!this.recoveryBarrierEstablished) {
-      await this.establishRecoveryBarrier()
-    }
+  private async establishRecoveryBarrierIfNeeded(): Promise<void> {
+    if (!this.recoveryBarrierEstablished) await this.establishRecoveryBarrier()
+  }
+
+  private async hasRecoveryBacklogForLane(
+    chainID: number,
+    sender: string
+  ): Promise<boolean> {
+    const nowUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Challenge recovery barrier time"
+    )
     const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
-      this.store.hasExpiredPreparationLeases(
+      this.store.hasExpiredPreparationLeasesForLane(
+        chainID,
+        sender,
+        nowUnixMs
+      ),
+      this.store.hasPendingNonceReleasesForLane(chainID, sender),
+    ])
+    return expiredPreparationLease || pendingNonceRelease
+  }
+
+  private async assertSelectedLaneRecoveryBarrier(
+    current: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<void> {
+    if (
+      current.selectedLaneID === undefined ||
+      current.selectedSignerIdentity === undefined ||
+      current.preparationSender === undefined
+    ) {
+      throw new Error(
+        "Challenge signing recovery barrier requires an exact selected signer lane"
+      )
+    }
+    await this.establishRecoveryBarrierIfNeeded()
+    const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
+      this.store.hasExpiredPreparationLeasesForLane(
+        current.intent.chainID,
+        current.preparationSender,
         requireUnixMilliseconds(this.now(), "Challenge recovery barrier time")
       ),
-      this.store.hasPendingNonceReleases(),
+      this.store.hasPendingNonceReleasesForLane(
+        current.intent.chainID,
+        current.preparationSender
+      ),
     ])
     if (expiredPreparationLease || pendingNonceRelease) {
-      this.recoveryBarrierEstablished = false
       throw new Error(
         pendingNonceRelease
-          ? "Challenge signing is blocked by an unacknowledged durable nonce release"
-          : "Challenge signing is blocked by an expired durable preparation lease"
+          ? "Challenge signing lane is blocked by an unacknowledged durable nonce release"
+          : "Challenge signing lane is blocked by an expired durable preparation lease"
       )
     }
   }
@@ -4339,18 +4396,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
     // Lease recovery can create new durable release requests.
     await recoverReleases()
-    const nowUnixMs = requireUnixMilliseconds(
-      this.now(),
-      "Challenge recovery barrier completion time"
-    )
-    if (
-      (await this.store.hasPendingNonceReleases()) ||
-      (await this.store.hasExpiredPreparationLeases(nowUnixMs))
-    ) {
-      throw new Error(
-        "Challenge signing is blocked by unresolved durable recovery work"
-      )
-    }
+    // Recovery is deliberately swept store-wide, but unresolved work closes
+    // only its exact `(chainID, sender)` nonce lane. Independent senders must
+    // remain able to meet their challenge windows.
     this.recoveryBarrierEstablished = true
   }
 

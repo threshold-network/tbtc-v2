@@ -2550,6 +2550,76 @@ test("reserves one durable sender lane before signing", async () => {
   assert.equal(results.filter(({ status }) => status === "queued").length, 1)
 })
 
+test("keeps unresolved recovery work scoped to its exact nonce lane", async () => {
+  const store = new InMemoryOutboxStore()
+  const foreignReleaseRecord = await enqueue(store, createIntent("ac"))
+  const foreignExpiredRecord = await enqueue(store, createIntent("ad"))
+  const target = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const foreignSender = "0x3333333333333333333333333333333333333333"
+  const foreignReservation = {
+    ...(await preparer.reserveSignatureFraudChallengeNonce(
+      foreignReleaseRecord.intent,
+      Hex.from(foreignReleaseRecord.recordID),
+      foreignReleaseRecord.generation,
+      1
+    )),
+    laneID: "lane.foreign",
+    signerIdentity: "signer.foreign",
+    sender: foreignSender,
+  }
+  const releaseRequestID = `0x${"91".repeat(32)}`
+  store.nonceReleaseRequests.set(releaseRequestID, {
+    releaseRequestID,
+    recordID: foreignReleaseRecord.recordID,
+    generation: foreignReleaseRecord.generation,
+    reservation: foreignReservation,
+    voidEvidenceDigest: `0x${"92".repeat(32)}`,
+    requestedAtUnixMs: 2_000,
+    attemptCount: 0,
+    ambiguous: false,
+  })
+  store.records.set(normalizeKey(foreignExpiredRecord.recordID), {
+    ...foreignExpiredRecord,
+    status: "preparing",
+    version: foreignExpiredRecord.version + 1,
+    preparationAttempts: 1,
+    preparationLease: { owner: "foreign-worker", expiresAtUnixMs: 3_000 },
+    preparationSender: foreignSender,
+    selectedLaneID: "lane.foreign",
+    selectedSignerIdentity: "signer.foreign",
+    updatedAtUnixMs: 2_000,
+  })
+
+  const prepared = await dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 40_000
+  ).prepare(target.recordID, "target-worker")
+
+  assert.equal(prepared.status, "prepared", prepared.lastError)
+  assert.equal(preparer.calls, 1)
+  assert.equal(await store.hasPendingNonceReleases(), true)
+  assert.equal(
+    await store.hasPendingNonceReleasesForLane(
+      target.intent.chainID,
+      preparer.transactionSender
+    ),
+    false
+  )
+  assert.equal(
+    await store.hasExpiredPreparationLeasesForLane(
+      target.intent.chainID,
+      preparer.transactionSender,
+      40_000
+    ),
+    false
+  )
+})
+
 test("blocks a signer claim when canonical provenance invalidation wins the shared lock", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -2883,6 +2953,60 @@ test("captures exact bytes when provenance invalidation wins after signer invoca
     ),
     true
   )
+})
+
+test("quarantines oversized initial signer metadata before lease expiry", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.rawTransaction = await preparer.wallet.signTransaction({
+    type: 2,
+    chainId: record.intent.chainID,
+    nonce: 7,
+    maxPriorityFeePerGas: 10,
+    maxFeePerGas: 100,
+    gasLimit: 1_000_000,
+    to: record.intent.routerAddress,
+    value: record.intent.value,
+    data: record.intent.calldata,
+    accessList: [
+      {
+        address: record.intent.routerAddress,
+        storageKeys: Array.from(
+          { length: 130 },
+          (_, index) => `0x${index.toString(16).padStart(64, "0")}`
+        ),
+      },
+    ],
+  })
+  preparer.transactionHash = utils.keccak256(preparer.rawTransaction)
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now
+  )
+
+  const captured = await outbox.prepare(record.recordID, "worker-oversized")
+
+  assert.equal(captured.status, "quarantined")
+  assert.equal(captured.preparationLease, undefined)
+  assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(captured.signerInvocationStartedAtUnixMs, 2_000)
+  assert.equal(captured.unexpectedSignedArtifacts?.length ?? 0, 0)
+  assert.ok(
+    ["malformed-signed-envelope", "oversized-signed-envelope"].includes(
+      captured.signerQuarantines?.at(-1)?.reasonCode ?? ""
+    )
+  )
+
+  now = 40_001
+  const recovery = await outbox.recoverExpiredPreparationLeases()
+  assert.equal(recovery.backlogRemaining, false)
+  assert.equal((await store.get(record.recordID))?.status, "quarantined")
 })
 
 test("journals recoverable signed bytes before rejecting response metadata", async () => {

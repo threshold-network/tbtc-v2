@@ -495,6 +495,65 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     return result.rows[0]?.exists === true
   }
 
+  async hasExpiredPreparationLeasesForLane(
+    chainID: number,
+    sender: string,
+    nowUnixMs: number
+  ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.hasExpiredPreparationLeasesForLane(chainID, sender, nowUnixMs)
+      )
+    }
+    this.assertSession()
+    const result = await this.options.session.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_outbox
+           WHERE status = 'preparing'
+             AND chain_id = $1
+             AND selected_sender = decode($2, 'hex')
+             AND preparation_lease_expires_at_unix_ms <= $3
+       ) AS exists`,
+      [
+        positiveSafeInteger(chainID, "Preparation recovery chain ID"),
+        stripHex(address(sender, "Preparation recovery sender")),
+        unixMilliseconds(nowUnixMs, "Preparation recovery time"),
+      ]
+    )
+    return result.rows[0]?.exists === true
+  }
+
+  async hasPendingNonceReleasesForLane(
+    chainID: number,
+    sender: string
+  ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.hasPendingNonceReleasesForLane(chainID, sender)
+      )
+    }
+    this.assertSession()
+    const result = await this.options.session.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_nonce_release_request r
+           WHERE r.chain_id = $1
+             AND r.sender = decode($2, 'hex')
+             AND NOT EXISTS (
+                   SELECT 1
+                     FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                    WHERE x.release_request_id = r.release_request_id
+                 )
+       ) AS exists`,
+      [
+        positiveSafeInteger(chainID, "Nonce-release recovery chain ID"),
+        stripHex(address(sender, "Nonce-release recovery sender")),
+      ]
+    )
+    return result.rows[0]?.exists === true
+  }
+
   async getNonceReleaseRequest(
     releaseRequestID: string
   ): Promise<P2TRSignatureFraudNonceReleaseRequest | undefined> {
@@ -599,23 +658,17 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
          LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_resolution rx
            ON rx.release_request_id = a.release_request_id
           AND rx.attempt_sequence = a.attempt_sequence
-        WHERE b.singleton = true
+        WHERE b.active_release_request_id IS NOT NULL
+        ORDER BY b.chain_id, b.sender
+        LIMIT 1
         FOR UPDATE OF b`
     )
-    if (result.rows.length !== 1) {
-      throw new Error("Nonce allocator safety barrier is absent or duplicated")
-    }
+    if (result.rows.length === 0) return undefined
     const row = result.rows[0]
     if (row.active_release_request_id === null) {
-      if (
-        row.active_release_attempt_sequence !== null ||
-        row.active_release_expires_at_unix_ms !== null
-      ) {
-        throw new Error(
-          "Nonce allocator safety barrier is internally inconsistent"
-        )
-      }
-      return undefined
+      throw new Error(
+        "Nonce allocator safety barrier is internally inconsistent"
+      )
     }
     if (
       row.active_release_attempt_sequence === null ||
@@ -1077,8 +1130,20 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           }:${prefixedHex(right.sender)}`
         )
       )
+      const mismatchBarrierLanes = [
+        ...new Map(
+          mismatchLanes.map((lane) => [
+            `${lane.chain_id}:${prefixedHex(lane.sender)}`,
+            lane,
+          ])
+        ).values(),
+      ].sort((left, right) =>
+        `${left.chain_id}:${prefixedHex(left.sender)}`.localeCompare(
+          `${right.chain_id}:${prefixedHex(right.sender)}`
+        )
+      )
       // Signer state transitions lock the outbox row, then its configured lane,
-      // then the global I/O barrier. Use that same total order for every lane
+      // then the lane I/O barrier. Use that same total order for every lane
       // affected by a malformed allocator acknowledgement so the post-I/O
       // evidence transaction cannot deadlock and roll itself back.
       for (const lane of mismatchLanes) {
@@ -1115,6 +1180,22 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         )
         if (laneLock.rows.length !== 1) {
           throw new Error("Mismatched nonce release lacks its configured lane")
+        }
+      }
+      for (const lane of mismatchBarrierLanes) {
+        const barrierLock = await this.options.session.query(
+          `SELECT 1
+             FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+            WHERE chain_id = $1
+              AND sender = decode($2, 'hex')
+            FOR UPDATE`,
+          [
+            databaseSafeInteger(lane.chain_id, "Mismatched release chain ID"),
+            stripHex(prefixedHex(lane.sender)),
+          ]
+        )
+        if (barrierLock.rows.length !== 1) {
+          throw new Error("Mismatched nonce release lacks its nonce-lane barrier")
         }
       }
     }
@@ -1173,6 +1254,20 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             stripHex(prefixedHex(lane.sender)),
             stripHex(responseDigest),
             recordedAtUnixMs,
+          ]
+        )
+        await this.options.session.query(
+          `UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+              SET incident_epoch = incident_epoch + CASE
+                      WHEN contract_mismatch_blocked THEN 0
+                      ELSE 1
+                  END,
+                  contract_mismatch_blocked = true
+            WHERE chain_id = $1
+              AND sender = decode($2, 'hex')`,
+          [
+            databaseSafeInteger(lane.chain_id, "Mismatched release chain ID"),
+            stripHex(prefixedHex(lane.sender)),
           ]
         )
       }
@@ -1514,10 +1609,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
    * the signer RPC, so nothing inside the process-local recovery path may clear
    * it — `recoverExpiredPreparation` deliberately refuses, because a lease
    * timeout is not proof that a remote call stopped. Meanwhile the marker holds
-   * the singleton `active_signer_invocation_count` at one, which blocks every
-   * nonce-release invocation store-wide and freezes challenge signing on every
-   * lane. Only out-of-band, dual-attested evidence of what the signer actually
-   * did can break that, and every effect below lands in one transaction.
+   * its lane's `active_signer_invocation_count` above zero, which blocks
+   * allocator recovery and new signing for that `(chainID, sender)`. Only
+   * out-of-band, dual-attested evidence of what the signer actually did can
+   * break that, and every effect below lands in one transaction.
    */
   async resolveOrphanedSignerBoundary(
     resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
@@ -1716,7 +1811,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
    * "stuck in authorization" from "signer call outstanding". Only the
    * boundary's owner witnesses authorization failing before signer I/O, and
    * that same first-person observation is already trusted to clear the
-   * singleton signer barrier. Retirement is therefore performed in the SAME
+   * lane-scoped signer barrier. Retirement is therefore performed in the SAME
    * transaction as the barrier-clearing swap: never resolve-then-clear (which
    * would unblock activation while the barrier is still live) and never
    * clear-then-resolve (which strands a permanently blocking incident).
@@ -2004,6 +2099,54 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         normalizedArtifact
       )
     }
+    const metadataOnlyCapture = !payloadRetained
+    if (metadataOnlyCapture) {
+      const reservationID = hexValue(
+        reservation.reservationID,
+        "Oversized signer reservation ID"
+      )
+      const hasBoundaryQuarantine = (
+        captureRecord.signerQuarantines ?? []
+      ).some(
+        (candidate) =>
+          candidate.reservationID !== undefined &&
+          hexValue(
+            candidate.reservationID,
+            "Signer quarantine reservation ID"
+          ) === reservationID
+      )
+      if (!hasBoundaryQuarantine) {
+        const quarantineReason = requireText(
+          "Signer returned a parseable envelope that exceeded the durable signed-transaction bound; only authenticated metadata was retained",
+          "Oversized signer quarantine reason",
+          1_024
+        )
+        const quarantineBase = {
+          laneID: reservation.laneID,
+          signerIdentity: reservation.signerIdentity,
+          expectedSender: address(
+            reservation.sender,
+            "Oversized signer expected sender"
+          ),
+          expectedNonce: reservation.nonce,
+          reservationID,
+          reasonCode: "oversized-signed-envelope" as const,
+          quarantinedAtUnixMs: normalizedArtifact.capturedAtUnixMs,
+          reason: quarantineReason,
+        }
+        captureRecord = {
+          ...captureRecord,
+          signerQuarantines: [
+            ...(captureRecord.signerQuarantines ?? []),
+            {
+              ...quarantineBase,
+              detailsDigest: hashStructured(quarantineBase),
+            },
+          ],
+        }
+        await this.syncSignerQuarantines(current, captureRecord)
+      }
+    }
     if (
       !alreadyCaptured &&
       current.provenanceInvalidationEvidence !== undefined
@@ -2030,15 +2173,21 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       ...captureRecord,
       version: current.version + 1,
       status:
-        current.provenanceInvalidationEvidence === undefined
-          ? current.status
-          : "provenance-invalidated-awaiting-reconciliation",
+        current.provenanceInvalidationEvidence !== undefined
+          ? "provenance-invalidated-awaiting-reconciliation"
+          : metadataOnlyCapture && current.preparationResumeStatus === undefined
+          ? "quarantined"
+          : metadataOnlyCapture
+          ? current.preparationResumeStatus ?? current.status
+          : current.status,
       preparationLease:
-        current.provenanceInvalidationEvidence === undefined
+        current.provenanceInvalidationEvidence === undefined &&
+        !metadataOnlyCapture
           ? current.preparationLease
           : undefined,
       preparationResumeStatus:
-        current.provenanceInvalidationEvidence === undefined
+        current.provenanceInvalidationEvidence === undefined &&
+        !metadataOnlyCapture
           ? current.preparationResumeStatus
           : undefined,
       updatedAtUnixMs: Math.max(
@@ -2054,6 +2203,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         : payloadRetained
         ? [...artifacts, normalizedArtifact]
         : artifacts,
+      lastError: metadataOnlyCapture
+        ? "Signer returned an oversized signed envelope; authenticated metadata was retained and the signer lane was quarantined"
+        : current.lastError,
     }
     assertCompactDurableOutboxRecord(next)
     const updated = await this.updateMutableState(current, next)
@@ -2646,9 +2798,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           SELECT 1
             FROM p2tr_signature_fraud_challenge_nonce_release_request r
            WHERE r.chain_id = $1
-             AND (r.signer_lane_id = $2
-                  OR r.signer_identity = $3
-                  OR r.sender = decode($4, 'hex'))
+             AND r.sender = decode($4, 'hex')
              AND NOT EXISTS (
                    SELECT 1
                      FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
@@ -2664,7 +2814,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         ) OR EXISTS (
           SELECT 1
             FROM p2tr_signature_fraud_challenge_critical_alert a
+            JOIN p2tr_signature_fraud_challenge_nonce_release_request r
+              ON r.record_id = a.record_id
            WHERE a.code = 'reservation-release-failed'
+             AND r.chain_id = $1
+             AND r.sender = decode($4, 'hex')
              AND NOT EXISTS (
                    SELECT 1
                      FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar

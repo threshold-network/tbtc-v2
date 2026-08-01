@@ -813,6 +813,11 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
     /CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier/
   )
   assert.match(migration, /unresolved_release_count integer NOT NULL DEFAULT 0/)
+  assert.match(migration, /PRIMARY KEY \(chain_id, sender\)/)
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_register_nonce_lane_barrier_trigger/
+  )
   assert.match(
     migration,
     /p2tr_signature_fraud_register_pending_nonce_release_trigger AFTER INSERT/
@@ -820,6 +825,10 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   assert.match(
     migration,
     /active_signer_invocation_count = active_signer_invocation_count \+ 1/
+  )
+  assert.match(
+    migration,
+    /WHERE chain_id = NEW\.chain_id\s+AND sender = NEW\.selected_sender/
   )
   assert.match(
     migration,
