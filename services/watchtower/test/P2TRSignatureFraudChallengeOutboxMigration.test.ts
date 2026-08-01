@@ -700,12 +700,21 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   )
 })
 
-test("resolves an orphaned signer boundary only on dual-attested evidence", () => {
+test("resolves an orphaned signer boundary only after a provider tombstone", () => {
   assert.match(
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
   )
-  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v1/)
+  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v2/)
+  assert.match(migration, /tbtc-p2tr-signer-invocation-v1/)
+  assert.match(
+    migration,
+    /signer_invocation_id bytea NOT NULL[\s\S]*?provider_tombstoned_at_unix_ms bigint[\s\S]*?provider_tombstone_receipt_digest bytea/
+  )
+  assert.match(
+    migration,
+    /outcome = 'never-invoked'[\s\S]*?provider_tombstoned_at_unix_ms IS NOT NULL[\s\S]*?provider_tombstone_receipt_digest IS NOT NULL/
+  )
   // The boundary tuple is the row identity, so evidence can never speak for a
   // boundary other than the one it names.
   assert.match(

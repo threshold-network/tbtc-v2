@@ -1292,7 +1292,12 @@ export class P2TRProductionActivationGate {
               }
             )
             return outcome
-          }
+          },
+          // A certificate can become stale when an outbox blocker commits
+          // after issuance. Acquire the exclusive pre-snapshot fence before
+          // BEGIN, revalidate live outbox health while locking the token, and
+          // keep every ordinary writer behind this enqueue commit.
+          { readinessFence: "exclusive" }
         )
       } catch (error) {
         const lastSQLState =

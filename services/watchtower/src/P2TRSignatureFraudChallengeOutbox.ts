@@ -773,6 +773,16 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   outcome: "never-invoked" | "signed" | "terminal-unsafe"
   /** Required exactly when the signer is proven to have produced bytes. */
   signedTransactionHash?: string
+  /**
+   * Required exactly for `never-invoked`. The provider must durably install
+   * this tombstone before issuing the authenticated receipt, and must reject
+   * any queued or future signer request carrying the invocation ID.
+   */
+  providerTombstone?: {
+    invocationID: string
+    tombstonedAtUnixMs: number
+    receiptDigest: string
+  }
   providerEvidenceDigest: string
   evidenceDigest: string
   canonicalAttestations: readonly [
@@ -780,6 +790,62 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
     P2TRSignatureFraudCanonicalEvidenceAttestation
   ]
   resolvedAtUnixMs: number
+}
+
+/**
+ * Derives the provider idempotency/tombstone key from state made durable before
+ * signer I/O. The same value is passed to the signer and bound into orphaned
+ * recovery evidence, so a tombstone for any other call cannot clear a marker.
+ */
+export const computeP2TRSignatureFraudSignerInvocationID = (binding: {
+  recordID: string
+  boundaryStartedAtUnixMs: number
+  preparationAttempts: number
+  nonceReservationID: string
+  stage: "prepare" | "replacement"
+}): string => {
+  if (!["prepare", "replacement"].includes(binding.stage)) {
+    throw new Error("Signer invocation stage is invalid")
+  }
+  const uint64 = (value: number, label: string): Buffer => {
+    requireNonNegativeSafeInteger(value, label)
+    const encoded = Buffer.alloc(8)
+    encoded.writeBigUInt64BE(BigInt(value))
+    return encoded
+  }
+  return `0x${createHash("sha256")
+    .update("tbtc-p2tr-signer-invocation-v1", "utf8")
+    .update(
+      Buffer.from(
+        normalizeBytes32(binding.recordID, "Signer invocation record ID").slice(
+          2
+        ),
+        "hex"
+      )
+    )
+    .update(
+      uint64(
+        binding.boundaryStartedAtUnixMs,
+        "Signer invocation boundary start"
+      )
+    )
+    .update(
+      uint64(
+        binding.preparationAttempts,
+        "Signer invocation preparation attempts"
+      )
+    )
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          binding.nonceReservationID,
+          "Signer invocation reservation ID"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .update(createHash("sha256").update(binding.stage, "utf8").digest())
+    .digest("hex")}`
 }
 
 export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
@@ -814,8 +880,18 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       "Signer-boundary resolution names signed bytes only for a signed outcome"
     )
   }
+  if (
+    (resolution.outcome === "never-invoked") !==
+    (resolution.providerTombstone !== undefined)
+  ) {
+    throw new Error(
+      "Signer-boundary never-invoked resolution requires an exact provider tombstone"
+    )
+  }
+  const signerInvocationID =
+    computeP2TRSignatureFraudSignerInvocationID(resolution)
   return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v1", "utf8")
+    .update("tbtc-p2tr-signer-boundary-independent-resolution-v2", "utf8")
     .update(
       Buffer.from(
         normalizeBytes32(
@@ -847,6 +923,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       )
     )
     .update(textDigest(resolution.stage, "Signer-boundary resolution stage"))
+    .update(Buffer.from(signerInvocationID.slice(2), "hex"))
     .update(
       uint64(
         resolution.invokedAtUnixMs,
@@ -876,6 +953,23 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
         "hex"
       )
     )
+    .update(
+      uint64(
+        resolution.providerTombstone?.tombstonedAtUnixMs ?? 0,
+        "Signer-boundary provider tombstone time"
+      )
+    )
+    .update(
+      resolution.providerTombstone === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              resolution.providerTombstone.receiptDigest,
+              "Signer-boundary provider tombstone receipt digest"
+            ).slice(2),
+            "hex"
+          )
+    )
     .digest("hex")}`
 }
 
@@ -893,6 +987,11 @@ export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   invokedAtUnixMs: number
   outcome: "never-invoked" | "signed" | "terminal-unsafe"
   signedTransactionHash?: string
+  providerTombstone?: {
+    invocationID: string
+    tombstonedAtUnixMs: number
+    receiptDigest: string
+  }
   providerEvidenceDigest: string
   evidenceDigest: string
   attestations: readonly [
@@ -954,6 +1053,50 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
           resolution.signedTransactionHash,
           "Orphaned signer boundary signed transaction hash"
         )
+  const expectedInvocationID = computeP2TRSignatureFraudSignerInvocationID({
+    recordID,
+    boundaryStartedAtUnixMs,
+    preparationAttempts,
+    nonceReservationID,
+    stage: resolution.stage,
+  })
+  let providerTombstone:
+    | P2TRSignatureFraudNormalizedSignerBoundaryResolution["providerTombstone"]
+    | undefined
+  if (resolution.outcome === "never-invoked") {
+    if (resolution.providerTombstone === undefined) {
+      throw new Error(
+        "Independent signer-boundary never-invoked resolution lacks a provider tombstone"
+      )
+    }
+    providerTombstone = {
+      invocationID: normalizeBytes32(
+        resolution.providerTombstone.invocationID,
+        "Orphaned signer boundary invocation ID"
+      ),
+      tombstonedAtUnixMs: requireUnixMilliseconds(
+        resolution.providerTombstone.tombstonedAtUnixMs,
+        "Orphaned signer boundary provider tombstone time"
+      ),
+      receiptDigest: normalizeBytes32(
+        resolution.providerTombstone.receiptDigest,
+        "Orphaned signer boundary provider tombstone receipt digest"
+      ),
+    }
+    if (
+      providerTombstone.invocationID !== expectedInvocationID ||
+      providerTombstone.tombstonedAtUnixMs < invokedAtUnixMs ||
+      providerTombstone.tombstonedAtUnixMs > resolvedAtUnixMs
+    ) {
+      throw new Error(
+        "Independent signer-boundary provider tombstone does not bind the exact invocation window"
+      )
+    }
+  } else if (resolution.providerTombstone !== undefined) {
+    throw new Error(
+      "Independent signer-boundary provider tombstone is only valid for never-invoked"
+    )
+  }
   const providerEvidenceDigest = normalizeBytes32(
     resolution.providerEvidenceDigest,
     "Orphaned signer boundary provider evidence digest"
@@ -972,6 +1115,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
       invokedAtUnixMs,
       outcome: resolution.outcome,
       signedTransactionHash,
+      providerTombstone,
       providerEvidenceDigest,
     }) !== evidenceDigest
   ) {
@@ -1037,6 +1181,11 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   if (
     normalizedPrimary.attestedAtUnixMs < invokedAtUnixMs ||
     normalizedCorroborating.attestedAtUnixMs < invokedAtUnixMs ||
+    (providerTombstone !== undefined &&
+      (normalizedPrimary.attestedAtUnixMs <
+        providerTombstone.tombstonedAtUnixMs ||
+        normalizedCorroborating.attestedAtUnixMs <
+          providerTombstone.tombstonedAtUnixMs)) ||
     normalizedPrimary.attestedAtUnixMs > resolvedAtUnixMs ||
     normalizedCorroborating.attestedAtUnixMs > resolvedAtUnixMs
   ) {
@@ -1053,6 +1202,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
     invokedAtUnixMs,
     outcome: resolution.outcome,
     signedTransactionHash,
+    providerTombstone,
     providerEvidenceDigest,
     evidenceDigest,
     attestations: [normalizedPrimary, normalizedCorroborating],
@@ -2315,6 +2465,17 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "prepare",
       signerBoundary.preparationAttempts
     )
+    const signerInvocationID = Hex.from(
+      computeP2TRSignatureFraudSignerInvocationID({
+        recordID: signerBoundary.recordID,
+        boundaryStartedAtUnixMs:
+          signerBoundary.activeSignerInvocationStartedAtUnixMs!,
+        preparationAttempts: signerBoundary.preparationAttempts,
+        nonceReservationID:
+          signerBoundary.reservedNonce!.reservationID.toString(),
+        stage: "prepare",
+      })
+    )
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       signerAuthorization =
@@ -2355,7 +2516,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         await selectedPreparer.prepareSignatureFraudChallengeTransaction(
           signerBoundary.intent,
           reservation,
-          selectedFeePolicy
+          selectedFeePolicy,
+          signerInvocationID
         )
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -2644,6 +2806,17 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "replacement",
       signerBoundary.preparationAttempts
     )
+    const signerInvocationID = Hex.from(
+      computeP2TRSignatureFraudSignerInvocationID({
+        recordID: signerBoundary.recordID,
+        boundaryStartedAtUnixMs:
+          signerBoundary.activeSignerInvocationStartedAtUnixMs!,
+        preparationAttempts: signerBoundary.preparationAttempts,
+        nonceReservationID:
+          signerBoundary.reservedNonce!.reservationID.toString(),
+        stage: "replacement",
+      })
+    )
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       signerAuthorization =
@@ -2681,7 +2854,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           signerBoundary.intent,
           current.reservedNonce,
           previous,
-          selectedFeePolicy
+          selectedFeePolicy,
+          signerInvocationID
         )
     } catch (error) {
       const failed = this.signerFailureRecord(

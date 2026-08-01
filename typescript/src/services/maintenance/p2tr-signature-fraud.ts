@@ -668,6 +668,18 @@ export type P2TRSignatureFraudSignerLaneIdentity = {
   transactionSender: string
 }
 
+/**
+ * Durable provider acknowledgement that one deterministic signer invocation
+ * has been tombstoned. A conforming signer MUST atomically reject both queued
+ * and future requests carrying the same invocation ID after issuing this
+ * receipt.
+ */
+export type P2TRSignatureFraudSignerInvocationTombstone = {
+  invocationID: Hex
+  tombstonedAtUnixMs: number
+  receiptDigest: Hex
+}
+
 /** Immutable activation-manifest fee/value envelope for one signer lane. */
 export type P2TRSignatureFraudChallengeTransactionFeePolicy = {
   policyHash: Hex
@@ -719,7 +731,9 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
   prepareSignatureFraudChallengeTransaction(
     intent: P2TRSignatureFraudSubmissionIntent,
     reservation: P2TRSignatureFraudBoundNonceReservation,
-    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    /** Deterministic idempotency key; tombstoned IDs MUST be rejected. */
+    signerInvocationID: Hex
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
 
   /**
@@ -731,8 +745,19 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
     intent: P2TRSignatureFraudSubmissionIntent,
     reservation: P2TRSignatureFraudBoundNonceReservation,
     previous: P2TRSignatureFraudPreparedChallengeTransaction,
-    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    /** Deterministic idempotency key; tombstoned IDs MUST be rejected. */
+    signerInvocationID: Hex
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
+
+  /**
+   * Durably prevents a delayed or retried signer request from ever executing.
+   * The operation MUST be idempotent by `signerInvocationID`, and the receipt
+   * must be provider-authenticated so orphan recovery can verify it locally.
+   */
+  tombstoneSignatureFraudSignerInvocation(
+    signerInvocationID: Hex
+  ): Promise<P2TRSignatureFraudSignerInvocationTombstone>
 }
 
 const p2trSignatureFraudRouterInterface = new utils.Interface([

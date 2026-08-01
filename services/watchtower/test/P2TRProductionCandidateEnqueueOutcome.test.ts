@@ -121,6 +121,7 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.guards.length, 1)
     assert.equal(journal.resolutions.length, 1)
     assert.equal(journal.resolutions[0].outcomeKind, "enqueued")
+    assert.deepEqual(coordinator.readinessFences, ["shared", "exclusive"])
     assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 0)
     await assert.rejects(
@@ -314,6 +315,7 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID = STORE_ID
   commits = 0
   rollbacks = 0
+  readonly readinessFences: Array<"shared" | "exclusive"> = []
   private active = false
   private staged: Array<() => void> = []
   private readonly sequence?: string[]
@@ -325,9 +327,11 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   }
 
   async runInP2TRSignatureFraudWatchtowerTransaction<T>(
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    options: { readinessFence?: "shared" | "exclusive" } = {}
   ): Promise<T> {
     if (this.active) return operation()
+    this.readinessFences.push(options.readinessFence ?? "shared")
     this.active = true
     this.staged = []
     try {

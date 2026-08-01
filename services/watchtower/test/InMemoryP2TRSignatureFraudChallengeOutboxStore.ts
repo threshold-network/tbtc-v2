@@ -125,6 +125,11 @@ export class InMemoryOutboxStore
       outcome: "never-invoked" | "signed" | "terminal-unsafe"
       evidenceDigest: string
       signedTransactionHash?: string
+      providerTombstone?: {
+        invocationID: string
+        tombstonedAtUnixMs: number
+        receiptDigest: string
+      }
       resolvedAtUnixMs: number
     }
   >()
@@ -552,6 +557,7 @@ export class InMemoryOutboxStore
         outcome: normalized.outcome,
         evidenceDigest: normalized.evidenceDigest,
         signedTransactionHash: normalized.signedTransactionHash,
+        providerTombstone: normalized.providerTombstone,
         resolvedAtUnixMs: normalized.resolvedAtUnixMs,
       })
     }

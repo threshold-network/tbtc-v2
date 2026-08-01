@@ -70,6 +70,7 @@ import {
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
+  computeP2TRSignatureFraudSignerInvocationID,
   invalidateP2TRSignatureFraudCanonicalProvenance,
   quarantineLegacyP2TRSignatureFraudSubmissions,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
@@ -409,6 +410,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   readonly wallet = new Wallet(`0x${"42".repeat(32)}`)
   calls = 0
   replacementCalls = 0
+  readonly initialInvocationIDs: string[] = []
+  readonly replacementInvocationIDs: string[] = []
+  readonly tombstonedInvocationIDs = new Set<string>()
   reservationCalls = 0
   releasedReservations: string[] = []
   readonly acknowledgedReleaseRequests = new Set<string>()
@@ -517,8 +521,14 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   async prepareSignatureFraudChallengeTransaction(
     intent: P2TRSignatureFraudSubmissionIntent,
     _reservation: P2TRSignatureFraudBoundNonceReservation,
-    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    signerInvocationID: Hex
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    const invocationID = signerInvocationID.toPrefixedString()
+    if (this.tombstonedInvocationIDs.has(invocationID)) {
+      throw new Error("signer invocation is tombstoned")
+    }
+    this.initialInvocationIDs.push(invocationID)
     this.calls++
     await Promise.resolve()
     const prepared = {
@@ -536,8 +546,14 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     intent: P2TRSignatureFraudSubmissionIntent,
     _reservation: P2TRSignatureFraudBoundNonceReservation,
     _previous: P2TRSignatureFraudPreparedChallengeTransaction,
-    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    signerInvocationID: Hex
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    const invocationID = signerInvocationID.toPrefixedString()
+    if (this.tombstonedInvocationIDs.has(invocationID)) {
+      throw new Error("signer invocation is tombstoned")
+    }
+    this.replacementInvocationIDs.push(invocationID)
     this.replacementCalls++
     await Promise.resolve()
     const prepared = {
@@ -549,6 +565,18 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     }
     await this.afterReplacementSign?.(prepared)
     return prepared
+  }
+
+  async tombstoneSignatureFraudSignerInvocation(signerInvocationID: Hex) {
+    const invocationID = signerInvocationID.toPrefixedString()
+    this.tombstonedInvocationIDs.add(invocationID)
+    return {
+      invocationID: signerInvocationID,
+      tombstonedAtUnixMs: 1_900,
+      receiptDigest: Hex.from(
+        utils.keccak256(utils.toUtf8Bytes(`tombstone:${invocationID}`))
+      ),
+    }
   }
 }
 
@@ -2899,6 +2927,30 @@ test("appends fee replacements and reconciles every same-nonce hash", async () =
   const preparer = new FixedPreparer()
   const broadcaster = new RecordingBroadcaster()
   const reconciler = new FixedReconciler()
+  let expectedInitialInvocationID: string | undefined
+  let expectedReplacementInvocationID: string | undefined
+  preparer.afterInitialSign = async () => {
+    const boundary = await store.get(record.recordID)
+    expectedInitialInvocationID = computeP2TRSignatureFraudSignerInvocationID({
+      recordID: boundary!.recordID,
+      boundaryStartedAtUnixMs: boundary!.activeSignerInvocationStartedAtUnixMs!,
+      preparationAttempts: boundary!.preparationAttempts,
+      nonceReservationID: boundary!.reservedNonce!.reservationID.toString(),
+      stage: "prepare",
+    })
+  }
+  preparer.afterReplacementSign = async () => {
+    const boundary = await store.get(record.recordID)
+    expectedReplacementInvocationID =
+      computeP2TRSignatureFraudSignerInvocationID({
+        recordID: boundary!.recordID,
+        boundaryStartedAtUnixMs:
+          boundary!.activeSignerInvocationStartedAtUnixMs!,
+        preparationAttempts: boundary!.preparationAttempts,
+        nonceReservationID: boundary!.reservedNonce!.reservationID.toString(),
+        stage: "replacement",
+      })
+  }
   const outbox = dispatcher(
     store,
     preparer,
@@ -2912,6 +2964,10 @@ test("appends fee replacements and reconciles every same-nonce hash", async () =
   const replaced = await outbox.prepareReplacement(record.recordID, "worker-b")
   assert.equal(replaced.status, "broadcast-pending")
   assert.equal(preparer.replacementCalls, 1)
+  assert.deepEqual(preparer.initialInvocationIDs, [expectedInitialInvocationID])
+  assert.deepEqual(preparer.replacementInvocationIDs, [
+    expectedReplacementInvocationID,
+  ])
   assert.deepEqual(
     replaced.preparedTransactionVariants?.map((variant) => ({
       sequence: variant.sequence,

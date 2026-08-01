@@ -1712,6 +1712,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         octet_length(nonce_reservation_id) = 32
     ),
     stage text NOT NULL CHECK (stage IN ('prepare', 'replacement')),
+    signer_invocation_id bytea NOT NULL CHECK (
+        octet_length(signer_invocation_id) = 32
+    ),
     invoked_at_unix_ms bigint NOT NULL CHECK (
         invoked_at_unix_ms BETWEEN boundary_started_at_unix_ms
             AND 9007199254740991
@@ -1722,6 +1725,15 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     signed_transaction_hash bytea CHECK (
         signed_transaction_hash IS NULL
         OR octet_length(signed_transaction_hash) = 32
+    ),
+    provider_tombstoned_at_unix_ms bigint CHECK (
+        provider_tombstoned_at_unix_ms IS NULL
+        OR provider_tombstoned_at_unix_ms BETWEEN invoked_at_unix_ms
+            AND 9007199254740991
+    ),
+    provider_tombstone_receipt_digest bytea CHECK (
+        provider_tombstone_receipt_digest IS NULL
+        OR octet_length(provider_tombstone_receipt_digest) = 32
     ),
     provider_evidence_digest bytea NOT NULL CHECK (
         octet_length(provider_evidence_digest) = 32
@@ -1771,6 +1783,18 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     -- Signed bytes are named exactly when, and only when, the signer is proven
     -- to have produced them.
     CHECK ((outcome = 'signed') = (signed_transaction_hash IS NOT NULL)),
+    -- Absence observations alone cannot stop a delayed queued request. The
+    -- provider tombstone must already be durable before `never-invoked` can
+    -- clear the database boundary.
+    CHECK (
+        (outcome = 'never-invoked'
+         AND provider_tombstoned_at_unix_ms IS NOT NULL
+         AND provider_tombstone_receipt_digest IS NOT NULL)
+        OR
+        (outcome <> 'never-invoked'
+         AND provider_tombstoned_at_unix_ms IS NULL
+         AND provider_tombstone_receipt_digest IS NULL)
+    ),
     CHECK (primary_trust_domain_id <> corroborating_trust_domain_id),
     CHECK (primary_evidence_digest = resolution_evidence_digest),
     CHECK (corroborating_evidence_digest = resolution_evidence_digest),
@@ -1822,9 +1846,21 @@ BEGIN
             'orphaned signer boundary resolution does not name the durable signer stage';
     END IF;
 
+    IF NEW.signer_invocation_id <> sha256(
+           convert_to('tbtc-p2tr-signer-invocation-v1', 'UTF8')
+           || NEW.record_id
+           || int8send(NEW.boundary_started_at_unix_ms)
+           || int8send(NEW.preparation_attempts::bigint)
+           || NEW.nonce_reservation_id
+           || sha256(convert_to(NEW.stage, 'UTF8'))
+       ) THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary tombstone does not name the deterministic invocation';
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
-               'tbtc-p2tr-signer-boundary-independent-resolution-v1',
+               'tbtc-p2tr-signer-boundary-independent-resolution-v2',
                'UTF8'
            )
            || NEW.record_id
@@ -1832,6 +1868,7 @@ BEGIN
            || int8send(NEW.preparation_attempts::bigint)
            || NEW.nonce_reservation_id
            || sha256(convert_to(NEW.stage, 'UTF8'))
+           || NEW.signer_invocation_id
            || int8send(NEW.invoked_at_unix_ms)
            || sha256(convert_to(NEW.outcome, 'UTF8'))
            || COALESCE(
@@ -1839,13 +1876,24 @@ BEGIN
                   decode(repeat('00', 32), 'hex')
               )
            || NEW.provider_evidence_digest
+           || int8send(COALESCE(NEW.provider_tombstoned_at_unix_ms, 0))
+           || COALESCE(
+                  NEW.provider_tombstone_receipt_digest,
+                  decode(repeat('00', 32), 'hex')
+              )
        ) THEN
         RAISE EXCEPTION
             'orphaned signer boundary resolution digest is invalid';
     END IF;
 
-    IF NEW.primary_attested_at_unix_ms < NEW.invoked_at_unix_ms
-       OR NEW.corroborating_attested_at_unix_ms < NEW.invoked_at_unix_ms
+    IF NEW.primary_attested_at_unix_ms < GREATEST(
+           NEW.invoked_at_unix_ms,
+           COALESCE(NEW.provider_tombstoned_at_unix_ms, 0)
+       )
+       OR NEW.corroborating_attested_at_unix_ms < GREATEST(
+           NEW.invoked_at_unix_ms,
+           COALESCE(NEW.provider_tombstoned_at_unix_ms, 0)
+       )
        OR NEW.primary_attested_at_unix_ms > NEW.resolved_at_unix_ms
        OR NEW.corroborating_attested_at_unix_ms > NEW.resolved_at_unix_ms THEN
         RAISE EXCEPTION
@@ -1853,6 +1901,10 @@ BEGIN
     END IF;
 
     IF NEW.outcome = 'never-invoked' THEN
+        IF NEW.provider_tombstoned_at_unix_ms > NEW.resolved_at_unix_ms THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary provider tombstone falls outside the resolution window';
+        END IF;
         escaped :=
             outbox_record.signer_invocation_started_at_unix_ms IS NOT NULL
             OR outbox_record.prepared_transaction_hash IS NOT NULL

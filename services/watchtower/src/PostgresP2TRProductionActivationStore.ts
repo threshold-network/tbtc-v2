@@ -1020,7 +1020,32 @@ export class PostgresP2TRProductionActivationStore
                 certified_ethereum.current_block_hash
           AND certified_ethereum_block.history_root =
                 certificate.ethereum_history_root
+         JOIN LATERAL
+              p2tr_signature_fraud_outbox_activation_revalidation(
+                authorization.manifest_hash,
+                floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
+              ) outbox_health ON true
         WHERE token_id = $1
+          -- The certificate can remain structurally current while a later
+          -- outbox write introduces a fail-closed blocker. Candidate
+          -- consumption runs behind the exclusive pre-snapshot fence, so this
+          -- complete live revalidation is stable through the enqueue commit.
+          AND outbox_health.activation_blocking_critical_alert_count = 0
+          AND outbox_health.ambiguous_transaction_count = 0
+          AND outbox_health.unresolved_legacy_quarantine_count = 0
+          AND outbox_health.recovery_backlog_count <=
+                (manifest.payload #>> '{outbox,maxRecoveryBacklog}')::bigint
+          AND outbox_health.configured_signer_lane_count =
+                (certificate.payload #>>
+                  '{outboxHandshake,state,configuredSignerLaneCount}')::bigint
+          AND outbox_health.configured_signer_lane_set_hash =
+                certificate.payload #>>
+                  '{outboxHandshake,state,configuredSignerLaneSetHash}'
+          AND outbox_health.quarantined_signer_lane_count = 0
+          AND outbox_health.active_old_manifest_generation_count = 0
+          AND outbox_health.stale_manifest_generation_successor_count = 0
+          AND outbox_health.active_signer_invocation_count = 0
+          AND outbox_health.active_nonce_release_attempt_count = 0
           AND certified_generation.generation_id = (
             SELECT max(generation_id)
               FROM p2tr_canonical_generations

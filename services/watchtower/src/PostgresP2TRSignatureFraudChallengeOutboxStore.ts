@@ -39,6 +39,7 @@ import {
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
+  computeP2TRSignatureFraudSignerInvocationID,
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
@@ -102,8 +103,11 @@ export type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions = {
   /**
    * Pure, local verification boundary for orphaned signer recovery. It must
    * authenticate both attestations and their exact provider evidence without
-   * network or database I/O; this callback runs while the outbox row is
-   * locked and before any durable resolution evidence is appended.
+   * network or database I/O. For `never-invoked`, that includes the provider's
+   * durable tombstone receipt and a guarantee that the signer rejects every
+   * queued or future request carrying the deterministic invocation ID. This
+   * callback runs while the outbox row is locked and before any durable
+   * resolution evidence is appended.
    */
   assertIndependentSignerBoundaryResolution(
     record: P2TRSignatureFraudChallengeOutboxRecord,
@@ -1575,8 +1579,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
           record_id, boundary_started_at_unix_ms, preparation_attempts,
-          nonce_reservation_id, stage, invoked_at_unix_ms, outcome,
-          signed_transaction_hash, provider_evidence_digest,
+          nonce_reservation_id, stage, signer_invocation_id,
+          invoked_at_unix_ms, outcome, signed_transaction_hash,
+          provider_tombstoned_at_unix_ms,
+          provider_tombstone_receipt_digest, provider_evidence_digest,
           resolution_evidence_digest, primary_trust_domain_id,
           primary_independence_domain_id, primary_evidence_digest,
           primary_attestation, primary_attested_at_unix_ms,
@@ -1585,11 +1591,14 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           corroborating_evidence_digest, corroborating_attestation,
           corroborating_attested_at_unix_ms, resolved_at_unix_ms
        ) VALUES (
-          decode($1, 'hex'), $2, $3, decode($4, 'hex'), $5, $6, $7,
-          CASE WHEN $8::text IS NULL THEN NULL ELSE decode($8, 'hex') END,
-          decode($9, 'hex'), decode($10, 'hex'), $11, $12,
-          decode($10, 'hex'), decode($13, 'hex'), $14, $15, $16,
-          decode($10, 'hex'), decode($17, 'hex'), $18, $19
+          decode($1, 'hex'), $2, $3, decode($4, 'hex'), $5,
+          decode($6, 'hex'), $7, $8,
+          CASE WHEN $9::text IS NULL THEN NULL ELSE decode($9, 'hex') END,
+          $10,
+          CASE WHEN $11::text IS NULL THEN NULL ELSE decode($11, 'hex') END,
+          decode($12, 'hex'), decode($13, 'hex'), $14, $15,
+          decode($13, 'hex'), decode($16, 'hex'), $17, $18, $19,
+          decode($13, 'hex'), decode($20, 'hex'), $21, $22
        )`,
       [
         stripHex(normalized.recordID),
@@ -1597,11 +1606,19 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         normalized.preparationAttempts,
         stripHex(normalized.nonceReservationID),
         normalized.stage,
+        stripHex(
+          normalized.providerTombstone?.invocationID ??
+            computeP2TRSignatureFraudSignerInvocationID(normalized)
+        ),
         normalized.invokedAtUnixMs,
         normalized.outcome,
         normalized.signedTransactionHash === undefined
           ? null
           : stripHex(normalized.signedTransactionHash),
+        normalized.providerTombstone?.tombstonedAtUnixMs ?? null,
+        normalized.providerTombstone === undefined
+          ? null
+          : stripHex(normalized.providerTombstone.receiptDigest),
         stripHex(normalized.providerEvidenceDigest),
         stripHex(normalized.evidenceDigest),
         primary.trustDomainID,

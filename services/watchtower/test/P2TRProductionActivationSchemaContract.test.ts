@@ -214,6 +214,16 @@ describe("production activation PostgreSQL schema contract", () => {
       lock,
       /certified_generation\.generation_id = \([\s\S]*?SELECT max\(generation_id\)/
     )
+    assert.match(
+      lock,
+      /p2tr_signature_fraud_outbox_activation_revalidation\([\s\S]*?activation_blocking_critical_alert_count = 0[\s\S]*?ambiguous_transaction_count = 0[\s\S]*?recovery_backlog_count <=[\s\S]*?configured_signer_lane_set_hash =[\s\S]*?active_signer_invocation_count = 0[\s\S]*?active_nonce_release_attempt_count = 0/
+    )
+    const enqueue = methodSource(
+      activationGate,
+      "runCandidateEnqueueTransactionWithRetry",
+      "readVerifiedEthereum"
+    )
+    assert.match(enqueue, /readinessFence: "exclusive"/)
     assert.doesNotMatch(lock, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(lock, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
   })

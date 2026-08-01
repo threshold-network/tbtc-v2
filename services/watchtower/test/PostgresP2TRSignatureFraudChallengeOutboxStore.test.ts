@@ -33,6 +33,7 @@ import {
   computeP2TRSignatureFraudEthereumEligibilityReadSetHash,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
+  computeP2TRSignatureFraudSignerInvocationID,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
 import {
   P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA,
@@ -3726,6 +3727,7 @@ for (const scenario of escapedCaptureParityScenarios) {
 // ---------------------------------------------------------------------------
 
 const BOUNDARY_PROVIDER_DIGEST = `0x${"c7".repeat(32)}`
+const BOUNDARY_TOMBSTONE_RECEIPT_DIGEST = `0x${"d8".repeat(32)}`
 const BOUNDARY_SIGNED_HASH = `0x${"5a".repeat(32)}`
 
 type BoundaryAttestationMode =
@@ -3745,6 +3747,9 @@ type BoundaryResolutionOverrides = {
   outcome?: "never-invoked" | "signed" | "terminal-unsafe"
   signedTransactionHash?: string
   providerEvidenceDigest?: string
+  providerTombstone?:
+    | P2TRSignatureFraudIndependentSignerBoundaryResolution["providerTombstone"]
+    | undefined
   resolvedAtUnixMs?: number
   attestedAtUnixMs?: number
   attestationMode?: BoundaryAttestationMode
@@ -3794,7 +3799,7 @@ function boundaryResolution(
   overrides: BoundaryResolutionOverrides = {}
 ): P2TRSignatureFraudIndependentSignerBoundaryResolution {
   const outcome = overrides.outcome ?? "never-invoked"
-  const binding = {
+  const invocationBinding = {
     recordID: overrides.recordID ?? record.recordID,
     boundaryStartedAtUnixMs:
       overrides.boundaryStartedAtUnixMs ??
@@ -3806,6 +3811,9 @@ function boundaryResolution(
       overrides.nonceReservationID ??
       record.reservedNonce!.reservationID.toPrefixedString(),
     stage: overrides.stage ?? ("prepare" as const),
+  }
+  const binding = {
+    ...invocationBinding,
     invokedAtUnixMs: overrides.invokedAtUnixMs ?? 1_310,
     outcome,
     signedTransactionHash:
@@ -3813,6 +3821,17 @@ function boundaryResolution(
         ? overrides.signedTransactionHash
         : outcome === "signed"
         ? BOUNDARY_SIGNED_HASH
+        : undefined,
+    providerTombstone:
+      "providerTombstone" in overrides
+        ? overrides.providerTombstone
+        : outcome === "never-invoked"
+        ? {
+            invocationID:
+              computeP2TRSignatureFraudSignerInvocationID(invocationBinding),
+            tombstonedAtUnixMs: 1_900,
+            receiptDigest: BOUNDARY_TOMBSTONE_RECEIPT_DIGEST,
+          }
         : undefined,
     providerEvidenceDigest:
       overrides.providerEvidenceDigest ?? BOUNDARY_PROVIDER_DIGEST,
@@ -4006,6 +4025,10 @@ postgresTest(
         authenticationCalls++
         assert.equal(record.recordID, boundary.recordID)
         assert.equal(
+          resolution.providerTombstone?.receiptDigest,
+          BOUNDARY_TOMBSTONE_RECEIPT_DIGEST
+        )
+        assert.equal(
           resolution.evidenceDigest,
           boundaryResolution(boundary).evidenceDigest
         )
@@ -4026,6 +4049,42 @@ postgresTest(
          FROM p2tr_signature_fraud_challenge_signer_boundary_resolution`
     )
     assert.equal(evidence.rows[0].count, "0")
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "requires an exact provider tombstone before clearing an orphaned boundary",
+  async () => {
+    const database = await createTestDatabase()
+    const { boundary } = await orphanedSignerBoundary(database, 241)
+    const valid = boundaryResolution(boundary)
+
+    await assert.rejects(
+      database.store.resolveOrphanedSignerBoundary({
+        ...valid,
+        providerTombstone: undefined,
+      }),
+      /never-invoked resolution lacks a provider tombstone/
+    )
+    await assert.rejects(
+      database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary, {
+          providerTombstone: {
+            ...valid.providerTombstone!,
+            invocationID: `0x${"ef".repeat(32)}`,
+          },
+        })
+      ),
+      /provider tombstone does not bind the exact invocation window/
+    )
+    await assert.rejects(
+      database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary, { attestedAtUnixMs: 1_800 })
+      ),
+      /attestations fall outside the invocation window/
+    )
+    assert.equal(await barrierSignerInvocationCount(database), 1)
     await database.client.end()
   }
 )
@@ -4106,8 +4165,10 @@ postgresTest(
       await database.client.query(
         `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
             record_id, boundary_started_at_unix_ms, preparation_attempts,
-            nonce_reservation_id, stage, invoked_at_unix_ms, outcome,
-            provider_evidence_digest, resolution_evidence_digest,
+            nonce_reservation_id, stage, signer_invocation_id,
+            invoked_at_unix_ms, outcome, provider_tombstoned_at_unix_ms,
+            provider_tombstone_receipt_digest, provider_evidence_digest,
+            resolution_evidence_digest,
             primary_trust_domain_id, primary_independence_domain_id,
             primary_evidence_digest, primary_attestation,
             primary_attested_at_unix_ms, corroborating_trust_domain_id,
@@ -4115,11 +4176,12 @@ postgresTest(
             corroborating_evidence_digest, corroborating_attestation,
             corroborating_attested_at_unix_ms, resolved_at_unix_ms
          ) VALUES (
-            decode($1, 'hex'), $2, $3, decode($4, 'hex'), $5, $6,
-            'never-invoked', decode($7, 'hex'), decode($8, 'hex'),
-            'signer-primary', 'signer-primary-infra', decode($8, 'hex'),
+            decode($1, 'hex'), $2, $3, decode($4, 'hex'), $5,
+            decode($6, 'hex'), $7, 'never-invoked', $8,
+            decode($9, 'hex'), decode($10, 'hex'), decode($11, 'hex'),
+            'signer-primary', 'signer-primary-infra', decode($11, 'hex'),
             decode('01', 'hex'), 2000, 'signer-corroborating',
-            'signer-corroborating-infra', decode($8, 'hex'),
+            'signer-corroborating-infra', decode($11, 'hex'),
             decode('02', 'hex'), 2000, 2400
          )`,
         [
@@ -4128,7 +4190,10 @@ postgresTest(
           resolution.preparationAttempts,
           resolution.nonceReservationID.slice(2),
           resolution.stage,
+          resolution.providerTombstone!.invocationID.slice(2),
           resolution.invokedAtUnixMs,
+          resolution.providerTombstone!.tombstonedAtUnixMs,
+          resolution.providerTombstone!.receiptDigest.slice(2),
           resolution.providerEvidenceDigest.slice(2),
           evidenceDigest.slice(2),
         ]
