@@ -914,7 +914,10 @@ export class PostgresP2TRProductionActivationStore
           input_wallet_id, input_output_key, input_binding_kind,
           input_binding_source_event_id, candidate_provenance_generation,
           provenance_fingerprint, readiness_certificate_id,
-          readiness_certificate_generation, expires_at)
+          readiness_certificate_generation, expires_at,
+          generation_authority_version, expected_outbox_generation,
+          expected_outbox_disposition, expected_outbox_predecessor_id,
+          expected_outbox_evidence_id)
        SELECT $1, $2, $3,
               eligible.observation_id, eligible.challenge_key,
               $4, $5, eligible.input_index, $6, $7, $8, $9, $10, $11,
@@ -926,14 +929,39 @@ export class PostgresP2TRProductionActivationStore
               eligible.provenance_fingerprint,
               eligible.readiness_certificate_id,
               eligible.readiness_certificate_generation,
-              $12::timestamptz
+              $12::timestamptz, 1, authority.expected_generation,
+              authority.expected_disposition,
+              authority.expected_predecessor_id,
+              authority.expected_evidence_id
          FROM eligible_observation eligible
+         CROSS JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+           eligible.observation_id,
+           eligible.challenge_key,
+           $4,
+           $5,
+           eligible.input_index,
+           eligible.input_output_key,
+           eligible.input_binding_kind,
+           eligible.funding_txid,
+           eligible.funding_vout
+         ) authority
         WHERE $12::timestamptz > clock_timestamp()
           AND $12::timestamptz <=
               clock_timestamp() + ($13 * interval '1 millisecond')
           AND NOT EXISTS (
-            SELECT 1 FROM p2tr_candidate_enqueue_authorizations
-             WHERE candidate_digest = $3 AND consumed_at IS NOT NULL
+            SELECT 1
+              FROM p2tr_candidate_enqueue_authorizations prior
+             WHERE prior.candidate_digest = $3
+               AND prior.consumed_at IS NOT NULL
+               AND (
+                 prior.generation_authority_version = 0
+                 OR (
+                   prior.expected_outbox_generation =
+                     authority.expected_generation
+                   AND prior.expected_outbox_disposition =
+                     authority.expected_disposition
+                 )
+               )
           )`,
       [
         hexBuffer(normalized.tokenID, "candidate token"),
@@ -1047,6 +1075,17 @@ export class PostgresP2TRProductionActivationStore
                 authz.manifest_hash,
                 floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
               ) outbox_health ON true
+         JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+              authz.observation_id,
+              authz.challenge_key,
+              authz.txid,
+              authz.wtxid,
+              authz.input_index,
+              authz.input_output_key,
+              authz.input_binding_kind,
+              authz.funding_txid,
+              authz.funding_vout
+              ) expected_authority ON true
         WHERE token_id = $1
           -- The certificate can remain structurally current while a later
           -- outbox write invalidates durable candidate authority. Candidate
@@ -1061,6 +1100,15 @@ export class PostgresP2TRProductionActivationStore
           AND outbox_health.configured_signer_lane_set_hash =
                 certificate.payload #>>
                   '{outboxHandshake,state,configuredSignerLaneSetHash}'
+          AND authz.generation_authority_version = 1
+          AND authz.expected_outbox_generation =
+                expected_authority.expected_generation
+          AND authz.expected_outbox_disposition =
+                expected_authority.expected_disposition
+          AND authz.expected_outbox_predecessor_id IS NOT DISTINCT FROM
+                expected_authority.expected_predecessor_id
+          AND authz.expected_outbox_evidence_id IS NOT DISTINCT FROM
+                expected_authority.expected_evidence_id
           AND certified_generation.generation_id = (
             SELECT max(generation_id)
               FROM p2tr_canonical_generations
@@ -1107,7 +1155,120 @@ export class PostgresP2TRProductionActivationStore
           )
           AND consumed_at IS NULL
           AND invalidated_at IS NULL
-          AND expires_at > clock_timestamp()`,
+          AND expires_at > clock_timestamp()
+          AND generation_authority_version = 1
+          AND EXISTS (
+            SELECT 1
+              FROM p2tr_signature_fraud_challenge_outbox outbox
+             WHERE outbox.record_id = $2
+               AND outbox.observation_id =
+                     p2tr_candidate_enqueue_authorizations.observation_id
+               AND outbox.bridge_challenge_key =
+                     p2tr_candidate_enqueue_authorizations.challenge_key
+               AND outbox.bitcoin_tx_hash =
+                     p2tr_candidate_enqueue_authorizations.txid
+               AND outbox.bitcoin_wtxid =
+                     p2tr_candidate_enqueue_authorizations.wtxid
+               AND outbox.bitcoin_input_index =
+                     p2tr_candidate_enqueue_authorizations.input_index
+               AND outbox.signing_key =
+                     p2tr_candidate_enqueue_authorizations.input_output_key
+               AND outbox.binding_tx_hash = CASE
+                     p2tr_candidate_enqueue_authorizations.input_binding_kind
+                     WHEN 'registered-wallet-output'
+                       THEN decode(repeat('00', 32), 'hex')
+                     WHEN 'deposit-binding'
+                       THEN p2tr_reverse_bytea(
+                         p2tr_candidate_enqueue_authorizations.funding_txid
+                       )
+                   END
+               AND outbox.binding_output_index = CASE
+                     p2tr_candidate_enqueue_authorizations.input_binding_kind
+                     WHEN 'registered-wallet-output' THEN 0
+                     WHEN 'deposit-binding'
+                       THEN p2tr_candidate_enqueue_authorizations.funding_vout
+                   END
+               AND (
+                 (
+                   expected_outbox_generation <= 31
+                   AND outbox.generation = expected_outbox_generation
+                   AND outbox.activation_manifest_hash =
+                         p2tr_candidate_enqueue_authorizations.manifest_hash
+                   AND (
+                     (
+                       expected_outbox_disposition = 'initial'
+                       AND outbox.generation = 0
+                       AND outbox.previous_record_id IS NULL
+                       AND outbox.generation_cause IS NULL
+                     )
+                     OR (
+                       expected_outbox_disposition = 'nonce-disposition'
+                       AND outbox.previous_record_id =
+                             expected_outbox_predecessor_id
+                       AND outbox.generation_cause IN (
+                             'finalized-revert',
+                             'finalized-nonce-consumed'
+                           )
+                       AND outbox.prior_nonce_disposition_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition =
+                             'canonical-reappearance'
+                       AND outbox.previous_record_id =
+                             expected_outbox_predecessor_id
+                       AND outbox.generation_cause =
+                             'canonical-reappearance'
+                       AND outbox.prior_cancellation_evidence_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition = 'provenance-restored'
+                       AND outbox.previous_record_id =
+                             expected_outbox_predecessor_id
+                       AND outbox.generation_cause = 'provenance-restored'
+                       AND outbox.prior_provenance_invalidation_id =
+                             expected_outbox_evidence_id
+                     )
+                   )
+                 )
+                 OR (
+                   expected_outbox_generation = 32
+                   AND outbox.generation = 31
+                   AND outbox.record_id = expected_outbox_predecessor_id
+                   AND (
+                     (
+                       expected_outbox_disposition = 'nonce-disposition'
+                       AND outbox.status = 'generation-required'
+                       AND outbox.nonce_disposition_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition =
+                             'canonical-reappearance'
+                       AND outbox.status = 'cancelled-reorg'
+                       AND outbox.cancellation_evidence_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition = 'provenance-restored'
+                       AND outbox.status =
+                             'cancelled-provenance-invalidated'
+                       AND outbox.provenance_invalidation_id =
+                             expected_outbox_evidence_id
+                     )
+                   )
+                   AND EXISTS (
+                     SELECT 1
+                       FROM p2tr_signature_fraud_challenge_critical_alert alert
+                      WHERE alert.record_id = outbox.record_id
+                        AND alert.generation = outbox.generation
+                        AND alert.code = 'generation-cap-exhausted'
+                        AND alert.activation_blocking = true
+                   )
+                 )
+               )
+          )`,
       [
         hexBuffer(tokenID, "candidate token"),
         hexBuffer(outboxIntentID, "outbox intent ID"),

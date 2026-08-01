@@ -52,6 +52,7 @@ describe(
           "003_p2tr_signature_fraud_challenge_outbox.sql",
           "004_p2tr_candidate_enqueue_retry_alerts.sql",
           "005_p2tr_deposit_binding_byte_order.sql",
+          "006_p2tr_candidate_enqueue_generation_authority.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -236,12 +237,16 @@ describe(
                    input_binding_source_event_id,
                    candidate_provenance_generation, provenance_fingerprint,
                    readiness_certificate_id,
-                   readiness_certificate_generation, expires_at
+                   readiness_certificate_generation, expires_at,
+                   generation_authority_version,
+                   expected_outbox_generation,
+                   expected_outbox_disposition
                  ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, 0, 0, $8, 0, $9,
                    500, $10, $11, $12, 0, $13, $14,
                    'registered-wallet-output', $15, 1, $16, $17, $18,
-                   clock_timestamp() + interval '1 minute'
+                   clock_timestamp() + interval '1 minute',
+                   1, 0, 'initial'
                  )`,
               [
                 bytes(tokenID),

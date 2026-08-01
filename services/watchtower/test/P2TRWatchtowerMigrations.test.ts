@@ -127,6 +127,23 @@ describe("P2TR watchtower migration transaction ownership", () => {
     assert.equal(client.releasedWith, undefined)
   })
 
+  it("fences canonical writers before opening the migration snapshot", async () => {
+    const migration = migrationFor("SELECT 1;")
+    const client = new MigrationClient(migration)
+    await runP2TRWatchtowerMigrations(poolFor(client), [migration])
+
+    const begin = client.queries.indexOf("BEGIN ISOLATION LEVEL SERIALIZABLE")
+    const preSnapshotFence = client.queries.indexOf(
+      "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+    )
+    const legacyWriterFence = client.queries.indexOf(
+      "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-snapshot', 0))"
+    )
+    assert.ok(preSnapshotFence >= 0)
+    assert.ok(legacyWriterFence > preSnapshotFence)
+    assert.ok(begin > legacyWriterFence)
+  })
+
   it("destroys the session when BEGIN outcome is unknown", async () => {
     const migration = migrationFor("SELECT 1;")
     const client = new MigrationClient(migration, { fail: "BEGIN" })
@@ -239,6 +256,9 @@ class MigrationClient implements P2TRWatchtowerMigrationClient {
     if (text === "COMMIT") this.committed = true
     if (text.includes("pg_try_advisory_lock")) {
       return { rows: [{ locked: true }] as Row[], rowCount: 1 }
+    }
+    if (text.includes("current_setting('lock_timeout')")) {
+      return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }
     }
     if (text.includes("pg_advisory_unlock")) {
       return {

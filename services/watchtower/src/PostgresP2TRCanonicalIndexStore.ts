@@ -215,6 +215,28 @@ export const isP2TRPostgresTransactionConfirmedAbortError = (
 ): value is P2TRPostgresTransactionConfirmedAbortError =>
   value instanceof P2TRPostgresTransactionConfirmedAbortError
 
+/**
+ * Process-local signal that PostgreSQL may have committed even though the
+ * client did not receive a COMMIT response. Callers must not retry the work or
+ * write a rollback-only disposition for this outcome.
+ */
+export class P2TRPostgresTransactionUnknownOutcomeError extends Error {
+  readonly transactionOutcome = "unknown" as const
+
+  constructor(readonly postgresError: Error) {
+    super(
+      `PostgreSQL COMMIT failed; transaction outcome is unknown: ${postgresError.message}`,
+      { cause: postgresError }
+    )
+    this.name = "P2TRPostgresTransactionUnknownOutcomeError"
+  }
+}
+
+export const isP2TRPostgresTransactionUnknownOutcomeError = (
+  value: unknown
+): value is P2TRPostgresTransactionUnknownOutcomeError =>
+  value instanceof P2TRPostgresTransactionUnknownOutcomeError
+
 type P2TRPostgresTransactionAttempt = {
   confirmedAbort?: {
     sqlState: P2TRRetryablePostgresSQLState
@@ -289,6 +311,8 @@ export class PostgresP2TRCanonicalIndexStore
    */
   private readonly ownConfirmedAborts =
     new WeakSet<P2TRPostgresTransactionConfirmedAbortError>()
+  private readonly ownUnknownOutcomes =
+    new WeakSet<P2TRPostgresTransactionUnknownOutcomeError>()
 
   constructor(
     private readonly pool: P2TRPostgresPool,
@@ -479,6 +503,15 @@ export class PostgresP2TRCanonicalIndexStore
     return error.sqlState
   }
 
+  isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+    error: unknown
+  ): boolean {
+    return (
+      isP2TRPostgresTransactionUnknownOutcomeError(error) &&
+      this.ownUnknownOutcomes.has(error)
+    )
+  }
+
   isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
     return this.transaction.getStore() !== undefined
   }
@@ -649,8 +682,8 @@ export class PostgresP2TRCanonicalIndexStore
             "PostgreSQL COMMIT failed"
           )
           releaseError = commitError
-          throw new Error(
-            `PostgreSQL COMMIT failed; transaction outcome is unknown: ${commitError.message}`
+          throw this.ownUnknownOutcome(
+            new P2TRPostgresTransactionUnknownOutcomeError(commitError)
           )
         }
         throw error
@@ -6120,6 +6153,13 @@ export class PostgresP2TRCanonicalIndexStore
     error: P2TRPostgresTransactionConfirmedAbortError
   ): P2TRPostgresTransactionConfirmedAbortError {
     this.ownConfirmedAborts.add(error)
+    return error
+  }
+
+  private ownUnknownOutcome(
+    error: P2TRPostgresTransactionUnknownOutcomeError
+  ): P2TRPostgresTransactionUnknownOutcomeError {
+    this.ownUnknownOutcomes.add(error)
     return error
   }
 }

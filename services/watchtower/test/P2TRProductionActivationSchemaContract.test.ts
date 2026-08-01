@@ -25,6 +25,13 @@ const outboxMigration = readFileSync(
   ),
   "utf8"
 )
+const generationAuthorityMigration = readFileSync(
+  new URL(
+    "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -86,6 +93,18 @@ describe("production activation PostgreSQL schema contract", () => {
     assert.match(
       activationStore,
       /provenance\.source_event_id ~\*[\s\S]*?'\^\(0x\)\?\[0-9a-f\]\{64\}\$'/
+    )
+    assert.match(
+      activationStore,
+      /p2tr_candidate_enqueue_expected_authority\([\s\S]*?generation_authority_version[\s\S]*?expected_outbox_generation[\s\S]*?expected_outbox_disposition/
+    )
+    assert.doesNotMatch(
+      activationStore,
+      /WHERE candidate_digest = \$3 AND consumed_at IS NOT NULL/
+    )
+    assert.match(
+      generationAuthorityMigration,
+      /DROP INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx/
     )
   })
 
@@ -273,6 +292,13 @@ describe("production activation PostgreSQL schema contract", () => {
       "readVerifiedEthereum"
     )
     assert.match(enqueue, /readinessFence: "exclusive"/)
+    const issuance = methodSource(
+      activationGate,
+      "assertCandidateReconciledUnderAuthority",
+      "consumeCandidateAuthorization"
+    )
+    assert.match(issuance, /issueCandidateAuthorization\(receipt\)/)
+    assert.match(issuance, /readinessFence: "exclusive"/)
     assert.doesNotMatch(lock, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(lock, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
   })

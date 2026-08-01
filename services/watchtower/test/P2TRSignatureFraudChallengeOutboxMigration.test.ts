@@ -26,6 +26,13 @@ const candidateEnqueueRetryMigration = readFileSync(
   new URL("004_p2tr_candidate_enqueue_retry_alerts.sql", migrationsURL),
   "utf8"
 ).replace(/\s+/g, " ")
+const candidateEnqueueGenerationAuthorityMigration = readFileSync(
+  new URL(
+    "006_p2tr_candidate_enqueue_generation_authority.sql",
+    migrationsURL
+  ),
+  "utf8"
+).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -60,6 +67,41 @@ test("leaves transaction ownership to the ordered migration runner", () => {
   if (canonicalJournalIndex !== -1) {
     assert.ok(canonicalJournalIndex < challengeOutboxIndex)
   }
+})
+
+test("binds candidate authority to an exact successor generation", () => {
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\)/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /VALIDATE CONSTRAINT p2tr_candidate_observation_binding_matches_funding/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_generation/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_disposition/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /generation-required[\s\S]*?head_record\.generation \+ 1/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_predecessor_id/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_evidence_id/
+  )
+  assert.doesNotMatch(
+    candidateEnqueueGenerationAuthorityMigration,
+    /UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx/
+  )
 })
 
 test("stores append-only evidence generations linked to an exact predecessor", () => {

@@ -843,6 +843,9 @@ export type P2TRProductionTransactionCoordinator = {
   ):
     | P2TRProductionCandidateEnqueueRetryExhaustionAlert["lastSQLState"]
     | undefined
+  isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+    error: unknown
+  ): boolean
   isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
 }
 
@@ -1187,7 +1190,11 @@ export class P2TRProductionActivationGate {
       async () => {
         await this.dependencies.stateStore.assertCandidateIndexed(normalized)
         await this.dependencies.stateStore.issueCandidateAuthorization(receipt)
-      }
+      },
+      // Generation authority is derived from the current outbox head. Exclude
+      // ordinary outbox writers before BEGIN so issuance cannot retain a
+      // snapshot from before a concurrently committed head disposition.
+      { readinessFence: "exclusive" }
     )
     this.candidateTokens.set(token, { receipt, consumed: false })
     return token
@@ -1313,6 +1320,16 @@ export class P2TRProductionActivationGate {
           { readinessFence: "exclusive" }
         )
       } catch (error) {
+        if (
+          this.dependencies.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+            error
+          )
+        ) {
+          // The enqueue, authorization consumption, and guard resolution may
+          // all have committed. Preserve the original ambiguous outcome and
+          // leave the durable guard for operator/restart reconciliation.
+          throw error
+        }
         const lastSQLState =
           this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
             error

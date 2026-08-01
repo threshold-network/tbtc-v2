@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import {
   assertP2TRVerifiedLiveCoreCandidateEvidence,
   type P2TRVerifiedLiveCoreCandidateEvidence,
@@ -33,7 +34,8 @@ export type P2TRSignatureFraudVerifiedBoundaryEvidence = {
  */
 export interface P2TRSignatureFraudVerifiedBoundaryEvidenceProvider {
   acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
-    binding: P2TRSignatureFraudIrreversibleBoundaryBinding
+    binding: P2TRSignatureFraudIrreversibleBoundaryBinding,
+    requestNonce: string
   ): Promise<P2TRSignatureFraudVerifiedBoundaryEvidence>
 }
 
@@ -56,6 +58,7 @@ type PendingAuthorization = {
   binding: NormalizedBoundaryBinding
   reconcilerAttestation: P2TRVerifiedReconcilerCandidateAttestation
   liveCoreEvidence: P2TRVerifiedLiveCoreCandidateEvidence
+  requestNonce: string
   minimumExportFenceExclusive: number
   authorizedAtUnixMs: number
   exportFence: number
@@ -74,7 +77,9 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
 
   constructor(
     private readonly provider: P2TRSignatureFraudVerifiedBoundaryEvidenceProvider,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly createRequestNonce: () => string = () =>
+      randomBytes(32).toString("hex")
   ) {
     if (
       provider === undefined ||
@@ -91,9 +96,14 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     bindingValue: P2TRSignatureFraudIrreversibleBoundaryBinding
   ): Promise<P2TRSignatureFraudIrreversibleBoundaryAuthorization> {
     const binding = normalizeBoundaryBinding(bindingValue)
+    const requestNonce = bytes32(
+      this.createRequestNonce(),
+      "Boundary reconciler request nonce"
+    )
     const evidence =
       await this.provider.acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
-        binding
+        binding,
+        requestNonce
       )
     const nowUnixMs = nonNegativeSafeInteger(
       this.now(),
@@ -112,7 +122,7 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     const payload = assertP2TRVerifiedReconcilerCandidateAttestation(
       evidence.reconcilerAttestation,
       {
-        requestNonce: evidence.reconcilerAttestation.payload.requestNonce,
+        requestNonce,
         requestBindingDigest,
         minimumExportFenceExclusive,
         nowUnixMs,
@@ -148,6 +158,7 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
       binding,
       reconcilerAttestation: evidence.reconcilerAttestation,
       liveCoreEvidence: evidence.liveCoreEvidence,
+      requestNonce,
       minimumExportFenceExclusive,
       authorizedAtUnixMs: nowUnixMs,
       exportFence: payload.export.exportFence,
@@ -194,7 +205,7 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     const payload = assertP2TRVerifiedReconcilerCandidateAttestation(
       pending.reconcilerAttestation,
       {
-        requestNonce: pending.reconcilerAttestation.payload.requestNonce,
+        requestNonce: pending.requestNonce,
         requestBindingDigest,
         minimumExportFenceExclusive: pending.minimumExportFenceExclusive,
         nowUnixMs,

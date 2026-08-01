@@ -124,6 +124,10 @@ async function createTestDatabase(
       "../migrations/005_p2tr_deposit_binding_byte_order.sql",
       import.meta.url
     ),
+    new URL(
+      "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
+      import.meta.url
+    ),
   ]) {
     await client.query(await readFile(migration, "utf8"))
   }
@@ -1319,11 +1323,12 @@ async function insertCandidateEnqueueGuard(
           input_binding_kind, input_binding_source_event_id,
           candidate_provenance_generation, provenance_fingerprint,
           readiness_certificate_id, readiness_certificate_generation,
-          expires_at
+          expires_at, generation_authority_version,
+          expected_outbox_generation, expected_outbox_disposition
      ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
           $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 1,
-          clock_timestamp() + interval '1 minute'
+          clock_timestamp() + interval '1 minute', 1, 0, 'initial'
      )`,
     [
       hexBuffer(tokenID),
@@ -2837,7 +2842,26 @@ postgresTest(
     // Reconstruct v3 and make both normalized deposit hashes legacy
     // display-order values without manufacturing replacement signed intents.
     await database.client.query(
-      `ALTER TABLE p2tr_bitcoin_candidate_observations
+      `DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
+         ON p2tr_candidate_enqueue_authorizations;
+       DROP FUNCTION p2tr_candidate_enqueue_generation_authority_guard();
+       DROP INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx;
+       CREATE UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx
+         ON p2tr_candidate_enqueue_authorizations (candidate_digest)
+         WHERE consumed_at IS NOT NULL;
+       DROP FUNCTION p2tr_candidate_enqueue_expected_authority(
+         bytea, bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
+       );
+       ALTER TABLE p2tr_candidate_enqueue_authorizations
+         DROP CONSTRAINT p2tr_candidate_enqueue_generation_authority_shape,
+         DROP COLUMN generation_authority_version,
+         DROP COLUMN expected_outbox_generation,
+         DROP COLUMN expected_outbox_disposition,
+         DROP COLUMN expected_outbox_predecessor_id,
+         DROP COLUMN expected_outbox_evidence_id;
+       DELETE FROM p2tr_watchtower_schema_version
+        WHERE component = 'candidate-enqueue-generation-authority';
+       ALTER TABLE p2tr_bitcoin_candidate_observations
          DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
        ALTER TABLE p2tr_bitcoin_candidate_observations
          ADD CONSTRAINT p2tr_candidate_observation_legacy_binding
@@ -2986,6 +3010,44 @@ postgresTest(
         WHERE singleton = true`
     )
     await database.client.query("SET session_replication_role = origin")
+
+    const successorAuthority = await database.client.query<{
+      expected_generation: number
+      expected_disposition: string
+      expected_predecessor_id: Buffer
+      expected_evidence_id: Buffer
+    }>(
+      `SELECT *
+         FROM p2tr_candidate_enqueue_expected_authority(
+           decode($1, 'hex'), decode($2, 'hex'),
+           decode($3, 'hex'), decode($4, 'hex'), $5,
+           decode($6, 'hex'), $7, decode($8, 'hex'), $9
+         )`,
+      [
+        record.intent.observationID.toPrefixedString().slice(2),
+        record.intent.bridgeChallengeKey.toPrefixedString().slice(2),
+        record.evidenceCheckpoint.bitcoinTxHash.slice(2),
+        record.evidenceCheckpoint.bitcoinWitnessTxHash.slice(2),
+        record.evidenceCheckpoint.bitcoinInputIndex,
+        record.canonicalProvenance.inputOutputKey.slice(2),
+        record.canonicalProvenance.inputBindingKind,
+        record.canonicalProvenance.fundingTxid.slice(2),
+        record.canonicalProvenance.fundingVout,
+      ]
+    )
+    assert.equal(successorAuthority.rows[0].expected_generation, 1)
+    assert.equal(
+      successorAuthority.rows[0].expected_disposition,
+      "nonce-disposition"
+    )
+    assert.equal(
+      successorAuthority.rows[0].expected_predecessor_id.toString("hex"),
+      record.recordID.slice(2)
+    )
+    assert.equal(
+      successorAuthority.rows[0].expected_evidence_id.toString("hex"),
+      "e9".repeat(32)
+    )
 
     await beginSerializable(database.client)
     const pending = await activationProvider(

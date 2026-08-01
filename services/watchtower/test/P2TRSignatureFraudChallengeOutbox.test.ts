@@ -1887,6 +1887,9 @@ test("carries the real scheduler generation-cap outcome through the activation g
     readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState() {
       return undefined
     },
+    isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown() {
+      return false
+    },
     isP2TRSignatureFraudWatchtowerTransactionActive() {
       return active
     },

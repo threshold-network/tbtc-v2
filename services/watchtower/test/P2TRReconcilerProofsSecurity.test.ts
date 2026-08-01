@@ -535,11 +535,19 @@ function boundaryAuthorizer(
 ): P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer {
   return new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
     {
-      async acquireVerifiedP2TRSignatureFraudBoundaryEvidence() {
+      async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
+        _binding,
+        requestNonce
+      ) {
+        assert.equal(
+          requestNonce,
+          evidence.reconcilerAttestation.payload.requestNonce
+        )
         return evidence
       },
     },
-    now
+    now,
+    () => evidence.reconcilerAttestation.payload.requestNonce
   )
 }
 
@@ -964,6 +972,37 @@ describe("irreversible outbox boundary authorization", () => {
     )
   })
 
+  it("rejects a cached attestation that does not echo the boundary nonce", async () => {
+    const fixture = makeProofFixture()
+    const evidence = await makeVerifiedBoundaryEvidence(fixture)
+    const binding = irreversibleBinding(fixture)
+    let requestedNonce: string | undefined
+    const authorizer =
+      new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
+        {
+          async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
+            _binding,
+            requestNonce
+          ) {
+            requestedNonce = requestNonce
+            return evidence
+          },
+        },
+        () => NOW,
+        () => hex32("0")
+      )
+
+    await assert.rejects(
+      authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(binding),
+      /stale or for another attempt/
+    )
+    assert.equal(requestedNonce, hex32("0"))
+    assert.notEqual(
+      requestedNonce,
+      evidence.reconcilerAttestation.payload.requestNonce
+    )
+  })
+
   it("rejects forged, wrong-stage, wrong-attempt, and stale capabilities", async () => {
     const fixture = makeProofFixture()
     const evidence = await makeVerifiedBoundaryEvidence(fixture)
@@ -1080,7 +1119,14 @@ describe("irreversible outbox boundary authorization", () => {
             return binding.recordVersion === 4 ? firstEvidence : secondEvidence
           },
         },
-        () => NOW
+        () => NOW,
+        (() => {
+          const nonces = [
+            firstEvidence.reconcilerAttestation.payload.requestNonce,
+            secondEvidence.reconcilerAttestation.payload.requestNonce,
+          ]
+          return () => nonces.shift() ?? hex32("0")
+        })()
       )
     const firstBinding = irreversibleBinding(firstFixture)
     const secondBinding = irreversibleBinding(secondFixture)

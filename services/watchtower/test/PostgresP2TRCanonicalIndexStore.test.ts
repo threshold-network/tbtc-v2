@@ -10,6 +10,7 @@ import {
   calculateP2TREvidenceObjectDigest,
   calculateP2TRReadinessExportStreamLeafDigest,
   isP2TRPostgresTransactionConfirmedAbortError,
+  isP2TRPostgresTransactionUnknownOutcomeError,
   PostgresP2TRCanonicalIndexStore,
   verifyP2TRReadinessExportObjectFrames,
 } from "../src/PostgresP2TRCanonicalIndexStore.js"
@@ -383,6 +384,12 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       (error) => {
         assert.match(String(error), /transaction outcome is unknown/)
         assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), false)
+        assert.equal(isP2TRPostgresTransactionUnknownOutcomeError(error), true)
+        assert.equal(
+          store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(error),
+          true
+        )
+        assert.equal((error as Error).cause, commitError)
         return true
       }
     )
@@ -590,6 +597,19 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
         (failure: unknown) => failure
       )
     assert.match(String(commitError), /transaction outcome is unknown/)
+    assert.equal(isP2TRPostgresTransactionUnknownOutcomeError(commitError), true)
+    assert.equal(
+      commitStore.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+        commitError
+      ),
+      true
+    )
+    assert.equal(
+      applicationStore.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+        commitError
+      ),
+      false
+    )
     assert.equal(
       commitStore.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
         commitError

@@ -321,6 +321,35 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 1)
   })
+
+  it("preserves an ambiguous COMMIT outcome without writing rollback disposition", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    const ambiguousCommit = new Error("enqueue COMMIT outcome is unknown")
+    coordinator.failNextTransactionWithUnknownOutcome(ambiguousCommit)
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, [], journal)
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => ({
+          kind: "enqueued",
+          outboxIntentID: ENQUEUED_INTENT_ID,
+        }),
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer
+    )
+
+    await assert.rejects(
+      gate.consumeCandidateAuthorization(token, candidate),
+      (error) => error === ambiguousCommit
+    )
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.nonRetryableFailures.length, 0)
+    assert.equal(journal.exhaustionAlerts.length, 0)
+  })
 })
 
 class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
@@ -333,6 +362,8 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   private readonly sequence?: string[]
   private readonly failures: Array<"40001" | "40P01"> = []
   private readonly retryableErrors = new WeakMap<object, "40001" | "40P01">()
+  private readonly unknownOutcomeErrors = new WeakSet<object>()
+  private unknownOutcomeFailure: Error | undefined
 
   constructor(sequence?: string[]) {
     this.sequence = sequence
@@ -352,6 +383,12 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
       if (sqlState !== undefined) {
         const failure = new Error(`transaction aborted with ${sqlState}`)
         this.retryableErrors.set(failure, sqlState)
+        throw failure
+      }
+      if (this.commits > 0 && this.unknownOutcomeFailure !== undefined) {
+        const failure = this.unknownOutcomeFailure
+        this.unknownOutcomeFailure = undefined
+        this.unknownOutcomeErrors.add(failure)
         throw failure
       }
       for (const mutation of this.staged) mutation()
@@ -376,12 +413,26 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
     return this.retryableErrors.get(error)
   }
 
+  isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+    error: unknown
+  ): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      this.unknownOutcomeErrors.has(error)
+    )
+  }
+
   isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
     return this.active
   }
 
   failNextTransactionWith(sqlState: "40001" | "40P01"): void {
     this.failures.push(sqlState)
+  }
+
+  failNextTransactionWithUnknownOutcome(error: Error): void {
+    this.unknownOutcomeFailure = error
   }
 
   stage(mutation: () => void): void {
