@@ -8,7 +8,7 @@
  */
 import {
   Hex,
-  validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
+  validateP2TRSignatureFraudPreparedChallengeTransaction,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
@@ -778,7 +778,7 @@ export class InMemoryOutboxStore
         "Late signed artifact has no retained durable signer boundary"
       )
     }
-    validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
+    validateP2TRSignatureFraudPreparedChallengeTransaction(
       current.intent,
       artifact.preparedTransaction
     )

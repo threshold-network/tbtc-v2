@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises"
 import { generateKeyPairSync, sign } from "node:crypto"
 import test from "node:test"
 
-import { Wallet, utils } from "ethers"
+import { BigNumber, Wallet, utils } from "ethers"
 import pg from "pg"
 import type { Client as PostgreSQLClient } from "pg"
 
@@ -2087,6 +2087,200 @@ postgresTest(
 )
 
 postgresTest(
+  "persists recoverable bytes while retaining an uncorrelated signer boundary",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(53)
+    await insertRecord(database, initial)
+    const reserved = await advanceToReservation(database, initial)
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...reserved,
+      version: reserved.version + 1,
+      updatedAtUnixMs: 1_300,
+      activeSignerInvocationStartedAtUnixMs: 1_300,
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        reserved.recordID,
+        reserved.version,
+        signerBoundary
+      ),
+      true
+    )
+    await commit(database.client)
+
+    const rawTransaction = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: initial.intent.routerAddress,
+      data: initial.intent.calldata,
+      value: initial.intent.value,
+      nonce: 7,
+      gasLimit: 100_000,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 10,
+    })
+    const reason =
+      "signer response belongs to another request or invocation; active boundary retained"
+    const quarantine = {
+      laneID: LANE_ID,
+      signerIdentity: SIGNER_IDENTITY,
+      expectedSender: WALLET.address,
+      expectedNonce: 7,
+      reservationID:
+        signerBoundary.reservedNonce!.reservationID.toPrefixedString(),
+      reasonCode: "ambiguous-signer-invocation" as const,
+      quarantinedAtUnixMs: 1_301,
+      reason,
+      detailsDigest: `0x${"f1".repeat(32)}`,
+    }
+    const retained: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...signerBoundary,
+      version: signerBoundary.version + 1,
+      signerInvocationStartedAtUnixMs: 1_300,
+      signerQuarantines: [quarantine],
+      unexpectedSignedArtifacts: [
+        {
+          preparedTransaction: {
+            intentID: initial.intent.intentID,
+            rawTransaction,
+            transactionHash: Hex.from(utils.keccak256(rawTransaction)),
+            sender: WALLET.address,
+            nonce: 7,
+          },
+          expectedReservationID:
+            signerBoundary.reservedNonce!.reservationID.toPrefixedString(),
+          capturedAtUnixMs: 1_301,
+          reason,
+        },
+      ],
+      updatedAtUnixMs: 1_301,
+      lastError: reason,
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        signerBoundary.recordID,
+        signerBoundary.version,
+        retained
+      ),
+      true
+    )
+    await commit(database.client)
+
+    const durable = await database.store.get(initial.recordID)
+    assert.equal(durable?.status, "preparing")
+    assert.equal(durable?.activeSignerInvocationStartedAtUnixMs, 1_300)
+    assert.equal(durable?.preparedTransactionVariants, undefined)
+    assert.equal(durable?.unexpectedSignedArtifacts?.length, 1)
+    const evidence = await database.client.query<{
+      artifacts: string
+      alerts: string
+      quarantines: string
+    }>(
+      `SELECT
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_late_signed_artifact) AS artifacts,
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_critical_alert
+           WHERE code = 'signed-state-quarantined') AS alerts,
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_signer_quarantine) AS quarantines`
+    )
+    assert.deepEqual(evidence.rows[0], {
+      artifacts: "1",
+      alerts: "1",
+      quarantines: "1",
+    })
+    await database.client.end()
+  }
+)
+
+postgresTest("rejects incomplete type-2 late signed artifacts", async () => {
+  const database = await createTestDatabase()
+  const initial = outboxRecord(54)
+  await insertRecord(database, initial)
+  const reserved = await advanceToReservation(database, initial)
+  const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+    ...reserved,
+    version: reserved.version + 1,
+    updatedAtUnixMs: 1_300,
+    activeSignerInvocationStartedAtUnixMs: 1_300,
+  }
+  await begin(database.client)
+  assert.equal(
+    await database.store.compareAndSwap(
+      reserved.recordID,
+      reserved.version,
+      signerBoundary
+    ),
+    true
+  )
+  await commit(database.client)
+
+  const rawTransaction = await WALLET.signTransaction({
+    type: 2,
+    chainId: CHAIN_ID,
+    to: initial.intent.routerAddress,
+    data: initial.intent.calldata,
+    value: initial.intent.value,
+    nonce: 7,
+    gasLimit: 100_000,
+    maxFeePerGas: 100,
+    maxPriorityFeePerGas: 10,
+  })
+  const transactionHash = utils.keccak256(rawTransaction)
+  for (const feeEnvelope of [
+    [null, "100", "10"],
+    ["100000", null, "10"],
+    ["100000", "100", null],
+  ]) {
+    await assert.rejects(
+      database.client.query(
+        `INSERT INTO p2tr_signature_fraud_challenge_late_signed_artifact (
+              artifact_id, record_id, generation,
+              expected_provenance_fingerprint, expected_reservation_id,
+              chain_id, signer_lane_id, signer_identity, intent_id,
+              raw_transaction, transaction_hash, sender, transaction_nonce,
+              transaction_type, gas_limit, max_fee_per_gas,
+              max_priority_fee_per_gas, captured_at_unix_ms, reason,
+              reason_digest
+           ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+              $11, $12, $13, 2, $14, $15, $16, $17, $18, $19
+           )`,
+        [
+          hexBuffer(transactionHash),
+          hexBuffer(initial.recordID),
+          initial.generation,
+          hexBuffer(initial.canonicalProvenance.provenanceFingerprint),
+          hexBuffer(
+            signerBoundary.reservedNonce!.reservationID.toPrefixedString()
+          ),
+          CHAIN_ID,
+          LANE_ID,
+          SIGNER_IDENTITY,
+          hexBuffer(initial.intent.intentID.toPrefixedString()),
+          hexBuffer(rawTransaction),
+          hexBuffer(transactionHash),
+          hexBuffer(WALLET.address),
+          7,
+          ...feeEnvelope,
+          1_301,
+          "incomplete type-2 forensic artifact",
+          hexBuffer(`0x${"f2".repeat(32)}`),
+        ]
+      ),
+      /violates check constraint/
+    )
+  }
+  const artifacts = await database.client.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact`
+  )
+  assert.equal(artifacts.rows[0].count, "0")
+  await database.client.end()
+})
+
+postgresTest(
   "rejects an under-gassed signed variant in the PostgreSQL trigger",
   async () => {
     const database = await createTestDatabase()
@@ -3107,6 +3301,17 @@ postgresTest(
     )
 
     await database.client.query(
+      `ALTER TABLE p2tr_candidate_enqueue_transaction_guard
+         DISABLE TRIGGER p2tr_candidate_enqueue_transaction_guard_immutable_trigger`
+    )
+    const disabledEnqueueJournalTrigger = await attestSchema(5_002)
+    assert.notEqual(disabledEnqueueJournalTrigger, baseline)
+    await database.client.query(
+      `ALTER TABLE p2tr_candidate_enqueue_transaction_guard
+         ENABLE TRIGGER p2tr_candidate_enqueue_transaction_guard_immutable_trigger`
+    )
+
+    await database.client.query(
       `CREATE OR REPLACE FUNCTION p2tr_reverse_bytea(value bytea)
        RETURNS bytea
        LANGUAGE sql
@@ -3115,7 +3320,7 @@ postgresTest(
        PARALLEL SAFE
        AS $$ SELECT value $$`
     )
-    const driftedHelper = await attestSchema(5_002)
+    const driftedHelper = await attestSchema(5_003)
     assert.notEqual(driftedHelper, baseline)
     await database.client.end()
   }
@@ -3868,7 +4073,7 @@ async function escapedCaptureArtifact(
     chainId: CHAIN_ID,
     to: record.intent.routerAddress,
     data: record.intent.calldata,
-    value: record.intent.value,
+    value: BigNumber.from(record.intent.value),
     nonce,
     gasLimit: 100_000,
     ...(transactionType === 2

@@ -307,7 +307,7 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
 
     const query = client.queries.find((text) =>
-      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
+      text.includes("FROM p2tr_candidate_enqueue_authorizations authz")
     )
     assert.ok(query)
     assert.match(query, /JOIN p2tr_readiness_certificates certificate/)
@@ -520,9 +520,7 @@ class TransactionClient implements P2TRPostgresClient {
     if (text.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")) {
       return { rows: [], rowCount: 1 }
     }
-    if (
-      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
-    ) {
+    if (text.includes("FROM p2tr_candidate_enqueue_authorizations authz")) {
       return {
         rows: [
           {

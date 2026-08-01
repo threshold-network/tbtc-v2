@@ -2339,6 +2339,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     CHECK (
         (
             transaction_type = 2
+            AND gas_limit IS NOT NULL
+            AND max_fee_per_gas IS NOT NULL
+            AND max_priority_fee_per_gas IS NOT NULL
             AND gas_limit >= 0
             AND max_fee_per_gas >= 0
             AND max_priority_fee_per_gas >= 0
@@ -2546,10 +2549,17 @@ AS $$
 DECLARE
     expected_series_id bytea;
     expected_status text;
+    expected_active_signer_invocation_started_at_unix_ms bigint;
     expected_latest_variant_sequence smallint;
 BEGIN
-    SELECT series_id, status, latest_variant_sequence
-    INTO expected_series_id, expected_status, expected_latest_variant_sequence
+    SELECT series_id,
+           status,
+           active_signer_invocation_started_at_unix_ms,
+           latest_variant_sequence
+    INTO expected_series_id,
+         expected_status,
+         expected_active_signer_invocation_started_at_unix_ms,
+         expected_latest_variant_sequence
     FROM p2tr_signature_fraud_challenge_outbox
     WHERE record_id = NEW.record_id
       AND generation = NEW.generation
@@ -2574,7 +2584,16 @@ BEGIN
     END IF;
     IF NEW.code = 'signed-state-quarantined'
        AND expected_latest_variant_sequence IS NULL
-       AND expected_status <> 'quarantined' THEN
+       AND expected_status <> 'quarantined'
+       AND NOT (
+           expected_status = 'preparing'
+           AND expected_active_signer_invocation_started_at_unix_ms IS NOT NULL
+           AND EXISTS (
+               SELECT 1
+                 FROM p2tr_signature_fraud_challenge_signer_quarantine q
+                WHERE q.record_id = NEW.record_id
+           )
+       ) THEN
         RAISE EXCEPTION 'signed-state quarantine alert requires a signer boundary';
     END IF;
     IF NEW.code = 'late-signed-artifact-captured'

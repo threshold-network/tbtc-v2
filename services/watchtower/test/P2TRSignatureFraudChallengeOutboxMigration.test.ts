@@ -607,7 +607,7 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   )
   assert.match(
     migration,
-    /p2tr_signature_fraud_challenge_late_signed_artifact[\s\S]*?transaction_type smallint NOT NULL CHECK \(transaction_type IN \(0, 1, 2\)\)[\s\S]*?transaction_type IN \(0, 1\)[\s\S]*?gas_limit IS NULL/
+    /p2tr_signature_fraud_challenge_late_signed_artifact[\s\S]*?transaction_type smallint NOT NULL CHECK \(transaction_type IN \(0, 1, 2\)\)[\s\S]*?transaction_type = 2[\s\S]*?gas_limit IS NOT NULL[\s\S]*?max_fee_per_gas IS NOT NULL[\s\S]*?max_priority_fee_per_gas IS NOT NULL[\s\S]*?transaction_type IN \(0, 1\)[\s\S]*?gas_limit IS NULL/
   )
   assert.match(migration, /expected_provenance_fingerprint bytea NOT NULL/)
   assert.match(
@@ -657,6 +657,10 @@ test("records immutable activation-blocking alerts at bounded ledger caps", () =
   assert.match(
     migration,
     /expected_status NOT IN \( 'generation-required', 'cancelled-reorg', 'cancelled-provenance-invalidated' \)/
+  )
+  assert.match(
+    migration,
+    /expected_status = 'preparing'[\s\S]*expected_active_signer_invocation_started_at_unix_ms IS NOT NULL[\s\S]*FROM p2tr_signature_fraud_challenge_signer_quarantine q/
   )
   assert.match(
     migration,
@@ -864,6 +868,14 @@ test("attests security-critical view definitions in the schema hash", () => {
   assert.match(activationHandshakeSource, /pg_get_viewdef\(r\.oid, true\)/)
   assert.match(activationHandshakeSource, /'view-definition'/)
   assert.match(activationHandshakeSource, /'enabled=' \|\| t\.tgenabled::text/)
+  assert.match(
+    activationHandshakeSource,
+    /relname LIKE 'p2tr_candidate_enqueue_%'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /proname LIKE 'p2tr_candidate_enqueue_%'/
+  )
   assert.match(activationHandshakeSource, /p\.proname = 'p2tr_reverse_bytea'/)
 })
 

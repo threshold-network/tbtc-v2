@@ -692,14 +692,20 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            FROM pg_class r
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE n.nspname = current_schema()
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+            )
          UNION ALL
          SELECT 'view-definition', r.relname, pg_get_viewdef(r.oid, true)
            FROM pg_class r
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE n.nspname = current_schema()
             AND r.relkind IN ('v', 'm')
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+            )
          UNION ALL
          SELECT 'column',
                 r.relname || '.' || a.attnum::text || '.' || a.attname,
@@ -722,7 +728,10 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND d.adnum = a.attnum
            LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
           WHERE n.nspname = current_schema()
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+            )
             AND a.attnum > 0
             AND NOT a.attisdropped
          UNION ALL
@@ -733,12 +742,18 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            JOIN pg_class t ON t.oid = c.conrelid
            JOIN pg_namespace n ON n.oid = t.relnamespace
           WHERE n.nspname = current_schema()
-            AND t.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                t.relname LIKE 'p2tr_signature_fraud_%'
+                OR t.relname LIKE 'p2tr_candidate_enqueue_%'
+            )
          UNION ALL
          SELECT 'index', indexname, indexdef
            FROM pg_indexes
           WHERE schemaname = current_schema()
-            AND tablename LIKE 'p2tr_signature_fraud_%'
+            AND (
+                tablename LIKE 'p2tr_signature_fraud_%'
+                OR tablename LIKE 'p2tr_candidate_enqueue_%'
+            )
          UNION ALL
          SELECT 'trigger', t.tgname,
                 concat_ws('|',
@@ -750,7 +765,10 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE NOT t.tgisinternal
             AND n.nspname = current_schema()
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+            )
          UNION ALL
          SELECT 'function', p.proname, pg_get_functiondef(p.oid)
            FROM pg_proc p
@@ -758,6 +776,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
           WHERE n.nspname = current_schema()
             AND (
                 p.proname LIKE 'p2tr_signature_fraud_%'
+                OR p.proname LIKE 'p2tr_candidate_enqueue_%'
                 OR p.proname = 'p2tr_reverse_bytea'
             )
           ORDER BY object_kind, object_name, definition`
