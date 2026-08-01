@@ -2148,6 +2148,10 @@ postgresTest(
             transactionHash: Hex.from(utils.keccak256(rawTransaction)),
             sender: WALLET.address,
             nonce: 7,
+            chainID: CHAIN_ID,
+            to: initial.intent.routerAddress,
+            calldata: initial.intent.calldata,
+            value: initial.intent.value,
           },
           expectedReservationID:
             signerBoundary.reservedNonce!.reservationID.toPrefixedString(),
@@ -2239,13 +2243,15 @@ postgresTest("rejects incomplete type-2 late signed artifacts", async () => {
               artifact_id, record_id, generation,
               expected_provenance_fingerprint, expected_reservation_id,
               chain_id, signer_lane_id, signer_identity, intent_id,
+              to_address, calldata, transaction_value,
               raw_transaction, transaction_hash, sender, transaction_nonce,
               transaction_type, gas_limit, max_fee_per_gas,
               max_priority_fee_per_gas, captured_at_unix_ms, reason,
               reason_digest
            ) VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-              $11, $12, $13, 2, $14, $15, $16, $17, $18, $19
+              $11, $12, $13, $14, $15, $16, 2, $17, $18, $19,
+              $20, $21, $22
            )`,
         [
           hexBuffer(transactionHash),
@@ -2259,6 +2265,9 @@ postgresTest("rejects incomplete type-2 late signed artifacts", async () => {
           LANE_ID,
           SIGNER_IDENTITY,
           hexBuffer(initial.intent.intentID.toPrefixedString()),
+          hexBuffer(initial.intent.routerAddress),
+          hexBuffer(initial.intent.calldata),
+          initial.intent.value,
           hexBuffer(rawTransaction),
           hexBuffer(transactionHash),
           hexBuffer(WALLET.address),
@@ -4037,6 +4046,10 @@ type EscapedCaptureRequest = {
   expectedReservationID?: string
   sender?: string
   nonce?: number
+  chainID?: number
+  to?: string
+  calldata?: string
+  value?: string
   transactionType?: 0 | 1 | 2
   maxFeePerGas?: number
   includeAccessList?: boolean
@@ -4049,6 +4062,15 @@ type EscapedCaptureOutcome = {
   results: string[]
   alertCodes: string[]
   transactionTypes: number[]
+  envelopes: Array<{
+    transactionHash: string
+    chainID: number
+    to?: string
+    calldata: string
+    value: string
+    sender: string
+    nonce: number
+  }>
 }
 
 type EscapedCaptureParityScenario = {
@@ -4070,10 +4092,10 @@ async function escapedCaptureArtifact(
   const transactionType = request.transactionType ?? 2
   const rawTransaction = await WALLET.signTransaction({
     ...(transactionType === 0 ? {} : { type: transactionType }),
-    chainId: CHAIN_ID,
-    to: record.intent.routerAddress,
-    data: record.intent.calldata,
-    value: BigNumber.from(record.intent.value),
+    chainId: request.chainID ?? CHAIN_ID,
+    to: request.to ?? record.intent.routerAddress,
+    data: request.calldata ?? record.intent.calldata,
+    value: BigNumber.from(request.value ?? record.intent.value),
     nonce,
     gasLimit: 100_000,
     ...(transactionType === 2
@@ -4179,12 +4201,49 @@ async function postgresEscapedCaptureOutcome(
          FROM p2tr_signature_fraud_challenge_escaped_envelope
         ORDER BY transaction_type`
     )
+    const envelopes = await database.client.query<{
+      transaction_hash: string
+      chain_id: string
+      to_address: string | null
+      calldata: string
+      transaction_value: string
+      sender: string
+      transaction_nonce: string
+    }>(
+      `SELECT encode(transaction_hash, 'hex') AS transaction_hash,
+              chain_id::text AS chain_id,
+              encode(to_address, 'hex') AS to_address,
+              encode(calldata, 'hex') AS calldata,
+              transaction_value::text AS transaction_value,
+              encode(sender, 'hex') AS sender,
+              transaction_nonce::text AS transaction_nonce
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact
+        UNION ALL
+       SELECT encode(transaction_hash, 'hex') AS transaction_hash,
+              actual_chain_id::text AS chain_id,
+              encode(to_address, 'hex') AS to_address,
+              encode(calldata, 'hex') AS calldata,
+              transaction_value::text AS transaction_value,
+              encode(actual_sender, 'hex') AS sender,
+              actual_nonce::text AS transaction_nonce
+         FROM p2tr_signature_fraud_challenge_escaped_envelope
+        ORDER BY transaction_hash`
+    )
     return {
       results,
       alertCodes: alerts.rows.map((row) => row.code),
       transactionTypes: transactionTypes.rows.map(
         ({ transaction_type }) => transaction_type
       ),
+      envelopes: envelopes.rows.map((row) => ({
+        transactionHash: `0x${row.transaction_hash}`,
+        chainID: Number(row.chain_id),
+        to: row.to_address === null ? undefined : `0x${row.to_address}`,
+        calldata: `0x${row.calldata}`,
+        value: row.transaction_value,
+        sender: `0x${row.sender}`,
+        nonce: Number(row.transaction_nonce),
+      })),
     }
   } finally {
     await database.client.end()
@@ -4248,6 +4307,23 @@ async function inMemoryEscapedCaptureOutcome(
           utils.parseTransaction(preparedTransaction.rawTransaction).type ?? 0
       )
       .sort(),
+    envelopes: (
+      (await store.get(initial.recordID))?.unexpectedSignedArtifacts ?? []
+    )
+      .map(({ preparedTransaction }) => ({
+        transactionHash: preparedTransaction.transactionHash
+          .toPrefixedString()
+          .toLowerCase(),
+        chainID: preparedTransaction.chainID!,
+        to: preparedTransaction.to?.toLowerCase(),
+        calldata: preparedTransaction.calldata!,
+        value: preparedTransaction.value!,
+        sender: preparedTransaction.sender.toLowerCase(),
+        nonce: preparedTransaction.nonce,
+      }))
+      .sort((left, right) =>
+        left.transactionHash.localeCompare(right.transactionHash)
+      ),
   }
 }
 
@@ -4343,14 +4419,16 @@ async function replacementSignerBoundary(
  * Wrong-lane quarantine evidence bound to the durable nonce guard the signer
  * was supposed to use.
  */
-function wrongLaneQuarantine(): P2TRSignatureFraudSignerQuarantine {
+function wrongLaneQuarantine(
+  reasonCode: "wrong-chain" | "wrong-nonce" = "wrong-nonce"
+): P2TRSignatureFraudSignerQuarantine {
   return {
     laneID: LANE_ID,
     signerIdentity: SIGNER_IDENTITY,
     expectedSender: WALLET.address,
     expectedNonce: 7,
     reservationID: `0x${"d1".repeat(32)}`,
-    reasonCode: "wrong-nonce",
+    reasonCode,
     quarantinedAtUnixMs: 2_050,
     reason: "Signer returned an envelope outside its reserved nonce lane",
     detailsDigest: `0x${"f7".repeat(32)}`,
@@ -4413,6 +4491,31 @@ const escapedCaptureParityScenarios: EscapedCaptureParityScenario[] = [
     ],
   },
   {
+    name: "captures and guards a signed envelope on its actual chain",
+    seed: 73,
+    boundary: replacementSignerBoundary,
+    captures: [
+      {
+        capturedAtUnixMs: 2_100,
+        chainID: CHAIN_ID + 1,
+        quarantine: wrongLaneQuarantine("wrong-chain"),
+      },
+    ],
+  },
+  {
+    name: "captures an expected-lane envelope with unexpected call and value",
+    seed: 74,
+    boundary: signerBoundaryOnly,
+    captures: [
+      {
+        capturedAtUnixMs: 2_100,
+        to: "0x3333333333333333333333333333333333333333",
+        calldata: "0x1234",
+        value: "1235",
+      },
+    ],
+  },
+  {
     name: "rejects a capture whose provenance fingerprint does not match",
     seed: 65,
     boundary: signerBoundaryOnly,
@@ -4461,6 +4564,8 @@ for (const scenario of escapedCaptureParityScenarios) {
       const memory = await inMemoryEscapedCaptureOutcome(scenario)
       assert.deepEqual(memory.results, durable.results)
       assert.deepEqual(memory.alertCodes, durable.alertCodes)
+      assert.deepEqual(memory.transactionTypes, durable.transactionTypes)
+      assert.deepEqual(memory.envelopes, durable.envelopes)
     }
   )
 }

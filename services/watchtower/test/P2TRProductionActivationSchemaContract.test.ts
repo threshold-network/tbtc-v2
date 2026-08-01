@@ -203,7 +203,7 @@ describe("production activation PostgreSQL schema contract", () => {
     )
   })
 
-  it("reserves enqueue capacity only for current live authorizations", () => {
+  it("keeps armed enqueue capacity reserved after authorization expiry", () => {
     const runtimeAlerts = methodSource(
       activationStore,
       "readRuntimeAlertHealth",
@@ -214,13 +214,19 @@ describe("production activation PostgreSQL schema contract", () => {
       "armCandidateEnqueueTransactionGuard",
       "resolveCandidateEnqueueTransactionGuard"
     )
-    for (const source of [runtimeAlerts, armGuard]) {
-      assert.match(source, /JOIN p2tr_candidate_enqueue_authorizations authz/)
-      assert.match(
-        source,
-        /authz\.consumed_at IS NULL[\s\S]*?authz\.invalidated_at IS NULL[\s\S]*?authz\.expires_at > clock_timestamp\(\)/
-      )
-    }
+    assert.match(
+      runtimeAlerts,
+      /JOIN p2tr_candidate_enqueue_authorizations authz/
+    )
+    assert.doesNotMatch(
+      runtimeAlerts,
+      /authz\.expires_at > clock_timestamp\(\)/
+    )
+    assert.match(armGuard, /JOIN p2tr_candidate_enqueue_authorizations authz/)
+    assert.match(
+      armGuard,
+      /authz\.consumed_at IS NULL[\s\S]*?authz\.invalidated_at IS NULL[\s\S]*?authz\.expires_at > clock_timestamp\(\)/
+    )
     assert.match(
       armGuard,
       /JOIN p2tr_watchtower_activation_manifest current_manifest[\s\S]*?current_manifest\.manifest_hash = guard_row\.manifest_hash/

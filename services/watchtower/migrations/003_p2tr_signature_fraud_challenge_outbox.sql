@@ -894,7 +894,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_guard (
         'bound-reservation',
         'escaped-envelope'
     )),
-    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
+    chain_id numeric(78, 0) NOT NULL CHECK (
+        chain_id BETWEEN 0 AND 9007199254740991
+    ),
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
@@ -2122,6 +2124,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_quarantine (
     ),
     quarantine_reason text NOT NULL CHECK (quarantine_reason IN (
         'ambiguous-signer-invocation',
+        'wrong-chain',
         'wrong-sender',
         'wrong-nonce',
         'malformed-signed-envelope',
@@ -2235,8 +2238,8 @@ CREATE TRIGGER p2tr_signature_fraud_validate_signer_quarantine_insert_trigger
 BEFORE INSERT ON p2tr_signature_fraud_challenge_signer_quarantine
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_signer_quarantine_insert();
 
--- If a signer returns a valid envelope for an unexpected sender or nonce, the
--- exact bytes and the actual sender/nonce guard are retained forever.
+-- If a signer returns a parseable envelope on an unexpected chain, sender, or
+-- nonce, its exact bytes/call/value and actual nonce guard are retained forever.
 CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     escaped_envelope_id bytea PRIMARY KEY CHECK (octet_length(escaped_envelope_id) = 32),
     record_id bytea NOT NULL REFERENCES p2tr_signature_fraud_challenge_outbox(record_id) ON DELETE RESTRICT,
@@ -2244,7 +2247,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     expected_reservation_id bytea NOT NULL CHECK (octet_length(expected_reservation_id) = 32),
     actual_guard_record_id bytea NOT NULL CHECK (octet_length(actual_guard_record_id) = 32),
     actual_nonce_guard_id bytea NOT NULL CHECK (octet_length(actual_nonce_guard_id) = 32),
-    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
+    expected_chain_id numeric(78, 0) NOT NULL CHECK (expected_chain_id > 0),
+    actual_chain_id numeric(78, 0) NOT NULL CHECK (
+        actual_chain_id BETWEEN 0 AND 9007199254740991
+    ),
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     expected_sender bytea NOT NULL CHECK (octet_length(expected_sender) = 20),
@@ -2258,6 +2264,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
         length(actual_guard_signer_identity) BETWEEN 1 AND 128
     ),
     transaction_type smallint NOT NULL CHECK (transaction_type IN (0, 1, 2)),
+    to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
+    calldata bytea NOT NULL CHECK (octet_length(calldata) <= 4096),
+    transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
     raw_transaction bytea NOT NULL CHECK (
         octet_length(raw_transaction) BETWEEN 1 AND 4096
     ),
@@ -2271,7 +2280,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     FOREIGN KEY (
         record_id,
         expected_reservation_id,
-        chain_id,
+        expected_chain_id,
         expected_sender,
         expected_nonce,
         signer_lane_id,
@@ -2288,7 +2297,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     FOREIGN KEY (
         actual_guard_record_id,
         actual_nonce_guard_id,
-        chain_id,
+        actual_chain_id,
         actual_sender,
         actual_nonce,
         actual_guard_signer_lane_id,
@@ -2302,7 +2311,11 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
         signer_lane_id,
         signer_identity
     ) ON DELETE RESTRICT,
-    CHECK (actual_sender <> expected_sender OR actual_nonce <> expected_nonce)
+    CHECK (
+        actual_chain_id <> expected_chain_id
+        OR actual_sender <> expected_sender
+        OR actual_nonce <> expected_nonce
+    )
 );
 
 -- A signer can return the exact expected sender/nonce envelope after any
@@ -2324,6 +2337,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     intent_id bytea NOT NULL CHECK (octet_length(intent_id) = 32),
+    to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
+    calldata bytea NOT NULL CHECK (octet_length(calldata) <= 4096),
+    transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
     raw_transaction bytea NOT NULL CHECK (
         octet_length(raw_transaction) BETWEEN 1 AND 4096
     ),
@@ -4523,7 +4539,7 @@ BEGIN
 
         IF quarantine_reason IS NULL
            OR NEW.status <> 'quarantined'
-           OR (quarantine_reason IN ('wrong-sender', 'wrong-nonce')
+           OR (quarantine_reason IN ('wrong-chain', 'wrong-sender', 'wrong-nonce')
                AND NOT EXISTS (
                    SELECT 1
                    FROM p2tr_signature_fraud_challenge_escaped_envelope ee

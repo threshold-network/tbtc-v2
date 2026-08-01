@@ -270,6 +270,18 @@ describe(
               candidateDigest,
               maxAttemptCount: 3,
             })
+            await session.query(
+              `UPDATE p2tr_candidate_enqueue_authorizations
+                  SET issued_at = clock_timestamp() - interval '2 minutes',
+                      expires_at = clock_timestamp() - interval '1 minute'
+                WHERE token_id = $1`,
+              [bytes(tokenID)]
+            )
+            assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
+              manifestHash,
+              unresolvedCandidateEnqueueTransactionGuardCount: 1,
+              candidateEnqueueRetryExhaustionCount: 0,
+            })
             await assert.rejects(
               stateStore.resolveCandidateEnqueueTransactionGuard({
                 tokenID,

@@ -624,12 +624,33 @@ export type P2TRSignatureFraudPreparedChallengeTransaction = {
   transactionHash: Hex
   sender: string
   nonce: number
+  /** Raw-envelope facts are populated by recovery, never trusted from a signer. */
+  chainID?: number
+  to?: string
+  calldata?: string
+  value?: string
   eip1559?: {
     transactionType: 2
     gasLimit: string
     maxFeePerGas: string
     maxPriorityFeePerGas: string
   }
+}
+
+/**
+ * Intent-independent facts recovered from any parseable signed Ethereum
+ * transaction. Watchtowers persist this envelope before applying call or fee
+ * policy so an unexpected signer result cannot lose its actual nonce lane.
+ */
+export type P2TRSignatureFraudSignedTransactionEnvelope = {
+  rawTransaction: string
+  transactionHash: Hex
+  sender: string
+  nonce: number
+  chainID: number
+  to?: string
+  calldata: string
+  value: string
 }
 
 /**
@@ -1869,14 +1890,67 @@ export const buildP2TRSignatureFraudSubmissionIntent = (
 }
 
 /**
- * Authenticates a signed transaction against its durable intent and derives
- * the canonical hash/sender/nonce from the raw bytes. This validation must run
- * before the outbox stores the prepared transaction.
+ * Recovers the exact lane and call from any parseable signed Ethereum
+ * transaction without applying challenge intent or fee policy.
+ *
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns Hash, sender, nonce, chain, destination, calldata, and value
+ *          recovered only from the signed bytes.
+ */
+export const recoverP2TRSignatureFraudSignedTransactionEnvelope = (
+  rawTransaction: string
+): P2TRSignatureFraudSignedTransactionEnvelope => {
+  let parsed: ReturnType<typeof utils.parseTransaction>
+  try {
+    parsed = utils.parseTransaction(utils.hexlify(rawTransaction))
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction must be a signed raw Ethereum transaction"
+    )
+  }
+
+  if (parsed.hash === undefined || parsed.from === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction must include a recoverable signature"
+    )
+  }
+  if (!Number.isSafeInteger(parsed.nonce) || parsed.nonce < 0) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction nonce is invalid"
+    )
+  }
+  if (!Number.isSafeInteger(parsed.chainId) || parsed.chainId < 0) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction chain ID is invalid"
+    )
+  }
+
+  return {
+    rawTransaction: utils.hexlify(rawTransaction).toLowerCase(),
+    transactionHash: toBytes32Hex(
+      parsed.hash,
+      "Prepared challenge transaction hash"
+    ),
+    sender: utils.getAddress(parsed.from),
+    nonce: parsed.nonce,
+    chainID: parsed.chainId,
+    to: parsed.to === undefined ? undefined : utils.getAddress(parsed.to),
+    calldata: utils.hexlify(parsed.data).toLowerCase(),
+    value: parsed.value.toString(),
+  }
+}
+
+/**
+ * Authenticates a signed transaction against its durable challenge intent.
  *
  * @param intent Durable submission intent the signed bytes must satisfy.
- * @param prepared Prepared transaction whose raw bytes are authenticated.
- * @returns The prepared transaction with hash, sender and nonce rederived from
- *          the raw bytes rather than taken from the caller.
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns The prepared transaction with every envelope fact rederived from
+ *          the raw bytes rather than taken from the signer response.
  */
 export const recoverP2TRSignatureFraudPreparedChallengeTransaction = (
   intent: P2TRSignatureFraudSubmissionIntent,
@@ -1897,57 +1971,27 @@ export const recoverP2TRSignatureFraudPreparedChallengeTransaction = (
     )
   }
 
-  let parsed: ReturnType<typeof utils.parseTransaction>
-  try {
-    parsed = utils.parseTransaction(utils.hexlify(rawTransaction))
-  } catch {
-    throw new P2TRWitnessSignatureError(
-      "invalid-watchtower-state",
-      "Prepared challenge transaction must be a signed raw Ethereum transaction"
-    )
-  }
-
-  if (parsed.hash === undefined || parsed.from === undefined) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-watchtower-state",
-      "Prepared challenge transaction must include a recoverable signature"
-    )
-  }
-
+  const recovered =
+    recoverP2TRSignatureFraudSignedTransactionEnvelope(rawTransaction)
   const expectedRouter = normalizeP2TRSignatureFraudSubmissionAddress(
     intent.routerAddress,
     "Challenge submission Router address"
   )
   if (
-    parsed.to === undefined ||
-    utils.getAddress(parsed.to) !== expectedRouter ||
-    parsed.chainId !== intent.chainID ||
-    parsed.data.toLowerCase() !==
-      utils.hexlify(intent.calldata).toLowerCase() ||
-    !parsed.value.eq(intent.value)
+    recovered.to === undefined ||
+    recovered.to !== expectedRouter ||
+    recovered.chainID !== intent.chainID ||
+    recovered.calldata !== utils.hexlify(intent.calldata).toLowerCase() ||
+    recovered.value !==
+      normalizeP2TRSignatureFraudSubmissionValue(intent.value)
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
       "Prepared challenge transaction does not match its durable intent"
     )
   }
-  if (!Number.isSafeInteger(parsed.nonce) || parsed.nonce < 0) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-watchtower-state",
-      "Prepared challenge transaction nonce is invalid"
-    )
-  }
 
-  return {
-    intentID: expectedIntentID,
-    rawTransaction: utils.hexlify(rawTransaction).toLowerCase(),
-    transactionHash: toBytes32Hex(
-      parsed.hash,
-      "Prepared challenge transaction hash"
-    ),
-    sender: utils.getAddress(parsed.from),
-    nonce: parsed.nonce,
-  }
+  return { intentID: expectedIntentID, ...recovered }
 }
 
 export const validateP2TRSignatureFraudPreparedChallengeTransaction = (

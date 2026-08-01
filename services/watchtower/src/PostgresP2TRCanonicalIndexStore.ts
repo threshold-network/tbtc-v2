@@ -685,7 +685,12 @@ export class PostgresP2TRCanonicalIndexStore
       rawClient.release(releaseError)
     }
     if (operationFailed) throw operationError
-    if (unlockError !== undefined) throw unlockError
+    // COMMIT is the transaction outcome boundary. A later session-level fence
+    // release failure destroys the client, but must not report already-
+    // committed work as failed and discard its returned durable identity.
+    if (unlockError !== undefined && transactionPhase !== "finished") {
+      throw unlockError
+    }
     return result
   }
 

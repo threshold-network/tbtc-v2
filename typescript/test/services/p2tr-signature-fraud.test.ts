@@ -79,6 +79,7 @@ import {
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudWitnessObservationConsistency,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
 import { Hex } from "../../src/lib/utils"
 
@@ -2543,6 +2544,20 @@ describe("P2TR signature-fraud witness parsing", () => {
       gasPrice: 2,
     })
     const wrongParsed = utils.parseTransaction(wrongRawTransaction)
+
+    const recoveredUnexpectedEnvelope =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(wrongRawTransaction)
+    expect(recoveredUnexpectedEnvelope.transactionHash.toPrefixedString()).to.equal(
+      wrongParsed.hash
+    )
+    expect(recoveredUnexpectedEnvelope.sender).to.equal(wallet.address)
+    expect(recoveredUnexpectedEnvelope.nonce).to.equal(9)
+    expect(recoveredUnexpectedEnvelope.chainID).to.equal(intent.chainID)
+    expect(recoveredUnexpectedEnvelope.to).to.equal(
+      "0x3333333333333333333333333333333333333333"
+    )
+    expect(recoveredUnexpectedEnvelope.calldata).to.equal(intent.calldata)
+    expect(recoveredUnexpectedEnvelope.value).to.equal(intent.value)
 
     expectWitnessError(
       () =>

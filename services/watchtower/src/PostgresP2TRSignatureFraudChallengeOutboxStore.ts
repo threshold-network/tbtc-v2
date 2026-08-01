@@ -5,6 +5,7 @@ import {
   Hex,
   P2TRSignatureFraudBoundNonceReservation,
   inspectP2TRSignatureFraudPreparedTransactionEnvelope,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
   validateP2TRCompleteV2SignatureFraudSubmissionIntent,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
@@ -1926,10 +1927,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     // Transaction bytes, derived hash/sender, nonce, fee policy, reason, and
     // wrong-lane quarantine evidence must all be valid before a hash match can
     // take the idempotent path. A caller-declared hash is never validation.
-    this.validateUnexpectedArtifact(captureRecord, artifact)
+    const { transaction: recoveredTransaction } =
+      this.validateUnexpectedArtifact(captureRecord, artifact)
+    const normalizedArtifact: P2TRSignatureFraudUnexpectedSignedArtifact = {
+      ...artifact,
+      preparedTransaction: recoveredTransaction,
+    }
     const alreadyCaptured = hasSignedTransactionHash(
       current,
-      artifact.preparedTransaction.transactionHash.toPrefixedString()
+      recoveredTransaction.transactionHash.toPrefixedString()
     )
     if (
       alreadyCaptured &&
@@ -1968,7 +1974,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       signedResolution.rows.length === 1 &&
       prefixedHex(signedResolution.rows[0].signed_transaction_hash) !==
         hexValue(
-          artifact.preparedTransaction.transactionHash,
+          recoveredTransaction.transactionHash,
           "Authenticated orphan transaction hash"
         )
     ) {
@@ -1982,7 +1988,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       await this.syncSignerQuarantines(current, captureRecord)
     }
     if (!alreadyCaptured) {
-      await this.insertUnexpectedArtifact(captureRecord, artifact)
+      await this.insertUnexpectedArtifact(captureRecord, normalizedArtifact)
     }
     if (
       !alreadyCaptured &&
@@ -1992,8 +1998,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         current,
         current.provenanceInvalidationEvidence.evidenceHash,
         "signed-envelope-escaped",
-        artifact.reason,
-        artifact.capturedAtUnixMs
+        normalizedArtifact.reason,
+        normalizedArtifact.capturedAtUnixMs
       )
       await this.saveCriticalAlert({
         code: "provenance-reconciliation-incident",
@@ -2001,8 +2007,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         recordID: current.recordID,
         generation: current.generation,
         activationBlocking: true,
-        createdAtUnixMs: artifact.capturedAtUnixMs,
-        detail: artifact.reason,
+        createdAtUnixMs: normalizedArtifact.capturedAtUnixMs,
+        detail: normalizedArtifact.reason,
       })
     }
     const artifacts = current.unexpectedSignedArtifacts ?? []
@@ -2023,7 +2029,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           : undefined,
       updatedAtUnixMs: Math.max(
         current.updatedAtUnixMs,
-        artifact.capturedAtUnixMs
+        normalizedArtifact.capturedAtUnixMs
       ),
       activeSignerInvocationStartedAtUnixMs: undefined,
       signerInvocationStartedAtUnixMs:
@@ -2031,7 +2037,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         current.activeSignerInvocationStartedAtUnixMs,
       unexpectedSignedArtifacts: alreadyCaptured
         ? artifacts
-        : [...artifacts, artifact],
+        : [...artifacts, normalizedArtifact],
     }
     assertCompactDurableOutboxRecord(next)
     const updated = await this.updateMutableState(current, next)
@@ -2039,10 +2045,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     await this.persistDerivedCriticalAlerts(current, next)
     const expectedLaneArtifact =
       address(
-        artifact.preparedTransaction.sender,
+        recoveredTransaction.sender,
         "Captured signed artifact sender"
       ) === address(reservation.sender, "Reserved signer sender") &&
-      artifact.preparedTransaction.nonce === reservation.nonce
+      recoveredTransaction.chainID === current.intent.chainID &&
+      recoveredTransaction.nonce === reservation.nonce
     if (!alreadyCaptured) {
       await this.saveCriticalAlert({
         code: expectedLaneArtifact
@@ -2052,8 +2059,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         recordID: current.recordID,
         generation: current.generation,
         activationBlocking: true,
-        createdAtUnixMs: artifact.capturedAtUnixMs,
-        detail: artifact.reason,
+        createdAtUnixMs: normalizedArtifact.capturedAtUnixMs,
+        detail: normalizedArtifact.reason,
       })
     }
     await this.resolveEligibleCriticalAlerts(next)
@@ -3878,18 +3885,42 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     if (reservation === undefined) {
       throw new Error("Unexpected signed artifact lacks its nonce reservation")
     }
-    const transaction = artifact.preparedTransaction
-    const validatedTransaction =
-      validateP2TRSignatureFraudPreparedChallengeTransaction(
-        record.intent,
-        transaction
+    const declaredTransaction = artifact.preparedTransaction
+    const recoveredTransaction =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(
+        declaredTransaction.rawTransaction
       )
+    if (
+      hexValue(declaredTransaction.intentID, "Unexpected signed intent ID") !==
+        hexValue(record.intent.intentID, "Outbox intent ID") ||
+      hexValue(
+        declaredTransaction.transactionHash,
+        "Unexpected signed transaction hash"
+      ) !==
+        hexValue(
+          recoveredTransaction.transactionHash,
+          "Recovered unexpected transaction hash"
+        ) ||
+      address(declaredTransaction.sender, "Unexpected signed sender") !==
+        address(recoveredTransaction.sender, "Recovered unexpected sender") ||
+      declaredTransaction.nonce !== recoveredTransaction.nonce
+    ) {
+      throw new Error(
+        "Unexpected signed artifact metadata does not match its raw envelope"
+      )
+    }
     const envelope = inspectP2TRSignatureFraudPreparedTransactionEnvelope(
-      validatedTransaction.rawTransaction
+      recoveredTransaction.rawTransaction
     )
     const transactionType = envelope.transactionType
+    const transaction = {
+      intentID: record.intent.intentID,
+      ...recoveredTransaction,
+      ...(envelope.transactionType === 2 ? { eip1559: envelope } : {}),
+    }
     const reason = requireText(artifact.reason, "Late artifact reason", 1024)
     const sameLane =
+      transaction.chainID === record.intent.chainID &&
       address(transaction.sender, "Unexpected signed sender") ===
         address(reservation.sender, "Reserved sender") &&
       transaction.nonce === reservation.nonce
@@ -3899,6 +3930,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           .reverse()
           .find(
             (candidate) =>
+              candidate.reasonCode === "wrong-chain" ||
               candidate.reasonCode === "wrong-sender" ||
               candidate.reasonCode === "wrong-nonce" ||
               candidate.reasonCode === "ambiguous-signer-invocation"
@@ -3911,7 +3943,6 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     return {
       reservation,
       transaction,
-      validatedTransaction,
       envelope,
       transactionType,
       reason,
@@ -3927,7 +3958,6 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     const {
       reservation,
       transaction,
-      validatedTransaction,
       envelope,
       transactionType,
       reason,
@@ -3941,6 +3971,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             artifact_id, record_id, generation,
             expected_provenance_fingerprint, expected_reservation_id,
             chain_id, signer_lane_id, signer_identity, intent_id,
+            to_address, calldata, transaction_value,
             raw_transaction, transaction_hash, sender, transaction_nonce,
             transaction_type, gas_limit, max_fee_per_gas,
             max_priority_fee_per_gas, captured_at_unix_ms, reason,
@@ -3948,8 +3979,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
          ) VALUES (
             decode($1, 'hex'), decode($2, 'hex'), $3, decode($4, 'hex'),
             decode($5, 'hex'), $6, $7, $8, decode($9, 'hex'),
-            decode($10, 'hex'), decode($11, 'hex'), decode($12, 'hex'),
-            $13, $14, $15, $16, $17, $18, $19, decode($20, 'hex')
+            decode($10, 'hex'), decode($11, 'hex'), $12,
+            decode($13, 'hex'), decode($14, 'hex'), decode($15, 'hex'),
+            $16, $17, $18, $19, $20, $21, $22, decode($23, 'hex')
          )`,
         [
           stripHex(hexValue(transaction.transactionHash, "Late artifact ID")),
@@ -3971,6 +4003,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           reservation.laneID,
           reservation.signerIdentity,
           stripHex(hexValue(transaction.intentID, "Late artifact intent ID")),
+          transaction.to === undefined
+            ? null
+            : stripHex(address(transaction.to, "Late artifact destination")),
+          stripHex(hexData(transaction.calldata, "Late artifact calldata")),
+          unsignedDecimal(transaction.value, "Late artifact value"),
           stripHex(
             hexData(transaction.rawTransaction, "Late artifact raw transaction")
           ),
@@ -4013,6 +4050,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     let actualGuardID = hashStructured({
       domain: "tbtc-p2tr-signature-fraud-escaped-nonce-guard-v1",
       recordID: record.recordID,
+      chainID: transaction.chainID,
       transactionHash: hexValue(
         transaction.transactionHash,
         "Escaped transaction hash"
@@ -4040,7 +4078,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         LIMIT 1
         FOR SHARE`,
       [
-        record.intent.chainID,
+        transaction.chainID,
         stripHex(address(transaction.sender, "Escaped sender")),
         transaction.nonce,
       ]
@@ -4051,6 +4089,35 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       actualGuardLaneID = existingGuard.rows[0].signer_lane_id
       actualGuardSignerIdentity = existingGuard.rows[0].signer_identity
     } else {
+      const configuredLane = await this.options.session.query<{
+        signer_lane_id: string
+        signer_identity: string
+      }>(
+        `SELECT signer_lane_id, signer_identity
+           FROM p2tr_signature_fraud_signer_lane_configuration
+          WHERE activation_manifest_hash = decode($1, 'hex')
+            AND chain_id = $2
+            AND sender = decode($3, 'hex')
+            AND enabled = true
+          FOR SHARE`,
+        [
+          stripHex(
+            bytes32(
+              record.feePolicyManifest.activationManifestHash,
+              "Escaped signer manifest"
+            )
+          ),
+          transaction.chainID,
+          stripHex(address(transaction.sender, "Escaped sender")),
+        ]
+      )
+      if (configuredLane.rows.length > 1) {
+        throw new Error("Escaped signer lane configuration is ambiguous")
+      }
+      if (configuredLane.rows.length === 1) {
+        actualGuardLaneID = configuredLane.rows[0].signer_lane_id
+        actualGuardSignerIdentity = configuredLane.rows[0].signer_identity
+      }
       await this.options.session.query(
         `INSERT INTO p2tr_signature_fraud_challenge_nonce_guard (
           nonce_guard_id, record_id, guard_kind, chain_id, signer_lane_id,
@@ -4065,9 +4132,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         [
           stripHex(actualGuardID),
           stripHex(bytes32(record.recordID, "Escaped guard record ID")),
-          record.intent.chainID,
-          reservation.laneID,
-          reservation.signerIdentity,
+          transaction.chainID,
+          actualGuardLaneID,
+          actualGuardSignerIdentity,
           stripHex(address(transaction.sender, "Escaped sender")),
           transaction.nonce,
           stripHex(
@@ -4092,7 +4159,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           LIMIT 1
           FOR SHARE`,
         [
-          record.intent.chainID,
+          transaction.chainID,
           stripHex(address(transaction.sender, "Escaped sender")),
           transaction.nonce,
         ]
@@ -4109,16 +4176,19 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       `INSERT INTO p2tr_signature_fraud_challenge_escaped_envelope (
           escaped_envelope_id, record_id, signer_quarantine_id,
           expected_reservation_id, actual_guard_record_id,
-          actual_nonce_guard_id, chain_id, signer_lane_id, signer_identity,
+          actual_nonce_guard_id, expected_chain_id, actual_chain_id,
+          signer_lane_id, signer_identity,
           expected_sender, expected_nonce, actual_sender, actual_nonce,
           actual_guard_signer_lane_id, actual_guard_signer_identity,
-          transaction_type, raw_transaction, transaction_hash,
+          transaction_type, to_address, calldata, transaction_value,
+          raw_transaction, transaction_hash,
           captured_at_unix_ms
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), decode($3, 'hex'),
-          decode($4, 'hex'), decode($5, 'hex'), decode($6, 'hex'), $7,
-          $8, $9, decode($10, 'hex'), $11, decode($12, 'hex'), $13,
-          $14, $15, $16, decode($17, 'hex'), decode($18, 'hex'), $19
+          decode($4, 'hex'), decode($5, 'hex'), decode($6, 'hex'), $7, $8,
+          $9, $10, decode($11, 'hex'), $12, decode($13, 'hex'), $14,
+          $15, $16, $17, decode($18, 'hex'), decode($19, 'hex'), $20,
+          decode($21, 'hex'), decode($22, 'hex'), $23
        )`,
       [
         stripHex(hexValue(transaction.transactionHash, "Escaped envelope ID")),
@@ -4130,6 +4200,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         stripHex(bytes32(actualGuardRecordID, "Actual guard record ID")),
         stripHex(actualGuardID),
         record.intent.chainID,
+        transaction.chainID,
         reservation.laneID,
         reservation.signerIdentity,
         stripHex(address(reservation.sender, "Expected sender")),
@@ -4139,6 +4210,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         actualGuardLaneID,
         actualGuardSignerIdentity,
         transactionType,
+        transaction.to === undefined
+          ? null
+          : stripHex(address(transaction.to, "Escaped destination")),
+        stripHex(hexData(transaction.calldata, "Escaped calldata")),
+        unsignedDecimal(transaction.value, "Escaped transaction value"),
         stripHex(
           hexData(transaction.rawTransaction, "Escaped raw transaction")
         ),
@@ -4441,6 +4517,10 @@ const DURABLE_PREPARED_TRANSACTION_KEYS = new Set([
   "transactionHash",
   "sender",
   "nonce",
+  "chainID",
+  "to",
+  "calldata",
+  "value",
   "eip1559",
 ])
 
@@ -4625,6 +4705,15 @@ function assertCompactDurableOutboxRecord(
       DURABLE_UNEXPECTED_ARTIFACT_KEYS,
       "unexpected signed artifact"
     )
+    if (
+      artifact.preparedTransaction.chainID === undefined ||
+      artifact.preparedTransaction.calldata === undefined ||
+      artifact.preparedTransaction.value === undefined
+    ) {
+      throw new Error(
+        "Unexpected signed artifact lacks its recovered chain, call, or value"
+      )
+    }
   }
   if (record.cancellationEvidence !== undefined) {
     assertCancellationEvidenceKeys(record.cancellationEvidence)

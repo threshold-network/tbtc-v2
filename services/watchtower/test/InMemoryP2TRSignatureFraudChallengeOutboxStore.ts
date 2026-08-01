@@ -8,7 +8,8 @@
  */
 import {
   Hex,
-  validateP2TRSignatureFraudPreparedChallengeTransaction,
+  inspectP2TRSignatureFraudPreparedTransactionEnvelope,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
@@ -778,10 +779,33 @@ export class InMemoryOutboxStore
         "Late signed artifact has no retained durable signer boundary"
       )
     }
-    validateP2TRSignatureFraudPreparedChallengeTransaction(
-      current.intent,
-      artifact.preparedTransaction
+    const recovered = recoverP2TRSignatureFraudSignedTransactionEnvelope(
+      artifact.preparedTransaction.rawTransaction
     )
+    if (
+      normalizeKey(artifact.preparedTransaction.intentID) !==
+        normalizeKey(current.intent.intentID) ||
+      normalizeKey(artifact.preparedTransaction.transactionHash) !==
+        normalizeKey(recovered.transactionHash) ||
+      normalizeKey(artifact.preparedTransaction.sender) !==
+        normalizeKey(recovered.sender) ||
+      artifact.preparedTransaction.nonce !== recovered.nonce
+    ) {
+      throw new Error(
+        "Unexpected signed artifact metadata does not match its raw envelope"
+      )
+    }
+    const envelope = inspectP2TRSignatureFraudPreparedTransactionEnvelope(
+      recovered.rawTransaction
+    )
+    const normalizedArtifact = {
+      ...artifact,
+      preparedTransaction: {
+        intentID: current.intent.intentID,
+        ...recovered,
+        ...(envelope.transactionType === 2 ? { eip1559: envelope } : {}),
+      },
+    }
     if (
       typeof artifact.reason !== "string" ||
       artifact.reason.length === 0 ||
@@ -792,9 +816,7 @@ export class InMemoryOutboxStore
       )
     }
     const artifacts = current.unexpectedSignedArtifacts ?? []
-    const capturedHash = normalizeKey(
-      artifact.preparedTransaction.transactionHash
-    )
+    const capturedHash = normalizeKey(recovered.transactionHash)
     // The adapter's idempotency covers persisted variants as well as prior
     // late artifacts.
     const alreadyCaptured =
@@ -836,9 +858,9 @@ export class InMemoryOutboxStore
       )
     }
     const expectedLaneArtifact =
-      normalizeKey(artifact.preparedTransaction.sender) ===
-        normalizeKey(reservation.sender) &&
-      artifact.preparedTransaction.nonce === reservation.nonce
+      recovered.chainID === current.intent.chainID &&
+      normalizeKey(recovered.sender) === normalizeKey(reservation.sender) &&
+      recovered.nonce === reservation.nonce
     const priorQuarantines = current.signerQuarantines ?? []
     const addedQuarantine =
       signerQuarantine !== undefined &&
@@ -860,6 +882,7 @@ export class InMemoryOutboxStore
         .reverse()
         .some(
           (candidate) =>
+            candidate.reasonCode === "wrong-chain" ||
             candidate.reasonCode === "wrong-sender" ||
             candidate.reasonCode === "wrong-nonce" ||
             candidate.reasonCode === "ambiguous-signer-invocation"
@@ -891,7 +914,7 @@ export class InMemoryOutboxStore
       signerQuarantines,
       unexpectedSignedArtifacts: alreadyCaptured
         ? artifacts
-        : [...artifacts, artifact],
+        : [...artifacts, normalizedArtifact],
       updatedAtUnixMs: Math.max(
         current.updatedAtUnixMs,
         artifact.capturedAtUnixMs

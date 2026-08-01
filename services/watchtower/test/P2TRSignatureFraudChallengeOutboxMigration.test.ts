@@ -590,12 +590,12 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   )
   assert.match(
     migration,
-    /actual_sender <> expected_sender OR actual_nonce <> expected_nonce/
+    /actual_chain_id <> expected_chain_id[\s\S]*?OR actual_sender <> expected_sender[\s\S]*?OR actual_nonce <> expected_nonce/
   )
   assert.match(migration, /guard_kind = 'escaped-envelope'/)
   assert.match(
     migration,
-    /quarantine_reason IN \('wrong-sender', 'wrong-nonce'\)/
+    /quarantine_reason IN \('wrong-chain', 'wrong-sender', 'wrong-nonce'\)/
   )
   assert.match(
     migration,

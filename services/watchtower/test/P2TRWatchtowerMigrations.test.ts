@@ -108,7 +108,7 @@ describe("P2TR watchtower migration bodies", () => {
       migration,
       /JOIN p2tr_watchtower_activation_manifest current_manifest[\s\S]*?current_manifest\.manifest_hash = guard_row\.manifest_hash/
     )
-    assert.match(
+    assert.doesNotMatch(
       migration,
       /candidate_authorization\.consumed_at IS NULL[\s\S]*?candidate_authorization\.invalidated_at IS NULL[\s\S]*?candidate_authorization\.expires_at > clock_timestamp\(\)/
     )

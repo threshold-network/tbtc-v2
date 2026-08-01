@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import test from "node:test"
 
@@ -78,6 +79,12 @@ import {
   quarantineLegacyP2TRSignatureFraudSubmissions,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
 import {
+  P2TRProductionActivationGate,
+  P2TRProductionCandidateEnqueueRejectedError,
+  type P2TRProductionActivationDependencies,
+  type P2TRProductionCandidateAuthorizationToken,
+} from "../src/P2TRProductionActivation.js"
+import {
   InMemoryOutboxStore,
   RollbackAwareInMemoryOutboxStore,
   normalizeKey,
@@ -150,19 +157,26 @@ const completeV2TestCall = (sighash: string) => {
 const signTestChallengeTransaction = (
   calldata: string,
   maxFeePerGas: number,
-  maxPriorityFeePerGas: number
+  maxPriorityFeePerGas: number,
+  overrides: Partial<{
+    chainId: number
+    nonce: number
+    to: string
+    value: number
+    data: string
+  }> = {}
 ) => {
   const wallet = new Wallet(`0x${"42".repeat(32)}`)
   const transaction = {
     type: 2,
-    chainId: 11155111,
-    nonce: 7,
+    chainId: overrides.chainId ?? 11155111,
+    nonce: overrides.nonce ?? 7,
     maxPriorityFeePerGas,
     maxFeePerGas,
     gasLimit: 1_000_000,
-    to: ROUTER_ADDRESS,
-    value: 1234,
-    data: calldata,
+    to: overrides.to ?? ROUTER_ADDRESS,
+    value: overrides.value ?? 1234,
+    data: overrides.data ?? calldata,
     accessList: [],
   }
   const unsigned = utils.serializeTransaction(transaction)
@@ -1508,11 +1522,11 @@ test("derives enqueue intent only from the locked canonical witness candidate", 
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
-  const second = await scheduler(store).enqueueConfirmedChallenge(
+  const second = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_001
   )
@@ -1586,7 +1600,7 @@ test("derives enqueue intent only from the locked canonical witness candidate", 
     invalidStore.eligibilitySnapshot = canonicalEligibilitySnapshot()
     check.mutate(invalidStore.eligibilitySnapshot)
     await assert.rejects(
-      scheduler(invalidStore).enqueueConfirmedChallenge(observationID),
+      scheduler(invalidStore).enqueueConfirmedChallengeRecord(observationID),
       check.message
     )
   }
@@ -1596,7 +1610,7 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
@@ -1646,7 +1660,7 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
     store,
     1235,
     rotatedManifestHash
-  ).enqueueConfirmedChallenge(observationID, 3_000)
+  ).enqueueConfirmedChallengeRecord(observationID, 3_000)
 
   assert.equal(restored.generation, 1)
   assert.equal(restored.generationTrigger.kind, "provenance-restored")
@@ -1662,7 +1676,7 @@ test("restores a reorg-cancelled series after manifest-bound policy rotation", a
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
@@ -1742,7 +1756,7 @@ test("restores a reorg-cancelled series after manifest-bound policy rotation", a
     store,
     1235,
     rotatedManifestHash
-  ).enqueueConfirmedChallenge(observationID, 3_000)
+  ).enqueueConfirmedChallengeRecord(observationID, 3_000)
 
   assert.equal(restored.generation, 1)
   assert.equal(restored.generationTrigger.kind, "canonical-reappearance")
@@ -1762,7 +1776,7 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
   const store = new RollbackAwareInMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
@@ -1801,12 +1815,185 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
   }
   store.records.set(normalizeKey(first.recordID), capped)
 
-  await assert.rejects(
-    scheduler(store).enqueueConfirmedChallenge(observationID, 2_000),
-    /persisted an activation-blocking alert/
+  const outcome = await scheduler(store).enqueueConfirmedChallenge(
+    observationID,
+    2_000
   )
+  assert.equal(outcome.kind, "generation-cap-exhausted")
+  if (outcome.kind !== "generation-cap-exhausted") {
+    assert.fail("expected the capped scheduler outcome")
+  }
+  assert.equal(outcome.outboxIntentID, capped.recordID)
   assert.equal(store.criticalAlerts.length, 1)
   assert.equal(store.criticalAlerts[0].code, "generation-cap-exhausted")
+})
+
+test("carries the real scheduler generation-cap outcome through the activation gate commit", async () => {
+  const store = new RollbackAwareInMemoryOutboxStore()
+  store.eligibilitySnapshot = canonicalEligibilitySnapshot()
+  const observationID = store.eligibilitySnapshot.challengeRecord.observationID
+  const challengeScheduler = scheduler(store)
+  const first = await challengeScheduler.enqueueConfirmedChallengeRecord(
+    observationID,
+    1_000
+  )
+  const disposition = withCanonicalAttestations({
+    status: "terminal-reverted",
+    observedHead: { blockNumber: 500, blockHash: ETHEREUM_CURSOR_HASH },
+    finalizedThrough: { blockNumber: 500, blockHash: ETHEREUM_CURSOR_HASH },
+    consensusFinalized: true,
+    receipt: {
+      transactionHash: TRANSACTION_HASH,
+      status: 0,
+      blockNumber: 499,
+      blockHash: `0x${"91".repeat(32)}`,
+    },
+    routerChallenge: {
+      exists: false,
+      challengeKey: first.intent.bridgeChallengeKey.toPrefixedString(),
+      readAtBlock: 500,
+    },
+  } as Parameters<typeof withCanonicalAttestations>[0])
+  const capped: P2TRSignatureFraudChallengeOutboxRecord = {
+    ...first,
+    status: "generation-required",
+    generation: 31,
+    generationDisposition: disposition,
+    canonicalEthereumEligibility: {
+      ...first.canonicalEthereumEligibility,
+      readSetHash: `0x${"92".repeat(32)}`,
+    },
+  }
+  store.records.set(normalizeKey(first.recordID), capped)
+
+  let active = false
+  let commits = 0
+  const coordinator = {
+    p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
+    async runInP2TRSignatureFraudWatchtowerTransaction<T>(
+      operation: () => Promise<T>
+    ): Promise<T> {
+      if (active) return operation()
+      active = true
+      try {
+        const result = await operation()
+        commits++
+        return result
+      } finally {
+        active = false
+      }
+    },
+    assertP2TRSignatureFraudWatchtowerTransactionalParticipants() {},
+    readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState() {
+      return undefined
+    },
+    isP2TRSignatureFraudWatchtowerTransactionActive() {
+      return active
+    },
+  }
+  const resolutions: Array<{ outboxIntentID: string; outcomeKind: string }> = []
+  const consumed: string[] = []
+  const stateStore = {
+    p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
+    async armCandidateEnqueueTransactionGuard() {},
+    async lockCandidateAuthorization() {},
+    async assertCandidateIndexed() {},
+    async consumeCandidateAuthorization(
+      _tokenID: string,
+      outboxIntentID: string
+    ) {
+      consumed.push(outboxIntentID)
+    },
+    async resolveCandidateEnqueueTransactionGuard(resolution: {
+      outboxIntentID: string
+      outcomeKind: string
+    }) {
+      resolutions.push(resolution)
+    },
+  }
+  const candidateEnqueuer = {
+    p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
+    async enqueueReconciledCandidate() {
+      return challengeScheduler.enqueueConfirmedChallenge(
+        observationID,
+        2_000
+      )
+    },
+  }
+  const snapshot = store.eligibilitySnapshot
+  const candidate = {
+    txid: snapshot.canonicalCandidate.txid.replace(/^0x/, ""),
+    wtxid: snapshot.canonicalCandidate.wtxid.replace(/^0x/, ""),
+    blockHash: snapshot.canonicalCandidate.blockHash.replace(/^0x/, ""),
+    blockHeight: snapshot.canonicalCandidate.blockHeight,
+    inputIndex: snapshot.canonicalCandidate.inputIndex,
+    observationID: normalizeKey(observationID),
+    challengeKey: snapshot.canonicalProvenance.challengeKey,
+  }
+  const canonicalJSON = (value: unknown): string => {
+    if (value === null || typeof value !== "object")
+      return JSON.stringify(value)
+    if (Array.isArray(value)) {
+      return `[${value.map(canonicalJSON).join(",")}]`
+    }
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJSON(record[key])}`)
+      .join(",")}}`
+  }
+  const candidateDigest = `0x${createHash("sha256")
+    .update(canonicalJSON(candidate))
+    .digest("hex")}`
+  const token = Object.freeze(
+    {}
+  ) as unknown as P2TRProductionCandidateAuthorizationToken
+  const receipt = {
+    tokenID: `0x${"11".repeat(32)}`,
+    manifestHash: ACTIVATION_MANIFEST_HASH,
+    candidateDigest,
+    candidate,
+    readinessCertificate: {
+      certificateID: `0x${"12".repeat(32)}`,
+      generation: 1,
+    },
+    verifiedBitcoin: {
+      height: candidate.blockHeight,
+      hash: candidate.blockHash,
+    },
+    verifiedEthereum: {
+      blockNumber: 500,
+      blockHash: ETHEREUM_CURSOR_HASH,
+    },
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  const gate = Object.create(
+    P2TRProductionActivationGate.prototype
+  ) as P2TRProductionActivationGate
+  Object.assign(gate, {
+    dependencies: {
+      stateStore,
+      candidateEnqueuer,
+      transactionCoordinator: coordinator,
+    } as unknown as P2TRProductionActivationDependencies,
+    candidateTokens: new WeakMap([[token, { receipt, consumed: false }]]),
+    candidateEnqueueTransactionMaxAttempts: 3,
+  })
+
+  await assert.rejects(
+    gate.consumeCandidateAuthorization(token, candidate),
+    (error: unknown) => {
+      assert.ok(error instanceof P2TRProductionCandidateEnqueueRejectedError)
+      assert.equal(error.outboxIntentID, capped.recordID)
+      return true
+    }
+  )
+  assert.equal(commits, 2)
+  assert.deepEqual(consumed, [capped.recordID])
+  assert.equal(resolutions.length, 1)
+  assert.equal(resolutions[0].outboxIntentID, capped.recordID)
+  assert.equal(resolutions[0].outcomeKind, "generation-cap-exhausted")
+  assert.equal(store.criticalAlerts[0].recordID, capped.recordID)
 })
 
 test("does not let an unrelated active COMPLETE reservation suppress fraud", async () => {
@@ -1827,7 +2014,7 @@ test("does not let an unrelated active COMPLETE reservation suppress fraud", asy
   )
   store.eligibilitySnapshot = snapshot
 
-  const result = await scheduler(store).enqueueConfirmedChallenge(
+  const result = await scheduler(store).enqueueConfirmedChallengeRecord(
     snapshot.challengeRecord.observationID,
     1_000
   )
@@ -1901,7 +2088,7 @@ test("rejects a wrong per-input observation or funding binding under the same tr
     mutate(snapshot)
     store.eligibilitySnapshot = snapshot
     await assert.rejects(
-      scheduler(store).enqueueConfirmedChallenge(
+      scheduler(store).enqueueConfirmedChallengeRecord(
         snapshot.challengeRecord.observationID
       ),
       /Canonical provenance does not authenticate/
@@ -2677,6 +2864,48 @@ test("journals recoverable signed bytes before rejecting response metadata", asy
       result.unexpectedSignedArtifacts?.[0].preparedTransaction.nonce,
       7
     )
+  }
+})
+
+test("persists the actual lane, call, and value before rejecting signer intent", async () => {
+  const unexpected = [
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      chainId: 11155112,
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      to: "0x3333333333333333333333333333333333333333",
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      data: "0x1234",
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      value: 1235,
+    }),
+  ]
+
+  for (const signed of unexpected) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const preparer = new FixedPreparer()
+    preparer.rawTransaction = signed.rawTransaction
+    preparer.transactionHash = signed.transactionHash
+
+    const result = await dispatcher(store, preparer).prepare(
+      record.recordID,
+      "worker-a"
+    )
+
+    const artifact = result.unexpectedSignedArtifacts?.[0]?.preparedTransaction
+    const parsed = utils.parseTransaction(signed.rawTransaction)
+    assert.equal(result.status, "quarantined")
+    assert.ok(artifact)
+    assert.equal(normalizeKey(artifact.transactionHash), parsed.hash)
+    assert.equal(artifact.sender, parsed.from)
+    assert.equal(artifact.nonce, parsed.nonce)
+    assert.equal(artifact.chainID, parsed.chainId)
+    assert.equal(artifact.to, parsed.to)
+    assert.equal(artifact.calldata, parsed.data)
+    assert.equal(artifact.value, parsed.value.toString())
   }
 })
 

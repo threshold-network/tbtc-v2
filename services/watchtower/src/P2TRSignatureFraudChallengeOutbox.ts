@@ -27,6 +27,7 @@ import {
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
   recoverP2TRSignatureFraudPreparedChallengeTransaction,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
   validateP2TRSignatureFraudSignerResponseBinding,
   validateP2TRSignatureFraudBoundNonceReservation,
   validateP2TRSignatureFraudWitnessObservationConsistency,
@@ -1311,6 +1312,7 @@ export type P2TRSignatureFraudSignerQuarantine = {
   reservationID?: string
   reasonCode:
     | "ambiguous-signer-invocation"
+    | "wrong-chain"
     | "wrong-sender"
     | "wrong-nonce"
     | "malformed-signed-envelope"
@@ -1944,6 +1946,18 @@ export type P2TRSignatureFraudNonceReleaseRecoveryReport = {
   backlogRemaining: boolean
 }
 
+export type P2TRSignatureFraudChallengeOutboxEnqueueOutcome =
+  | {
+      kind: "enqueued"
+      outboxIntentID: string
+      record: P2TRSignatureFraudChallengeOutboxRecord
+    }
+  | {
+      kind: "generation-cap-exhausted"
+      outboxIntentID: string
+      message: string
+    }
+
 export class P2TRSignatureFraudChallengeOutboxScheduler {
   constructor(
     private readonly store: P2TRSignatureFraudChallengeOutboxStore,
@@ -1953,14 +1967,35 @@ export class P2TRSignatureFraudChallengeOutboxScheduler {
   }
 
   /**
+   * Convenience boundary for standalone callers that require a record. Never
+   * use this throwing wrapper inside an ambient activation-gate transaction;
+   * production enqueuers must propagate `enqueueConfirmedChallenge`'s outcome.
+   */
+  async enqueueConfirmedChallengeRecord(
+    observationID: Hex | Buffer | string,
+    nowUnixMs = Date.now()
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const outcome = await this.enqueueConfirmedChallenge(
+      observationID,
+      nowUnixMs
+    )
+    if (outcome.kind === "generation-cap-exhausted") {
+      throw new Error(outcome.message)
+    }
+    return outcome.record
+  }
+
+  /**
    * Loads and validates authoritative evidence under the store's eligibility
-   * transaction. Callers provide only the durable observation key; they cannot
+   * transaction. Generation-cap rejection is returned, not thrown, so an
+   * ambient coordinator transaction can commit the alert and authorization
+   * resolution. Callers provide only the durable observation key; they cannot
    * supply an intent, cursor, Router binding, or confirmation assertion.
    */
   async enqueueConfirmedChallenge(
     observationID: Hex | Buffer | string,
     nowUnixMs = Date.now()
-  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+  ): Promise<P2TRSignatureFraudChallengeOutboxEnqueueOutcome> {
     const key = normalizeBytes32(observationID, "Challenge observation ID")
     const result = await this.store.runInEligibilityTransaction(
       key,
@@ -2097,6 +2132,7 @@ export class P2TRSignatureFraudChallengeOutboxScheduler {
             })
             return {
               kind: "generation-cap-exhausted" as const,
+              outboxIntentID: latest.recordID,
               message:
                 "Challenge outbox reached the bounded evidence-generation limit and persisted an activation-blocking alert",
             }
@@ -2135,13 +2171,13 @@ export class P2TRSignatureFraudChallengeOutboxScheduler {
         return { kind: "record" as const, record: stored }
       }
     )
-    // Do not throw from the eligibility callback after persisting a critical
-    // alert: that callback is the transaction body, so throwing there would
-    // roll the fail-closed alert back with the rejected enqueue.
-    if (result.kind === "generation-cap-exhausted") {
-      throw new Error(result.message)
-    }
-    return result.record
+    return result.kind === "generation-cap-exhausted"
+      ? result
+      : {
+          kind: "enqueued",
+          outboxIntentID: result.record.recordID,
+          record: result.record,
+        }
   }
 }
 
@@ -2559,10 +2595,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
     try {
-      escaped = recoverP2TRSignatureFraudPreparedChallengeTransaction(
-        signerBoundary.intent,
-        candidate.rawTransaction
-      )
+      escaped = {
+        intentID: signerBoundary.intent.intentID,
+        ...recoverP2TRSignatureFraudSignedTransactionEnvelope(
+          candidate.rawTransaction
+        ),
+      }
     } catch (error) {
       const failed = this.signerFailureRecord(
         signerBoundary,
@@ -2636,7 +2674,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         errorMessage(error),
         true,
         escaped,
-        classifyReservationMismatch(reservation, escaped)
+        classifyReservationMismatch(
+          signerBoundary.intent.chainID,
+          reservation,
+          escaped
+        )
       )
       if (
         !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
@@ -2941,10 +2983,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
     try {
-      escaped = recoverP2TRSignatureFraudPreparedChallengeTransaction(
-        signerBoundary.intent,
-        candidate.rawTransaction
-      )
+      escaped = {
+        intentID: signerBoundary.intent.intentID,
+        ...recoverP2TRSignatureFraudSignedTransactionEnvelope(
+          candidate.rawTransaction
+        ),
+      }
     } catch (error) {
       const failed = this.signerFailureRecord(
         signerBoundary,
@@ -3042,6 +3086,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         true,
         escaped,
         classifyReplacementSignerFailure(
+          signerBoundary.intent.chainID,
           current.reservedNonce,
           previous,
           escaped
@@ -7306,6 +7351,8 @@ const validateStructuredResolution = (
       protectedLane === undefined ||
       signedTransactions.some(
         (transaction) =>
+          (transaction.chainID !== undefined &&
+            transaction.chainID !== record.intent.chainID) ||
           normalizeAddress(
             transaction.sender,
             "Signed terminal artifact sender"
@@ -7991,6 +8038,8 @@ const validateExternalOwnTransactionDisposition = (
     disposition.finalizedAccountNonce <= protectedLane.nonce ||
     signedTransactions.some(
       (transaction) =>
+        (transaction.chainID !== undefined &&
+          transaction.chainID !== record.intent.chainID) ||
         normalizeAddress(transaction.sender, "Signed artifact sender") !==
           normalizeAddress(protectedLane.sender, "Protected nonce sender") ||
         transaction.nonce !== protectedLane.nonce
@@ -8743,23 +8792,32 @@ const appendSignerQuarantine = (
 }
 
 const classifyReservationMismatch = (
+  expectedChainID: number,
   reservation: P2TRSignatureFraudBoundNonceReservation,
   escaped: P2TRSignatureFraudPreparedChallengeTransaction
 ): P2TRSignatureFraudSignerQuarantine["reasonCode"] =>
-  normalizeAddress(escaped.sender, "Escaped signed sender") !==
-  normalizeAddress(reservation.sender, "Reserved signed sender")
+  escaped.chainID !== expectedChainID
+    ? "wrong-chain"
+    : normalizeAddress(escaped.sender, "Escaped signed sender") !==
+      normalizeAddress(reservation.sender, "Reserved signed sender")
     ? "wrong-sender"
     : escaped.nonce !== reservation.nonce
     ? "wrong-nonce"
     : "malformed-signed-envelope"
 
 const classifyReplacementSignerFailure = (
+  expectedChainID: number,
   reservation: P2TRSignatureFraudBoundNonceReservation,
   _previous: P2TRSignatureFraudPreparedChallengeTransaction,
   escaped: P2TRSignatureFraudPreparedChallengeTransaction
 ): P2TRSignatureFraudSignerQuarantine["reasonCode"] => {
-  const reservationMismatch = classifyReservationMismatch(reservation, escaped)
+  const reservationMismatch = classifyReservationMismatch(
+    expectedChainID,
+    reservation,
+    escaped
+  )
   if (
+    reservationMismatch === "wrong-chain" ||
     reservationMismatch === "wrong-sender" ||
     reservationMismatch === "wrong-nonce"
   ) {

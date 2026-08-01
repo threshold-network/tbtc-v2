@@ -536,14 +536,17 @@ export class PostgresP2TRProductionActivationStore
                   AND authz.candidate_digest =
                        guard_row.candidate_digest
                 WHERE guard_row.manifest_hash = manifest.manifest_hash
-                  AND authz.consumed_at IS NULL
-                  AND authz.invalidated_at IS NULL
-                  AND authz.expires_at > clock_timestamp()
                   AND NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
                      WHERE resolution.manifest_hash = guard_row.manifest_hash
                        AND resolution.token_id = guard_row.token_id
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                     WHERE alert.manifest_hash = guard_row.manifest_hash
+                       AND alert.token_id = guard_row.token_id
                   )) AS unresolved_candidate_enqueue_transaction_guard_count,
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
@@ -1145,10 +1148,7 @@ export class PostgresP2TRProductionActivationStore
            JOIN p2tr_watchtower_activation_manifest current_manifest
              ON current_manifest.singleton = true
             AND current_manifest.manifest_hash = guard_row.manifest_hash
-          WHERE authz.consumed_at IS NULL
-            AND authz.invalidated_at IS NULL
-            AND authz.expires_at > clock_timestamp()
-            AND NOT EXISTS (
+          WHERE NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
                      WHERE resolution.manifest_hash = guard_row.manifest_hash

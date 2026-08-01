@@ -334,6 +334,21 @@ describe("PostgreSQL production transaction capabilities", () => {
       assert.ok(client.releasedWith instanceof Error)
     }
   })
+
+  it("returns committed work when the later readiness-fence unlock fails", async () => {
+    const client = new TransactionClient("UNLOCK")
+    const coordinator = coordinatorFor(client)
+
+    assert.equal(
+      await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => "committed-outbox-intent"
+      ),
+      "committed-outbox-intent"
+    )
+    assert.ok(client.queries.includes("COMMIT"))
+    assert.ok(client.releasedWith instanceof Error)
+    assert.match(client.releasedWith.message, /UNLOCK failed/)
+  })
 })
 
 function coordinatorFor(client: P2TRPostgresClient) {
@@ -381,7 +396,7 @@ class TransactionClient implements P2TRPostgresClient {
   releasedWith: Error | undefined
 
   constructor(
-    private readonly failure?: "COMMIT" | "ROLLBACK" | "FENCE",
+    private readonly failure?: "COMMIT" | "ROLLBACK" | "FENCE" | "UNLOCK",
     private readonly liveCandidateAuthorizationCount = 0,
     private readonly readinessFence?: ReadinessFence,
     private readonly recoveryBacklogAtMint = 0
@@ -393,6 +408,9 @@ class TransactionClient implements P2TRPostgresClient {
   ): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
     if (text === this.failure) throw new Error(`${text} failed`)
+    if (this.failure === "UNLOCK" && text.includes("pg_advisory_unlock")) {
+      throw new Error("UNLOCK failed")
+    }
     if (
       this.failure === "FENCE" &&
       text.includes("pg_advisory_lock_shared(") &&
