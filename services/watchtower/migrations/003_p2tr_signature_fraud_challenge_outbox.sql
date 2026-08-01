@@ -2332,12 +2332,22 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     ),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
-    transaction_type smallint NOT NULL CHECK (transaction_type = 2),
-    gas_limit numeric(78, 0) NOT NULL CHECK (gas_limit > 0),
-    max_fee_per_gas numeric(78, 0) NOT NULL CHECK (max_fee_per_gas > 0),
-    max_priority_fee_per_gas numeric(78, 0) NOT NULL CHECK (
-        max_priority_fee_per_gas >= 0
-        AND max_priority_fee_per_gas <= max_fee_per_gas
+    transaction_type smallint NOT NULL CHECK (transaction_type IN (0, 1, 2)),
+    gas_limit numeric(78, 0),
+    max_fee_per_gas numeric(78, 0),
+    max_priority_fee_per_gas numeric(78, 0),
+    CHECK (
+        (
+            transaction_type = 2
+            AND gas_limit >= 0
+            AND max_fee_per_gas >= 0
+            AND max_priority_fee_per_gas >= 0
+        ) OR (
+            transaction_type IN (0, 1)
+            AND gas_limit IS NULL
+            AND max_fee_per_gas IS NULL
+            AND max_priority_fee_per_gas IS NULL
+        )
     ),
     captured_at_unix_ms bigint NOT NULL CHECK (
         captured_at_unix_ms BETWEEN 0 AND 9007199254740991
@@ -2867,12 +2877,12 @@ BEGIN
        AND policy_hash = outbox_record.fee_policy_hash
      FOR SHARE;
 
-    IF NOT FOUND
-       OR NEW.gas_limit > fee_policy.max_gas_limit
-       OR NEW.max_fee_per_gas > fee_policy.max_fee_per_gas
-       OR NEW.max_priority_fee_per_gas > fee_policy.max_priority_fee_per_gas
-       OR NEW.gas_limit * NEW.max_fee_per_gas > fee_policy.max_total_fee_wei THEN
-        RAISE EXCEPTION 'late signed artifact exceeds its manifest-bound fee policy';
+    -- This table is a forensic quarantine, not a broadcast queue. Preserve
+    -- authenticated signed bytes even when their envelope violates the
+    -- manifest fee/access-list policy; the signer-policy row is still required
+    -- to bind the incident to the lane that was authorized at the boundary.
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'late signed artifact lacks its manifest-bound fee policy';
     END IF;
     RETURN NEW;
 END;

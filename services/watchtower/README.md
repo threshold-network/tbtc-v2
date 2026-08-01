@@ -57,12 +57,14 @@ sender nonce may terminate the immutable transaction; `pending`, `unknown`, or
 inconsistent evidence never makes it replayable. Legacy records with any prior
 submission attempt are quarantined instead of imported into the new outbox.
 
-`migrations/002_p2tr_signature_fraud_challenge_outbox.sql` documents the
+`migrations/003_p2tr_signature_fraud_challenge_outbox.sql` documents the
 PostgreSQL uniqueness, CAS-version, immutable-generation, and prepared-bytes
-constraints expected from a concrete store. No database adapter, Ethers
-reconciler/broadcaster, service scheduling hook, or environment activation flag
-is wired in this tranche. Consequently, constructing these exported classes
-does not change the hard rejection of `submitChallenges: true`.
+constraints enforced by `PostgresP2TRSignatureFraudChallengeOutboxStore`; the
+PostgreSQL activation-handshake adapter is exported alongside it. No concrete
+Ethers reconciler/broadcaster, service scheduling hook, or environment
+activation flag is wired in this tranche. Consequently, constructing these
+exported classes does not change the hard rejection of
+`submitChallenges: true`.
 
 This package is intentionally scoped to the Schnorr FROST/ROAST P2TR fraud path. It does not depend on account-control, ac-watchdog, or covenant packages.
 

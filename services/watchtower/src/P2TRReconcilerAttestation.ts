@@ -30,6 +30,7 @@ export type P2TRReconcilerRequestBinding = {
   attempt: number
   provenanceFingerprint: string
   activationManifestHash: string
+  signingRequestDigest?: string
   preparedTransactionHash?: string
 }
 
@@ -1163,12 +1164,16 @@ function normalizeRequestBinding(
     value.preparedTransactionHash === undefined
       ? undefined
       : bytes32(value.preparedTransactionHash, "prepared transaction hash")
+  const signingRequestDigest =
+    value.signingRequestDigest === undefined
+      ? undefined
+      : bytes32(value.signingRequestDigest, "signing request digest")
   if (
-    (value.stage === "broadcast") !==
-    (preparedTransactionHash !== undefined)
+    (value.stage === "broadcast") !== (preparedTransactionHash !== undefined) ||
+    (value.stage !== "broadcast") !== (signingRequestDigest !== undefined)
   ) {
     throw new Error(
-      "Only a broadcast reconciler request may name prepared transaction bytes"
+      "Signer reconciler requests require an exact request digest and broadcast requests require exact prepared bytes"
     )
   }
   return {
@@ -1194,6 +1199,7 @@ function normalizeRequestBinding(
       value.activationManifestHash,
       "request activation manifest hash"
     ),
+    ...(signingRequestDigest === undefined ? {} : { signingRequestDigest }),
     ...(preparedTransactionHash === undefined
       ? {}
       : { preparedTransactionHash }),

@@ -27,6 +27,13 @@ const outboxMigration = readFileSync(
 )
 
 describe("production activation PostgreSQL schema contract", () => {
+  it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
+    assert.doesNotMatch(
+      activationStore,
+      /p2tr_candidate_enqueue_authorizations authorization/
+    )
+  })
+
   it("reads pending and blocking dispositions from candidate observations", () => {
     assert.doesNotMatch(
       activationStore,
@@ -208,13 +215,10 @@ describe("production activation PostgreSQL schema contract", () => {
       "resolveCandidateEnqueueTransactionGuard"
     )
     for (const source of [runtimeAlerts, armGuard]) {
+      assert.match(source, /JOIN p2tr_candidate_enqueue_authorizations authz/)
       assert.match(
         source,
-        /JOIN p2tr_candidate_enqueue_authorizations authorization/
-      )
-      assert.match(
-        source,
-        /authorization\.consumed_at IS NULL[\s\S]*?authorization\.invalidated_at IS NULL[\s\S]*?authorization\.expires_at > clock_timestamp\(\)/
+        /authz\.consumed_at IS NULL[\s\S]*?authz\.invalidated_at IS NULL[\s\S]*?authz\.expires_at > clock_timestamp\(\)/
       )
     }
     assert.match(
@@ -231,11 +235,11 @@ describe("production activation PostgreSQL schema contract", () => {
     )
     assert.match(
       lock,
-      /JOIN p2tr_readiness_certificates certificate[\s\S]*?certificate\.certificate_id =\s+authorization\.readiness_certificate_id[\s\S]*?certificate\.certificate_generation =\s+authorization\.readiness_certificate_generation/
+      /JOIN p2tr_readiness_certificates certificate[\s\S]*?certificate\.certificate_id =\s+authz\.readiness_certificate_id[\s\S]*?certificate\.certificate_generation =\s+authz\.readiness_certificate_generation/
     )
     assert.match(
       lock,
-      /certificate\.bitcoin_height =\s+authorization\.verified_bitcoin_height[\s\S]*?certificate\.bitcoin_hash =\s+authorization\.verified_bitcoin_hash[\s\S]*?certificate\.ethereum_block_number =\s+authorization\.verified_ethereum_block[\s\S]*?certificate\.ethereum_block_hash =\s+authorization\.verified_ethereum_hash/
+      /certificate\.bitcoin_height =\s+authz\.verified_bitcoin_height[\s\S]*?certificate\.bitcoin_hash =\s+authz\.verified_bitcoin_hash[\s\S]*?certificate\.ethereum_block_number =\s+authz\.verified_ethereum_block[\s\S]*?certificate\.ethereum_block_hash =\s+authz\.verified_ethereum_hash/
     )
     assert.match(
       lock,

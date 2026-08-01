@@ -4,9 +4,10 @@ import { createHash } from "node:crypto"
 import {
   Hex,
   P2TRSignatureFraudBoundNonceReservation,
+  inspectP2TRSignatureFraudPreparedTransactionEnvelope,
   validateP2TRCompleteV2SignatureFraudSubmissionIntent,
+  validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
-  validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
@@ -3879,18 +3880,19 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
     const transaction = artifact.preparedTransaction
     const validatedTransaction =
-      validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
+      validateP2TRSignatureFraudPreparedChallengeTransaction(
         record.intent,
         transaction
       )
+    const envelope = inspectP2TRSignatureFraudPreparedTransactionEnvelope(
+      validatedTransaction.rawTransaction
+    )
+    const transactionType = envelope.transactionType
     const reason = requireText(artifact.reason, "Late artifact reason", 1024)
     const sameLane =
       address(transaction.sender, "Unexpected signed sender") ===
         address(reservation.sender, "Reserved sender") &&
       transaction.nonce === reservation.nonce
-    if (sameLane && validatedTransaction.eip1559?.transactionType !== 2) {
-      throw new Error("Unexpected production artifact must be EIP-1559")
-    }
     const quarantine = sameLane
       ? undefined
       : [...(record.signerQuarantines ?? [])]
@@ -3910,6 +3912,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       reservation,
       transaction,
       validatedTransaction,
+      envelope,
+      transactionType,
       reason,
       sameLane,
       quarantine,
@@ -3924,15 +3928,14 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       reservation,
       transaction,
       validatedTransaction,
+      envelope,
+      transactionType,
       reason,
       sameLane,
       quarantine,
     } = this.validateUnexpectedArtifact(record, artifact)
     if (sameLane) {
-      const eip1559 = validatedTransaction.eip1559
-      if (eip1559?.transactionType !== 2) {
-        throw new Error("Unexpected production artifact must be EIP-1559")
-      }
+      const eip1559 = envelope.transactionType === 2 ? envelope : undefined
       await this.options.session.query(
         `INSERT INTO p2tr_signature_fraud_challenge_late_signed_artifact (
             artifact_id, record_id, generation,
@@ -3946,7 +3949,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             decode($1, 'hex'), decode($2, 'hex'), $3, decode($4, 'hex'),
             decode($5, 'hex'), $6, $7, $8, decode($9, 'hex'),
             decode($10, 'hex'), decode($11, 'hex'), decode($12, 'hex'),
-            $13, 2, $14, $15, $16, $17, $18, decode($19, 'hex')
+            $13, $14, $15, $16, $17, $18, $19, decode($20, 'hex')
          )`,
         [
           stripHex(hexValue(transaction.transactionHash, "Late artifact ID")),
@@ -3979,12 +3982,22 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           ),
           stripHex(address(transaction.sender, "Late artifact sender")),
           transaction.nonce,
-          unsignedDecimal(eip1559.gasLimit, "Late artifact gas limit"),
-          unsignedDecimal(eip1559.maxFeePerGas, "Late artifact maximum fee"),
-          unsignedDecimal(
-            eip1559.maxPriorityFeePerGas,
-            "Late artifact priority fee"
-          ),
+          transactionType,
+          eip1559 === undefined
+            ? null
+            : unsignedDecimal(eip1559.gasLimit, "Late artifact gas limit"),
+          eip1559 === undefined
+            ? null
+            : unsignedDecimal(
+                eip1559.maxFeePerGas,
+                "Late artifact maximum fee"
+              ),
+          eip1559 === undefined
+            ? null
+            : unsignedDecimal(
+                eip1559.maxPriorityFeePerGas,
+                "Late artifact priority fee"
+              ),
           artifact.capturedAtUnixMs,
           reason,
           stripHex(hashText(reason)),
@@ -4125,7 +4138,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         transaction.nonce,
         actualGuardLaneID,
         actualGuardSignerIdentity,
-        transaction.eip1559?.transactionType ?? 0,
+        transactionType,
         stripHex(
           hexData(transaction.rawTransaction, "Escaped raw transaction")
         ),
@@ -4791,6 +4804,7 @@ function assertResolutionKeys(
     "status",
     "observedHead",
     "finalizedThrough",
+    "consensusFinalized",
     "canonicalAttestations",
     "routerChallenge",
   ]

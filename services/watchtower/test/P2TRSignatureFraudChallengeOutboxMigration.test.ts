@@ -121,10 +121,7 @@ test("stores only compact fixed per-input evidence", () => {
 })
 
 test("requires every durable signed variant to use the exact policy gas limit", () => {
-  assert.match(
-    migration,
-    /OR NEW\.gas_limit <> fee_policy\.max_gas_limit/
-  )
+  assert.match(migration, /OR NEW\.gas_limit <> fee_policy\.max_gas_limit/)
 })
 
 test("serializes a manifest-bound global active-record capacity", () => {
@@ -607,6 +604,10 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   assert.match(
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_challenge_late_signed_artifact[\s\S]*?transaction_type smallint NOT NULL CHECK \(transaction_type IN \(0, 1, 2\)\)[\s\S]*?transaction_type IN \(0, 1\)[\s\S]*?gas_limit IS NULL/
   )
   assert.match(migration, /expected_provenance_fingerprint bytea NOT NULL/)
   assert.match(

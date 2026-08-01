@@ -48,6 +48,7 @@ type NormalizedBoundaryBinding = {
   attempt: number
   provenanceFingerprint: string
   activationManifestHash: string
+  signingRequestDigest?: string
   preparedTransactionHash?: string
 }
 
@@ -223,6 +224,9 @@ function reconcilerRequestBinding(
     attempt: value.attempt,
     provenanceFingerprint: value.provenanceFingerprint,
     activationManifestHash: value.activationManifestHash,
+    ...(value.signingRequestDigest === undefined
+      ? {}
+      : { signingRequestDigest: value.signingRequestDigest }),
     ...(value.preparedTransactionHash === undefined
       ? {}
       : { preparedTransactionHash: value.preparedTransactionHash }),
@@ -246,12 +250,16 @@ function normalizeBoundaryBinding(
           value.preparedTransactionHash,
           "Boundary prepared transaction hash"
         )
+  const signingRequestDigest =
+    value.signingRequestDigest === undefined
+      ? undefined
+      : bytes32(value.signingRequestDigest, "Boundary signing request digest")
   if (
-    (value.stage === "broadcast") !==
-    (preparedTransactionHash !== undefined)
+    (value.stage === "broadcast") !== (preparedTransactionHash !== undefined) ||
+    (value.stage !== "broadcast") !== (signingRequestDigest !== undefined)
   ) {
     throw new Error(
-      "Only a broadcast authorization may name prepared transaction bytes"
+      "Signer authorizations require an exact request digest and broadcast authorizations require exact prepared bytes"
     )
   }
   return {
@@ -280,6 +288,7 @@ function normalizeBoundaryBinding(
       value.activationManifestHash,
       "Boundary activation manifest hash"
     ),
+    signingRequestDigest,
     preparedTransactionHash,
   }
 }

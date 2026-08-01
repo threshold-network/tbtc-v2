@@ -568,10 +568,8 @@ function outboxRecordForManifest(
   manifestHash: string
 ): P2TRSignatureFraudChallengeOutboxRecord {
   const record = outboxRecord(seed)
-  const {
-    readSetHash: _readSetHash,
-    ...eligibilityWithoutReadSetHash
-  } = record.canonicalEthereumEligibility
+  const { readSetHash: _readSetHash, ...eligibilityWithoutReadSetHash } =
+    record.canonicalEthereumEligibility
   const eligibilityWithoutHash = {
     ...eligibilityWithoutReadSetHash,
     activationManifestHash: manifestHash,
@@ -3344,9 +3342,7 @@ postgresTest(
       [hexBuffer(initial.canonicalProvenance.readinessCertificateID)]
     )
     assert.equal(rotated?.status, "cancelled-provenance-invalidated")
-    assert.deepEqual(readiness.rows, [
-      { is_current: false, invalidated: true },
-    ])
+    assert.deepEqual(readiness.rows, [{ is_current: false, invalidated: true }])
     assert.equal(response.payload.state.manifestActivationSequence, 2)
     assert.equal(response.payload.state.configuredSignerLaneCount, 1)
     assert.equal(response.payload.state.healthySignerLaneCount, 1)
@@ -3836,6 +3832,9 @@ type EscapedCaptureRequest = {
   expectedReservationID?: string
   sender?: string
   nonce?: number
+  transactionType?: 0 | 1 | 2
+  maxFeePerGas?: number
+  includeAccessList?: boolean
   reason?: string
   capturedAtUnixMs: number
   quarantine?: P2TRSignatureFraudSignerQuarantine
@@ -3844,6 +3843,7 @@ type EscapedCaptureRequest = {
 type EscapedCaptureOutcome = {
   results: string[]
   alertCodes: string[]
+  transactionTypes: number[]
 }
 
 type EscapedCaptureParityScenario = {
@@ -3862,16 +3862,24 @@ async function escapedCaptureArtifact(
   request: EscapedCaptureRequest
 ) {
   const nonce = request.nonce ?? 7
+  const transactionType = request.transactionType ?? 2
   const rawTransaction = await WALLET.signTransaction({
-    type: 2,
+    ...(transactionType === 0 ? {} : { type: transactionType }),
     chainId: CHAIN_ID,
     to: record.intent.routerAddress,
     data: record.intent.calldata,
     value: record.intent.value,
     nonce,
     gasLimit: 100_000,
-    maxFeePerGas: 100,
-    maxPriorityFeePerGas: 10,
+    ...(transactionType === 2
+      ? {
+          maxFeePerGas: request.maxFeePerGas ?? 100,
+          maxPriorityFeePerGas: 10,
+          ...(request.includeAccessList
+            ? { accessList: [{ address: WALLET.address, storageKeys: [] }] }
+            : {}),
+        }
+      : { gasPrice: 100 }),
   })
   return {
     expectedReservationID:
@@ -3956,7 +3964,23 @@ async function postgresEscapedCaptureOutcome(
          FROM p2tr_signature_fraud_challenge_critical_alert
         ORDER BY code`
     )
-    return { results, alertCodes: alerts.rows.map((row) => row.code) }
+    const transactionTypes = await database.client.query<{
+      transaction_type: number
+    }>(
+      `SELECT transaction_type
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact
+        UNION ALL
+       SELECT transaction_type
+         FROM p2tr_signature_fraud_challenge_escaped_envelope
+        ORDER BY transaction_type`
+    )
+    return {
+      results,
+      alertCodes: alerts.rows.map((row) => row.code),
+      transactionTypes: transactionTypes.rows.map(
+        ({ transaction_type }) => transaction_type
+      ),
+    }
   } finally {
     await database.client.end()
   }
@@ -4011,6 +4035,14 @@ async function inMemoryEscapedCaptureOutcome(
     alertCodes: [
       ...new Set(store.criticalAlerts.map((alert) => alert.code)),
     ].sort(),
+    transactionTypes: (
+      (await store.get(initial.recordID))?.unexpectedSignedArtifacts ?? []
+    )
+      .map(
+        ({ preparedTransaction }) =>
+          utils.parseTransaction(preparedTransaction.rawTransaction).type ?? 0
+      )
+      .sort(),
   }
 }
 
@@ -4126,6 +4158,30 @@ const escapedCaptureParityScenarios: EscapedCaptureParityScenario[] = [
     seed: 61,
     boundary: signerBoundaryOnly,
     captures: [{ capturedAtUnixMs: 2_100 }],
+  },
+  {
+    name: "captures an expected-lane policy-invalid legacy artifact",
+    seed: 69,
+    boundary: signerBoundaryOnly,
+    captures: [{ capturedAtUnixMs: 2_100, transactionType: 0 }],
+  },
+  {
+    name: "captures an expected-lane policy-invalid type-1 artifact",
+    seed: 70,
+    boundary: signerBoundaryOnly,
+    captures: [{ capturedAtUnixMs: 2_100, transactionType: 1 }],
+  },
+  {
+    name: "captures an expected-lane type-2 artifact above fee policy",
+    seed: 71,
+    boundary: signerBoundaryOnly,
+    captures: [{ capturedAtUnixMs: 2_100, maxFeePerGas: 101 }],
+  },
+  {
+    name: "captures an expected-lane type-2 artifact with an access list",
+    seed: 72,
+    boundary: signerBoundaryOnly,
+    captures: [{ capturedAtUnixMs: 2_100, includeAccessList: true }],
   },
   {
     name: "is idempotent once the durable boundary is resolved",

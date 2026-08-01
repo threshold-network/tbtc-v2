@@ -8,6 +8,7 @@ import {
   P2TRSignatureFraudChallengeTransactionFeePolicy,
   P2TRSignatureFraudChallengeTransactionPreparer,
   P2TRSignatureFraudPreparedChallengeTransaction,
+  P2TRSignatureFraudPreparedChallengeTransactionResponse,
   P2TRSignatureFraudSubmissionIntent,
   P2TRWatchtowerChallengeRecord,
   P2TR_SIGNATURE_FRAUD_COMPLETE_V2_CHALLENGE_EVIDENCE_ABI_TYPE,
@@ -18,6 +19,8 @@ import {
   computeP2TRCompleteV2SignatureFraudChallengeIdentity,
   computeP2TRSignatureFraudSubmissionIntentID,
   computeP2TRSignatureFraudBoundNonceReservationID,
+  computeP2TRSignatureFraudSigningRequestDigest,
+  computeP2TRSignatureFraudSignerResponseBindingDigest,
   extractP2TRSignatureFraudWitnessObservations,
 } from "@keep-network/tbtc-v2.ts"
 import { Transaction } from "bitcoinjs-lib"
@@ -430,6 +433,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   afterReplacementSign?: (
     prepared: P2TRSignatureFraudPreparedChallengeTransaction
   ) => Promise<void>
+  mutateInitialResponse?: (
+    prepared: P2TRSignatureFraudPreparedChallengeTransactionResponse
+  ) => P2TRSignatureFraudPreparedChallengeTransactionResponse
 
   async reserveSignatureFraudChallengeNonce(
     intent: P2TRSignatureFraudSubmissionIntent,
@@ -522,8 +528,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     intent: P2TRSignatureFraudSubmissionIntent,
     _reservation: P2TRSignatureFraudBoundNonceReservation,
     _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
-    signerInvocationID: Hex
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     const invocationID = signerInvocationID.toPrefixedString()
     if (this.tombstonedInvocationIDs.has(invocationID)) {
       throw new Error("signer invocation is tombstoned")
@@ -531,15 +538,19 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     this.initialInvocationIDs.push(invocationID)
     this.calls++
     await Promise.resolve()
-    const prepared = {
-      intentID: intent.intentID,
-      rawTransaction: this.rawTransaction,
-      transactionHash: Hex.from(this.transactionHash),
-      sender: TRANSACTION_SENDER,
-      nonce: 7,
-    }
+    const prepared = await this.authenticateResponse(
+      {
+        intentID: intent.intentID,
+        rawTransaction: this.rawTransaction,
+        transactionHash: Hex.from(this.transactionHash),
+        sender: TRANSACTION_SENDER,
+        nonce: 7,
+      },
+      signerInvocationID,
+      signingRequestDigest
+    )
     await this.afterInitialSign?.(prepared)
-    return prepared
+    return this.mutateInitialResponse?.(prepared) ?? prepared
   }
 
   async prepareSignatureFraudChallengeReplacementTransaction(
@@ -547,8 +558,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     _reservation: P2TRSignatureFraudBoundNonceReservation,
     _previous: P2TRSignatureFraudPreparedChallengeTransaction,
     _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
-    signerInvocationID: Hex
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     const invocationID = signerInvocationID.toPrefixedString()
     if (this.tombstonedInvocationIDs.has(invocationID)) {
       throw new Error("signer invocation is tombstoned")
@@ -556,15 +568,39 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     this.replacementInvocationIDs.push(invocationID)
     this.replacementCalls++
     await Promise.resolve()
-    const prepared = {
-      intentID: intent.intentID,
-      rawTransaction: this.replacementRawTransaction,
-      transactionHash: Hex.from(this.replacementTransactionHash),
-      sender: TRANSACTION_SENDER,
-      nonce: 7,
-    }
+    const prepared = await this.authenticateResponse(
+      {
+        intentID: intent.intentID,
+        rawTransaction: this.replacementRawTransaction,
+        transactionHash: Hex.from(this.replacementTransactionHash),
+        sender: TRANSACTION_SENDER,
+        nonce: 7,
+      },
+      signerInvocationID,
+      signingRequestDigest
+    )
     await this.afterReplacementSign?.(prepared)
     return prepared
+  }
+
+  protected async authenticateResponse(
+    prepared: P2TRSignatureFraudPreparedChallengeTransaction,
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
+    const responseDigest = computeP2TRSignatureFraudSignerResponseBindingDigest(
+      signingRequestDigest,
+      signerInvocationID,
+      prepared.transactionHash
+    )
+    return {
+      ...prepared,
+      signerInvocationID,
+      signingRequestDigest,
+      responseBindingSignature: await this.wallet.signMessage(
+        utils.arrayify(responseDigest.toPrefixedString())
+      ),
+    }
   }
 
   async tombstoneSignatureFraudSignerInvocation(signerInvocationID: Hex) {
@@ -581,7 +617,7 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
 }
 
 class AmbiguousRemotePreparer extends FixedPreparer {
-  override async prepareSignatureFraudChallengeTransaction(): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  override async prepareSignatureFraudChallengeTransaction(): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.calls++
     throw new Error("remote signer disconnected after signing")
   }
@@ -601,8 +637,10 @@ class DynamicFeePreparer extends FixedPreparer {
     gasLimit: number,
     maxFeePerGas: number,
     maxPriorityFeePerGas: number,
-    value: string
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    value: string,
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     const rawTransaction = await this.wallet.signTransaction({
       type: 2,
       to: intent.routerAddress,
@@ -615,38 +653,55 @@ class DynamicFeePreparer extends FixedPreparer {
       maxPriorityFeePerGas,
     })
     const parsed = utils.parseTransaction(rawTransaction)
-    return {
-      intentID: intent.intentID,
-      rawTransaction,
-      transactionHash: Hex.from(parsed.hash!),
-      sender: this.wallet.address,
-      nonce: 7,
-    }
+    return this.authenticateResponse(
+      {
+        intentID: intent.intentID,
+        rawTransaction,
+        transactionHash: Hex.from(parsed.hash!),
+        sender: this.wallet.address,
+        nonce: 7,
+      },
+      signerInvocationID,
+      signingRequestDigest
+    )
   }
 
   override async prepareSignatureFraudChallengeTransaction(
-    intent: P2TRSignatureFraudSubmissionIntent
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    intent: P2TRSignatureFraudSubmissionIntent,
+    _reservation: P2TRSignatureFraudBoundNonceReservation,
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.calls++
     return this.sign(
       intent,
       this.initialGasLimit,
       this.initialMaxFeePerGas,
       this.initialPriorityFeePerGas,
-      this.initialValue
+      this.initialValue,
+      signerInvocationID,
+      signingRequestDigest
     )
   }
 
   override async prepareSignatureFraudChallengeReplacementTransaction(
-    intent: P2TRSignatureFraudSubmissionIntent
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+    intent: P2TRSignatureFraudSubmissionIntent,
+    _reservation: P2TRSignatureFraudBoundNonceReservation,
+    _previous: P2TRSignatureFraudPreparedChallengeTransaction,
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.replacementCalls++
     return this.sign(
       intent,
       this.replacementGasLimit,
       this.replacementMaxFeePerGas,
       this.replacementPriorityFeePerGas,
-      this.initialValue
+      this.initialValue,
+      signerInvocationID,
+      signingRequestDigest
     )
   }
 }
@@ -1108,6 +1163,7 @@ const acceptedOwnResolution = (
       blockNumber: 108,
       blockHash: `0x${"18".repeat(32)}`,
     },
+    consensusFinalized: true,
     receipt: {
       transactionHash,
       status: 1,
@@ -1720,6 +1776,7 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
       blockNumber: 500,
       blockHash: ETHEREUM_CURSOR_HASH,
     },
+    consensusFinalized: true,
     receipt: {
       transactionHash: TRANSACTION_HASH,
       status: 0,
@@ -1991,7 +2048,8 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
 
   assert.equal(
     (await outbox.prepare(record.recordID, "worker-a")).status,
-    "prepared"
+    "prepared",
+    (await store.get(record.recordID))?.lastError
   )
   assert.equal(
     (await outbox.prepareReplacement(record.recordID, "worker-b")).status,
@@ -2003,24 +2061,101 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
   )
 
   assert.deepEqual(
-    authorizer.bindings.map(({ stage, attempt, preparedTransactionHash }) => ({
-      stage,
-      attempt,
-      preparedTransactionHash,
-    })),
+    authorizer.bindings.map(
+      ({ stage, attempt, signingRequestDigest, preparedTransactionHash }) => ({
+        stage,
+        attempt,
+        hasSigningRequestDigest: signingRequestDigest !== undefined,
+        preparedTransactionHash,
+      })
+    ),
     [
-      { stage: "prepare", attempt: 1, preparedTransactionHash: undefined },
+      {
+        stage: "prepare",
+        attempt: 1,
+        hasSigningRequestDigest: true,
+        preparedTransactionHash: undefined,
+      },
       {
         stage: "replacement",
         attempt: 2,
+        hasSigningRequestDigest: true,
         preparedTransactionHash: undefined,
       },
       {
         stage: "broadcast",
         attempt: 1,
+        hasSigningRequestDigest: false,
         preparedTransactionHash: REPLACEMENT_TRANSACTION_HASH.toLowerCase(),
       },
     ]
+  )
+  assert.notEqual(
+    authorizer.bindings[0].signingRequestDigest,
+    authorizer.bindings[1].signingRequestDigest
+  )
+
+  const durable = await store.get(record.recordID)
+  assert.ok(durable?.reservedNonce)
+  const lane = durable.feePolicyManifest.lanes[0]
+  const selectedFeePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy = {
+    policyHash: Hex.from(durable.feePolicyManifest.policyHash),
+    activationManifestHash: Hex.from(
+      durable.feePolicyManifest.activationManifestHash
+    ),
+    chainID: durable.feePolicyManifest.chainID,
+    challengeValueWei: durable.feePolicyManifest.challengeValueWei,
+    ...lane,
+  }
+  const initialRequestDigest = computeP2TRSignatureFraudSigningRequestDigest(
+    "prepare",
+    durable.intent,
+    durable.reservedNonce,
+    selectedFeePolicy,
+    Hex.from(preparer.initialInvocationIDs[0])
+  )
+  const replacementRequestDigest =
+    computeP2TRSignatureFraudSigningRequestDigest(
+      "replacement",
+      durable.intent,
+      durable.reservedNonce,
+      selectedFeePolicy,
+      Hex.from(preparer.replacementInvocationIDs[0]),
+      Hex.from(TRANSACTION_HASH)
+    )
+  assert.equal(
+    normalizeKey(initialRequestDigest),
+    authorizer.bindings[0].signingRequestDigest
+  )
+  assert.equal(
+    normalizeKey(replacementRequestDigest),
+    authorizer.bindings[1].signingRequestDigest
+  )
+  assert.notEqual(
+    normalizeKey(
+      computeP2TRSignatureFraudSigningRequestDigest(
+        "prepare",
+        durable.intent,
+        durable.reservedNonce,
+        {
+          ...selectedFeePolicy,
+          maxFeePerGas: String(Number(selectedFeePolicy.maxFeePerGas) + 1),
+        },
+        Hex.from(preparer.initialInvocationIDs[0])
+      )
+    ),
+    authorizer.bindings[0].signingRequestDigest
+  )
+  assert.throws(
+    () =>
+      computeP2TRSignatureFraudSigningRequestDigest(
+        "prepare",
+        { ...durable.intent, value: String(Number(durable.intent.value) + 1) },
+        durable.reservedNonce!,
+        selectedFeePolicy,
+        Hex.from(preparer.initialInvocationIDs[0])
+      ),
+    /intent ID does not match its exact call/
   )
 })
 
@@ -2495,6 +2630,78 @@ test("captures exact bytes when provenance invalidation wins after signer invoca
     ),
     true
   )
+})
+
+test("journals recoverable signed bytes before rejecting response metadata", async () => {
+  const mutations: Array<
+    (
+      response: P2TRSignatureFraudPreparedChallengeTransactionResponse
+    ) => P2TRSignatureFraudPreparedChallengeTransactionResponse
+  > = [
+    (response) => ({ ...response, intentID: Hex.from(`0x${"91".repeat(32)}`) }),
+    (response) => ({
+      ...response,
+      transactionHash: Hex.from(`0x${"92".repeat(32)}`),
+    }),
+    (response) => ({
+      ...response,
+      sender: "0x0000000000000000000000000000000000000093",
+    }),
+    (response) => ({ ...response, nonce: response.nonce + 1 }),
+  ]
+
+  for (const mutate of mutations) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const preparer = new FixedPreparer()
+    preparer.mutateInitialResponse = mutate
+    const result = await dispatcher(store, preparer).prepare(
+      record.recordID,
+      "worker-a"
+    )
+
+    assert.equal(result.status, "quarantined")
+    assert.equal(result.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(result.unexpectedSignedArtifacts?.length, 1)
+    assert.equal(
+      result.unexpectedSignedArtifacts?.[0].preparedTransaction.rawTransaction,
+      RAW_TRANSACTION
+    )
+    assert.equal(
+      normalizeKey(
+        result.unexpectedSignedArtifacts![0].preparedTransaction.transactionHash
+      ),
+      TRANSACTION_HASH
+    )
+    assert.equal(
+      result.unexpectedSignedArtifacts?.[0].preparedTransaction.nonce,
+      7
+    )
+  }
+})
+
+test("retains the active boundary for an uncorrelated signer response", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.mutateInitialResponse = (response) => ({
+    ...response,
+    signerInvocationID: Hex.from(`0x${"94".repeat(32)}`),
+  })
+
+  const result = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.equal(result.status, "preparing")
+  assert.equal(result.activeSignerInvocationStartedAtUnixMs, 2_000)
+  assert.equal(result.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    result.signerQuarantines?.at(-1)?.reasonCode,
+    "ambiguous-signer-invocation"
+  )
+  assert.match(result.lastError ?? "", /another request or invocation/)
 })
 
 test("does not let lease recovery steal an active signer boundary", async () => {
@@ -3329,6 +3536,32 @@ test("accepts only decoded, finalized canonical own evidence", async () => {
   assert.match(unresolved.lastError ?? "", /decoded submission call/)
 })
 
+test("does not terminalize at an application-depth head without consensus finality", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const reconciler = new FixedReconciler()
+  const resolution = acceptedOwnResolution()
+  assert.equal(resolution.status, "accepted-own")
+  reconciler.resolution = {
+    ...resolution,
+    consensusFinalized: false,
+  } as unknown as P2TRSignatureFraudChallengeOutboxResolution
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    reconciler
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  await outbox.broadcast(record.recordID)
+
+  const unresolved = await outbox.reconcile(record.recordID)
+  assert.equal(unresolved.status, "broadcast-pending")
+  assert.equal(unresolved.lastResolutionStatus, "unknown")
+  assert.match(unresolved.lastError ?? "", /consensus-finalized/)
+})
+
 test("keeps eligible evidence open after finalized nonce disposition", async () => {
   const finalizedEvidence = {
     observedHead: {
@@ -3339,6 +3572,7 @@ test("keeps eligible evidence open after finalized nonce disposition", async () 
       blockNumber: 108,
       blockHash: `0x${"18".repeat(32)}`,
     },
+    consensusFinalized: true as const,
     routerChallenge: {
       exists: false as const,
       challengeKey: CHALLENGE_KEY,

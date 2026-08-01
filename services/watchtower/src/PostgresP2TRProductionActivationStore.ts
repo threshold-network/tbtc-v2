@@ -284,17 +284,17 @@ export class PostgresP2TRProductionActivationStore
       live_authorization_count: string | number
     }>(
       `SELECT count(*)::bigint AS live_authorization_count
-         FROM p2tr_candidate_enqueue_authorizations authorization
+         FROM p2tr_candidate_enqueue_authorizations authz
          JOIN p2tr_readiness_certificates certificate
            ON certificate.certificate_id =
-                authorization.readiness_certificate_id
+                authz.readiness_certificate_id
           AND certificate.certificate_generation =
-                authorization.readiness_certificate_generation
+                authz.readiness_certificate_generation
           AND certificate.is_current
           AND certificate.invalidated_at IS NULL
-        WHERE authorization.consumed_at IS NULL
-          AND authorization.invalidated_at IS NULL
-          AND authorization.expires_at > clock_timestamp()`
+        WHERE authz.consumed_at IS NULL
+          AND authz.invalidated_at IS NULL
+          AND authz.expires_at > clock_timestamp()`
     )
     if (
       liveAuthorizations.rows.length !== 1 ||
@@ -530,15 +530,15 @@ export class PostgresP2TRProductionActivationStore
       `SELECT encode(manifest.manifest_hash, 'hex') AS manifest_hash,
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
-                 JOIN p2tr_candidate_enqueue_authorizations authorization
-                   ON authorization.manifest_hash = guard_row.manifest_hash
-                  AND authorization.token_id = guard_row.token_id
-                  AND authorization.candidate_digest =
+                 JOIN p2tr_candidate_enqueue_authorizations authz
+                   ON authz.manifest_hash = guard_row.manifest_hash
+                  AND authz.token_id = guard_row.token_id
+                  AND authz.candidate_digest =
                        guard_row.candidate_digest
                 WHERE guard_row.manifest_hash = manifest.manifest_hash
-                  AND authorization.consumed_at IS NULL
-                  AND authorization.invalidated_at IS NULL
-                  AND authorization.expires_at > clock_timestamp()
+                  AND authz.consumed_at IS NULL
+                  AND authz.invalidated_at IS NULL
+                  AND authz.expires_at > clock_timestamp()
                   AND NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
@@ -981,26 +981,26 @@ export class PostgresP2TRProductionActivationStore
               expires_at > clock_timestamp() AS live,
               encode(manifest.manifest_hash, 'hex') AS current_manifest_hash,
               true AS canonical
-         FROM p2tr_candidate_enqueue_authorizations authorization
+         FROM p2tr_candidate_enqueue_authorizations authz
          JOIN p2tr_readiness_certificates certificate
            ON certificate.certificate_id =
-                authorization.readiness_certificate_id
+                authz.readiness_certificate_id
           AND certificate.certificate_generation =
-                authorization.readiness_certificate_generation
+                authz.readiness_certificate_generation
           AND certificate.is_current
           AND certificate.invalidated_at IS NULL
-          AND certificate.manifest_hash = authorization.manifest_hash
+          AND certificate.manifest_hash = authz.manifest_hash
           AND certificate.bitcoin_height =
-                authorization.verified_bitcoin_height
+                authz.verified_bitcoin_height
           AND certificate.bitcoin_hash =
-                authorization.verified_bitcoin_hash
+                authz.verified_bitcoin_hash
           AND certificate.ethereum_block_number =
-                authorization.verified_ethereum_block
+                authz.verified_ethereum_block
           AND certificate.ethereum_block_hash =
-                authorization.verified_ethereum_hash
+                authz.verified_ethereum_hash
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
-          AND manifest.manifest_hash = authorization.manifest_hash
+          AND manifest.manifest_hash = authz.manifest_hash
           AND manifest.activation_sequence =
                 certificate.manifest_activation_sequence
          JOIN p2tr_canonical_generations certified_generation
@@ -1034,7 +1034,7 @@ export class PostgresP2TRProductionActivationStore
                 certificate.ethereum_history_root
          JOIN LATERAL
               p2tr_signature_fraud_outbox_activation_revalidation(
-                authorization.manifest_hash,
+                authz.manifest_hash,
                 floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
               ) outbox_health ON true
         WHERE token_id = $1
@@ -1066,7 +1066,7 @@ export class PostgresP2TRProductionActivationStore
               FROM p2tr_canonical_generations
              WHERE state = 'committed'
           )
-        FOR UPDATE OF authorization
+        FOR UPDATE OF authz
         FOR SHARE OF manifest, certificate, certified_generation,
                      certified_bitcoin, certified_ethereum,
                      certified_ethereum_block`,
@@ -1138,16 +1138,16 @@ export class PostgresP2TRProductionActivationStore
        ), unresolved_capacity AS MATERIALIZED (
          SELECT count(*)::bigint AS reservation_count
            FROM p2tr_candidate_enqueue_transaction_guard guard_row
-           JOIN p2tr_candidate_enqueue_authorizations authorization
-             ON authorization.manifest_hash = guard_row.manifest_hash
-            AND authorization.token_id = guard_row.token_id
-            AND authorization.candidate_digest = guard_row.candidate_digest
+           JOIN p2tr_candidate_enqueue_authorizations authz
+             ON authz.manifest_hash = guard_row.manifest_hash
+            AND authz.token_id = guard_row.token_id
+            AND authz.candidate_digest = guard_row.candidate_digest
            JOIN p2tr_watchtower_activation_manifest current_manifest
              ON current_manifest.singleton = true
             AND current_manifest.manifest_hash = guard_row.manifest_hash
-          WHERE authorization.consumed_at IS NULL
-            AND authorization.invalidated_at IS NULL
-            AND authorization.expires_at > clock_timestamp()
+          WHERE authz.consumed_at IS NULL
+            AND authz.invalidated_at IS NULL
+            AND authz.expires_at > clock_timestamp()
             AND NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
@@ -1165,18 +1165,18 @@ export class PostgresP2TRProductionActivationStore
          (manifest_hash, token_id, candidate_digest, max_attempt_count,
           guard_digest)
        SELECT $1, $2, $3, $4, $5
-         FROM p2tr_candidate_enqueue_authorizations authorization
+         FROM p2tr_candidate_enqueue_authorizations authz
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
-          AND manifest.manifest_hash = authorization.manifest_hash
+          AND manifest.manifest_hash = authz.manifest_hash
          CROSS JOIN locked_capacity capacity
          CROSS JOIN unresolved_capacity reserved
-        WHERE authorization.token_id = $2
-          AND authorization.manifest_hash = $1
-          AND authorization.candidate_digest = $3
-          AND authorization.consumed_at IS NULL
-          AND authorization.invalidated_at IS NULL
-          AND authorization.expires_at > clock_timestamp()
+        WHERE authz.token_id = $2
+          AND authz.manifest_hash = $1
+          AND authz.candidate_digest = $3
+          AND authz.consumed_at IS NULL
+          AND authz.invalidated_at IS NULL
+          AND authz.expires_at > clock_timestamp()
           AND (
               EXISTS (
                   SELECT 1
@@ -1213,19 +1213,19 @@ export class PostgresP2TRProductionActivationStore
               guard_row.max_attempt_count,
               encode(guard_row.guard_digest, 'hex') AS guard_digest
          FROM p2tr_candidate_enqueue_transaction_guard guard_row
-         JOIN p2tr_candidate_enqueue_authorizations authorization
-           ON authorization.manifest_hash = guard_row.manifest_hash
-          AND authorization.token_id = guard_row.token_id
-          AND authorization.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
           AND manifest.manifest_hash = guard_row.manifest_hash
         WHERE guard_row.manifest_hash = $1
           AND guard_row.token_id = $2
-          AND authorization.consumed_at IS NULL
-          AND authorization.invalidated_at IS NULL
-          AND authorization.expires_at > clock_timestamp()
-        FOR SHARE OF guard_row, authorization, manifest`,
+          AND authz.consumed_at IS NULL
+          AND authz.invalidated_at IS NULL
+          AND authz.expires_at > clock_timestamp()
+        FOR SHARE OF guard_row, authz, manifest`,
       [
         hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
         hexBuffer(normalized.tokenID, "enqueue guard token"),
@@ -1265,15 +1265,15 @@ export class PostgresP2TRProductionActivationStore
       outbox_intent_id: string | null
     }>(
       `SELECT encode(guard_row.candidate_digest, 'hex') AS candidate_digest,
-              authorization.consumed_at,
-              encode(authorization.outbox_intent_id, 'hex') AS outbox_intent_id
+              authz.consumed_at,
+              encode(authz.outbox_intent_id, 'hex') AS outbox_intent_id
          FROM p2tr_candidate_enqueue_transaction_guard guard_row
-         JOIN p2tr_candidate_enqueue_authorizations authorization
-           ON authorization.manifest_hash = guard_row.manifest_hash
-          AND authorization.token_id = guard_row.token_id
-          AND authorization.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
         WHERE guard_row.manifest_hash = $1 AND guard_row.token_id = $2
-        FOR UPDATE OF guard_row, authorization`,
+        FOR UPDATE OF guard_row, authz`,
       [
         hexBuffer(normalized.manifestHash, "enqueue resolution manifest"),
         hexBuffer(normalized.tokenID, "enqueue resolution token"),

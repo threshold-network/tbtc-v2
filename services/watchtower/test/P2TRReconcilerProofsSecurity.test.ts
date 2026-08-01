@@ -150,18 +150,26 @@ function makeProofFixture(
     inputProvenance,
     provenanceFingerprint: options.provenanceFingerprint ?? hex32("c"),
   }
-  const requestBinding = {
-    recordID: hex32("d"),
-    recordGeneration: 11,
-    recordVersion: 4,
-    reservationID: hex32("e"),
-    sender: `0x${"34".repeat(20)}`,
-    transactionNonce: 19,
-    stage: "prepare" as const,
-    attempt: 2,
-    provenanceFingerprint: options.provenanceFingerprint ?? hex32("c"),
-    activationManifestHash: hex32("1"),
-    ...options.requestBinding,
+  const requestBinding: P2TRReconcilerCandidateAttestationChallenge["requestBinding"] =
+    {
+      recordID: hex32("d"),
+      recordGeneration: 11,
+      recordVersion: 4,
+      reservationID: hex32("e"),
+      sender: `0x${"34".repeat(20)}`,
+      transactionNonce: 19,
+      stage: "prepare" as const,
+      attempt: 2,
+      provenanceFingerprint: options.provenanceFingerprint ?? hex32("c"),
+      activationManifestHash: hex32("1"),
+      signingRequestDigest: hex32("2"),
+      ...options.requestBinding,
+    }
+  if (requestBinding.signingRequestDigest === undefined) {
+    delete requestBinding.signingRequestDigest
+  }
+  if (requestBinding.preparedTransactionHash === undefined) {
+    delete requestBinding.preparedTransactionHash
   }
   const exportFence = options.exportFence ?? 7
   const challenge: P2TRReconcilerCandidateAttestationChallenge = {
@@ -515,6 +523,7 @@ function irreversibleBinding(
     attempt: request.attempt,
     provenanceFingerprint: request.provenanceFingerprint,
     activationManifestHash: request.activationManifestHash,
+    signingRequestDigest: request.signingRequestDigest,
     preparedTransactionHash:
       preparedTransactionHash ?? request.preparedTransactionHash,
   }
@@ -1012,6 +1021,7 @@ describe("irreversible outbox boundary authorization", () => {
     const fixture = makeProofFixture({
       requestBinding: {
         stage: "broadcast",
+        signingRequestDigest: undefined,
         preparedTransactionHash,
       },
     })
@@ -1047,7 +1057,7 @@ describe("irreversible outbox boundary authorization", () => {
         ...binding,
         preparedTransactionHash: undefined,
       }),
-      /Only a broadcast authorization may name prepared transaction bytes/
+      /Signer authorizations require an exact request digest|broadcast authorizations require exact prepared bytes/
     )
   })
 
