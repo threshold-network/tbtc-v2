@@ -1,15 +1,58 @@
 import assert from "node:assert/strict"
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { describe, it } from "node:test"
+import { fileURLToPath } from "node:url"
+import pg, { type Pool as PostgreSQLPool } from "pg"
 import {
+  loadP2TRWatchtowerMigrations,
   runP2TRWatchtowerMigrations,
   validateP2TRWatchtowerMigrationBody,
   type P2TRWatchtowerMigration,
   type P2TRWatchtowerMigrationClient,
+  type P2TRWatchtowerMigrationPool,
 } from "../src/P2TRWatchtowerMigrations.js"
 
+const migrationsDirectory = fileURLToPath(
+  new URL("../migrations", import.meta.url)
+)
+const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
+
 describe("P2TR watchtower migration bodies", () => {
+  it("loads and validates the complete production migration directory", async () => {
+    const migrations = await loadP2TRWatchtowerMigrations(migrationsDirectory)
+
+    assert.deepEqual(
+      migrations.map(({ version, filename }) => ({ version, filename })),
+      [
+        {
+          version: 1,
+          filename: "001_p2tr_canonical_index.sql",
+        },
+        {
+          version: 2,
+          filename: "002_p2tr_canonical_ethereum.sql",
+        },
+        {
+          version: 3,
+          filename: "003_p2tr_signature_fraud_challenge_outbox.sql",
+        },
+        {
+          version: 4,
+          filename: "004_p2tr_candidate_enqueue_retry_alerts.sql",
+        },
+        {
+          version: 5,
+          filename: "005_p2tr_deposit_binding_byte_order.sql",
+        },
+        {
+          version: 6,
+          filename: "006_p2tr_candidate_enqueue_generation_authority.sql",
+        },
+      ]
+    )
+  })
+
   it("rejects every top-level transaction-control token", () => {
     for (const control of [
       "BEGIN",
@@ -115,6 +158,46 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(migration, /active outbox capacity is exhausted or reserved/)
   })
 })
+
+describe(
+  "P2TR watchtower production migration path",
+  { skip: postgresURL === undefined },
+  () => {
+    it("applies the complete loaded directory through the production runner", async () => {
+      const { Pool } = pg
+      const schema = `p2tr_migration_runner_${process.pid}_${randomBytes(
+        6
+      ).toString("hex")}`
+      const admin = new Pool({ connectionString: postgresURL })
+      let database: PostgreSQLPool | undefined
+
+      try {
+        await admin.query(`CREATE SCHEMA "${schema}"`)
+        database = new Pool({
+          connectionString: postgresURL,
+          options: `-c search_path=${schema}`,
+        })
+        const migrations =
+          await loadP2TRWatchtowerMigrations(migrationsDirectory)
+        const report = await runP2TRWatchtowerMigrations(
+          database as unknown as P2TRWatchtowerMigrationPool,
+          migrations
+        )
+
+        assert.equal(report.applied.length, migrations.length)
+        assert.deepEqual(report.current, report.applied)
+        const ledger = await database.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM p2tr_watchtower_migrations"
+        )
+        assert.equal(ledger.rows[0].count, String(migrations.length))
+      } finally {
+        await database?.end()
+        await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+        await admin.end()
+      }
+    })
+  }
+)
 
 describe("P2TR watchtower migration transaction ownership", () => {
   it("runs exact wrapperless bytes inside its own SERIALIZABLE transaction", async () => {

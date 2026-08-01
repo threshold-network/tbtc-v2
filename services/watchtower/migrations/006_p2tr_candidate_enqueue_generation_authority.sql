@@ -361,6 +361,94 @@ BEFORE UPDATE OR DELETE
 ON p2tr_signature_fraud_challenge_chainless_replay_guard
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
 
+-- A chainless signed envelope may adopt another unsigned record's active
+-- reservation guard for the same sender/nonce. Once referenced here, that
+-- guard protects replayable signed bytes just like a direct escaped-envelope
+-- guard and can no longer be voided as an unsigned reservation.
+CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_nonce_guard_void()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'P2TR challenge nonce guards cannot be deleted';
+    END IF;
+
+    IF OLD.guard_kind <> 'bound-reservation'
+       OR OLD.voided_before_sign_at_unix_ms IS NOT NULL
+       OR NEW.voided_before_sign_at_unix_ms IS NULL
+       OR NEW.void_reason IS NULL
+       OR NEW.void_evidence_digest IS NULL
+       OR ROW(
+            NEW.nonce_guard_id,
+            NEW.record_id,
+            NEW.guard_kind,
+            NEW.chain_id,
+            NEW.signer_lane_id,
+            NEW.signer_identity,
+            NEW.sender,
+            NEW.transaction_nonce,
+            NEW.reservation_binding,
+            NEW.reservation_epoch,
+            NEW.parent_reservation_id,
+            NEW.guarded_at_unix_ms
+       ) IS DISTINCT FROM ROW(
+            OLD.nonce_guard_id,
+            OLD.record_id,
+            OLD.guard_kind,
+            OLD.chain_id,
+            OLD.signer_lane_id,
+            OLD.signer_identity,
+            OLD.sender,
+            OLD.transaction_nonce,
+            OLD.reservation_binding,
+            OLD.reservation_epoch,
+            OLD.parent_reservation_id,
+            OLD.guarded_at_unix_ms
+       ) THEN
+        RAISE EXCEPTION 'P2TR challenge nonce guard mutation is not a safe pre-sign void';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM p2tr_signature_fraud_challenge_escaped_envelope ee
+        WHERE ee.actual_guard_record_id = OLD.record_id
+          AND ee.actual_nonce_guard_id = OLD.nonce_guard_id
+    ) OR EXISTS (
+        SELECT 1
+        FROM p2tr_signature_fraud_challenge_chainless_replay_guard replay
+        WHERE replay.nonce_guard_record_id = OLD.record_id
+          AND replay.nonce_guard_id = OLD.nonce_guard_id
+    ) THEN
+        RAISE EXCEPTION 'nonce guard referenced by escaped signed bytes cannot be voided';
+    END IF;
+
+    PERFORM 1
+    FROM p2tr_signature_fraud_challenge_outbox
+    WHERE record_id = OLD.record_id
+      AND status IN ('queued', 'preparing')
+      AND signer_invocation_started_at_unix_ms IS NULL
+      AND active_signer_invocation_started_at_unix_ms IS NULL
+      AND prepared_transaction_hash IS NULL
+      AND broadcast_attempts = 0
+      AND (
+          nonce_reservation_id = OLD.nonce_guard_id
+          OR (
+              nonce_reservation_id IS NULL
+              AND selected_signer_lane_id = OLD.signer_lane_id
+              AND selected_signer_identity = OLD.signer_identity
+              AND selected_sender = OLD.sender
+          )
+      )
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'only an unsigned selected reservation can be voided';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 -- Chainless evidence quarantines every matching configured lane even though
 -- those lanes did not own the original reservation. Extend the existing
 -- permanent quarantine journal with this evidence-bound, nonce-less reason.
@@ -574,6 +662,7 @@ AS $body$
 DECLARE
     manifest_payload jsonb;
     chain_id_value numeric;
+    domain_chain_id_value numeric;
     router_address_value bytea;
     binding_tx_hash_value bytea;
     binding_output_index_value bigint;
@@ -592,6 +681,15 @@ BEGIN
     chain_id_value := (manifest_payload #>> '{ethereum,chainID}')::numeric;
     IF chain_id_value > 9007199254740991 THEN
         RAISE EXCEPTION 'candidate enqueue series chain ID is unsafe';
+    END IF;
+    SELECT domain_chain_id
+      INTO STRICT domain_chain_id_value
+      FROM p2tr_complete_authorization_domain
+     WHERE singleton = true;
+    IF domain_chain_id_value < 1
+       OR domain_chain_id_value > 9007199254740991 THEN
+        RAISE EXCEPTION
+            'candidate enqueue immutable domain chain ID is unsafe';
     END IF;
     router_address_value := decode(
         regexp_replace(
@@ -618,7 +716,7 @@ BEGIN
         ',"protocol":"COMPLETE_V2"' ||
         ',"evidenceProtocolID":"0x12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef"' ||
         ',"chainID":' || chain_id_value::text ||
-        ',"domainChainID":' || chain_id_value::text ||
+        ',"domainChainID":' || domain_chain_id_value::text ||
         ',"routerAddress":' ||
             to_json(('0x' || encode(router_address_value, 'hex'))::text)::text ||
         ',"observationID":' ||
@@ -799,77 +897,81 @@ $body$;
 -- outbox record. The intentionally retained pre-outbox consumed rows have no
 -- intent identity and remain version 0; issuance continues to fail closed for
 -- those candidates because their exact generation cannot be reconstructed.
-WITH linked_authorities AS (
-    SELECT authz.token_id,
-           outbox.series_id,
-           outbox.record_id,
-           outbox.generation,
-           outbox.generation_cause,
-           outbox.previous_record_id,
-           outbox.prior_nonce_disposition_id,
-           outbox.prior_cancellation_evidence_id,
-           outbox.prior_provenance_invalidation_id,
-           outbox.status,
-           outbox.nonce_disposition_id,
-           outbox.cancellation_evidence_id,
-           outbox.provenance_invalidation_id,
-           resolution.outcome_kind
-      FROM p2tr_candidate_enqueue_authorizations authz
-      JOIN p2tr_signature_fraud_challenge_outbox outbox
-        ON outbox.record_id = authz.outbox_intent_id
-      LEFT JOIN p2tr_candidate_enqueue_transaction_resolution resolution
-        ON resolution.manifest_hash = authz.manifest_hash
-       AND resolution.token_id = authz.token_id
-)
-UPDATE p2tr_candidate_enqueue_authorizations authz
-   SET generation_authority_version = 1,
-       expected_outbox_series_id = linked.series_id,
-       expected_outbox_generation = CASE
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               THEN linked.generation + 1
-           ELSE linked.generation
-       END,
-       expected_outbox_disposition = CASE
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               AND linked.status = 'generation-required'
-               THEN 'nonce-disposition'
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               AND linked.status = 'cancelled-reorg'
-               THEN 'canonical-reappearance'
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               AND linked.status = 'cancelled-provenance-invalidated'
-               THEN 'provenance-restored'
-           WHEN linked.generation_cause IS NULL THEN 'initial'
-           WHEN linked.generation_cause IN (
-               'finalized-revert', 'finalized-nonce-consumed'
-           ) THEN 'nonce-disposition'
-           ELSE linked.generation_cause
-       END,
-       expected_outbox_predecessor_id = CASE
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               THEN linked.record_id
-           ELSE linked.previous_record_id
-       END,
-       expected_outbox_evidence_id = CASE
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               AND linked.status = 'generation-required'
-               THEN linked.nonce_disposition_id
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               AND linked.status = 'cancelled-reorg'
-               THEN linked.cancellation_evidence_id
-           WHEN linked.outcome_kind = 'generation-cap-exhausted'
-               AND linked.status = 'cancelled-provenance-invalidated'
-               THEN linked.provenance_invalidation_id
-           WHEN linked.generation_cause IN (
-               'finalized-revert', 'finalized-nonce-consumed'
-           ) THEN linked.prior_nonce_disposition_id
-           WHEN linked.generation_cause = 'canonical-reappearance'
-               THEN linked.prior_cancellation_evidence_id
-           WHEN linked.generation_cause = 'provenance-restored'
-               THEN linked.prior_provenance_invalidation_id
-       END
-  FROM linked_authorities linked
- WHERE authz.token_id = linked.token_id;
+DO $body$
+BEGIN
+    WITH linked_authorities AS (
+        SELECT authz.token_id,
+               outbox.series_id,
+               outbox.record_id,
+               outbox.generation,
+               outbox.generation_cause,
+               outbox.previous_record_id,
+               outbox.prior_nonce_disposition_id,
+               outbox.prior_cancellation_evidence_id,
+               outbox.prior_provenance_invalidation_id,
+               outbox.status,
+               outbox.nonce_disposition_id,
+               outbox.cancellation_evidence_id,
+               outbox.provenance_invalidation_id,
+               resolution.outcome_kind
+          FROM p2tr_candidate_enqueue_authorizations authz
+          JOIN p2tr_signature_fraud_challenge_outbox outbox
+            ON outbox.record_id = authz.outbox_intent_id
+          LEFT JOIN p2tr_candidate_enqueue_transaction_resolution resolution
+            ON resolution.manifest_hash = authz.manifest_hash
+           AND resolution.token_id = authz.token_id
+    )
+    UPDATE p2tr_candidate_enqueue_authorizations authz
+       SET generation_authority_version = 1,
+           expected_outbox_series_id = linked.series_id,
+           expected_outbox_generation = CASE
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   THEN linked.generation + 1
+               ELSE linked.generation
+           END,
+           expected_outbox_disposition = CASE
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   AND linked.status = 'generation-required'
+                   THEN 'nonce-disposition'
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   AND linked.status = 'cancelled-reorg'
+                   THEN 'canonical-reappearance'
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   AND linked.status = 'cancelled-provenance-invalidated'
+                   THEN 'provenance-restored'
+               WHEN linked.generation_cause IS NULL THEN 'initial'
+               WHEN linked.generation_cause IN (
+                   'finalized-revert', 'finalized-nonce-consumed'
+               ) THEN 'nonce-disposition'
+               ELSE linked.generation_cause
+           END,
+           expected_outbox_predecessor_id = CASE
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   THEN linked.record_id
+               ELSE linked.previous_record_id
+           END,
+           expected_outbox_evidence_id = CASE
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   AND linked.status = 'generation-required'
+                   THEN linked.nonce_disposition_id
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   AND linked.status = 'cancelled-reorg'
+                   THEN linked.cancellation_evidence_id
+               WHEN linked.outcome_kind = 'generation-cap-exhausted'
+                   AND linked.status = 'cancelled-provenance-invalidated'
+                   THEN linked.provenance_invalidation_id
+               WHEN linked.generation_cause IN (
+                   'finalized-revert', 'finalized-nonce-consumed'
+               ) THEN linked.prior_nonce_disposition_id
+               WHEN linked.generation_cause = 'canonical-reappearance'
+                   THEN linked.prior_cancellation_evidence_id
+               WHEN linked.generation_cause = 'provenance-restored'
+                   THEN linked.prior_provenance_invalidation_id
+           END
+      FROM linked_authorities linked
+     WHERE authz.token_id = linked.token_id;
+END;
+$body$;
 
 -- Unconsumed authorizations can be bound safely while the migration runner's
 -- session fence excludes canonical and outbox writers.

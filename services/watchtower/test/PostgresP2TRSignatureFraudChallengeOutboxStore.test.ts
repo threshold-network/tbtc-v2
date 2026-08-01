@@ -92,7 +92,8 @@ type TestDatabase = {
 }
 
 async function createTestDatabase(
-  maxActiveOutboxRecords = 1_024
+  maxActiveOutboxRecords = 1_024,
+  domainChainID = CHAIN_ID
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   await client.connect()
@@ -132,7 +133,7 @@ async function createTestDatabase(
   ]) {
     await client.query(await readFile(migration, "utf8"))
   }
-  await seedCanonicalPoint(client, maxActiveOutboxRecords)
+  await seedCanonicalPoint(client, maxActiveOutboxRecords, domainChainID)
   await client.query("BEGIN")
   const store = createStore(client)
   await store.installSignerLaneConfiguration(signerConfiguration())
@@ -272,10 +273,19 @@ function eligibilitySnapshotFor(
 
 async function seedCanonicalPoint(
   client: PostgreSQLClient,
-  maxActiveOutboxRecords: number
+  maxActiveOutboxRecords: number,
+  domainChainID: number
 ): Promise<void> {
   const zero = Buffer.alloc(32)
   const blockHash = Buffer.from(ETHEREUM_BLOCK_HASH.slice(2), "hex")
+  await client.query(
+    `SELECT p2tr_assert_complete_authorization_domain($1, $2, $3)`,
+    [
+      hexBuffer(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID),
+      domainChainID,
+      hexBuffer(BRIDGE_ADDRESS),
+    ]
+  )
   await client.query(
     `INSERT INTO p2tr_ethereum_blocks (
         block_number, block_hash, parent_hash, block_timestamp,
@@ -3075,6 +3085,42 @@ postgresTest(
 )
 
 postgresTest(
+  "derives candidate series from the immutable COMPLETE domain instead of the live chain",
+  async () => {
+    const domainChainID = 1
+    const database = await createTestDatabase(1_024, domainChainID)
+    try {
+      const record = outboxRecord(239)
+      const expectedSeriesID = computeP2TRSignatureFraudOutboxSeriesID({
+        ...record.intent,
+        domainChainID,
+      })
+      const result = await database.client.query<{ series_id: string }>(
+        `SELECT encode(p2tr_candidate_enqueue_series_id(
+                    decode($1, 'hex'), decode($2, 'hex'),
+                    decode($3, 'hex'), $4, decode($5, 'hex'), $6,
+                    decode($7, 'hex'), $8
+                ), 'hex') AS series_id`,
+        [
+          MANIFEST_HASH.slice(2),
+          record.intent.observationID.toPrefixedString().slice(2),
+          record.intent.bridgeChallengeKey.toPrefixedString().slice(2),
+          record.intent.inputIndex,
+          record.canonicalProvenance.inputOutputKey.slice(2),
+          record.canonicalProvenance.inputBindingKind,
+          record.canonicalProvenance.fundingTxid.slice(2),
+          record.canonicalProvenance.fundingVout,
+        ]
+      )
+
+      assert.equal(result.rows[0].series_id, expectedSeriesID.slice(2))
+    } finally {
+      await database.client.end()
+    }
+  }
+)
+
+postgresTest(
   "blocks a generation-required record stranded by a rotated-out manifest",
   async () => {
     const database = await createTestDatabase()
@@ -4889,6 +4935,13 @@ postgresTest(
         replayGuards.rows.map(({ chain_id }) => Number(chain_id)),
         [CHAIN_ID, CHAIN_ID + 1]
       )
+      await beginSerializable(database.client)
+      const activation = await activationProvider(
+        database.client,
+        () => 5_000
+      ).attestActivationChallenge(activationRequest)
+      await commit(database.client)
+      assert.equal(activation.payload.state.danglingNonceGuardCount, 0)
       const quarantines = await database.client.query<{
         chain_id: string
         reason: string
@@ -4916,6 +4969,133 @@ postgresTest(
         true
       )
       await commit(database.client)
+    } finally {
+      await database.client.end()
+    }
+  }
+)
+
+postgresTest(
+  "prevents voiding an unsigned reservation adopted by chainless signed evidence",
+  async () => {
+    const database = await createTestDatabase()
+    try {
+      await begin(database.client)
+      await database.store.installSignerLaneConfiguration(
+        secondarySignerConfiguration()
+      )
+      await commit(database.client)
+
+      const owner = outboxRecord(77)
+      await insertRecord(database, owner)
+      const ownerSelected: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...selectedRecord(owner),
+        preparationSender: SECONDARY_WALLET.address,
+        selectedLaneID: "lane-b",
+        selectedSignerIdentity: "signer-b",
+      }
+      const baseOwnerReserved = reservedRecord(ownerSelected)
+      const ownerReserved: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...baseOwnerReserved,
+        reservedNonce: {
+          ...baseOwnerReserved.reservedNonce!,
+          reservationID: Hex.from(`0x${"d3".repeat(32)}`),
+          laneID: "lane-b",
+          signerIdentity: "signer-b",
+          sender: SECONDARY_WALLET.address,
+        },
+      }
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          owner.recordID,
+          owner.version,
+          ownerSelected
+        ),
+        true
+      )
+      assert.equal(
+        await database.store.compareAndSwap(
+          ownerSelected.recordID,
+          ownerSelected.version,
+          ownerReserved
+        ),
+        true
+      )
+      await commit(database.client)
+
+      const initial = outboxRecord(78)
+      await insertRecord(database, initial)
+      const reserved = await advanceToReservation(database, initial)
+      let current = reserved
+      for (const transition of await replacementSignerBoundary(reserved)) {
+        await begin(database.client)
+        assert.equal(
+          await database.store.compareAndSwap(
+            current.recordID,
+            current.version,
+            transition
+          ),
+          true
+        )
+        await commit(database.client)
+        current = transition
+      }
+      const managed = createManagedStore(
+        database.client,
+        eligibilitySnapshotFor(initial)
+      )
+      const artifact = await escapedCaptureArtifact(current, {
+        capturedAtUnixMs: 2_100,
+        transactionType: 0,
+        chainID: null,
+        signer: SECONDARY_WALLET,
+        quarantine: wrongLaneQuarantine("wrong-chain"),
+      })
+      await managed.captureEscapedSignedArtifact(
+        initial.recordID,
+        initial.canonicalProvenance.provenanceFingerprint,
+        artifact,
+        wrongLaneQuarantine("wrong-chain")
+      )
+
+      const adopted = await database.client.query<{
+        record_id: string
+        guard_id: string
+      }>(
+        `SELECT encode(nonce_guard_record_id, 'hex') AS record_id,
+                encode(nonce_guard_id, 'hex') AS guard_id
+           FROM p2tr_signature_fraud_challenge_chainless_replay_guard
+          WHERE replay_chain_id = $1`,
+        [CHAIN_ID]
+      )
+      assert.deepEqual(adopted.rows, [
+        {
+          record_id: owner.recordID.slice(2),
+          guard_id:
+            ownerReserved.reservedNonce!.reservationID
+              .toPrefixedString()
+              .slice(2),
+        },
+      ])
+
+      await assert.rejects(
+        database.client.query(
+          `UPDATE p2tr_signature_fraud_challenge_nonce_guard
+              SET voided_before_sign_at_unix_ms = $1,
+                  void_reason = 'reservation-abandoned',
+                  void_evidence_digest = decode($2, 'hex')
+            WHERE nonce_guard_id = decode($3, 'hex')`,
+          [
+            2_200,
+            "e7".repeat(32),
+            ownerReserved.reservedNonce!.reservationID
+              .toPrefixedString()
+              .slice(2),
+          ]
+        ),
+        /referenced by escaped signed bytes cannot be voided/
+      )
     } finally {
       await database.client.end()
     }

@@ -567,6 +567,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                    AND o.reserved_nonce = g.transaction_nonce
                    AND o.signer_lane_id = g.signer_lane_id
                    AND o.signer_identity = g.signer_identity
+              ) AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_chainless_replay_guard r
+                 WHERE r.nonce_guard_record_id = g.record_id
+                   AND r.nonce_guard_id = g.nonce_guard_id
               ))
               OR
               (g.guard_kind = 'escaped-envelope' AND NOT EXISTS (
@@ -574,6 +579,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                   FROM p2tr_signature_fraud_challenge_escaped_envelope e
                  WHERE e.actual_guard_record_id = g.record_id
                    AND e.actual_nonce_guard_id = g.nonce_guard_id
+              ) AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_chainless_replay_guard r
+                 WHERE r.nonce_guard_record_id = g.record_id
+                   AND r.nonce_guard_id = g.nonce_guard_id
               ))
             )`
       ),

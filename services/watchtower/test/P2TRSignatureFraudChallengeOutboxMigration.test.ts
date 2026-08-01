@@ -112,7 +112,7 @@ test("binds candidate authority to an exact successor generation", () => {
   )
   assert.match(
     candidateEnqueueGenerationAuthorityMigration,
-    /p2tr_candidate_enqueue_series_id\([\s\S]*?ethereum,chainID[\s\S]*?outbox,routerAddress[\s\S]*?tbtc-p2tr-signature-fraud-outbox-series-v1[\s\S]*?COMPLETE_V2/
+    /p2tr_candidate_enqueue_series_id\([\s\S]*?ethereum,chainID[\s\S]*?p2tr_complete_authorization_domain[\s\S]*?domain_chain_id_value[\s\S]*?outbox,routerAddress[\s\S]*?tbtc-p2tr-signature-fraud-outbox-series-v1[\s\S]*?COMPLETE_V2/
   )
   assert.match(
     candidateEnqueueGenerationAuthorityMigration,
@@ -125,6 +125,10 @@ test("binds candidate authority to an exact successor generation", () => {
   assert.match(
     candidateEnqueueGenerationAuthorityMigration,
     /CREATE TABLE p2tr_signature_fraud_challenge_chainless_replay_guard[\s\S]*?PRIMARY KEY \(escaped_envelope_id, replay_chain_id\)/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_nonce_guard_void\(\)[\s\S]*?p2tr_signature_fraud_challenge_chainless_replay_guard replay[\s\S]*?replay\.nonce_guard_record_id = OLD\.record_id[\s\S]*?replay\.nonce_guard_id = OLD\.nonce_guard_id/
   )
 })
 
@@ -891,6 +895,13 @@ test("applies the manifest recovery bound to health and blocking reasons", () =>
   assert.doesNotMatch(
     activationHandshakeSource,
     /if \(recoveryBacklogCount > 0\) reasons\.push\("preparation-recovery-backlog"\)/
+  )
+})
+
+test("accounts for chainless replay references in nonce-guard health", () => {
+  assert.match(
+    activationHandshakeSource,
+    /p2tr_signature_fraud_challenge_chainless_replay_guard r[\s\S]*?r\.nonce_guard_record_id = g\.record_id[\s\S]*?r\.nonce_guard_id = g\.nonce_guard_id/
   )
 })
 
