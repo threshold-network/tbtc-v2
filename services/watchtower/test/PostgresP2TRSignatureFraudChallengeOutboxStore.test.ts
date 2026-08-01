@@ -2170,16 +2170,26 @@ postgresTest(
 )
 
 postgresTest(
-  "quarantines legacy display-order deposit outbox intents during migration",
+  "retires queued and reversible preparing legacy deposit intents",
   async () => {
     const database = await createTestDatabase()
-    const record = depositBoundOutboxRecord(239)
-    await insertRecord(database, record)
-    const displayOrderFundingHash = record.canonicalProvenance.fundingTxid
+    const queuedRecord = depositBoundOutboxRecord(236)
+    const reversiblePreparation = depositBoundOutboxRecord(237)
+    await insertRecord(database, queuedRecord)
+    await insertRecord(database, reversiblePreparation)
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        reversiblePreparation.recordID,
+        reversiblePreparation.version,
+        selectedRecord(reversiblePreparation)
+      ),
+      true
+    )
+    await commit(database.client)
 
-    // Reconstruct the v3 constraints and one legacy row without mutating its
-    // signed serialized intent. Migration 005 must preserve and quarantine it,
-    // not attempt to manufacture new derived identities in place.
+    // Reconstruct v3 and make both normalized deposit hashes legacy
+    // display-order values without manufacturing replacement signed intents.
     await database.client.query(
       `ALTER TABLE p2tr_bitcoin_candidate_observations
          DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
@@ -2195,6 +2205,14 @@ postgresTest(
          );
        ALTER TABLE p2tr_signature_fraud_challenge_outbox
          DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+       DROP TRIGGER p2tr_signature_fraud_guard_legacy_deposit_binding_marker_trigger
+         ON p2tr_signature_fraud_challenge_outbox;
+       DROP TRIGGER p2tr_signature_fraud_retire_legacy_deposit_binding_trigger
+         ON p2tr_signature_fraud_challenge_outbox;
+       DROP FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker();
+       DROP FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding();
+       ALTER TABLE p2tr_signature_fraud_challenge_outbox
+         DROP COLUMN legacy_deposit_binding_byte_order;
        DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
          ON p2tr_signature_fraud_legacy_submission_quarantine;
        UPDATE p2tr_watchtower_schema_version
@@ -2202,12 +2220,17 @@ postgresTest(
         WHERE component = 'canonical-evidence-index'`
     )
     await database.client.query("SET session_replication_role = replica")
-    await database.client.query(
-      `UPDATE p2tr_signature_fraud_challenge_outbox
-          SET binding_tx_hash = decode($2, 'hex')
-        WHERE record_id = decode($1, 'hex')`,
-      [record.recordID.slice(2), displayOrderFundingHash.slice(2)]
-    )
+    for (const record of [queuedRecord, reversiblePreparation]) {
+      await database.client.query(
+        `UPDATE p2tr_signature_fraud_challenge_outbox
+            SET binding_tx_hash = decode($2, 'hex')
+          WHERE record_id = decode($1, 'hex')`,
+        [
+          record.recordID.slice(2),
+          record.canonicalProvenance.fundingTxid.slice(2),
+        ]
+      )
+    }
     await database.client.query("SET session_replication_role = origin")
     await database.client.query("DROP FUNCTION p2tr_reverse_bytea(bytea)")
 
@@ -2221,38 +2244,53 @@ postgresTest(
     await database.client.query(`BEGIN;\n${migration}\nCOMMIT;`)
 
     const durable = await database.client.query<{
+      record_id: string
       binding_tx_hash: string
       canonical_funding_txid: string
+      status: string
+      legacy_marker: boolean
+    }>(
+      `SELECT encode(record_id, 'hex') AS record_id,
+              encode(binding_tx_hash, 'hex') AS binding_tx_hash,
+              encode(canonical_funding_txid, 'hex')
+                AS canonical_funding_txid,
+              status,
+              legacy_deposit_binding_byte_order AS legacy_marker
+         FROM p2tr_signature_fraud_challenge_outbox
+        WHERE record_id IN (decode($1, 'hex'), decode($2, 'hex'))
+        ORDER BY record_id`,
+      [queuedRecord.recordID.slice(2), reversiblePreparation.recordID.slice(2)]
+    )
+    const byID = new Map(durable.rows.map((row) => [row.record_id, row]))
+    for (const record of [queuedRecord, reversiblePreparation]) {
+      const row = byID.get(record.recordID.slice(2))!
+      assert.equal(row.binding_tx_hash, row.canonical_funding_txid)
+      assert.equal(row.status, "cancelled-before-broadcast")
+      assert.equal(row.legacy_marker, true)
+    }
+    const migrationState = await database.client.query<{
       quarantine_count: string
       constraint_validated: boolean
+      active_generation_count: string
     }>(
-      `SELECT encode(outbox.binding_tx_hash, 'hex') AS binding_tx_hash,
-              encode(outbox.canonical_funding_txid, 'hex')
-                AS canonical_funding_txid,
-              (SELECT count(*)::text
+      `SELECT (SELECT count(*)::text
                  FROM p2tr_signature_fraud_legacy_submission_quarantine
                 WHERE reason LIKE 'legacy outbox intent uses display-order%')
-                AS quarantine_count,
-              constraint_record.convalidated AS constraint_validated
-         FROM p2tr_signature_fraud_challenge_outbox outbox
-         JOIN pg_constraint constraint_record
-           ON constraint_record.conrelid =
+                  AS quarantine_count,
+              constraint_record.convalidated AS constraint_validated,
+              capacity.active_generation_count::text
+                  AS active_generation_count
+         FROM pg_constraint constraint_record
+         CROSS JOIN p2tr_signature_fraud_challenge_outbox_capacity capacity
+        WHERE constraint_record.conrelid =
                 'p2tr_signature_fraud_challenge_outbox'::regclass
           AND constraint_record.conname =
                 'p2tr_outbox_deposit_binding_uses_bridge_byte_order'
-        WHERE outbox.record_id = decode($1, 'hex')`,
-      [record.recordID.slice(2)]
+          AND capacity.singleton = true`
     )
-    assert.equal(
-      durable.rows[0].binding_tx_hash,
-      displayOrderFundingHash.slice(2)
-    )
-    assert.equal(
-      durable.rows[0].canonical_funding_txid,
-      displayOrderFundingHash.slice(2)
-    )
-    assert.equal(durable.rows[0].quarantine_count, "1")
-    assert.equal(durable.rows[0].constraint_validated, false)
+    assert.equal(migrationState.rows[0].quarantine_count, "2")
+    assert.equal(migrationState.rows[0].constraint_validated, true)
+    assert.equal(migrationState.rows[0].active_generation_count, "0")
 
     await beginSerializable(database.client)
     const blocked = await activationProvider(
@@ -2260,20 +2298,18 @@ postgresTest(
       () => 5_000
     ).attestActivationChallenge(activationRequest)
     await commit(database.client)
-    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 1)
+    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 2)
     assert.equal(blocked.payload.state.healthy, false)
 
-    await database.client.query("SET session_replication_role = replica")
     await assert.rejects(
       database.client.query(
         `UPDATE p2tr_signature_fraud_challenge_outbox
-            SET updated_at_unix_ms = updated_at_unix_ms + 1
+            SET legacy_deposit_binding_byte_order = false
           WHERE record_id = decode($1, 'hex')`,
-        [record.recordID.slice(2)]
+        [queuedRecord.recordID.slice(2)]
       ),
-      /p2tr_outbox_deposit_binding_uses_bridge_byte_order/
+      /marker is migration-owned and immutable/
     )
-    await database.client.query("SET session_replication_role = origin")
     await assert.rejects(
       database.client.query(
         `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine
@@ -2586,6 +2622,47 @@ postgresTest(
       drifted.payload.state.schemaConstraintHash,
       baseline.payload.state.schemaConstraintHash
     )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "changes the signed schema hash when trigger state or constraint helpers drift",
+  async () => {
+    const database = await createTestDatabase()
+    const attestSchema = async (nowUnixMs: number) => {
+      await beginSerializable(database.client)
+      const response = await activationProvider(
+        database.client,
+        () => nowUnixMs
+      ).attestActivationChallenge(activationRequest)
+      await commit(database.client)
+      return response.payload.state.schemaConstraintHash
+    }
+    const baseline = await attestSchema(5_000)
+
+    await database.client.query(
+      `ALTER TABLE p2tr_signature_fraud_challenge_critical_alert
+         DISABLE TRIGGER p2tr_signature_fraud_reject_critical_alert_mutation_trigger`
+    )
+    const disabledTrigger = await attestSchema(5_001)
+    assert.notEqual(disabledTrigger, baseline)
+    await database.client.query(
+      `ALTER TABLE p2tr_signature_fraud_challenge_critical_alert
+         ENABLE TRIGGER p2tr_signature_fraud_reject_critical_alert_mutation_trigger`
+    )
+
+    await database.client.query(
+      `CREATE OR REPLACE FUNCTION p2tr_reverse_bytea(value bytea)
+       RETURNS bytea
+       LANGUAGE sql
+       IMMUTABLE
+       STRICT
+       PARALLEL SAFE
+       AS $$ SELECT value $$`
+    )
+    const driftedHelper = await attestSchema(5_002)
+    assert.notEqual(driftedHelper, baseline)
     await database.client.end()
   }
 )

@@ -80,6 +80,10 @@ describe("P2TR watchtower migration bodies", () => {
       migration,
       /FOREIGN KEY \(manifest_hash, token_id, candidate_digest\)/
     )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_authorizations_outbox_intent_fk[\s\S]*?FOREIGN KEY \(outbox_intent_id\)[\s\S]*?ON DELETE RESTRICT\s+NOT VALID/
+    )
     assert.match(migration, /candidate enqueue retry journal is append-only/)
     assert.match(
       migration,

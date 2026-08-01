@@ -1995,6 +1995,136 @@ const withIntegrationStore = async (
 }
 
 describe(
+  "candidate enqueue retry migration integration",
+  { skip: postgresURL === undefined },
+  () => {
+    it("preserves consumed pre-outbox authorizations while enforcing new FK writes", async () => {
+      if (postgresURL === undefined) throw new Error("PostgreSQL URL is absent")
+      const require = createRequire(import.meta.url)
+      const { Pool } = require("pg") as {
+        Pool: new (options: Record<string, unknown>) => IntegrationPool
+      }
+      const schema = `p2tr_retry_migration_${process.pid}_${randomBytes(
+        6
+      ).toString("hex")}`
+      const admin = new Pool({ connectionString: postgresURL })
+      let database: IntegrationPool | undefined
+      try {
+        await admin.query(`CREATE SCHEMA "${schema}"`)
+        database = new Pool({
+          connectionString: postgresURL,
+          options: `-c search_path=${schema}`,
+        })
+        for (const filename of [
+          "001_p2tr_canonical_index.sql",
+          "002_p2tr_canonical_ethereum.sql",
+        ]) {
+          const migration = await readFile(
+            new URL(`../migrations/${filename}`, import.meta.url),
+            "utf8"
+          )
+          await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+        }
+        await database.query(
+          `INSERT INTO p2tr_readiness_certificates (
+              certificate_id, certificate_generation, manifest_hash,
+              manifest_activation_sequence, primary_bitcoin_generation,
+              primary_bitcoin_root, primary_bitcoin_semantic_root,
+              bitcoin_height, bitcoin_hash, ethereum_journal_generation,
+              ethereum_history_root, ethereum_block_number,
+              ethereum_block_hash, provider_read_set_hash, payload
+           ) VALUES (
+              decode(repeat('11', 32), 'hex'), 1,
+              decode(repeat('12', 32), 'hex'), 1, 1,
+              decode(repeat('13', 32), 'hex'),
+              decode(repeat('14', 32), 'hex'), 0,
+              decode(repeat('15', 32), 'hex'), 1,
+              decode(repeat('16', 32), 'hex'), 0,
+              decode(repeat('17', 32), 'hex'),
+              decode(repeat('18', 32), 'hex'), '{}'::jsonb
+           );
+           INSERT INTO p2tr_candidate_enqueue_authorizations (
+              token_id, manifest_hash, candidate_digest, observation_id,
+              challenge_key, txid, wtxid, input_index,
+              bitcoin_block_height, bitcoin_block_hash,
+              verified_bitcoin_height, verified_bitcoin_hash,
+              verified_ethereum_block, verified_ethereum_hash,
+              funding_block_hash, funding_txid, funding_vout,
+              input_wallet_id, input_output_key, input_binding_kind,
+              input_binding_source_event_id,
+              candidate_provenance_generation, provenance_fingerprint,
+              readiness_certificate_id, readiness_certificate_generation,
+              issued_at, expires_at, consumed_at, outbox_intent_id
+           ) VALUES (
+              decode(repeat('21', 32), 'hex'),
+              decode(repeat('12', 32), 'hex'),
+              decode(repeat('22', 32), 'hex'),
+              decode(repeat('23', 32), 'hex'),
+              decode(repeat('24', 32), 'hex'),
+              decode(repeat('25', 32), 'hex'),
+              decode(repeat('26', 32), 'hex'), 0, 0,
+              decode(repeat('27', 32), 'hex'), 0,
+              decode(repeat('28', 32), 'hex'), 0,
+              decode(repeat('29', 32), 'hex'),
+              decode(repeat('2a', 32), 'hex'),
+              decode(repeat('2b', 32), 'hex'), 0,
+              decode(repeat('2c', 32), 'hex'),
+              decode(repeat('2c', 32), 'hex'),
+              'registered-wallet-output',
+              decode(repeat('2d', 32), 'hex'), 1,
+              decode(repeat('2e', 32), 'hex'),
+              decode(repeat('11', 32), 'hex'), 1,
+              clock_timestamp(), clock_timestamp() + interval '1 hour',
+              clock_timestamp(), decode(repeat('2f', 32), 'hex')
+           )`
+        )
+        for (const filename of [
+          "003_p2tr_signature_fraud_challenge_outbox.sql",
+          "004_p2tr_candidate_enqueue_retry_alerts.sql",
+        ]) {
+          const migration = await readFile(
+            new URL(`../migrations/${filename}`, import.meta.url),
+            "utf8"
+          )
+          await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+        }
+
+        const upgraded = await database.query<{
+          authorization_count: string
+          constraint_validated: boolean
+        }>(
+          `SELECT (SELECT count(*)::text
+                     FROM p2tr_candidate_enqueue_authorizations)
+                       AS authorization_count,
+                  convalidated AS constraint_validated
+             FROM pg_constraint
+            WHERE conrelid =
+                    'p2tr_candidate_enqueue_authorizations'::regclass
+              AND conname =
+                    'p2tr_candidate_enqueue_authorizations_outbox_intent_fk'`
+        )
+        assert.deepEqual(upgraded.rows[0], {
+          authorization_count: "1",
+          constraint_validated: false,
+        })
+        await assert.rejects(
+          database.query(
+            `UPDATE p2tr_candidate_enqueue_authorizations
+                SET outbox_intent_id = decode(repeat('30', 32), 'hex')
+              WHERE token_id = decode(repeat('21', 32), 'hex')`
+          ),
+          /outbox_intent_fk/
+        )
+      } finally {
+        await database?.end()
+        await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+        await admin.end()
+      }
+    })
+  }
+)
+
+describe(
   "deposit-binding byte-order migration integration",
   { skip: postgresURL === undefined },
   () => {
@@ -2116,6 +2246,14 @@ describe(
              DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
            ALTER TABLE p2tr_signature_fraud_challenge_outbox
              DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+           DROP TRIGGER p2tr_signature_fraud_guard_legacy_deposit_binding_marker_trigger
+             ON p2tr_signature_fraud_challenge_outbox;
+           DROP TRIGGER p2tr_signature_fraud_retire_legacy_deposit_binding_trigger
+             ON p2tr_signature_fraud_challenge_outbox;
+           DROP FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker();
+           DROP FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding();
+           ALTER TABLE p2tr_signature_fraud_challenge_outbox
+             DROP COLUMN legacy_deposit_binding_byte_order;
            DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
              ON p2tr_signature_fraud_legacy_submission_quarantine;
            ALTER TABLE p2tr_bitcoin_candidate_observations

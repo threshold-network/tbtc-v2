@@ -12,7 +12,8 @@ ALTER TABLE p2tr_candidate_enqueue_authorizations
     ADD CONSTRAINT p2tr_candidate_enqueue_authorizations_outbox_intent_fk
     FOREIGN KEY (outbox_intent_id)
     REFERENCES p2tr_signature_fraud_challenge_outbox (record_id)
-    ON DELETE RESTRICT;
+    ON DELETE RESTRICT
+    NOT VALID;
 
 CREATE TABLE p2tr_candidate_enqueue_transaction_guard (
     manifest_hash bytea NOT NULL CHECK (octet_length(manifest_hash) = 32),

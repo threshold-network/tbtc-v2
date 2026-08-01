@@ -305,7 +305,23 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   )
   assert.match(
     depositBindingByteOrderMigration,
-    /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) \) NOT VALID/
+    /ADD COLUMN legacy_deposit_binding_byte_order boolean NOT NULL DEFAULT false/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /retire_legacy_deposit_binding_trigger AFTER UPDATE[\s\S]*?NEW\.legacy_deposit_binding_byte_order AND NEW\.status = 'queued'/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /status = 'preparing'[\s\S]*?nonce_reservation_id IS NULL[\s\S]*?signer_invocation_started_at_unix_ms IS NULL[\s\S]*?prepared_transaction_hash IS NULL/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /legacy deposit-binding byte-order marker is migration-owned and immutable[\s\S]*?guard_legacy_deposit_binding_marker_trigger BEFORE INSERT OR UPDATE/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /legacy_deposit_binding_byte_order OR canonical_input_binding_kind <> 'deposit-binding' OR binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) \);/
   )
   assert.match(
     depositBindingByteOrderMigration,
@@ -807,6 +823,8 @@ test("rotates manifests and outbox provenance in one database trigger", () => {
 test("attests security-critical view definitions in the schema hash", () => {
   assert.match(activationHandshakeSource, /pg_get_viewdef\(r\.oid, true\)/)
   assert.match(activationHandshakeSource, /'view-definition'/)
+  assert.match(activationHandshakeSource, /'enabled=' \|\| t\.tgenabled::text/)
+  assert.match(activationHandshakeSource, /p\.proname = 'p2tr_reverse_bytea'/)
 })
 
 test("protects serialized generation identity alongside normalized columns", () => {

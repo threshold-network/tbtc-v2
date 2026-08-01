@@ -741,7 +741,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
           WHERE schemaname = current_schema()
             AND tablename LIKE 'p2tr_signature_fraud_%'
          UNION ALL
-         SELECT 'trigger', t.tgname, pg_get_triggerdef(t.oid, true)
+         SELECT 'trigger', t.tgname,
+                concat_ws('|',
+                    'enabled=' || t.tgenabled::text,
+                    'definition=' || pg_get_triggerdef(t.oid, true)
+                )
            FROM pg_trigger t
            JOIN pg_class r ON r.oid = t.tgrelid
            JOIN pg_namespace n ON n.oid = r.relnamespace
@@ -753,7 +757,10 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            FROM pg_proc p
            JOIN pg_namespace n ON n.oid = p.pronamespace
           WHERE n.nspname = current_schema()
-            AND p.proname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                p.proname LIKE 'p2tr_signature_fraud_%'
+                OR p.proname = 'p2tr_reverse_bytea'
+            )
           ORDER BY object_kind, object_name, definition`
       ),
       session.query<LiveAuthorizationCountRow>(
