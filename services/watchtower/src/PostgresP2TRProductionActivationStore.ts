@@ -4,6 +4,7 @@ import {
   type P2TRProductionActivationEnvelope,
   type P2TRProductionBitcoinCandidate,
   type P2TRProductionCandidateAuthorizationReceipt,
+  type P2TRProductionCandidateEnqueueNonRetryableFailure,
   type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
   type P2TRProductionCandidateEnqueueTransactionGuard,
   type P2TRProductionCandidateEnqueueTransactionResolution,
@@ -547,6 +548,12 @@ export class PostgresP2TRProductionActivationStore
                       FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
                      WHERE alert.manifest_hash = guard_row.manifest_hash
                        AND alert.token_id = guard_row.token_id
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                     WHERE failure.manifest_hash = guard_row.manifest_hash
+                       AND failure.token_id = guard_row.token_id
                   )) AS unresolved_candidate_enqueue_transaction_guard_count,
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
@@ -1042,28 +1049,18 @@ export class PostgresP2TRProductionActivationStore
               ) outbox_health ON true
         WHERE token_id = $1
           -- The certificate can remain structurally current while a later
-          -- outbox write introduces a fail-closed blocker. Candidate
-          -- consumption runs behind the exclusive pre-snapshot fence, so this
-          -- complete live revalidation is stable through the enqueue commit.
+          -- outbox write invalidates durable candidate authority. Candidate
+          -- consumption runs behind the exclusive pre-snapshot fence, so
+          -- these authority predicates are stable through the enqueue commit.
           AND outbox_health.activation_blocking_critical_alert_count = 0
           AND outbox_health.ambiguous_transaction_count = 0
           AND outbox_health.unresolved_legacy_quarantine_count = 0
-          AND outbox_health.recovery_backlog_count <=
-                (manifest.payload #>> '{outbox,maxRecoveryBacklog}')::bigint
-          AND outbox_health.active_generation_count <
-                (manifest.payload #>>
-                  '{outbox,maxActiveOutboxRecords}')::bigint
           AND outbox_health.configured_signer_lane_count =
                 (certificate.payload #>>
                   '{outboxHandshake,state,configuredSignerLaneCount}')::bigint
           AND outbox_health.configured_signer_lane_set_hash =
                 certificate.payload #>>
                   '{outboxHandshake,state,configuredSignerLaneSetHash}'
-          AND outbox_health.quarantined_signer_lane_count = 0
-          AND outbox_health.active_old_manifest_generation_count = 0
-          AND outbox_health.stale_manifest_generation_successor_count = 0
-          AND outbox_health.active_signer_invocation_count = 0
-          AND outbox_health.active_nonce_release_attempt_count = 0
           AND certified_generation.generation_id = (
             SELECT max(generation_id)
               FROM p2tr_canonical_generations
@@ -1159,6 +1156,12 @@ export class PostgresP2TRProductionActivationStore
                       FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
                      WHERE alert.manifest_hash = guard_row.manifest_hash
                        AND alert.token_id = guard_row.token_id
+                )
+            AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                     WHERE failure.manifest_hash = guard_row.manifest_hash
+                       AND failure.token_id = guard_row.token_id
                 )
        )
        INSERT INTO p2tr_candidate_enqueue_transaction_guard
@@ -1322,6 +1325,12 @@ export class PostgresP2TRProductionActivationStore
              WHERE alert.manifest_hash = guard_row.manifest_hash
                AND alert.token_id = guard_row.token_id
           )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_non_retryable_failure failure
+             WHERE failure.manifest_hash = guard_row.manifest_hash
+               AND failure.token_id = guard_row.token_id
+          )
        ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
       [
         hexBuffer(normalized.manifestHash, "enqueue resolution manifest"),
@@ -1425,6 +1434,12 @@ export class PostgresP2TRProductionActivationStore
              WHERE resolution.manifest_hash = guard_row.manifest_hash
                AND resolution.token_id = guard_row.token_id
           )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_non_retryable_failure failure
+             WHERE failure.manifest_hash = guard_row.manifest_hash
+               AND failure.token_id = guard_row.token_id
+          )
        ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
       [
         hexBuffer(normalized.manifestHash, "retry alert manifest"),
@@ -1472,6 +1487,82 @@ export class PostgresP2TRProductionActivationStore
     ) {
       throw new Error(
         "Candidate enqueue retry alert conflicts with durable state"
+      )
+    }
+  }
+
+  async saveCandidateEnqueueNonRetryableFailure(
+    failure: P2TRProductionCandidateEnqueueNonRetryableFailure
+  ): Promise<void> {
+    const normalized = normalizeCandidateEnqueueNonRetryableFailure(failure)
+    await this.assertCurrentActivationManifest(normalized.manifestHash)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_non_retryable_failure
+         (manifest_hash, token_id, candidate_digest, failure_digest)
+       SELECT guard_row.manifest_hash, guard_row.token_id,
+              guard_row.candidate_digest, $4
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
+        WHERE guard_row.manifest_hash = $1
+          AND guard_row.token_id = $2
+          AND guard_row.candidate_digest = $3
+          AND authz.consumed_at IS NULL
+          AND authz.outbox_intent_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_transaction_resolution resolution
+             WHERE resolution.manifest_hash = guard_row.manifest_hash
+               AND resolution.token_id = guard_row.token_id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+             WHERE alert.manifest_hash = guard_row.manifest_hash
+               AND alert.token_id = guard_row.token_id
+          )
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue failure manifest"),
+        hexBuffer(normalized.tokenID, "enqueue failure token"),
+        hexBuffer(normalized.candidateDigest, "enqueue failure candidate"),
+        hexBuffer(normalized.failureDigest, "enqueue failure digest"),
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue non-retryable failure insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      failure_digest: string
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(failure_digest, 'hex') AS failure_digest
+         FROM p2tr_candidate_enqueue_non_retryable_failure
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue failure manifest"),
+        hexBuffer(normalized.tokenID, "enqueue failure token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored enqueue failure candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].failure_digest,
+        "stored enqueue failure digest"
+      ) !== normalized.failureDigest
+    ) {
+      throw new Error(
+        "Candidate enqueue non-retryable failure conflicts with durable state"
       )
     }
   }
@@ -1957,6 +2048,23 @@ function normalizeCandidateEnqueueRetryExhaustionAlert(
       "retry alert attempt count"
     ),
     lastSQLState: alert.lastSQLState,
+  }
+}
+
+function normalizeCandidateEnqueueNonRetryableFailure(
+  failure: P2TRProductionCandidateEnqueueNonRetryableFailure
+): P2TRProductionCandidateEnqueueNonRetryableFailure {
+  return {
+    tokenID: bytes32(failure.tokenID, "enqueue failure token"),
+    manifestHash: bytes32(
+      failure.manifestHash,
+      "enqueue failure manifest"
+    ),
+    candidateDigest: bytes32(
+      failure.candidateDigest,
+      "enqueue failure candidate"
+    ),
+    failureDigest: bytes32(failure.failureDigest, "enqueue failure digest"),
   }
 }
 

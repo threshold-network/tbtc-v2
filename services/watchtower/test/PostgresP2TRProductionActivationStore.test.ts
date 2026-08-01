@@ -292,6 +292,17 @@ describe(
               }),
               /lacks exact consumed authorization state/
             )
+            await stateStore.saveCandidateEnqueueNonRetryableFailure({
+              tokenID,
+              manifestHash,
+              candidateDigest,
+              failureDigest: WORD("62"),
+            })
+            assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
+              manifestHash,
+              unresolvedCandidateEnqueueTransactionGuardCount: 0,
+              candidateEnqueueRetryExhaustionCount: 0,
+            })
           }
         )
       } finally {

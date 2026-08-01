@@ -13,6 +13,7 @@ import {
   type P2TRProductionCandidateAuthorizationReceipt,
   type P2TRProductionCandidateAuthorizationToken,
   type P2TRProductionCandidateEnqueueOutcome,
+  type P2TRProductionCandidateEnqueueNonRetryableFailure,
   type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
   type P2TRProductionCandidateEnqueueTransactionGuard,
   type P2TRProductionCandidateEnqueueTransactionResolution,
@@ -130,7 +131,7 @@ describe("production candidate enqueue outcomes", () => {
     )
   })
 
-  it("still rolls back nested work when enqueue fails before an outcome", async () => {
+  it("rolls back nested work and disposes the guard after enqueue failure", async () => {
     const coordinator = new RollbackAwareCoordinator()
     const alerts: string[] = []
     const dispositions: string[] = []
@@ -159,15 +160,14 @@ describe("production candidate enqueue outcomes", () => {
     assert.deepEqual(dispositions, [])
     assert.equal(journal.guards.length, 1)
     assert.equal(journal.resolutions.length, 0)
-    assert.throws(
-      () =>
-        assertP2TRProductionRuntimeAlertHealth(
-          healthFor(journal),
-          MANIFEST_HASH
-        ),
-      /activation-blocking candidate enqueue alerts/
+    assert.equal(journal.nonRetryableFailures.length, 1)
+    assert.doesNotThrow(() =>
+      assertP2TRProductionRuntimeAlertHealth(
+        healthFor(journal),
+        MANIFEST_HASH
+      )
     )
-    assert.equal(coordinator.commits, 1)
+    assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 1)
   })
 
@@ -277,7 +277,7 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(coordinator.rollbacks, 2)
   })
 
-  it("does not retry an application error that spoofs PostgreSQL SQLSTATE", async () => {
+  it("durably resolves the guard after a non-retryable application error", async () => {
     const coordinator = new RollbackAwareCoordinator()
     const journal = emptyCandidateJournal()
     const stateStore = candidateStateStore(coordinator, [], journal)
@@ -307,6 +307,18 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.guards.length, 1)
     assert.equal(journal.resolutions.length, 0)
     assert.equal(journal.exhaustionAlerts.length, 0)
+    assert.equal(journal.nonRetryableFailures.length, 1)
+    assert.equal(
+      journal.nonRetryableFailures[0].candidateDigest,
+      journal.guards[0].candidateDigest
+    )
+    assert.doesNotThrow(() =>
+      assertP2TRProductionRuntimeAlertHealth(
+        healthFor(journal),
+        MANIFEST_HASH
+      )
+    )
+    assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 1)
   })
 })
@@ -382,10 +394,16 @@ type CandidateJournal = {
   guards: P2TRProductionCandidateEnqueueTransactionGuard[]
   resolutions: P2TRProductionCandidateEnqueueTransactionResolution[]
   exhaustionAlerts: P2TRProductionCandidateEnqueueRetryExhaustionAlert[]
+  nonRetryableFailures: P2TRProductionCandidateEnqueueNonRetryableFailure[]
 }
 
 function emptyCandidateJournal(): CandidateJournal {
-  return { guards: [], resolutions: [], exhaustionAlerts: [] }
+  return {
+    guards: [],
+    resolutions: [],
+    exhaustionAlerts: [],
+    nonRetryableFailures: [],
+  }
 }
 
 function candidateStateStore(
@@ -440,17 +458,26 @@ function candidateStateStore(
     async saveCandidateEnqueueRetryExhaustionAlert(alert) {
       coordinator.stage(() => journal.exhaustionAlerts.push(alert))
     },
+    async saveCandidateEnqueueNonRetryableFailure(failure) {
+      coordinator.stage(() => journal.nonRetryableFailures.push(failure))
+    },
   }
 }
 
 function healthFor(
   journal: CandidateJournal
 ): P2TRProductionRuntimeAlertHealth {
-  const resolved = new Set(
-    journal.resolutions.map(
+  const resolved = new Set([
+    ...journal.resolutions.map(
       (resolution) => `${resolution.manifestHash}:${resolution.tokenID}`
-    )
-  )
+    ),
+    ...journal.exhaustionAlerts.map(
+      (alert) => `${alert.manifestHash}:${alert.tokenID}`
+    ),
+    ...journal.nonRetryableFailures.map(
+      (failure) => `${failure.manifestHash}:${failure.tokenID}`
+    ),
+  ])
   return {
     manifestHash: MANIFEST_HASH,
     unresolvedCandidateEnqueueTransactionGuardCount: journal.guards.filter(

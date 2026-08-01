@@ -22,6 +22,10 @@ const depositBindingByteOrderMigration = readFileSync(
   new URL("005_p2tr_deposit_binding_byte_order.sql", migrationsURL),
   "utf8"
 ).replace(/\s+/g, " ")
+const candidateEnqueueRetryMigration = readFileSync(
+  new URL("004_p2tr_candidate_enqueue_retry_alerts.sql", migrationsURL),
+  "utf8"
+).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -333,6 +337,10 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   )
   assert.match(
     depositBindingByteOrderMigration,
+    /AND NOT \( outbox\.status = 'cancelled-before-broadcast' AND outbox\.legacy_deposit_binding_byte_order \)/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
     /reject_legacy_quarantine_mutation_trigger BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_legacy_submission_quarantine/
   )
 })
@@ -401,6 +409,21 @@ test("requires a durable bound nonce guard before signer invocation", () => {
   )
   assert.match(migration, /only an unsigned selected reservation can be voided/)
   assert.match(migration, /P2TR challenge nonce guards cannot be deleted/)
+})
+
+test("releases armed enqueue capacity through an append-only non-retryable disposition", () => {
+  assert.match(
+    candidateEnqueueRetryMigration,
+    /CREATE TABLE p2tr_candidate_enqueue_non_retryable_failure/
+  )
+  assert.match(
+    candidateEnqueueRetryMigration,
+    /non_retryable_failure_immutable_trigger BEFORE UPDATE OR DELETE ON p2tr_candidate_enqueue_non_retryable_failure/
+  )
+  assert.match(
+    candidateEnqueueRetryMigration,
+    /p2tr_signature_fraud_consume_generation_capacity[\s\S]*?NOT EXISTS \( SELECT 1 FROM p2tr_candidate_enqueue_non_retryable_failure/
+  )
 })
 
 test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
@@ -593,6 +616,18 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
     /actual_chain_id <> expected_chain_id[\s\S]*?OR actual_sender <> expected_sender[\s\S]*?OR actual_nonce <> expected_nonce/
   )
   assert.match(migration, /guard_kind = 'escaped-envelope'/)
+  assert.match(
+    migration,
+    /actual_guard\.chain_id <> NEW\.actual_chain_id[\s\S]*?actual_guard\.signer_lane_id <> NEW\.actual_guard_signer_lane_id/
+  )
+  assert.match(
+    migration,
+    /recorded_reason NOT IN \( 'wrong-chain', 'wrong-sender', 'wrong-nonce', 'ambiguous-signer-invocation' \)/
+  )
+  assert.match(
+    migration,
+    /NEW\.actual_chain_id = NEW\.expected_chain_id AND NEW\.actual_sender = NEW\.expected_sender AND NEW\.actual_nonce = NEW\.expected_nonce/
+  )
   assert.match(
     migration,
     /quarantine_reason IN \('wrong-chain', 'wrong-sender', 'wrong-nonce'\)/

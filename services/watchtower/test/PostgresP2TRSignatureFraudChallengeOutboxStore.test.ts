@@ -59,6 +59,7 @@ const postgresTest = postgresURL === undefined ? test.skip : test
 const MANIFEST_HASH = `0x${"a1".repeat(32)}`
 const ETHEREUM_BLOCK_HASH = `0x${"a2".repeat(32)}`
 const WALLET = new Wallet(`0x${"11".repeat(32)}`)
+const SECONDARY_WALLET = new Wallet(`0x${"12".repeat(32)}`)
 const { Client } = pg
 const LANE_ID = "lane-a"
 const SIGNER_IDENTITY = "signer-a"
@@ -363,6 +364,29 @@ function signerConfiguration(manifestHash = MANIFEST_HASH) {
     configurationHash:
       computeP2TRProductionSignerLaneConfigurationHash(withoutHash),
     configuredAtUnixMs: 1_000,
+  }
+}
+
+function secondarySignerConfiguration() {
+  const withoutHash = {
+    activationManifestHash: MANIFEST_HASH,
+    chainID: CHAIN_ID,
+    policyHash: feePolicy().policyHash,
+    challengeValueWei: "1234",
+    laneID: "lane-b",
+    signerIdentity: "signer-b",
+    sender: SECONDARY_WALLET.address,
+    maxGasLimit: "1000000",
+    maxFeePerGas: "100",
+    maxPriorityFeePerGas: "10",
+    maxTotalFeeWei: "100000000",
+    signerCodeHash: `0x${"a8".repeat(32)}`,
+  }
+  return {
+    ...withoutHash,
+    configurationHash:
+      computeP2TRProductionSignerLaneConfigurationHash(withoutHash),
+    configuredAtUnixMs: 1_001,
   }
 }
 
@@ -2910,18 +2934,18 @@ postgresTest(
                 'p2tr_outbox_deposit_binding_uses_bridge_byte_order'
           AND capacity.singleton = true`
     )
-    assert.equal(migrationState.rows[0].quarantine_count, "2")
+    assert.equal(migrationState.rows[0].quarantine_count, "0")
     assert.equal(migrationState.rows[0].constraint_validated, true)
     assert.equal(migrationState.rows[0].active_generation_count, "0")
 
     await beginSerializable(database.client)
-    const blocked = await activationProvider(
+    const activation = await activationProvider(
       database.client,
       () => 5_000
     ).attestActivationChallenge(activationRequest)
     await commit(database.client)
-    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 2)
-    assert.equal(blocked.payload.state.healthy, false)
+    assert.equal(activation.payload.state.unresolvedLegacyQuarantineCount, 0)
+    assert.equal(activation.payload.state.healthy, true)
 
     await assert.rejects(
       database.client.query(
@@ -2931,13 +2955,6 @@ postgresTest(
         [queuedRecord.recordID.slice(2)]
       ),
       /marker is migration-owned and immutable/
-    )
-    await assert.rejects(
-      database.client.query(
-        `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine
-          WHERE reason LIKE 'legacy outbox intent uses display-order%'`
-      ),
-      /append-only/
     )
     await database.client.end()
   }
@@ -4056,6 +4073,7 @@ type EscapedCaptureRequest = {
   reason?: string
   capturedAtUnixMs: number
   quarantine?: P2TRSignatureFraudSignerQuarantine
+  signer?: Wallet
 }
 
 type EscapedCaptureOutcome = {
@@ -4082,15 +4100,17 @@ type EscapedCaptureParityScenario = {
     | readonly P2TRSignatureFraudChallengeOutboxRecord[]
     | Promise<readonly P2TRSignatureFraudChallengeOutboxRecord[]>
   captures: EscapedCaptureRequest[]
+  configureSecondaryLane?: boolean
 }
 
 async function escapedCaptureArtifact(
   record: P2TRSignatureFraudChallengeOutboxRecord,
   request: EscapedCaptureRequest
 ) {
+  const signer = request.signer ?? WALLET
   const nonce = request.nonce ?? 7
   const transactionType = request.transactionType ?? 2
-  const rawTransaction = await WALLET.signTransaction({
+  const rawTransaction = await signer.signTransaction({
     ...(transactionType === 0 ? {} : { type: transactionType }),
     chainId: request.chainID ?? CHAIN_ID,
     to: request.to ?? record.intent.routerAddress,
@@ -4103,7 +4123,7 @@ async function escapedCaptureArtifact(
           maxFeePerGas: request.maxFeePerGas ?? 100,
           maxPriorityFeePerGas: 10,
           ...(request.includeAccessList
-            ? { accessList: [{ address: WALLET.address, storageKeys: [] }] }
+            ? { accessList: [{ address: signer.address, storageKeys: [] }] }
             : {}),
         }
       : { gasPrice: 100 }),
@@ -4118,7 +4138,7 @@ async function escapedCaptureArtifact(
       intentID: record.intent.intentID,
       rawTransaction,
       transactionHash: Hex.from(utils.keccak256(rawTransaction)),
-      sender: request.sender ?? WALLET.address,
+      sender: request.sender ?? signer.address,
       nonce,
     },
   }
@@ -4144,6 +4164,13 @@ async function postgresEscapedCaptureOutcome(
 ): Promise<EscapedCaptureOutcome> {
   const database = await createTestDatabase()
   try {
+    if (scenario.configureSecondaryLane) {
+      await begin(database.client)
+      await database.store.installSignerLaneConfiguration(
+        secondarySignerConfiguration()
+      )
+      await commit(database.client)
+    }
     const initial = outboxRecord(scenario.seed)
     await insertRecord(database, initial)
     const reserved = await advanceToReservation(database, initial)
@@ -4420,7 +4447,7 @@ async function replacementSignerBoundary(
  * was supposed to use.
  */
 function wrongLaneQuarantine(
-  reasonCode: "wrong-chain" | "wrong-nonce" = "wrong-nonce"
+  reasonCode: "wrong-chain" | "wrong-sender" | "wrong-nonce" = "wrong-nonce"
 ): P2TRSignatureFraudSignerQuarantine {
   return {
     laneID: LANE_ID,
@@ -4499,6 +4526,19 @@ const escapedCaptureParityScenarios: EscapedCaptureParityScenario[] = [
         capturedAtUnixMs: 2_100,
         chainID: CHAIN_ID + 1,
         quarantine: wrongLaneQuarantine("wrong-chain"),
+      },
+    ],
+  },
+  {
+    name: "captures a wrong sender through its configured actual lane",
+    seed: 75,
+    boundary: replacementSignerBoundary,
+    configureSecondaryLane: true,
+    captures: [
+      {
+        capturedAtUnixMs: 2_100,
+        signer: SECONDARY_WALLET,
+        quarantine: wrongLaneQuarantine("wrong-sender"),
       },
     ],
   },

@@ -233,7 +233,7 @@ describe("production activation PostgreSQL schema contract", () => {
     )
   })
 
-  it("revalidates the readiness certificate CAS without localizing provider heads", () => {
+  it("revalidates durable candidate authority without steady-state dispatcher gates", () => {
     const lock = methodSource(
       activationStore,
       "lockCandidateAuthorization",
@@ -261,7 +261,11 @@ describe("production activation PostgreSQL schema contract", () => {
     )
     assert.match(
       lock,
-      /p2tr_signature_fraud_outbox_activation_revalidation\([\s\S]*?activation_blocking_critical_alert_count = 0[\s\S]*?ambiguous_transaction_count = 0[\s\S]*?recovery_backlog_count <=[\s\S]*?configured_signer_lane_set_hash =[\s\S]*?active_signer_invocation_count = 0[\s\S]*?active_nonce_release_attempt_count = 0/
+      /p2tr_signature_fraud_outbox_activation_revalidation\([\s\S]*?activation_blocking_critical_alert_count = 0[\s\S]*?ambiguous_transaction_count = 0[\s\S]*?unresolved_legacy_quarantine_count = 0[\s\S]*?configured_signer_lane_count =[\s\S]*?configured_signer_lane_set_hash =/
+    )
+    assert.doesNotMatch(
+      lock,
+      /outbox_health\.(?:recovery_backlog_count|active_generation_count|quarantined_signer_lane_count|active_old_manifest_generation_count|stale_manifest_generation_successor_count|active_signer_invocation_count|active_nonce_release_attempt_count)/
     )
     const enqueue = methodSource(
       activationGate,

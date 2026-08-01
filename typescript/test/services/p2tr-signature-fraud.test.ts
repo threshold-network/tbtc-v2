@@ -2559,6 +2559,24 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(recoveredUnexpectedEnvelope.calldata).to.equal(intent.calldata)
     expect(recoveredUnexpectedEnvelope.value).to.equal(intent.value)
 
+    const contractCreationRawTransaction = await wallet.signTransaction({
+      data: "0x6000",
+      value: 0,
+      chainId: intent.chainID,
+      nonce: 10,
+      gasLimit: 1_000_000,
+      gasPrice: 2,
+    })
+    const recoveredContractCreation =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(
+        contractCreationRawTransaction
+      )
+    expect(recoveredContractCreation.sender).to.equal(wallet.address)
+    expect(recoveredContractCreation.chainID).to.equal(intent.chainID)
+    expect(recoveredContractCreation.nonce).to.equal(10)
+    expect(recoveredContractCreation.to).to.equal(undefined)
+    expect(recoveredContractCreation.calldata).to.equal("0x6000")
+
     expectWitnessError(
       () =>
         validateP2TRSignatureFraudPreparedChallengeTransaction(intent, {

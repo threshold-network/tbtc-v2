@@ -1938,7 +1938,13 @@ export const recoverP2TRSignatureFraudSignedTransactionEnvelope = (
     sender: utils.getAddress(parsed.from),
     nonce: parsed.nonce,
     chainID: parsed.chainId,
-    to: parsed.to === undefined ? undefined : utils.getAddress(parsed.to),
+    // ethers represents contract creation with a null destination. Preserve
+    // that as an absent destination so the signed sender/chain/nonce evidence
+    // can still be durably guarded even though it cannot match Router intent.
+    to:
+      parsed.to === undefined || parsed.to === null
+        ? undefined
+        : utils.getAddress(parsed.to),
     calldata: utils.hexlify(parsed.data).toLowerCase(),
     value: parsed.value.toString(),
   }

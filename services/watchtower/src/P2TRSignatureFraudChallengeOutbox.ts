@@ -7333,6 +7333,14 @@ const validateStructuredResolution = (
       ({ preparedTransaction }) => preparedTransaction
     ),
   ]
+  const expectedPreparedHashes = new Set(
+    variants.map(({ preparedTransaction }) =>
+      normalizeBytes32(
+        preparedTransaction.transactionHash,
+        "Prepared transaction variant hash"
+      )
+    )
+  )
   const preparedHashes = new Set(
     signedTransactions.map((preparedTransaction) =>
       normalizeBytes32(
@@ -7470,7 +7478,7 @@ const validateStructuredResolution = (
         "Canonical nonce-consuming sender"
       ) !== normalizeAddress(protectedLane.sender, "Protected nonce sender") ||
       resolution.consumingTransaction.nonce !== protectedLane.nonce ||
-      preparedHashes.has(
+      expectedPreparedHashes.has(
         normalizeBytes32(
           resolution.consumingTransaction.transactionHash,
           "Canonical nonce-consuming transaction hash"
@@ -8008,6 +8016,14 @@ const validateExternalOwnTransactionDisposition = (
       )
     )
   )
+  const expectedPreparedHashes = new Set(
+    variants.map(({ preparedTransaction }) =>
+      normalizeBytes32(
+        preparedTransaction.transactionHash,
+        "Prepared transaction variant hash"
+      )
+    )
+  )
   if (disposition.status === "reverted") {
     validateCanonicalReceipt(disposition.receipt)
     if (
@@ -8059,7 +8075,7 @@ const validateExternalOwnTransactionDisposition = (
       "Own nonce-consuming transaction sender"
     ) !== normalizeAddress(protectedLane.sender, "Protected nonce sender") ||
     disposition.consumingTransaction.nonce !== protectedLane.nonce ||
-    preparedHashes.has(
+    expectedPreparedHashes.has(
       normalizeBytes32(
         disposition.consumingTransaction.transactionHash,
         "Own nonce-consuming transaction hash"

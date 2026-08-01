@@ -2796,17 +2796,28 @@ BEGIN
     IF actual_guard.nonce_guard_id IS NULL
        OR NOT FOUND
        OR actual_guard.voided_before_sign_at_unix_ms IS NOT NULL
+       OR actual_guard.chain_id <> NEW.actual_chain_id
+       OR actual_guard.sender <> NEW.actual_sender
+       OR actual_guard.transaction_nonce <> NEW.actual_nonce
+       OR actual_guard.signer_lane_id <> NEW.actual_guard_signer_lane_id
+       OR actual_guard.signer_identity <> NEW.actual_guard_signer_identity
        OR recorded_reason NOT IN (
+           'wrong-chain',
            'wrong-sender',
            'wrong-nonce',
            'ambiguous-signer-invocation'
        )
-       OR (NEW.actual_sender = NEW.expected_sender
+       OR (NEW.actual_chain_id = NEW.expected_chain_id
+           AND NEW.actual_sender = NEW.expected_sender
            AND NEW.actual_nonce = NEW.expected_nonce)
        OR (recorded_reason = 'wrong-sender'
-           AND NEW.actual_sender = NEW.expected_sender)
+           AND (NEW.actual_chain_id <> NEW.expected_chain_id
+                OR NEW.actual_sender = NEW.expected_sender))
+       OR (recorded_reason = 'wrong-chain'
+           AND NEW.actual_chain_id = NEW.expected_chain_id)
        OR (recorded_reason = 'wrong-nonce'
-           AND (NEW.actual_sender <> NEW.expected_sender
+           AND (NEW.actual_chain_id <> NEW.expected_chain_id
+                OR NEW.actual_sender <> NEW.expected_sender
                 OR NEW.actual_nonce = NEW.expected_nonce)) THEN
         RAISE EXCEPTION 'escaped signed envelope does not match its quarantine reason';
     END IF;
@@ -2979,9 +2990,6 @@ BEGIN
         IF NOT FOUND
            OR parent_guard.guard_kind <> 'bound-reservation'
            OR parent_guard.record_id <> NEW.record_id
-           OR parent_guard.chain_id <> NEW.chain_id
-           OR parent_guard.signer_lane_id <> NEW.signer_lane_id
-           OR parent_guard.signer_identity <> NEW.signer_identity
            OR parent_guard.voided_before_sign_at_unix_ms IS NOT NULL THEN
             RAISE EXCEPTION 'escaped nonce guard is not bound to its signer reservation';
         END IF;

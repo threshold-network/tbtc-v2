@@ -161,7 +161,7 @@ const signTestChallengeTransaction = (
   overrides: Partial<{
     chainId: number
     nonce: number
-    to: string
+    to: string | null
     value: number
     data: string
   }> = {}
@@ -174,7 +174,7 @@ const signTestChallengeTransaction = (
     maxPriorityFeePerGas,
     maxFeePerGas,
     gasLimit: 1_000_000,
-    to: overrides.to ?? ROUTER_ADDRESS,
+    to: overrides.to === undefined ? ROUTER_ADDRESS : overrides.to,
     value: overrides.value ?? 1234,
     data: overrides.data ?? calldata,
     accessList: [],
@@ -1896,6 +1896,7 @@ test("carries the real scheduler generation-cap outcome through the activation g
   const stateStore = {
     p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
     async armCandidateEnqueueTransactionGuard() {},
+    async saveCandidateEnqueueNonRetryableFailure() {},
     async lockCandidateAuthorization() {},
     async assertCandidateIndexed() {},
     async consumeCandidateAuthorization(
@@ -2881,6 +2882,11 @@ test("persists the actual lane, call, and value before rejecting signer intent",
     signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
       value: 1235,
     }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      to: null,
+      data: "0x6000",
+      value: 0,
+    }),
   ]
 
   for (const signed of unexpected) {
@@ -2903,10 +2909,76 @@ test("persists the actual lane, call, and value before rejecting signer intent",
     assert.equal(artifact.sender, parsed.from)
     assert.equal(artifact.nonce, parsed.nonce)
     assert.equal(artifact.chainID, parsed.chainId)
-    assert.equal(artifact.to, parsed.to)
+    assert.equal(artifact.to, parsed.to ?? undefined)
     assert.equal(artifact.calldata, parsed.data)
     assert.equal(artifact.value, parsed.value.toString())
   }
+})
+
+test("terminalizes a captured same-lane artifact that consumed the protected nonce", async () => {
+  const signed = signTestChallengeTransaction(
+    defaultTestCall.calldata,
+    20,
+    2,
+    { to: "0x3333333333333333333333333333333333333333" }
+  )
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.rawTransaction = signed.rawTransaction
+  preparer.transactionHash = signed.transactionHash
+  const reconciler = new FixedReconciler()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    reconciler
+  )
+
+  const quarantined = await outbox.prepare(record.recordID, "worker-a")
+  const artifact = quarantined.unexpectedSignedArtifacts?.[0]
+    ?.preparedTransaction
+  assert.equal(quarantined.status, "quarantined")
+  assert.ok(artifact)
+
+  reconciler.resolution = withCanonicalAttestations({
+    status: "terminal-nonce-consumed",
+    observedHead: {
+      blockNumber: 120,
+      blockHash: `0x${"12".repeat(32)}`,
+    },
+    finalizedThrough: {
+      blockNumber: 108,
+      blockHash: `0x${"18".repeat(32)}`,
+    },
+    consensusFinalized: true,
+    routerChallenge: {
+      exists: false,
+      challengeKey: CHALLENGE_KEY,
+      readAtBlock: 108,
+    },
+    sender: artifact.sender,
+    transactionNonce: artifact.nonce,
+    finalizedAccountNonce: artifact.nonce + 1,
+    accountNonceReadAtBlock: 108,
+    transactionAbsent: true,
+    consumingTransaction: {
+      transactionHash: artifact.transactionHash.toPrefixedString(),
+      sender: artifact.sender,
+      nonce: artifact.nonce,
+      blockNumber: 101,
+      blockHash: `0x${"56".repeat(32)}`,
+    },
+  } as Parameters<typeof withCanonicalAttestations>[0])
+
+  const reconciled = await outbox.reconcile(record.recordID)
+  assert.equal(reconciled.status, "generation-required")
+  assert.equal(reconciled.lastResolutionStatus, "terminal-nonce-consumed")
+  assert.equal(
+    reconciled.finalNonceResolution?.status,
+    "terminal-nonce-consumed"
+  )
 })
 
 test("retains the active boundary for an uncorrelated signer response", async () => {

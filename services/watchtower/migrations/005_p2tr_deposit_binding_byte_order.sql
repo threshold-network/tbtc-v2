@@ -392,10 +392,14 @@ SELECT sha256(
        outbox.prepared_transaction_hash,
        'legacy outbox intent uses display-order deposit binding hash; automatic mutation is unsafe',
        (extract(epoch FROM clock_timestamp()) * 1000)::bigint
-  FROM p2tr_signature_fraud_challenge_outbox outbox
+ FROM p2tr_signature_fraud_challenge_outbox outbox
  WHERE outbox.canonical_input_binding_kind = 'deposit-binding'
    AND outbox.binding_tx_hash IS DISTINCT FROM
-       p2tr_reverse_bytea(outbox.canonical_funding_txid);
+       p2tr_reverse_bytea(outbox.canonical_funding_txid)
+   AND NOT (
+       outbox.status = 'cancelled-before-broadcast'
+       AND outbox.legacy_deposit_binding_byte_order
+   );
 
 CREATE TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
 BEFORE UPDATE OR DELETE

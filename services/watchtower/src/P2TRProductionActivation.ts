@@ -697,6 +697,14 @@ export type P2TRProductionCandidateEnqueueTransactionResolution = {
   outcomeKind: P2TRProductionCandidateEnqueueOutcome["kind"]
 }
 
+export type P2TRProductionCandidateEnqueueNonRetryableFailure = {
+  tokenID: string
+  manifestHash: string
+  candidateDigest: string
+  /** Bounded, one-way digest of the application failure; raw details stay local. */
+  failureDigest: string
+}
+
 /**
  * The outbox facts the readiness transaction re-derives for itself. The signed
  * handshake is sampled in the outbox's own committed transaction, so between
@@ -753,6 +761,9 @@ export type P2TRProductionStateStore = {
   ): Promise<void>
   saveCandidateEnqueueRetryExhaustionAlert(
     alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
+  ): Promise<void>
+  saveCandidateEnqueueNonRetryableFailure(
+    failure: P2TRProductionCandidateEnqueueNonRetryableFailure
   ): Promise<void>
   armCandidateEnqueueTransactionGuard(
     guard: P2TRProductionCandidateEnqueueTransactionGuard
@@ -1306,7 +1317,24 @@ export class P2TRProductionActivationGate {
           this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
             error
           )
-        if (lastSQLState === undefined) throw error
+        if (lastSQLState === undefined) {
+          const failure: P2TRProductionCandidateEnqueueNonRetryableFailure = {
+            tokenID: receipt.tokenID,
+            manifestHash: receipt.manifestHash,
+            candidateDigest: receipt.candidateDigest,
+            failureDigest: candidateEnqueueNonRetryableFailureDigest(error),
+          }
+          // The failed attempt has fully rolled back. Resolve the previously
+          // committed capacity guard in a fresh append-only transaction while
+          // retaining a restart-visible account of why no enqueue committed.
+          await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+            () =>
+              this.dependencies.stateStore.saveCandidateEnqueueNonRetryableFailure(
+                failure
+              )
+          )
+          throw error
+        }
         if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
           continue
         }
@@ -1558,6 +1586,19 @@ export class P2TRProductionActivationGate {
     }
     return { point: { height: commonHeight, hash: commonHash } }
   }
+}
+
+function candidateEnqueueNonRetryableFailureDigest(error: unknown): string {
+  const detail =
+    error instanceof Error
+      ? `${error.name}\0${error.message}`
+      : typeof error === "string"
+      ? error
+      : "unknown non-retryable candidate enqueue failure"
+  return `0x${createHash("sha256")
+    .update("tbtc-p2tr-candidate-enqueue-non-retryable-failure/v1\0", "utf8")
+    .update(detail.slice(0, 4_096), "utf8")
+    .digest("hex")}`
 }
 
 export function assertP2TRActivationAttestationKeySeparation(keys: {
