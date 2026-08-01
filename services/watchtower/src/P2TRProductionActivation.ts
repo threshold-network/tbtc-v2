@@ -584,6 +584,7 @@ export type P2TRProductionOutboxHandshakeState = {
   unresolvedLegacyQuarantineCount: number
   recoveryBacklogCount: number
   liveCandidateAuthorizationCount: number
+  activeGenerationCount: number
   configuredSignerLaneCount: number
   configuredSignerLaneSetHash: string
   senderLanes: readonly {
@@ -711,6 +712,7 @@ export type P2TRProductionOutboxRevalidation = {
   ambiguousTransactionCount: number
   unresolvedLegacyQuarantineCount: number
   recoveryBacklogCount: number
+  activeGenerationCount: number
   configuredSignerLaneCount: number
   configuredSignerLaneSetHash: string
   quarantinedSignerLaneCount: number
@@ -2649,6 +2651,10 @@ export function assertP2TRProductionOutboxHandshake(
     actual.unresolvedLegacyQuarantineCount !== 0 ||
     actual.liveCandidateAuthorizationCount !== 0 ||
     nonNegativeInteger(
+      actual.activeGenerationCount,
+      "active outbox generation count"
+    ) >= expected.maxActiveOutboxRecords ||
+    nonNegativeInteger(
       actual.configuredSignerLaneCount,
       "configured signer lane count"
     ) !== expected.senderLanes.length ||
@@ -2685,6 +2691,15 @@ export function assertP2TRProductionOutboxRevalidation(
       revalidation.unresolvedLegacyQuarantineCount,
       "revalidated legacy quarantine count"
     ) !== signed.unresolvedLegacyQuarantineCount ||
+    nonNegativeInteger(
+      revalidation.activeGenerationCount,
+      "revalidated active outbox generation count"
+    ) !==
+      nonNegativeInteger(
+        signed.activeGenerationCount,
+        "signed active outbox generation count"
+      ) ||
+    revalidation.activeGenerationCount >= expected.maxActiveOutboxRecords ||
     nonNegativeInteger(
       revalidation.configuredSignerLaneCount,
       "revalidated configured signer lane count"

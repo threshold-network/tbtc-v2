@@ -78,6 +78,9 @@ const COMPLETE_RESERVATION_MODEL = utils.id(
 )
 let schemaSequence = 0
 
+const hexBuffer = (value: string): Buffer =>
+  Buffer.from(value.replace(/^0x/i, ""), "hex")
+
 const runtimeMigrationDirectory = process.env.P2TR_WATCHTOWER_RUNTIME_MIGRATIONS
 
 type TestDatabase = {
@@ -110,6 +113,10 @@ async function createTestDatabase(
         ),
     new URL(
       "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/004_p2tr_candidate_enqueue_retry_alerts.sql",
       import.meta.url
     ),
     new URL(
@@ -1109,6 +1116,152 @@ postgresTest(
 )
 
 postgresTest(
+  "returns lane unavailable when another active record owns the configured lane",
+  async () => {
+    const database = await createTestDatabase()
+    const owner = outboxRecord(7)
+    const contender = outboxRecord(8)
+    await insertRecord(database, owner)
+    await insertRecord(database, contender)
+
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        owner.recordID,
+        owner.version,
+        selectedRecord(owner)
+      ),
+      true
+    )
+    await commit(database.client)
+
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        contender.recordID,
+        contender.version,
+        selectedRecord(contender, 1_101)
+      ),
+      false
+    )
+    await commit(database.client)
+    assert.equal(
+      (await database.store.get(contender.recordID))?.status,
+      "queued"
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "protects a pre-armed candidate capacity reservation from ordinary writers",
+  async () => {
+    const database = await createTestDatabase(2)
+    await insertRecord(database, outboxRecord(10))
+    const reserved = outboxRecord(11)
+    const unrelated = outboxRecord(12)
+    const certificateID = reserved.canonicalProvenance.readinessCertificateID
+    const tokenID = `0x${"e1".repeat(32)}`
+
+    await database.client.query(
+      `INSERT INTO p2tr_readiness_certificates (
+          certificate_id, certificate_generation, manifest_hash,
+          manifest_activation_sequence, primary_bitcoin_generation,
+          primary_bitcoin_root, primary_bitcoin_semantic_root,
+          bitcoin_height, bitcoin_hash, ethereum_journal_generation,
+          ethereum_history_root, ethereum_block_number, ethereum_block_hash,
+          provider_read_set_hash, payload
+       ) VALUES ($1, 1, $2, 1, 1, $3, $4, $5, $6, 1, $7, $8, $9, $10, '{}'::jsonb)`,
+      [
+        hexBuffer(certificateID),
+        hexBuffer(MANIFEST_HASH),
+        hexBuffer(reserved.canonicalProvenance.historyRoot),
+        hexBuffer(reserved.canonicalProvenance.eventSetHash),
+        reserved.evidenceCheckpoint.bitcoinCursorBlockHeight,
+        hexBuffer(reserved.evidenceCheckpoint.bitcoinCursorBlockHash),
+        hexBuffer(reserved.canonicalProvenance.historyRoot),
+        reserved.canonicalProvenance.throughBlockNumber,
+        hexBuffer(reserved.canonicalProvenance.throughBlockHash),
+        hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
+      ]
+    )
+    await database.client.query(
+      `INSERT INTO p2tr_candidate_enqueue_authorizations (
+          token_id, manifest_hash, candidate_digest, observation_id,
+          challenge_key, txid, wtxid, input_index, bitcoin_block_height,
+          bitcoin_block_hash, verified_bitcoin_height, verified_bitcoin_hash,
+          verified_ethereum_block, verified_ethereum_hash, funding_block_hash,
+          funding_txid, funding_vout, input_wallet_id, input_output_key,
+          input_binding_kind, input_binding_source_event_id,
+          candidate_provenance_generation, provenance_fingerprint,
+          readiness_certificate_id, readiness_certificate_generation,
+          expires_at
+       ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 1,
+          clock_timestamp() + interval '1 minute'
+       )`,
+      [
+        hexBuffer(tokenID),
+        hexBuffer(MANIFEST_HASH),
+        hexBuffer(reserved.canonicalProvenance.candidateDigest),
+        hexBuffer(reserved.intent.observationID.toPrefixedString()),
+        hexBuffer(reserved.intent.bridgeChallengeKey.toPrefixedString()),
+        hexBuffer(reserved.evidenceCheckpoint.bitcoinTxHash),
+        hexBuffer(reserved.evidenceCheckpoint.bitcoinWitnessTxHash),
+        reserved.evidenceCheckpoint.bitcoinInputIndex,
+        reserved.evidenceCheckpoint.bitcoinBlockHeight,
+        hexBuffer(reserved.evidenceCheckpoint.bitcoinBlockHash),
+        reserved.evidenceCheckpoint.bitcoinCursorBlockHeight,
+        hexBuffer(reserved.evidenceCheckpoint.bitcoinCursorBlockHash),
+        reserved.canonicalProvenance.throughBlockNumber,
+        hexBuffer(reserved.canonicalProvenance.throughBlockHash),
+        hexBuffer(reserved.canonicalProvenance.fundingBlockHash),
+        hexBuffer(reserved.canonicalProvenance.fundingTxid),
+        reserved.canonicalProvenance.fundingVout,
+        hexBuffer(reserved.canonicalProvenance.inputWalletID),
+        hexBuffer(reserved.canonicalProvenance.inputOutputKey),
+        reserved.canonicalProvenance.inputBindingKind,
+        hexBuffer(reserved.canonicalProvenance.inputBindingSourceEventID),
+        reserved.canonicalProvenance.candidateProvenanceGeneration,
+        hexBuffer(reserved.canonicalProvenance.provenanceFingerprint),
+        hexBuffer(certificateID),
+      ]
+    )
+    await database.client.query(
+      `INSERT INTO p2tr_candidate_enqueue_transaction_guard (
+          manifest_hash, token_id, candidate_digest, max_attempt_count,
+          guard_digest
+       ) VALUES ($1, $2, $3, 3, $4)`,
+      [
+        hexBuffer(MANIFEST_HASH),
+        hexBuffer(tokenID),
+        hexBuffer(reserved.canonicalProvenance.candidateDigest),
+        hexBuffer(`0x${"e2".repeat(32)}`),
+      ]
+    )
+
+    await begin(database.client)
+    await assert.rejects(
+      database.store.insertGenerationIfAbsent(unrelated),
+      /manifest-bound global active outbox capacity is exhausted or reserved/i
+    )
+    await database.client.query("ROLLBACK")
+
+    await insertRecord(database, reserved)
+    const capacity = await database.client.query<{
+      active_generation_count: string
+    }>(
+      `SELECT active_generation_count::text AS active_generation_count
+         FROM p2tr_signature_fraud_challenge_outbox_capacity
+        WHERE singleton = true`
+    )
+    assert.equal(capacity.rows[0].active_generation_count, "2")
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "rejects non-schema evidence fields instead of persisting raw payload aliases",
   async () => {
     const database = await createTestDatabase()
@@ -2047,6 +2200,31 @@ postgresTest(
 )
 
 postgresTest(
+  "reports a manifest-bound full outbox as unavailable for activation",
+  async () => {
+    const database = await createTestDatabase(1)
+    await insertRecord(database, outboxRecord(9))
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.activeGenerationCount, 1)
+    assert.equal(response.payload.state.healthy, false)
+    assert.equal(response.payload.state.activationBlocked, true)
+    assert.ok(
+      response.payload.state.activationBlockingReasons.includes(
+        "manifest-bound-active-outbox-capacity-exhausted"
+      )
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "does not report an in-bound recovery backlog as activation-blocking",
   async () => {
     const database = await createTestDatabase()
@@ -2412,7 +2590,6 @@ postgresTest(
       boundSenderLane({ signerIdentity: "signer-b" }),
       boundSenderLane({ sender: `0x${"d2".repeat(20)}` }),
       boundSenderLane({ policyHash: `0x${"d3".repeat(32)}` }),
-      boundSenderLane({ chainID: CHAIN_ID + 1 }),
       boundSenderLane({ configurationHash: `0x${"d5".repeat(32)}` }),
     ]) {
       await beginSerializable(database.client)
@@ -2440,6 +2617,25 @@ postgresTest(
         )
       )
     }
+    await beginSerializable(database.client)
+    const wrongChain = await activationProvider(
+      database.client,
+      () => 5_000,
+      MANIFEST_HASH,
+      undefined,
+      [boundSenderLane({ chainID: CHAIN_ID + 1 })]
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+    assert.equal(wrongChain.payload.state.laneConfigurationMismatchCount, 0)
+    assert.deepEqual(
+      wrongChain.payload.state.senderLanes.map((lane) => lane.healthy),
+      [false]
+    )
+    assert.ok(
+      wrongChain.payload.state.activationBlockingReasons.includes(
+        "manifest-bound-signer-lane-mismatch"
+      )
+    )
     await database.client.end()
   }
 )
@@ -2554,6 +2750,7 @@ postgresTest(
       ambiguousTransactionCount: 0,
       unresolvedLegacyQuarantineCount: 0,
       recoveryBacklogCount: 0,
+      activeGenerationCount: 0,
       configuredSignerLaneCount: 1,
       configuredSignerLaneSetHash:
         signed.payload.state.configuredSignerLaneSetHash,

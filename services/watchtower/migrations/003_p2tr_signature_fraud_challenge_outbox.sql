@@ -5173,6 +5173,7 @@ RETURNS TABLE (
     ambiguous_transaction_count bigint,
     unresolved_legacy_quarantine_count bigint,
     recovery_backlog_count bigint,
+    active_generation_count bigint,
     configured_signer_lane_count bigint,
     configured_signer_lane_set_hash text,
     quarantined_signer_lane_count bigint,
@@ -5285,6 +5286,21 @@ AS $$
                        WHERE x.release_request_id = r.release_request_id
                   )
              )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_challenge_outbox o
+              WHERE o.status NOT IN (
+                  'accepted-own',
+                  'satisfied-external',
+                  'terminal-reverted',
+                  'terminal-nonce-consumed',
+                  'generation-required',
+                  'cancelled-before-broadcast',
+                  'cancelled-honest-spend',
+                  'cancelled-reorg',
+                  'cancelled-provenance-invalidated'
+              )
            )::bigint,
            (
              SELECT count(*)

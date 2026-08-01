@@ -2602,6 +2602,24 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     const blocked = await this.options.session.query<{ blocked: boolean }>(
       `SELECT EXISTS (
           SELECT 1
+            FROM p2tr_signature_fraud_challenge_outbox o
+           WHERE o.record_id <> decode($5, 'hex')
+             AND o.chain_id = $1
+             AND o.lane_released_at_unix_ms IS NULL
+             AND (
+                 o.selected_signer_lane_id = $2
+                 OR (
+                     o.nonce_reservation_id IS NOT NULL
+                     AND o.signer_lane_id = $2
+                 )
+                 OR o.selected_sender = decode($4, 'hex')
+                 OR (
+                     o.nonce_reservation_id IS NOT NULL
+                     AND o.reserved_sender = decode($4, 'hex')
+                 )
+             )
+        ) OR EXISTS (
+          SELECT 1
             FROM p2tr_signature_fraud_challenge_nonce_release_request r
            WHERE r.chain_id = $1
              AND (r.signer_lane_id = $2
@@ -2634,6 +2652,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         record.selectedLaneID,
         record.selectedSignerIdentity,
         sender,
+        stripHex(bytes32(record.recordID, "Selected lane record ID")),
       ]
     )
     return blocked.rows[0]?.blocked !== true

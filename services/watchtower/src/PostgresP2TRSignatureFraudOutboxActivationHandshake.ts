@@ -52,7 +52,6 @@ export type P2TRProductionOutboxActivationState =
     manifestOutboxCapacityConfigured: boolean
     currentReadinessCertificate?: P2TROutboxCurrentReadinessCertificate
     statusCounts: Readonly<Record<string, number>>
-    activeGenerationCount: number
     activeOldManifestGenerationCount: number
     expiredPreparationLeaseCount: number
     pendingNonceReleaseCount: number
@@ -913,8 +912,13 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       manifest.max_active_outbox_records !== null &&
       /^[1-9][0-9]{0,6}$/.test(manifest.max_active_outbox_records) &&
       Number(manifest.max_active_outbox_records) <= 1_000_000
+    const activeOutboxCapacityAvailable =
+      manifestOutboxCapacityConfigured &&
+      activeGenerationCount < Number(manifest.max_active_outbox_records)
     if (!manifestOutboxCapacityConfigured) {
       reasons.push("manifest-outbox-capacity-not-configured")
+    } else if (!activeOutboxCapacityAvailable) {
+      reasons.push("manifest-bound-active-outbox-capacity-exhausted")
     }
     if (capacityCounterMismatchCount > 0) {
       reasons.push("outbox-capacity-counter-mismatch")
@@ -1007,7 +1011,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       activationBlockingAlertCount + provenanceIncidentCount
     const healthy =
       startupReconciliationComplete &&
-      manifestOutboxCapacityConfigured &&
+      activeOutboxCapacityAvailable &&
       ambiguousTransactionCount === 0 &&
       activationBlockingCriticalAlertCount === 0 &&
       unresolvedLegacyQuarantineCount === 0 &&

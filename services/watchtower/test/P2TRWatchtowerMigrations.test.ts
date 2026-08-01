@@ -98,6 +98,13 @@ describe("P2TR watchtower migration bodies", () => {
       /p2tr_candidate_enqueue_authorizations authorization/
     )
     assert.match(migration, /generation-cap resolution lacks its durable alert/)
+    assert.match(
+      migration,
+      /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_consume_generation_capacity/
+    )
+    assert.match(migration, /unresolved_capacity_reservation_count/)
+    assert.match(migration, /has_exact_capacity_reservation/)
+    assert.match(migration, /active outbox capacity is exhausted or reserved/)
   })
 })
 

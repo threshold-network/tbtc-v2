@@ -80,6 +80,10 @@ export function normalizeOutboxRevalidation(
       row.recovery_backlog_count,
       "revalidated recovery backlog count"
     ),
+    activeGenerationCount: databaseInteger(
+      row.active_generation_count,
+      "revalidated active outbox generation count"
+    ),
     configuredSignerLaneCount: databaseInteger(
       row.configured_signer_lane_count,
       "revalidated configured signer lane count"
@@ -1035,6 +1039,9 @@ export class PostgresP2TRProductionActivationStore
           AND outbox_health.unresolved_legacy_quarantine_count = 0
           AND outbox_health.recovery_backlog_count <=
                 (manifest.payload #>> '{outbox,maxRecoveryBacklog}')::bigint
+          AND outbox_health.active_generation_count <
+                (manifest.payload #>>
+                  '{outbox,maxActiveOutboxRecords}')::bigint
           AND outbox_health.configured_signer_lane_count =
                 (certificate.payload #>>
                   '{outboxHandshake,state,configuredSignerLaneCount}')::bigint
@@ -1111,7 +1118,32 @@ export class PostgresP2TRProductionActivationStore
     await this.assertCurrentActivationManifest(normalized.manifestHash)
     const guardDigest = candidateEnqueueTransactionGuardDigest(normalized)
     const inserted = await this.session.query(
-      `INSERT INTO p2tr_candidate_enqueue_transaction_guard
+      `WITH locked_capacity AS MATERIALIZED (
+         -- The no-op UPDATE is a write fence, not merely a row lock. Every
+         -- outbox INSERT updates this singleton too, so a SERIALIZABLE guard
+         -- transaction cannot reserve from a snapshot predating another
+         -- reservation or active-generation insert.
+         UPDATE p2tr_signature_fraud_challenge_outbox_capacity
+            SET active_generation_count = active_generation_count
+          WHERE singleton = true
+        RETURNING active_generation_count
+       ), unresolved_capacity AS MATERIALIZED (
+         SELECT count(*)::bigint AS reservation_count
+           FROM p2tr_candidate_enqueue_transaction_guard guard_row
+          WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                     WHERE resolution.manifest_hash = guard_row.manifest_hash
+                       AND resolution.token_id = guard_row.token_id
+                )
+            AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                     WHERE alert.manifest_hash = guard_row.manifest_hash
+                       AND alert.token_id = guard_row.token_id
+                )
+       )
+       INSERT INTO p2tr_candidate_enqueue_transaction_guard
          (manifest_hash, token_id, candidate_digest, max_attempt_count,
           guard_digest)
        SELECT $1, $2, $3, $4, $5
@@ -1119,12 +1151,27 @@ export class PostgresP2TRProductionActivationStore
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
           AND manifest.manifest_hash = authorization.manifest_hash
+         CROSS JOIN locked_capacity capacity
+         CROSS JOIN unresolved_capacity reserved
         WHERE authorization.token_id = $2
           AND authorization.manifest_hash = $1
           AND authorization.candidate_digest = $3
           AND authorization.consumed_at IS NULL
           AND authorization.invalidated_at IS NULL
           AND authorization.expires_at > clock_timestamp()
+          AND (
+              EXISTS (
+                  SELECT 1
+                    FROM p2tr_candidate_enqueue_transaction_guard existing
+                   WHERE existing.manifest_hash = $1
+                     AND existing.token_id = $2
+                     AND existing.candidate_digest = $3
+              )
+              OR capacity.active_generation_count +
+                   reserved.reservation_count <
+                   (manifest.payload #>>
+                    '{outbox,maxActiveOutboxRecords}')::bigint
+          )
        ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
       [
         hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
@@ -1155,6 +1202,11 @@ export class PostgresP2TRProductionActivationStore
         hexBuffer(normalized.tokenID, "enqueue guard token"),
       ]
     )
+    if (stored.rows.length === 0) {
+      throw new Error(
+        "Candidate enqueue guard could not reserve active outbox capacity"
+      )
+    }
     if (
       stored.rows.length !== 1 ||
       bytes32(stored.rows[0].candidate_digest, "stored guard candidate") !==

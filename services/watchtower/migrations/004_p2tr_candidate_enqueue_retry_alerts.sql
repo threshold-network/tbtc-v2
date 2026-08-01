@@ -73,6 +73,93 @@ CREATE INDEX p2tr_candidate_enqueue_retry_exhaustion_manifest_idx
     ON p2tr_candidate_enqueue_retry_exhaustion_alert
         (manifest_hash, exhausted_at);
 
+-- An unresolved guard owns one global active-generation slot. This closes the
+-- cross-transaction gap between committing the crash marker and inserting the
+-- outbox generation: ordinary writers count every reservation, while the exact
+-- manifest/candidate/observation-bound holder may consume its own slot. A
+-- resolution or retry-exhaustion alert releases the reservation without
+-- mutating the append-only guard.
+CREATE OR REPLACE FUNCTION p2tr_signature_fraud_consume_generation_capacity()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $body$
+DECLARE
+    has_exact_capacity_reservation boolean;
+    unresolved_capacity_reservation_count bigint;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1
+          FROM p2tr_candidate_enqueue_transaction_guard guard_row
+          JOIN p2tr_candidate_enqueue_authorizations candidate_authorization
+            ON candidate_authorization.manifest_hash = guard_row.manifest_hash
+           AND candidate_authorization.token_id = guard_row.token_id
+           AND candidate_authorization.candidate_digest =
+                guard_row.candidate_digest
+         WHERE guard_row.manifest_hash = NEW.activation_manifest_hash
+           AND guard_row.candidate_digest = NEW.canonical_candidate_digest
+           AND candidate_authorization.observation_id = NEW.observation_id
+           AND candidate_authorization.challenge_key = NEW.bridge_challenge_key
+           AND candidate_authorization.txid = NEW.bitcoin_tx_hash
+           AND candidate_authorization.wtxid = NEW.bitcoin_wtxid
+           AND candidate_authorization.input_index = NEW.bitcoin_input_index
+           AND candidate_authorization.consumed_at IS NULL
+           AND candidate_authorization.invalidated_at IS NULL
+           AND candidate_authorization.expires_at > clock_timestamp()
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                WHERE resolution.manifest_hash = guard_row.manifest_hash
+                  AND resolution.token_id = guard_row.token_id
+           )
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                WHERE alert.manifest_hash = guard_row.manifest_hash
+                  AND alert.token_id = guard_row.token_id
+           )
+    ) INTO has_exact_capacity_reservation;
+
+    SELECT count(*)
+      INTO unresolved_capacity_reservation_count
+      FROM p2tr_candidate_enqueue_transaction_guard guard_row
+     WHERE NOT EXISTS (
+               SELECT 1
+                 FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                WHERE resolution.manifest_hash = guard_row.manifest_hash
+                  AND resolution.token_id = guard_row.token_id
+           )
+       AND NOT EXISTS (
+               SELECT 1
+                 FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                WHERE alert.manifest_hash = guard_row.manifest_hash
+                  AND alert.token_id = guard_row.token_id
+           );
+
+    UPDATE p2tr_signature_fraud_challenge_outbox_capacity
+       SET active_generation_count = active_generation_count + 1
+     WHERE singleton = true
+       AND active_generation_count < (
+           SELECT (payload #>> '{outbox,maxActiveOutboxRecords}')::integer
+             FROM p2tr_watchtower_activation_manifest
+            WHERE singleton = true
+       )
+       AND (
+           has_exact_capacity_reservation
+           OR active_generation_count +
+                unresolved_capacity_reservation_count < (
+               SELECT (payload #>>
+                        '{outbox,maxActiveOutboxRecords}')::integer
+                 FROM p2tr_watchtower_activation_manifest
+                WHERE singleton = true
+           )
+       );
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'manifest-bound global active outbox capacity is exhausted or reserved';
+    END IF;
+    RETURN NEW;
+END;
+$body$;
+
 CREATE FUNCTION p2tr_candidate_enqueue_journal_reject_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
