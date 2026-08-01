@@ -4462,6 +4462,63 @@ BEGIN
         RAISE EXCEPTION 'signed contested nonce burn lacks its durable pre-I/O claim';
     END IF;
 
+    -- Once signed burn bytes are durable, they are append-only evidence that
+    -- the reserved nonce may have escaped. Direct SQL writers get the same
+    -- rule as the adapter: they may append the broadcast acknowledgement once,
+    -- but cannot remove or replace any field of the signed transaction or
+    -- rewrite an acknowledgement that is already durable.
+    IF OLD.record_state ? 'contestedNonceBurn' THEN
+        IF NOT (NEW.record_state ? 'contestedNonceBurn')
+           OR (
+                OLD.record_state -> 'contestedNonceBurn'
+                    - 'broadcastAtUnixMs'
+              ) IS DISTINCT FROM (
+                NEW.record_state -> 'contestedNonceBurn'
+                    - 'broadcastAtUnixMs'
+              )
+           OR (
+                OLD.record_state -> 'contestedNonceBurn'
+                    ? 'broadcastAtUnixMs'
+                AND OLD.record_state -> 'contestedNonceBurn'
+                        -> 'broadcastAtUnixMs'
+                    IS DISTINCT FROM
+                    NEW.record_state -> 'contestedNonceBurn'
+                        -> 'broadcastAtUnixMs'
+              ) THEN
+            RAISE EXCEPTION 'signed contested nonce burn is immutable after its durable append';
+        END IF;
+
+        IF NOT (
+                OLD.record_state -> 'contestedNonceBurn'
+                    ? 'broadcastAtUnixMs'
+              )
+           AND NEW.record_state -> 'contestedNonceBurn'
+                   ? 'broadcastAtUnixMs' THEN
+            IF jsonb_typeof(
+                    NEW.record_state -> 'contestedNonceBurn'
+                        -> 'broadcastAtUnixMs'
+                 ) IS DISTINCT FROM 'number'
+               OR NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'broadcastAtUnixMs'
+                    !~ '^(0|[1-9][0-9]*)$' THEN
+                RAISE EXCEPTION 'signed contested nonce burn broadcast acknowledgement is invalid';
+            END IF;
+            IF (
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'broadcastAtUnixMs'
+               )::numeric > 9007199254740991
+               OR (
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'broadcastAtUnixMs'
+                  )::numeric < (
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'signedAtUnixMs'
+                  )::numeric THEN
+                RAISE EXCEPTION 'signed contested nonce burn broadcast acknowledgement is invalid';
+            END IF;
+        END IF;
+    END IF;
+
     IF OLD.signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.signer_invocation_started_at_unix_ms IS DISTINCT FROM
            OLD.signer_invocation_started_at_unix_ms THEN

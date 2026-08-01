@@ -426,6 +426,18 @@ test("requires a durable bound nonce guard before signer invocation", () => {
     migration,
     /signed contested nonce burn lacks its durable pre-I\/O claim/
   )
+  assert.match(
+    migration,
+    /\( OLD\.record_state -> 'contestedNonceBurn' - 'broadcastAtUnixMs' \) IS DISTINCT FROM \( NEW\.record_state -> 'contestedNonceBurn' - 'broadcastAtUnixMs' \)/
+  )
+  assert.match(
+    migration,
+    /signed contested nonce burn is immutable after its durable append/
+  )
+  assert.match(
+    migration,
+    /signed contested nonce burn broadcast acknowledgement is invalid/
+  )
   assert.match(migration, /P2TR challenge nonce guards cannot be deleted/)
 })
 

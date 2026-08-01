@@ -260,7 +260,11 @@ export class InMemoryOutboxStore
   async getActiveAmbiguousNonceReleaseInvocation(
     nowUnixMs: number
   ): Promise<P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined> {
-    const candidates: P2TRSignatureFraudAmbiguousNonceReleaseInvocation[] = []
+    const candidates: {
+      invocation: P2TRSignatureFraudAmbiguousNonceReleaseInvocation
+      chainID: number
+      sender: string
+    }[] = []
     for (const [id] of this.nonceReleaseRequests) {
       const attempts = this.nonceReleaseAttempts.get(id) ?? []
       const attempt = attempts[attempts.length - 1]
@@ -288,20 +292,34 @@ export class InMemoryOutboxStore
       if (request === undefined) {
         throw new Error("active nonce-release invocation lacks its request")
       }
+      const record = this.records.get(normalizeKey(request.recordID))
+      if (record === undefined) {
+        throw new Error("active nonce-release invocation lacks its record")
+      }
       candidates.push({
-        request,
-        attempt,
-        invokedAtUnixMs,
-        ambiguousResponseDigest:
-          this.nonceReleaseAmbiguousResponseDigests.get(key),
+        invocation: {
+          request,
+          attempt,
+          invokedAtUnixMs,
+          ambiguousResponseDigest:
+            this.nonceReleaseAmbiguousResponseDigests.get(key),
+        },
+        chainID: record.intent.chainID,
+        sender: request.reservation.sender.toLowerCase(),
       })
     }
-    if (candidates.length > 1) {
-      throw new Error(
-        "multiple active nonce-release invocations violate the barrier"
-      )
-    }
-    return candidates[0]
+    // PostgreSQL orders its per-lane barriers by (chain_id, sender) and returns
+    // one recoverable invocation per call. Keep the shared test double on that
+    // contract so valid multi-lane recovery states receive parity coverage.
+    candidates.sort(
+      (left, right) =>
+        left.chainID - right.chainID ||
+        left.sender.localeCompare(right.sender) ||
+        normalizeKey(left.invocation.request.releaseRequestID).localeCompare(
+          normalizeKey(right.invocation.request.releaseRequestID)
+        )
+    )
+    return candidates[0]?.invocation
   }
 
   async claimNonceReleaseAttempt(

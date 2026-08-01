@@ -4187,6 +4187,74 @@ postgresTest(
     )
     await commit(database.client)
     assert.equal(await barrierSignerInvocationCount(database), 0)
+
+    const updateSerializedState = (stateExpression: string) =>
+      database.client.query(
+        `UPDATE p2tr_signature_fraud_challenge_outbox
+            SET version = version + 1,
+                updated_at_unix_ms = updated_at_unix_ms + 1,
+                record_state = jsonb_set(
+                    jsonb_set(
+                        ${stateExpression},
+                        '{version}',
+                        to_jsonb(version + 1)
+                    ),
+                    '{updatedAtUnixMs}',
+                    to_jsonb(updated_at_unix_ms + 1)
+                )
+          WHERE record_id = decode($1, 'hex')`,
+        [burned.recordID.replace(/^0x/i, "")]
+      )
+
+    // The database guard is a security boundary too: a direct writer cannot
+    // remove or replace escaped signed bytes after their durable append.
+    await begin(database.client)
+    await assert.rejects(
+      updateSerializedState("record_state - 'contestedNonceBurn'"),
+      /signed contested nonce burn is immutable after its durable append/
+    )
+    await database.client.query("ROLLBACK")
+
+    await begin(database.client)
+    await assert.rejects(
+      updateSerializedState(
+        `jsonb_set(
+            record_state,
+            '{contestedNonceBurn,transactionHash}',
+            to_jsonb('0x${"ff".repeat(32)}'::text)
+        )`
+      ),
+      /signed contested nonce burn is immutable after its durable append/
+    )
+    await database.client.query("ROLLBACK")
+
+    await begin(database.client)
+    await updateSerializedState(
+      `jsonb_set(
+          record_state,
+          '{contestedNonceBurn,broadcastAtUnixMs}',
+          to_jsonb(2600)
+      )`
+    )
+    await commit(database.client)
+    assert.equal(
+      (await database.store.get(burned.recordID))?.contestedNonceBurn
+        ?.broadcastAtUnixMs,
+      2_600
+    )
+
+    await begin(database.client)
+    await assert.rejects(
+      updateSerializedState(
+        `jsonb_set(
+            record_state,
+            '{contestedNonceBurn,broadcastAtUnixMs}',
+            to_jsonb(2601)
+        )`
+      ),
+      /signed contested nonce burn is immutable after its durable append/
+    )
+    await database.client.query("ROLLBACK")
     await database.client.end()
   }
 )

@@ -2573,6 +2573,94 @@ test("keeps an ambiguous allocator invocation sticky until independent resolutio
   )
 })
 
+test("recovers one ambiguous nonce-release invocation per lane in stable order", async () => {
+  const store = new InMemoryOutboxStore()
+  const laneInputs = [
+    {
+      record: await enqueue(store),
+      preparer: new FixedPreparer(),
+    },
+    {
+      record: await enqueue(
+        store,
+        createIntent(SECOND_INTENT_SEED),
+        twoLaneFeePolicyManifest()
+      ),
+      preparer: new SecondLanePreparer(),
+    },
+  ]
+  const lanes = await Promise.all(
+    laneInputs.map(async ({ record, preparer }, index) => {
+      const reservation = await preparer.reserveSignatureFraudChallengeNonce(
+        record.intent,
+        Hex.from(record.recordID),
+        record.generation,
+        1
+      )
+      const voidEvidenceDigest = `0x${(94 + index).toString(16).repeat(32)}`
+      const releaseRequestID = normalizeKey(
+        computeP2TRSignatureFraudNonceReleaseRequestID(
+          record.recordID,
+          reservation.reservationID,
+          voidEvidenceDigest
+        )
+      )
+      return {
+        record,
+        reservation,
+        voidEvidenceDigest,
+        releaseRequestID,
+        laneOrder: `${
+          record.intent.chainID
+        }:${reservation.sender.toLowerCase()}`,
+      }
+    })
+  )
+
+  // Insert in reverse lane order to prove selection does not depend on Map
+  // insertion order. Both resultless invocations are recoverable at `now`.
+  for (const lane of [...lanes].sort((left, right) =>
+    right.laneOrder.localeCompare(left.laneOrder)
+  )) {
+    store.nonceReleaseRequests.set(lane.releaseRequestID, {
+      releaseRequestID: lane.releaseRequestID,
+      recordID: lane.record.recordID,
+      generation: lane.record.generation,
+      reservation: lane.reservation,
+      voidEvidenceDigest: lane.voidEvidenceDigest,
+      requestedAtUnixMs: 1_000,
+      attemptCount: 0,
+      ambiguous: false,
+    })
+    const attempt = await store.claimNonceReleaseAttempt(
+      lane.releaseRequestID,
+      `worker-${lane.reservation.laneID}`,
+      1_100,
+      2_000
+    )
+    assert.ok(attempt)
+    assert.equal(await store.beginNonceReleaseAttempt(attempt, 1_101), true)
+  }
+
+  const ordered = [...lanes].sort((left, right) =>
+    left.laneOrder.localeCompare(right.laneOrder)
+  )
+  const first = await store.getActiveAmbiguousNonceReleaseInvocation(2_000)
+  assert.equal(first?.request.releaseRequestID, ordered[0].releaseRequestID)
+  assert.equal(
+    (await store.getActiveAmbiguousNonceReleaseInvocation(2_000))?.request
+      .releaseRequestID,
+    ordered[0].releaseRequestID
+  )
+
+  store.nonceReleaseResolutions.set(
+    `${ordered[0].releaseRequestID}:1`,
+    "already-released"
+  )
+  const second = await store.getActiveAmbiguousNonceReleaseInvocation(2_000)
+  assert.equal(second?.request.releaseRequestID, ordered[1].releaseRequestID)
+})
+
 test("records a contract-mismatch quarantine with the reserved sender", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
