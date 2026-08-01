@@ -177,19 +177,195 @@ CHECK (
      binding_output_index = local_funding_vout)
 );
 
+-- Legacy outbox identities may already own a nonce or signed envelope, so they
+-- cannot be rewritten. Mark those rows explicitly. A queued marked row is
+-- retired immediately, while a boundary-bearing row remains mutable for safe
+-- release/reconciliation and is retired automatically if recovery returns it
+-- to queued. The marker is immutable after this migration and forbidden on new
+-- inserts, so it cannot become a general constraint bypass.
+ALTER TABLE p2tr_signature_fraud_challenge_outbox
+ADD COLUMN legacy_deposit_binding_byte_order boolean NOT NULL DEFAULT false;
+
+CREATE FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    transition_at_unix_ms bigint := greatest(
+        NEW.updated_at_unix_ms,
+        (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+    );
+    transition_reason text :=
+        'legacy display-order deposit binding retired before broadcast';
+BEGIN
+    UPDATE p2tr_signature_fraud_challenge_outbox
+       SET status = 'cancelled-before-broadcast',
+           version = NEW.version + 1,
+           preparation_lease_owner = NULL,
+           preparation_lease_expires_at_unix_ms = NULL,
+           preparation_resume_status = NULL,
+           selected_signer_lane_id = NULL,
+           selected_signer_identity = NULL,
+           selected_sender = NULL,
+           updated_at_unix_ms = transition_at_unix_ms,
+           last_error = transition_reason,
+           record_state = (
+               NEW.record_state - ARRAY[
+                   'preparationLease',
+                   'preparationResumeStatus',
+                   'preparationSender',
+                   'selectedLaneID',
+                   'selectedSignerIdentity'
+               ]
+           ) || jsonb_build_object(
+               'status', 'cancelled-before-broadcast',
+               'version', NEW.version + 1,
+               'updatedAtUnixMs', transition_at_unix_ms,
+               'lastError', transition_reason
+           )
+     WHERE record_id = NEW.record_id
+       AND version = NEW.version
+       AND status = 'queued'
+       AND legacy_deposit_binding_byte_order;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+            'legacy deposit-binding retirement lost its exact queued CAS';
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_retire_legacy_deposit_binding_trigger
+AFTER UPDATE ON p2tr_signature_fraud_challenge_outbox
+FOR EACH ROW
+WHEN (
+    NEW.legacy_deposit_binding_byte_order
+    AND NEW.status = 'queued'
+)
+EXECUTE FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding();
+
+WITH migration_clock AS (
+    SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+               AS now_unix_ms
+)
+UPDATE p2tr_signature_fraud_challenge_outbox outbox
+   SET legacy_deposit_binding_byte_order = true,
+       version = outbox.version + 1,
+       updated_at_unix_ms = greatest(
+           outbox.updated_at_unix_ms,
+           migration_clock.now_unix_ms
+       ),
+       last_error =
+           'legacy display-order deposit binding requires operator resolution',
+       record_state = outbox.record_state || jsonb_build_object(
+           'version', outbox.version + 1,
+           'updatedAtUnixMs', greatest(
+               outbox.updated_at_unix_ms,
+               migration_clock.now_unix_ms
+           ),
+           'lastError',
+               'legacy display-order deposit binding requires operator resolution'
+       )
+  FROM migration_clock
+ WHERE outbox.canonical_input_binding_kind = 'deposit-binding'
+   AND outbox.binding_tx_hash IS DISTINCT FROM
+       p2tr_reverse_bytea(outbox.canonical_funding_txid);
+
+-- A preparing record with no nonce, signer invocation, signed bytes, or send
+-- boundary is still fully reversible. Return it to queued; the AFTER trigger
+-- above atomically converts that transient queued state into a terminal
+-- pre-broadcast cancellation and releases its capacity.
+WITH migration_clock AS (
+    SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint
+               AS now_unix_ms
+)
+UPDATE p2tr_signature_fraud_challenge_outbox outbox
+   SET status = 'queued',
+       version = outbox.version + 1,
+       preparation_lease_owner = NULL,
+       preparation_lease_expires_at_unix_ms = NULL,
+       preparation_resume_status = NULL,
+       selected_signer_lane_id = NULL,
+       selected_signer_identity = NULL,
+       selected_sender = NULL,
+       updated_at_unix_ms = greatest(
+           outbox.updated_at_unix_ms,
+           migration_clock.now_unix_ms
+       ),
+       last_error =
+           'legacy display-order deposit binding returned for safe retirement',
+       record_state = (
+           outbox.record_state - ARRAY[
+               'preparationLease',
+               'preparationResumeStatus',
+               'preparationSender',
+               'selectedLaneID',
+               'selectedSignerIdentity'
+           ]
+       ) || jsonb_build_object(
+           'status', 'queued',
+           'version', outbox.version + 1,
+           'updatedAtUnixMs', greatest(
+               outbox.updated_at_unix_ms,
+               migration_clock.now_unix_ms
+           ),
+           'lastError',
+               'legacy display-order deposit binding returned for safe retirement'
+       )
+  FROM migration_clock
+ WHERE outbox.legacy_deposit_binding_byte_order
+   AND outbox.status = 'preparing'
+   AND outbox.nonce_reservation_id IS NULL
+   AND outbox.signer_invocation_started_at_unix_ms IS NULL
+   AND outbox.active_signer_invocation_started_at_unix_ms IS NULL
+   AND outbox.prepared_transaction_hash IS NULL
+   AND outbox.broadcast_attempts = 0
+   AND outbox.signer_quarantine_id IS NULL
+   AND NOT EXISTS (
+       SELECT 1
+         FROM p2tr_signature_fraud_challenge_late_signed_artifact artifact
+        WHERE artifact.record_id = outbox.record_id
+   )
+   AND NOT EXISTS (
+       SELECT 1
+         FROM p2tr_signature_fraud_challenge_escaped_envelope envelope
+        WHERE envelope.record_id = outbox.record_id
+   );
+
+CREATE FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF (TG_OP = 'INSERT' AND NEW.legacy_deposit_binding_byte_order)
+       OR (TG_OP = 'UPDATE' AND
+           NEW.legacy_deposit_binding_byte_order IS DISTINCT FROM
+               OLD.legacy_deposit_binding_byte_order) THEN
+        RAISE EXCEPTION
+            'legacy deposit-binding byte-order marker is migration-owned and immutable';
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_guard_legacy_deposit_binding_marker_trigger
+BEFORE INSERT OR UPDATE ON p2tr_signature_fraud_challenge_outbox
+FOR EACH ROW
+EXECUTE FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker();
+
 ALTER TABLE p2tr_signature_fraud_challenge_outbox
 ADD CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order
 CHECK (
+    legacy_deposit_binding_byte_order OR
     canonical_input_binding_kind <> 'deposit-binding' OR
     binding_tx_hash = p2tr_reverse_bytea(canonical_funding_txid)
-) NOT VALID;
+);
 
 -- A v3 outbox intent may already be signed, broadcast, or terminal, so its
 -- calldata-bound hash and derived identities cannot be rewritten safely. Keep
--- those rows in place for audit/reconciliation, prevent any future mutation by
--- the NOT VALID check above, and add an unresolved durable quarantine that the
--- existing activation handshake counts. New inserts are still checked by a
--- NOT VALID PostgreSQL CHECK constraint.
+-- those rows in place for audit/reconciliation and add an unresolved durable
+-- quarantine that the existing activation handshake counts. The immutable
+-- marker above permits only those exact migrated rows to finish recovery.
 INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine (
     observation_id,
     bridge_challenge_key,

@@ -111,6 +111,14 @@ BEGIN
         END IF;
     END IF;
 
+    IF (outbox_record.preparation_resume_status IS NULL
+            AND NEW.stage <> 'prepare')
+       OR (outbox_record.preparation_resume_status IS NOT NULL
+            AND NEW.stage <> 'replacement') THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary resolution does not name the durable signer stage';
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
                'tbtc-p2tr-signer-boundary-independent-resolution-v5',

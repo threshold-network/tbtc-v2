@@ -17,7 +17,7 @@ import {
 // accidental edits remain visible, while allowing intentional schema resets
 // before the first deployment.
 const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
-  "064e447b632af3f9054891548e925b6653b735ed10831bc5f26bfe787cc1809f"
+  "1e2a60921fb716e124d8be4128d0f5492ce8d14151da481851c03f1c48b33825"
 
 describe("P2TR watchtower migration bodies", () => {
   it("pins the current pre-production migration 003 checksum", async () => {
@@ -103,6 +103,10 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /FOREIGN KEY \(manifest_hash, token_id, candidate_digest\)/
+    )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_authorizations_outbox_intent_fk[\s\S]*?FOREIGN KEY \(outbox_intent_id\)[\s\S]*?ON DELETE RESTRICT\s+NOT VALID/
     )
     assert.match(migration, /candidate enqueue retry journal is append-only/)
     assert.match(

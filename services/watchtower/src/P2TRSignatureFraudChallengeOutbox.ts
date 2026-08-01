@@ -1585,6 +1585,13 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
       "Orphaned signer boundary resolution does not name the durable boundary"
     )
   }
+  const expectedStage =
+    record.preparationResumeStatus === undefined ? "prepare" : "replacement"
+  if (resolution.stage !== expectedStage) {
+    throw new Error(
+      "Orphaned signer boundary resolution does not name the durable signer stage"
+    )
+  }
   if (
     resolution.outcome === "never-invoked" &&
     (record.signerInvocationStartedAtUnixMs !== undefined ||
@@ -5283,13 +5290,29 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     // durable artifact even when the completion CAS loses: malformed values
     // must not make an otherwise authenticated record unreadable on hydrate.
     const { invocation: _unsafeInvocation, ...durableEscaped } = escaped
+    const reservationMismatch =
+      signerBoundary.reservedNonce === undefined
+        ? undefined
+        : classifyReservationMismatch(
+            signerBoundary.reservedNonce,
+            durableEscaped
+          )
+    // The echo explains why this response belongs to another invocation, but
+    // the signed envelope itself decides whether it escaped onto another nonce
+    // lane. PostgreSQL requires that lane mismatch classification before it
+    // will append the wrong-lane bytes and their quarantine evidence.
+    const reasonCode =
+      reservationMismatch === "wrong-sender" ||
+      reservationMismatch === "wrong-nonce"
+        ? reservationMismatch
+        : "wrong-signer-invocation-request"
     const failed = this.signerFailureRecord(
       signerBoundary,
       preparer,
       reason,
       true,
       durableEscaped,
-      "wrong-signer-invocation-request"
+      reasonCode
     )
     if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
       return this.captureEscapedArtifactAfterLostCas(

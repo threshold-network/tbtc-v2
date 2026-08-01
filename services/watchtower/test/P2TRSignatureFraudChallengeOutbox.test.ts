@@ -447,6 +447,8 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   burnData?: string
   burnValue?: number
   burnNonce?: number
+  /** Lets a crossed signer response declare its authenticated actual sender. */
+  returnedSender?: string
   /** Lets a test return an echo other than the one the signer was handed. */
   echoInvocation?: (
     invocation: P2TRSignatureFraudSignerInvocationRequest
@@ -569,7 +571,7 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
       intentID: intent.intentID,
       rawTransaction: this.rawTransaction,
       transactionHash: Hex.from(this.transactionHash),
-      sender: this.transactionSender,
+      sender: this.returnedSender ?? this.transactionSender,
       nonce: 7,
       invocation:
         this.echoInvocation === undefined
@@ -4199,6 +4201,39 @@ test("authenticates and captures signed bytes before rejecting a malformed invoc
     settled.signerQuarantines?.[0]?.reasonCode,
     "wrong-signer-invocation-request"
   )
+})
+
+test("classifies a crossed signer lane before its malformed invocation echo", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const crossed = signTestChallengeTransaction(
+    record.intent.calldata,
+    20,
+    2,
+    SECOND_LANE_SIGNING_KEY
+  )
+  preparer.rawTransaction = crossed.rawTransaction
+  preparer.transactionHash = crossed.transactionHash
+  preparer.returnedSender = SECOND_TRANSACTION_SENDER
+  preparer.echoInvocation = () =>
+    ({
+      invocationID: "not-a-bytes32",
+      requestDigest: "also-not-a-bytes32",
+    } as unknown as P2TRSignatureFraudSignerInvocationRequest)
+
+  const settled = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.equal(settled.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    settled.unexpectedSignedArtifacts?.[0].preparedTransaction.rawTransaction,
+    crossed.rawTransaction
+  )
+  assert.equal(settled.signerQuarantines?.at(-1)?.reasonCode, "wrong-sender")
+  assert.match(String(settled.lastError), /malformed invocation request echo/)
 })
 
 test("rejects a signer that returns no invocation echo at all", async () => {

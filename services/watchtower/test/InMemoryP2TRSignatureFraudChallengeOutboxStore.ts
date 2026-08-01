@@ -6,7 +6,10 @@
  * durable adapter is caught by an executable test instead of only in
  * production.
  */
-import { Hex } from "@keep-network/tbtc-v2.ts"
+import {
+  Hex,
+  validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
+} from "@keep-network/tbtc-v2.ts"
 
 import {
   P2TRSignatureFraudAmbiguousNonceReleaseInvocation,
@@ -19,6 +22,7 @@ import {
   P2TRSignatureFraudChallengeOutboxStore,
   P2TRSignatureFraudIndependentNonceReleaseResolution,
   P2TRSignatureFraudIndependentSignerBoundaryResolution,
+  P2TRSignatureFraudNormalizedSignerBoundaryResolution,
   P2TRSignatureFraudLegacySubmissionQuarantine,
   P2TRSignatureFraudNonceReleaseAttempt,
   P2TRSignatureFraudNonceReleaseAttemptResult,
@@ -76,6 +80,13 @@ export const normalizeOwner = (value: string): string => {
 export class InMemoryOutboxStore
   implements P2TRSignatureFraudChallengeOutboxStore
 {
+  constructor(
+    private readonly assertIndependentSignerBoundaryResolution: (
+      record: P2TRSignatureFraudChallengeOutboxRecord,
+      resolution: P2TRSignatureFraudNormalizedSignerBoundaryResolution
+    ) => true | Promise<true> = () => true
+  ) {}
+
   readonly p2trSignatureFraudWatchtowerStoreProfile =
     "transactional-production" as const
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID = "outbox.test"
@@ -584,6 +595,16 @@ export class InMemoryOutboxStore
         : "acknowledged"
     }
     assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership(current, normalized)
+    if (
+      (await this.assertIndependentSignerBoundaryResolution(
+        current,
+        normalized
+      )) !== true
+    ) {
+      throw new Error(
+        "Independent signer-boundary resolution authentication failed"
+      )
+    }
     // The adapter's evidence insert and its effects share one transaction, so
     // this double must never retain evidence for effects that did not land.
     const appendEvidence = (): void => {
@@ -601,12 +622,16 @@ export class InMemoryOutboxStore
       const settled: P2TRSignatureFraudChallengeOutboxRecord = {
         ...current,
         version: current.version + 1,
-        status: "quarantined",
+        status:
+          current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation",
         // `quarantined` with a returned-signer marker requires a signer
         // quarantine, and the honest one is ambiguity: the signer was invoked
         // and nothing here establishes what it did. The chain settled the
         // NONCE, not the signer's behaviour.
         signerQuarantines:
+          current.provenanceInvalidationEvidence !== undefined ||
           current.signerInvocationStartedAtUnixMs === undefined ||
           current.reservedNonce === undefined
             ? current.signerQuarantines
@@ -873,6 +898,29 @@ export class InMemoryOutboxStore
     ) {
       throw new Error("Escaped signed artifact provenance mismatch")
     }
+    const reservation = current.reservedNonce
+    if (
+      reservation === undefined ||
+      normalizeKey(reservation.reservationID) !==
+        normalizeKey(artifact.expectedReservationID)
+    ) {
+      throw new Error(
+        "Late signed artifact has no retained durable signer boundary"
+      )
+    }
+    validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
+      current.intent,
+      artifact.preparedTransaction
+    )
+    if (
+      typeof artifact.reason !== "string" ||
+      artifact.reason.length === 0 ||
+      artifact.reason.length > 1024
+    ) {
+      throw new Error(
+        "Late artifact reason must contain between 1 and 1024 characters"
+      )
+    }
     const artifacts = current.unexpectedSignedArtifacts ?? []
     const capturedHash = normalizeKey(
       artifact.preparedTransaction.transactionHash
@@ -890,7 +938,6 @@ export class InMemoryOutboxStore
           normalizeKey(variant.preparedTransaction.transactionHash) ===
           capturedHash
       )
-    const reservation = current.reservedNonce
     const retainsResolvedBoundary =
       reservation !== undefined &&
       (current.status === "generation-required" ||
@@ -907,23 +954,25 @@ export class InMemoryOutboxStore
       return current
     }
     if (
-      reservation === undefined ||
-      (current.activeSignerInvocationStartedAtUnixMs === undefined &&
-        !retainsResolvedBoundary) ||
-      normalizeKey(reservation.reservationID) !==
-        normalizeKey(artifact.expectedReservationID)
+      current.activeSignerInvocationStartedAtUnixMs === undefined &&
+      !retainsResolvedBoundary
     ) {
       throw new Error(
         "Late signed artifact has no retained durable signer boundary"
       )
     }
+    const signedResolution =
+      current.activeSignerInvocationID === undefined
+        ? undefined
+        : this.signerBoundaryResolutions.get(
+            [key, normalizeKey(current.activeSignerInvocationID)].join(":")
+          )
     if (
-      typeof artifact.reason !== "string" ||
-      artifact.reason.length === 0 ||
-      artifact.reason.length > 1024
+      signedResolution?.outcome === "signed" &&
+      normalizeKey(signedResolution.signedTransactionHash!) !== capturedHash
     ) {
       throw new Error(
-        "Late artifact reason must contain between 1 and 1024 characters"
+        "Escaped signed artifact does not match the authenticated orphan resolution"
       )
     }
     const expectedLaneArtifact =

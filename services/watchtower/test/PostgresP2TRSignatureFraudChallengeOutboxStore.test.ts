@@ -24,6 +24,7 @@ import {
   P2TRSignatureFraudIndependentSignerBoundaryResolution,
   P2TRSignatureFraudNonceReleaseRequest,
   P2TRSignatureFraudSignerQuarantine,
+  P2TRSignatureFraudUnexpectedSignedArtifact,
   computeP2TRSignatureFraudCanonicalCandidateDigest,
   computeP2TRSignatureFraudCanonicalEventSetHash,
   computeP2TRSignatureFraudCanonicalProvenanceFingerprint,
@@ -48,6 +49,7 @@ import { normalizeOutboxRevalidation } from "../src/PostgresP2TRProductionActiva
 import {
   PostgresP2TRSignatureFraudChallengeOutboxStore,
   computeP2TRProductionSignerLaneConfigurationHash,
+  type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions,
 } from "../src/PostgresP2TRSignatureFraudChallengeOutboxStore.js"
 import type { P2TRSignatureFraudWatchtowerTransactionCoordinator } from "../src/types.js"
 import { InMemoryOutboxStore } from "./InMemoryP2TRSignatureFraudChallengeOutboxStore.js"
@@ -159,9 +161,8 @@ function createStore(
       "Eligibility loading is outside this adapter integration test"
     )
   },
-  assertIndependentSignerBoundaryResolution: (
-    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
-  ) => true | Promise<true> = () => true as const
+  assertIndependentSignerBoundaryResolution: PostgresP2TRSignatureFraudChallengeOutboxStoreOptions["assertIndependentSignerBoundaryResolution"] = () =>
+    true
 ) {
   return new PostgresP2TRSignatureFraudChallengeOutboxStore({
     storeID: "postgres.integration",
@@ -224,7 +225,8 @@ function createStore(
 
 function createManagedStore(
   client: PostgreSQLClient,
-  snapshot: P2TRSignatureFraudChallengeOutboxEligibilitySnapshot
+  snapshot: P2TRSignatureFraudChallengeOutboxEligibilitySnapshot,
+  assertIndependentSignerBoundaryResolution?: PostgresP2TRSignatureFraudChallengeOutboxStoreOptions["assertIndependentSignerBoundaryResolution"]
 ) {
   const transaction = new AsyncLocalStorage<boolean>()
   const coordinator = {
@@ -254,7 +256,8 @@ function createManagedStore(
         throw new Error("PostgreSQL session is outside its minted transaction")
       }
     },
-    async () => snapshot
+    async () => snapshot,
+    assertIndependentSignerBoundaryResolution
   )
 }
 
@@ -2277,16 +2280,26 @@ postgresTest(
 )
 
 postgresTest(
-  "quarantines legacy display-order deposit outbox intents during migration",
+  "retires queued and reversible preparing legacy deposit intents",
   async () => {
     const database = await createTestDatabase()
-    const record = depositBoundOutboxRecord(239)
-    await insertRecord(database, record)
-    const displayOrderFundingHash = record.canonicalProvenance.fundingTxid
+    const queuedRecord = depositBoundOutboxRecord(236)
+    const reversiblePreparation = depositBoundOutboxRecord(237)
+    await insertRecord(database, queuedRecord)
+    await insertRecord(database, reversiblePreparation)
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        reversiblePreparation.recordID,
+        reversiblePreparation.version,
+        selectedRecord(reversiblePreparation)
+      ),
+      true
+    )
+    await commit(database.client)
 
-    // Reconstruct the v3 constraints and one legacy row without mutating its
-    // signed serialized intent. Migration 005 must preserve and quarantine it,
-    // not attempt to manufacture new derived identities in place.
+    // Reconstruct v3 and make both normalized deposit hashes legacy
+    // display-order values without manufacturing replacement signed intents.
     await database.client.query(
       `ALTER TABLE p2tr_bitcoin_candidate_observations
          DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
@@ -2302,6 +2315,14 @@ postgresTest(
          );
        ALTER TABLE p2tr_signature_fraud_challenge_outbox
          DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+       DROP TRIGGER p2tr_signature_fraud_guard_legacy_deposit_binding_marker_trigger
+         ON p2tr_signature_fraud_challenge_outbox;
+       DROP TRIGGER p2tr_signature_fraud_retire_legacy_deposit_binding_trigger
+         ON p2tr_signature_fraud_challenge_outbox;
+       DROP FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker();
+       DROP FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding();
+       ALTER TABLE p2tr_signature_fraud_challenge_outbox
+         DROP COLUMN legacy_deposit_binding_byte_order;
        DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
          ON p2tr_signature_fraud_legacy_submission_quarantine;
        UPDATE p2tr_watchtower_schema_version
@@ -2309,12 +2330,17 @@ postgresTest(
         WHERE component = 'canonical-evidence-index'`
     )
     await database.client.query("SET session_replication_role = replica")
-    await database.client.query(
-      `UPDATE p2tr_signature_fraud_challenge_outbox
-          SET binding_tx_hash = decode($2, 'hex')
-        WHERE record_id = decode($1, 'hex')`,
-      [record.recordID.slice(2), displayOrderFundingHash.slice(2)]
-    )
+    for (const record of [queuedRecord, reversiblePreparation]) {
+      await database.client.query(
+        `UPDATE p2tr_signature_fraud_challenge_outbox
+            SET binding_tx_hash = decode($2, 'hex')
+          WHERE record_id = decode($1, 'hex')`,
+        [
+          record.recordID.slice(2),
+          record.canonicalProvenance.fundingTxid.slice(2),
+        ]
+      )
+    }
     await database.client.query("SET session_replication_role = origin")
     await database.client.query("DROP FUNCTION p2tr_reverse_bytea(bytea)")
 
@@ -2328,38 +2354,53 @@ postgresTest(
     await database.client.query(`BEGIN;\n${migration}\nCOMMIT;`)
 
     const durable = await database.client.query<{
+      record_id: string
       binding_tx_hash: string
       canonical_funding_txid: string
+      status: string
+      legacy_marker: boolean
+    }>(
+      `SELECT encode(record_id, 'hex') AS record_id,
+              encode(binding_tx_hash, 'hex') AS binding_tx_hash,
+              encode(canonical_funding_txid, 'hex')
+                AS canonical_funding_txid,
+              status,
+              legacy_deposit_binding_byte_order AS legacy_marker
+         FROM p2tr_signature_fraud_challenge_outbox
+        WHERE record_id IN (decode($1, 'hex'), decode($2, 'hex'))
+        ORDER BY record_id`,
+      [queuedRecord.recordID.slice(2), reversiblePreparation.recordID.slice(2)]
+    )
+    const byID = new Map(durable.rows.map((row) => [row.record_id, row]))
+    for (const record of [queuedRecord, reversiblePreparation]) {
+      const row = byID.get(record.recordID.slice(2))!
+      assert.equal(row.binding_tx_hash, row.canonical_funding_txid)
+      assert.equal(row.status, "cancelled-before-broadcast")
+      assert.equal(row.legacy_marker, true)
+    }
+    const migrationState = await database.client.query<{
       quarantine_count: string
       constraint_validated: boolean
+      active_generation_count: string
     }>(
-      `SELECT encode(outbox.binding_tx_hash, 'hex') AS binding_tx_hash,
-              encode(outbox.canonical_funding_txid, 'hex')
-                AS canonical_funding_txid,
-              (SELECT count(*)::text
+      `SELECT (SELECT count(*)::text
                  FROM p2tr_signature_fraud_legacy_submission_quarantine
                 WHERE reason LIKE 'legacy outbox intent uses display-order%')
-                AS quarantine_count,
-              constraint_record.convalidated AS constraint_validated
-         FROM p2tr_signature_fraud_challenge_outbox outbox
-         JOIN pg_constraint constraint_record
-           ON constraint_record.conrelid =
+                  AS quarantine_count,
+              constraint_record.convalidated AS constraint_validated,
+              capacity.active_generation_count::text
+                  AS active_generation_count
+         FROM pg_constraint constraint_record
+         CROSS JOIN p2tr_signature_fraud_challenge_outbox_capacity capacity
+        WHERE constraint_record.conrelid =
                 'p2tr_signature_fraud_challenge_outbox'::regclass
           AND constraint_record.conname =
                 'p2tr_outbox_deposit_binding_uses_bridge_byte_order'
-        WHERE outbox.record_id = decode($1, 'hex')`,
-      [record.recordID.slice(2)]
+          AND capacity.singleton = true`
     )
-    assert.equal(
-      durable.rows[0].binding_tx_hash,
-      displayOrderFundingHash.slice(2)
-    )
-    assert.equal(
-      durable.rows[0].canonical_funding_txid,
-      displayOrderFundingHash.slice(2)
-    )
-    assert.equal(durable.rows[0].quarantine_count, "1")
-    assert.equal(durable.rows[0].constraint_validated, false)
+    assert.equal(migrationState.rows[0].quarantine_count, "2")
+    assert.equal(migrationState.rows[0].constraint_validated, true)
+    assert.equal(migrationState.rows[0].active_generation_count, "0")
 
     await beginSerializable(database.client)
     const blocked = await activationProvider(
@@ -2367,20 +2408,18 @@ postgresTest(
       () => 5_000
     ).attestActivationChallenge(activationRequest)
     await commit(database.client)
-    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 1)
+    assert.equal(blocked.payload.state.unresolvedLegacyQuarantineCount, 2)
     assert.equal(blocked.payload.state.healthy, false)
 
-    await database.client.query("SET session_replication_role = replica")
     await assert.rejects(
       database.client.query(
         `UPDATE p2tr_signature_fraud_challenge_outbox
-            SET updated_at_unix_ms = updated_at_unix_ms + 1
+            SET legacy_deposit_binding_byte_order = false
           WHERE record_id = decode($1, 'hex')`,
-        [record.recordID.slice(2)]
+        [queuedRecord.recordID.slice(2)]
       ),
-      /p2tr_outbox_deposit_binding_uses_bridge_byte_order/
+      /marker is migration-owned and immutable/
     )
-    await database.client.query("SET session_replication_role = origin")
     await assert.rejects(
       database.client.query(
         `DELETE FROM p2tr_signature_fraud_legacy_submission_quarantine
@@ -2698,6 +2737,47 @@ postgresTest(
 )
 
 postgresTest(
+  "changes the signed schema hash when trigger state or constraint helpers drift",
+  async () => {
+    const database = await createTestDatabase()
+    const attestSchema = async (nowUnixMs: number) => {
+      await beginSerializable(database.client)
+      const response = await activationProvider(
+        database.client,
+        () => nowUnixMs
+      ).attestActivationChallenge(activationRequest)
+      await commit(database.client)
+      return response.payload.state.schemaConstraintHash
+    }
+    const baseline = await attestSchema(5_000)
+
+    await database.client.query(
+      `ALTER TABLE p2tr_signature_fraud_challenge_critical_alert
+         DISABLE TRIGGER p2tr_signature_fraud_reject_critical_alert_mutation_trigger`
+    )
+    const disabledTrigger = await attestSchema(5_001)
+    assert.notEqual(disabledTrigger, baseline)
+    await database.client.query(
+      `ALTER TABLE p2tr_signature_fraud_challenge_critical_alert
+         ENABLE TRIGGER p2tr_signature_fraud_reject_critical_alert_mutation_trigger`
+    )
+
+    await database.client.query(
+      `CREATE OR REPLACE FUNCTION p2tr_reverse_bytea(value bytea)
+       RETURNS bytea
+       LANGUAGE sql
+       IMMUTABLE
+       STRICT
+       PARALLEL SAFE
+       AS $$ SELECT value $$`
+    )
+    const driftedHelper = await attestSchema(5_002)
+    assert.notEqual(driftedHelper, baseline)
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "rejects one signer identity configured for multiple lanes",
   async () => {
     const database = await createTestDatabase()
@@ -2721,6 +2801,47 @@ postgresTest(
       /duplicate key value violates unique constraint/
     )
     await database.client.query("ROLLBACK")
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "returns false instead of aborting when a selected signer lane is occupied",
+  async () => {
+    const database = await createTestDatabase()
+    const occupied = outboxRecord(88)
+    const candidate = outboxRecord(89)
+    await insertRecord(database, occupied)
+    await insertRecord(database, candidate)
+
+    const occupiedSelection = selectedRecord(occupied)
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        occupied.recordID,
+        occupied.version,
+        occupiedSelection
+      ),
+      true
+    )
+    await commit(database.client)
+
+    const competingSelection = selectedRecord(candidate)
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        candidate.recordID,
+        candidate.version,
+        competingSelection
+      ),
+      false
+    )
+    await commit(database.client)
+
+    const durable = await database.store.get(candidate.recordID)
+    assert.equal(durable?.status, "queued")
+    assert.equal(durable?.selectedLaneID, undefined)
+    assert.equal(durable?.preparationSender, undefined)
     await database.client.end()
   }
 )
@@ -3620,12 +3741,25 @@ async function replacementSignerBoundary(
       },
     ],
   }
+  const claimed: P2TRSignatureFraudChallengeOutboxRecord = {
+    ...prepared,
+    status: "preparing",
+    version: prepared.version + 1,
+    preparationAttempts: prepared.preparationAttempts + 1,
+    preparationLease: {
+      owner: "worker.replacement.integration",
+      expiresAtUnixMs: 10_000,
+    },
+    preparationResumeStatus: "prepared",
+    updatedAtUnixMs: 1_450,
+  }
   return [
     boundary,
     prepared,
+    claimed,
     {
-      ...prepared,
-      version: prepared.version + 1,
+      ...claimed,
+      version: claimed.version + 1,
       updatedAtUnixMs: 1_500,
       activeSignerInvocationStartedAtUnixMs: 1_500,
       activeSignerInvocationID: boundaryInvocationID(1_500),
@@ -4360,9 +4494,11 @@ postgresTest(
       undefined,
       undefined,
       undefined,
-      (candidate) => {
+      (record, candidate) => {
         authenticationCalls++
-        assert.equal(candidate, resolution)
+        assert.equal(record.recordID, boundary.recordID)
+        assert.equal(candidate.recordID, resolution.recordID)
+        assert.equal(candidate.evidenceDigest, resolution.evidenceDigest)
         throw new Error("forged signer-boundary evidence")
       }
     )
@@ -4495,6 +4631,43 @@ postgresTest(
 )
 
 postgresTest(
+  "authenticates orphaned signer evidence before clearing its boundary",
+  async () => {
+    const database = await createTestDatabase()
+    const { initial, boundary } = await orphanedSignerBoundary(database, 240)
+    let authenticationCalls = 0
+    const rejectingStore = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(initial),
+      (record, resolution) => {
+        authenticationCalls++
+        assert.equal(record.recordID, boundary.recordID)
+        assert.equal(
+          resolution.evidenceDigest,
+          boundaryResolution(boundary).evidenceDigest
+        )
+        return false as true
+      }
+    )
+
+    await assert.rejects(
+      rejectingStore.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary)
+      ),
+      /Independent signer-boundary resolution authentication failed/
+    )
+    assert.equal(authenticationCalls, 1)
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+    const evidence = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution`
+    )
+    assert.equal(evidence.rows[0].count, "0")
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "retires the activation-blocking incident raised over an orphaned boundary",
   async () => {
     const database = await createTestDatabase()
@@ -4582,21 +4755,22 @@ postgresTest(
             corroborating_attested_at_unix_ms, resolved_at_unix_ms,
             provider_tombstone_receipt, provider_tombstone_at_unix_ms
          ) VALUES (
-            decode($1, 'hex'), decode($8, 'hex'), $2, $3,
-            decode($4, 'hex'), 'prepare', $5,
-            'never-invoked', decode($6, 'hex'), decode($7, 'hex'),
-            'signer-primary', 'signer-primary-infra', decode($7, 'hex'),
+            decode($1, 'hex'), decode($9, 'hex'), $2, $3,
+            decode($4, 'hex'), $5, $6,
+            'never-invoked', decode($7, 'hex'), decode($8, 'hex'),
+            'signer-primary', 'signer-primary-infra', decode($8, 'hex'),
             decode('01', 'hex'), 2000, 'signer-corroborating',
-            'signer-corroborating-infra', decode($7, 'hex'),
+            'signer-corroborating-infra', decode($8, 'hex'),
             decode('02', 'hex'), 2000, 2400,
-            CASE WHEN $9::text IS NULL THEN NULL ELSE decode($9, 'hex') END,
-            $10
+            CASE WHEN $10::text IS NULL THEN NULL ELSE decode($10, 'hex') END,
+            $11
          )`,
         [
           initial.recordID.replace(/^0x/i, ""),
           resolution.boundaryStartedAtUnixMs,
           resolution.preparationAttempts,
           resolution.nonceReservationID.slice(2),
+          resolution.stage,
           resolution.invokedAtUnixMs,
           resolution.providerEvidenceDigest.slice(2),
           evidenceDigest.slice(2),
@@ -4643,6 +4817,10 @@ postgresTest(
     await assert.rejects(
       rawInsert(boundaryResolution(boundary), `0x${"ab".repeat(32)}`),
       /orphaned signer boundary resolution digest is invalid/
+    )
+    await assert.rejects(
+      rawInsert(boundaryResolution(boundary, { stage: "replacement" })),
+      /does not name the durable signer stage/
     )
 
     // Historical proof that a signer invocation began, written directly so the
@@ -4878,6 +5056,157 @@ postgresTest(
 )
 
 postgresTest(
+  "preserves invalidated provenance while nonce consumption clears an orphan",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(246)
+    await insertRecord(database, initial)
+    const reserved = await advanceToReservation(database, initial)
+    let boundary = reserved
+    for (const transition of await replacementSignerBoundary(reserved)) {
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          boundary.recordID,
+          boundary.version,
+          transition
+        ),
+        true
+      )
+      await commit(database.client)
+      boundary = transition
+    }
+
+    await begin(database.client)
+    const [invalidated] = await database.store.invalidateCanonicalProvenance(
+      invalidationEvidence(initial)
+    )
+    await commit(database.client)
+    assert.equal(invalidated.status, "preparing")
+    assert.ok(invalidated.provenanceInvalidationEvidence)
+    assert.ok(invalidated.activeSignerInvocationStartedAtUnixMs)
+
+    await begin(database.client)
+    assert.equal(
+      await database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(invalidated, {
+          stage: "replacement",
+          invokedAtUnixMs: 1_510,
+          outcome: "nonce-consumed",
+        })
+      ),
+      "acknowledged"
+    )
+    await commit(database.client)
+
+    const settled = await database.store.get(initial.recordID)
+    assert.equal(
+      settled?.status,
+      "provenance-invalidated-awaiting-reconciliation"
+    )
+    assert.ok(settled?.provenanceInvalidationEvidence)
+    assert.equal(settled?.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(settled?.signerQuarantines, undefined)
+    assert.equal(await barrierSignerInvocationCount(database), 0)
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "validates deduplicated artifacts and binds them to signed orphan evidence",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(241)
+    await insertRecord(database, initial)
+    const reserved = await advanceToReservation(database, initial)
+    let boundary = reserved
+    for (const transition of await replacementSignerBoundary(reserved)) {
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          boundary.recordID,
+          boundary.version,
+          transition
+        ),
+        true
+      )
+      await commit(database.client)
+      boundary = transition
+    }
+    const priorVariant =
+      boundary.preparedTransactionVariants![0].preparedTransaction
+    const replacementRawTransaction = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: initial.intent.routerAddress,
+      data: initial.intent.calldata,
+      value: initial.intent.value,
+      nonce: 7,
+      gasLimit: 100_000,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 9,
+    })
+    const replacementTransactionHash = utils.keccak256(
+      replacementRawTransaction
+    )
+    const managed = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(initial)
+    )
+    assert.equal(
+      await managed.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary, {
+          stage: "replacement",
+          invokedAtUnixMs: 1_510,
+          outcome: "signed",
+          signedTransactionHash: replacementTransactionHash,
+        })
+      ),
+      "acknowledged"
+    )
+    const capture = (
+      preparedTransaction: P2TRSignatureFraudUnexpectedSignedArtifact["preparedTransaction"]
+    ) =>
+      managed.captureEscapedSignedArtifact(
+        initial.recordID,
+        initial.canonicalProvenance.provenanceFingerprint,
+        {
+          expectedReservationID:
+            boundary.reservedNonce!.reservationID.toPrefixedString(),
+          capturedAtUnixMs: 2_500,
+          reason: "replacement signer returned after its owner exited",
+          preparedTransaction,
+        }
+      )
+
+    // A declared hash matching the prior variant cannot bypass raw envelope
+    // validation, even though it would otherwise take the deduplication path.
+    await assert.rejects(capture({ ...priorVariant, rawTransaction: "0x02" }))
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+
+    // The valid old variant is still not evidence of what this independently
+    // attested replacement call signed.
+    await assert.rejects(
+      capture(priorVariant),
+      /does not match the authenticated orphan resolution/
+    )
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+
+    const captured = await capture({
+      intentID: initial.intent.intentID,
+      rawTransaction: replacementRawTransaction,
+      transactionHash: Hex.from(replacementTransactionHash),
+      sender: WALLET.address,
+      nonce: 7,
+    })
+    assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(captured.unexpectedSignedArtifacts?.length, 1)
+    assert.equal(await barrierSignerInvocationCount(database), 0)
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "keeps orphaned signer boundary evidence append-only",
   async () => {
     const database = await createTestDatabase()
@@ -5062,6 +5391,8 @@ const UNSAFE_ORPHAN =
   "signerID=none artifacts=0"
 const WRONG_BOUNDARY =
   "error:Orphaned signer boundary resolution does not name the durable boundary"
+const WRONG_SIGNER_STAGE =
+  "error:Orphaned signer boundary resolution does not name the durable signer stage"
 
 const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
   {
@@ -5277,6 +5608,14 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
     expectedAlertCodes: [],
   },
   {
+    name: "rejects replacement evidence for an initial signer boundary",
+    seed: 238,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [{ stage: "replacement" }],
+    expected: [WRONG_SIGNER_STAGE],
+    expectedAlertCodes: [],
+  },
+  {
     name: "rejects a single attestation",
     seed: 225,
     boundary: orphanedBoundaryOnly,
@@ -5425,10 +5764,25 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
       },
     ],
     expected: [
-      "unsafe status=prepared active=1500 activeID=0x00000000000000000000000000000000000000000000000000000000000005dc signer=1300 " +
+      "unsafe status=preparing active=1500 activeID=0x00000000000000000000000000000000000000000000000000000000000005dc signer=1300 " +
         "signerID=none artifacts=0",
     ],
     expectedAlertCodes: ["signer-boundary-terminal-unsafe"],
+  },
+  {
+    name: "rejects initial-stage evidence for a replacement signer boundary",
+    seed: 239,
+    boundary: replacementSignerBoundary,
+    resolutions: [
+      {
+        boundaryStartedAtUnixMs: 1_500,
+        invokedAtUnixMs: 1_510,
+        stage: "prepare",
+        outcome: "terminal-unsafe",
+      },
+    ],
+    expected: [WRONG_SIGNER_STAGE],
+    expectedAlertCodes: [],
   },
 ]
 

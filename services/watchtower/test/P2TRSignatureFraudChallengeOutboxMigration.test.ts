@@ -339,7 +339,23 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   )
   assert.match(
     depositBindingByteOrderMigration,
-    /binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) \) NOT VALID/
+    /ADD COLUMN legacy_deposit_binding_byte_order boolean NOT NULL DEFAULT false/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /retire_legacy_deposit_binding_trigger AFTER UPDATE[\s\S]*?NEW\.legacy_deposit_binding_byte_order AND NEW\.status = 'queued'/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /status = 'preparing'[\s\S]*?nonce_reservation_id IS NULL[\s\S]*?signer_invocation_started_at_unix_ms IS NULL[\s\S]*?prepared_transaction_hash IS NULL/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /legacy deposit-binding byte-order marker is migration-owned and immutable[\s\S]*?guard_legacy_deposit_binding_marker_trigger BEFORE INSERT OR UPDATE/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
+    /legacy_deposit_binding_byte_order OR canonical_input_binding_kind <> 'deposit-binding' OR binding_tx_hash = p2tr_reverse_bytea\(canonical_funding_txid\) \);/
   )
   assert.match(
     depositBindingByteOrderMigration,
@@ -428,7 +444,7 @@ test("requires a durable bound nonce guard before signer invocation", () => {
   )
   assert.match(
     migration,
-    /\( OLD\.record_state -> 'contestedNonceBurn' - 'broadcastAtUnixMs' \) IS DISTINCT FROM \( NEW\.record_state -> 'contestedNonceBurn' - 'broadcastAtUnixMs' \)/
+    /\( \(OLD\.record_state -> 'contestedNonceBurn'\) - 'broadcastAtUnixMs' \) IS DISTINCT FROM \( \(NEW\.record_state -> 'contestedNonceBurn'\) - 'broadcastAtUnixMs' \)/
   )
   assert.match(
     migration,
@@ -814,9 +830,8 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
   )
-  // Migration 003 is immutable because the runner checksum-tracks its exact
-  // published bytes. The v5 digest and its observed-head columns are appended
-  // by migration 007 for both fresh databases and upgrades.
+  // The pre-production schema keeps the v4-to-v5 upgrade path executable so
+  // both fresh databases and already-migrated test databases exercise it.
   assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v4/)
   assert.doesNotMatch(migration, /nonce_consumption_observed_head/)
   assert.match(
@@ -898,9 +913,21 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   )
   assert.match(
     migration,
+    /preparation_resume_status IS NULL[\s\S]*?orphaned signer boundary resolution does not name the durable signer stage/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /preparation_resume_status IS NULL[\s\S]*?orphaned signer boundary resolution does not name the durable signer stage/
+  )
+  assert.match(
+    migration,
     /orphaned signer boundary resolution requires a boundary with no signer escape evidence/
   )
   assert.match(nonceFinalityMigration, /record_state \? 'contestedNonceBurn'/)
+  assert.match(
+    migration,
+    /resolution\.signed_transaction_hash <> NEW\.transaction_hash[\s\S]*?escaped signed artifact does not match the authenticated orphan resolution/
+  )
   assert.match(
     migration,
     /p2tr_signature_fraud_guard_signer_boundary_resolution_trigger BEFORE INSERT/
@@ -996,6 +1023,8 @@ test("rotates manifests and outbox provenance in one database trigger", () => {
 test("attests security-critical view definitions in the schema hash", () => {
   assert.match(activationHandshakeSource, /pg_get_viewdef\(r\.oid, true\)/)
   assert.match(activationHandshakeSource, /'view-definition'/)
+  assert.match(activationHandshakeSource, /'enabled=' \|\| t\.tgenabled::text/)
+  assert.match(activationHandshakeSource, /p\.proname = 'p2tr_reverse_bytea'/)
 })
 
 test("protects serialized generation identity alongside normalized columns", () => {
