@@ -8,6 +8,9 @@ import {
   P2TRSignatureFraudNonceReleaseAcknowledgement,
   P2TRSignatureFraudPreparedChallengeTransaction,
   P2TRSignatureFraudPreparedChallengeTransactionResponse,
+  P2TRSignatureFraudPreparedNonceBurnTransaction,
+  P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT,
+  validateP2TRSignatureFraudPreparedNonceBurnTransaction,
   P2TRSignatureFraudSubmissionIntentOptions,
   P2TRSignatureFraudSubmissionIntent,
   P2TRSignatureFraudWitnessObservationConsistencyContext,
@@ -19,7 +22,6 @@ import {
   buildP2TRCompleteV2SignatureFraudChallengeEvidence,
   buildP2TRSignatureFraudSubmissionIntent,
   computeP2TRSignatureFraudSubmissionIntentID,
-  computeP2TRSignatureFraudSigningRequestDigest,
   extractP2TRWalletIDFromScriptPubKey,
   validateP2TRCompleteV2SignatureFraudSubmissionIntent,
   validateP2TRSignatureFraudPreparedChallengeReplacementTransaction,
@@ -33,6 +35,9 @@ import {
   validateP2TRSignatureFraudWitnessObservationConsistency,
 } from "@keep-network/tbtc-v2.ts"
 
+// A value import, unlike the authorization module's type-only import of this
+// file, so the dependency runs one way at run time and there is no cycle.
+import { computeP2TRSignatureFraudSignerInvocationRequest } from "./P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
 import type { P2TRSignatureFraudWatchtowerStoreProfileProvider } from "./types.js"
 
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE = 1_000
@@ -43,7 +48,20 @@ export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_CURSOR_LENGTH = 512
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PROTOCOL_ID_LENGTH = 128
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_SIGNED_VARIANTS = 16
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_GENERATIONS = 32
-export const P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS = 12
+/**
+ * Floor on the reconciler's declared finality depth.
+ *
+ * The depth gates irreversible conclusions: a canonical resolution retires a
+ * generation, and a finalized nonce-consuming transaction is what lets an
+ * orphaned signer boundary be resolved without asking the signer what it did.
+ * If the reconciler may declare any positive depth, a single-block reorg can
+ * un-consume a nonce that was already recorded as spent. Two epochs is the
+ * point past which a reorg is a consensus failure rather than an ordinary
+ * event, so it is the shallowest depth under which those conclusions hold.
+ *
+ * This is a floor, not a default: an operator may declare more.
+ */
+export const P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS = 64
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_SERIES_ID_DOMAIN =
   "tbtc-p2tr-signature-fraud-outbox-series-v1"
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_RECORD_ID_DOMAIN =
@@ -764,32 +782,116 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
  * authorization and therefore before the signer RPC, so a lost owner leaves a
  * marker that nothing in the process-local recovery path may clear: lease
  * expiry is not proof that a remote call stopped. The marker keeps the
- * lane's `active_signer_invocation_count` above zero, which blocks allocator
- * recovery and new signing only for that `(chainID, sender)`. Only an
- * out-of-band, dual-attested observation of what the signer actually did can
- * resolve that, and this is that evidence.
+ * lane's `active_signer_invocation_count` at one, which blocks every
+ * nonce-release invocation on that lane and freezes challenge signing for that
+ * account. Only an out-of-band, dual-attested observation of what the signer
+ * actually did can resolve that, and this is that evidence.
  */
+/**
+ * A provider's proof that it permanently closed one invocation.
+ *
+ * Two independent attesters can observe a great deal, but not the absence of a
+ * request buffered somewhere between the outbox and the key: delivery delay is
+ * unbounded, so a request can still arrive after everyone has looked and found
+ * nothing. Only a WRITE at the provider settles that — a one-shot transition
+ * that both reports "no bytes escaped" and refuses any later arrival of this
+ * invocation. This is the receipt for that write.
+ *
+ * It is expressible only because the boundary now has a deterministic identity
+ * the provider and the outbox can name independently.
+ */
+/**
+ * Evidence that the chain, not the provider, settled this boundary.
+ *
+ * Once the reserved nonce is consumed at finality, any signed bytes for that
+ * nonce are permanently inert — they can never confirm. That makes the boundary
+ * decidable from public data, which `never-invoked` is not.
+ *
+ * It is a claim about the BYTES, not about the invocation. The signer may have
+ * signed; it may still be holding an envelope. This outcome says only that
+ * whatever it holds can no longer land, so the record must keep its reservation
+ * and stay able to capture a late artifact.
+ *
+ * `chainID` is bound because nothing else in the nonce-consumption evidence
+ * names a chain: without it, an attestation over "sender S nonce N is consumed"
+ * would replay against any record on any chain sharing that pair.
+ */
+export type P2TRSignatureFraudNonceConsumptionEvidence = {
+  chainID: number
+  sender: string
+  transactionNonce: number
+  finalizedAccountNonce: number
+  accountNonceReadAtBlock: number
+  consumingTransaction: P2TRSignatureFraudCanonicalNonceConsumingTransaction
+  /** The finality boundary every read above was taken at. */
+  finalizedThrough: P2TRSignatureFraudCanonicalBlock
+  observedHead: P2TRSignatureFraudCanonicalBlock
+}
+
+/**
+ * A provider's proof that one signer invocation was permanently closed without
+ * the signer ever being reached. It is the sole basis for a `never-invoked`
+ * outcome, so it is worth stating exactly how far this side can vouch for it.
+ *
+ * What is enforced here: the tombstone must name the same invocation the
+ * resolution speaks for; the receipt bytes are bound into the resolution
+ * evidence digest, so the two independent attestations are attesting to THESE
+ * bytes and not merely to the verdict; the resolution must name the boundary
+ * marker that is still live and clears it in the same transaction, so an
+ * invocation is answered exactly once and a later contradiction has nowhere to
+ * go; and `never-invoked` is refused outright if any signed artifact for the
+ * record has escaped.
+ *
+ * What cannot be enforced here: whether the receipt is TRUE. The bytes are
+ * opaque to this process, so nothing stops a provider that did reach its signer
+ * from issuing a tombstone claiming otherwise. Closing that is an obligation on
+ * the provider, not on this store: it must keep a durable write-once register
+ * keyed by invocation ID, written before the signer is reached, so that its
+ * answer for a given invocation is fixed at the moment of the attempt and it
+ * cannot later be induced to say something else. A provider that answers from
+ * memory, or recomputes an answer on request, does not satisfy this and its
+ * tombstones should not be trusted for `never-invoked`.
+ */
+export type P2TRSignatureFraudSignerInvocationTombstone = {
+  /** Must name the same invocation the resolution speaks for. */
+  signerInvocationID: string
+  /** Provider-facing spelling of the same invocation identity. */
+  invocationID: string
+  /**
+   * Provider-authenticated bytes; opaque here, exactly like an attestation.
+   * Bound into the resolution evidence digest, so both attestors commit to the
+   * exact bytes rather than to the verdict alone.
+   */
+  receipt: string
+  /** Provider-stable digest of the exact authenticated receipt bytes. */
+  receiptDigest: string
+  tombstonedAtUnixMs: number
+}
+
 export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   recordID: string
-  /** The exact boundary, byte for byte. A different boundary is refused. */
+  /**
+   * The exact boundary. This is the identity: a deterministic digest over the
+   * whole boundary binding, frozen by the swap that set the marker. The three
+   * fields below remain as operator-facing detail and are bound into the
+   * evidence digest, but they no longer decide which boundary is named.
+   */
+  signerInvocationID: string
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
   stage: "prepare" | "replacement"
   invokedAtUnixMs: number
-  outcome: "never-invoked" | "signed" | "terminal-unsafe"
+  outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
   /** Required exactly when the signer is proven to have produced bytes. */
   signedTransactionHash?: string
   /**
-   * Required exactly for `never-invoked`. The provider must durably install
-   * this tombstone before issuing the authenticated receipt, and must reject
-   * any queued or future signer request carrying the invocation ID.
+   * Required exactly for `never-invoked`, and refused otherwise. Without it
+   * that outcome is an assertion nobody is positioned to make.
    */
-  providerTombstone?: {
-    invocationID: string
-    tombstonedAtUnixMs: number
-    receiptDigest: string
-  }
+  providerTombstone?: P2TRSignatureFraudSignerInvocationTombstone
+  /** Required exactly for `nonce-consumed`, and refused otherwise. */
+  nonceConsumption?: P2TRSignatureFraudNonceConsumptionEvidence
   providerEvidenceDigest: string
   evidenceDigest: string
   canonicalAttestations: readonly [
@@ -800,20 +902,16 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
 }
 
 /**
- * Derives the provider idempotency/tombstone key from state made durable before
- * signer I/O. The same value is passed to the signer and bound into orphaned
- * recovery evidence, so a tombstone for any other call cannot clear a marker.
+ * Derives the legacy boundary-tuple identity retained as an independent
+ * tombstone binding alongside PR 1048's full request-binding invocation ID.
  */
-export const computeP2TRSignatureFraudSignerInvocationID = (binding: {
+export const computeP2TRSignatureFraudLegacySignerInvocationID = (binding: {
   recordID: string
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
   stage: "prepare" | "replacement"
 }): string => {
-  if (!["prepare", "replacement"].includes(binding.stage)) {
-    throw new Error("Signer invocation stage is invalid")
-  }
   const uint64 = (value: number, label: string): Buffer => {
     requireNonNegativeSafeInteger(value, label)
     const encoded = Buffer.alloc(8)
@@ -855,11 +953,14 @@ export const computeP2TRSignatureFraudSignerInvocationID = (binding: {
     .digest("hex")}`
 }
 
-export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
+type P2TRSignatureFraudSignerBoundaryResolutionEvidenceVersion = 4 | 5
+
+const computeVersionedSignerBoundaryResolutionEvidenceDigest = (
   resolution: Omit<
     P2TRSignatureFraudIndependentSignerBoundaryResolution,
     "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
-  >
+  >,
+  evidenceVersion: P2TRSignatureFraudSignerBoundaryResolutionEvidenceVersion
 ): string => {
   const uint64 = (value: number, label: string): Buffer => {
     requireNonNegativeSafeInteger(value, label)
@@ -872,7 +973,9 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
     return createHash("sha256").update(normalized, "utf8").digest()
   }
   if (
-    !["never-invoked", "signed", "terminal-unsafe"].includes(resolution.outcome)
+    !["never-invoked", "signed", "terminal-unsafe", "nonce-consumed"].includes(
+      resolution.outcome
+    )
   ) {
     throw new Error("Signer-boundary resolution outcome is invalid")
   }
@@ -887,18 +990,33 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       "Signer-boundary resolution names signed bytes only for a signed outcome"
     )
   }
-  if (
-    (resolution.outcome === "never-invoked") !==
-    (resolution.providerTombstone !== undefined)
-  ) {
+  // Mirrored byte for byte by the PostgreSQL guard trigger. The invocation ID
+  // replaces the boundary start as the identity term; v1 hashed a wall-clock
+  // tuple, so the domain moves with the layout.
+  const tombstone = resolution.providerTombstone
+  if ((resolution.outcome === "never-invoked") !== (tombstone !== undefined)) {
     throw new Error(
-      "Signer-boundary never-invoked resolution requires an exact provider tombstone"
+      "Signer-boundary resolution names a provider tombstone only for a never-invoked outcome"
     )
   }
-  const signerInvocationID =
-    computeP2TRSignatureFraudSignerInvocationID(resolution)
-  return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v2", "utf8")
+  const consumption = resolution.nonceConsumption
+  if (
+    (resolution.outcome === "nonce-consumed") !==
+    (consumption !== undefined)
+  ) {
+    throw new Error(
+      "Signer-boundary resolution names nonce consumption only for a nonce-consumed outcome"
+    )
+  }
+  const signerInvocationID = normalizeBytes32(
+    resolution.signerInvocationID,
+    "Signer-boundary resolution invocation ID"
+  )
+  const digest = createHash("sha256")
+    .update(
+      `tbtc-p2tr-signer-boundary-independent-resolution-v${evidenceVersion}`,
+      "utf8"
+    )
     .update(
       Buffer.from(
         normalizeBytes32(
@@ -908,6 +1026,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
         "hex"
       )
     )
+    .update(Buffer.from(signerInvocationID.slice(2), "hex"))
     .update(
       uint64(
         resolution.boundaryStartedAtUnixMs,
@@ -961,24 +1080,135 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       )
     )
     .update(
-      uint64(
-        resolution.providerTombstone?.tombstonedAtUnixMs ?? 0,
-        "Signer-boundary provider tombstone time"
-      )
-    )
-    .update(
-      resolution.providerTombstone === undefined
+      tombstone === undefined
         ? Buffer.alloc(32)
         : Buffer.from(
             normalizeBytes32(
-              resolution.providerTombstone.receiptDigest,
-              "Signer-boundary provider tombstone receipt digest"
+              tombstone.signerInvocationID,
+              "Signer-boundary tombstone invocation ID"
             ).slice(2),
             "hex"
           )
     )
-    .digest("hex")}`
+    .update(
+      tombstone === undefined
+        ? Buffer.alloc(32)
+        : createHash("sha256")
+            .update(
+              Buffer.from(
+                normalizeHexData(
+                  tombstone.receipt,
+                  "Signer-boundary tombstone receipt"
+                ).slice(2),
+                "hex"
+              )
+            )
+            .digest()
+    )
+    .update(
+      uint64(
+        tombstone === undefined ? 0 : tombstone.tombstonedAtUnixMs,
+        "Signer-boundary tombstone time"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.chainID,
+        "Signer-boundary nonce consumption chain ID"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.transactionNonce,
+        "Signer-boundary nonce consumption nonce"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.finalizedAccountNonce,
+        "Signer-boundary nonce consumption account nonce"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.accountNonceReadAtBlock,
+        "Signer-boundary nonce consumption read block"
+      )
+    )
+    .update(
+      consumption === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              consumption.consumingTransaction.transactionHash,
+              "Signer-boundary consuming transaction hash"
+            ).slice(2),
+            "hex"
+          )
+    )
+    .update(
+      uint64(
+        consumption === undefined
+          ? 0
+          : consumption.finalizedThrough.blockNumber,
+        "Signer-boundary nonce consumption finality height"
+      )
+    )
+    .update(
+      consumption === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              consumption.finalizedThrough.blockHash,
+              "Signer-boundary nonce consumption finality hash"
+            ).slice(2),
+            "hex"
+          )
+    )
+  if (evidenceVersion === 5) {
+    digest
+      .update(
+        uint64(
+          consumption === undefined ? 0 : consumption.observedHead.blockNumber,
+          "Signer-boundary nonce consumption observed head height"
+        )
+      )
+      .update(
+        consumption === undefined
+          ? Buffer.alloc(32)
+          : Buffer.from(
+              normalizeBytes32(
+                consumption.observedHead.blockHash,
+                "Signer-boundary nonce consumption observed head hash"
+              ).slice(2),
+              "hex"
+            )
+      )
+  }
+  return `0x${digest.digest("hex")}`
 }
+
+export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
+  resolution: Omit<
+    P2TRSignatureFraudIndependentSignerBoundaryResolution,
+    "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
+  >
+): string =>
+  computeVersionedSignerBoundaryResolutionEvidenceDigest(resolution, 5)
+
+/**
+ * Computes the digest accepted before migration 016. This must only be used to
+ * recognize an exact replay of immutable evidence that the migration marked as
+ * version 4; new resolutions must always use the v5 helper above.
+ */
+export const computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest =
+  (
+    resolution: Omit<
+      P2TRSignatureFraudIndependentSignerBoundaryResolution,
+      "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
+    >
+  ): string =>
+    computeVersionedSignerBoundaryResolutionEvidenceDigest(resolution, 4)
 
 /**
  * The exact normalized form both the PostgreSQL adapter and the in-memory
@@ -987,18 +1217,16 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
  */
 export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   recordID: string
+  signerInvocationID: string
+  providerTombstone?: P2TRSignatureFraudSignerInvocationTombstone
+  nonceConsumption?: P2TRSignatureFraudNonceConsumptionEvidence
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
   stage: "prepare" | "replacement"
   invokedAtUnixMs: number
-  outcome: "never-invoked" | "signed" | "terminal-unsafe"
+  outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
   signedTransactionHash?: string
-  providerTombstone?: {
-    invocationID: string
-    tombstonedAtUnixMs: number
-    receiptDigest: string
-  }
   providerEvidenceDigest: string
   evidenceDigest: string
   attestations: readonly [
@@ -1008,13 +1236,87 @@ export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   resolvedAtUnixMs: number
 }
 
-export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
-  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+const validateVersionedIndependentSignerBoundaryResolution = (
+  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution,
+  evidenceVersion: P2TRSignatureFraudSignerBoundaryResolutionEvidenceVersion
 ): P2TRSignatureFraudNormalizedSignerBoundaryResolution => {
   const recordID = normalizeBytes32(
     resolution.recordID,
     "Orphaned signer boundary record ID"
   )
+  const signerInvocationID = normalizeBytes32(
+    resolution.signerInvocationID,
+    "Orphaned signer boundary invocation ID"
+  )
+  if (
+    (resolution.outcome === "never-invoked") !==
+    (resolution.providerTombstone !== undefined)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary resolution requires a provider tombstone exactly for a never-invoked outcome"
+    )
+  }
+  if (
+    (resolution.outcome === "nonce-consumed") !==
+    (resolution.nonceConsumption !== undefined)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary resolution requires nonce consumption evidence exactly for a nonce-consumed outcome"
+    )
+  }
+  const nonceConsumption =
+    resolution.nonceConsumption === undefined
+      ? undefined
+      : normalizeSignerBoundaryNonceConsumption(
+          resolution.nonceConsumption,
+          evidenceVersion === 5
+        )
+  const providerTombstone =
+    resolution.providerTombstone === undefined
+      ? undefined
+      : (() => {
+          const receipt = normalizeHexData(
+            resolution.providerTombstone.receipt,
+            "Orphaned signer boundary tombstone receipt"
+          )
+          const receiptBytes = (receipt.length - 2) / 2
+          if (receiptBytes < 1 || receiptBytes > 2_048) {
+            throw new Error(
+              "Orphaned signer boundary tombstone receipt must contain between 1 and 2048 bytes"
+            )
+          }
+          return {
+            signerInvocationID: normalizeBytes32(
+              resolution.providerTombstone.signerInvocationID,
+              "Orphaned signer boundary tombstone invocation ID"
+            ),
+            invocationID: normalizeBytes32(
+              resolution.providerTombstone.invocationID,
+              "Orphaned signer boundary provider invocation ID"
+            ),
+            receipt,
+            receiptDigest: normalizeBytes32(
+              resolution.providerTombstone.receiptDigest,
+              "Orphaned signer boundary tombstone receipt digest"
+            ),
+            tombstonedAtUnixMs: requireUnixMilliseconds(
+              resolution.providerTombstone.tombstonedAtUnixMs,
+              "Orphaned signer boundary tombstone time"
+            ),
+          }
+        })()
+  if (
+    providerTombstone !== undefined &&
+    (providerTombstone.signerInvocationID !== signerInvocationID ||
+      providerTombstone.receiptDigest !==
+        `0x${createHash("sha256")
+          .update(Buffer.from(providerTombstone.receipt.slice(2), "hex"))
+          .digest("hex")}`)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary tombstone does not authenticate the exact invocation and receipt"
+    )
+  }
   const boundaryStartedAtUnixMs = requireUnixMilliseconds(
     resolution.boundaryStartedAtUnixMs,
     "Orphaned signer boundary start"
@@ -1038,7 +1340,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   if (
     invokedAtUnixMs < boundaryStartedAtUnixMs ||
     resolvedAtUnixMs < invokedAtUnixMs ||
-    !["never-invoked", "signed", "terminal-unsafe"].includes(
+    !["never-invoked", "signed", "terminal-unsafe", "nonce-consumed"].includes(
       resolution.outcome
     ) ||
     !["prepare", "replacement"].includes(resolution.stage)
@@ -1060,38 +1362,23 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
           resolution.signedTransactionHash,
           "Orphaned signer boundary signed transaction hash"
         )
-  const expectedInvocationID = computeP2TRSignatureFraudSignerInvocationID({
-    recordID,
-    boundaryStartedAtUnixMs,
-    preparationAttempts,
-    nonceReservationID,
-    stage: resolution.stage,
-  })
-  let providerTombstone:
-    | P2TRSignatureFraudNormalizedSignerBoundaryResolution["providerTombstone"]
-    | undefined
+  const expectedInvocationID =
+    computeP2TRSignatureFraudLegacySignerInvocationID({
+      recordID,
+      boundaryStartedAtUnixMs,
+      preparationAttempts,
+      nonceReservationID,
+      stage: resolution.stage,
+    })
   if (resolution.outcome === "never-invoked") {
-    if (resolution.providerTombstone === undefined) {
+    if (providerTombstone === undefined) {
       throw new Error(
         "Independent signer-boundary never-invoked resolution lacks a provider tombstone"
       )
     }
-    providerTombstone = {
-      invocationID: normalizeBytes32(
-        resolution.providerTombstone.invocationID,
-        "Orphaned signer boundary invocation ID"
-      ),
-      tombstonedAtUnixMs: requireUnixMilliseconds(
-        resolution.providerTombstone.tombstonedAtUnixMs,
-        "Orphaned signer boundary provider tombstone time"
-      ),
-      receiptDigest: normalizeBytes32(
-        resolution.providerTombstone.receiptDigest,
-        "Orphaned signer boundary provider tombstone receipt digest"
-      ),
-    }
     if (
       providerTombstone.invocationID !== expectedInvocationID ||
+      providerTombstone.signerInvocationID !== signerInvocationID ||
       providerTombstone.tombstonedAtUnixMs < invokedAtUnixMs ||
       providerTombstone.tombstonedAtUnixMs > resolvedAtUnixMs
     ) {
@@ -1099,7 +1386,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
         "Independent signer-boundary provider tombstone does not bind the exact invocation window"
       )
     }
-  } else if (resolution.providerTombstone !== undefined) {
+  } else if (providerTombstone !== undefined) {
     throw new Error(
       "Independent signer-boundary provider tombstone is only valid for never-invoked"
     )
@@ -1113,18 +1400,23 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
     "Independent signer-boundary resolution digest"
   )
   if (
-    computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest({
-      recordID,
-      boundaryStartedAtUnixMs,
-      preparationAttempts,
-      nonceReservationID,
-      stage: resolution.stage,
-      invokedAtUnixMs,
-      outcome: resolution.outcome,
-      signedTransactionHash,
-      providerTombstone,
-      providerEvidenceDigest,
-    }) !== evidenceDigest
+    computeVersionedSignerBoundaryResolutionEvidenceDigest(
+      {
+        recordID,
+        signerInvocationID,
+        boundaryStartedAtUnixMs,
+        preparationAttempts,
+        nonceReservationID,
+        stage: resolution.stage,
+        invokedAtUnixMs,
+        outcome: resolution.outcome,
+        signedTransactionHash,
+        providerTombstone,
+        nonceConsumption,
+        providerEvidenceDigest,
+      },
+      evidenceVersion
+    ) !== evidenceDigest
   ) {
     throw new Error("Independent signer-boundary resolution digest is invalid")
   }
@@ -1202,6 +1494,9 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   }
   return {
     recordID,
+    signerInvocationID,
+    ...(providerTombstone === undefined ? {} : { providerTombstone }),
+    ...(nonceConsumption === undefined ? {} : { nonceConsumption }),
     boundaryStartedAtUnixMs,
     preparationAttempts,
     nonceReservationID,
@@ -1217,6 +1512,22 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   }
 }
 
+export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
+  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+): P2TRSignatureFraudNormalizedSignerBoundaryResolution =>
+  validateVersionedIndependentSignerBoundaryResolution(resolution, 5)
+
+/**
+ * Validates the exact evidence contract used before migration 016. The
+ * PostgreSQL adapter invokes this only after finding an immutable row that the
+ * migration explicitly classified as version 4; it is never an insertion path.
+ */
+export const validateP2TRSignatureFraudLegacyV4SignerBoundaryResolutionReplay =
+  (
+    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+  ): P2TRSignatureFraudNormalizedSignerBoundaryResolution =>
+    validateVersionedIndependentSignerBoundaryResolution(resolution, 4)
+
 /**
  * The durable-state half of the resolver's precondition, evaluated identically
  * by both stores and re-evaluated independently by the PostgreSQL guard
@@ -1224,11 +1535,149 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
  * owns, and `never-invoked` may only be claimed for a record that carries no
  * signer escape evidence whatsoever.
  */
+/**
+ * Reuses the canonical consuming-transaction validator rather than restating
+ * it. The one check deliberately NOT imported from the terminal-disposition
+ * path is "the consuming transaction is not one of ours": for an orphan the
+ * prepared-hash set is empty, so it would be vacuous, and the recovery is the
+ * same either way — the nonce is spent regardless of who spent it.
+ */
+const normalizeSignerBoundaryNonceConsumption = (
+  evidence: P2TRSignatureFraudNonceConsumptionEvidence,
+  enforceFinalityFloor: boolean
+): P2TRSignatureFraudNonceConsumptionEvidence => {
+  // The canonical validators are void-returning assertions, so the normalized
+  // shape is rebuilt here from the same helpers they use.
+  validateCanonicalBlock(
+    evidence.finalizedThrough,
+    "Signer-boundary nonce consumption finality"
+  )
+  validateCanonicalBlock(
+    evidence.observedHead,
+    "Signer-boundary nonce consumption observed head"
+  )
+  const finalizedThrough = {
+    blockNumber: evidence.finalizedThrough.blockNumber,
+    blockHash: normalizeBytes32(
+      evidence.finalizedThrough.blockHash,
+      "Signer-boundary nonce consumption finality hash"
+    ),
+  }
+  const observedHead = {
+    blockNumber: evidence.observedHead.blockNumber,
+    blockHash: normalizeBytes32(
+      evidence.observedHead.blockHash,
+      "Signer-boundary nonce consumption observed head hash"
+    ),
+  }
+  if (observedHead.blockNumber < finalizedThrough.blockNumber) {
+    throw new Error(
+      "Signer-boundary nonce consumption finality boundary is ahead of its observed head"
+    )
+  }
+  if (
+    enforceFinalityFloor &&
+    observedHead.blockNumber - finalizedThrough.blockNumber <
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
+  ) {
+    throw new Error(
+      `Signer-boundary nonce consumption finality depth must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
+    )
+  }
+  const transactionNonce = requireNonNegativeSafeInteger(
+    evidence.transactionNonce,
+    "Signer-boundary nonce consumption nonce"
+  )
+  const finalizedAccountNonce = requireNonNegativeSafeInteger(
+    evidence.finalizedAccountNonce,
+    "Signer-boundary nonce consumption account nonce"
+  )
+  // Strictly past the reserved nonce: equality would mean N is still spendable.
+  if (finalizedAccountNonce <= transactionNonce) {
+    throw new Error(
+      "Signer-boundary nonce consumption requires an account nonce past the reserved nonce"
+    )
+  }
+  const accountNonceReadAtBlock = requireNonNegativeSafeInteger(
+    evidence.accountNonceReadAtBlock,
+    "Signer-boundary nonce consumption read block"
+  )
+  // Read AT the finality boundary, not at head, or the account nonce could be
+  // reorganised away underneath the resolution.
+  if (accountNonceReadAtBlock !== finalizedThrough.blockNumber) {
+    throw new Error(
+      "Signer-boundary nonce consumption account nonce was not read at its finality boundary"
+    )
+  }
+  validateCanonicalNonceConsumingTransaction(
+    evidence.consumingTransaction,
+    finalizedThrough
+  )
+  const consumingTransaction = {
+    transactionHash: normalizeBytes32(
+      evidence.consumingTransaction.transactionHash,
+      "Signer-boundary consuming transaction hash"
+    ),
+    sender: normalizeAddress(
+      evidence.consumingTransaction.sender,
+      "Signer-boundary consuming transaction sender"
+    ),
+    nonce: evidence.consumingTransaction.nonce,
+    blockNumber: evidence.consumingTransaction.blockNumber,
+    blockHash: normalizeBytes32(
+      evidence.consumingTransaction.blockHash,
+      "Signer-boundary consuming transaction block hash"
+    ),
+  }
+  const sender = normalizeAddress(
+    evidence.sender,
+    "Signer-boundary nonce consumption sender"
+  )
+  if (
+    consumingTransaction.sender !== sender ||
+    consumingTransaction.nonce !== transactionNonce
+  ) {
+    throw new Error(
+      "Signer-boundary nonce consumption names another sender lane"
+    )
+  }
+  return {
+    chainID: requirePositiveSafeInteger(
+      evidence.chainID,
+      "Signer-boundary nonce consumption chain ID"
+    ),
+    sender,
+    transactionNonce,
+    finalizedAccountNonce,
+    accountNonceReadAtBlock,
+    consumingTransaction,
+    finalizedThrough,
+    observedHead,
+  }
+}
+
 export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
   resolution: P2TRSignatureFraudNormalizedSignerBoundaryResolution
 ): void => {
+  // The invocation ID decides identity: it is a digest over the whole boundary
+  // binding and is frozen by the swap that set the marker, so it is what a
+  // provider can journal and what the primary key indexes.
+  //
+  // The other three are still compared against the durable row. They are
+  // descriptive columns of append-only evidence, and nothing downstream reads
+  // them, so leaving them unchecked would let a resolution that names the right
+  // boundary write permanently wrong forensics about it. None of them can drift
+  // while the marker is set — the start is immutable in flight and NULL-paired
+  // with the ID, the reservation cannot be NULLed under an active marker, and
+  // every transition that bumps the attempt clears the marker in the same swap —
+  // so checking them costs nothing.
   if (
+    record.activeSignerInvocationID === undefined ||
+    normalizeBytes32(
+      record.activeSignerInvocationID,
+      "Durable active signer invocation ID"
+    ) !== resolution.signerInvocationID ||
     record.activeSignerInvocationStartedAtUnixMs !==
       resolution.boundaryStartedAtUnixMs ||
     record.preparationAttempts !== resolution.preparationAttempts ||
@@ -1254,10 +1703,57 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
     (record.signerInvocationStartedAtUnixMs !== undefined ||
       (record.preparedTransactionVariants?.length ?? 0) > 0 ||
       (record.unexpectedSignedArtifacts?.length ?? 0) > 0 ||
+      record.contestedNonceBurn !== undefined ||
       record.broadcastAttempts > 0)
   ) {
     throw new Error(
       "Orphaned signer boundary resolution requires a boundary with no signer escape evidence"
+    )
+  }
+  // The consumption evidence must name THIS record's lane and chain. Without
+  // this, two attestations over "sender S nonce N is consumed" would replay
+  // against any record on any chain sharing that pair.
+  if (resolution.nonceConsumption !== undefined) {
+    if (
+      record.reservedNonce === undefined ||
+      normalizeAddress(
+        resolution.nonceConsumption.sender,
+        "Nonce consumption sender"
+      ) !==
+        normalizeAddress(
+          record.reservedNonce.sender,
+          "Durable reserved sender"
+        ) ||
+      resolution.nonceConsumption.transactionNonce !==
+        record.reservedNonce.nonce
+    ) {
+      throw new Error(
+        "Orphaned signer boundary nonce consumption names another sender lane"
+      )
+    }
+    if (
+      resolution.nonceConsumption.chainID !==
+      requirePositiveSafeInteger(
+        record.intent.chainID,
+        "Durable challenge chain ID"
+      )
+    ) {
+      throw new Error(
+        "Orphaned signer boundary nonce consumption names another chain"
+      )
+    }
+  }
+  if (
+    resolution.providerTombstone !== undefined &&
+    // Equal to the record's marker by the ownership check above, and already
+    // validated, so no assertion is needed to reach it.
+    (resolution.providerTombstone.tombstonedAtUnixMs <
+      resolution.boundaryStartedAtUnixMs ||
+      resolution.providerTombstone.tombstonedAtUnixMs >
+        resolution.resolvedAtUnixMs)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary tombstone falls outside the invocation window"
     )
   }
 }
@@ -1265,6 +1761,35 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
 export type P2TRSignatureFraudNonceReleasePageRequest = {
   limit: number
   cursor?: string
+}
+
+/**
+ * One nonce lane: the sending account on one chain. This is the unit the
+ * durable nonce-allocator barrier is keyed by, because a nonce reservation and
+ * its release both belong to exactly one account.
+ */
+export type P2TRSignatureFraudSigningLane = {
+  chainID: number
+  sender: string
+}
+
+/**
+ * The single normalizer both store implementations must route through. A lane
+ * is a lookup key, so a checksummed address and its lower-case spelling have to
+ * collapse to one value; if the two implementations disagreed here, the
+ * in-memory double would report a lane clear while PostgreSQL reported it
+ * blocked, and the divergence would favour signing.
+ */
+export function normalizeP2TRSignatureFraudSigningLane(
+  lane: P2TRSignatureFraudSigningLane
+): P2TRSignatureFraudSigningLane {
+  return {
+    chainID: normalizePositiveSafeIntegerLike(
+      lane.chainID,
+      "Signing lane chain ID"
+    ),
+    sender: normalizeAddress(lane.sender, "Signing lane sender"),
+  }
 }
 
 export type P2TRSignatureFraudNonceReleasePage = {
@@ -1312,17 +1837,45 @@ export type P2TRSignatureFraudSignerQuarantine = {
   reservationID?: string
   reasonCode:
     | "ambiguous-signer-invocation"
+    | "oversized-signed-envelope"
     | "wrong-chain"
     | "wrong-sender"
     | "wrong-nonce"
     | "malformed-signed-envelope"
-    | "oversized-signed-envelope"
+    | "wrong-signer-invocation-request"
     | "invalid-replacement-envelope"
     | "reservation-binding-mismatch"
     | "reservation-provider-failure"
   quarantinedAtUnixMs: number
   reason: string
   detailsDigest: string
+}
+
+export type P2TRSignatureFraudContestedNonceBurn = {
+  transactionHash: string
+  rawTransaction: string
+  nonce: number
+  sender: string
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+  signerInvocationID: string
+  signedAtUnixMs: number
+  broadcastAtUnixMs?: number
+}
+
+/**
+ * Durable pre-I/O fence for the burn signer. The original orphaned boundary
+ * may be independently resolved while this second signer call is in flight;
+ * this claim keeps the exact reservation non-releasable until signed bytes
+ * replace it atomically.
+ */
+export type P2TRSignatureFraudContestedNonceBurnClaim = {
+  signerInvocationID: string
+  signerRequestDigest: string
+  reservationID: string
+  recordVersion: number
+  preparationAttempts: number
+  claimedAtUnixMs: number
 }
 
 export type P2TRSignatureFraudChallengeOutboxRecord = {
@@ -1361,8 +1914,26 @@ export type P2TRSignatureFraudChallengeOutboxRecord = {
   preparationResumeStatus?: "prepared" | "broadcast-pending"
   /** Durable boundary for the currently active signer call. */
   activeSignerInvocationStartedAtUnixMs?: number
+  /**
+   * Deterministic identity of that boundary, committed in the same swap that
+   * sets the marker above. Present exactly when the marker is: the activation
+   * barrier counts this marker and the burn claim below as distinct signer
+   * invocations, so each null transition is accounted independently.
+   */
+  activeSignerInvocationID?: string
   /** Historical proof that at least one signer invocation began. */
   signerInvocationStartedAtUnixMs?: number
+  /** Identity of the last boundary that reached a signer. */
+  signerInvocationID?: string
+  /** Durable before the burn signer is invoked; replaced only by burn bytes. */
+  contestedNonceBurnClaim?: P2TRSignatureFraudContestedNonceBurnClaim
+  /**
+   * A signed transaction that spends the reserved nonce on nothing, made
+   * durable before it is broadcast. Its presence means the lane's nonce race
+   * has been forced to terminate: whichever transaction confirms, signed
+   * challenge bytes for that nonce become inert.
+   */
+  contestedNonceBurn?: P2TRSignatureFraudContestedNonceBurn
   preparedTransaction?: P2TRSignatureFraudPreparedChallengeTransaction
   /** Append-only signed identities; the singular field aliases the last item. */
   preparedTransactionVariants?: readonly P2TRSignatureFraudPreparedTransactionVariant[]
@@ -1622,16 +2193,19 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     seriesID: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined>
   isSignerQuarantined(chainID: number, signerIdentity: string): Promise<boolean>
-  hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean>
-  hasPendingNonceReleases(): Promise<boolean>
-  hasExpiredPreparationLeasesForLane(
-    chainID: number,
-    sender: string,
-    nowUnixMs: number
+  /**
+   * Omitting the lane asks the store-wide question, which is what decides
+   * whether recovery must be swept. Passing one asks only whether THAT nonce
+   * lane is still unresolved, which is what decides whether signing on it may
+   * proceed. The two are deliberately different questions: a lane is frozen by
+   * its own residue, never by another account's.
+   */
+  hasExpiredPreparationLeases(
+    nowUnixMs: number,
+    lane?: P2TRSignatureFraudSigningLane
   ): Promise<boolean>
-  hasPendingNonceReleasesForLane(
-    chainID: number,
-    sender: string
+  hasPendingNonceReleases(
+    lane?: P2TRSignatureFraudSigningLane
   ): Promise<boolean>
   getNonceReleaseRequest(
     releaseRequestID: string
@@ -1640,8 +2214,11 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     request: P2TRSignatureFraudNonceReleasePageRequest
   ): Promise<P2TRSignatureFraudNonceReleasePage>
   /**
-   * Reconstructs one exact lane-barrier-owned invocation after restart. A
-   * still-live resultless call is not exposed for independent resolution.
+   * Reconstructs a barrier-owned invocation after restart. The durable barrier
+   * is keyed per nonce lane, so several lanes can hold a claim at once; one
+   * recoverable invocation is returned per call and the caller drains the rest
+   * on subsequent passes. A still-live resultless call is not exposed for
+   * independent resolution.
    */
   getActiveAmbiguousNonceReleaseInvocation(
     nowUnixMs: number
@@ -1726,6 +2303,8 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord,
     boundary: {
+      /** The identity; the fields below are retained detail. */
+      signerInvocationID: string
       startedAtUnixMs: number
       preparationAttempts: number
       nonceReservationID: string
@@ -1894,10 +2473,16 @@ export type P2TRSignatureFraudIrreversibleBoundaryStage =
   | "prepare"
   | "replacement"
   | "broadcast"
+  | "burn"
 
 /**
  * Exact durable state that must be independently re-authorized after the
- * outbox CAS and immediately before a signer or broadcaster is invoked.
+ * outbox CAS and immediately before a signer or broadcaster is invoked,
+ * together with the exact request that boundary authorizes: the lane, the
+ * transaction intent, and the lane-specific fee envelope.
+ *
+ * Field order is mirrored by `P2TRReconcilerRequestBinding`; see the note on
+ * `reconcilerRequestBinding`.
  */
 export type P2TRSignatureFraudIrreversibleBoundaryBinding = {
   recordID: string
@@ -1910,8 +2495,28 @@ export type P2TRSignatureFraudIrreversibleBoundaryBinding = {
   attempt: number
   provenanceFingerprint: string
   activationManifestHash: string
-  /** Required only for a prepare/replacement signer boundary. */
-  signingRequestDigest?: string
+  /**
+   * The lane chooses which signer is invoked and which fee envelope applies,
+   * so a lane-agnostic authorization would authorize the wrong signer.
+   */
+  laneID: string
+  signerIdentity: string
+  /** Recomputed from the intent here, never copied out of durable state. */
+  intentID: string
+  /** Carried in the clear too: an authorizer cannot invert `intentID`. */
+  routerAddress: string
+  intentValueWei: string
+  /**
+   * The envelope actually handed to the signer. Only its manifest hash was
+   * bound before, which named the whole manifest but not this lane's caps.
+   */
+  challengeValueWei: string
+  maxGasLimit: string
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+  maxTotalFeeWei: string
+  /** Required only for a replacement boundary: the variant being superseded. */
+  replacedTransactionHash?: string
   /** Required only for a broadcaster boundary. */
   preparedTransactionHash?: string
 }
@@ -2307,7 +2912,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
     await this.assertVoidedReservationCapacity(current)
-    await this.establishRecoveryBarrierIfNeeded()
+    // No lane is selected yet -- that happens in the candidate loop below -- so
+    // there is nothing to judge here, only recovery to drive. There is
+    // deliberately no per-candidate wedge check: a lane wedged by an orphan is
+    // already held by that orphan under the unique (chain, sender) lane slot,
+    // so its swap fails and the loop moves on, and a lane wedged by an
+    // unacknowledged release or a quarantine is refused by the durable lane
+    // gate in the same swap. The lane that is actually chosen is asserted at
+    // the irreversible boundary, which is the refusal that matters.
+    await this.driveRecoverySweeps()
 
     const nowUnixMs = requireUnixMilliseconds(
       this.now(),
@@ -2516,14 +3129,43 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge outbox signer invocation time"
     )
-    await this.assertSelectedLaneRecoveryBarrier(reserved)
-    const signerBoundary = nextRecord(reserved, {
+    await this.assertRecoveryBarrier({
+      chainID: reserved.intent.chainID,
+      sender: reservation.sender,
+    })
+    // Built from the record that is about to be committed: `nextRecord` already
+    // carries the post-swap version, and the binding reads no signer marker, so
+    // the invocation identity is derivable here and lands in the same swap that
+    // sets the marker. Building before the swap also means a failure strands
+    // nothing — there is no durable marker yet to pin the activation barrier.
+    const pendingBoundary = nextRecord(reserved, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckStatus: "eligible",
       updatedAtUnixMs: signerBoundaryTime,
       lastError: undefined,
     })
+    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
+    try {
+      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+        pendingBoundary,
+        "prepare",
+        pendingBoundary.preparationAttempts,
+        selectedFeePolicy
+      )
+    } catch (error) {
+      return this.abandonUnboundPreparationClaim(
+        reserved,
+        `Initial signer authorization failed: ${errorMessage(error)}`
+      )
+    }
+    const signerInvocation = computeP2TRSignatureFraudSignerInvocationRequest(
+      signerAuthorizationBinding
+    )
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...pendingBoundary,
+      activeSignerInvocationID: signerInvocation.invocationID,
+    }
     try {
       if (
         !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
@@ -2541,9 +3183,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ) {
         throw error
       }
-      // COMMIT may have installed the marker even when its response was lost.
-      // No signer call has occurred yet, so reconcile this exact boundary as
-      // known-uninvoked instead of stranding an activation-blocking marker.
       return this.reconcileUninvokedSignerBoundaryPersistence(
         reserved,
         signerBoundary,
@@ -2553,31 +3192,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       )
     }
 
-    const signerInvocationID = Hex.from(
-      computeP2TRSignatureFraudSignerInvocationID({
-        recordID: signerBoundary.recordID,
-        boundaryStartedAtUnixMs:
-          signerBoundary.activeSignerInvocationStartedAtUnixMs!,
-        preparationAttempts: signerBoundary.preparationAttempts,
-        nonceReservationID:
-          signerBoundary.reservedNonce!.reservationID.toString(),
-        stage: "prepare",
-      })
-    )
-    const signingRequestDigest = computeP2TRSignatureFraudSigningRequestDigest(
-      "prepare",
-      signerBoundary.intent,
-      reservation,
-      selectedFeePolicy,
-      signerInvocationID
-    )
-    const signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
-      signerBoundary,
-      "prepare",
-      signerBoundary.preparationAttempts,
-      undefined,
-      signingRequestDigest
-    )
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       signerAuthorization =
@@ -2619,8 +3233,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           signerBoundary.intent,
           reservation,
           selectedFeePolicy,
-          signerInvocationID,
-          signingRequestDigest
+          signerInvocationRequest(signerInvocation)
         )
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -2649,6 +3262,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         ...recoverP2TRSignatureFraudSignedTransactionEnvelope(
           candidate.rawTransaction
         ),
+        invocation: candidate.invocation,
       }
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -2671,11 +3285,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       }
       return this.requireRecord(key)
     }
+    const echoMismatch = signerInvocationEchoMismatch(escaped, signerInvocation)
+    if (echoMismatch !== undefined) {
+      return this.completeWrongInvocationRequest(
+        signerBoundary,
+        selectedPreparer,
+        escaped,
+        echoMismatch
+      )
+    }
     try {
       validateP2TRSignatureFraudSignerResponseBinding(
         candidate,
-        signingRequestDigest,
-        signerInvocationID,
+        signerInvocation.requestDigest,
+        signerInvocation.invocationID,
         escaped.transactionHash,
         reservation.sender
       )
@@ -2757,8 +3380,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ],
       preparationLease: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         signerBoundary.signerInvocationStartedAtUnixMs ?? signerBoundaryTime,
+      signerInvocationID:
+        signerBoundary.signerInvocationID ??
+        signerBoundary.activeSignerInvocationID,
       updatedAtUnixMs: requireUnixMilliseconds(
         this.now(),
         "Challenge outbox prepared time"
@@ -2814,7 +3441,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     ) {
       return current
     }
-    await this.establishRecoveryBarrierIfNeeded()
 
     let variants: readonly P2TRSignatureFraudPreparedTransactionVariant[]
     try {
@@ -2828,12 +3454,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Challenge replacement record lacks its authenticated nonce reservation"
       )
     }
-    const selectedPreparer = this.preparerForReservation(current.reservedNonce)
+    // Captured once: the lane cannot change under a replacement, and both the
+    // entry assert and the boundary assert below must name the same one.
+    const replacementReservation = current.reservedNonce
+    const selectedPreparer = this.preparerForReservation(replacementReservation)
     if (
       selectedPreparer === undefined ||
       (await this.store.isSignerQuarantined(
         current.intent.chainID,
-        current.reservedNonce.signerIdentity
+        replacementReservation.signerIdentity
       ))
     ) {
       return this.quarantine(
@@ -2841,6 +3470,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Challenge replacement signer lane is unavailable or quarantined"
       )
     }
+    // Asserted here rather than at entry: the replacement's lane is only known
+    // once its reservation and preparer have been resolved just above.
+    await this.assertRecoveryBarrier({
+      chainID: current.intent.chainID,
+      sender: replacementReservation.sender,
+    })
     const selectedFeePolicy = feePolicyForPreparer(current, selectedPreparer)
     await this.assertSelectedLaneRecoveryBarrier(current)
     if (variants.length >= P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_SIGNED_VARIANTS) {
@@ -2906,6 +3541,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         expiresAtUnixMs: leaseExpiresAtUnixMs,
       },
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       updatedAtUnixMs: nowUnixMs,
       lastError: undefined,
     })
@@ -2934,6 +3570,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         preparationLease: undefined,
         preparationResumeStatus: undefined,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         lastPreBroadcastRecheckAtUnixMs: recheckTime,
         lastPreBroadcastRecheckStatus: preSignRecheck.status,
         updatedAtUnixMs: recheckTime,
@@ -2950,14 +3587,41 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge outbox replacement signer invocation time"
     )
-    await this.assertSelectedLaneRecoveryBarrier(claimed)
-    const signerBoundary = nextRecord(claimed, {
+    await this.assertRecoveryBarrier({
+      chainID: claimed.intent.chainID,
+      sender: replacementReservation.sender,
+    })
+    // As at the initial boundary: build first, so the identity is committed in
+    // the same swap as the marker and a build failure leaves nothing durable.
+    const pendingBoundary = nextRecord(claimed, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckStatus: "eligible",
       updatedAtUnixMs: signerBoundaryTime,
       lastError: undefined,
     })
+    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
+    try {
+      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+        pendingBoundary,
+        "replacement",
+        pendingBoundary.preparationAttempts,
+        selectedFeePolicy,
+        previous.transactionHash
+      )
+    } catch (error) {
+      return this.abandonUnboundPreparationClaim(
+        claimed,
+        `Replacement signer authorization failed: ${errorMessage(error)}`
+      )
+    }
+    const signerInvocation = computeP2TRSignatureFraudSignerInvocationRequest(
+      signerAuthorizationBinding
+    )
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...pendingBoundary,
+      activeSignerInvocationID: signerInvocation.invocationID,
+    }
     try {
       if (
         !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
@@ -2984,32 +3648,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       )
     }
 
-    const signerInvocationID = Hex.from(
-      computeP2TRSignatureFraudSignerInvocationID({
-        recordID: signerBoundary.recordID,
-        boundaryStartedAtUnixMs:
-          signerBoundary.activeSignerInvocationStartedAtUnixMs!,
-        preparationAttempts: signerBoundary.preparationAttempts,
-        nonceReservationID:
-          signerBoundary.reservedNonce!.reservationID.toString(),
-        stage: "replacement",
-      })
-    )
-    const signingRequestDigest = computeP2TRSignatureFraudSigningRequestDigest(
-      "replacement",
-      signerBoundary.intent,
-      current.reservedNonce,
-      selectedFeePolicy,
-      signerInvocationID,
-      previous.transactionHash
-    )
-    const signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
-      signerBoundary,
-      "replacement",
-      signerBoundary.preparationAttempts,
-      undefined,
-      signingRequestDigest
-    )
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       signerAuthorization =
@@ -3048,8 +3686,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           current.reservedNonce,
           previous,
           selectedFeePolicy,
-          signerInvocationID,
-          signingRequestDigest
+          signerInvocationRequest(signerInvocation)
         )
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -3078,6 +3715,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         ...recoverP2TRSignatureFraudSignedTransactionEnvelope(
           candidate.rawTransaction
         ),
+        invocation: candidate.invocation,
       }
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -3100,11 +3738,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       }
       return this.requireRecord(key)
     }
+    const echoMismatch = signerInvocationEchoMismatch(escaped, signerInvocation)
+    if (echoMismatch !== undefined) {
+      return this.completeWrongInvocationRequest(
+        signerBoundary,
+        selectedPreparer,
+        escaped,
+        echoMismatch
+      )
+    }
     try {
       validateP2TRSignatureFraudSignerResponseBinding(
         candidate,
-        signingRequestDigest,
-        signerInvocationID,
+        signerInvocation.requestDigest,
+        signerInvocation.invocationID,
         escaped.transactionHash,
         current.reservedNonce.sender
       )
@@ -3213,8 +3860,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         signerBoundary.signerInvocationStartedAtUnixMs ?? signerBoundaryTime,
+      signerInvocationID:
+        signerBoundary.signerInvocationID ??
+        signerBoundary.activeSignerInvocationID,
       updatedAtUnixMs: requireUnixMilliseconds(
         this.now(),
         "Challenge outbox replacement prepared time"
@@ -3326,8 +3977,16 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
     let variants: readonly P2TRSignatureFraudPreparedTransactionVariant[]
+    let broadcastFeePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
     try {
       variants = validatePreparedTransactionVariantLedger(current)
+      // The same envelope the ledger validator just enforced against every
+      // persisted variant, including the exact bytes about to be sent. No
+      // signer is invoked here, so there is no other envelope to name.
+      broadcastFeePolicy = feePolicyForReservation(
+        current,
+        requireReservedNonce(current, "Challenge outbox broadcast")
+      )
     } catch (error) {
       return this.quarantine(current, errorMessage(error))
     }
@@ -3407,6 +4066,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       attempted,
       "broadcast",
       attempted.broadcastAttempts,
+      broadcastFeePolicy,
       preparedTransaction.transactionHash
     )
     let broadcastAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
@@ -3436,11 +4096,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
 
     try {
-      // The provenance CAS is asynchronous. Keep the one-use capability
-      // pending across it, then synchronously revalidate and consume it at the
-      // final boundary so receipt expiry or a newer export fence cannot become
-      // a stale broadcast. No await is permitted between this call and the
-      // broadcaster invocation below.
+      const broadcastAuthorizationBinding =
+        this.buildIrreversibleBoundaryBinding(
+          attempted,
+          "broadcast",
+          attempted.broadcastAttempts,
+          broadcastFeePolicy,
+          preparedTransaction.transactionHash
+        )
+      const broadcastAuthorization =
+        await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+          broadcastAuthorizationBinding
+        )
+      // This synchronous one-use check is intentionally the final operation
+      // before invoking the broadcaster with the exact persisted bytes.
       this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
         broadcastAuthorization,
         broadcastAuthorizationBinding,
@@ -3714,17 +4383,58 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     ) {
       return current
     }
-    const signerWasInvoked =
-      current.activeSignerInvocationStartedAtUnixMs !== undefined
     const resumeStatus = current.preparationResumeStatus
 
     // The marker is established before asynchronous boundary authorization.
     // Lease expiry cannot prove that another replica's authorization or signer
     // call stopped. Only an independently attested provider outcome may clear
-    // the lane-scoped signer-I/O barrier, so startup stays deliberately
-    // activation-blocked on this record until the store's out-of-band boundary
+    // its lane's signer-I/O barrier, so startup stays deliberately activation-
+    // blocked on this record until the store's out-of-band orphaned-boundary
     // resolver (`resolveOrphanedSignerBoundary`) supplies that evidence.
-    if (signerWasInvoked) return current
+    //
+    // Everything below therefore runs only with the marker absent. It used to
+    // branch on it repeatedly; those arms were unreachable and claimed the
+    // orphan path lands in `quarantined`, which is reconcilable -- a false
+    // lead for anyone tracing why an orphan cannot be resolved locally.
+    if (current.activeSignerInvocationStartedAtUnixMs !== undefined) {
+      return current
+    }
+
+    // A burn claim is durable before its signer call, and signed burn bytes
+    // replace it without a releasable gap. If the original signer boundary was
+    // independently resolved, retain the lane but leave the `preparing` status
+    // behind: both a claim and signed burn bytes are public nonce-race evidence
+    // that the reconciler can settle once canonical consumption is final.
+    if (
+      current.contestedNonceBurnClaim !== undefined ||
+      current.contestedNonceBurn !== undefined
+    ) {
+      const retainedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn lease recovery time"
+      )
+      const reconcilable = nextRecord(current, {
+        status:
+          current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation",
+        preparationLease: undefined,
+        preparationResumeStatus: undefined,
+        updatedAtUnixMs: retainedAtUnixMs,
+        lastError:
+          "Original signer boundary was resolved while a contested nonce burn remained; retaining its lane for canonical nonce reconciliation",
+      })
+      if (
+        !(await this.store.compareAndSwap(
+          current.recordID,
+          current.version,
+          reconcilable
+        ))
+      ) {
+        return this.requireRecord(current.recordID)
+      }
+      return reconcilable
+    }
 
     // A crash can occur after the non-signing allocator durably reserves a
     // nonce but before this record stores the returned binding. Reservation
@@ -3732,7 +4442,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     // recover that exact binding and put it under the SQL nonce guard before
     // recording a pre-sign void.
     if (
-      !signerWasInvoked &&
       resumeStatus === undefined &&
       current.reservedNonce === undefined &&
       current.selectedLaneID !== undefined &&
@@ -3834,16 +4543,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
 
     const releasableReservation =
-      !signerWasInvoked &&
-      resumeStatus === undefined &&
-      current.reservedNonce !== undefined
+      resumeStatus === undefined && current.reservedNonce !== undefined
         ? current.reservedNonce
         : undefined
     const voidedAt = requireUnixMilliseconds(
       this.now(),
       "Challenge outbox lease recovery time"
     )
-    const retainLane = signerWasInvoked || resumeStatus !== undefined
+    const retainLane = resumeStatus !== undefined
     const voidReason =
       "Preparation lease expired before transaction signer invocation"
     const voidEvidenceDigest =
@@ -3862,20 +4569,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       await this.assertVoidedReservationCapacity(current)
     }
     const recovered = nextRecord(current, {
-      // Once the signer boundary is durable, never sign a replacement or
-      // release this lane on lease expiry.
-      status: signerWasInvoked
-        ? "quarantined"
-        : current.provenanceInvalidationEvidence !== undefined
-        ? "cancelled-provenance-invalidated"
-        : resumeStatus ?? "queued",
+      status:
+        current.provenanceInvalidationEvidence !== undefined
+          ? "cancelled-provenance-invalidated"
+          : resumeStatus ?? "queued",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
-      // A lease timeout cannot prove that an external signer call stopped.
-      // Only the worker observing that call return may clear this marker.
-      activeSignerInvocationStartedAtUnixMs: signerWasInvoked
-        ? current.activeSignerInvocationStartedAtUnixMs
-        : undefined,
+      activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       preparationSender: retainLane ? current.preparationSender : undefined,
       selectedLaneID: retainLane ? current.selectedLaneID : undefined,
       selectedSignerIdentity: retainLane
@@ -3898,22 +4599,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
               },
             ]
           : current.voidedNonceReservations,
-      signerQuarantines:
-        signerWasInvoked && current.reservedNonce !== undefined
-          ? appendSignerQuarantine(
-              current.signerQuarantines,
-              current.reservedNonce,
-              voidedAt,
-              "Preparation lease expired after the durable signer invocation boundary; the returned-byte outcome is ambiguous",
-              "ambiguous-signer-invocation"
-            )
-          : current.signerQuarantines,
+      signerQuarantines: current.signerQuarantines,
       updatedAtUnixMs: voidedAt,
-      lastError: signerWasInvoked
-        ? "Challenge outbox preparation lease expired after the signer boundary; nonce lane retained"
-        : resumeStatus === undefined
-        ? "Challenge outbox preparation lease expired before signer invocation"
-        : "Challenge outbox replacement lease expired before signer invocation; prior variant restored",
+      lastError:
+        resumeStatus === undefined
+          ? "Challenge outbox preparation lease expired before signer invocation"
+          : "Challenge outbox replacement lease expired before signer invocation; prior variant restored",
     })
     if (
       !(await this.store.compareAndSwap(
@@ -4406,21 +5097,33 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
   }
 
-  private async establishRecoveryBarrierIfNeeded(): Promise<void> {
-    if (!this.recoveryBarrierEstablished) await this.establishRecoveryBarrier()
+  /**
+   * Drives recovery without judging any lane. This must stay store-wide: the
+   * sweeps below are the only thing that ever reclaims a `preparing` record
+   * whose lane selection is still NULL -- the window between the claim swap and
+   * the lane swap -- and no per-lane predicate can see such a row, because it
+   * belongs to no lane yet. Narrowing the sweep would strand those records
+   * permanently. Recovering another account's backlog is never harmful; only
+   * REFUSING TO SIGN on another account's behalf is, and that is
+   * `assertRecoveryBarrier`'s job.
+   */
+  private async driveRecoverySweeps(): Promise<void> {
+    if (!this.recoveryBarrierEstablished) {
+      await this.establishRecoveryBarrier()
+    }
   }
 
   private async hasRecoveryBacklogForLane(
     chainID: number,
     sender: string
   ): Promise<boolean> {
-    const nowUnixMs = requireUnixMilliseconds(
-      this.now(),
-      "Challenge recovery barrier time"
-    )
+    const lane = normalizeP2TRSignatureFraudSigningLane({ chainID, sender })
     const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
-      this.store.hasExpiredPreparationLeasesForLane(chainID, sender, nowUnixMs),
-      this.store.hasPendingNonceReleasesForLane(chainID, sender),
+      this.store.hasExpiredPreparationLeases(
+        requireUnixMilliseconds(this.now(), "Challenge recovery barrier time"),
+        lane
+      ),
+      this.store.hasPendingNonceReleases(lane),
     ])
     const backlog = expiredPreparationLease || pendingNonceRelease
     if (backlog) this.recoveryBarrierEstablished = false
@@ -4439,17 +5142,29 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Challenge signing recovery barrier requires an exact selected signer lane"
       )
     }
-    await this.establishRecoveryBarrierIfNeeded()
+    await this.assertRecoveryBarrier({
+      chainID: current.intent.chainID,
+      sender: current.preparationSender,
+    })
+  }
+
+  /**
+   * Refuses to sign on one nonce lane while THAT lane still has unresolved
+   * durable recovery work. The lane is required rather than optional on
+   * purpose: an absent lane would silently mean "no check", which is the same
+   * shape of hole as a barrier row that does not exist reading as a clean lane.
+   */
+  private async assertRecoveryBarrier(
+    lane: P2TRSignatureFraudSigningLane
+  ): Promise<void> {
+    await this.driveRecoverySweeps()
+    const normalized = normalizeP2TRSignatureFraudSigningLane(lane)
     const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
-      this.store.hasExpiredPreparationLeasesForLane(
-        current.intent.chainID,
-        current.preparationSender,
-        requireUnixMilliseconds(this.now(), "Challenge recovery barrier time")
+      this.store.hasExpiredPreparationLeases(
+        requireUnixMilliseconds(this.now(), "Challenge recovery barrier time"),
+        normalized
       ),
-      this.store.hasPendingNonceReleasesForLane(
-        current.intent.chainID,
-        current.preparationSender
-      ),
+      this.store.hasPendingNonceReleases(normalized),
     ])
     if (expiredPreparationLease || pendingNonceRelease) {
       this.recoveryBarrierEstablished = false
@@ -4487,10 +5202,19 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
     // Lease recovery can create new durable release requests.
     await recoverReleases()
-    // Recovery is deliberately swept store-wide, but unresolved work closes
-    // only its exact `(chainID, sender)` nonce lane. Independent senders must
-    // remain able to meet their challenge windows.
-    this.recoveryBarrierEstablished = true
+    const nowUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Challenge recovery barrier completion time"
+    )
+    // Residue left here is no longer fatal. It used to throw, and that throw --
+    // not either message in `assertRecoveryBarrier` -- is what a wedged store
+    // actually raised, because this runs first whenever the flag is unset. One
+    // account's unresolvable residue therefore froze signing on every account.
+    // Whether residue blocks is now the caller's question to ask about its own
+    // lane; all this decides is whether the store-wide fast path may latch.
+    this.recoveryBarrierEstablished =
+      !(await this.store.hasPendingNonceReleases()) &&
+      !(await this.store.hasExpiredPreparationLeases(nowUnixMs))
   }
 
   private async applyPreSignRecheckFailure(
@@ -4776,11 +5500,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs: signerInvoked
         ? current.signerInvocationStartedAtUnixMs ??
           current.activeSignerInvocationStartedAtUnixMs ??
           nowUnixMs
         : current.signerInvocationStartedAtUnixMs,
+      signerInvocationID: signerInvoked
+        ? current.signerInvocationID ?? current.activeSignerInvocationID
+        : current.signerInvocationID,
       preparationSender:
         signerInvoked || hasPriorVariant
           ? current.preparationSender
@@ -4846,27 +5574,78 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationResumeStatus: current.preparationResumeStatus,
       activeSignerInvocationStartedAtUnixMs:
         current.activeSignerInvocationStartedAtUnixMs,
+      activeSignerInvocationID: current.activeSignerInvocationID,
     }
   }
 
+  /**
+   * @param feePolicy The exact lane envelope handed to the signer for this
+   *   boundary. It is passed in rather than re-derived so that the authorized
+   *   digest names what the signer actually receives, not a value that merely
+   *   ought to equal it.
+   * @param stageTransactionHash The transaction the stage names: the variant
+   *   being superseded for a replacement, the variant about to be sent for a
+   *   broadcast. A prepare boundary names none.
+   */
   private buildIrreversibleBoundaryBinding(
     record: P2TRSignatureFraudChallengeOutboxRecord,
     stage: P2TRSignatureFraudIrreversibleBoundaryStage,
     attempt: number,
-    preparedTransactionHash?: Hex | Buffer | string,
-    signingRequestDigest?: Hex | Buffer | string
+    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    stageTransactionHash?: Hex | Buffer | string
   ): P2TRSignatureFraudIrreversibleBoundaryBinding {
-    if (record.reservedNonce === undefined) {
+    const reservedNonce = requireReservedNonce(
+      record,
+      "Irreversible challenge boundary"
+    )
+    const namesTransaction = stage === "replacement" || stage === "broadcast"
+    if (namesTransaction !== (stageTransactionHash !== undefined)) {
       throw new Error(
-        "Irreversible challenge boundary lacks its durable nonce reservation"
+        "Only a challenge replacement or broadcast boundary may name a transaction hash"
       )
     }
+    const laneID = requireBoundedText(
+      reservedNonce.laneID,
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+      "Boundary signer lane ID"
+    )
+    const signerIdentity = requireBoundedText(
+      reservedNonce.signerIdentity,
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+      "Boundary signer identity"
+    )
+    // The envelope must belong to the lane the durable reservation is bound to.
+    // Nothing downstream re-checks this pairing once the digest is taken.
     if (
-      (stage === "broadcast") !== (preparedTransactionHash !== undefined) ||
-      (stage !== "broadcast") !== (signingRequestDigest !== undefined)
+      requireBoundedText(
+        feePolicy.laneID,
+        P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+        "Boundary fee policy lane ID"
+      ) !== laneID ||
+      requireBoundedText(
+        feePolicy.signerIdentity,
+        P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+        "Boundary fee policy signer identity"
+      ) !== signerIdentity ||
+      normalizeAddress(feePolicy.sender, "Boundary fee policy sender") !==
+        normalizeAddress(reservedNonce.sender, "Boundary reserved sender")
     ) {
       throw new Error(
-        "Signer boundaries require an exact request digest and broadcast boundaries require exact prepared bytes"
+        "Irreversible challenge boundary fee envelope names another signer lane"
+      )
+    }
+    // Recomputed, not read back: a stored intent ID proves nothing about the
+    // router and calldata this boundary is authorizing.
+    const intentID = normalizeBytes32(
+      computeP2TRSignatureFraudSubmissionIntentID(record.intent),
+      "Boundary submission intent ID"
+    )
+    if (
+      intentID !==
+      normalizeBytes32(record.intent.intentID, "Durable submission intent ID")
+    ) {
+      throw new Error(
+        "Irreversible challenge boundary intent does not match its durable identity"
       )
     }
     return {
@@ -4881,15 +5660,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Boundary record version"
       ),
       reservationID: normalizeBytes32(
-        record.reservedNonce.reservationID,
+        reservedNonce.reservationID,
         "Boundary reservation ID"
       ),
       sender: normalizeAddress(
-        record.reservedNonce.sender,
+        reservedNonce.sender,
         "Boundary reserved sender"
       ),
       transactionNonce: requireNonNegativeSafeInteger(
-        record.reservedNonce.nonce,
+        reservedNonce.nonce,
         "Boundary transaction nonce"
       ),
       stage,
@@ -4902,21 +5681,484 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         record.feePolicyManifest.activationManifestHash,
         "Boundary activation manifest hash"
       ),
-      signingRequestDigest:
-        signingRequestDigest === undefined
-          ? undefined
-          : normalizeBytes32(
-              signingRequestDigest,
-              "Boundary signing request digest"
-            ),
+      laneID,
+      signerIdentity,
+      intentID,
+      routerAddress: normalizeAddress(
+        record.intent.routerAddress,
+        "Boundary router address"
+      ),
+      intentValueWei: normalizePolicyUint256(
+        record.intent.value,
+        "Boundary intent value"
+      ),
+      challengeValueWei: normalizePolicyUint256(
+        feePolicy.challengeValueWei,
+        "Boundary challenge value"
+      ),
+      maxGasLimit: normalizePolicyUint256(
+        feePolicy.maxGasLimit,
+        "Boundary maximum gas limit"
+      ),
+      maxFeePerGas: normalizePolicyUint256(
+        feePolicy.maxFeePerGas,
+        "Boundary maximum fee per gas"
+      ),
+      maxPriorityFeePerGas: normalizePolicyUint256(
+        feePolicy.maxPriorityFeePerGas,
+        "Boundary maximum priority fee per gas"
+      ),
+      maxTotalFeeWei: normalizePolicyUint256(
+        feePolicy.maxTotalFeeWei,
+        "Boundary maximum total fee"
+      ),
+      replacedTransactionHash:
+        stage === "replacement" && stageTransactionHash !== undefined
+          ? normalizeBytes32(
+              stageTransactionHash,
+              "Boundary replaced transaction hash"
+            )
+          : undefined,
       preparedTransactionHash:
-        preparedTransactionHash === undefined
-          ? undefined
-          : normalizeBytes32(
-              preparedTransactionHash,
+        stage === "broadcast" && stageTransactionHash !== undefined
+          ? normalizeBytes32(
+              stageTransactionHash,
               "Boundary prepared transaction hash"
-            ),
+            )
+          : undefined,
     }
+  }
+
+  /**
+   * Completes a boundary whose signer served a different request.
+   *
+   * The bytes are fully authenticated by this point, so they are captured as an
+   * unexpected signed artifact rather than discarded: the signer was invoked,
+   * consumed the reserved nonce, and may hold further bytes we never saw.
+   * Treating this as an uninvoked boundary would be a lie about the nonce.
+   */
+  private async completeWrongInvocationRequest(
+    signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer,
+    escaped: P2TRSignatureFraudPreparedChallengeTransaction,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    // Invocation echoes are unsigned transport metadata. Keep them out of the
+    // durable artifact even when the completion CAS loses: malformed values
+    // must not make an otherwise authenticated record unreadable on hydrate.
+    const { invocation: _unsafeInvocation, ...durableEscaped } = escaped
+    const reservationMismatch =
+      signerBoundary.reservedNonce === undefined
+        ? undefined
+        : classifyReservationMismatch(
+            signerBoundary.intent.chainID,
+            signerBoundary.reservedNonce,
+            durableEscaped
+          )
+    // The echo explains why this response belongs to another invocation, but
+    // the signed envelope itself decides whether it escaped onto another nonce
+    // lane. PostgreSQL requires that lane mismatch classification before it
+    // will append the wrong-lane bytes and their quarantine evidence.
+    const reasonCode =
+      reservationMismatch === "wrong-sender" ||
+      reservationMismatch === "wrong-nonce"
+        ? reservationMismatch
+        : "wrong-signer-invocation-request"
+    const failed = this.signerFailureRecord(
+      signerBoundary,
+      preparer,
+      reason,
+      true,
+      durableEscaped,
+      reasonCode
+    )
+    if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      return this.captureEscapedArtifactAfterLostCas(
+        signerBoundary,
+        durableEscaped,
+        `Wrong-invocation signed envelope returned after a concurrent outbox transition: ${reason}`,
+        requireLatestSignerQuarantine(failed)
+      )
+    }
+    return this.requireRecord(signerBoundary.recordID)
+  }
+
+  /**
+   * Forces a contested nonce race to terminate by spending the reserved nonce.
+   *
+   * For an orphaned boundary nobody can decide from outside whether the signer
+   * produced bytes; delivery delay is unbounded, so absence is never provable.
+   * This sidesteps the question rather than answering it. Ethereum already
+   * guarantees at most one transaction confirms per nonce, so spending that
+   * nonce on a self-transfer makes any signed challenge bytes for it inert —
+   * whichever transaction wins. The result is decidable from public data and
+   * resolvable through the `nonce-consumed` outcome.
+   *
+   * The burn has its own durable pre-I/O claim. The existing boundary may be
+   * independently resolved while the burn signer is in flight, but recovery
+   * cannot release the reservation until the claim is atomically replaced by
+   * the exact signed burn bytes.
+   */
+  async burnContestedNonce(
+    recordID: Hex | Buffer | string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    this.store.assertExternalIOTransactionBoundary()
+    const key = normalizeBytes32(recordID, "Challenge outbox record ID")
+    const current = await this.requireRecord(key)
+    if (current.contestedNonceBurn !== undefined) {
+      // Once bytes are durable they remain the only burn this record may send,
+      // even if the original signer boundary was independently resolved before
+      // a provider acknowledged them.
+      return this.broadcastPersistedContestedNonceBurn(key, current)
+    }
+    const existingClaim = current.contestedNonceBurnClaim
+    if (
+      existingClaim === undefined &&
+      current.activeSignerInvocationStartedAtUnixMs === undefined
+    ) {
+      throw new Error(
+        "Only a boundary with an unresolved signer invocation may burn its nonce"
+      )
+    }
+    const reservation = requireReservedNonce(current, "Contested nonce burn")
+
+    const feePolicy = feePolicyForReservation(current, reservation)
+    const envelope = contestedNonceBurnEnvelope(current, feePolicy, reservation)
+    const preparer = this.preparerForReservation(reservation)
+    if (preparer === undefined) {
+      throw new Error(
+        "Contested nonce burn has no configured signer for its reserved lane"
+      )
+    }
+    const binding = this.buildIrreversibleBoundaryBinding(
+      existingClaim === undefined
+        ? current
+        : { ...current, version: existingClaim.recordVersion },
+      "burn",
+      existingClaim?.preparationAttempts ?? current.preparationAttempts,
+      contestedNonceBurnBoundaryFeePolicy(feePolicy, envelope)
+    )
+    const invocation = computeP2TRSignatureFraudSignerInvocationRequest(binding)
+    if (
+      existingClaim !== undefined &&
+      (normalizeBytes32(
+        existingClaim.signerInvocationID,
+        "Contested nonce burn claim invocation ID"
+      ) !== invocation.invocationID ||
+        normalizeBytes32(
+          existingClaim.signerRequestDigest,
+          "Contested nonce burn claim request digest"
+        ) !== invocation.requestDigest ||
+        normalizeBytes32(
+          existingClaim.reservationID,
+          "Contested nonce burn claim reservation ID"
+        ) !==
+          normalizeBytes32(
+            reservation.reservationID,
+            "Contested nonce burn reservation ID"
+          ))
+    ) {
+      throw new Error(
+        "Contested nonce burn claim does not match its durable signer request"
+      )
+    }
+    const authorization =
+      await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+        binding
+      )
+    let claimed = current
+    if (existingClaim === undefined) {
+      const claimedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn claim time"
+      )
+      claimed = nextRecord(current, {
+        contestedNonceBurnClaim: {
+          signerInvocationID: invocation.invocationID,
+          signerRequestDigest: invocation.requestDigest,
+          reservationID: normalizeBytes32(
+            reservation.reservationID,
+            "Contested nonce burn claim reservation ID"
+          ),
+          recordVersion: current.version,
+          preparationAttempts: current.preparationAttempts,
+          claimedAtUnixMs,
+        },
+        updatedAtUnixMs: Math.max(current.updatedAtUnixMs, claimedAtUnixMs),
+      })
+      if (!(await this.store.compareAndSwap(key, current.version, claimed))) {
+        // Authorization is process-local and has not been consumed. Most
+        // importantly, no signer I/O occurs unless this exact claim won its
+        // durable CAS.
+        return this.requireRecord(key)
+      }
+    }
+    this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+      authorization,
+      binding,
+      requireUnixMilliseconds(this.now(), "Burn authorization consumption time")
+    )
+
+    // First authenticate the raw transaction independently of the signer echo.
+    // Echo metadata is not signed and must never make exact nonce-consuming
+    // bytes disappear after the signer boundary has been crossed.
+    const signed = validateP2TRSignatureFraudPreparedNonceBurnTransaction(
+      reservation,
+      envelope,
+      await preparer.prepareSignatureFraudNonceBurnTransaction(
+        reservation,
+        envelope,
+        signerInvocationRequest(invocation)
+      )
+    )
+    const echoMismatch = signerInvocationEchoMismatch(signed, invocation)
+
+    // Durable before the broadcaster is called, exactly as the challenge send
+    // boundary is: a crash from here on can only re-send identical bytes.
+    const signedAtUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Contested nonce burn signing time"
+    )
+    const contestedNonceBurn: P2TRSignatureFraudContestedNonceBurn = {
+      transactionHash: normalizeBytes32(
+        signed.transactionHash,
+        "Contested nonce burn hash"
+      ),
+      rawTransaction: normalizeHexData(
+        signed.rawTransaction,
+        "Contested nonce burn bytes"
+      ),
+      nonce: signed.nonce,
+      sender: normalizeAddress(signed.sender, "Contested nonce burn sender"),
+      maxFeePerGas: signed.maxFeePerGas,
+      maxPriorityFeePerGas: signed.maxPriorityFeePerGas,
+      signerInvocationID: invocation.invocationID,
+      signedAtUnixMs,
+    }
+    let burned = nextRecord(claimed, {
+      contestedNonceBurnClaim: undefined,
+      contestedNonceBurn,
+      signerQuarantines:
+        echoMismatch === undefined
+          ? claimed.signerQuarantines
+          : appendSignerQuarantine(
+              claimed.signerQuarantines,
+              reservation,
+              signedAtUnixMs,
+              echoMismatch,
+              "wrong-signer-invocation-request"
+            ),
+      updatedAtUnixMs: signedAtUnixMs,
+      lastError: echoMismatch,
+    })
+    if (!(await this.store.compareAndSwap(key, claimed.version, burned))) {
+      // Signed bytes already exist and may escape the signer even though a
+      // concurrent completion moved the record. Retain the exact burn on top
+      // of that durable state before permitting any lease recovery to consider
+      // the reservation releasable.
+      burned = await this.captureContestedNonceBurnAfterLostCas(
+        key,
+        contestedNonceBurn,
+        echoMismatch
+      )
+    }
+    return this.broadcastPersistedContestedNonceBurn(key, burned)
+  }
+
+  private async captureContestedNonceBurnAfterLostCas(
+    recordID: string,
+    burn: P2TRSignatureFraudContestedNonceBurn,
+    signerFault?: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    for (let retry = 0; retry < 8; retry++) {
+      const durable = await this.requireRecord(recordID)
+      if (durable.contestedNonceBurn !== undefined) {
+        const { broadcastAtUnixMs: _broadcastAtUnixMs, ...durableSignedBurn } =
+          durable.contestedNonceBurn
+        if (JSON.stringify(durableSignedBurn) !== JSON.stringify(burn)) {
+          throw new Error(
+            "A different contested nonce burn became durable while signing"
+          )
+        }
+        if (signerFault === undefined) return durable
+        if (durable.reservedNonce === undefined) {
+          throw new Error(
+            "Persisted contested nonce burn lost its durable reservation"
+          )
+        }
+        const quarantines = appendSignerQuarantine(
+          durable.signerQuarantines,
+          durable.reservedNonce,
+          burn.signedAtUnixMs,
+          signerFault,
+          "wrong-signer-invocation-request"
+        )
+        if (quarantines === durable.signerQuarantines) return durable
+        const faulted = nextRecord(durable, {
+          signerQuarantines: quarantines,
+          updatedAtUnixMs: Math.max(
+            durable.updatedAtUnixMs,
+            burn.signedAtUnixMs
+          ),
+          lastError: signerFault,
+        })
+        if (
+          await this.store.compareAndSwap(recordID, durable.version, faulted)
+        ) {
+          return faulted
+        }
+        continue
+      }
+      const claim = durable.contestedNonceBurnClaim
+      if (
+        claim === undefined ||
+        normalizeBytes32(
+          claim.signerInvocationID,
+          "Durable contested nonce burn claim invocation ID"
+        ) !== burn.signerInvocationID ||
+        durable.reservedNonce === undefined ||
+        normalizeBytes32(
+          claim.reservationID,
+          "Durable contested nonce burn claim reservation ID"
+        ) !==
+          normalizeBytes32(
+            durable.reservedNonce.reservationID,
+            "Durable contested nonce burn reservation ID"
+          )
+      ) {
+        throw new Error(
+          "Signed contested nonce burn lost its durable pre-I/O claim"
+        )
+      }
+      const capturedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn capture time"
+      )
+      const captured = nextRecord(durable, {
+        contestedNonceBurnClaim: undefined,
+        contestedNonceBurn: burn,
+        status:
+          durable.activeSignerInvocationStartedAtUnixMs === undefined &&
+          durable.status === "preparing"
+            ? durable.provenanceInvalidationEvidence === undefined
+              ? "quarantined"
+              : "provenance-invalidated-awaiting-reconciliation"
+            : durable.status,
+        preparationLease:
+          durable.activeSignerInvocationStartedAtUnixMs === undefined
+            ? undefined
+            : durable.preparationLease,
+        preparationResumeStatus:
+          durable.activeSignerInvocationStartedAtUnixMs === undefined
+            ? undefined
+            : durable.preparationResumeStatus,
+        signerQuarantines:
+          signerFault === undefined
+            ? durable.signerQuarantines
+            : appendSignerQuarantine(
+                durable.signerQuarantines,
+                durable.reservedNonce,
+                burn.signedAtUnixMs,
+                signerFault,
+                "wrong-signer-invocation-request"
+              ),
+        updatedAtUnixMs: Math.max(durable.updatedAtUnixMs, capturedAtUnixMs),
+        lastError: signerFault ?? durable.lastError,
+      })
+      if (
+        await this.store.compareAndSwap(recordID, durable.version, captured)
+      ) {
+        return captured
+      }
+    }
+    throw new Error("Contested nonce burn capture did not converge")
+  }
+
+  private async broadcastPersistedContestedNonceBurn(
+    recordID: string,
+    durable: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const burn = durable.contestedNonceBurn
+    if (burn === undefined) {
+      throw new Error("Contested nonce burn broadcast lacks durable bytes")
+    }
+    const returnedHash = normalizeBytes32(
+      await this.broadcaster.broadcastRawTransaction(burn.rawTransaction),
+      "Broadcast contested nonce burn hash"
+    )
+    const expectedHash = normalizeBytes32(
+      burn.transactionHash,
+      "Persisted contested nonce burn hash"
+    )
+    if (returnedHash !== expectedHash) {
+      const reason =
+        "Contested nonce burn broadcaster returned a hash that does not match the persisted raw transaction"
+      return this.quarantine(durable, reason, true)
+    }
+
+    for (let retry = 0; retry < 8; retry++) {
+      const current = await this.requireRecord(recordID)
+      const currentBurn = current.contestedNonceBurn
+      if (currentBurn === undefined) {
+        throw new Error(
+          "Persisted contested nonce burn disappeared after broadcast"
+        )
+      }
+      if (
+        normalizeBytes32(
+          currentBurn.transactionHash,
+          "Current contested nonce burn hash"
+        ) !== expectedHash
+      ) {
+        throw new Error(
+          "Persisted contested nonce burn changed after broadcast"
+        )
+      }
+      if (currentBurn.broadcastAtUnixMs !== undefined) return current
+      const acknowledgedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn broadcast acknowledgement time"
+      )
+      const acknowledged = nextRecord(current, {
+        contestedNonceBurn: {
+          ...currentBurn,
+          broadcastAtUnixMs: acknowledgedAtUnixMs,
+        },
+        updatedAtUnixMs: Math.max(
+          current.updatedAtUnixMs,
+          acknowledgedAtUnixMs
+        ),
+        lastError: undefined,
+      })
+      if (
+        await this.store.compareAndSwap(recordID, current.version, acknowledged)
+      ) {
+        return acknowledged
+      }
+    }
+    throw new Error("Contested nonce burn acknowledgement did not converge")
+  }
+
+  /**
+   * Records why a boundary binding could not be built, for a claim that never
+   * reached the durable marker. There is nothing to clear — the invocation
+   * identity is derived before the swap that would set the marker, so a failure
+   * here leaves the activation barrier untouched and the reservation is
+   * released by ordinary lease recovery.
+   */
+  private async abandonUnboundPreparationClaim(
+    claimed: P2TRSignatureFraudChallengeOutboxRecord,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const unbound = nextRecord(claimed, {
+      updatedAtUnixMs: requireUnixMilliseconds(
+        this.now(),
+        "Challenge outbox unbound boundary time"
+      ),
+      lastError: requireReason(reason, "Boundary binding failure reason"),
+    })
+    await this.store.compareAndSwap(claimed.recordID, claimed.version, unbound)
+    return this.requireRecord(claimed.recordID)
   }
 
   private signerBoundaryIdentity(
@@ -4924,12 +6166,17 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   ): string {
     if (
       record.activeSignerInvocationStartedAtUnixMs === undefined ||
+      record.activeSignerInvocationID === undefined ||
       record.reservedNonce === undefined
     ) {
       throw new Error("Active signer boundary identity is incomplete")
     }
     return [
       normalizeBytes32(record.recordID, "Active signer record ID"),
+      normalizeBytes32(
+        record.activeSignerInvocationID,
+        "Active signer invocation ID"
+      ),
       requirePositiveSafeInteger(
         record.preparationAttempts,
         "Active signer preparation attempt"
@@ -5104,30 +6351,38 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         durable.broadcastAttempts > 0
       const provenanceWasInvalidated =
         durable.provenanceInvalidationEvidence !== undefined
+      const retainedBurnState =
+        durable.contestedNonceBurnClaim !== undefined ||
+        durable.contestedNonceBurn !== undefined
       const restoreResumeStatus =
         durable.status === "preparing" &&
         resumeStatus !== undefined &&
-        !provenanceWasInvalidated
+        !provenanceWasInvalidated &&
+        !retainedBurnState
       const completed = nextRecord(durable, {
-        status:
-          provenanceWasInvalidated && hasPriorSignedState
+        status: retainedBurnState
+          ? provenanceWasInvalidated
             ? "provenance-invalidated-awaiting-reconciliation"
-            : restoreResumeStatus
-            ? resumeStatus
-            : durable.status,
+            : "quarantined"
+          : provenanceWasInvalidated && hasPriorSignedState
+          ? "provenance-invalidated-awaiting-reconciliation"
+          : restoreResumeStatus
+          ? resumeStatus
+          : durable.status,
         preparationLease:
-          provenanceWasInvalidated && hasPriorSignedState
+          retainedBurnState || (provenanceWasInvalidated && hasPriorSignedState)
             ? undefined
             : restoreResumeStatus
             ? undefined
             : durable.preparationLease,
         preparationResumeStatus:
-          provenanceWasInvalidated && hasPriorSignedState
+          retainedBurnState || (provenanceWasInvalidated && hasPriorSignedState)
             ? undefined
             : restoreResumeStatus
             ? undefined
             : durable.preparationResumeStatus,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         updatedAtUnixMs: requireUnixMilliseconds(
           this.now(),
           "Signer authorization failure completion time"
@@ -5145,8 +6400,10 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         provenanceWasInvalidated &&
         !hasPriorSignedState &&
         durable.reservedNonce !== undefined &&
-        durable.activeSignerInvocationStartedAtUnixMs !== undefined
+        durable.activeSignerInvocationStartedAtUnixMs !== undefined &&
+        durable.activeSignerInvocationID !== undefined
           ? {
+              signerInvocationID: durable.activeSignerInvocationID,
               startedAtUnixMs: durable.activeSignerInvocationStartedAtUnixMs,
               preparationAttempts: durable.preparationAttempts,
               nonceReservationID:
@@ -5273,7 +6530,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
 
   private async quarantine(
     current: P2TRSignatureFraudChallengeOutboxRecord,
-    reason: string
+    reason: string,
+    preserveActiveSignerBoundary = false
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     const normalizedReason = requireReason(
       reason,
@@ -5282,7 +6540,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     const postSendBoundary = current.broadcastAttempts > 0
     const signerBoundary =
       current.signerInvocationStartedAtUnixMs !== undefined ||
-      (current.preparedTransactionVariants?.length ?? 0) > 0
+      (current.preparedTransactionVariants?.length ?? 0) > 0 ||
+      current.contestedNonceBurnClaim !== undefined ||
+      current.contestedNonceBurn !== undefined
     const hasSignedVariants =
       (current.preparedTransactionVariants?.length ?? 0) > 0
     if (signerBoundary) {
@@ -5299,7 +6559,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           : "quarantined",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
-      activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationStartedAtUnixMs: preserveActiveSignerBoundary
+        ? current.activeSignerInvocationStartedAtUnixMs
+        : undefined,
+      activeSignerInvocationID: preserveActiveSignerBoundary
+        ? current.activeSignerInvocationID
+        : undefined,
       preparationSender: signerBoundary ? current.preparationSender : undefined,
       selectedLaneID: signerBoundary ? current.selectedLaneID : undefined,
       selectedSignerIdentity: signerBoundary
@@ -6205,6 +7470,140 @@ const validateRecordFeePolicyManifest = (
   }
 }
 
+/**
+ * Compares the echo the signer returned against the request it was handed.
+ *
+ * Returns a reason on mismatch, `undefined` when they agree. The echo is an
+ * assertion — a signer can copy it beside bytes it signed for something else —
+ * so this catches a response that does not belong to this request, not a signer
+ * that lies. Conformance of the transaction to the request is enforced
+ * separately and field by field by the SDK validators.
+ */
+const signerInvocationEchoMismatch = (
+  prepared: {
+    invocation?: P2TRSignatureFraudPreparedChallengeTransaction["invocation"]
+  },
+  expected: { invocationID: string; requestDigest: string }
+): string | undefined => {
+  const echo = prepared.invocation
+  if (echo === undefined) {
+    return "Signer returned no invocation request echo"
+  }
+  let echoedID: string
+  let echoedDigest: string
+  try {
+    echoedID = normalizeBytes32(
+      echo.invocationID,
+      "Echoed signer invocation ID"
+    )
+    echoedDigest = normalizeBytes32(
+      echo.requestDigest,
+      "Echoed signer invocation request digest"
+    )
+  } catch {
+    return "Signer returned a malformed invocation request echo"
+  }
+  if (
+    echoedID !== normalizeBytes32(expected.invocationID, "Invocation ID") ||
+    echoedDigest !==
+      normalizeBytes32(expected.requestDigest, "Invocation request digest")
+  ) {
+    return "Signer echoed another invocation request"
+  }
+  return undefined
+}
+
+/** Bridges the record's plain-hex identities into the SDK's `Hex` shape. */
+const signerInvocationRequest = (invocation: {
+  invocationID: string
+  requestDigest: string
+}) => ({
+  invocationID: Hex.from(invocation.invocationID),
+  requestDigest: Hex.from(invocation.requestDigest),
+})
+
+/**
+ * The burn's fee envelope, derived from the lane caps rather than added to the
+ * activation manifest.
+ *
+ * A burn only has to outbid the authorized variants it is racing, and every
+ * one of those is capped at the lane's own `maxFeePerGas`. A fixed multiple of
+ * that cap therefore clears them all with margin — the 10% minimum bump most
+ * clients require, and then some — without introducing a number nobody signed.
+ *
+ * The result is still manifest-bound where it matters: the burn's whole spend
+ * is 21000 gas at the derived cap, and that is required to fit inside the
+ * `maxTotalFeeWei` the manifest already commits. A lane whose committed total
+ * cannot cover a burn cannot authorize one, and fails closed.
+ */
+export const P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER = 2n
+
+const contestedNonceBurnEnvelope = (
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+  reservation: P2TRSignatureFraudBoundNonceReservation
+): {
+  chainID: number
+  sender: string
+  nonce: number
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+} => {
+  const maxFeePerGas =
+    BigInt(
+      normalizePolicyUint256(feePolicy.maxFeePerGas, "Burn lane fee cap")
+    ) * P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER
+  const maxPriorityFeePerGas =
+    BigInt(
+      normalizePolicyUint256(
+        feePolicy.maxPriorityFeePerGas,
+        "Burn lane priority cap"
+      )
+    ) * P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER
+  const gasLimit = BigInt(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT)
+  const maxTotalFeeWei = BigInt(
+    normalizePolicyUint256(feePolicy.maxTotalFeeWei, "Burn lane total cap")
+  )
+  if (gasLimit * maxFeePerGas > maxTotalFeeWei) {
+    throw new Error(
+      "Contested nonce burn does not fit inside the committed lane fee total"
+    )
+  }
+  return {
+    chainID: requirePositiveSafeInteger(record.intent.chainID, "Burn chain ID"),
+    sender: normalizeAddress(reservation.sender, "Burn sender"),
+    nonce: requireNonNegativeSafeInteger(reservation.nonce, "Burn nonce"),
+    maxFeePerGas: maxFeePerGas.toString(),
+    maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
+  }
+}
+
+/** The exact zero-value, fixed-gas envelope authorized for the burn signer. */
+const contestedNonceBurnBoundaryFeePolicy = (
+  feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+  envelope: ReturnType<typeof contestedNonceBurnEnvelope>
+): P2TRSignatureFraudChallengeTransactionFeePolicy => ({
+  ...feePolicy,
+  challengeValueWei: "0",
+  maxGasLimit: P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT.toString(),
+  maxFeePerGas: envelope.maxFeePerGas,
+  maxPriorityFeePerGas: envelope.maxPriorityFeePerGas,
+  maxTotalFeeWei: (
+    BigInt(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT) *
+    BigInt(envelope.maxFeePerGas)
+  ).toString(),
+})
+
+const requireReservedNonce = (
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  label: string
+): P2TRSignatureFraudBoundNonceReservation => {
+  if (record.reservedNonce === undefined) {
+    throw new Error(`${label} lacks its durable nonce reservation`)
+  }
+  return record.reservedNonce
+}
+
 const feePolicyForPreparer = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
   preparer: P2TRSignatureFraudChallengeTransactionPreparer
@@ -6338,6 +7737,17 @@ const validatePreparedTransactionFeePolicy = (
       "Prepared challenge priority fee per gas"
     )
   )
+  const manifestGasLimit = BigInt(
+    normalizePositivePolicyUint256(
+      policy.maxGasLimit,
+      "Challenge fee policy gas limit"
+    )
+  )
+  if (gasLimit !== manifestGasLimit) {
+    throw new Error(
+      "Prepared challenge transaction does not use its exact manifest-bound gas limit"
+    )
+  }
   if (
     policy.chainID !== intent.chainID ||
     normalizePolicyUint256(
@@ -6346,7 +7756,6 @@ const validatePreparedTransactionFeePolicy = (
     ) !== normalizePolicyUint256(intent.value, "Challenge intent value") ||
     normalizeAddress(policy.sender, "Challenge fee policy sender") !==
       normalizeAddress(prepared.sender, "Prepared challenge sender") ||
-    gasLimit !== BigInt(policy.maxGasLimit) ||
     maxFeePerGas > BigInt(policy.maxFeePerGas) ||
     maxPriorityFeePerGas > BigInt(policy.maxPriorityFeePerGas) ||
     gasLimit * maxFeePerGas > BigInt(policy.maxTotalFeeWei)
@@ -6490,19 +7899,24 @@ const validateIndependentTransport = (
       "Challenge broadcasting, recheck, cancellation, reconciliation, and canonical verification require independent provider, trust, and infrastructure domains"
     )
   }
-  const finalityConfirmationBlocks = requirePositiveSafeInteger(
+  requireFinalityConfirmationBlocks(
     reconciler.finalityConfirmationBlocks,
     "Challenge reconciliation finality confirmation depth"
   )
-  if (
-    finalityConfirmationBlocks <
-    P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
-  ) {
+  validateCanonicalSubmissionSelectors(reconciler.canonicalSubmissionSelectors)
+}
+
+const requireFinalityConfirmationBlocks = (
+  value: number,
+  label: string
+): number => {
+  const depth = requirePositiveSafeInteger(value, label)
+  if (depth < P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS) {
     throw new Error(
-      `Challenge reconciliation finality confirmation depth must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
+      `${label} must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
     )
   }
-  validateCanonicalSubmissionSelectors(reconciler.canonicalSubmissionSelectors)
+  return depth
 }
 
 const normalizeActivationManifestBinding = (
@@ -9130,7 +10544,7 @@ const replaceLatestPreparedVariant = (
   replacement,
 ]
 
-const appendSignerQuarantine = (
+export const appendSignerQuarantine = (
   existing: readonly P2TRSignatureFraudSignerQuarantine[] | undefined,
   identity: Pick<
     P2TRSignatureFraudBoundNonceReservation,
@@ -9263,10 +10677,16 @@ const appendUnexpectedSignedArtifact = (
   ) {
     return existing ?? []
   }
+  // Invocation echoes are unauthenticated response metadata. They are useful
+  // for accepting the expected signer response, but a malformed echo must not
+  // poison an otherwise authenticated artifact and make the durable record
+  // impossible to hydrate. The quarantine reason retains the mismatch.
+  const { invocation: _unsafeInvocation, ...durablePreparedTransaction } =
+    preparedTransaction
   return [
     ...(existing ?? []),
     {
-      preparedTransaction,
+      preparedTransaction: durablePreparedTransaction,
       expectedReservationID: normalizeBytes32(
         expectedReservationID,
         "Expected nonce reservation ID"

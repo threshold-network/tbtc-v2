@@ -27,6 +27,7 @@ import type {
   P2TRSignatureFraudWatchtowerStoreProfileProvider,
   P2TRSignatureFraudWatchtowerTransactionCoordinator,
 } from "./types.js"
+import { P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS } from "./P2TRSignatureFraudChallengeOutbox.js"
 
 const DEFAULT_ALERT_DEDUPLICATION_WINDOW_MS = 60_000
 const MAX_ALERT_FAILURE_SUMMARIES = 20
@@ -708,10 +709,11 @@ function requireProductionBroadcastReconciler(
   if (
     typeof finalityConfirmationBlocks !== "number" ||
     !Number.isSafeInteger(finalityConfirmationBlocks) ||
-    finalityConfirmationBlocks <= 0
+    finalityConfirmationBlocks <
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS
   ) {
     throw new Error(
-      "P2TR signature-fraud watchtower challenge broadcast reconciler requires a positive finality confirmation depth"
+      `P2TR signature-fraud watchtower challenge broadcast reconciler requires a finality confirmation depth of at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
     )
   }
 

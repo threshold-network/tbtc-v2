@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
+
 import {
   assertP2TRVerifiedLiveCoreCandidateEvidence,
   type P2TRVerifiedLiveCoreCandidateEvidence,
@@ -34,31 +35,98 @@ export type P2TRSignatureFraudVerifiedBoundaryEvidence = {
  */
 export interface P2TRSignatureFraudVerifiedBoundaryEvidenceProvider {
   acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
-    binding: P2TRSignatureFraudIrreversibleBoundaryBinding,
-    requestNonce: string
+    binding: P2TRSignatureFraudIrreversibleBoundaryBinding
   ): Promise<P2TRSignatureFraudVerifiedBoundaryEvidence>
 }
 
-type NormalizedBoundaryBinding = {
-  recordID: string
-  generation: number
-  recordVersion: number
-  reservationID: string
-  sender: string
-  transactionNonce: number
-  stage: "prepare" | "replacement" | "broadcast"
-  attempt: number
-  provenanceFingerprint: string
-  activationManifestHash: string
-  signingRequestDigest?: string
-  preparedTransactionHash?: string
+/**
+ * Deliberately an alias rather than a hand-copied mirror. `normalizeBoundaryBinding`
+ * returns this type, so a field added to the boundary binding but forgotten here
+ * becomes a compile error instead of being silently dropped from the digest —
+ * which is what an independent mirror of the shape would have done.
+ */
+type NormalizedBoundaryBinding = P2TRSignatureFraudIrreversibleBoundaryBinding
+
+/**
+ * The boundary binding and the reconciler request binding are declared
+ * independently — the reconciler shape is a wire protocol and must not be
+ * derived from an internal record shape — but `reconcilerRequestBinding` maps
+ * one onto the other field by field. Without this, a field added to the
+ * boundary binding alone would be dropped by that mapping and would never
+ * reach the digest: unauthenticated, with no compile error and no failing
+ * test. The two differ only in the name of the generation field.
+ */
+type MutuallyAssignable<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : never
+  : never
+const boundaryAndRequestBindingKeysAgree: MutuallyAssignable<
+  Exclude<keyof P2TRSignatureFraudIrreversibleBoundaryBinding, "generation">,
+  Exclude<keyof P2TRReconcilerRequestBinding, "recordGeneration">
+> = true
+void boundaryAndRequestBindingKeysAgree
+
+export const P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN =
+  "tbtc-p2tr-signature-fraud-signer-invocation-v1"
+
+/**
+ * The deterministic identity of one signer invocation.
+ *
+ * It is derived from the request-binding digest rather than by walking the
+ * binding again, for two reasons. The binding is already canonicalized in
+ * exactly one place, and a second walk would need a third canonicalizer — the
+ * precise failure `boundaryAndRequestBindingKeysAgree` above exists to prevent,
+ * since a field added to the binding but missed by that walk would drop out of
+ * the identity with no compile error. And the input is normalized first, so two
+ * spellings of the same durable boundary cannot yield two identities.
+ *
+ * The domain must differ from the request-binding domain: without it this value
+ * would be byte-identical to a digest that travels to an external attester, and
+ * it is about to become a durable primary key.
+ *
+ * Deterministic means reproducible, not constant: `recordVersion` is part of the
+ * binding and increments on every successful compare-and-swap, so two distinct
+ * boundaries can never share an identity, while replaying the same durable
+ * attempt always reproduces it.
+ */
+export function computeP2TRSignatureFraudSignerInvocationID(
+  binding: P2TRSignatureFraudIrreversibleBoundaryBinding
+): string {
+  return computeP2TRSignatureFraudSignerInvocationRequest(binding).invocationID
+}
+
+/**
+ * The identity AND the digest it commits to, from one canonicalization.
+ *
+ * The signer is handed both: the digest names the request, and the ID is the
+ * caller's durable handle for this invocation, so a provider can journal
+ * against the same value the outbox persisted. Computing them together is what
+ * keeps the outbox off a second canonicalization path — the digest is otherwise
+ * reachable only inside the authorizer.
+ */
+export function computeP2TRSignatureFraudSignerInvocationRequest(
+  binding: P2TRSignatureFraudIrreversibleBoundaryBinding
+): { invocationID: string; requestDigest: string } {
+  const requestDigest = bytes32(
+    computeP2TRReconcilerRequestBindingDigest(
+      reconcilerRequestBinding(normalizeBoundaryBinding(binding))
+    ),
+    "Request binding digest"
+  )
+  return {
+    invocationID: `0x${createHash("sha256")
+      .update(P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN, "utf8")
+      .update(Buffer.from(requestDigest, "hex"))
+      .digest("hex")}`,
+    requestDigest: `0x${requestDigest}`,
+  }
 }
 
 type PendingAuthorization = {
   binding: NormalizedBoundaryBinding
   reconcilerAttestation: P2TRVerifiedReconcilerCandidateAttestation
   liveCoreEvidence: P2TRVerifiedLiveCoreCandidateEvidence
-  requestNonce: string
   minimumExportFenceExclusive: number
   authorizedAtUnixMs: number
   exportFence: number
@@ -77,9 +145,7 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
 
   constructor(
     private readonly provider: P2TRSignatureFraudVerifiedBoundaryEvidenceProvider,
-    private readonly now: () => number = Date.now,
-    private readonly createRequestNonce: () => string = () =>
-      randomBytes(32).toString("hex")
+    private readonly now: () => number = Date.now
   ) {
     if (
       provider === undefined ||
@@ -96,14 +162,9 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     bindingValue: P2TRSignatureFraudIrreversibleBoundaryBinding
   ): Promise<P2TRSignatureFraudIrreversibleBoundaryAuthorization> {
     const binding = normalizeBoundaryBinding(bindingValue)
-    const requestNonce = bytes32(
-      this.createRequestNonce(),
-      "Boundary reconciler request nonce"
-    )
     const evidence =
       await this.provider.acquireVerifiedP2TRSignatureFraudBoundaryEvidence(
-        binding,
-        requestNonce
+        binding
       )
     const nowUnixMs = nonNegativeSafeInteger(
       this.now(),
@@ -122,7 +183,7 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     const payload = assertP2TRVerifiedReconcilerCandidateAttestation(
       evidence.reconcilerAttestation,
       {
-        requestNonce,
+        requestNonce: evidence.reconcilerAttestation.payload.requestNonce,
         requestBindingDigest,
         minimumExportFenceExclusive,
         nowUnixMs,
@@ -158,7 +219,6 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
       binding,
       reconcilerAttestation: evidence.reconcilerAttestation,
       liveCoreEvidence: evidence.liveCoreEvidence,
-      requestNonce,
       minimumExportFenceExclusive,
       authorizedAtUnixMs: nowUnixMs,
       exportFence: payload.export.exportFence,
@@ -205,7 +265,7 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     const payload = assertP2TRVerifiedReconcilerCandidateAttestation(
       pending.reconcilerAttestation,
       {
-        requestNonce: pending.requestNonce,
+        requestNonce: pending.reconcilerAttestation.payload.requestNonce,
         requestBindingDigest,
         minimumExportFenceExclusive: pending.minimumExportFenceExclusive,
         nowUnixMs,
@@ -221,6 +281,12 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
   }
 }
 
+/**
+ * Key insertion order and the conditional-spread idiom must stay identical to
+ * `normalizeRequestBinding` in `P2TRReconcilerAttestation.ts`: the two results
+ * are compared with plain `JSON.stringify` below, which is order-sensitive even
+ * though the digest itself is not.
+ */
 function reconcilerRequestBinding(
   value: NormalizedBoundaryBinding
 ): P2TRReconcilerRequestBinding {
@@ -235,9 +301,19 @@ function reconcilerRequestBinding(
     attempt: value.attempt,
     provenanceFingerprint: value.provenanceFingerprint,
     activationManifestHash: value.activationManifestHash,
-    ...(value.signingRequestDigest === undefined
+    laneID: value.laneID,
+    signerIdentity: value.signerIdentity,
+    intentID: value.intentID,
+    routerAddress: value.routerAddress,
+    intentValueWei: value.intentValueWei,
+    challengeValueWei: value.challengeValueWei,
+    maxGasLimit: value.maxGasLimit,
+    maxFeePerGas: value.maxFeePerGas,
+    maxPriorityFeePerGas: value.maxPriorityFeePerGas,
+    maxTotalFeeWei: value.maxTotalFeeWei,
+    ...(value.replacedTransactionHash === undefined
       ? {}
-      : { signingRequestDigest: value.signingRequestDigest }),
+      : { replacedTransactionHash: value.replacedTransactionHash }),
     ...(value.preparedTransactionHash === undefined
       ? {}
       : { preparedTransactionHash: value.preparedTransactionHash }),
@@ -250,10 +326,18 @@ function normalizeBoundaryBinding(
   if (
     value?.stage !== "prepare" &&
     value?.stage !== "replacement" &&
-    value?.stage !== "broadcast"
+    value?.stage !== "broadcast" &&
+    value?.stage !== "burn"
   ) {
     throw new Error("Irreversible-boundary stage is invalid")
   }
+  const replacedTransactionHash =
+    value.replacedTransactionHash === undefined
+      ? undefined
+      : bytes32(
+          value.replacedTransactionHash,
+          "Boundary replaced transaction hash"
+        )
   const preparedTransactionHash =
     value.preparedTransactionHash === undefined
       ? undefined
@@ -261,16 +345,20 @@ function normalizeBoundaryBinding(
           value.preparedTransactionHash,
           "Boundary prepared transaction hash"
         )
-  const signingRequestDigest =
-    value.signingRequestDigest === undefined
-      ? undefined
-      : bytes32(value.signingRequestDigest, "Boundary signing request digest")
   if (
-    (value.stage === "broadcast") !== (preparedTransactionHash !== undefined) ||
-    (value.stage !== "broadcast") !== (signingRequestDigest !== undefined)
+    (value.stage === "replacement") !==
+    (replacedTransactionHash !== undefined)
   ) {
     throw new Error(
-      "Signer authorizations require an exact request digest and broadcast authorizations require exact prepared bytes"
+      "Only a replacement authorization may name the superseded transaction"
+    )
+  }
+  if (
+    (value.stage === "broadcast") !==
+    (preparedTransactionHash !== undefined)
+  ) {
+    throw new Error(
+      "Only a broadcast authorization may name prepared transaction bytes"
     )
   }
   return {
@@ -299,7 +387,38 @@ function normalizeBoundaryBinding(
       value.activationManifestHash,
       "Boundary activation manifest hash"
     ),
-    signingRequestDigest,
+    laneID: identityText(value.laneID, "Boundary signer lane ID"),
+    signerIdentity: identityText(
+      value.signerIdentity,
+      "Boundary signer identity"
+    ),
+    intentID: bytes32(value.intentID, "Boundary submission intent ID"),
+    routerAddress: address(value.routerAddress, "Boundary router address"),
+    intentValueWei: uint256Decimal(
+      value.intentValueWei,
+      "Boundary intent value"
+    ),
+    challengeValueWei: uint256Decimal(
+      value.challengeValueWei,
+      "Boundary challenge value"
+    ),
+    maxGasLimit: uint256Decimal(
+      value.maxGasLimit,
+      "Boundary maximum gas limit"
+    ),
+    maxFeePerGas: uint256Decimal(
+      value.maxFeePerGas,
+      "Boundary maximum fee per gas"
+    ),
+    maxPriorityFeePerGas: uint256Decimal(
+      value.maxPriorityFeePerGas,
+      "Boundary maximum priority fee per gas"
+    ),
+    maxTotalFeeWei: uint256Decimal(
+      value.maxTotalFeeWei,
+      "Boundary maximum total fee"
+    ),
+    replacedTransactionHash,
     preparedTransactionHash,
   }
 }
@@ -320,6 +439,33 @@ function address(value: string, label: string): string {
     throw new Error(`${label} must be 20 bytes`)
   }
   return `0x${normalized}`
+}
+
+/** Mirrors the outbox's `requireBoundedText`, trim included. */
+function identityText(value: string, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be non-empty`)
+  }
+  const normalized = value.trim()
+  if (normalized.length > 128) {
+    throw new Error(`${label} exceeds 128 characters`)
+  }
+  return normalized
+}
+
+/** Mirrors the outbox's `normalizePolicyUint256`; 2^256-1 has 78 digits. */
+function uint256Decimal(value: string, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 78 ||
+    !/^(?:0|[1-9][0-9]*)$/.test(value)
+  ) {
+    throw new Error(`${label} must be a canonical unsigned decimal integer`)
+  }
+  if (BigInt(value) > (1n << 256n) - 1n) {
+    throw new Error(`${label} exceeds uint256`)
+  }
+  return value
 }
 
 function nonNegativeSafeInteger(value: number, label: string): number {

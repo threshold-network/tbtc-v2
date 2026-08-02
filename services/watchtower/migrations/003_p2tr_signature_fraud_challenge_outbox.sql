@@ -316,9 +316,33 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
         signer_invocation_started_at_unix_ms IS NULL
         OR signer_invocation_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
+    -- Deterministic identity of the boundary the marker below names, committed
+    -- in the same swap. The activation barrier counts outstanding invocations
+    -- by the marker's NULL transitions alone, so the two must be NULL together
+    -- or the counter stops meaning "a signer call may be outstanding".
+    signer_invocation_id bytea CHECK (
+        signer_invocation_id IS NULL
+        OR octet_length(signer_invocation_id) = 32
+    ),
     active_signer_invocation_started_at_unix_ms bigint CHECK (
         active_signer_invocation_started_at_unix_ms IS NULL
         OR active_signer_invocation_started_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    active_signer_invocation_id bytea CHECK (
+        active_signer_invocation_id IS NULL
+        OR octet_length(active_signer_invocation_id) = 32
+    ),
+    CHECK (
+        (active_signer_invocation_started_at_unix_ms IS NULL)
+            = (active_signer_invocation_id IS NULL)
+    ),
+    -- The historical pair is deliberately NOT required to agree. The active
+    -- pair drives the barrier counter and must be exact; the historical marker
+    -- is proof that some signer call began, and a failure record may have to
+    -- assert that from a fallback clock when no identity survived.
+    CHECK (
+        signer_invocation_id IS NULL
+        OR signer_invocation_started_at_unix_ms IS NOT NULL
     ),
     latest_variant_sequence smallint CHECK (
         latest_variant_sequence IS NULL
@@ -1008,6 +1032,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_request (
         requested_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
     UNIQUE (record_id, release_request_id),
+    -- Lets the nonce-allocator safety barrier bind a claimed release request to
+    -- its own (chain_id, sender) key declaratively rather than by convention.
+    UNIQUE (chain_id, sender, release_request_id),
     FOREIGN KEY (record_id, generation)
         REFERENCES p2tr_signature_fraud_challenge_outbox(record_id, generation)
         ON DELETE RESTRICT,
@@ -1208,15 +1235,37 @@ SELECT release_request_id, attempt_sequence, outcome
   FROM p2tr_signature_fraud_challenge_nonce_release_resolution
  WHERE outcome IN ('released', 'already-released');
 
+-- A contract mismatch is a statement about the nonce allocator's API
+-- implementation, not about any one account, so it permanently flips this
+-- singleton to no-go for every lane at once and is never cleared.
+-- `incident_epoch` counts the events that set it.
+CREATE TABLE p2tr_signature_fraud_nonce_allocator_global_barrier (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    contract_mismatch_blocked boolean NOT NULL DEFAULT false,
+    incident_epoch bigint NOT NULL DEFAULT 0 CHECK (
+        incident_epoch BETWEEN 0 AND 9007199254740991
+    )
+);
+
+INSERT INTO p2tr_signature_fraud_nonce_allocator_global_barrier (
+    singleton,
+    contract_mismatch_blocked,
+    incident_epoch
+) VALUES (true, false, 0);
+
 -- External nonce-release and signer calls never run inside a database
--- transaction, so their mutually exclusive durable claims live here. The
--- barrier is keyed by the actual Ethereum nonce lane: independent senders do
--- not block one another, while release and signer I/O for the same
--- `(chain_id, sender)` still serialize through one durable row.
+-- transaction, so their mutually exclusive durable claims live here. A
+-- release invocation is committed before allocator I/O; a signer claim is
+-- committed before signer I/O.
+--
+-- What those two claims mutually exclude is signing against releasing ON THE
+-- SAME ETHEREUM ACCOUNT: a release hands a reserved nonce of that account back
+-- to its allocator, so the claim is keyed by (chain_id, sender) -- the nonce
+-- lane. Keying it that way is what stops one account's outstanding allocator
+-- I/O from wedging signing for every other account; nothing here relates
+-- account A's in-flight release to account B.
 CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
-    chain_id numeric(78, 0) NOT NULL CHECK (
-        chain_id BETWEEN 0 AND 9007199254740991
-    ),
+    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     active_release_request_id bytea CHECK (
         active_release_request_id IS NULL
@@ -1236,10 +1285,7 @@ CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
     unresolved_release_count integer NOT NULL DEFAULT 0 CHECK (
         unresolved_release_count BETWEEN 0 AND 1000000
     ),
-    contract_mismatch_blocked boolean NOT NULL DEFAULT false,
-    incident_epoch bigint NOT NULL DEFAULT 0 CHECK (
-        incident_epoch BETWEEN 0 AND 9007199254740991
-    ),
+    PRIMARY KEY (chain_id, sender),
     CHECK (
         num_nonnulls(
             active_release_request_id,
@@ -1254,25 +1300,43 @@ CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
         release_request_id,
         attempt_sequence
     ) DEFERRABLE INITIALLY DEFERRED,
-    PRIMARY KEY (chain_id, sender)
+    -- The attempt reference above carries no lane, so on its own it would let
+    -- one lane's barrier row hold a claim belonging to a different lane. This
+    -- second reference pins the claimed request to THIS row's key.
+    FOREIGN KEY (
+        chain_id,
+        sender,
+        active_release_request_id
+    ) REFERENCES p2tr_signature_fraud_challenge_nonce_release_request (
+        chain_id,
+        sender,
+        release_request_id
+    ) DEFERRABLE INITIALLY DEFERRED
 );
 
-CREATE FUNCTION p2tr_signature_fraud_register_nonce_lane_barrier()
+-- Lane rows are seeded eagerly when a lane is configured, never lazily on first
+-- use. Every gate below reads a missing row as fail-closed, and the activation
+-- handshake needs the row set to be ground truth rather than a by-product of
+-- traffic. Rows deliberately outlive the manifest that introduced them, so a
+-- lane rotated out of the current manifest keeps its barrier state.
+CREATE FUNCTION p2tr_signature_fraud_seed_nonce_allocator_lane_barrier()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
     INSERT INTO p2tr_signature_fraud_nonce_allocator_safety_barrier (
-        chain_id, sender
+        chain_id,
+        sender
     ) VALUES (NEW.chain_id, NEW.sender)
     ON CONFLICT (chain_id, sender) DO NOTHING;
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER p2tr_signature_fraud_register_nonce_lane_barrier_trigger
+CREATE TRIGGER p2tr_signature_fraud_seed_nonce_allocator_lane_barrier_trigger
 AFTER INSERT ON p2tr_signature_fraud_signer_lane_configuration
-FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_register_nonce_lane_barrier();
+FOR EACH ROW EXECUTE FUNCTION
+    p2tr_signature_fraud_seed_nonce_allocator_lane_barrier();
 
 CREATE INDEX p2tr_signature_fraud_pending_nonce_release_idx
     ON p2tr_signature_fraud_challenge_nonce_release_request (release_request_id);
@@ -1638,7 +1702,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident (
 -- call outstanding". That ambiguity is resolvable only by the boundary's own
 -- owner, which is the single witness that authorization failed before any
 -- signer I/O. The same first-person observation is already trusted to clear the
--- lane-scoped signer barrier, so it is equally sufficient to retire the incident.
+-- lane's signer barrier, so it is equally sufficient to retire the incident.
 --
 -- A lease timeout is NOT such evidence and can never produce a row here.
 CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident_resolution (
@@ -1648,7 +1712,12 @@ CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident_resolution (
     record_id bytea NOT NULL,
     provenance_invalidation_id bytea NOT NULL,
     -- The exact boundary this resolution speaks for. Retiring an incident
-    -- raised over a different boundary must be impossible.
+    -- raised over a different boundary must be impossible. Carries the same
+    -- deterministic identity as the signer-boundary resolution committed in the
+    -- same transaction, so one retirement cannot name two boundaries.
+    signer_invocation_id bytea NOT NULL CHECK (
+        octet_length(signer_invocation_id) = 32
+    ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1718,9 +1787,9 @@ EXECUTE FUNCTION p2tr_signature_fraud_guard_provenance_incident_resolution();
 --
 -- `active_signer_invocation_started_at_unix_ms` is committed BEFORE boundary
 -- authorization and therefore before the signer RPC, so a lost owner leaves the
--- lane's `active_signer_invocation_count` above zero. That blocks nonce-release
--- I/O for the affected `(chain_id, sender)` without freezing independent
--- senders. Lease expiry is not evidence and can never produce a row here; only an
+-- lane's `active_signer_invocation_count` at one. That blocks every
+-- nonce-release invocation on that lane and freezes challenge signing for that
+-- account. Lease expiry is not evidence and can never produce a row here; only an
 -- out-of-band observation of what the signer actually did, carrying two
 -- attestations from distinct trust AND independence domains, may.
 --
@@ -1731,7 +1800,98 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         REFERENCES p2tr_signature_fraud_challenge_outbox(record_id)
         ON DELETE RESTRICT,
     -- The exact boundary this resolution speaks for. Resolving a boundary the
-    -- durable row does not currently own must be impossible.
+    -- durable row does not currently own must be impossible. The identity is
+    -- the invocation ID; the three fields after it are operator-facing detail,
+    -- bound into the evidence digest but no longer deciding ownership.
+    signer_invocation_id bytea NOT NULL CHECK (
+        octet_length(signer_invocation_id) = 32
+    ),
+    -- Proof that the provider itself closed this invocation. Required exactly
+    -- for 'never-invoked': two attesters can report what they observed, but
+    -- nobody can observe the absence of a request still buffered in transit --
+    -- only a fencing write at the provider settles that.
+    provider_tombstone_receipt bytea CHECK (
+        provider_tombstone_receipt IS NULL
+        OR octet_length(provider_tombstone_receipt) BETWEEN 1 AND 2048
+    ),
+    provider_tombstone_at_unix_ms bigint CHECK (
+        provider_tombstone_at_unix_ms IS NULL
+        OR provider_tombstone_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    CHECK (
+        (outcome = 'never-invoked')
+            = (provider_tombstone_receipt IS NOT NULL)
+    ),
+    CHECK (
+        (provider_tombstone_receipt IS NULL)
+            = (provider_tombstone_at_unix_ms IS NULL)
+    ),
+    CHECK (
+        provider_tombstone_at_unix_ms IS NULL
+        OR provider_tombstone_at_unix_ms
+            BETWEEN boundary_started_at_unix_ms AND resolved_at_unix_ms
+    ),
+    -- Evidence that the chain, not the provider, settled this boundary: the
+    -- reserved nonce is consumed at finality, so any bytes for it are inert.
+    -- chain_id is carried because nothing else in nonce-consumption evidence
+    -- names a chain, and without it an attestation over (sender, nonce) would
+    -- replay against any record on any chain sharing that pair.
+    nonce_consumption_chain_id numeric(78, 0) CHECK (
+        nonce_consumption_chain_id IS NULL OR nonce_consumption_chain_id > 0
+    ),
+    nonce_consumption_nonce bigint CHECK (
+        nonce_consumption_nonce IS NULL OR nonce_consumption_nonce >= 0
+    ),
+    nonce_consumption_account_nonce bigint CHECK (
+        nonce_consumption_account_nonce IS NULL
+        OR nonce_consumption_account_nonce >= 0
+    ),
+    nonce_consumption_read_at_block bigint CHECK (
+        nonce_consumption_read_at_block IS NULL
+        OR nonce_consumption_read_at_block >= 0
+    ),
+    nonce_consumption_transaction_hash bytea CHECK (
+        nonce_consumption_transaction_hash IS NULL
+        OR octet_length(nonce_consumption_transaction_hash) = 32
+    ),
+    nonce_consumption_finalized_block_number bigint CHECK (
+        nonce_consumption_finalized_block_number IS NULL
+        OR nonce_consumption_finalized_block_number >= 0
+    ),
+    nonce_consumption_finalized_block_hash bytea CHECK (
+        nonce_consumption_finalized_block_hash IS NULL
+        OR octet_length(nonce_consumption_finalized_block_hash) = 32
+    ),
+    CHECK (
+        (outcome = 'nonce-consumed')
+            = (nonce_consumption_transaction_hash IS NOT NULL)
+    ),
+    -- All seven move together or none of them do.
+    CHECK (
+        (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_chain_id IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_nonce IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_account_nonce IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_read_at_block IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_finalized_block_number IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_finalized_block_hash IS NULL)
+    ),
+    -- Strictly past the reserved nonce: equality would mean N is still spendable.
+    CHECK (
+        nonce_consumption_account_nonce IS NULL
+        OR nonce_consumption_account_nonce > nonce_consumption_nonce
+    ),
+    -- Read AT the finality boundary, not at head.
+    CHECK (
+        nonce_consumption_read_at_block IS NULL
+        OR nonce_consumption_read_at_block
+            = nonce_consumption_finalized_block_number
+    ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1740,15 +1900,17 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         octet_length(nonce_reservation_id) = 32
     ),
     stage text NOT NULL CHECK (stage IN ('prepare', 'replacement')),
-    signer_invocation_id bytea NOT NULL CHECK (
-        octet_length(signer_invocation_id) = 32
+    -- The provider's deterministic tombstone namespace is checked alongside
+    -- the full custody request-binding signer_invocation_id declared above.
+    provider_invocation_id bytea NOT NULL CHECK (
+        octet_length(provider_invocation_id) = 32
     ),
     invoked_at_unix_ms bigint NOT NULL CHECK (
         invoked_at_unix_ms BETWEEN boundary_started_at_unix_ms
             AND 9007199254740991
     ),
     outcome text NOT NULL CHECK (outcome IN (
-        'never-invoked', 'signed', 'terminal-unsafe'
+        'never-invoked', 'signed', 'terminal-unsafe', 'nonce-consumed'
     )),
     signed_transaction_hash bytea CHECK (
         signed_transaction_hash IS NULL
@@ -1802,12 +1964,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     resolved_at_unix_ms bigint NOT NULL CHECK (
         resolved_at_unix_ms BETWEEN invoked_at_unix_ms AND 9007199254740991
     ),
-    PRIMARY KEY (
-        record_id,
-        boundary_started_at_unix_ms,
-        preparation_attempts,
-        nonce_reservation_id
-    ),
+    -- Keyed on the deterministic invocation identity, not the wall-clock tuple
+    -- it replaces. `record_id` stays as the leading column because this is the
+    -- table's only index and two queries filter on it alone.
+    PRIMARY KEY (record_id, signer_invocation_id),
     -- Signed bytes are named exactly when, and only when, the signer is proven
     -- to have produced them.
     CHECK ((outcome = 'signed') = (signed_transaction_hash IS NOT NULL)),
@@ -1822,6 +1982,21 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         (outcome <> 'never-invoked'
          AND provider_tombstoned_at_unix_ms IS NULL
          AND provider_tombstone_receipt_digest IS NULL)
+    ),
+    -- Both stacked tombstone representations must describe the same opaque
+    -- provider receipt and the same durable fencing instant.
+    CHECK (
+        (provider_tombstone_receipt IS NULL)
+            = (provider_tombstone_receipt_digest IS NULL)
+    ),
+    CHECK (
+        provider_tombstone_receipt IS NULL
+        OR provider_tombstone_receipt_digest
+            = sha256(provider_tombstone_receipt)
+    ),
+    CHECK (
+        provider_tombstone_at_unix_ms
+            IS NOT DISTINCT FROM provider_tombstoned_at_unix_ms
     ),
     CHECK (primary_trust_domain_id <> corroborating_trust_domain_id),
     CHECK (primary_evidence_digest = resolution_evidence_digest),
@@ -1857,13 +2032,47 @@ BEGIN
             'orphaned signer boundary resolution names an absent outbox record';
     END IF;
 
-    IF outbox_record.active_signer_invocation_started_at_unix_ms
+    -- Identity is the invocation ID, compared against the durable column rather
+    -- than re-derived: PostgreSQL cannot recompute it (the binding preimage
+    -- spans three tables and a TypeScript layout), which is the same standard
+    -- nonce_reservation_id already met.
+    --
+    -- The other three remain checked. They are descriptive columns of
+    -- append-only evidence that nothing downstream reads, so leaving them
+    -- unchecked would let a resolution naming the right boundary write
+    -- permanently wrong forensics about it. None can drift while the marker is
+    -- set: the start is immutable in flight and NULL-paired with the ID, the
+    -- reservation cannot be NULLed under an active marker, and every transition
+    -- that bumps the attempt clears the marker in the same swap.
+    IF outbox_record.active_signer_invocation_id
+           IS DISTINCT FROM NEW.signer_invocation_id
+       OR outbox_record.active_signer_invocation_started_at_unix_ms
            IS DISTINCT FROM NEW.boundary_started_at_unix_ms
        OR outbox_record.preparation_attempts <> NEW.preparation_attempts
        OR outbox_record.nonce_reservation_id
            IS DISTINCT FROM NEW.nonce_reservation_id THEN
         RAISE EXCEPTION
             'orphaned signer boundary resolution does not name the durable boundary';
+    END IF;
+
+    IF NEW.outcome = 'never-invoked'
+       AND NEW.provider_tombstone_receipt IS NULL THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary never-invoked resolution requires a provider tombstone';
+    END IF;
+
+    -- The consumed nonce must be the one this boundary actually reserved, on
+    -- the chain the record is bound to.
+    IF NEW.outcome = 'nonce-consumed' THEN
+        IF NEW.nonce_consumption_transaction_hash IS NULL THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary nonce-consumed resolution requires consumption evidence';
+        END IF;
+        IF NEW.nonce_consumption_nonce IS DISTINCT FROM outbox_record.reserved_nonce
+           OR NEW.nonce_consumption_chain_id IS DISTINCT FROM outbox_record.chain_id THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary nonce consumption names another sender lane';
+        END IF;
     END IF;
 
     IF (outbox_record.preparation_resume_status IS NULL
@@ -1874,7 +2083,7 @@ BEGIN
             'orphaned signer boundary resolution does not name the durable signer stage';
     END IF;
 
-    IF NEW.signer_invocation_id <> sha256(
+    IF NEW.provider_invocation_id <> sha256(
            convert_to('tbtc-p2tr-signer-invocation-v1', 'UTF8')
            || NEW.record_id
            || int8send(NEW.boundary_started_at_unix_ms)
@@ -1888,10 +2097,11 @@ BEGIN
 
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
-               'tbtc-p2tr-signer-boundary-independent-resolution-v2',
+               'tbtc-p2tr-signer-boundary-independent-resolution-v4',
                'UTF8'
            )
            || NEW.record_id
+           || NEW.signer_invocation_id
            || int8send(NEW.boundary_started_at_unix_ms)
            || int8send(NEW.preparation_attempts::bigint)
            || NEW.nonce_reservation_id
@@ -1904,9 +2114,27 @@ BEGIN
                   decode(repeat('00', 32), 'hex')
               )
            || NEW.provider_evidence_digest
-           || int8send(COALESCE(NEW.provider_tombstoned_at_unix_ms, 0))
+           || CASE WHEN NEW.provider_tombstone_receipt IS NULL
+                   THEN decode(repeat('00', 32), 'hex')
+                   ELSE NEW.signer_invocation_id END
            || COALESCE(
-                  NEW.provider_tombstone_receipt_digest,
+                  sha256(NEW.provider_tombstone_receipt),
+                  decode(repeat('00', 32), 'hex')
+              )
+           || int8send(COALESCE(NEW.provider_tombstone_at_unix_ms, 0))
+           || int8send(COALESCE(NEW.nonce_consumption_chain_id, 0)::bigint)
+           || int8send(COALESCE(NEW.nonce_consumption_nonce, 0))
+           || int8send(COALESCE(NEW.nonce_consumption_account_nonce, 0))
+           || int8send(COALESCE(NEW.nonce_consumption_read_at_block, 0))
+           || COALESCE(
+                  NEW.nonce_consumption_transaction_hash,
+                  decode(repeat('00', 32), 'hex')
+              )
+           || int8send(
+                  COALESCE(NEW.nonce_consumption_finalized_block_number, 0)
+              )
+           || COALESCE(
+                  NEW.nonce_consumption_finalized_block_hash,
                   decode(repeat('00', 32), 'hex')
               )
        ) THEN
@@ -2154,7 +2382,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_quarantine (
         'wrong-sender',
         'wrong-nonce',
         'malformed-signed-envelope',
-        'oversized-signed-envelope',
+        'wrong-signer-invocation-request',
         'invalid-replacement-envelope',
         'reservation-binding-mismatch',
         'reservation-provider-failure'
@@ -3158,13 +3386,13 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO p2tr_signature_fraud_nonce_allocator_safety_barrier (
-        chain_id, sender, unresolved_release_count
-    ) VALUES (NEW.chain_id, NEW.sender, 1)
-    ON CONFLICT (chain_id, sender) DO UPDATE
-       SET unresolved_release_count =
-               p2tr_signature_fraud_nonce_allocator_safety_barrier
-                   .unresolved_release_count + 1;
+    UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+       SET unresolved_release_count = unresolved_release_count + 1
+     WHERE chain_id = NEW.chain_id
+       AND sender = NEW.sender;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'nonce allocator safety barrier is missing for the lane';
+    END IF;
     RETURN NEW;
 END;
 $$;
@@ -3190,10 +3418,9 @@ BEGIN
     FOR UPDATE;
 
     IF COALESCE((
-        SELECT b.contract_mismatch_blocked
-        FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
-        WHERE b.chain_id = request.chain_id
-          AND b.sender = request.sender
+        SELECT contract_mismatch_blocked
+        FROM p2tr_signature_fraud_nonce_allocator_global_barrier
+        WHERE singleton = true
     ), true) THEN
         RETURN NULL;
     END IF;
@@ -3257,17 +3484,15 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     attempt p2tr_signature_fraud_challenge_nonce_release_attempt%ROWTYPE;
-    request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
+    globally_blocked boolean;
 BEGIN
     SELECT * INTO attempt
     FROM p2tr_signature_fraud_challenge_nonce_release_attempt
     WHERE release_request_id = NEW.release_request_id
       AND attempt_sequence = NEW.attempt_sequence
     FOR UPDATE;
-
-    SELECT * INTO request
-    FROM p2tr_signature_fraud_challenge_nonce_release_request
-    WHERE release_request_id = NEW.release_request_id;
 
     IF attempt.release_request_id IS NULL
        OR attempt.owner <> NEW.owner
@@ -3287,24 +3512,38 @@ BEGIN
         RAISE EXCEPTION 'nonce-release invocation lacks its exact live attempt';
     END IF;
 
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
+
+    SELECT contract_mismatch_blocked INTO globally_blocked
+      FROM p2tr_signature_fraud_nonce_allocator_global_barrier
+     WHERE singleton = true;
+    IF globally_blocked IS NULL THEN
+        RAISE EXCEPTION 'nonce allocator global barrier is missing';
+    END IF;
+
+    -- The claim excludes signing on THIS account only. A different account's
+    -- signer boundary is not a reason to withhold this account's nonce from
+    -- its allocator.
     UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
        SET active_release_request_id = NEW.release_request_id,
            active_release_attempt_sequence = NEW.attempt_sequence,
            active_release_expires_at_unix_ms = attempt.expires_at_unix_ms
-     WHERE chain_id = request.chain_id
-       AND sender = request.sender
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
        AND active_release_request_id IS NULL
        AND active_signer_invocation_count = 0
        AND unresolved_release_count > 0
-       AND NOT contract_mismatch_blocked;
+       AND NOT globally_blocked;
     IF NOT FOUND THEN
         IF NOT EXISTS (
             SELECT 1
             FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-            WHERE chain_id = request.chain_id
-              AND sender = request.sender
+            WHERE chain_id = lane_chain_id
+              AND sender = lane_sender
         ) THEN
-            RAISE EXCEPTION 'nonce allocator safety barrier is missing';
+            RAISE EXCEPTION 'nonce allocator safety barrier is missing for the lane';
         END IF;
         -- Contention is not malformed state. Suppress this append so the same
         -- uninvoked attempt can retry after the current signer/release exits.
@@ -3404,17 +3643,19 @@ DECLARE
     barrier_release_request bytea;
     barrier_release_sequence integer;
     invocation_exists boolean;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
 BEGIN
-    SELECT * INTO request
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
       FROM p2tr_signature_fraud_challenge_nonce_release_request
      WHERE release_request_id = NEW.release_request_id;
 
-    SELECT b.active_release_request_id, b.active_release_attempt_sequence
+    SELECT active_release_request_id, active_release_attempt_sequence
       INTO barrier_release_request, barrier_release_sequence
       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
-     WHERE b.chain_id = request.chain_id
-       AND b.sender = request.sender
-     FOR UPDATE OF b;
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
+     FOR UPDATE;
 
     SELECT EXISTS (
         SELECT 1
@@ -3466,25 +3707,30 @@ BEGIN
                     ) THEN NULL
                ELSE active_release_expires_at_unix_ms
            END,
-           contract_mismatch_blocked =
-               contract_mismatch_blocked
-               OR NEW.result_kind = 'contract-mismatch',
            unresolved_release_count = unresolved_release_count - CASE
                WHEN NEW.result_kind IN ('released', 'already-released') THEN 1
                ELSE 0
-           END,
-           incident_epoch = incident_epoch + CASE
-               WHEN NEW.result_kind = 'contract-mismatch' THEN 1
-               ELSE 0
            END
-     WHERE chain_id = request.chain_id
-       AND sender = request.sender
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
        AND (
            NEW.result_kind NOT IN ('released', 'already-released')
            OR unresolved_release_count > 0
        );
     IF NOT FOUND THEN
         RAISE EXCEPTION 'nonce-release safety barrier counter underflow';
+    END IF;
+
+    -- A malformed allocator response condemns the allocator, not the account,
+    -- so it lands on the global barrier and blocks every lane.
+    IF NEW.result_kind = 'contract-mismatch' THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier
+           SET contract_mismatch_blocked = true,
+               incident_epoch = incident_epoch + 1
+         WHERE singleton = true;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'nonce allocator global barrier is missing';
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -3505,10 +3751,12 @@ DECLARE
     request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
     barrier_request bytea;
     barrier_sequence integer;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
 BEGIN
-    SELECT * INTO request
-    FROM p2tr_signature_fraud_challenge_nonce_release_request
-    WHERE release_request_id = NEW.release_request_id;
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
 
     SELECT * INTO attempt
     FROM p2tr_signature_fraud_challenge_nonce_release_attempt
@@ -3529,9 +3777,9 @@ BEGIN
     SELECT b.active_release_request_id, b.active_release_attempt_sequence
       INTO barrier_request, barrier_sequence
       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
-     WHERE b.chain_id = request.chain_id
-       AND b.sender = request.sender
-     FOR UPDATE OF b;
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
+     FOR UPDATE;
 
     IF attempt.release_request_id IS NULL
        OR invocation.release_request_id IS NULL
@@ -3584,11 +3832,12 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
 BEGIN
-    SELECT * INTO request
-    FROM p2tr_signature_fraud_challenge_nonce_release_request
-    WHERE release_request_id = NEW.release_request_id;
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
 
     UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
        SET active_release_request_id = NULL,
@@ -3597,16 +3846,9 @@ BEGIN
            unresolved_release_count = unresolved_release_count - CASE
                WHEN NEW.outcome IN ('released', 'already-released') THEN 1
                ELSE 0
-           END,
-           contract_mismatch_blocked =
-               contract_mismatch_blocked
-               OR NEW.outcome = 'terminal-unsafe',
-           incident_epoch = incident_epoch + CASE
-               WHEN NEW.outcome = 'terminal-unsafe' THEN 1
-               ELSE 0
            END
-     WHERE chain_id = request.chain_id
-       AND sender = request.sender
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
        AND active_release_request_id = NEW.release_request_id
        AND active_release_attempt_sequence = NEW.attempt_sequence
        AND (
@@ -3615,6 +3857,18 @@ BEGIN
        );
     IF NOT FOUND THEN
         RAISE EXCEPTION 'independent nonce-release resolution lost its durable barrier';
+    END IF;
+
+    -- A terminally unsafe release means the allocator's state can no longer be
+    -- reasoned about at all, which is a global condemnation, not a lane one.
+    IF NEW.outcome = 'terminal-unsafe' THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier
+           SET contract_mismatch_blocked = true,
+               incident_epoch = incident_epoch + 1
+         WHERE singleton = true;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'nonce allocator global barrier is missing';
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -4369,15 +4623,153 @@ BEGIN
         END IF;
     END IF;
 
+    -- The burn signer is a second external signer boundary. Its record-state
+    -- claim is committed before that RPC and may outlive resolution of the
+    -- original boundary, so it must retain the exact reservation until signed
+    -- burn bytes replace the claim in the same CAS.
+    IF NOT (OLD.record_state ? 'contestedNonceBurnClaim')
+       AND NEW.record_state ? 'contestedNonceBurnClaim' THEN
+        IF OLD.active_signer_invocation_started_at_unix_ms IS NULL
+           OR OLD.nonce_reservation_id IS NULL
+           OR NEW.record_state ? 'contestedNonceBurn'
+           OR (NEW.record_state -> 'contestedNonceBurnClaim' ->> 'recordVersion')::bigint
+                IS DISTINCT FROM OLD.version
+           OR (NEW.record_state -> 'contestedNonceBurnClaim' ->> 'preparationAttempts')::integer
+                IS DISTINCT FROM OLD.preparation_attempts
+           OR lower(
+                NEW.record_state -> 'contestedNonceBurnClaim' ->> 'reservationID'
+              ) IS DISTINCT FROM (
+                '0x' || encode(OLD.nonce_reservation_id, 'hex')
+              ) THEN
+            RAISE EXCEPTION 'contested nonce burn claim lacks its exact pre-I/O boundary';
+        END IF;
+    END IF;
+
+    IF OLD.record_state ? 'contestedNonceBurnClaim' THEN
+        IF NEW.nonce_reservation_id IS NULL
+           OR ROW(
+                NEW.nonce_reservation_id,
+                NEW.signer_lane_id,
+                NEW.signer_identity,
+                NEW.reserved_sender,
+                NEW.reserved_nonce,
+                NEW.nonce_reservation_binding,
+                NEW.nonce_reserved_at_unix_ms
+              ) IS DISTINCT FROM ROW(
+                OLD.nonce_reservation_id,
+                OLD.signer_lane_id,
+                OLD.signer_identity,
+                OLD.reserved_sender,
+                OLD.reserved_nonce,
+                OLD.nonce_reservation_binding,
+                OLD.nonce_reserved_at_unix_ms
+              )
+           OR (
+                (NEW.record_state ? 'contestedNonceBurnClaim')
+                = (NEW.record_state ? 'contestedNonceBurn')
+              )
+           OR (
+                NEW.record_state ? 'contestedNonceBurnClaim'
+                AND OLD.record_state -> 'contestedNonceBurnClaim'
+                    IS DISTINCT FROM
+                    NEW.record_state -> 'contestedNonceBurnClaim'
+              )
+           OR (
+                NEW.record_state ? 'contestedNonceBurn'
+                AND lower(
+                    OLD.record_state -> 'contestedNonceBurnClaim'
+                        ->> 'signerInvocationID'
+                  ) IS DISTINCT FROM lower(
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'signerInvocationID'
+                  )
+              ) THEN
+            RAISE EXCEPTION 'contested nonce burn claim cannot release its reservation or change identity';
+        END IF;
+    END IF;
+
+    IF NOT (OLD.record_state ? 'contestedNonceBurn')
+       AND NEW.record_state ? 'contestedNonceBurn'
+       AND NOT (OLD.record_state ? 'contestedNonceBurnClaim') THEN
+        RAISE EXCEPTION 'signed contested nonce burn lacks its durable pre-I/O claim';
+    END IF;
+
+    -- Once signed burn bytes are durable, they are append-only evidence that
+    -- the reserved nonce may have escaped. Direct SQL writers get the same
+    -- rule as the adapter: they may append the broadcast acknowledgement once,
+    -- but cannot remove or replace any field of the signed transaction or
+    -- rewrite an acknowledgement that is already durable.
+    IF OLD.record_state ? 'contestedNonceBurn' THEN
+        IF NOT (NEW.record_state ? 'contestedNonceBurn')
+           OR (
+                (OLD.record_state -> 'contestedNonceBurn')
+                    - 'broadcastAtUnixMs'
+              ) IS DISTINCT FROM (
+                (NEW.record_state -> 'contestedNonceBurn')
+                    - 'broadcastAtUnixMs'
+              )
+           OR (
+                (OLD.record_state -> 'contestedNonceBurn')
+                    ? 'broadcastAtUnixMs'
+                AND OLD.record_state -> 'contestedNonceBurn'
+                        -> 'broadcastAtUnixMs'
+                    IS DISTINCT FROM
+                    NEW.record_state -> 'contestedNonceBurn'
+                        -> 'broadcastAtUnixMs'
+              ) THEN
+            RAISE EXCEPTION 'signed contested nonce burn is immutable after its durable append';
+        END IF;
+
+        IF NOT (
+                (OLD.record_state -> 'contestedNonceBurn')
+                    ? 'broadcastAtUnixMs'
+              )
+           AND (NEW.record_state -> 'contestedNonceBurn')
+                   ? 'broadcastAtUnixMs' THEN
+            IF jsonb_typeof(
+                    NEW.record_state -> 'contestedNonceBurn'
+                        -> 'broadcastAtUnixMs'
+                 ) IS DISTINCT FROM 'number'
+               OR NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'broadcastAtUnixMs'
+                    !~ '^(0|[1-9][0-9]*)$' THEN
+                RAISE EXCEPTION 'signed contested nonce burn broadcast acknowledgement is invalid';
+            END IF;
+            IF (
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'broadcastAtUnixMs'
+               )::numeric > 9007199254740991
+               OR (
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'broadcastAtUnixMs'
+                  )::numeric < (
+                    NEW.record_state -> 'contestedNonceBurn'
+                        ->> 'signedAtUnixMs'
+                  )::numeric THEN
+                RAISE EXCEPTION 'signed contested nonce burn broadcast acknowledgement is invalid';
+            END IF;
+        END IF;
+    END IF;
+
     IF OLD.signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.signer_invocation_started_at_unix_ms IS DISTINCT FROM
            OLD.signer_invocation_started_at_unix_ms THEN
+        RAISE EXCEPTION 'P2TR challenge signer invocation boundary is immutable';
+    END IF;
+    IF OLD.signer_invocation_id IS NOT NULL
+       AND NEW.signer_invocation_id IS DISTINCT FROM OLD.signer_invocation_id THEN
         RAISE EXCEPTION 'P2TR challenge signer invocation boundary is immutable';
     END IF;
     IF OLD.active_signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.active_signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.active_signer_invocation_started_at_unix_ms IS DISTINCT FROM
            OLD.active_signer_invocation_started_at_unix_ms THEN
+        RAISE EXCEPTION 'active signer invocation boundary cannot be replaced in flight';
+    END IF;
+    IF OLD.active_signer_invocation_id IS NOT NULL
+       AND NEW.active_signer_invocation_id IS NOT NULL
+       AND NEW.active_signer_invocation_id IS DISTINCT FROM
+           OLD.active_signer_invocation_id THEN
         RAISE EXCEPTION 'active signer invocation boundary cannot be replaced in flight';
     END IF;
     IF OLD.active_signer_invocation_started_at_unix_ms IS NULL
@@ -4425,19 +4817,56 @@ BEGIN
             RAISE EXCEPTION 'signer invocation lane is quarantined';
         END IF;
 
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_critical_alert a
+            WHERE a.code = 'reservation-release-failed'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                  WHERE ar.alert_id = a.alert_id
+              )
+        ) THEN
+            RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer invocation';
+        END IF;
+
+        IF (
+            SELECT contract_mismatch_blocked
+            FROM p2tr_signature_fraud_nonce_allocator_global_barrier
+            WHERE singleton = true
+        ) IS DISTINCT FROM false THEN
+            RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer invocation';
+        END IF;
+
+        -- Only this account's own allocator I/O excludes this signer boundary.
+        -- The same-lane check above (an unacknowledged release on this lane)
+        -- already covers the case that matters; what the key removes is one
+        -- account's pending release freezing every other account's signer.
         UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
            SET active_signer_invocation_count =
                    active_signer_invocation_count + 1
          WHERE chain_id = NEW.chain_id
            AND sender = NEW.selected_sender
            AND active_release_request_id IS NULL
-           AND unresolved_release_count = 0
-           AND NOT contract_mismatch_blocked;
+           AND unresolved_release_count = 0;
         IF NOT FOUND THEN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+                WHERE chain_id = NEW.chain_id
+                  AND sender = NEW.selected_sender
+            ) THEN
+                RAISE EXCEPTION 'nonce allocator safety barrier is missing for the lane';
+            END IF;
             RAISE EXCEPTION 'signer invocation is blocked by active nonce-release I/O';
         END IF;
     ELSIF OLD.active_signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.active_signer_invocation_started_at_unix_ms IS NULL THEN
+        -- Key off OLD, which is by construction the lane that was incremented.
+        -- NEW is equal to it today only because the lane-change guard above
+        -- refuses to clear a selection whose reservation is neither null nor
+        -- voided, and a live marker makes that reservation unvoidable. Reading
+        -- OLD does not depend on that argument holding.
         UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
            SET active_signer_invocation_count =
                    active_signer_invocation_count - 1
@@ -4446,6 +4875,35 @@ BEGIN
            AND active_signer_invocation_count > 0;
         IF NOT FOUND THEN
             RAISE EXCEPTION 'active signer invocation barrier counter underflow';
+        END IF;
+    END IF;
+
+    -- The burn signer is a distinct external invocation. Count its durable
+    -- claim independently from the original boundary marker: both may coexist,
+    -- and clearing the original marker must leave one activation-blocking I/O
+    -- unit until signed burn bytes replace this claim.
+    IF NOT (OLD.record_state ? 'contestedNonceBurnClaim')
+       AND NEW.record_state ? 'contestedNonceBurnClaim' THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+           SET active_signer_invocation_count =
+                   active_signer_invocation_count + 1
+         WHERE chain_id = NEW.chain_id
+           AND sender = NEW.selected_sender
+           AND active_release_request_id IS NULL
+           AND unresolved_release_count = 0;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'contested nonce burn claim lacks its signer-I/O barrier';
+        END IF;
+    ELSIF OLD.record_state ? 'contestedNonceBurnClaim'
+       AND NOT (NEW.record_state ? 'contestedNonceBurnClaim') THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+           SET active_signer_invocation_count =
+                   active_signer_invocation_count - 1
+         WHERE chain_id = OLD.chain_id
+           AND sender = OLD.selected_sender
+           AND active_signer_invocation_count > 0;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'contested nonce burn signer-I/O barrier counter underflow';
         END IF;
     END IF;
     IF NEW.signer_invocation_started_at_unix_ms IS NOT NULL
@@ -5533,9 +5991,13 @@ AS $$
                 )
            )::bigint,
            (
-             SELECT count(*)
-               FROM p2tr_signature_fraud_challenge_outbox o
-              WHERE o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+             (SELECT count(*)
+                FROM p2tr_signature_fraud_challenge_outbox o
+               WHERE o.active_signer_invocation_started_at_unix_ms IS NOT NULL)
+             +
+             (SELECT count(*)
+                FROM p2tr_signature_fraud_challenge_outbox o
+               WHERE o.record_state ? 'contestedNonceBurnClaim')
            )::bigint,
            (
              SELECT count(*)

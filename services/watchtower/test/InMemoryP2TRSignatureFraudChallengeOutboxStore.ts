@@ -32,10 +32,13 @@ import {
   P2TRSignatureFraudNonceReleaseRequest,
   P2TRSignatureFraudOutboxCriticalAlert,
   P2TRSignatureFraudSignerQuarantine,
+  P2TRSignatureFraudSigningLane,
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
+  appendSignerQuarantine,
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
+  normalizeP2TRSignatureFraudSigningLane,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
 
 /** Mirrors the PostgreSQL adapter's tolerance for an unprefixed `Hex` render. */
@@ -104,6 +107,7 @@ export class InMemoryOutboxStore
   /** Append-only retirement evidence, mirroring the PostgreSQL table. */
   readonly retiredProvenanceIncidents: {
     recordID: string
+    signerInvocationID: string
     boundaryStartedAtUnixMs: number
     preparationAttempts: number
     nonceReservationID: string
@@ -133,7 +137,7 @@ export class InMemoryOutboxStore
   readonly signerBoundaryResolutions = new Map<
     string,
     {
-      outcome: "never-invoked" | "signed" | "terminal-unsafe"
+      outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
       evidenceDigest: string
       signedTransactionHash?: string
       providerTombstone?: {
@@ -208,19 +212,56 @@ export class InMemoryOutboxStore
     )
   }
 
-  async hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean> {
+  async hasExpiredPreparationLeases(
+    nowUnixMs: number,
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean> {
+    const normalized =
+      lane === undefined
+        ? undefined
+        : normalizeP2TRSignatureFraudSigningLane(lane)
     return [...this.records.values()].some(
       (record) =>
         record.status === "preparing" &&
         record.preparationLease !== undefined &&
-        record.preparationLease.expiresAtUnixMs <= nowUnixMs
+        record.preparationLease.expiresAtUnixMs <= nowUnixMs &&
+        (normalized === undefined ||
+          // Mirrors the adapter exactly, including the released-lane exclusion:
+          // a record that surrendered its lane is not occupying it. The
+          // adapter writes `lane_released_at_unix_ms` exactly when
+          // `finalNonceResolution` is set, so this is the same predicate.
+          (record.finalNonceResolution === undefined &&
+            record.preparationSender !== undefined &&
+            normalizeP2TRSignatureFraudSigningLane({
+              chainID: record.intent.chainID,
+              sender: record.preparationSender,
+            }).sender === normalized.sender &&
+            record.intent.chainID === normalized.chainID))
     )
   }
 
-  async hasPendingNonceReleases(): Promise<boolean> {
-    return [...this.nonceReleaseRequests.keys()].some(
-      (id) => !this.releaseAcknowledged(id)
-    )
+  async hasPendingNonceReleases(
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean> {
+    const normalized =
+      lane === undefined
+        ? undefined
+        : normalizeP2TRSignatureFraudSigningLane(lane)
+    return [...this.nonceReleaseRequests.entries()].some(([id, request]) => {
+      if (this.releaseAcknowledged(id)) return false
+      if (normalized === undefined) return true
+      // The reservation carries the sender but not the chain, so the chain
+      // comes from the record the release belongs to -- the same join the
+      // adapter gets for free from the release-request row.
+      const chainID = this.records.get(request.recordID)?.intent.chainID
+      return (
+        chainID === normalized.chainID &&
+        normalizeP2TRSignatureFraudSigningLane({
+          chainID: normalized.chainID,
+          sender: request.reservation.sender,
+        }).sender === normalized.sender
+      )
+    })
   }
 
   async hasExpiredPreparationLeasesForLane(
@@ -278,7 +319,11 @@ export class InMemoryOutboxStore
   async getActiveAmbiguousNonceReleaseInvocation(
     nowUnixMs: number
   ): Promise<P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined> {
-    const candidates: P2TRSignatureFraudAmbiguousNonceReleaseInvocation[] = []
+    const candidates: {
+      invocation: P2TRSignatureFraudAmbiguousNonceReleaseInvocation
+      chainID: number
+      sender: string
+    }[] = []
     for (const [id] of this.nonceReleaseRequests) {
       const attempts = this.nonceReleaseAttempts.get(id) ?? []
       const attempt = attempts[attempts.length - 1]
@@ -306,19 +351,34 @@ export class InMemoryOutboxStore
       if (request === undefined) {
         throw new Error("active nonce-release invocation lacks its request")
       }
+      const record = this.records.get(normalizeKey(request.recordID))
+      if (record === undefined) {
+        throw new Error("active nonce-release invocation lacks its record")
+      }
       candidates.push({
-        request,
-        attempt,
-        invokedAtUnixMs,
-        ambiguousResponseDigest:
-          this.nonceReleaseAmbiguousResponseDigests.get(key),
+        invocation: {
+          request,
+          attempt,
+          invokedAtUnixMs,
+          ambiguousResponseDigest:
+            this.nonceReleaseAmbiguousResponseDigests.get(key),
+        },
+        chainID: record.intent.chainID,
+        sender: request.reservation.sender.toLowerCase(),
       })
     }
-    return candidates.sort((left, right) =>
-      left.request.releaseRequestID.localeCompare(
-        right.request.releaseRequestID
-      )
-    )[0]
+    // PostgreSQL orders its per-lane barriers by (chain_id, sender) and returns
+    // one recoverable invocation per call. Keep the shared test double on that
+    // contract so valid multi-lane recovery states receive parity coverage.
+    candidates.sort(
+      (left, right) =>
+        left.chainID - right.chainID ||
+        left.sender.localeCompare(right.sender) ||
+        normalizeKey(left.invocation.request.releaseRequestID).localeCompare(
+          normalizeKey(right.invocation.request.releaseRequestID)
+        )
+    )
+    return candidates[0]?.invocation
   }
 
   async claimNonceReleaseAttempt(
@@ -610,11 +670,12 @@ export class InMemoryOutboxStore
         "Orphaned signer boundary resolution names an absent outbox record"
       )
     }
+    // Mirrors the PRIMARY KEY (record_id, signer_invocation_id) the adapter
+    // now probes. Keying on anything else lets the double accept a second
+    // resolution PostgreSQL would reject as a duplicate, or vice versa.
     const key = [
       normalizeKey(normalized.recordID),
-      normalized.boundaryStartedAtUnixMs,
-      normalized.preparationAttempts,
-      normalized.nonceReservationID,
+      normalizeKey(normalized.signerInvocationID),
     ].join(":")
     const existing = this.signerBoundaryResolutions.get(key)
     if (existing !== undefined) {
@@ -650,11 +711,78 @@ export class InMemoryOutboxStore
         resolvedAtUnixMs: normalized.resolvedAtUnixMs,
       })
     }
+    if (normalized.outcome === "nonce-consumed") {
+      // Mirrors the adapter exactly: move to a status the guard-void trigger
+      // refuses to free a nonce from, retain the reservation as the capture
+      // anchor, and clear the marker.
+      const settled: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...current,
+        version: current.version + 1,
+        status:
+          current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation",
+        // `quarantined` with a returned-signer marker requires a signer
+        // quarantine, and the honest one is ambiguity: the signer was invoked
+        // and nothing here establishes what it did. The chain settled the
+        // NONCE, not the signer's behaviour.
+        signerQuarantines:
+          current.provenanceInvalidationEvidence !== undefined ||
+          current.signerInvocationStartedAtUnixMs === undefined ||
+          current.reservedNonce === undefined
+            ? current.signerQuarantines
+            : appendSignerQuarantine(
+                current.signerQuarantines,
+                current.reservedNonce,
+                normalized.resolvedAtUnixMs,
+                "The reserved nonce was consumed at finality while this signer invocation was unresolved",
+                "ambiguous-signer-invocation"
+              ),
+        preparationLease: undefined,
+        preparationResumeStatus: undefined,
+        activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
+        updatedAtUnixMs: Math.max(
+          current.updatedAtUnixMs,
+          normalized.resolvedAtUnixMs
+        ),
+        lastError:
+          "The reserved nonce was consumed at finality, so any signer bytes for it are inert",
+      }
+      if (
+        !(await this.compareAndSwap(
+          normalized.recordID,
+          current.version,
+          settled
+        ))
+      ) {
+        throw new Error(
+          "Nonce-consumed signer boundary resolution lost its barrier-clearing swap"
+        )
+      }
+      appendEvidence()
+      return "acknowledged"
+    }
     if (normalized.outcome === "never-invoked") {
+      const retainedBurnState =
+        current.contestedNonceBurnClaim !== undefined ||
+        current.contestedNonceBurn !== undefined
       const cleared: P2TRSignatureFraudChallengeOutboxRecord = {
         ...current,
         version: current.version + 1,
+        status: retainedBurnState
+          ? current.provenanceInvalidationEvidence === undefined
+            ? "quarantined"
+            : "provenance-invalidated-awaiting-reconciliation"
+          : current.status,
+        preparationLease: retainedBurnState
+          ? undefined
+          : current.preparationLease,
+        preparationResumeStatus: retainedBurnState
+          ? undefined
+          : current.preparationResumeStatus,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         updatedAtUnixMs: Math.max(
           current.updatedAtUnixMs,
           normalized.resolvedAtUnixMs
@@ -668,6 +796,7 @@ export class InMemoryOutboxStore
           current.version,
           cleared,
           {
+            signerInvocationID: normalized.signerInvocationID,
             startedAtUnixMs: normalized.boundaryStartedAtUnixMs,
             preparationAttempts: normalized.preparationAttempts,
             nonceReservationID: normalized.nonceReservationID,
@@ -774,6 +903,7 @@ export class InMemoryOutboxStore
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord,
     boundary: {
+      signerInvocationID: string
       startedAtUnixMs: number
       preparationAttempts: number
       nonceReservationID: string
@@ -795,7 +925,13 @@ export class InMemoryOutboxStore
         "provenance incident resolution requires a boundary with no signer escape evidence"
       )
     }
+    // The same predicate the re-keyed database guard enforces: identity by
+    // invocation ID, with the descriptive columns still checked so append-only
+    // retirement evidence cannot record a boundary that never existed.
     if (
+      durable.activeSignerInvocationID === undefined ||
+      prefixedReservationID(durable.activeSignerInvocationID) !==
+        prefixedReservationID(boundary.signerInvocationID) ||
       durable.activeSignerInvocationStartedAtUnixMs !==
         boundary.startedAtUnixMs ||
       durable.preparationAttempts !== boundary.preparationAttempts ||
@@ -812,6 +948,7 @@ export class InMemoryOutboxStore
     }
     this.retiredProvenanceIncidents.push({
       recordID: next.recordID,
+      signerInvocationID: boundary.signerInvocationID,
       boundaryStartedAtUnixMs: boundary.startedAtUnixMs,
       preparationAttempts: boundary.preparationAttempts,
       nonceReservationID: boundary.nonceReservationID,
@@ -934,25 +1071,35 @@ export class InMemoryOutboxStore
           normalizeKey(variant.preparedTransaction.transactionHash) ===
           capturedHash
       )
+    const retainsResolvedBoundary =
+      reservation !== undefined &&
+      (current.status === "generation-required" ||
+        [...this.signerBoundaryResolutions.entries()].some(
+          ([key, resolution]) =>
+            key.startsWith(`${normalizeKey(current.recordID)}:`) &&
+            resolution.outcome === "nonce-consumed"
+        ))
     if (
       alreadyCaptured &&
-      current.activeSignerInvocationStartedAtUnixMs === undefined
+      current.activeSignerInvocationStartedAtUnixMs === undefined &&
+      !retainsResolvedBoundary
     ) {
       return current
     }
-    if (current.activeSignerInvocationStartedAtUnixMs === undefined) {
+    if (
+      current.activeSignerInvocationStartedAtUnixMs === undefined &&
+      !retainsResolvedBoundary
+    ) {
       throw new Error(
         "Late signed artifact has no retained durable signer boundary"
       )
     }
-    const signedResolution = this.signerBoundaryResolutions.get(
-      [
-        key,
-        current.activeSignerInvocationStartedAtUnixMs,
-        current.preparationAttempts,
-        normalizeKey(reservation.reservationID),
-      ].join(":")
-    )
+    const signedResolution =
+      current.activeSignerInvocationID === undefined
+        ? undefined
+        : this.signerBoundaryResolutions.get(
+            [key, normalizeKey(current.activeSignerInvocationID)].join(":")
+          )
     if (
       signedResolution?.outcome === "signed" &&
       normalizeKey(signedResolution.signedTransactionHash!) !== capturedHash
@@ -1047,9 +1194,12 @@ export class InMemoryOutboxStore
           ? current.preparationResumeStatus
           : undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         current.signerInvocationStartedAtUnixMs ??
         current.activeSignerInvocationStartedAtUnixMs,
+      signerInvocationID:
+        current.signerInvocationID ?? current.activeSignerInvocationID,
       signerQuarantines,
       unexpectedSignedArtifacts:
         alreadyCaptured || metadataOnlyCapture
@@ -1173,6 +1323,7 @@ export class InMemoryOutboxStore
           : undefined,
         activeSignerInvocationStartedAtUnixMs:
           current.activeSignerInvocationStartedAtUnixMs,
+        activeSignerInvocationID: current.activeSignerInvocationID,
         updatedAtUnixMs: evidence.invalidatedAtUnixMs,
         lastError: evidence.reason,
       }
@@ -1358,6 +1509,59 @@ export class InMemoryOutboxStore
     current: P2TRSignatureFraudChallengeOutboxRecord,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): boolean {
+    const currentBurnClaim = current.contestedNonceBurnClaim
+    const nextBurnClaim = next.contestedNonceBurnClaim
+    if (currentBurnClaim !== undefined) {
+      if (next.reservedNonce === undefined) return false
+      if (nextBurnClaim !== undefined) {
+        if (
+          JSON.stringify(currentBurnClaim) !== JSON.stringify(nextBurnClaim)
+        ) {
+          return false
+        }
+      } else if (
+        next.contestedNonceBurn === undefined ||
+        normalizeKey(next.contestedNonceBurn.signerInvocationID) !==
+          normalizeKey(currentBurnClaim.signerInvocationID)
+      ) {
+        return false
+      }
+    } else if (nextBurnClaim !== undefined) {
+      if (
+        current.activeSignerInvocationStartedAtUnixMs === undefined ||
+        current.reservedNonce === undefined ||
+        nextBurnClaim.recordVersion !== current.version
+      ) {
+        return false
+      }
+    }
+    if (
+      current.contestedNonceBurn === undefined &&
+      next.contestedNonceBurn !== undefined &&
+      currentBurnClaim === undefined
+    ) {
+      return false
+    }
+    if (current.contestedNonceBurn !== undefined) {
+      if (next.contestedNonceBurn === undefined) return false
+      const {
+        broadcastAtUnixMs: currentBroadcastAtUnixMs,
+        ...currentSignedBurn
+      } = current.contestedNonceBurn
+      const { broadcastAtUnixMs: nextBroadcastAtUnixMs, ...nextSignedBurn } =
+        next.contestedNonceBurn
+      if (
+        JSON.stringify(currentSignedBurn) !== JSON.stringify(nextSignedBurn)
+      ) {
+        return false
+      }
+      if (
+        currentBroadcastAtUnixMs !== undefined &&
+        nextBroadcastAtUnixMs !== currentBroadcastAtUnixMs
+      ) {
+        return false
+      }
+    }
     const previous = current.preparedTransactionVariants ?? []
     const following = next.preparedTransactionVariants ?? []
     if (

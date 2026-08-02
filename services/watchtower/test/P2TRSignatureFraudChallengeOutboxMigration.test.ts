@@ -10,6 +10,30 @@ const migrationURL = new URL(
 )
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
+const lateArtifactMigrationURL = new URL(
+  "015_p2tr_signer_boundary_late_artifact.sql",
+  migrationsURL
+)
+const lateArtifactMigrationSource = readFileSync(
+  lateArtifactMigrationURL,
+  "utf8"
+)
+const lateArtifactMigration = lateArtifactMigrationSource.replace(/\s+/g, " ")
+const nonceFinalityMigrationURL = new URL(
+  "016_p2tr_signer_boundary_nonce_finality.sql",
+  migrationsURL
+)
+const nonceFinalityMigrationSource = readFileSync(
+  nonceFinalityMigrationURL,
+  "utf8"
+)
+const nonceFinalityMigration = nonceFinalityMigrationSource.replace(/\s+/g, " ")
+const exactGasMigrationURL = new URL(
+  "017_p2tr_signed_variant_exact_gas.sql",
+  migrationsURL
+)
+const exactGasMigrationSource = readFileSync(exactGasMigrationURL, "utf8")
+const exactGasMigration = exactGasMigrationSource.replace(/\s+/g, " ")
 const canonicalIndexMigrationSource = readFileSync(
   new URL("001_p2tr_canonical_index.sql", migrationsURL),
   "utf8"
@@ -71,7 +95,17 @@ test("leaves transaction ownership to the ordered migration runner", () => {
   const challengeOutboxIndex = orderedMigrations.indexOf(
     "003_p2tr_signature_fraud_challenge_outbox.sql"
   )
+  const lateArtifactIndex = orderedMigrations.indexOf(
+    "015_p2tr_signer_boundary_late_artifact.sql"
+  )
+  const nonceFinalityIndex = orderedMigrations.indexOf(
+    "016_p2tr_signer_boundary_nonce_finality.sql"
+  )
   assert.notEqual(challengeOutboxIndex, -1)
+  assert.notEqual(lateArtifactIndex, -1)
+  assert.notEqual(nonceFinalityIndex, -1)
+  assert.ok(challengeOutboxIndex < lateArtifactIndex)
+  assert.ok(lateArtifactIndex < nonceFinalityIndex)
   if (canonicalJournalIndex !== -1) {
     assert.ok(canonicalJournalIndex < challengeOutboxIndex)
   }
@@ -269,7 +303,7 @@ test("never expires a resultless allocator invocation by wall clock", () => {
   )
   assert.match(
     migration,
-    /active_release_request_id IS NULL AND active_signer_invocation_count = 0/
+    /WHERE chain_id = lane_chain_id AND sender = lane_sender AND active_release_request_id IS NULL AND active_signer_invocation_count = 0/
   )
   assert.match(
     migration,
@@ -506,6 +540,30 @@ test("requires a durable bound nonce guard before signer invocation", () => {
     /num_nonnulls\( voided_before_sign_at_unix_ms, void_reason, void_evidence_digest \) IN \(0, 3\)/
   )
   assert.match(migration, /only an unsigned selected reservation can be voided/)
+  assert.match(
+    migration,
+    /contested nonce burn claim lacks its exact pre-I\/O boundary/
+  )
+  assert.match(
+    migration,
+    /contested nonce burn claim cannot release its reservation or change identity/
+  )
+  assert.match(
+    migration,
+    /signed contested nonce burn lacks its durable pre-I\/O claim/
+  )
+  assert.match(
+    migration,
+    /\( \(OLD\.record_state -> 'contestedNonceBurn'\) - 'broadcastAtUnixMs' \) IS DISTINCT FROM \( \(NEW\.record_state -> 'contestedNonceBurn'\) - 'broadcastAtUnixMs' \)/
+  )
+  assert.match(
+    migration,
+    /signed contested nonce burn is immutable after its durable append/
+  )
+  assert.match(
+    migration,
+    /signed contested nonce burn broadcast acknowledgement is invalid/
+  )
   assert.match(migration, /P2TR challenge nonce guards cannot be deleted/)
 })
 
@@ -759,6 +817,15 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
     migration,
     /late signed artifact does not match its durable signer boundary/
   )
+  assert.match(lateArtifactMigration, /outcome = 'nonce-consumed'/)
+  assert.match(
+    lateArtifactMigration,
+    /nonce_reservation_id = NEW\.expected_reservation_id/
+  )
+  assert.match(
+    lateArtifactMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_late_signed_artifact_insert/
+  )
   assert.match(
     migration,
     /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_late_signed_artifact/
@@ -838,7 +905,7 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   assert.match(migration, /PRIMARY KEY \(chain_id, sender\)/)
   assert.match(
     migration,
-    /p2tr_signature_fraud_register_nonce_lane_barrier_trigger/
+    /p2tr_signature_fraud_seed_nonce_allocator_lane_barrier_trigger/
   )
   assert.match(
     migration,
@@ -858,11 +925,69 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   )
   assert.match(
     migration,
+    /NOT \(OLD\.record_state \? 'contestedNonceBurnClaim'\)[\s\S]*active_signer_invocation_count \+[\s\n]*1/
+  )
+  assert.match(
+    migration,
+    /OLD\.record_state \? 'contestedNonceBurnClaim'[\s\S]*active_signer_invocation_count -[\s\n]*1/
+  )
+  assert.match(
+    migration,
+    /contested nonce burn claim lacks its signer-I\/O barrier/
+  )
+  assert.match(
+    migration,
     /p2tr_signature_fraud_apply_nonce_release_result_barrier_trigger AFTER INSERT/
   )
   assert.match(
     migration,
-    /contract_mismatch_blocked = contract_mismatch_blocked OR NEW.result_kind = 'contract-mismatch'/
+    /CREATE TABLE p2tr_signature_fraud_nonce_allocator_global_barrier/
+  )
+  // The lane barrier is keyed by the nonce lane -- the sending account -- so
+  // one account's outstanding allocator I/O cannot freeze signing on another.
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier \( chain_id numeric\(78, 0\) NOT NULL CHECK \(chain_id > 0\), sender bytea NOT NULL CHECK \(octet_length\(sender\) = 20\),/
+  )
+  assert.match(migration, /PRIMARY KEY \(chain_id, sender\),/)
+  // Without this the attempt reference carries no lane and one lane's row
+  // could hold another lane's claim.
+  assert.match(
+    migration,
+    /FOREIGN KEY \( chain_id, sender, active_release_request_id \) REFERENCES p2tr_signature_fraud_challenge_nonce_release_request \( chain_id, sender, release_request_id \)/
+  )
+  // Rows are seeded eagerly, because every gate reads a missing row as
+  // fail-closed and the activation rollup needs the row set to be ground truth.
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_seed_nonce_allocator_lane_barrier_trigger AFTER INSERT ON p2tr_signature_fraud_signer_lane_configuration/
+  )
+  // The decrement must key off OLD: the update that clears the marker can clear
+  // the lane selection at the same time.
+  assert.match(
+    migration,
+    /active_signer_invocation_count - 1 WHERE chain_id = OLD.chain_id AND sender = OLD.selected_sender/
+  )
+  // A contract mismatch condemns the allocator, not one account, so it stays
+  // global and blocks every lane.
+  assert.match(
+    migration,
+    /UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier SET contract_mismatch_blocked = true, incident_epoch = incident_epoch \+ 1/
+  )
+})
+
+test("counts durable burn claims in activation signer-I/O truth", () => {
+  assert.match(
+    activationHandshakeSource,
+    /count\(\*\) FILTER \([\s\S]*o\.record_state[\s\S]*\? 'contestedNonceBurnClaim'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /AS total_signer_count[\s\S]*rollup\.active_signer_invocation_count[\s\S]*truth\.total_signer_count/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_outbox_activation_revalidation[\s\S]*o\.record_state \? 'contestedNonceBurnClaim'/
   )
 })
 
@@ -871,21 +996,74 @@ test("resolves an orphaned signer boundary only after a provider tombstone", () 
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
   )
-  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v2/)
-  assert.match(migration, /tbtc-p2tr-signer-invocation-v1/)
+  // The pre-production schema keeps the v4-to-v5 upgrade path executable so
+  // both fresh databases and already-migrated test databases exercise it.
+  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v4/)
+  assert.doesNotMatch(migration, /nonce_consumption_observed_head/)
+  assert.match(
+    nonceFinalityMigration,
+    /ADD COLUMN nonce_consumption_observed_head_block_number bigint/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ADD COLUMN nonce_consumption_observed_head_block_hash bytea/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ADD COLUMN resolution_evidence_version smallint NOT NULL DEFAULT 4/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ALTER COLUMN resolution_evidence_version SET DEFAULT 5/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /ADD CONSTRAINT p2tr_signer_boundary_evidence_version_v5\s+CHECK \(resolution_evidence_version = 5\) NOT VALID/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_guard_signer_boundary_resolution\(\)/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /tbtc-p2tr-signer-boundary-independent-resolution-v5/
+  )
+  // The deterministic invocation ID is the row identity, so evidence can never
+  // speak for a boundary other than the one it names — and unlike the wall-clock
+  // tuple it replaced, it cannot drift while the boundary is open.
+  assert.match(migration, /PRIMARY KEY \(record_id, signer_invocation_id\)/)
   assert.match(
     migration,
-    /signer_invocation_id bytea NOT NULL[\s\S]*?provider_tombstoned_at_unix_ms bigint[\s\S]*?provider_tombstone_receipt_digest bytea/
+    /signer_invocation_id bytea NOT NULL CHECK \( octet_length\(signer_invocation_id\) = 32 \)/
+  )
+  // A never-invoked outcome is inexpressible without a provider fencing
+  // receipt, enforced by the database as well as by the resolver.
+  assert.match(
+    migration,
+    /CHECK \( \(outcome = 'never-invoked'\) = \(provider_tombstone_receipt IS NOT NULL\) \)/
   )
   assert.match(
     migration,
-    /outcome = 'never-invoked'[\s\S]*?provider_tombstoned_at_unix_ms IS NOT NULL[\s\S]*?provider_tombstone_receipt_digest IS NOT NULL/
+    /never-invoked resolution requires a provider tombstone/
   )
-  // The boundary tuple is the row identity, so evidence can never speak for a
-  // boundary other than the one it names.
+  // The chain settles this outcome, so the database demands the consumption
+  // evidence and checks it names this record's own lane and chain.
   assert.match(
     migration,
-    /PRIMARY KEY \( record_id, boundary_started_at_unix_ms, preparation_attempts, nonce_reservation_id \)/
+    /'never-invoked', 'signed', 'terminal-unsafe', 'nonce-consumed'/
+  )
+  assert.match(
+    migration,
+    /CHECK \( \(outcome = 'nonce-consumed'\) = \(nonce_consumption_transaction_hash IS NOT NULL\) \)/
+  )
+  assert.match(migration, /nonce consumption names another sender lane/)
+  assert.match(
+    nonceFinalityMigration,
+    /nonce_consumption_observed_head_block_number\s+- nonce_consumption_finalized_block_number >= 64/
+  )
+  assert.match(
+    nonceFinalityMigration,
+    /p2tr_signer_boundary_nonce_finality_v5[\s\S]*NOT VALID/
   )
   assert.match(
     migration,
@@ -904,9 +1082,14 @@ test("resolves an orphaned signer boundary only after a provider tombstone", () 
     /preparation_resume_status IS NULL[\s\S]*?orphaned signer boundary resolution does not name the durable signer stage/
   )
   assert.match(
+    nonceFinalityMigration,
+    /preparation_resume_status IS NULL[\s\S]*?orphaned signer boundary resolution does not name the durable signer stage/
+  )
+  assert.match(
     migration,
     /orphaned signer boundary resolution requires a boundary with no signer escape evidence/
   )
+  assert.match(nonceFinalityMigration, /record_state \? 'contestedNonceBurn'/)
   assert.match(
     migration,
     /resolution\.signed_transaction_hash <> NEW\.transaction_hash[\s\S]*?escaped signed artifact does not match the authenticated orphan resolution/
@@ -1057,4 +1240,33 @@ test("protects serialized generation identity alongside normalized columns", () 
     migration,
     /serialized P2TR outbox generation identity and evidence are immutable/
   )
+})
+
+test("makes the durable signed-variant gas invariant the exact runtime one", () => {
+  // Fresh installs get the strict invariant directly, while the append-only
+  // migration upgrades databases that applied the earlier trigger definition.
+  assert.match(migration, /NEW\.gas_limit <> fee_policy\.max_gas_limit/)
+  assert.doesNotMatch(migration, /NEW\.gas_limit > fee_policy\.max_gas_limit/)
+  assert.match(
+    exactGasMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_variant_append\(\)/
+  )
+  assert.match(exactGasMigration, /NEW\.gas_limit <> fee_policy\.max_gas_limit/)
+  assert.doesNotMatch(
+    exactGasMigration,
+    /NEW\.gas_limit > fee_policy\.max_gas_limit/
+  )
+  // Everything else about the trigger has to survive the replacement.
+  for (const preserved of [
+    /signed variant does not match the durable bound nonce reservation/,
+    /signed variant does not match its manifest-bound fee or value policy/,
+    /initial P2TR challenge variant is not append-only/,
+    /P2TR challenge variant sequence is not contiguous/,
+    /P2TR challenge replacement changed sender or nonce/,
+    /minimum_replacement_fee_bump_bps/,
+    /P2TR challenge replacement fee envelope did not satisfy its manifest bump/,
+  ]) {
+    assert.match(migration, preserved)
+    assert.match(exactGasMigration, preserved)
+  }
 })

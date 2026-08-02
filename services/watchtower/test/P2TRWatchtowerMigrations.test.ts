@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
 import { createHash, randomBytes } from "node:crypto"
+import { readdirSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
+import { describe, it } from "node:test"
 import pg, { type Pool as PostgreSQLPool } from "pg"
 import {
   loadP2TRWatchtowerMigrations,
@@ -18,71 +19,24 @@ const migrationsDirectory = fileURLToPath(
 )
 const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
 
-describe("P2TR watchtower migration bodies", () => {
-  it("loads and validates the complete production migration directory", async () => {
-    const migrations = await loadP2TRWatchtowerMigrations(migrationsDirectory)
+// This schema is still pre-production. Pin the branch's current migration so
+// accidental edits remain visible, while allowing intentional schema resets
+// before the first deployment.
+const CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM =
+  "1a6144232be452ac9966a865539e5419e4d63c4d6c52d5b093977a25c3ad8010"
 
-    assert.deepEqual(
-      migrations.map(({ version, filename }) => ({ version, filename })),
-      [
-        {
-          version: 1,
-          filename: "001_p2tr_canonical_index.sql",
-        },
-        {
-          version: 2,
-          filename: "002_p2tr_canonical_ethereum.sql",
-        },
-        {
-          version: 3,
-          filename: "003_p2tr_signature_fraud_challenge_outbox.sql",
-        },
-        {
-          version: 4,
-          filename: "004_p2tr_candidate_enqueue_retry_alerts.sql",
-        },
-        {
-          version: 5,
-          filename: "005_p2tr_deposit_binding_byte_order.sql",
-        },
-        {
-          version: 6,
-          filename: "006_p2tr_candidate_enqueue_generation_authority.sql",
-        },
-        {
-          version: 7,
-          filename: "007_p2tr_candidate_enqueue_recovery_hardening.sql",
-        },
-        {
-          version: 8,
-          filename: "008_p2tr_candidate_enqueue_challenge_series.sql",
-        },
-        {
-          version: 9,
-          filename: "009_p2tr_candidate_enqueue_capacity_authority.sql",
-        },
-        {
-          version: 10,
-          filename: "010_p2tr_candidate_enqueue_transient_retries.sql",
-        },
-        {
-          version: 11,
-          filename:
-            "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
-        },
-        {
-          version: 12,
-          filename: "012_p2tr_provenance_alert_retirement.sql",
-        },
-        {
-          version: 13,
-          filename: "013_p2tr_fee_policy_feasibility.sql",
-        },
-        {
-          version: 14,
-          filename: "014_p2tr_candidate_enqueue_rotation_resolution.sql",
-        },
-      ]
+describe("P2TR watchtower migration bodies", () => {
+  it("pins the current pre-production migration 003 checksum", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/003_p2tr_signature_fraud_challenge_outbox.sql",
+        import.meta.url
+      )
+    )
+
+    assert.equal(
+      createHash("sha256").update(migration).digest("hex"),
+      CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM
     )
   })
 
@@ -1184,6 +1138,7 @@ async function insertLegacyOutboxRow(
               nonce_reservation_binding = decode('01', 'hex'),
               nonce_reserved_at_unix_ms = 1001,
               active_signer_invocation_started_at_unix_ms = 1002,
+              active_signer_invocation_id = $7,
               record_state = $4::jsonb
         WHERE record_id = $1`,
       [
@@ -1193,6 +1148,7 @@ async function insertLegacyOutboxRow(
         boundaryRecordState,
         laneID,
         signerIdentity,
+        word(seed + 28),
       ]
     )
   } finally {
@@ -1382,5 +1338,203 @@ class MigrationClient implements P2TRWatchtowerMigrationClient {
 
   release(error?: Error): void {
     this.releasedWith = error
+  }
+}
+
+// Every assertion above reads the migrations as TEXT. That cannot see a
+// statement PostgreSQL refuses to parse, and one shipped undetected: migration
+// 004 aliased a table `authorization`, a reserved key word, so the whole file
+// failed at the first reference to it and the tables, foreign keys and
+// append-only triggers it declares existed in no database. The outbox adapter
+// suite applies the complete schema but does not directly exercise 004's retry
+// journal, so this remains the test that applies every migration in order and
+// verifies the ordered upgrade path on a real server.
+describe("P2TR watchtower migrations apply to PostgreSQL", () => {
+  const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
+  const postgresIt = postgresURL === undefined ? it.skip : it
+
+  postgresIt("applies every migration in order to a fresh schema", async () => {
+    const migrationsURL = new URL("../migrations/", import.meta.url)
+    const ordered = readdirSync(migrationsURL)
+      .filter((name) => /^\d{3}_.+\.sql$/.test(name))
+      .sort()
+    assert.ok(ordered.length >= 6, "expected the full migration set")
+
+    const client = new pg.Client({ connectionString: postgresURL })
+    await client.connect()
+    const schema = `p2tr_migrations_${process.pid}_${Date.now()}`
+    try {
+      await client.query(`CREATE SCHEMA ${schema}`)
+      await client.query(`SET search_path TO ${schema}`)
+      for (const name of ordered) {
+        const body = await readFile(new URL(name, migrationsURL), "utf8")
+        // The runner validates each body before it reaches the server; hold
+        // this test to the same contract so the two cannot drift.
+        assert.doesNotThrow(
+          () => validateP2TRWatchtowerMigrationBody(body),
+          `${name} is not a valid migration body`
+        )
+        try {
+          await client.query(body)
+        } catch (error) {
+          assert.fail(`${name} failed to apply: ${(error as Error).message}`)
+        }
+      }
+    } finally {
+      await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+      await client.end()
+    }
+  })
+
+  postgresIt(
+    "upgrades a checksum-tracked migration 003 database through migration 017",
+    async () => {
+      const migrationsURL = new URL("../migrations/", import.meta.url)
+      const migrations = await loadP2TRWatchtowerMigrations(
+        fileURLToPath(migrationsURL)
+      )
+      assert.equal(
+        migrations[2].checksum,
+        CURRENT_PREPRODUCTION_OUTBOX_MIGRATION_CHECKSUM
+      )
+
+      const client = new pg.Client({ connectionString: postgresURL })
+      await client.connect()
+      const schema = `p2tr_migration_upgrade_${process.pid}_${Date.now()}`
+      try {
+        await client.query(`CREATE SCHEMA ${schema}`)
+        await client.query(`SET search_path TO ${schema}`)
+        const pool = {
+          connect: async () => postgresMigrationClient(client),
+        }
+
+        const installed = await runP2TRWatchtowerMigrations(
+          pool,
+          migrations.slice(0, 4)
+        )
+        assert.deepEqual(
+          installed.applied.map(({ version }) => version),
+          [1, 2, 3, 4]
+        )
+
+        const upgraded = await runP2TRWatchtowerMigrations(pool, migrations)
+        assert.deepEqual(
+          upgraded.applied.map(({ version }) => version),
+          [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+        )
+        assert.equal(upgraded.current.length, 17)
+
+        const columns = await client.query<{ column_name: string }>(
+          `SELECT column_name
+             FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name =
+                  'p2tr_signature_fraud_challenge_signer_boundary_resolution'
+              AND column_name IN (
+                  'nonce_consumption_observed_head_block_number',
+                  'nonce_consumption_observed_head_block_hash',
+                  'resolution_evidence_version'
+              )
+            ORDER BY column_name`,
+          [schema]
+        )
+        assert.deepEqual(
+          columns.rows.map(({ column_name }) => column_name),
+          [
+            "nonce_consumption_observed_head_block_hash",
+            "nonce_consumption_observed_head_block_number",
+            "resolution_evidence_version",
+          ]
+        )
+
+        const evidenceVersionDefault = await client.query<{
+          column_default: string
+        }>(
+          `SELECT column_default
+             FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name =
+                  'p2tr_signature_fraud_challenge_signer_boundary_resolution'
+              AND column_name = 'resolution_evidence_version'`,
+          [schema]
+        )
+        assert.match(evidenceVersionDefault.rows[0].column_default, /5/)
+
+        const constraints = await client.query<{
+          conname: string
+          convalidated: boolean
+        }>(
+          `SELECT conname, convalidated
+             FROM pg_constraint
+            WHERE conname IN (
+                      'p2tr_signer_boundary_evidence_version_v5',
+                      'p2tr_signer_boundary_nonce_finality_v5'
+                  )
+              AND connamespace = $1::regnamespace
+            ORDER BY conname`,
+          [schema]
+        )
+        assert.deepEqual(constraints.rows, [
+          {
+            conname: "p2tr_signer_boundary_evidence_version_v5",
+            convalidated: false,
+          },
+          {
+            conname: "p2tr_signer_boundary_nonce_finality_v5",
+            convalidated: false,
+          },
+        ])
+
+        const guard = await client.query<{ definition: string }>(
+          `SELECT pg_get_functiondef(
+                    'p2tr_signature_fraud_guard_signer_boundary_resolution()'
+                    ::regprocedure
+                  ) AS definition`
+        )
+        assert.match(
+          guard.rows[0].definition,
+          /tbtc-p2tr-signer-boundary-independent-resolution-v5/
+        )
+        assert.match(
+          guard.rows[0].definition,
+          /nonce_consumption_observed_head_block_number/
+        )
+
+        // 007 replaces the variant trigger in place, so the live function in a
+        // database upgraded from 003 must carry the strict gas comparison.
+        const variantAppend = await client.query<{ definition: string }>(
+          `SELECT pg_get_functiondef(
+                    'p2tr_signature_fraud_validate_variant_append()'
+                    ::regprocedure
+                  ) AS definition`
+        )
+        assert.match(
+          variantAppend.rows[0].definition,
+          /NEW\.gas_limit <> fee_policy\.max_gas_limit/
+        )
+        assert.doesNotMatch(
+          variantAppend.rows[0].definition,
+          /NEW\.gas_limit > fee_policy\.max_gas_limit/
+        )
+      } finally {
+        await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+        await client.end()
+      }
+    }
+  )
+})
+
+function postgresMigrationClient(
+  client: pg.Client
+): P2TRWatchtowerMigrationClient {
+  return {
+    async query(text, values) {
+      const result = await client.query(
+        text,
+        values === undefined ? undefined : [...values]
+      )
+      return { rows: result.rows, rowCount: result.rowCount }
+    },
+    release() {},
   }
 }
