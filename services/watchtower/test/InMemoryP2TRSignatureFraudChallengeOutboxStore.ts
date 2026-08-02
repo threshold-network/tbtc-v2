@@ -97,6 +97,7 @@ export class InMemoryOutboxStore
   readonly p2trSignatureFraudWatchtowerStoreProfile =
     "transactional-production" as const
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID = "outbox.test"
+  readonly retryablePersistenceErrors = new Set<unknown>()
   readonly records = new Map<string, P2TRSignatureFraudChallengeOutboxRecord>()
   readonly quarantines: P2TRSignatureFraudLegacySubmissionQuarantine[] = []
   readonly criticalAlerts: P2TRSignatureFraudOutboxCriticalAlert[] = []
@@ -152,6 +153,10 @@ export class InMemoryOutboxStore
   ) => Promise<void>
 
   assertExternalIOTransactionBoundary(): void {}
+
+  isP2TRSignatureFraudWatchtowerPersistenceRetryable(error: unknown): boolean {
+    return this.retryablePersistenceErrors.has(error)
+  }
 
   async insertGenerationIfAbsent(
     record: P2TRSignatureFraudChallengeOutboxRecord

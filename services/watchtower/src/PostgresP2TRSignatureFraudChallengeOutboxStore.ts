@@ -70,6 +70,12 @@ export type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions = {
     "runInP2TRSignatureFraudWatchtowerTransaction"
   > & {
     isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
+    readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+      error: unknown
+    ): string | undefined
+    isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+      error: unknown
+    ): boolean
   }
   assertTransactionSession(session: P2TRPostgresOutboxTransactionSession): void
   /**
@@ -269,6 +275,17 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         "Irreversible outbox I/O cannot run inside an ambient database transaction"
       )
     }
+  }
+
+  isP2TRSignatureFraudWatchtowerPersistenceRetryable(error: unknown): boolean {
+    return (
+      this.options.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+        error
+      ) ||
+      this.options.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ) !== undefined
+    )
   }
 
   async installSignerLaneConfiguration(

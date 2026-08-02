@@ -4,6 +4,7 @@ import {
   type P2TRProductionActivationEnvelope,
   type P2TRProductionBitcoinCandidate,
   type P2TRProductionCandidateAuthorizationReceipt,
+  type P2TRProductionCandidateEnqueueManifestRotationResolution,
   type P2TRProductionCandidateEnqueueNonRetryableFailure,
   type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
   type P2TRProductionCandidateEnqueueRetryExhaustionResolution,
@@ -533,9 +534,10 @@ export class PostgresP2TRProductionActivationStore
     }>(
       `SELECT encode(manifest.manifest_hash, 'hex') AS manifest_hash,
               -- An armed guard remains a readiness blocker after activation
-              -- manifest rotation. Its invalidated authorization cannot be
-              -- resumed, but hiding it would silently drop the candidate.
-              (SELECT count(*)
+              -- manifest rotation. A rotation disposition cannot be resumed,
+              -- so it contributes to the same blocker count until an operator
+              -- appends explicit resolution evidence.
+              ((SELECT count(*)
                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
                  JOIN p2tr_candidate_enqueue_authorizations authz
                    ON authz.manifest_hash = guard_row.manifest_hash
@@ -559,7 +561,16 @@ export class PostgresP2TRProductionActivationStore
                       FROM p2tr_candidate_enqueue_non_retryable_failure failure
                      WHERE failure.manifest_hash = guard_row.manifest_hash
                        AND failure.token_id = guard_row.token_id
-                  )) AS unresolved_candidate_enqueue_transaction_guard_count,
+                  ))
+               +
+               (SELECT count(*)
+                  FROM p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+                 WHERE NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_manifest_rotation_resolution resolution
+                      WHERE resolution.manifest_hash = disposition.manifest_hash
+                        AND resolution.token_id = disposition.token_id
+                 ))) AS unresolved_candidate_enqueue_transaction_guard_count,
               -- Retry-exhaustion alerts are append-only blockers and must
               -- remain visible after their authority's manifest is superseded.
               (SELECT count(*)
@@ -1984,6 +1995,85 @@ export class PostgresP2TRProductionActivationStore
     }
   }
 
+  async resolveCandidateEnqueueManifestRotationDisposition(
+    resolution: P2TRProductionCandidateEnqueueManifestRotationResolution
+  ): Promise<void> {
+    const normalized =
+      normalizeCandidateEnqueueManifestRotationResolution(resolution)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_manifest_rotation_resolution
+         (manifest_hash, token_id, candidate_digest, failure_digest,
+          replacement_manifest_hash, replacement_activation_sequence,
+          resolution_digest, reason, resolved_at_unix_ms)
+       SELECT disposition.manifest_hash, disposition.token_id,
+              disposition.candidate_digest, disposition.failure_digest,
+              disposition.replacement_manifest_hash,
+              disposition.replacement_activation_sequence,
+              $4, $5, $6
+         FROM p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+        WHERE disposition.manifest_hash = $1
+          AND disposition.token_id = $2
+          AND disposition.candidate_digest = $3
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "rotation resolution manifest"),
+        hexBuffer(normalized.tokenID, "rotation resolution token"),
+        hexBuffer(
+          normalized.candidateDigest,
+          "rotation resolution candidate"
+        ),
+        hexBuffer(
+          normalized.resolutionDigest,
+          "rotation resolution evidence digest"
+        ),
+        normalized.reason,
+        normalized.resolvedAtUnixMs,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue manifest-rotation resolution insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      resolution_digest: string
+      reason: string
+      resolved_at_unix_ms: string | number
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(resolution_digest, 'hex') AS resolution_digest,
+              reason, resolved_at_unix_ms
+         FROM p2tr_candidate_enqueue_manifest_rotation_resolution
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "rotation resolution manifest"),
+        hexBuffer(normalized.tokenID, "rotation resolution token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored rotation resolution candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].resolution_digest,
+        "stored rotation resolution evidence digest"
+      ) !== normalized.resolutionDigest ||
+      stored.rows[0].reason !== normalized.reason ||
+      databaseInteger(
+        stored.rows[0].resolved_at_unix_ms,
+        "stored rotation resolution time"
+      ) !== normalized.resolvedAtUnixMs
+    ) {
+      throw new Error(
+        "Candidate enqueue manifest-rotation resolution conflicts with durable state"
+      )
+    }
+  }
+
   async saveCandidateEnqueueNonRetryableFailure(
     failure: P2TRProductionCandidateEnqueueNonRetryableFailure
   ): Promise<void> {
@@ -2567,6 +2657,35 @@ function normalizeCandidateEnqueueRetryExhaustionResolution(
     resolvedAtUnixMs: nonNegativeInteger(
       resolution.resolvedAtUnixMs,
       "retry resolution time"
+    ),
+  }
+}
+
+function normalizeCandidateEnqueueManifestRotationResolution(
+  resolution: P2TRProductionCandidateEnqueueManifestRotationResolution
+): P2TRProductionCandidateEnqueueManifestRotationResolution {
+  return {
+    tokenID: bytes32(resolution.tokenID, "rotation resolution token"),
+    manifestHash: bytes32(
+      resolution.manifestHash,
+      "rotation resolution manifest"
+    ),
+    candidateDigest: bytes32(
+      resolution.candidateDigest,
+      "rotation resolution candidate"
+    ),
+    resolutionDigest: bytes32(
+      resolution.resolutionDigest,
+      "rotation resolution evidence digest"
+    ),
+    reason: boundedString(
+      resolution.reason,
+      1_024,
+      "rotation resolution reason"
+    ),
+    resolvedAtUnixMs: nonNegativeInteger(
+      resolution.resolvedAtUnixMs,
+      "rotation resolution time"
     ),
   }
 }

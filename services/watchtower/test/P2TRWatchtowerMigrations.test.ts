@@ -78,6 +78,10 @@ describe("P2TR watchtower migration bodies", () => {
           version: 13,
           filename: "013_p2tr_fee_policy_feasibility.sql",
         },
+        {
+          version: 14,
+          filename: "014_p2tr_candidate_enqueue_rotation_resolution.sql",
+        },
       ]
     )
   })
@@ -314,6 +318,30 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /AFTER UPDATE ON p2tr_watchtower_activation_manifest/
+    )
+  })
+
+  it("keeps manifest-rotation dispositions blocking until operator resolution", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/014_p2tr_candidate_enqueue_rotation_resolution.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_candidate_enqueue_manifest_rotation_resolution/
+    )
+    assert.match(
+      migration,
+      /FOREIGN KEY \([\s\S]*?replacement_activation_sequence[\s\S]*?REFERENCES p2tr_candidate_enqueue_manifest_rotation_disposition/
+    )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_rotation_resolution_immutable_trigger[\s\S]*?BEFORE UPDATE OR DELETE/
     )
   })
 

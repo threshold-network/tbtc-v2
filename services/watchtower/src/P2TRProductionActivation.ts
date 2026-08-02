@@ -692,6 +692,16 @@ export type P2TRProductionCandidateEnqueueRetryExhaustionResolution = {
   resolvedAtUnixMs: number
 }
 
+export type P2TRProductionCandidateEnqueueManifestRotationResolution = {
+  tokenID: string
+  manifestHash: string
+  candidateDigest: string
+  /** Digest of independently retained evidence for the abandoned candidate. */
+  resolutionDigest: string
+  reason: string
+  resolvedAtUnixMs: number
+}
+
 export type P2TRProductionCandidateEnqueueTransactionGuard = {
   tokenID: string
   manifestHash: string
@@ -779,6 +789,9 @@ export type P2TRProductionStateStore = {
   ): Promise<void>
   resolveCandidateEnqueueRetryExhaustionAlert(
     resolution: P2TRProductionCandidateEnqueueRetryExhaustionResolution
+  ): Promise<void>
+  resolveCandidateEnqueueManifestRotationDisposition(
+    resolution: P2TRProductionCandidateEnqueueManifestRotationResolution
   ): Promise<void>
   saveCandidateEnqueueNonRetryableFailure(
     failure: P2TRProductionCandidateEnqueueNonRetryableFailure

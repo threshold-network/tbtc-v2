@@ -1605,6 +1605,13 @@ export interface P2TRSignatureFraudChallengeOutboxStore
   extends P2TRSignatureFraudWatchtowerStoreProfileProvider {
   /** Rejects dispatcher I/O when an outer database transaction is ambient. */
   assertExternalIOTransactionBoundary(): void
+  /**
+   * Authenticates persistence failures that are safe to retry at an exact,
+   * idempotent pre-I/O boundary. Implementations must return true only for a
+   * coordinator-owned unknown transaction outcome or a confirmed retryable
+   * abort; deterministic validation/constraint failures must return false.
+   */
+  isP2TRSignatureFraudWatchtowerPersistenceRetryable(error: unknown): boolean
   insertGenerationIfAbsent(
     record: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord>
@@ -2529,6 +2536,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         return this.requireRecord(key)
       }
     } catch (error) {
+      if (
+        !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+      ) {
+        throw error
+      }
       // COMMIT may have installed the marker even when its response was lost.
       // No signer call has occurred yet, so reconcile this exact boundary as
       // known-uninvoked instead of stranding an activation-blocking marker.
@@ -2958,6 +2970,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         return this.requireRecord(key)
       }
     } catch (error) {
+      if (
+        !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+      ) {
+        throw error
+      }
       return this.reconcileUninvokedSignerBoundaryPersistence(
         claimed,
         signerBoundary,
@@ -4938,8 +4955,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     reason: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     const expectedBoundaryIdentity = this.signerBoundaryIdentity(signerBoundary)
+    let lastRetryableError: unknown
     for (let retry = 0; retry < 8; retry++) {
-      const durable = await this.requireRecord(signerBoundary.recordID)
+      let durable: P2TRSignatureFraudChallengeOutboxRecord
+      try {
+        durable = await this.requireRecord(signerBoundary.recordID)
+      } catch (error) {
+        if (
+          !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+        ) {
+          throw error
+        }
+        lastRetryableError = error
+        continue
+      }
       if (durable.activeSignerInvocationStartedAtUnixMs !== undefined) {
         if (this.signerBoundaryIdentity(durable) !== expectedBoundaryIdentity) {
           throw new Error(
@@ -4958,14 +4987,23 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
             predecessor.canonicalProvenance,
             signerBoundary
           )
-        if (!persisted) return this.requireRecord(predecessor.recordID)
-      } catch {
+        if (persisted) {
+          return this.completeUninvokedSignerBoundary(signerBoundary, reason)
+        }
+      } catch (error) {
+        if (
+          !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+        ) {
+          throw error
+        }
+        lastRetryableError = error
         // Reload after every uncertain retry. If the marker committed, the
         // exact-identity branch above completes it before this method returns.
-        continue
       }
     }
-    throw new Error("Ambiguous signer-boundary persistence did not converge")
+    throw new Error("Ambiguous signer-boundary persistence did not converge", {
+      cause: lastRetryableError,
+    })
   }
 
   /**
@@ -4977,18 +5015,27 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     attempt: P2TRSignatureFraudNonceReleaseAttempt,
     invokedAtUnixMs: number
   ): Promise<boolean> {
+    let lastRetryableError: unknown
     for (let retry = 0; retry < 8; retry++) {
       try {
         return await this.store.beginNonceReleaseAttempt(
           attempt,
           invokedAtUnixMs
         )
-      } catch {
+      } catch (error) {
+        if (
+          !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+        ) {
+          throw error
+        }
+        lastRetryableError = error
         // The transaction may have committed. Retry the exact idempotent
         // marker before allowing the allocator call to escape this process.
       }
     }
-    throw new Error("Nonce-release invocation persistence did not converge")
+    throw new Error("Nonce-release invocation persistence did not converge", {
+      cause: lastRetryableError,
+    })
   }
 
   /**
@@ -5013,8 +5060,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       reason,
       "Signer authorization failure reason"
     )
+    let lastRetryableError: unknown
     for (let retry = 0; retry < 8; retry++) {
-      const durable = await this.requireRecord(signerBoundary.recordID)
+      let durable: P2TRSignatureFraudChallengeOutboxRecord
+      try {
+        durable = await this.requireRecord(signerBoundary.recordID)
+      } catch (error) {
+        if (
+          !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+        ) {
+          throw error
+        }
+        lastRetryableError = error
+        continue
+      }
       if (durable.activeSignerInvocationStartedAtUnixMs === undefined) {
         return durable
       }
@@ -5111,13 +5170,21 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
                   "Uninvoked signer boundary retirement time"
                 )
               )
-      } catch {
+      } catch (error) {
+        if (
+          !this.store.isP2TRSignatureFraudWatchtowerPersistenceRetryable(error)
+        ) {
+          throw error
+        }
+        lastRetryableError = error
         // A transactional failure is indistinguishable from a lost CAS until
         // the durable row is reloaded. Retry the exact boundary completion.
       }
-      if (persisted) return this.requireRecord(durable.recordID)
+      if (persisted) return completed
     }
-    throw new Error("Uninvoked signer completion did not converge")
+    throw new Error("Uninvoked signer completion did not converge", {
+      cause: lastRetryableError,
+    })
   }
 
   private async compareAndSwapSignerCompletion(

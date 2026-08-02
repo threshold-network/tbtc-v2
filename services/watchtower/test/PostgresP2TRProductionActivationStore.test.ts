@@ -138,6 +138,8 @@ describe(
 
         const tokenID = WORD("51")
         const candidateDigest = WORD("52")
+        const rotationTokenID = WORD("63")
+        const rotationCandidateDigest = WORD("64")
         const observationID = WORD("53")
         const challengeKey = WORD("54")
         const txid = WORD("55")
@@ -344,6 +346,16 @@ describe(
         await database.query(
           `BEGIN;\n${feePolicyFeasibilityMigration}\nCOMMIT;`
         )
+        const manifestRotationResolutionMigration = await readFile(
+          new URL(
+            "../migrations/014_p2tr_candidate_enqueue_rotation_resolution.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(
+          `BEGIN;\n${manifestRotationResolutionMigration}\nCOMMIT;`
+        )
 
         const expectedSeriesID = createHash("sha256")
           .update(
@@ -412,9 +424,21 @@ describe(
               attemptCount: 3,
               lastSQLState: "57014",
             })
+            await cloneCandidateAuthorization(
+              session,
+              tokenID,
+              rotationTokenID,
+              rotationCandidateDigest
+            )
+            await stateStore.armCandidateEnqueueTransactionGuard({
+              tokenID: rotationTokenID,
+              manifestHash,
+              candidateDigest: rotationCandidateDigest,
+              maxAttemptCount: 3,
+            })
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
               manifestHash,
-              unresolvedCandidateEnqueueTransactionGuardCount: 0,
+              unresolvedCandidateEnqueueTransactionGuardCount: 1,
               candidateEnqueueRetryExhaustionCount: 1,
             })
           }
@@ -431,7 +455,7 @@ describe(
           async () => {
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
               manifestHash: rotatedManifestHash,
-              unresolvedCandidateEnqueueTransactionGuardCount: 0,
+              unresolvedCandidateEnqueueTransactionGuardCount: 1,
               candidateEnqueueRetryExhaustionCount: 1,
             })
           }
@@ -448,6 +472,21 @@ describe(
             })
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
               manifestHash: rotatedManifestHash,
+              unresolvedCandidateEnqueueTransactionGuardCount: 1,
+              candidateEnqueueRetryExhaustionCount: 0,
+            })
+            await stateStore.resolveCandidateEnqueueManifestRotationDisposition(
+              {
+                tokenID: rotationTokenID,
+                manifestHash,
+                candidateDigest: rotationCandidateDigest,
+                resolutionDigest: WORD("65"),
+                reason: "operator acknowledged the rotation-abandoned candidate",
+                resolvedAtUnixMs: 10_001,
+              }
+            )
+            assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
+              manifestHash: rotatedManifestHash,
               unresolvedCandidateEnqueueTransactionGuardCount: 0,
               candidateEnqueueRetryExhaustionCount: 0,
             })
@@ -457,6 +496,12 @@ describe(
           database.query(
             `UPDATE p2tr_candidate_enqueue_retry_exhaustion_resolution
                 SET reason = 'rewritten operator evidence'`
+          ),
+          /append-only/
+        )
+        await assert.rejects(
+          database.query(
+            `DELETE FROM p2tr_candidate_enqueue_manifest_rotation_resolution`
           ),
           /append-only/
         )
@@ -608,4 +653,44 @@ async function seedCanonicalReadinessPoint(
   await database.query(`SELECT p2tr_seal_canonical_generation($1)`, [
     generation.rows[0].generation_id,
   ])
+}
+
+async function cloneCandidateAuthorization(
+  session: P2TRPostgresTransactionSession,
+  sourceTokenID: string,
+  tokenID: string,
+  candidateDigest: string
+): Promise<void> {
+  const columns = await session.query<{ column_name: string }>(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'p2tr_candidate_enqueue_authorizations'
+      ORDER BY ordinal_position`
+  )
+  const quotedColumns = columns.rows.map(({ column_name: columnName }) => {
+    if (!/^[a-z][a-z0-9_]*$/.test(columnName)) {
+      throw new Error("Candidate authorization column name is unsafe")
+    }
+    return `"${columnName}"`
+  })
+  const expressions = columns.rows.map(({ column_name: columnName }) =>
+    columnName === "token_id"
+      ? "$1::bytea"
+      : columnName === "candidate_digest"
+      ? "$2::bytea"
+      : columnName === "issued_at"
+      ? "clock_timestamp()"
+      : columnName === "expires_at"
+      ? "clock_timestamp() + interval '1 minute'"
+      : `source."${columnName}"`
+  )
+  await session.query(
+    `INSERT INTO p2tr_candidate_enqueue_authorizations
+       (${quotedColumns.join(", ")})
+     SELECT ${expressions.join(", ")}
+       FROM p2tr_candidate_enqueue_authorizations source
+      WHERE source.token_id = $3`,
+    [bytes(tokenID), bytes(candidateDigest), bytes(sourceTokenID)]
+  )
 }

@@ -1070,6 +1070,9 @@ function candidateStateStore(
     async resolveCandidateEnqueueRetryExhaustionAlert() {
       throw new Error("unused test dependency")
     },
+    async resolveCandidateEnqueueManifestRotationDisposition() {
+      throw new Error("unused test dependency")
+    },
     async saveCandidateEnqueueNonRetryableFailure(failure) {
       coordinator.stage(() => journal.nonRetryableFailures.push(failure))
     },

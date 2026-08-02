@@ -583,6 +583,7 @@ export class PostgresP2TRCanonicalIndexStore
 
     const rawClient = await this.pool.connect()
     let readinessFenceLocked = false
+    let readinessFenceAcquisitionAttempted = false
     let transactionPhase: "begin" | "active" | "commit" | "finished" = "begin"
     let releaseError: Error | boolean | undefined
     let operationFailed = false
@@ -615,6 +616,7 @@ export class PostgresP2TRCanonicalIndexStore
           `${this.statementTimeoutMs}ms`,
         ])
         try {
+          readinessFenceAcquisitionAttempted = true
           await rawClient.query(
             readinessFence === "exclusive"
               ? "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
@@ -632,11 +634,15 @@ export class PostgresP2TRCanonicalIndexStore
           error,
           "PostgreSQL readiness fence acquisition failed"
         )
-        // A SQLSTATE response before the session fence is acquired proves the
-        // connection is alive and holds no fence, so it is safe to return to
-        // the pool. Transport failures and failures after acquisition leave
-        // session state uncertain and must destroy the pooled connection.
-        if (readinessFenceLocked || postgresSQLState(error) === undefined) {
+        // Errors before the advisory-lock statement and lock_timeout's 55P03
+        // prove no session fence was acquired. An interrupt such as 57014 can
+        // arrive after PostgreSQL grants the session lock but before the query
+        // response reaches this client, so every other acquisition failure
+        // leaves session state uncertain and must destroy the pooled client.
+        const responseSQLState = postgresSQLState(error)
+        const fenceWasDefinitelyNotGranted =
+          !readinessFenceAcquisitionAttempted || responseSQLState === "55P03"
+        if (readinessFenceLocked || !fenceWasDefinitelyNotGranted) {
           releaseError = clientError
         }
         const sqlState = retryablePostgresSQLState(error)

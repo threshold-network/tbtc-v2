@@ -149,6 +149,30 @@ describe("PostgreSQL production transaction capabilities", () => {
     assert.ok(client.releasedWith instanceof Error)
   })
 
+  it("destroys a session when fence cancellation cannot disprove a granted lock", async () => {
+    const client = new TransactionClient("FENCE_CANCELLED")
+    const coordinator = coordinatorFor(client)
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "57014"
+    )
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.ok(client.releasedWith instanceof Error)
+  })
+
   it("serializes writers on both sides of the pre-snapshot readiness fence", async () => {
     const fence = new ReadinessFence()
     const firstWriterClient = new TransactionClient(undefined, 0, fence)
@@ -462,6 +486,7 @@ class TransactionClient implements P2TRPostgresClient {
       | "COMMIT"
       | "ROLLBACK"
       | "FENCE"
+      | "FENCE_CANCELLED"
       | "FENCE_TRANSPORT"
       | "UNLOCK",
     private readonly liveCandidateAuthorizationCount = 0,
@@ -479,7 +504,9 @@ class TransactionClient implements P2TRPostgresClient {
       throw new Error("UNLOCK failed")
     }
     if (
-      (this.failure === "FENCE" || this.failure === "FENCE_TRANSPORT") &&
+      (this.failure === "FENCE" ||
+        this.failure === "FENCE_CANCELLED" ||
+        this.failure === "FENCE_TRANSPORT") &&
       (text.includes("pg_advisory_lock(") ||
         text.includes("pg_advisory_lock_shared(")) &&
       !text.includes("pg_advisory_xact_lock")
@@ -487,11 +514,17 @@ class TransactionClient implements P2TRPostgresClient {
       const error = new Error(
         this.failure === "FENCE"
           ? "readiness fence lock timeout"
+          : this.failure === "FENCE_CANCELLED"
+          ? "readiness fence statement cancelled after possible grant"
           : "readiness fence transport failure"
       )
-      throw this.failure === "FENCE"
-        ? Object.assign(error, { code: "55P03" })
-        : error
+      if (this.failure === "FENCE") {
+        throw Object.assign(error, { code: "55P03" })
+      }
+      if (this.failure === "FENCE_CANCELLED") {
+        throw Object.assign(error, { code: "57014" })
+      }
+      throw error
     }
     if (text.includes("current_setting('lock_timeout')")) {
       return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }

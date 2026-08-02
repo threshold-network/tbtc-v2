@@ -1062,6 +1062,24 @@ const enqueue = async (
 class LostPreIOCommitStore extends InMemoryOutboxStore {
   loseNextSignerBoundaryCommit = false
   loseNextNonceReleaseBoundaryCommit = false
+  failSignerBoundaryDeterministically?: Error
+  failNonceReleaseBoundaryDeterministically?: Error
+  retryableReadFailuresAfterLostSignerCommit = 0
+  private retryableReadFailuresRemaining = 0
+  signerBoundaryAttempts = 0
+  nonceReleaseBoundaryAttempts = 0
+
+  override async get(
+    recordID: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
+    if (this.retryableReadFailuresRemaining > 0) {
+      this.retryableReadFailuresRemaining--
+      const error = new Error("durable boundary reload response lost")
+      this.retryablePersistenceErrors.add(error)
+      throw error
+    }
+    return super.get(recordID)
+  }
 
   override async compareAndSwapWithCurrentCanonicalProvenance(
     recordID: string,
@@ -1069,6 +1087,12 @@ class LostPreIOCommitStore extends InMemoryOutboxStore {
     expectedProvenance: P2TRSignatureFraudCanonicalProvenanceBinding,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<boolean> {
+    if (next.activeSignerInvocationStartedAtUnixMs !== undefined) {
+      this.signerBoundaryAttempts++
+      if (this.failSignerBoundaryDeterministically !== undefined) {
+        throw this.failSignerBoundaryDeterministically
+      }
+    }
     const persisted = await super.compareAndSwapWithCurrentCanonicalProvenance(
       recordID,
       expectedVersion,
@@ -1081,7 +1105,11 @@ class LostPreIOCommitStore extends InMemoryOutboxStore {
       next.activeSignerInvocationStartedAtUnixMs !== undefined
     ) {
       this.loseNextSignerBoundaryCommit = false
-      throw new Error("signer-boundary commit response lost")
+      this.retryableReadFailuresRemaining =
+        this.retryableReadFailuresAfterLostSignerCommit
+      const error = new Error("signer-boundary commit response lost")
+      this.retryablePersistenceErrors.add(error)
+      throw error
     }
     return persisted
   }
@@ -1090,13 +1118,19 @@ class LostPreIOCommitStore extends InMemoryOutboxStore {
     attempt: P2TRSignatureFraudNonceReleaseAttempt,
     invokedAtUnixMs: number
   ): Promise<boolean> {
+    this.nonceReleaseBoundaryAttempts++
+    if (this.failNonceReleaseBoundaryDeterministically !== undefined) {
+      throw this.failNonceReleaseBoundaryDeterministically
+    }
     const persisted = await super.beginNonceReleaseAttempt(
       attempt,
       invokedAtUnixMs
     )
     if (persisted && this.loseNextNonceReleaseBoundaryCommit) {
       this.loseNextNonceReleaseBoundaryCommit = false
-      throw new Error("nonce-release commit response lost")
+      const error = new Error("nonce-release commit response lost")
+      this.retryablePersistenceErrors.add(error)
+      throw error
     }
     return persisted
   }
@@ -2041,6 +2075,7 @@ test("carries the real scheduler generation-cap outcome through the activation g
     p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
     async armCandidateEnqueueTransactionGuard() {},
     async resolveCandidateEnqueueRetryExhaustionAlert() {},
+    async resolveCandidateEnqueueManifestRotationDisposition() {},
     async saveCandidateEnqueueNonRetryableFailure() {},
     async lockCandidateAuthorization() {},
     async assertCandidateIndexed() {},
@@ -2540,6 +2575,7 @@ test("retires an initial signer boundary whose commit response is lost before I/
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
   store.loseNextSignerBoundaryCommit = true
+  store.retryableReadFailuresAfterLostSignerCommit = 2
 
   const result = await dispatcher(store, preparer).prepare(
     record.recordID,
@@ -2563,6 +2599,7 @@ test("retires a replacement signer boundary whose commit response is lost before
     "prepared"
   )
   store.loseNextSignerBoundaryCommit = true
+  store.retryableReadFailuresAfterLostSignerCommit = 2
 
   const result = await outbox.prepareReplacement(record.recordID, "worker-b")
 
@@ -2572,6 +2609,26 @@ test("retires a replacement signer boundary whose commit response is lost before
   assert.equal(result.preparedTransactionVariants?.length, 1)
   assert.equal(preparer.replacementCalls, 0)
   assert.match(result.lastError ?? "", /persistence was ambiguous/)
+})
+
+test("propagates a deterministic signer-boundary failure without retrying", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const failure = new Error("signer boundary constraint rejected")
+  store.failSignerBoundaryDeterministically = failure
+
+  await assert.rejects(
+    dispatcher(store, preparer).prepare(record.recordID, "worker-a"),
+    (error: unknown) => error === failure
+  )
+
+  assert.equal(store.signerBoundaryAttempts, 1)
+  assert.equal(preparer.calls, 0)
+  assert.equal(
+    (await store.get(record.recordID))?.activeSignerInvocationStartedAtUnixMs,
+    undefined
+  )
 })
 
 test("recovers an invalidated initial authorization without inventing signer I/O", async () => {
@@ -3119,6 +3176,37 @@ test("invokes the allocator after reconciling a lost nonce-release marker respon
   assert.equal(await store.hasPendingNonceReleases(), false)
   assert.equal(preparer.calls, 0)
   assert.equal(preparer.releasedReservations.length, 1)
+})
+
+test("propagates a deterministic nonce-release marker failure without retrying", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now
+  )
+  const failure = new Error("nonce release constraint rejected")
+  store.failNonceReleaseBoundaryDeterministically = failure
+  store.beforeProvenanceCAS = async (_current, next) => {
+    if (next.activeSignerInvocationStartedAtUnixMs === undefined) return
+    store.beforeProvenanceCAS = undefined
+    now = 40_001
+    await outbox.recoverExpiredPreparationLeases()
+  }
+
+  await assert.rejects(
+    outbox.prepare(record.recordID, "worker-a"),
+    (error: unknown) => error === failure
+  )
+
+  assert.equal(store.nonceReleaseBoundaryAttempts, 1)
+  assert.equal(preparer.releasedReservations.length, 0)
 })
 
 test("captures exact bytes when provenance invalidation wins after signer invocation", async () => {

@@ -179,7 +179,7 @@ async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
   initialSignerConfiguration = signerConfiguration(),
-  throughMigrationVersion = 13
+  throughMigrationVersion = 14
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -250,6 +250,10 @@ async function createTestDatabase(
       "../migrations/013_p2tr_fee_policy_feasibility.sql",
       import.meta.url
     ),
+    new URL(
+      "../migrations/014_p2tr_candidate_enqueue_rotation_resolution.sql",
+      import.meta.url
+    ),
   ]
   for (const migration of migrations.slice(0, throughMigrationVersion)) {
     await client.query(await readFile(migration, "utf8"))
@@ -269,9 +273,18 @@ function createStore(
     "runInP2TRSignatureFraudWatchtowerTransaction"
   > & {
     isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
+    readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+      error: unknown
+    ): string | undefined
+    isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+      error: unknown
+    ): boolean
   } = {
     runInP2TRSignatureFraudWatchtowerTransaction: (operation) => operation(),
     isP2TRSignatureFraudWatchtowerTransactionActive: () => false,
+    readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState: () =>
+      undefined,
+    isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown: () => false,
   },
   assertTransactionSession: () => void = () => undefined,
   loadEligibilitySnapshot: () => Promise<P2TRSignatureFraudChallengeOutboxEligibilitySnapshot> = async () => {
@@ -350,6 +363,14 @@ function createManagedStore(
   const coordinator = {
     isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
       return transaction.getStore() === true
+    },
+    readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState():
+      | string
+      | undefined {
+      return undefined
+    },
+    isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(): boolean {
+      return false
     },
     async runInP2TRSignatureFraudWatchtowerTransaction<T>(
       operation: () => Promise<T>
@@ -1833,6 +1854,63 @@ postgresTest(
     assert.deepEqual(after.rows, [
       { failure_count: "1", disposition_count: "1" },
     ])
+
+    const resolutionMigration = await readFile(
+      new URL(
+        "../migrations/014_p2tr_candidate_enqueue_rotation_resolution.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    await database.client.query(resolutionMigration)
+    const unresolvedBefore = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+        WHERE disposition.token_id = $1
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_manifest_rotation_resolution resolution
+                 WHERE resolution.manifest_hash = disposition.manifest_hash
+                   AND resolution.token_id = disposition.token_id
+              )`,
+      [hexBuffer(tokenID)]
+    )
+    assert.deepEqual(unresolvedBefore.rows, [{ count: "1" }])
+
+    await database.client.query(
+      `INSERT INTO p2tr_candidate_enqueue_manifest_rotation_resolution
+         (manifest_hash, token_id, candidate_digest, failure_digest,
+          replacement_manifest_hash, replacement_activation_sequence,
+          resolution_digest, reason, resolved_at_unix_ms)
+       SELECT manifest_hash, token_id, candidate_digest, failure_digest,
+              replacement_manifest_hash, replacement_activation_sequence,
+              $2, 'operator acknowledged the abandoned candidate', 12345
+         FROM p2tr_candidate_enqueue_manifest_rotation_disposition
+        WHERE token_id = $1`,
+      [hexBuffer(tokenID), hexBuffer(`0x${"a7".repeat(32)}`)]
+    )
+    const unresolvedAfter = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+        WHERE disposition.token_id = $1
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_manifest_rotation_resolution resolution
+                 WHERE resolution.manifest_hash = disposition.manifest_hash
+                   AND resolution.token_id = disposition.token_id
+              )`,
+      [hexBuffer(tokenID)]
+    )
+    assert.deepEqual(unresolvedAfter.rows, [{ count: "0" }])
+    await assert.rejects(
+      database.client.query(
+        `UPDATE p2tr_candidate_enqueue_manifest_rotation_resolution
+            SET reason = 'rewritten evidence'
+          WHERE token_id = $1`,
+        [hexBuffer(tokenID)]
+      ),
+      /append-only/
+    )
     await database.client.end()
   }
 )

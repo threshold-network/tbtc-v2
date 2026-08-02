@@ -397,6 +397,10 @@ describe("production activation PostgreSQL schema contract", () => {
       runtimeAlerts,
       /p2tr_candidate_enqueue_retry_exhaustion_resolution resolution/
     )
+    assert.match(
+      runtimeAlerts,
+      /p2tr_candidate_enqueue_manifest_rotation_disposition disposition[\s\S]*?p2tr_candidate_enqueue_manifest_rotation_resolution resolution/
+    )
     assert.doesNotMatch(
       runtimeAlerts,
       /alert\.manifest_hash = manifest\.manifest_hash/
@@ -404,13 +408,23 @@ describe("production activation PostgreSQL schema contract", () => {
     const resolution = methodSource(
       activationStore,
       "resolveCandidateEnqueueRetryExhaustionAlert",
-      "saveCandidateEnqueueNonRetryableFailure"
+      "resolveCandidateEnqueueManifestRotationDisposition"
     )
     assert.match(
       resolution,
       /INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_resolution/
     )
     assert.doesNotMatch(resolution, /assertCurrentActivationManifest/)
+    const rotationResolution = methodSource(
+      activationStore,
+      "resolveCandidateEnqueueManifestRotationDisposition",
+      "saveCandidateEnqueueNonRetryableFailure"
+    )
+    assert.match(
+      rotationResolution,
+      /INSERT INTO p2tr_candidate_enqueue_manifest_rotation_resolution/
+    )
+    assert.doesNotMatch(rotationResolution, /assertCurrentActivationManifest/)
   })
 
   it("revalidates durable candidate authority without steady-state dispatcher gates", () => {
