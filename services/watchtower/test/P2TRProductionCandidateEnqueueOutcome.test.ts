@@ -368,6 +368,77 @@ describe("production candidate enqueue outcomes", () => {
     }
   })
 
+  it("retries guard arming after confirmed pre-COMMIT transport aborts", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    coordinator.failNextGuardTransactionWithPreCommitTransportAbort(
+      new Error("connection lost before guard COMMIT")
+    )
+    const dispositions: string[] = []
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, dispositions, journal)
+    let enqueueAttempts = 0
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => {
+          enqueueAttempts++
+          return { kind: "enqueued", outboxIntentID: ENQUEUED_INTENT_ID }
+        },
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer,
+      3
+    )
+
+    assert.equal(
+      await gate.consumeCandidateAuthorization(token, candidate),
+      ENQUEUED_INTENT_ID
+    )
+    assert.equal(enqueueAttempts, 1)
+    assert.deepEqual(dispositions, [ENQUEUED_INTENT_ID])
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 1)
+    assert.equal(coordinator.commits, 2)
+    assert.equal(coordinator.rollbacks, 1)
+  })
+
+  it("uses the complete retry budget for guard pre-COMMIT transport aborts", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    coordinator.failNextGuardTransactionWithPreCommitTransportAbort(
+      new Error("first connection loss before guard COMMIT")
+    )
+    coordinator.failNextGuardTransactionWithPreCommitTransportAbort(
+      new Error("second connection loss before guard COMMIT")
+    )
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, [], journal)
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => ({
+          kind: "enqueued",
+          outboxIntentID: ENQUEUED_INTENT_ID,
+        }),
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer,
+      2
+    )
+
+    await assert.rejects(
+      gate.consumeCandidateAuthorization(token, candidate),
+      /second connection loss before guard COMMIT/
+    )
+    assert.equal(journal.guards.length, 0)
+    assert.equal(journal.resolutions.length, 0)
+    assert.equal(coordinator.commits, 0)
+    assert.equal(coordinator.rollbacks, 2)
+  })
+
   it("retries confirmed pre-COMMIT transport aborts without disposing the guard", async () => {
     const coordinator = new RollbackAwareCoordinator()
     coordinator.failNextTransactionWithPreCommitTransportAbort(
@@ -771,6 +842,7 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   private readonly guardFailures: RetryableSQLState[] = []
   private readonly guardSetupFailures: Error[] = []
   private readonly enqueueSetupFailures: Error[] = []
+  private readonly guardPreCommitTransportFailures: Error[] = []
   private readonly preCommitTransportFailures: Error[] = []
   private readonly retryableErrors = new WeakMap<object, RetryableSQLState>()
   private readonly preCommitTransportErrors = new WeakSet<object>()
@@ -806,7 +878,9 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
         throw failure
       }
       const transportFailure =
-        this.commits > 0 ? this.preCommitTransportFailures.shift() : undefined
+        this.commits === 0
+          ? this.guardPreCommitTransportFailures.shift()
+          : this.preCommitTransportFailures.shift()
       if (transportFailure !== undefined) {
         this.preCommitTransportErrors.add(transportFailure)
         throw transportFailure
@@ -881,6 +955,10 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
 
   failNextTransactionWithPreCommitTransportAbort(error: Error): void {
     this.preCommitTransportFailures.push(error)
+  }
+
+  failNextGuardTransactionWithPreCommitTransportAbort(error: Error): void {
+    this.guardPreCommitTransportFailures.push(error)
   }
 
   failNextTransactionWithUnknownOutcome(error: Error): void {

@@ -179,7 +179,7 @@ async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
   initialSignerConfiguration = signerConfiguration(),
-  throughMigrationVersion = 10
+  throughMigrationVersion = 11
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -236,6 +236,10 @@ async function createTestDatabase(
     ),
     new URL(
       "../migrations/010_p2tr_candidate_enqueue_transient_retries.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
       import.meta.url
     ),
   ]
@@ -1684,6 +1688,74 @@ postgresTest(
     )
     assert.deepEqual(invalidated.rows, [{ invalidated: true }])
 
+    const disposition = await database.client.query<{
+      failure_digest: string
+      disposition_failure_digest: string
+      replacement_manifest_hash: string
+      replacement_activation_sequence: string
+      unresolved_count: string
+    }>(
+      `SELECT encode(failure.failure_digest, 'hex') AS failure_digest,
+              encode(disposition.failure_digest, 'hex')
+                AS disposition_failure_digest,
+              encode(disposition.replacement_manifest_hash, 'hex')
+                AS replacement_manifest_hash,
+              disposition.replacement_activation_sequence::text
+                AS replacement_activation_sequence,
+              (SELECT count(*)::text
+                 FROM p2tr_candidate_enqueue_transaction_guard guard_row
+                WHERE guard_row.token_id = $1
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                       WHERE resolution.manifest_hash = guard_row.manifest_hash
+                         AND resolution.token_id = guard_row.token_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                       WHERE alert.manifest_hash = guard_row.manifest_hash
+                         AND alert.token_id = guard_row.token_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM p2tr_candidate_enqueue_non_retryable_failure terminal_failure
+                       WHERE terminal_failure.manifest_hash = guard_row.manifest_hash
+                         AND terminal_failure.token_id = guard_row.token_id
+                  )) AS unresolved_count
+         FROM p2tr_candidate_enqueue_non_retryable_failure failure
+         JOIN p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+           ON disposition.manifest_hash = failure.manifest_hash
+          AND disposition.token_id = failure.token_id
+          AND disposition.candidate_digest = failure.candidate_digest
+        WHERE failure.token_id = $1`,
+      [hexBuffer(`0x${"e3".repeat(32)}`)]
+    )
+    assert.equal(disposition.rows.length, 1)
+    assert.equal(
+      disposition.rows[0].disposition_failure_digest,
+      disposition.rows[0].failure_digest
+    )
+    assert.equal(
+      disposition.rows[0].replacement_manifest_hash,
+      nextManifest.slice(2)
+    )
+    assert.equal(disposition.rows[0].replacement_activation_sequence, "2")
+    assert.equal(disposition.rows[0].unresolved_count, "0")
+    await assert.rejects(
+      database.client.query(
+        `UPDATE p2tr_candidate_enqueue_manifest_rotation_disposition
+            SET replacement_activation_sequence = 3`
+      ),
+      /append-only/
+    )
+    await assert.rejects(
+      database.client.query(
+        `DELETE FROM p2tr_candidate_enqueue_manifest_rotation_disposition`
+      ),
+      /append-only/
+    )
+
     await insertRecord(database, outboxRecordForManifest(14, nextManifest))
     const capacity = await database.client.query<{
       active_generation_count: string
@@ -1693,6 +1765,66 @@ postgresTest(
         WHERE singleton = true`
     )
     assert.equal(capacity.rows[0].active_generation_count, "1")
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "backfills guards stranded by manifest rotation before migration 011",
+  async () => {
+    const database = await createTestDatabase(
+      1,
+      CHAIN_ID,
+      signerConfiguration(),
+      10
+    )
+    const nextManifest = `0x${"e5".repeat(32)}`
+    const tokenID = `0x${"e6".repeat(32)}`
+    await begin(database.client)
+    await database.store.installSignerLaneConfiguration(
+      signerConfiguration(nextManifest)
+    )
+    await commit(database.client)
+    await insertCandidateEnqueueGuard(
+      database,
+      outboxRecord(15),
+      tokenID,
+      `0x${"0f".repeat(32)}`
+    )
+    await rotateActivationManifest(database, nextManifest, 1)
+
+    const before = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_candidate_enqueue_non_retryable_failure
+        WHERE token_id = $1`,
+      [hexBuffer(tokenID)]
+    )
+    assert.deepEqual(before.rows, [{ count: "0" }])
+
+    const migration = await readFile(
+      new URL(
+        "../migrations/011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    await database.client.query(migration)
+
+    const after = await database.client.query<{
+      failure_count: string
+      disposition_count: string
+    }>(
+      `SELECT (SELECT count(*)::text
+                 FROM p2tr_candidate_enqueue_non_retryable_failure
+                WHERE token_id = $1) AS failure_count,
+              (SELECT count(*)::text
+                 FROM p2tr_candidate_enqueue_manifest_rotation_disposition
+                WHERE token_id = $1) AS disposition_count`,
+      [hexBuffer(tokenID)]
+    )
+    assert.deepEqual(after.rows, [
+      { failure_count: "1", disposition_count: "1" },
+    ])
     await database.client.end()
   }
 )

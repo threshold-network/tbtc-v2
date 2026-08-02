@@ -65,6 +65,11 @@ describe("P2TR watchtower migration bodies", () => {
           version: 10,
           filename: "010_p2tr_candidate_enqueue_transient_retries.sql",
         },
+        {
+          version: 11,
+          filename:
+            "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+        },
       ]
     )
   })
@@ -273,6 +278,34 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /last_sqlstate IN \('40001', '40P01', '55P03', '57014'\)/
+    )
+  })
+
+  it("terminalizes stale-manifest guards with append-only rotation evidence", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_candidate_enqueue_manifest_rotation_disposition/
+    )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_manifest_rotation_disposition_immutable_trigger[\s\S]*?BEFORE UPDATE OR DELETE/
+    )
+    assert.match(
+      migration,
+      /INSERT INTO p2tr_candidate_enqueue_non_retryable_failure[\s\S]*?p2tr-candidate-enqueue-manifest-rotation-failure-v1/
+    )
+    assert.match(
+      migration,
+      /AFTER UPDATE ON p2tr_watchtower_activation_manifest/
     )
   })
 })

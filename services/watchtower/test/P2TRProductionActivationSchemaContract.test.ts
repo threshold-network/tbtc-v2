@@ -64,6 +64,13 @@ const transientRetryMigration = readFileSync(
   ),
   "utf8"
 )
+const manifestRotationDispositionMigration = readFileSync(
+  new URL(
+    "../migrations/011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -170,6 +177,37 @@ describe("production activation PostgreSQL schema contract", () => {
     )
     assert.match(transactionCoordinator, /code === "55P03"/)
     assert.match(transactionCoordinator, /code === "57014"/)
+  })
+
+  it("retries confirmed pre-COMMIT aborts while arming the guard", () => {
+    const armWithRetry = methodSource(
+      activationGate,
+      "armCandidateEnqueueTransactionGuardWithRetry",
+      "runCandidateEnqueueTransactionWithRetry"
+    )
+    assert.match(
+      armWithRetry,
+      /isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort[\s\S]*?attemptCount < this\.candidateEnqueueTransactionMaxAttempts[\s\S]*?continue/
+    )
+  })
+
+  it("terminalizes stale-manifest guards during and after rotation", () => {
+    assert.match(
+      manifestRotationDispositionMigration,
+      /CREATE TABLE p2tr_candidate_enqueue_manifest_rotation_disposition/
+    )
+    assert.match(
+      manifestRotationDispositionMigration,
+      /INSERT INTO p2tr_candidate_enqueue_non_retryable_failure[\s\S]*?INSERT INTO p2tr_candidate_enqueue_manifest_rotation_disposition/
+    )
+    assert.match(
+      manifestRotationDispositionMigration,
+      /FOR stale_manifest_hash IN[\s\S]*?p2tr_candidate_enqueue_dispose_stale_manifest_guards/
+    )
+    assert.match(
+      manifestRotationDispositionMigration,
+      /AFTER UPDATE ON p2tr_watchtower_activation_manifest/
+    )
   })
 
   it("preserves expired authority owned by an unresolved enqueue guard", () => {

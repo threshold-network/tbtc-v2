@@ -313,6 +313,16 @@ describe(
           "utf8"
         )
         await database.query(`BEGIN;\n${transientRetryMigration}\nCOMMIT;`)
+        const manifestRotationDispositionMigration = await readFile(
+          new URL(
+            "../migrations/011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(
+          `BEGIN;\n${manifestRotationDispositionMigration}\nCOMMIT;`
+        )
 
         const expectedSeriesID = createHash("sha256")
           .update(

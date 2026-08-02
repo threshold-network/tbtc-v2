@@ -1380,6 +1380,19 @@ export class P2TRProductionActivationGate {
           }
           throw error
         }
+        if (
+          this.dependencies.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+            error
+          )
+        ) {
+          // The coordinator confirmed that no COMMIT was issued, so the guard
+          // insert rolled back completely and is safe to replay. Keep this
+          // retry policy symmetric with the guarded enqueue transaction.
+          if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
+            continue
+          }
+          throw error
+        }
         const sqlState =
           this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
             error
