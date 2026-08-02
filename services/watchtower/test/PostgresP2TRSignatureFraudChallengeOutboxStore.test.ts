@@ -2603,18 +2603,21 @@ postgresTest(
            FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
           ORDER BY sender`
       )
-      assert.deepEqual(barriers.rows, [
-        {
-          sender: WALLET.address.slice(2).toLowerCase(),
-          active: 0,
-          unresolved: 1,
-        },
-        {
-          sender: SECONDARY_WALLET.address.slice(2).toLowerCase(),
-          active: 1,
-          unresolved: 0,
-        },
-      ].sort((left, right) => left.sender.localeCompare(right.sender)))
+      assert.deepEqual(
+        barriers.rows,
+        [
+          {
+            sender: WALLET.address.slice(2).toLowerCase(),
+            active: 0,
+            unresolved: 1,
+          },
+          {
+            sender: SECONDARY_WALLET.address.slice(2).toLowerCase(),
+            active: 1,
+            unresolved: 0,
+          },
+        ].sort((left, right) => left.sender.localeCompare(right.sender))
+      )
 
       const pending = await database.store.listPendingNonceReleases({
         limit: 10,
@@ -3790,10 +3793,7 @@ postgresTest(
       record.seriesID.slice(2)
     )
     assert.equal(successorAuthority.expected_generation, 1)
-    assert.equal(
-      successorAuthority.expected_disposition,
-      "nonce-disposition"
-    )
+    assert.equal(successorAuthority.expected_disposition, "nonce-disposition")
     assert.equal(
       successorAuthority.expected_predecessor_id?.toString("hex"),
       record.recordID.slice(2)
@@ -5053,11 +5053,7 @@ function signEscapedEIP7702Transaction(
   }
   const chainID = request.chainID ?? CHAIN_ID
   const destination = request.to ?? record.intent.routerAddress
-  const authorizationUnsigned = [
-    quantity(chainID),
-    destination,
-    quantity(0),
-  ]
+  const authorizationUnsigned = [quantity(chainID), destination, quantity(0)]
   const authorizationSignature = new Wallet(`0x${"44".repeat(32)}`)
     ._signingKey()
     .signDigest(
@@ -5737,7 +5733,10 @@ postgresTest(
         captured.signerQuarantines?.at(-1)?.reasonCode,
         "oversized-signed-envelope"
       )
-      assert.equal(await database.store.hasExpiredPreparationLeases(50_000), false)
+      assert.equal(
+        await database.store.hasExpiredPreparationLeases(50_000),
+        false
+      )
       assert.equal(
         (await database.store.get(initial.recordID))?.status,
         "quarantined"
@@ -5972,10 +5971,9 @@ postgresTest(
       assert.deepEqual(adopted.rows, [
         {
           record_id: owner.recordID.slice(2),
-          guard_id:
-            ownerReserved.reservedNonce!.reservationID
-              .toPrefixedString()
-              .slice(2),
+          guard_id: ownerReserved
+            .reservedNonce!.reservationID.toPrefixedString()
+            .slice(2),
         },
       ])
 
@@ -5989,8 +5987,8 @@ postgresTest(
           [
             2_200,
             "e7".repeat(32),
-            ownerReserved.reservedNonce!.reservationID
-              .toPrefixedString()
+            ownerReserved
+              .reservedNonce!.reservationID.toPrefixedString()
               .slice(2),
           ]
         ),

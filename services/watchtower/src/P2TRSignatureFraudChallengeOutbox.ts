@@ -4287,7 +4287,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Nonce-release allocator invocation time"
     )
-    if (!(await this.beginNonceReleaseAttemptDurably(attempt, invokedAtUnixMs))) {
+    if (
+      !(await this.beginNonceReleaseAttemptDurably(attempt, invokedAtUnixMs))
+    ) {
       return "skipped"
     }
 
@@ -7752,7 +7754,8 @@ const validateStructuredResolution = (
             normalizeAddress(
               protectedLane.sender,
               "Protected terminal nonce sender"
-            ) || transaction.nonce !== protectedLane.nonce
+            ) ||
+          transaction.nonce !== protectedLane.nonce
       )
     ) {
       throw new Error(

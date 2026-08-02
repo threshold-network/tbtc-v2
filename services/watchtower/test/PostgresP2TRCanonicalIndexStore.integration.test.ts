@@ -95,7 +95,10 @@ describe(
               () => undefined,
               (failure: unknown) => failure
             )
-          assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+          assert.equal(
+            isP2TRPostgresTransactionConfirmedAbortError(error),
+            true
+          )
           if (!isP2TRPostgresTransactionConfirmedAbortError(error)) continue
           assert.equal(error.reason, "definitive-commit-sqlstate")
           assert.equal(error.sqlState, sqlState)
@@ -106,7 +109,9 @@ describe(
             undefined
           )
           assert.equal(
-            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(error),
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+              error
+            ),
             false
           )
         }
@@ -2545,9 +2550,7 @@ describe(
           ),
           "utf8"
         )
-        await database.query(
-          `BEGIN;\n${generationAuthorityMigration}\nCOMMIT;`
-        )
+        await database.query(`BEGIN;\n${generationAuthorityMigration}\nCOMMIT;`)
         const repaired = await database.query<{
           binding_tx_hash: string
           constraint_validated: boolean

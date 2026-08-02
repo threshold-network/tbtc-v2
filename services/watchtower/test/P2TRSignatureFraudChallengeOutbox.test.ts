@@ -218,20 +218,18 @@ const signEIP7702TestChallengeTransaction = (calldata: string) => {
     ROUTER_ADDRESS,
     quantity(0),
   ]
-  const authorizationSignature = authority._signingKey().signDigest(
-    utils.keccak256(
-      utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+  const authorizationSignature = authority
+    ._signingKey()
+    .signDigest(
+      utils.keccak256(
+        utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+      )
     )
-  )
   const authorization = [
     ...authorizationUnsigned,
     quantity(authorizationSignature.recoveryParam),
-    utils.hexlify(
-      utils.stripZeros(utils.arrayify(authorizationSignature.r))
-    ),
-    utils.hexlify(
-      utils.stripZeros(utils.arrayify(authorizationSignature.s))
-    ),
+    utils.hexlify(utils.stripZeros(utils.arrayify(authorizationSignature.r))),
+    utils.hexlify(utils.stripZeros(utils.arrayify(authorizationSignature.s))),
   ]
   const unsigned = [
     quantity(11155111),
@@ -308,10 +306,7 @@ const feePolicyManifest = (
   laneOverrides: Partial<
     Omit<
       P2TRSignatureFraudChallengeTransactionFeePolicy,
-      | "policyHash"
-      | "activationManifestHash"
-      | "chainID"
-      | "challengeValueWei"
+      "policyHash" | "activationManifestHash" | "chainID" | "challengeValueWei"
     >
   > = {}
 ) => {
@@ -2095,10 +2090,7 @@ test("carries the real scheduler generation-cap outcome through the activation g
   const candidateEnqueuer = {
     p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
     async enqueueReconciledCandidate() {
-      return challengeScheduler.enqueueConfirmedChallenge(
-        observationID,
-        2_000
-      )
+      return challengeScheduler.enqueueConfirmedChallenge(observationID, 2_000)
     },
   }
   const snapshot = store.eligibilitySnapshot
@@ -3390,12 +3382,9 @@ test("persists the actual lane, call, and value before rejecting signer intent",
 })
 
 test("terminalizes a captured same-lane artifact that consumed the protected nonce", async () => {
-  const signed = signTestChallengeTransaction(
-    defaultTestCall.calldata,
-    20,
-    2,
-    { to: "0x3333333333333333333333333333333333333333" }
-  )
+  const signed = signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+    to: "0x3333333333333333333333333333333333333333",
+  })
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
@@ -3411,8 +3400,8 @@ test("terminalizes a captured same-lane artifact that consumed the protected non
   )
 
   const quarantined = await outbox.prepare(record.recordID, "worker-a")
-  const artifact = quarantined.unexpectedSignedArtifacts?.[0]
-    ?.preparedTransaction
+  const artifact =
+    quarantined.unexpectedSignedArtifacts?.[0]?.preparedTransaction
   assert.equal(quarantined.status, "quarantined")
   assert.ok(artifact)
 

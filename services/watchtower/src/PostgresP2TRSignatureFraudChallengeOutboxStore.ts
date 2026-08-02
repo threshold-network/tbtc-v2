@@ -1237,7 +1237,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           ]
         )
         if (barrierLock.rows.length !== 1) {
-          throw new Error("Mismatched nonce release lacks its nonce-lane barrier")
+          throw new Error(
+            "Mismatched nonce release lacks its nonce-lane barrier"
+          )
         }
       }
     }
@@ -4491,19 +4493,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       ]
     )
     if (transaction.chainID === 0) {
-      await this.guardChainlessEscapedTransaction(
-        record,
-        reservation,
-        {
-          transactionHash: hexValue(
-            transaction.transactionHash,
-            "Chainless escaped transaction hash"
-          ),
-          sender: address(transaction.sender, "Chainless escaped sender"),
-          nonce: transaction.nonce,
-          capturedAtUnixMs: artifact.capturedAtUnixMs,
-        }
-      )
+      await this.guardChainlessEscapedTransaction(record, reservation, {
+        transactionHash: hexValue(
+          transaction.transactionHash,
+          "Chainless escaped transaction hash"
+        ),
+        sender: address(transaction.sender, "Chainless escaped sender"),
+        nonce: transaction.nonce,
+        capturedAtUnixMs: artifact.capturedAtUnixMs,
+      })
     }
     return !payloadOmittedForSize
   }

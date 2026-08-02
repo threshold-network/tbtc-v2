@@ -390,9 +390,7 @@ export class InMemoryOutboxStore
     const attemptOwner = normalizeOwner(attempt.owner)
     const request = this.nonceReleaseRequests.get(id)
     const lane =
-      request === undefined
-        ? undefined
-        : this.nonceReleaseLaneKey(request)
+      request === undefined ? undefined : this.nonceReleaseLaneKey(request)
     const laneHasActiveSigner =
       lane !== undefined &&
       [...this.records.values()].some(

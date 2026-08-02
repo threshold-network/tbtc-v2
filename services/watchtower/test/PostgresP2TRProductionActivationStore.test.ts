@@ -481,7 +481,8 @@ describe(
                 manifestHash,
                 candidateDigest: rotationCandidateDigest,
                 resolutionDigest: WORD("65"),
-                reason: "operator acknowledged the rotation-abandoned candidate",
+                reason:
+                  "operator acknowledged the rotation-abandoned candidate",
                 resolvedAtUnixMs: 10_001,
               }
             )

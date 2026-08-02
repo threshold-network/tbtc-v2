@@ -1120,10 +1120,9 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
     }
   )
   if (
-    !toBytes32Hex(
-      intent.observationID,
-      "COMPLETE_V2 observation ID"
-    ).equals(expectedIdentity) ||
+    !toBytes32Hex(intent.observationID, "COMPLETE_V2 observation ID").equals(
+      expectedIdentity
+    ) ||
     !toBytes32Hex(
       intent.bridgeChallengeIdentity,
       "COMPLETE_V2 challenge identity"
@@ -1593,6 +1592,14 @@ export type P2TRSignatureFraudSigningRequestStage = "prepare" | "replacement"
  * is recomputed from the exact call, while the remaining fields bind the
  * authenticated nonce, selected lane/signer, fee policy, invocation, and (for
  * replacements) the previous signed transaction.
+ *
+ * @param stage Signer API stage being invoked.
+ * @param intent Exact fraud-challenge submission intent.
+ * @param reservation Authenticated nonce reservation selected for the call.
+ * @param feePolicy Manifest-bound fee policy selected for the call.
+ * @param signerInvocationID Deterministic identifier for this signer call.
+ * @param previousTransactionHash Prior signed transaction for a replacement.
+ * @returns Digest committing to the complete signer request.
  */
 export const computeP2TRSignatureFraudSigningRequestDigest = (
   stage: P2TRSignatureFraudSigningRequestStage,
@@ -1743,7 +1750,14 @@ export const computeP2TRSignatureFraudSigningRequestDigest = (
   )
 }
 
-/** Digest signed by the reserved sender over one exact signer response. */
+/**
+ * Computes the digest signed by the reserved sender over one signer response.
+ *
+ * @param signingRequestDigest Digest of the exact signer request.
+ * @param signerInvocationID Deterministic identifier for the signer call.
+ * @param transactionHash Hash of the transaction returned by the signer.
+ * @returns Digest authenticating the exact signer response.
+ */
 export const computeP2TRSignatureFraudSignerResponseBindingDigest = (
   signingRequestDigest: Hex | Buffer | string,
   signerInvocationID: Hex | Buffer | string,
@@ -1775,6 +1789,13 @@ export const computeP2TRSignatureFraudSignerResponseBindingDigest = (
 /**
  * Verifies that a signer response belongs to the exact active invocation and
  * that the reserved transaction sender authenticated that correlation.
+ *
+ * @param response Prepared transaction response returned by the signer.
+ * @param expectedSigningRequestDigest Expected exact request digest.
+ * @param expectedSignerInvocationID Expected deterministic invocation ID.
+ * @param actualTransactionHash Hash rederived from the returned transaction.
+ * @param expectedSender Address owning the authenticated nonce reservation.
+ * @returns An empty return value; throws if the response is not authentic.
  */
 export const validateP2TRSignatureFraudSignerResponseBinding = (
   response: P2TRSignatureFraudPreparedChallengeTransactionResponse,
@@ -2005,9 +2026,7 @@ const recoverP2TRSignatureFraudNewTypedTransactionEnvelope = (
   // blobs, commitments, and proofs. Its transaction hash and signature still
   // cover the first (payload-body) element only.
   const body =
-    transactionType === 3 &&
-    decoded.length === 4 &&
-    Array.isArray(decoded[0])
+    transactionType === 3 && decoded.length === 4 && Array.isArray(decoded[0])
       ? decoded[0]
       : decoded
   const expectedLength = transactionType === 3 ? 14 : 13
@@ -2056,10 +2075,7 @@ const recoverP2TRSignatureFraudNewTypedTransactionEnvelope = (
   const typePrefix = utils.hexlify(transactionType)
   const signedBody = utils.RLP.encode(body)
   const signingDigest = utils.keccak256(
-    utils.concat([
-      typePrefix,
-      utils.RLP.encode(body.slice(0, signatureOffset)),
-    ])
+    utils.concat([typePrefix, utils.RLP.encode(body.slice(0, signatureOffset))])
   )
   const sender = utils.recoverAddress(signingDigest, {
     r,
@@ -2160,8 +2176,7 @@ export const recoverP2TRSignatureFraudPreparedChallengeTransaction = (
     recovered.to !== expectedRouter ||
     recovered.chainID !== intent.chainID ||
     recovered.calldata !== utils.hexlify(intent.calldata).toLowerCase() ||
-    recovered.value !==
-      normalizeP2TRSignatureFraudSubmissionValue(intent.value)
+    recovered.value !== normalizeP2TRSignatureFraudSubmissionValue(intent.value)
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -2231,6 +2246,9 @@ export type P2TRSignatureFraudPreparedTransactionEnvelope =
  * Parses forensic envelope fields without applying the outbox broadcast
  * policy. This is used only after signature and intent recovery, so policy-
  * invalid but signed bytes can still be quarantined durably.
+ *
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns The recovered envelope type and EIP-1559 fee fields, when present.
  */
 export const inspectP2TRSignatureFraudPreparedTransactionEnvelope = (
   rawTransaction: string
@@ -2248,9 +2266,7 @@ export const inspectP2TRSignatureFraudPreparedTransactionEnvelope = (
   if (firstByte === 3 || firstByte === 4) {
     // Perform full signed-envelope recovery here too; type inspection must not
     // make malformed new typed bytes eligible for durable nonce guarding.
-    recoverP2TRSignatureFraudSignedTransactionEnvelope(
-      normalizedRawTransaction
-    )
+    recoverP2TRSignatureFraudSignedTransactionEnvelope(normalizedRawTransaction)
     return { transactionType: firstByte }
   }
   let parsed: ReturnType<typeof utils.parseTransaction>
@@ -2287,7 +2303,12 @@ export const inspectP2TRSignatureFraudPreparedTransactionEnvelope = (
   }
 }
 
-/** Returns the parsed Ethereum envelope type, treating untyped RLP as type 0. */
+/**
+ * Returns the parsed Ethereum envelope type, treating untyped RLP as type 0.
+ *
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns The parsed Ethereum transaction type.
+ */
 export const getP2TRSignatureFraudPreparedTransactionType = (
   rawTransaction: string
 ): 0 | 1 | 2 | 3 | 4 =>
@@ -2498,9 +2519,7 @@ const minimumP2TRSignatureFraudReplacementFee = (
     .div(denominator)
   // Preserve the existing requirement that both caps strictly increase even
   // when a zero priority fee would otherwise round to zero.
-  return percentageMinimum.gt(previous)
-    ? percentageMinimum
-    : previous.add(1)
+  return percentageMinimum.gt(previous) ? percentageMinimum : previous.add(1)
 }
 
 export type P2TRSignatureFraudBridgeChallengePayloadInput = {

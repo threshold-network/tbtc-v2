@@ -165,10 +165,7 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.resolutions.length, 0)
     assert.equal(journal.nonRetryableFailures.length, 1)
     assert.doesNotThrow(() =>
-      assertP2TRProductionRuntimeAlertHealth(
-        healthFor(journal),
-        MANIFEST_HASH
-      )
+      assertP2TRProductionRuntimeAlertHealth(healthFor(journal), MANIFEST_HASH)
     )
     assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 1)
@@ -621,10 +618,7 @@ describe("production candidate enqueue outcomes", () => {
       journal.guards[0].candidateDigest
     )
     assert.doesNotThrow(() =>
-      assertP2TRProductionRuntimeAlertHealth(
-        healthFor(journal),
-        MANIFEST_HASH
-      )
+      assertP2TRProductionRuntimeAlertHealth(healthFor(journal), MANIFEST_HASH)
     )
     assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 1)

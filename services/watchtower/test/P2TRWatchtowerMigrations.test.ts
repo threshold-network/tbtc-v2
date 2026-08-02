@@ -384,8 +384,9 @@ describe(
           connectionString: postgresURL,
           options: `-c search_path=${schema}`,
         })
-        const migrations =
-          await loadP2TRWatchtowerMigrations(migrationsDirectory)
+        const migrations = await loadP2TRWatchtowerMigrations(
+          migrationsDirectory
+        )
         const report = await runP2TRWatchtowerMigrations(
           database as unknown as P2TRWatchtowerMigrationPool,
           migrations
@@ -418,8 +419,9 @@ describe(
           connectionString: postgresURL,
           options: `-c search_path=${schema}`,
         })
-        const migrations =
-          await loadP2TRWatchtowerMigrations(migrationsDirectory)
+        const migrations = await loadP2TRWatchtowerMigrations(
+          migrationsDirectory
+        )
         await runP2TRWatchtowerMigrations(
           database as unknown as P2TRWatchtowerMigrationPool,
           migrations.slice(0, 4)
@@ -483,7 +485,11 @@ describe(
         )
         assert.deepEqual(
           outbox.rows.map(({ status }) => status),
-          ["cancelled-before-broadcast", "cancelled-before-broadcast", "preparing"]
+          [
+            "cancelled-before-broadcast",
+            "cancelled-before-broadcast",
+            "preparing",
+          ]
         )
         assert.equal(
           outbox.rows.every(
@@ -498,7 +504,9 @@ describe(
             WHERE legacy_status = 'outbox-preparing'`
         )
         assert.equal(quarantine.rows[0].count, "1")
-        const capacity = await database.query<{ active_generation_count: string }>(
+        const capacity = await database.query<{
+          active_generation_count: string
+        }>(
           `SELECT active_generation_count::text AS active_generation_count
              FROM p2tr_signature_fraud_challenge_outbox_capacity
             WHERE singleton = true`
@@ -519,15 +527,9 @@ describe(
             WHERE token_id = $1`,
           [seed.repairTokenID]
         )
-        assert.equal(
-          repairedAuthority.rows[0].generation_authority_version,
-          1
-        )
+        assert.equal(repairedAuthority.rows[0].generation_authority_version, 1)
         assert.ok(repairedAuthority.rows[0].expected_outbox_series_id)
-        assert.equal(
-          repairedAuthority.rows[0].expected_outbox_generation,
-          0
-        )
+        assert.equal(repairedAuthority.rows[0].expected_outbox_generation, 0)
         assert.equal(
           repairedAuthority.rows[0].expected_outbox_disposition,
           "initial"

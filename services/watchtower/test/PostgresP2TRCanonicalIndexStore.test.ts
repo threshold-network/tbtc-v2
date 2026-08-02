@@ -451,11 +451,14 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       )
 
       await assert.rejects(
-        store.runInP2TRSignatureFraudWatchtowerTransaction(async () =>
-          "result"
+        store.runInP2TRSignatureFraudWatchtowerTransaction(
+          async () => "result"
         ),
         (error) => {
-          assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+          assert.equal(
+            isP2TRPostgresTransactionConfirmedAbortError(error),
+            true
+          )
           if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
           assert.equal(error.reason, "definitive-commit-sqlstate")
           assert.equal(error.sqlState, sqlState)
@@ -467,7 +470,9 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
             undefined
           )
           assert.equal(
-            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(error),
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+              error
+            ),
             false
           )
           return true
@@ -706,7 +711,10 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
         (failure: unknown) => failure
       )
     assert.match(String(commitError), /transaction outcome is unknown/)
-    assert.equal(isP2TRPostgresTransactionUnknownOutcomeError(commitError), true)
+    assert.equal(
+      isP2TRPostgresTransactionUnknownOutcomeError(commitError),
+      true
+    )
     assert.equal(
       commitStore.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
         commitError

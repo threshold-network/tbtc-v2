@@ -2018,10 +2018,7 @@ export class PostgresP2TRProductionActivationStore
       [
         hexBuffer(normalized.manifestHash, "rotation resolution manifest"),
         hexBuffer(normalized.tokenID, "rotation resolution token"),
-        hexBuffer(
-          normalized.candidateDigest,
-          "rotation resolution candidate"
-        ),
+        hexBuffer(normalized.candidateDigest, "rotation resolution candidate"),
         hexBuffer(
           normalized.resolutionDigest,
           "rotation resolution evidence digest"

@@ -27,10 +27,7 @@ const candidateEnqueueRetryMigration = readFileSync(
   "utf8"
 ).replace(/\s+/g, " ")
 const candidateEnqueueGenerationAuthorityMigration = readFileSync(
-  new URL(
-    "006_p2tr_candidate_enqueue_generation_authority.sql",
-    migrationsURL
-  ),
+  new URL("006_p2tr_candidate_enqueue_generation_authority.sql", migrationsURL),
   "utf8"
 ).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
@@ -215,9 +212,8 @@ test("stores only compact fixed per-input evidence", () => {
     3
   )
   assert.equal(
-    (
-      migration.match(/payload_omitted_for_size boolean NOT NULL/g) ?? []
-    ).length,
+    (migration.match(/payload_omitted_for_size boolean NOT NULL/g) ?? [])
+      .length,
     2
   )
   assert.match(

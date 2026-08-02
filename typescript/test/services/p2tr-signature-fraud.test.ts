@@ -2402,19 +2402,14 @@ describe("P2TR signature-fraud witness parsing", () => {
         ? "0x"
         : utils.hexlify(utils.stripZeros(utils.arrayify(encoded)))
     }
-    const authorizationUnsigned = [
-      quantity(chainID),
-      destination,
-      quantity(0),
-    ]
-    const authorizationSignature = authority._signingKey().signDigest(
-      utils.keccak256(
-        utils.concat([
-          "0x05",
-          utils.RLP.encode(authorizationUnsigned),
-        ])
+    const authorizationUnsigned = [quantity(chainID), destination, quantity(0)]
+    const authorizationSignature = authority
+      ._signingKey()
+      .signDigest(
+        utils.keccak256(
+          utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+        )
       )
-    )
     const authorization = [
       ...authorizationUnsigned,
       quantity(authorizationSignature.recoveryParam),
@@ -2433,11 +2428,11 @@ describe("P2TR signature-fraud witness parsing", () => {
       [],
       [authorization],
     ]
-    const signature = signer._signingKey().signDigest(
-      utils.keccak256(
-        utils.concat(["0x04", utils.RLP.encode(unsigned)])
+    const signature = signer
+      ._signingKey()
+      .signDigest(
+        utils.keccak256(utils.concat(["0x04", utils.RLP.encode(unsigned)]))
       )
-    )
     const rawTransaction = utils.hexConcat([
       "0x04",
       utils.RLP.encode([
@@ -2448,9 +2443,8 @@ describe("P2TR signature-fraud witness parsing", () => {
       ]),
     ])
 
-    const recovered = recoverP2TRSignatureFraudSignedTransactionEnvelope(
-      rawTransaction
-    )
+    const recovered =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(rawTransaction)
     expect(recovered.rawTransaction).to.equal(rawTransaction.toLowerCase())
     expect(recovered.transactionHash.toPrefixedString()).to.equal(
       utils.keccak256(rawTransaction)
@@ -2674,9 +2668,9 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const recoveredUnexpectedEnvelope =
       recoverP2TRSignatureFraudSignedTransactionEnvelope(wrongRawTransaction)
-    expect(recoveredUnexpectedEnvelope.transactionHash.toPrefixedString()).to.equal(
-      wrongParsed.hash
-    )
+    expect(
+      recoveredUnexpectedEnvelope.transactionHash.toPrefixedString()
+    ).to.equal(wrongParsed.hash)
     expect(recoveredUnexpectedEnvelope.sender).to.equal(wallet.address)
     expect(recoveredUnexpectedEnvelope.nonce).to.equal(9)
     expect(recoveredUnexpectedEnvelope.chainID).to.equal(intent.chainID)
