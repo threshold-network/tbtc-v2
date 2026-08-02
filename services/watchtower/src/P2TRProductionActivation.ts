@@ -1392,9 +1392,11 @@ export class P2TRProductionActivationGate {
       attemptCount <= maxAttemptCount;
       attemptCount++
     ) {
+      let transactionCallbackStarted = false
       try {
         return await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
           async () => {
+            transactionCallbackStarted = true
             await this.dependencies.stateStore.lockCandidateAuthorization(
               receipt.tokenID,
               receipt.candidateDigest,
@@ -1447,6 +1449,15 @@ export class P2TRProductionActivationGate {
           // The enqueue, authorization consumption, and guard resolution may
           // all have committed. Preserve the original ambiguous outcome and
           // leave the durable guard for operator/restart reconciliation.
+          throw error
+        }
+        if (!transactionCallbackStarted) {
+          // pool.connect and connection/setup failures before the transaction
+          // callback are confirmed not to have run the enqueue. Retry them
+          // within the bounded budget, and leave the guard unresolved if the
+          // budget is exhausted so restart recovery can try again. They must
+          // never be recorded as terminal application failures.
+          if (attemptCount < maxAttemptCount) continue
           throw error
         }
         const lastSQLState =

@@ -724,6 +724,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND (
                 r.relname LIKE 'p2tr_signature_fraud_%'
                 OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
             )
          UNION ALL
          SELECT 'view-definition', r.relname, pg_get_viewdef(r.oid, true)
@@ -734,6 +735,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND (
                 r.relname LIKE 'p2tr_signature_fraud_%'
                 OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
             )
          UNION ALL
          SELECT 'column',
@@ -760,6 +762,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND (
                 r.relname LIKE 'p2tr_signature_fraud_%'
                 OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
             )
             AND a.attnum > 0
             AND NOT a.attisdropped
@@ -774,6 +777,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND (
                 t.relname LIKE 'p2tr_signature_fraud_%'
                 OR t.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR t.relname = 'p2tr_watchtower_activation_manifest'
             )
          UNION ALL
          SELECT 'index', indexname, indexdef
@@ -782,6 +786,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND (
                 tablename LIKE 'p2tr_signature_fraud_%'
                 OR tablename LIKE 'p2tr_candidate_enqueue_%'
+                OR tablename = 'p2tr_watchtower_activation_manifest'
             )
          UNION ALL
          SELECT 'trigger', t.tgname,
@@ -797,6 +802,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND (
                 r.relname LIKE 'p2tr_signature_fraud_%'
                 OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
             )
          UNION ALL
          SELECT 'function', p.proname, pg_get_functiondef(p.oid)
@@ -807,6 +813,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                 p.proname LIKE 'p2tr_signature_fraud_%'
                 OR p.proname LIKE 'p2tr_candidate_enqueue_%'
                 OR p.proname = 'p2tr_reverse_bytea'
+                OR p.proname = 'p2tr_watchtower_activation_manifest_monotonic'
             )
           ORDER BY object_kind, object_name, definition`
       ),

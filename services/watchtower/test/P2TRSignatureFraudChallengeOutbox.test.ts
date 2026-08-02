@@ -3995,9 +3995,54 @@ test("does not broadcast when pre-send authorization fails", async () => {
       result.lastBroadcastAtUnixMs,
       rejection === "acquisition" ? undefined : 2_000
     )
+    assert.equal(result.lastBroadcastAuthorizationFailureAtUnixMs, 2_000)
     assert.equal(broadcaster.rawTransactions.length, 0)
     assert.match(result.lastError ?? "", /authorization .*before send/)
   }
+})
+
+test("paces repeated pre-send authorization acquisition failures", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const broadcaster = new RecordingBroadcaster()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const rechecker = new FixedRechecker()
+  let nowUnixMs = 2_000
+  let authorizationRequests = 0
+  authorizer.beforeAuthorize = async () => {
+    authorizationRequests++
+  }
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    broadcaster,
+    rechecker,
+    new FixedReconciler(),
+    () => nowUnixMs,
+    100,
+    undefined,
+    authorizer,
+    100
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  authorizationRequests = 0
+  rechecker.stages.length = 0
+  authorizer.rejectAuthorization = new Error("evidence provider unavailable")
+
+  const first = await outbox.broadcast(record.recordID)
+  nowUnixMs = 2_050
+  const paced = await outbox.broadcast(record.recordID)
+
+  assert.equal(paced.version, first.version)
+  assert.equal(authorizationRequests, 1)
+  assert.deepEqual(rechecker.stages, ["before-broadcast"])
+  assert.equal(broadcaster.rawTransactions.length, 0)
+
+  nowUnixMs = 2_100
+  const retried = await outbox.broadcast(record.recordID)
+  assert.equal(retried.version, first.version + 1)
+  assert.equal(authorizationRequests, 2)
+  assert.deepEqual(rechecker.stages, ["before-broadcast", "before-broadcast"])
 })
 
 test("revalidates broadcast authority after the provenance attempt CAS", async () => {

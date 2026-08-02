@@ -78,6 +78,7 @@ import {
   validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
+  validateP2TRCompleteV2SignatureFraudSubmissionIntent,
   validateP2TRSignatureFraudWitnessObservationConsistency,
   recoverP2TRSignatureFraudSignedTransactionEnvelope,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
@@ -2180,6 +2181,14 @@ describe("P2TR signature-fraud witness parsing", () => {
         calldata: intent.calldata,
         value: intent.value,
       }).toString()
+    )
+    expectWitnessError(
+      () =>
+        validateP2TRCompleteV2SignatureFraudSubmissionIntent({
+          ...intent,
+          observationID: Hex.from(`0x${"ff".repeat(32)}`),
+        }),
+      "invalid-watchtower-state"
     )
 
     const wallet = new Wallet(`0x${"42".repeat(32)}`)

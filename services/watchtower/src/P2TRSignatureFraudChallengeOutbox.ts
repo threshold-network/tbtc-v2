@@ -1366,6 +1366,8 @@ export type P2TRSignatureFraudChallengeOutboxRecord = {
   preparedTransaction?: P2TRSignatureFraudPreparedChallengeTransaction
   /** Append-only signed identities; the singular field aliases the last item. */
   preparedTransactionVariants?: readonly P2TRSignatureFraudPreparedTransactionVariant[]
+  /** Last failed acquisition or consumption of pre-send authority. */
+  lastBroadcastAuthorizationFailureAtUnixMs?: number
   lastBroadcastAtUnixMs?: number
   lastBroadcastProviderAccepted?: boolean
   lastReconciliationAtUnixMs?: number
@@ -3265,6 +3267,28 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     const latestVariant = variants[variants.length - 1]
     const preparedTransaction = latestVariant.preparedTransaction
 
+    const nowUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Challenge outbox broadcast time"
+    )
+    const lastAuthorizationFailureAtUnixMs =
+      current.lastBroadcastAuthorizationFailureAtUnixMs === undefined
+        ? -1
+        : requireUnixMilliseconds(
+            current.lastBroadcastAuthorizationFailureAtUnixMs,
+            "Challenge outbox last broadcast authorization failure time"
+          )
+    const lastPacingBoundaryUnixMs = Math.max(
+      latestVariant.lastBroadcastAtUnixMs ?? -1,
+      lastAuthorizationFailureAtUnixMs
+    )
+    if (
+      lastPacingBoundaryUnixMs >= 0 &&
+      nowUnixMs - lastPacingBoundaryUnixMs < this.minimumRebroadcastIntervalMs
+    ) {
+      return current
+    }
+
     if (current.status !== "external-satisfied-awaiting-own-transaction") {
       const rechecked = await this.recheckIrreversibleAction(
         current,
@@ -3273,18 +3297,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       if (rechecked.status !== "eligible") {
         return this.applyPreBroadcastRecheckFailure(current, rechecked)
       }
-    }
-
-    const nowUnixMs = requireUnixMilliseconds(
-      this.now(),
-      "Challenge outbox broadcast time"
-    )
-    if (
-      latestVariant.lastBroadcastAtUnixMs !== undefined &&
-      nowUnixMs - latestVariant.lastBroadcastAtUnixMs <
-        this.minimumRebroadcastIntervalMs
-    ) {
-      return current
     }
 
     // Project the exact durable attempt before acquiring its one-use boundary
@@ -3308,6 +3320,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       }),
       lastPreBroadcastRecheckAtUnixMs: nowUnixMs,
       lastPreBroadcastRecheckStatus: "eligible",
+      lastBroadcastAuthorizationFailureAtUnixMs: undefined,
       lastBroadcastAtUnixMs: nowUnixMs,
       lastBroadcastProviderAccepted: undefined,
       updatedAtUnixMs: nowUnixMs,
@@ -4512,6 +4525,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     const next = nextRecord(current, {
       status: current.status,
       preparedTransactionVariants: acknowledgedVariants,
+      lastBroadcastAuthorizationFailureAtUnixMs: nowUnixMs,
       lastBroadcastProviderAccepted: acknowledgeAttemptRejected
         ? false
         : current.lastBroadcastProviderAccepted,
@@ -5459,7 +5473,8 @@ const validateEligibilitySnapshot = (
     normalizeBytes32(
       observation.observationID,
       "Canonical SDK observation ID"
-    ) !== normalizeBytes32(intent.observationID, "Submission observation ID")
+    ) !==
+      normalizeBytes32(intent.bridgeChallengeKey, "Submission challenge key")
   ) {
     throw new Error(
       "Challenge outbox occurrence or SDK observation alias is not the current canonical candidate"
@@ -5579,7 +5594,8 @@ const validateOutboxEnqueue = (
     normalizeBytes32(
       canonicalObservation.observationID,
       "Canonical SDK observation ID"
-    ) !== normalizeBytes32(intent.observationID, "Submission observation ID") ||
+    ) !==
+      normalizeBytes32(intent.bridgeChallengeKey, "Submission challenge key") ||
     canonicalObservation.inputIndex !== intent.inputIndex
   ) {
     throw new Error(

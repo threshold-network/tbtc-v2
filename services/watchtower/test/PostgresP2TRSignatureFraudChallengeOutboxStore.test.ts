@@ -3500,11 +3500,12 @@ postgresTest(
   "blocks a generation-required record stranded by a rotated-out manifest",
   async () => {
     const database = await createTestDatabase()
-    const initialRecord = outboxRecord(240)
-    const record = {
-      ...initialRecord,
-      seriesID: computeP2TRSignatureFraudOutboxSeriesID(initialRecord.intent),
-    }
+    const occurrenceID = `0x${"f1".repeat(32)}`
+    const record = sdkObservedOutboxRecord(240, occurrenceID)
+    assert.equal(
+      record.intent.observationID.toPrefixedString(),
+      record.intent.bridgeChallengeKey.toPrefixedString()
+    )
     await insertRecord(database, record)
     // A restore or replication path can land a row without running the status
     // triggers; that is precisely the state the audit has to see.
@@ -3961,6 +3962,30 @@ postgresTest(
     )
 
     await database.client.query(
+      `ALTER TABLE p2tr_watchtower_activation_manifest
+         ADD COLUMN schema_hash_drift_probe boolean`
+    )
+    const driftedActivationManifestTable = await attestSchema(5_003)
+    assert.notEqual(driftedActivationManifestTable, baseline)
+    await database.client.query(
+      `ALTER TABLE p2tr_watchtower_activation_manifest
+         DROP COLUMN schema_hash_drift_probe`
+    )
+    assert.equal(await attestSchema(5_004), baseline)
+
+    await database.client.query(
+      `ALTER TABLE p2tr_watchtower_activation_manifest
+         DISABLE TRIGGER p2tr_watchtower_activation_manifest_monotonic_trigger`
+    )
+    const disabledActivationManifestTrigger = await attestSchema(5_005)
+    assert.notEqual(disabledActivationManifestTrigger, baseline)
+    await database.client.query(
+      `ALTER TABLE p2tr_watchtower_activation_manifest
+         ENABLE TRIGGER p2tr_watchtower_activation_manifest_monotonic_trigger`
+    )
+    assert.equal(await attestSchema(5_006), baseline)
+
+    await database.client.query(
       `CREATE OR REPLACE FUNCTION p2tr_reverse_bytea(value bytea)
        RETURNS bytea
        LANGUAGE sql
@@ -3969,8 +3994,17 @@ postgresTest(
        PARALLEL SAFE
        AS $$ SELECT value $$`
     )
-    const driftedHelper = await attestSchema(5_003)
+    const driftedHelper = await attestSchema(5_007)
     assert.notEqual(driftedHelper, baseline)
+
+    await database.client.query(
+      `CREATE OR REPLACE FUNCTION p2tr_watchtower_activation_manifest_monotonic()
+       RETURNS trigger
+       LANGUAGE plpgsql
+       AS $$ BEGIN RETURN NEW; END $$`
+    )
+    const driftedActivationManifestFunction = await attestSchema(5_008)
+    assert.notEqual(driftedActivationManifestFunction, driftedHelper)
     await database.client.end()
   }
 )

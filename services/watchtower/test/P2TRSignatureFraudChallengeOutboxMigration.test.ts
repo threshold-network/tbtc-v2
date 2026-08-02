@@ -1027,6 +1027,14 @@ test("attests security-critical view definitions in the schema hash", () => {
     /proname LIKE 'p2tr_candidate_enqueue_%'/
   )
   assert.match(activationHandshakeSource, /p\.proname = 'p2tr_reverse_bytea'/)
+  assert.match(
+    activationHandshakeSource,
+    /relname = 'p2tr_watchtower_activation_manifest'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /p\.proname = 'p2tr_watchtower_activation_manifest_monotonic'/
+  )
 })
 
 test("protects serialized generation identity alongside normalized columns", () => {

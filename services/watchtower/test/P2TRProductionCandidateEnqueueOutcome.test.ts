@@ -214,6 +214,86 @@ describe("production candidate enqueue outcomes", () => {
     }
   })
 
+  it("retries connection failures before the enqueue callback starts", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    coordinator.failNextEnqueueTransactionSetup(
+      new Error("pool connection failed before BEGIN")
+    )
+    const dispositions: string[] = []
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, dispositions, journal)
+    let enqueueAttempts = 0
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => {
+          enqueueAttempts++
+          return { kind: "enqueued", outboxIntentID: ENQUEUED_INTENT_ID }
+        },
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer,
+      3
+    )
+
+    assert.equal(
+      await gate.consumeCandidateAuthorization(token, candidate),
+      ENQUEUED_INTENT_ID
+    )
+    assert.equal(enqueueAttempts, 1)
+    assert.deepEqual(dispositions, [ENQUEUED_INTENT_ID])
+    assert.equal(journal.resolutions.length, 1)
+    assert.equal(journal.nonRetryableFailures.length, 0)
+    assert.deepEqual(coordinator.readinessFences, [
+      "shared",
+      "exclusive",
+      "exclusive",
+    ])
+  })
+
+  it("leaves the guard unresolved when callback-unstarted retries exhaust", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    coordinator.failNextEnqueueTransactionSetup(new Error("pool unavailable"))
+    coordinator.failNextEnqueueTransactionSetup(new Error("pool unavailable"))
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, [], journal)
+    let enqueueAttempts = 0
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => {
+          enqueueAttempts++
+          return { kind: "enqueued", outboxIntentID: ENQUEUED_INTENT_ID }
+        },
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer,
+      2
+    )
+
+    await assert.rejects(
+      gate.consumeCandidateAuthorization(token, candidate),
+      /pool unavailable/
+    )
+    assert.equal(enqueueAttempts, 0)
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 0)
+    assert.equal(journal.exhaustionAlerts.length, 0)
+    assert.equal(journal.nonRetryableFailures.length, 0)
+    assert.throws(
+      () =>
+        assertP2TRProductionRuntimeAlertHealth(
+          healthFor(journal),
+          MANIFEST_HASH
+        ),
+      /activation-blocking candidate enqueue alerts/
+    )
+  })
+
   it("retries guard arming after branded PostgreSQL aborts", async () => {
     for (const sqlState of ["40001", "40P01", "55P03", "57014"] as const) {
       const coordinator = new RollbackAwareCoordinator()
@@ -571,6 +651,7 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   private readonly sequence?: string[]
   private readonly failures: RetryableSQLState[] = []
   private readonly guardFailures: RetryableSQLState[] = []
+  private readonly enqueueSetupFailures: Error[] = []
   private readonly retryableErrors = new WeakMap<object, RetryableSQLState>()
   private readonly unknownOutcomeErrors = new WeakSet<object>()
   private unknownOutcomeFailure: Error | undefined
@@ -585,6 +666,9 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   ): Promise<T> {
     if (this.active) return operation()
     this.readinessFences.push(options.readinessFence ?? "shared")
+    if (this.commits > 0 && this.enqueueSetupFailures.length > 0) {
+      throw this.enqueueSetupFailures.shift()
+    }
     this.active = true
     this.staged = []
     try {
@@ -645,6 +729,10 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
 
   failNextGuardTransactionWith(sqlState: RetryableSQLState): void {
     this.guardFailures.push(sqlState)
+  }
+
+  failNextEnqueueTransactionSetup(error: Error): void {
+    this.enqueueSetupFailures.push(error)
   }
 
   failNextTransactionWithUnknownOutcome(error: Error): void {

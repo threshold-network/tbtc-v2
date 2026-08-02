@@ -1116,6 +1116,10 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
   )
   if (
     !toBytes32Hex(
+      intent.observationID,
+      "COMPLETE_V2 observation ID"
+    ).equals(expectedIdentity) ||
+    !toBytes32Hex(
       intent.bridgeChallengeIdentity,
       "COMPLETE_V2 challenge identity"
     ).equals(expectedIdentity) ||
@@ -1126,7 +1130,7 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "COMPLETE_V2 challenge identity or key is invalid"
+      "COMPLETE_V2 observation ID, challenge identity, or key is invalid"
     )
   }
 
