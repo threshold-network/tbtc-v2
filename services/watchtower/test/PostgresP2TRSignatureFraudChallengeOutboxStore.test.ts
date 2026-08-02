@@ -643,7 +643,7 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
   const intentWithoutID = {
     protocol: P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL,
     evidenceProtocolID: Hex.from(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID),
-    observationID: Hex.from(hex(1)),
+    observationID: bridgeChallengeIdentity,
     inputIndex: 0,
     bridgeChallengeKey: bridgeChallengeIdentity,
     walletID: Hex.from(walletID),
@@ -920,6 +920,7 @@ function depositBoundOutboxRecord(
   ])
   const intentWithoutID = {
     ...record.intent,
+    observationID: bridgeChallengeIdentity,
     signingKey,
     bindingTxHash,
     bindingOutputIndex: 1,

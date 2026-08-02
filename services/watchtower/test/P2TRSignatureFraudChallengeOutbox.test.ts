@@ -954,7 +954,7 @@ const createIntent = (seed = "aa"): P2TRSignatureFraudSubmissionIntent => {
   const withoutID: Omit<P2TRSignatureFraudSubmissionIntent, "intentID"> = {
     protocol: P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL,
     evidenceProtocolID: Hex.from(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID),
-    observationID: Hex.from(`0x${seed.repeat(32)}`),
+    observationID: completeCall.identity,
     inputIndex: 0,
     bridgeChallengeKey: completeCall.identity,
     walletID: Hex.from(WALLET_ID),
