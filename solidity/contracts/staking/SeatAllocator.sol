@@ -190,15 +190,12 @@ contract SeatAllocator is
     /// @notice End of the registry-imposed TBTC reward ban for each provider.
     mapping(address => uint64) public rewardIneligibleUntil;
 
-    struct FailedSlashReport {
-        uint96 amount;
-        uint256 rewardMultiplier;
-        address notifier;
-        address[] stakingProviders;
-        bool exists;
-    }
-
-    mapping(uint256 => FailedSlashReport) internal failedSlashReports;
+    /// @notice Digest committing to each retryable slash report's complete
+    ///         calldata. The full provider list remains recoverable from the
+    ///         transaction calldata and `MaliciousBehaviorReported` event;
+    ///         storing only its commitment keeps the custody lifecycle path
+    ///         within its strict gas envelope.
+    mapping(uint256 => bytes32) public failedSlashReportHash;
     uint256 public nextFailedSlashReportId;
 
     // Reserved storage space in case we need to add more variables.
@@ -739,14 +736,9 @@ contract SeatAllocator is
         );
 
         uint256 reportId = nextFailedSlashReportId++;
-        FailedSlashReport storage failedReport = failedSlashReports[reportId];
-        failedReport.amount = amount;
-        failedReport.rewardMultiplier = rewardMultiplier;
-        failedReport.notifier = notifier;
-        failedReport.exists = true;
-        for (uint256 i = 0; i < stakingProviders.length; i++) {
-            failedReport.stakingProviders.push(stakingProviders[i]);
-        }
+        failedSlashReportHash[reportId] = keccak256(
+            abi.encode(amount, rewardMultiplier, notifier, stakingProviders)
+        );
 
         if (address(slashingModule).code.length == 0) {
             emit SlashReportFailed(notifier, stakingProviders);
@@ -762,7 +754,7 @@ contract SeatAllocator is
                 notifier
             )
         {
-            delete failedSlashReports[reportId];
+            delete failedSlashReportHash[reportId];
         } catch {
             emit SlashReportFailed(notifier, stakingProviders);
             emit SlashReportQueued(reportId);
@@ -771,39 +763,29 @@ contract SeatAllocator is
 
     /// @notice Permissionlessly retries a slash report that could not be
     ///         booked on the registry lifecycle transaction.
-    function retrySlashReport(uint256 reportId) external {
-        FailedSlashReport storage report = failedSlashReports[reportId];
-        if (!report.exists) revert InvalidSlashReport();
-        address[] memory stakingProviders = report.stakingProviders;
+    function retrySlashReport(
+        uint256 reportId,
+        uint96 amount,
+        uint256 rewardMultiplier,
+        address notifier,
+        address[] calldata stakingProviders
+    ) external {
+        bytes32 reportHash = failedSlashReportHash[reportId];
+        if (
+            reportHash == bytes32(0) ||
+            keccak256(
+                abi.encode(amount, rewardMultiplier, notifier, stakingProviders)
+            ) !=
+            reportHash
+        ) revert InvalidSlashReport();
         slashingModule.report(
             stakingProviders,
-            report.amount,
-            report.rewardMultiplier,
-            report.notifier
+            amount,
+            rewardMultiplier,
+            notifier
         );
-        delete failedSlashReports[reportId];
+        delete failedSlashReportHash[reportId];
         emit SlashReportRetried(reportId);
-    }
-
-    function failedSlashReport(uint256 reportId)
-        external
-        view
-        returns (
-            uint96 amount,
-            uint256 rewardMultiplier,
-            address notifier,
-            address[] memory stakingProviders,
-            bool exists
-        )
-    {
-        FailedSlashReport storage report = failedSlashReports[reportId];
-        return (
-            report.amount,
-            report.rewardMultiplier,
-            report.notifier,
-            report.stakingProviders,
-            report.exists
-        );
     }
 
     /// @notice See {IFrostAuthorizationSource-onOperatorInactivity}.

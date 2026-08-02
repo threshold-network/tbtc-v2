@@ -6,13 +6,15 @@ import { expect } from "chai"
 import { Contract } from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
 
+const { increaseTime } = helpers.time
+
 const GOVERNANCE_DELAY = 604_800 // 7 days
 
 const OperatorStatus = { None: 0, Active: 1, Deactivating: 2, Ejected: 3 }
 
 // The hard upper bound the slashing module truncates report input to; the
 // never-revert seize path must survive at this size without reverting.
-const MAX_REPORT_SEATS = 112
+const MAX_REPORT_SEATS = 100
 
 const PER_SEAT = to1e18(500)
 const DELEGATION_PER_PROVIDER = to1e18(1000)
@@ -23,9 +25,9 @@ const DELEGATION_PER_PROVIDER = to1e18(1000)
 // with stake so the atomic haircut does real work. Measured worst case is
 // ~16.29M gas; the 17M ceiling is a tight regression guard that still stays
 // comfortably under the 30M block gas limit so a Bridge seize call remains
-// feasible. This is a strict envelope: a real FROST wallet has at most 100
-// seats aggregating to far fewer unique operators (<=35 per the design), so a
-// production seize is well below this.
+// feasible. This is a strict envelope: it uses every seat in a real FROST
+// wallet as a distinct provider, while production wallets aggregate to far
+// fewer unique operators (<=35 per the design).
 const GAS_BUDGET = 17_000_000
 
 describe("Seize gas envelope (never-revert report path)", () => {
@@ -117,8 +119,11 @@ describe("Seize gas envelope (never-revert report path)", () => {
     await slashingModule
       .connect(deployer)
       .setSeatAllocator(seatAllocator.address)
+    await vault.connect(deployer).beginDelegationUpdate(true)
+    await increaseTime(GOVERNANCE_DELAY)
+    await vault.connect(deployer).finalizeDelegationUpdate()
 
-    // Fund the delegator and stake into 112 distinct provider pools so
+    // Fund the delegator and stake into 100 distinct provider pools so
     // every applySlash in the report loop haircuts real delegated assets.
     const totalStake = DELEGATION_PER_PROVIDER.mul(MAX_REPORT_SEATS)
     await tToken.connect(deployer).mint(delegator.address, totalStake)

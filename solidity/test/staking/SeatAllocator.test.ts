@@ -1010,17 +1010,36 @@ describe("SeatAllocator", () => {
       // The dirty marker still lands so the weight can be refreshed.
       expect(await allocator.weightDirty(provider)).to.be.true
 
-      const queued = await allocator.failedSlashReport(reportId)
-      expect(queued.exists).to.be.true
-      expect(queued.amount).to.equal(perSeatAmount)
-      expect(queued.stakingProviders).to.deep.equal([provider])
+      expect(await allocator.failedSlashReportHash(reportId)).to.equal(
+        ethers.utils.keccak256(
+          ethers.utils.defaultAbiCoder.encode(
+            ["uint96", "uint256", "address", "address[]"],
+            [perSeatAmount, 100, notifier.address, [provider]]
+          )
+        )
+      )
 
       await slashingModule.setRevertOnReport(false)
-      await expect(allocator.connect(thirdParty).retrySlashReport(reportId))
+      await expect(
+        allocator
+          .connect(thirdParty)
+          .retrySlashReport(reportId, perSeatAmount, 100, notifier.address, [
+            provider2,
+          ])
+      ).to.be.revertedWith("InvalidSlashReport")
+      await expect(
+        allocator
+          .connect(thirdParty)
+          .retrySlashReport(reportId, perSeatAmount, 100, notifier.address, [
+            provider,
+          ])
+      )
         .to.emit(allocator, "SlashReportRetried")
         .withArgs(reportId)
       expect(await slashingModule.reportCallCount()).to.equal(1)
-      expect((await allocator.failedSlashReport(reportId)).exists).to.be.false
+      expect(await allocator.failedSlashReportHash(reportId)).to.equal(
+        ethers.constants.HashZero
+      )
     })
 
     it("clears the dirty marker on refresh", async () => {

@@ -63,10 +63,11 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         bool matured;
     }
 
-    /// @notice Upper bound on the number of report entries processed in a
-    ///         single call. Wallets have at most 100 seats; the margin keeps
-    ///         the loop bounded even for malformed input without reverting.
-    uint256 public constant MAX_REPORT_SEATS = 112;
+    /// @notice Upper bound on report entries processed in a single call.
+    ///         FROST wallets contain exactly 100 signing seats. Inputs above
+    ///         this protocol bound cannot originate from a valid registry
+    ///         wallet and are truncated to keep report gas bounded.
+    uint256 public constant MAX_REPORT_SEATS = 100;
 
     IStakeVault public stakeVault;
     address public seatAllocator;

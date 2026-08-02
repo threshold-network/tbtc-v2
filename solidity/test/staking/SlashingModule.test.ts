@@ -14,7 +14,7 @@ const ZERO_ADDRESS = ethers.constants.AddressZero
 const GOVERNANCE_DELAY = 604800 // 7 days
 const MOVEMENT_DELAY = 24 * 3600 // default in the contract
 const DEFAULT_EXECUTOR_REWARD_BPS = 100
-const MAX_REPORT_SEATS = 112
+const MAX_REPORT_SEATS = 100
 
 const OperatorStatus = {
   None: 0,
@@ -147,6 +147,9 @@ describe("SlashingModule", () => {
     await slashingModuleContract
       .connect(deployerSigner)
       .setSeatAllocator(seatAllocatorContract.address)
+    await vaultContract.connect(deployerSigner).beginDelegationUpdate(true)
+    await increaseTime(GOVERNANCE_DELAY)
+    await vaultContract.connect(deployerSigner).finalizeDelegationUpdate()
 
     await signerRegistryContract.setOperatorStatus(
       operatorSigner.address,
