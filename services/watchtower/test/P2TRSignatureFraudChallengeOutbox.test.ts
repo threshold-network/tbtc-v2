@@ -1048,7 +1048,8 @@ const enqueue = async (
 
 const provenanceInvalidationEvidence = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
-  invalidatedAtUnixMs = 2_000
+  invalidatedAtUnixMs = 2_000,
+  observationID: Hex | string = record.intent.observationID
 ): P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence => {
   const withoutHash = {
     provenanceTombstoneID: `0x${"74".repeat(32)}`,
@@ -1059,7 +1060,10 @@ const provenanceInvalidationEvidence = (
       blockHash: record.evidenceCheckpoint.bitcoinBlockHash,
       blockHeight: record.evidenceCheckpoint.bitcoinBlockHeight,
     },
-    observationID: record.intent.observationID.toPrefixedString(),
+    observationID:
+      observationID instanceof Hex
+        ? observationID.toPrefixedString()
+        : observationID,
     candidateDigest: record.canonicalProvenance.candidateDigest,
     candidateProvenanceGeneration:
       record.canonicalProvenance.candidateProvenanceGeneration,
@@ -1418,8 +1422,17 @@ const canonicalEligibilitySnapshot =
       .toString("hex")}`
     const blockHash = `0x${"42".repeat(32)}`
     const lifecycleHash = `0x${"43".repeat(32)}`
+    const occurrenceID = Hex.from(`0x${"70".repeat(32)}`)
+    assert.equal(
+      observation.observationID.toString(),
+      observation.bridgeChallengeKey?.toString()
+    )
+    assert.notEqual(
+      occurrenceID.toString(),
+      observation.observationID.toString()
+    )
     const challengeRecord = {
-      observationID: observation.observationID,
+      observationID: occurrenceID,
       // Deliberately absent: enqueue derives from the candidate row instead.
       observation: undefined,
       status: "observed",
@@ -1462,7 +1475,7 @@ const canonicalEligibilitySnapshot =
       evidenceCheckpoint: checkpoint,
       canonicalProvenance: canonicalProvenance(
         candidate,
-        observation.observationID,
+        occurrenceID,
         checkpoint,
         completeIntent.bridgeChallengeKey,
         "71",
@@ -1580,7 +1593,7 @@ test("keeps the live envelope chain separate from the immutable Router domain", 
   )
 })
 
-test("derives enqueue intent only from the locked canonical witness candidate", async () => {
+test("enqueues an SDK-extracted challenge-key observation from a distinct occurrence", async () => {
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
@@ -1594,7 +1607,14 @@ test("derives enqueue intent only from the locked canonical witness candidate", 
   )
 
   assert.equal(first.status, "queued")
-  assert.equal(first.intent.observationID.toString(), observationID.toString())
+  assert.notEqual(
+    first.intent.observationID.toString(),
+    observationID.toString()
+  )
+  assert.equal(
+    first.intent.observationID.toString(),
+    first.intent.bridgeChallengeKey.toString()
+  )
   assert.equal(first.evidenceCheckpoint.bitcoinWitnessTxHash.length, 66)
   assert.equal(
     second.intent.intentID.toString(),
@@ -1678,7 +1698,7 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
   )
   await invalidateP2TRSignatureFraudCanonicalProvenance(
     store,
-    provenanceInvalidationEvidence(first)
+    provenanceInvalidationEvidence(first, 2_000, observationID)
   )
 
   const rotatedManifestHash = `0x${"93".repeat(32)}`
@@ -4018,7 +4038,7 @@ test("revalidates broadcast authority after the provenance attempt CAS", async (
   assert.match(result.lastError ?? "", /superseded while the CAS waited/)
 })
 
-test("retries a rejected post-CAS authorization without a send delay", async () => {
+test("paces retries after a rejected post-CAS authorization", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const broadcaster = new RecordingBroadcaster()
@@ -4042,9 +4062,18 @@ test("retries a rejected post-CAS authorization without a send delay", async () 
   const rejected = await outbox.broadcast(record.recordID)
   assert.equal(rejected.lastBroadcastProviderAccepted, false)
   assert.deepEqual(broadcaster.rawTransactions, [])
+  const authorizationCountAfterRejection = authorizer.bindings.length
 
   authorizer.rejectConsumption = undefined
   nowUnixMs++
+  const paced = await outbox.broadcast(record.recordID)
+
+  assert.equal(paced.broadcastAttempts, 1)
+  assert.equal(paced.lastBroadcastProviderAccepted, false)
+  assert.equal(authorizer.bindings.length, authorizationCountAfterRejection)
+  assert.equal(broadcaster.rawTransactions.length, 0)
+
+  nowUnixMs = 32_000
   const accepted = await outbox.broadcast(record.recordID)
 
   assert.equal(accepted.broadcastAttempts, 2)

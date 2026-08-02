@@ -178,14 +178,21 @@ type TransactionContext = {
   mutationStarted: boolean
 }
 
-export type P2TRRetryablePostgresSQLState = "40001" | "40P01"
+export type P2TRRetryablePostgresSQLState =
+  | "40001"
+  | "40P01"
+  | "55P03"
+  | "57014"
 
 export type P2TRPostgresTransactionConfirmedAbortReason =
   | "retryable-sqlstate"
+  | "pre-transaction-retryable-sqlstate"
   | "rollback-command"
 
 /**
- * Process-local signal that PostgreSQL definitively aborted the transaction.
+ * Process-local signal that PostgreSQL definitively could not commit the
+ * transaction, either because it aborted or because a bounded pre-transaction
+ * fence could not be acquired.
  *
  * The generic coordinator never retries its callback. A higher-level owner
  * may catch this error, discard attempt-local state and external evidence,
@@ -203,6 +210,8 @@ export class P2TRPostgresTransactionConfirmedAbortError extends Error {
     super(
       sqlState === undefined
         ? "PostgreSQL confirmed that the transaction was rolled back"
+        : reason === "pre-transaction-retryable-sqlstate"
+        ? `PostgreSQL rejected pre-transaction work with ${sqlState}`
         : `PostgreSQL confirmed transaction abort ${sqlState}`,
       { cause: operationError }
     )
@@ -489,7 +498,8 @@ export class PostgresP2TRCanonicalIndexStore
    * fresh whole transaction.
    *
    * Only a confirmed abort qualifies: a rolled-back-and-released session, or a
-   * COMMIT that itself answered with 40001/40P01. An unknown COMMIT outcome
+   * COMMIT that itself answered with 40001/40P01, or a bounded pre-snapshot
+   * fence that failed before BEGIN. An unknown COMMIT outcome
    * never surfaces here — that session is destroyed and its transaction may
    * have committed, so it must never be retried. A COMMIT answering with the
    * `ROLLBACK` command tag is a confirmed abort with no SQLSTATE; it is
@@ -601,11 +611,25 @@ export class PostgresP2TRCanonicalIndexStore
           )
         }
       } catch (error) {
-        releaseError = postgresClientError(
+        const clientError = postgresClientError(
           error,
           "PostgreSQL readiness fence acquisition failed"
         )
-        throw releaseError
+        releaseError = clientError
+        const sqlState = retryablePostgresSQLState(error)
+        if (sqlState !== undefined) {
+          const attempt: P2TRPostgresTransactionAttempt = {
+            confirmedAbort: { sqlState, error },
+          }
+          throw this.ownConfirmedAbort(
+            confirmedPostgresAbortError(
+              attempt,
+              "pre-transaction-retryable-sqlstate",
+              clientError
+            )
+          )
+        }
+        throw clientError
       }
 
       const attempt: P2TRPostgresTransactionAttempt = {}
@@ -9487,7 +9511,12 @@ const retryablePostgresSQLState = (
     return undefined
   }
   const code = (value as { code?: unknown }).code
-  return code === "40001" || code === "40P01" ? code : undefined
+  return code === "40001" ||
+    code === "40P01" ||
+    code === "55P03" ||
+    code === "57014"
+    ? code
+    : undefined
 }
 
 const observeRetryablePostgresAborts = (
@@ -9501,9 +9530,16 @@ const observeRetryablePostgresAborts = (
     try {
       return await client.query<Row>(text, values)
     } catch (error) {
+      // A server response to an ordinary statement proves the transaction can
+      // be rolled back and retried. Keep COMMIT's stricter outcome boundary:
+      // only serialization/deadlock responses have established abort
+      // semantics there; cancellation and lock errors remain unknown.
       const sqlState = retryablePostgresSQLState(error)
+      const commit = text.trim().toUpperCase() === "COMMIT"
       if (sqlState !== undefined && attempt.confirmedAbort === undefined) {
-        attempt.confirmedAbort = { sqlState, error }
+        if (!commit || sqlState === "40001" || sqlState === "40P01") {
+          attempt.confirmedAbort = { sqlState, error }
+        }
       }
       throw error
     }

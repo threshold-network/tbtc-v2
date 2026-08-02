@@ -74,6 +74,7 @@ describe(
           "007_p2tr_candidate_enqueue_recovery_hardening.sql",
           "008_p2tr_candidate_enqueue_challenge_series.sql",
           "009_p2tr_candidate_enqueue_capacity_authority.sql",
+          "010_p2tr_candidate_enqueue_transient_retries.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -1980,6 +1981,7 @@ const withIntegrationStore = async (
       "007_p2tr_candidate_enqueue_recovery_hardening.sql",
       "008_p2tr_candidate_enqueue_challenge_series.sql",
       "009_p2tr_candidate_enqueue_capacity_authority.sql",
+      "010_p2tr_candidate_enqueue_transient_retries.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),

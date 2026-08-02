@@ -1266,7 +1266,7 @@ export class PostgresP2TRProductionActivationStore
                AND outbox.series_id =
                      p2tr_candidate_enqueue_authorizations.expected_outbox_series_id
                AND outbox.observation_id =
-                     p2tr_candidate_enqueue_authorizations.observation_id
+                     p2tr_candidate_enqueue_authorizations.challenge_key
                AND outbox.bridge_challenge_key =
                      p2tr_candidate_enqueue_authorizations.challenge_key
                AND outbox.bitcoin_tx_hash =
@@ -2526,7 +2526,12 @@ function normalizeCandidateEnqueueTransactionResolution(
 function normalizeCandidateEnqueueRetryExhaustionAlert(
   alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
 ): P2TRProductionCandidateEnqueueRetryExhaustionAlert {
-  if (alert.lastSQLState !== "40001" && alert.lastSQLState !== "40P01") {
+  if (
+    alert.lastSQLState !== "40001" &&
+    alert.lastSQLState !== "40P01" &&
+    alert.lastSQLState !== "55P03" &&
+    alert.lastSQLState !== "57014"
+  ) {
     throw new Error("Candidate enqueue retry alert SQLSTATE is unsupported")
   }
   return {

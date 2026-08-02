@@ -33,6 +33,7 @@ import {
   computeP2TRSignatureFraudChallengeFeePolicyHash,
   computeP2TRSignatureFraudEthereumEligibilityReadSetHash,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
+  computeP2TRSignatureFraudOutboxRecordID,
   computeP2TRSignatureFraudOutboxSeriesID,
   computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest,
   computeP2TRSignatureFraudSignerInvocationID,
@@ -178,7 +179,7 @@ async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
   initialSignerConfiguration = signerConfiguration(),
-  throughMigrationVersion = 9
+  throughMigrationVersion = 10
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -231,6 +232,10 @@ async function createTestDatabase(
     ),
     new URL(
       "../migrations/009_p2tr_candidate_enqueue_capacity_authority.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/010_p2tr_candidate_enqueue_transient_retries.sql",
       import.meta.url
     ),
   ]
@@ -737,6 +742,61 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
     preparationAttempts: 0,
     broadcastAttempts: 0,
     reconciliationAttempts: 0,
+  }
+}
+
+function sdkObservedOutboxRecord(
+  seed: number,
+  occurrenceID: string
+): P2TRSignatureFraudChallengeOutboxRecord {
+  const record = outboxRecord(seed)
+  const { intentID: _intentID, ...baseIntent } = record.intent
+  const intentWithoutID = {
+    ...baseIntent,
+    observationID: record.intent.bridgeChallengeKey,
+  }
+  const intent = {
+    ...intentWithoutID,
+    intentID: computeP2TRSignatureFraudSubmissionIntentID(intentWithoutID),
+  }
+  const candidate = {
+    txid: record.evidenceCheckpoint.bitcoinTxHash,
+    wtxid: record.evidenceCheckpoint.bitcoinWitnessTxHash,
+    inputIndex: record.evidenceCheckpoint.bitcoinInputIndex,
+    blockHash: record.evidenceCheckpoint.bitcoinBlockHash,
+    blockHeight: record.evidenceCheckpoint.bitcoinBlockHeight,
+  }
+  const { provenanceFingerprint: _provenanceFingerprint, ...baseProvenance } =
+    record.canonicalProvenance
+  const provenanceWithoutFingerprint = {
+    ...baseProvenance,
+    candidateDigest: computeP2TRSignatureFraudCanonicalCandidateDigest(
+      candidate,
+      occurrenceID
+    ),
+  }
+  const canonicalProvenance = {
+    ...provenanceWithoutFingerprint,
+    provenanceFingerprint:
+      computeP2TRSignatureFraudCanonicalProvenanceFingerprint(
+        provenanceWithoutFingerprint
+      ),
+  }
+  const seriesID = computeP2TRSignatureFraudOutboxSeriesID(intent)
+  return {
+    ...record,
+    seriesID,
+    recordID: computeP2TRSignatureFraudOutboxRecordID(
+      intent,
+      record.generation,
+      record.evidenceCheckpoint,
+      record.canonicalEthereumEligibility,
+      canonicalProvenance,
+      record.feePolicyManifest,
+      record.generationTrigger
+    ),
+    intent,
+    canonicalProvenance,
   }
 }
 
@@ -1442,7 +1502,8 @@ postgresTest(
 async function insertCandidateEnqueueGuard(
   database: TestDatabase,
   reserved: P2TRSignatureFraudChallengeOutboxRecord,
-  tokenID: string
+  tokenID: string,
+  occurrenceID: string
 ): Promise<void> {
   const certificateID = reserved.canonicalProvenance.readinessCertificateID
   await database.client.query(
@@ -1489,7 +1550,7 @@ async function insertCandidateEnqueueGuard(
       hexBuffer(tokenID),
       hexBuffer(MANIFEST_HASH),
       hexBuffer(reserved.canonicalProvenance.candidateDigest),
-      hexBuffer(reserved.intent.observationID.toPrefixedString()),
+      hexBuffer(occurrenceID),
       hexBuffer(reserved.intent.bridgeChallengeKey.toPrefixedString()),
       hexBuffer(reserved.evidenceCheckpoint.bitcoinTxHash),
       hexBuffer(reserved.evidenceCheckpoint.bitcoinWitnessTxHash),
@@ -1532,8 +1593,8 @@ postgresTest(
   async () => {
     const database = await createTestDatabase(2)
     await insertRecord(database, outboxRecord(10))
-    const reservedFixture = outboxRecord(11)
-    assert.notEqual(
+    const reservedFixture = sdkObservedOutboxRecord(11, `0x${"0c".repeat(32)}`)
+    assert.equal(
       reservedFixture.intent.observationID.toPrefixedString(),
       reservedFixture.intent.bridgeChallengeKey.toPrefixedString()
     )
@@ -1545,10 +1606,13 @@ postgresTest(
     await insertCandidateEnqueueGuard(
       database,
       reserved,
-      `0x${"e1".repeat(32)}`
+      `0x${"e1".repeat(32)}`,
+      `0x${"0c".repeat(32)}`
     )
     const sqlSeries = await database.client.query<{
       series_id: string
+      occurrence_id: string
+      challenge_key: string
     }>(
       `SELECT encode(
                 p2tr_candidate_enqueue_series_id(
@@ -1557,12 +1621,18 @@ postgresTest(
                   funding_vout
                 ),
                 'hex'
-              ) AS series_id
+              ) AS series_id,
+              encode(observation_id, 'hex') AS occurrence_id,
+              encode(challenge_key, 'hex') AS challenge_key
          FROM p2tr_candidate_enqueue_authorizations
         WHERE token_id = $1`,
       [hexBuffer(`0x${"e1".repeat(32)}`)]
     )
     assert.equal(`0x${sqlSeries.rows[0].series_id}`, reserved.seriesID)
+    assert.notEqual(
+      sqlSeries.rows[0].occurrence_id,
+      sqlSeries.rows[0].challenge_key
+    )
 
     await begin(database.client)
     await assert.rejects(
@@ -1599,7 +1669,8 @@ postgresTest(
     await insertCandidateEnqueueGuard(
       database,
       staleReservation,
-      `0x${"e3".repeat(32)}`
+      `0x${"e3".repeat(32)}`,
+      `0x${"0e".repeat(32)}`
     )
     await rotateActivationManifest(database, nextManifest, 1)
 
@@ -3394,7 +3465,8 @@ postgresTest(
     const domainChainID = 1
     const database = await createTestDatabase(1_024, domainChainID)
     try {
-      const record = outboxRecord(239)
+      const occurrenceID = `0x${"f0".repeat(32)}`
+      const record = sdkObservedOutboxRecord(239, occurrenceID)
       const expectedSeriesID = computeP2TRSignatureFraudOutboxSeriesID({
         ...record.intent,
         domainChainID,
@@ -3407,7 +3479,7 @@ postgresTest(
                 ), 'hex') AS series_id`,
         [
           MANIFEST_HASH.slice(2),
-          record.intent.observationID.toPrefixedString().slice(2),
+          occurrenceID.slice(2),
           record.intent.bridgeChallengeKey.toPrefixedString().slice(2),
           record.intent.inputIndex,
           record.canonicalProvenance.inputOutputKey.slice(2),

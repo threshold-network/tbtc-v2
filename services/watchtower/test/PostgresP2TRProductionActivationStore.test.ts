@@ -305,6 +305,14 @@ describe(
           "utf8"
         )
         await database.query(`BEGIN;\n${capacityAuthorityMigration}\nCOMMIT;`)
+        const transientRetryMigration = await readFile(
+          new URL(
+            "../migrations/010_p2tr_candidate_enqueue_transient_retries.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${transientRetryMigration}\nCOMMIT;`)
 
         const expectedSeriesID = createHash("sha256")
           .update(
@@ -316,7 +324,7 @@ describe(
               chainID: 31337,
               domainChainID: 31337,
               routerAddress: "0x1234567890abcdef1234567890abcdef12345678",
-              observationID,
+              observationID: challengeKey,
               inputIndex: 0,
               bridgeChallengeKey: challengeKey,
               signingKey: inputOutputKey,
@@ -371,7 +379,7 @@ describe(
               manifestHash,
               candidateDigest,
               attemptCount: 3,
-              lastSQLState: "40001",
+              lastSQLState: "57014",
             })
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
               manifestHash,

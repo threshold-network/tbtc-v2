@@ -1,7 +1,6 @@
--- Restore byte-for-byte parity with the SDK series digest after migration 008
--- accidentally substituted the Bridge challenge key for the distinct canonical
--- occurrence ID. Then bind pre-armed capacity consumption to the authorization's
--- exact expected outbox series, generation, disposition, and immutable evidence.
+-- Bind pre-armed capacity consumption to the authorization's exact expected
+-- outbox series, generation, disposition, and immutable evidence while
+-- preserving migration 008's SDK challenge-series identity.
 INSERT INTO p2tr_watchtower_schema_version (component, version)
 VALUES ('candidate-enqueue-capacity-authority', 1);
 
@@ -28,6 +27,11 @@ DECLARE
     binding_tx_hash_value bytea;
     binding_output_index_value bigint;
 BEGIN
+    -- The authorization row retains the distinct canonical occurrence ID for
+    -- provenance. Domain-bound SDK observations use the Bridge challenge key
+    -- as their observationID, so the occurrence does not enter the outbox
+    -- series digest.
+    PERFORM observation_id_value;
     SELECT payload
       INTO STRICT manifest_payload
       FROM p2tr_watchtower_activation_manifest
@@ -81,7 +85,7 @@ BEGIN
         ',"routerAddress":' ||
             to_json(('0x' || encode(router_address_value, 'hex'))::text)::text ||
         ',"observationID":' ||
-            to_json(('0x' || encode(observation_id_value, 'hex'))::text)::text ||
+            to_json(('0x' || encode(challenge_key_value, 'hex'))::text)::text ||
         ',"inputIndex":' || input_index_value::text ||
         ',"bridgeChallengeKey":' ||
             to_json(('0x' || encode(challenge_key_value, 'hex'))::text)::text ||
@@ -136,7 +140,7 @@ BEGIN
       INTO head_count
       FROM p2tr_signature_fraud_challenge_outbox outbox
      WHERE outbox.series_id = expected_series_id
-       AND outbox.observation_id = observation_id_value
+       AND outbox.observation_id = challenge_key_value
        AND outbox.bridge_challenge_key = challenge_key_value
        AND outbox.bitcoin_tx_hash = txid_value
        AND outbox.bitcoin_wtxid = wtxid_value
@@ -167,7 +171,7 @@ BEGIN
       INTO head_record
       FROM p2tr_signature_fraud_challenge_outbox outbox
      WHERE outbox.series_id = expected_series_id
-       AND outbox.observation_id = observation_id_value
+       AND outbox.observation_id = challenge_key_value
        AND outbox.bridge_challenge_key = challenge_key_value
        AND outbox.bitcoin_tx_hash = txid_value
        AND outbox.bitcoin_wtxid = wtxid_value
@@ -344,7 +348,7 @@ BEGIN
                WHEN NEW.generation_cause = 'provenance-restored'
                    THEN NEW.prior_provenance_invalidation_id
            END
-           AND authz.observation_id = NEW.observation_id
+           AND authz.challenge_key = NEW.observation_id
            AND authz.challenge_key = NEW.bridge_challenge_key
            AND authz.txid = NEW.bitcoin_tx_hash
            AND authz.wtxid = NEW.bitcoin_wtxid

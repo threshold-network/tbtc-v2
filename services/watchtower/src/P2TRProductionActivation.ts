@@ -679,7 +679,7 @@ export type P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
   manifestHash: string
   candidateDigest: string
   attemptCount: number
-  lastSQLState: "40001" | "40P01"
+  lastSQLState: "40001" | "40P01" | "55P03" | "57014"
 }
 
 export type P2TRProductionCandidateEnqueueRetryExhaustionResolution = {

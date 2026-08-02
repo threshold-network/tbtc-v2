@@ -3281,7 +3281,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     )
     if (
       latestVariant.lastBroadcastAtUnixMs !== undefined &&
-      latestVariant.lastBroadcastProviderAccepted !== false &&
       nowUnixMs - latestVariant.lastBroadcastAtUnixMs <
         this.minimumRebroadcastIntervalMs
     ) {
@@ -5455,15 +5454,15 @@ const validateEligibilitySnapshot = (
   if (
     normalizeBytes32(
       snapshot.challengeRecord.observationID,
-      "Stored observation alias"
+      "Stored occurrence ID"
     ) !== requestedObservationID ||
-    normalizeBytes32(observation.observationID, "Canonical observation ID") !==
-      requestedObservationID ||
-    normalizeBytes32(intent.observationID, "Submission observation ID") !==
-      requestedObservationID
+    normalizeBytes32(
+      observation.observationID,
+      "Canonical SDK observation ID"
+    ) !== normalizeBytes32(intent.observationID, "Submission observation ID")
   ) {
     throw new Error(
-      "Challenge outbox observation alias is not the current canonical candidate"
+      "Challenge outbox occurrence or SDK observation alias is not the current canonical candidate"
     )
   }
   validateCompleteV2IntentObservationBinding(intent, observation)
@@ -5577,11 +5576,10 @@ const validateOutboxEnqueue = (
     )
   }
   if (
-    normalizeBytes32(challengeRecord.observationID, "Observation ID") !==
-      normalizeBytes32(
-        canonicalObservation.observationID,
-        "Submission intent observation ID"
-      ) ||
+    normalizeBytes32(
+      canonicalObservation.observationID,
+      "Canonical SDK observation ID"
+    ) !== normalizeBytes32(intent.observationID, "Submission observation ID") ||
     canonicalObservation.inputIndex !== intent.inputIndex
   ) {
     throw new Error(

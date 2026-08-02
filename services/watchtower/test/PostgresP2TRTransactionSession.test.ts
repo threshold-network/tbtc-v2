@@ -72,11 +72,19 @@ describe("PostgreSQL production transaction capabilities", () => {
     const client = new TransactionClient("FENCE")
     const coordinator = coordinatorFor(client)
 
-    await assert.rejects(
-      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-        async () => undefined
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.match(String(error), /pre-transaction work with 55P03/)
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
       ),
-      /readiness fence lock timeout/
+      "55P03"
     )
 
     assert.deepEqual(client.queries.slice(0, 4), [
@@ -90,6 +98,36 @@ describe("PostgreSQL production transaction capabilities", () => {
       false
     )
     assert.ok(client.releasedWith instanceof Error)
+  })
+
+  it("brands an exclusive enqueue-fence timeout as retryable before BEGIN", async () => {
+    const client = new TransactionClient("FENCE")
+    const coordinator = coordinatorFor(client)
+    let callbackInvoked = false
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          callbackInvoked = true
+        },
+        { readinessFence: "exclusive" }
+      )
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.equal(callbackInvoked, false)
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "55P03"
+    )
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
   })
 
   it("serializes writers on both sides of the pre-snapshot readiness fence", async () => {
@@ -418,8 +456,9 @@ class TransactionClient implements P2TRPostgresClient {
     }
     if (
       this.failure === "FENCE" &&
-      text.includes("pg_advisory_lock_shared(") &&
-      !text.includes("pg_advisory_xact_lock_shared(")
+      (text.includes("pg_advisory_lock(") ||
+        text.includes("pg_advisory_lock_shared(")) &&
+      !text.includes("pg_advisory_xact_lock")
     ) {
       throw Object.assign(new Error("readiness fence lock timeout"), {
         code: "55P03",

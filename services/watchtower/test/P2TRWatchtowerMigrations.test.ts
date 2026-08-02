@@ -61,6 +61,10 @@ describe("P2TR watchtower migration bodies", () => {
           version: 9,
           filename: "009_p2tr_candidate_enqueue_capacity_authority.sql",
         },
+        {
+          version: 10,
+          filename: "010_p2tr_candidate_enqueue_transient_retries.sql",
+        },
       ]
     )
   })
@@ -224,7 +228,7 @@ describe("P2TR watchtower migration bodies", () => {
     )
   })
 
-  it("restores occurrence-bound series parity and exact capacity authority", async () => {
+  it("preserves challenge-key series parity and adds exact capacity authority", async () => {
     const migration = await readFile(
       new URL(
         "../migrations/009_p2tr_candidate_enqueue_capacity_authority.sql",
@@ -236,19 +240,39 @@ describe("P2TR watchtower migration bodies", () => {
     assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
     assert.match(
       migration,
-      /'\,"observationID\":' \|\|[\s\S]*?encode\(observation_id_value, 'hex'\)/
+      /'\,"observationID\":' \|\|[\s\S]*?encode\(challenge_key_value, 'hex'\)/
     )
     assert.match(
       migration,
-      /outbox\.observation_id = observation_id_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
+      /outbox\.observation_id = challenge_key_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
     )
     assert.match(
       migration,
       /authz\.expected_outbox_series_id = NEW\.series_id[\s\S]*?authz\.expected_outbox_generation = NEW\.generation[\s\S]*?authz\.expected_outbox_disposition = CASE/
     )
+    assert.match(
+      migration,
+      /authz\.challenge_key = NEW\.observation_id[\s\S]*?authz\.challenge_key = NEW\.bridge_challenge_key/
+    )
     assert.doesNotMatch(
       migration,
       /guard_row\.candidate_digest = NEW\.canonical_candidate_digest/
+    )
+  })
+
+  it("retains transient enqueue exhaustion as a restart-visible alert", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/010_p2tr_candidate_enqueue_transient_retries.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /last_sqlstate IN \('40001', '40P01', '55P03', '57014'\)/
     )
   })
 })

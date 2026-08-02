@@ -28,6 +28,8 @@ const TOKEN_ID = `0x${"11".repeat(32)}`
 const MANIFEST_HASH = `0x${"22".repeat(32)}`
 const ENQUEUED_INTENT_ID = `0x${"33".repeat(32)}`
 const CAPPED_INTENT_ID = `0x${"44".repeat(32)}`
+type RetryableSQLState =
+  P2TRProductionCandidateEnqueueRetryExhaustionAlert["lastSQLState"]
 
 describe("production candidate enqueue outcomes", () => {
   it("commits a nested generation-cap alert and token disposition before rejecting", async () => {
@@ -173,7 +175,7 @@ describe("production candidate enqueue outcomes", () => {
   })
 
   it("retries the complete database-only transaction after branded PostgreSQL aborts", async () => {
-    for (const sqlState of ["40001", "40P01"] as const) {
+    for (const sqlState of ["40001", "40P01", "55P03", "57014"] as const) {
       const coordinator = new RollbackAwareCoordinator()
       coordinator.failNextTransactionWith(sqlState)
       const dispositions: string[] = []
@@ -213,7 +215,7 @@ describe("production candidate enqueue outcomes", () => {
   })
 
   it("retries guard arming after branded PostgreSQL aborts", async () => {
-    for (const sqlState of ["40001", "40P01"] as const) {
+    for (const sqlState of ["40001", "40P01", "55P03", "57014"] as const) {
       const coordinator = new RollbackAwareCoordinator()
       coordinator.failNextGuardTransactionWith(sqlState)
       const dispositions: string[] = []
@@ -250,8 +252,8 @@ describe("production candidate enqueue outcomes", () => {
 
   it("keeps an unresolved guard and durable alert after retry exhaustion", async () => {
     const coordinator = new RollbackAwareCoordinator()
-    coordinator.failNextTransactionWith("40001")
-    coordinator.failNextTransactionWith("40P01")
+    coordinator.failNextTransactionWith("55P03")
+    coordinator.failNextTransactionWith("57014")
     const dispositions: string[] = []
     const journal = emptyCandidateJournal()
     const stateStore = candidateStateStore(coordinator, dispositions, journal)
@@ -285,7 +287,7 @@ describe("production candidate enqueue outcomes", () => {
         assert.equal(error.alert.tokenID, TOKEN_ID)
         assert.equal(error.alert.manifestHash, MANIFEST_HASH)
         assert.equal(error.alert.attemptCount, 2)
-        assert.equal(error.alert.lastSQLState, "40P01")
+        assert.equal(error.alert.lastSQLState, "57014")
         return true
       }
     )
@@ -300,7 +302,7 @@ describe("production candidate enqueue outcomes", () => {
       manifestHash: MANIFEST_HASH,
       candidateDigest: journal.guards[0].candidateDigest,
       attemptCount: 2,
-      lastSQLState: "40P01",
+      lastSQLState: "57014",
     })
     assert.throws(
       () =>
@@ -567,9 +569,9 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   private active = false
   private staged: Array<() => void> = []
   private readonly sequence?: string[]
-  private readonly failures: Array<"40001" | "40P01"> = []
-  private readonly guardFailures: Array<"40001" | "40P01"> = []
-  private readonly retryableErrors = new WeakMap<object, "40001" | "40P01">()
+  private readonly failures: RetryableSQLState[] = []
+  private readonly guardFailures: RetryableSQLState[] = []
+  private readonly retryableErrors = new WeakMap<object, RetryableSQLState>()
   private readonly unknownOutcomeErrors = new WeakSet<object>()
   private unknownOutcomeFailure: Error | undefined
 
@@ -618,7 +620,7 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
 
   readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
     error: unknown
-  ): "40001" | "40P01" | undefined {
+  ): RetryableSQLState | undefined {
     if (typeof error !== "object" || error === null) return undefined
     return this.retryableErrors.get(error)
   }
@@ -637,11 +639,11 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
     return this.active
   }
 
-  failNextTransactionWith(sqlState: "40001" | "40P01"): void {
+  failNextTransactionWith(sqlState: RetryableSQLState): void {
     this.failures.push(sqlState)
   }
 
-  failNextGuardTransactionWith(sqlState: "40001" | "40P01"): void {
+  failNextGuardTransactionWith(sqlState: RetryableSQLState): void {
     this.guardFailures.push(sqlState)
   }
 

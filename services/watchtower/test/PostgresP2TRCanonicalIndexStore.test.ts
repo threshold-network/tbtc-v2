@@ -519,7 +519,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
   })
 
   it("brands retryable SQLSTATEs only after a confirmed transaction rollback", async () => {
-    for (const sqlState of ["40001", "40P01"] as const) {
+    for (const sqlState of ["40001", "40P01", "55P03", "57014"] as const) {
       const pool = new FakePool(
         new FakeClient({
           "SELECT retryable": Object.assign(

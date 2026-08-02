@@ -57,6 +57,13 @@ const capacityAuthorityMigration = readFileSync(
   ),
   "utf8"
 )
+const transientRetryMigration = readFileSync(
+  new URL(
+    "../migrations/010_p2tr_candidate_enqueue_transient_retries.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -133,10 +140,10 @@ describe("production activation PostgreSQL schema contract", () => {
     )
   })
 
-  it("binds candidate consumption to distinct occurrence and challenge identities", () => {
+  it("keeps occurrence provenance separate from the SDK challenge-series identity", () => {
     assert.match(
       activationStore,
-      /outbox\.observation_id =\s*p2tr_candidate_enqueue_authorizations\.observation_id[\s\S]*?outbox\.bridge_challenge_key =\s*p2tr_candidate_enqueue_authorizations\.challenge_key/
+      /outbox\.observation_id =\s*p2tr_candidate_enqueue_authorizations\.challenge_key[\s\S]*?outbox\.bridge_challenge_key =\s*p2tr_candidate_enqueue_authorizations\.challenge_key/
     )
     assert.match(
       challengeSeriesMigration,
@@ -144,12 +151,25 @@ describe("production activation PostgreSQL schema contract", () => {
     )
     assert.match(
       capacityAuthorityMigration,
-      /'\,"observationID\":' \|\|[\s\S]*?encode\(observation_id_value, 'hex'\)/
+      /'\,"observationID\":' \|\|[\s\S]*?encode\(challenge_key_value, 'hex'\)/
     )
     assert.match(
       capacityAuthorityMigration,
-      /outbox\.observation_id = observation_id_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
+      /outbox\.observation_id = challenge_key_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
     )
+    assert.match(
+      capacityAuthorityMigration,
+      /authz\.challenge_key = NEW\.observation_id[\s\S]*?authz\.challenge_key = NEW\.bridge_challenge_key/
+    )
+  })
+
+  it("persists exhaustion for bounded contention and statement timeouts", () => {
+    assert.match(
+      transientRetryMigration,
+      /last_sqlstate IN \('40001', '40P01', '55P03', '57014'\)/
+    )
+    assert.match(transactionCoordinator, /code === "55P03"/)
+    assert.match(transactionCoordinator, /code === "57014"/)
   })
 
   it("preserves expired authority owned by an unresolved enqueue guard", () => {
