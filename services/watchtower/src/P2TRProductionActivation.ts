@@ -682,6 +682,16 @@ export type P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
   lastSQLState: "40001" | "40P01"
 }
 
+export type P2TRProductionCandidateEnqueueRetryExhaustionResolution = {
+  tokenID: string
+  manifestHash: string
+  candidateDigest: string
+  /** Digest of the independently retained operator resolution evidence. */
+  resolutionDigest: string
+  reason: string
+  resolvedAtUnixMs: number
+}
+
 export type P2TRProductionCandidateEnqueueTransactionGuard = {
   tokenID: string
   manifestHash: string
@@ -766,6 +776,9 @@ export type P2TRProductionStateStore = {
   ): Promise<void>
   saveCandidateEnqueueRetryExhaustionAlert(
     alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
+  ): Promise<void>
+  resolveCandidateEnqueueRetryExhaustionAlert(
+    resolution: P2TRProductionCandidateEnqueueRetryExhaustionResolution
   ): Promise<void>
   saveCandidateEnqueueNonRetryableFailure(
     failure: P2TRProductionCandidateEnqueueNonRetryableFailure
@@ -1287,6 +1300,7 @@ export class P2TRProductionActivationGate {
           this.dependencies.stateStore.listUnresolvedCandidateEnqueueTransactionGuards(),
         { readinessFence: "exclusive" }
       )
+    const recoveryErrors: unknown[] = []
     for (const recovery of recoveries) {
       try {
         await this.runCandidateEnqueueTransactionWithRetry(
@@ -1294,11 +1308,34 @@ export class P2TRProductionActivationGate {
           recovery.authorization.candidate,
           recovery.guard.maxAttemptCount
         )
-      } catch {
+      } catch (error) {
+        recoveryErrors.push(error)
         // Continue through the complete bounded recovery set. Readiness below
         // independently rejects any guard that could not be terminalized and
         // any activation-blocking retry-exhaustion alert.
       }
+    }
+    if (recoveryErrors.length === 0) return
+
+    try {
+      const health =
+        await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          () => this.dependencies.stateStore.readRuntimeAlertHealth(),
+          { readinessFence: "exclusive" }
+        )
+      assertP2TRProductionRuntimeAlertHealth(health, this.manifestHash)
+    } catch (readinessError) {
+      throw new Error(
+        readinessError instanceof Error
+          ? readinessError.message
+          : "Production runtime alert health failed after candidate enqueue guard recovery",
+        {
+          cause: new AggregateError(
+            recoveryErrors,
+            "Candidate enqueue guard recovery failed"
+          ),
+        }
+      )
     }
   }
 

@@ -52,7 +52,6 @@ describe(
           "003_p2tr_signature_fraud_challenge_outbox.sql",
           "004_p2tr_candidate_enqueue_retry_alerts.sql",
           "005_p2tr_deposit_binding_byte_order.sql",
-          "006_p2tr_candidate_enqueue_generation_authority.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -136,21 +135,24 @@ describe(
             }
           )
 
+        const tokenID = WORD("51")
+        const candidateDigest = WORD("52")
+        const observationID = WORD("53")
+        const challengeKey = WORD("54")
+        const txid = WORD("55")
+        const wtxid = WORD("56")
+        const fundingTxid = WORD("59")
+        const inputOutputKey = WORD("5b")
+        const bitcoinHash = WORD("33")
+        const ethereumHash = WORD("35")
+
         await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
           async () => {
-            assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
-              manifestHash,
-              unresolvedCandidateEnqueueTransactionGuardCount: 0,
-              candidateEnqueueRetryExhaustionCount: 0,
-            })
             const outboxRevalidation = await stateStore.readOutboxRevalidation(
               manifestHash,
               Date.now()
             )
             assert.equal(outboxRevalidation.activeGenerationCount, 0)
-
-            const bitcoinHash = WORD("33")
-            const ethereumHash = WORD("35")
             const certificate = await stateStore.mintReadinessCertificate({
               manifestHash,
               verifiedBitcoin: { height: 0, hash: bitcoinHash },
@@ -205,34 +207,6 @@ describe(
                 },
               },
             })
-
-            const tokenID = WORD("51")
-            const candidateDigest = WORD("52")
-            const observationID = WORD("53")
-            const challengeKey = WORD("54")
-            const txid = WORD("55")
-            const wtxid = WORD("56")
-            const fundingTxid = WORD("59")
-            const inputOutputKey = WORD("5b")
-            const expectedAuthority = await session.query<{
-              expected_series_id: Buffer
-            }>(
-              `SELECT expected_series_id
-                 FROM p2tr_candidate_enqueue_expected_authority(
-                   $1, $2, $3, $4, $5, 0, $6,
-                   'registered-wallet-output', $7, 0
-                 )`,
-              [
-                bytes(manifestHash),
-                bytes(observationID),
-                bytes(challengeKey),
-                bytes(txid),
-                bytes(wtxid),
-                bytes(inputOutputKey),
-                bytes(fundingTxid),
-              ]
-            )
-            assert.equal(expectedAuthority.rowCount, 1)
             await session.query(
               `INSERT INTO p2tr_candidate_enqueue_authorizations (
                    token_id, manifest_hash, candidate_digest, observation_id,
@@ -245,17 +219,12 @@ describe(
                    input_binding_source_event_id,
                    candidate_provenance_generation, provenance_fingerprint,
                    readiness_certificate_id,
-                   readiness_certificate_generation, expires_at,
-                   generation_authority_version,
-                   expected_outbox_series_id,
-                   expected_outbox_generation,
-                   expected_outbox_disposition
+                   readiness_certificate_generation, expires_at
                  ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, 0, 0, $8, 0, $9,
                    500, $10, $11, $12, 0, $13, $14,
                    'registered-wallet-output', $15, 1, $16, $17, $18,
-                   clock_timestamp() + interval '1 minute',
-                   1, $19, 0, 'initial'
+                   clock_timestamp() + interval '1 minute'
                  )`,
               [
                 bytes(tokenID),
@@ -276,7 +245,6 @@ describe(
                 bytes(WORD("5d")),
                 bytes(certificate.certificateID),
                 certificate.generation,
-                expectedAuthority.rows[0].expected_series_id,
               ]
             )
             await stateStore.armCandidateEnqueueTransactionGuard({
@@ -292,6 +260,38 @@ describe(
                 WHERE token_id = $1`,
               [bytes(tokenID)]
             )
+          }
+        )
+
+        const generationAuthorityMigration = await readFile(
+          new URL(
+            "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${generationAuthorityMigration}\nCOMMIT;`)
+        const missedExpiredGuard = await database.query<{
+          generation_authority_version: number
+        }>(
+          `SELECT generation_authority_version
+             FROM p2tr_candidate_enqueue_authorizations
+            WHERE token_id = $1`,
+          [bytes(tokenID)]
+        )
+        assert.equal(missedExpiredGuard.rows[0].generation_authority_version, 0)
+
+        const recoveryHardeningMigration = await readFile(
+          new URL(
+            "../migrations/007_p2tr_candidate_enqueue_recovery_hardening.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${recoveryHardeningMigration}\nCOMMIT;`)
+
+        await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          async () => {
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
               manifestHash,
               unresolvedCandidateEnqueueTransactionGuardCount: 1,
@@ -302,21 +302,25 @@ describe(
               candidateDigest,
               manifestHash
             )
-            await assert.rejects(
-              stateStore.resolveCandidateEnqueueTransactionGuard({
-                tokenID,
-                manifestHash,
-                candidateDigest,
-                outboxIntentID: WORD("61"),
-                outcomeKind: "enqueued",
-              }),
-              /lacks exact consumed authorization state/
-            )
-            await stateStore.saveCandidateEnqueueNonRetryableFailure({
+            await stateStore.saveCandidateEnqueueRetryExhaustionAlert({
               tokenID,
               manifestHash,
               candidateDigest,
-              failureDigest: WORD("62"),
+              attemptCount: 3,
+              lastSQLState: "40001",
+            })
+            assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
+              manifestHash,
+              unresolvedCandidateEnqueueTransactionGuardCount: 0,
+              candidateEnqueueRetryExhaustionCount: 1,
+            })
+            await stateStore.resolveCandidateEnqueueRetryExhaustionAlert({
+              tokenID,
+              manifestHash,
+              candidateDigest,
+              resolutionDigest: WORD("62"),
+              reason: "operator verified the bounded retry incident",
+              resolvedAtUnixMs: 10_000,
             })
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
               manifestHash,
@@ -324,6 +328,19 @@ describe(
               candidateEnqueueRetryExhaustionCount: 0,
             })
           }
+        )
+        await assert.rejects(
+          database.query(
+            `UPDATE p2tr_candidate_enqueue_retry_exhaustion_resolution
+                SET reason = 'rewritten operator evidence'`
+          ),
+          /append-only/
+        )
+        await assert.rejects(
+          database.query(
+            `DELETE FROM p2tr_candidate_enqueue_retry_exhaustion_resolution`
+          ),
+          /append-only/
         )
       } finally {
         await database?.end()

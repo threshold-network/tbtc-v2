@@ -3313,13 +3313,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       updatedAtUnixMs: nowUnixMs,
       lastError: undefined,
     })
-    const broadcastAuthorizationBinding =
-      this.buildIrreversibleBoundaryBinding(
-        attempted,
-        "broadcast",
-        attempted.broadcastAttempts,
-        preparedTransaction.transactionHash
-      )
+    const broadcastAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+      attempted,
+      "broadcast",
+      attempted.broadcastAttempts,
+      preparedTransaction.transactionHash
+    )
     let broadcastAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       broadcastAuthorization =
@@ -3332,27 +3331,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         `Broadcast authorization failed before send: ${errorMessage(error)}`
       )
     }
-    try {
-      // Consume before the attempt CAS. The binding already names the projected
-      // version and attempt; a lost CAS burns this process-local capability but
-      // cannot send bytes or append an ambiguous acknowledgement.
-      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
-        broadcastAuthorization,
-        broadcastAuthorizationBinding,
-        requireUnixMilliseconds(
-          this.now(),
-          "Broadcast authorization consumption time"
-        )
-      )
-    } catch (error) {
-      return this.applyPreBroadcastAuthorizationFailure(
-        current,
-        `Broadcast authorization was rejected before send: ${errorMessage(
-          error
-        )}`
-      )
-    }
-
     // Persist the irreversible-attempt boundary before the external call. A
     // crash from this point onward can only cause the exact same raw bytes to
     // be sent again.
@@ -3365,6 +3343,29 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ))
     ) {
       return this.requireRecord(key)
+    }
+
+    try {
+      // The provenance CAS is asynchronous. Keep the one-use capability
+      // pending across it, then synchronously revalidate and consume it at the
+      // final boundary so receipt expiry or a newer export fence cannot become
+      // a stale broadcast. No await is permitted between this call and the
+      // broadcaster invocation below.
+      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+        broadcastAuthorization,
+        broadcastAuthorizationBinding,
+        requireUnixMilliseconds(
+          this.now(),
+          "Broadcast authorization consumption time"
+        )
+      )
+    } catch (error) {
+      return this.applyPreBroadcastAuthorizationFailure(
+        attempted,
+        `Broadcast authorization was rejected before send: ${errorMessage(
+          error
+        )}`
+      )
     }
 
     try {
@@ -4327,14 +4328,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "Challenge recovery barrier time"
     )
     const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
-      this.store.hasExpiredPreparationLeasesForLane(
-        chainID,
-        sender,
-        nowUnixMs
-      ),
+      this.store.hasExpiredPreparationLeasesForLane(chainID, sender, nowUnixMs),
       this.store.hasPendingNonceReleasesForLane(chainID, sender),
     ])
-    return expiredPreparationLease || pendingNonceRelease
+    const backlog = expiredPreparationLease || pendingNonceRelease
+    if (backlog) this.recoveryBarrierEstablished = false
+    return backlog
   }
 
   private async assertSelectedLaneRecoveryBarrier(
@@ -4362,6 +4361,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ),
     ])
     if (expiredPreparationLease || pendingNonceRelease) {
+      this.recoveryBarrierEstablished = false
       throw new Error(
         pendingNonceRelease
           ? "Challenge signing lane is blocked by an unacknowledged durable nonce release"

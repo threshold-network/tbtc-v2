@@ -441,6 +441,67 @@ describe("production candidate enqueue outcomes", () => {
       assertP2TRProductionRuntimeAlertHealth(healthFor(journal), MANIFEST_HASH)
     )
   })
+
+  it("attaches guard recovery failures to the activation blocker", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    const journal = emptyCandidateJournal()
+    const recoveries: P2TRProductionCandidateEnqueueTransactionRecovery[] = []
+    const stateStore = candidateStateStore(
+      coordinator,
+      [],
+      journal,
+      undefined,
+      recoveries
+    )
+    const dispositionError = new Error(
+      "Candidate enqueue non-retryable failure conflicts with durable state"
+    )
+    stateStore.saveCandidateEnqueueNonRetryableFailure = async () => {
+      throw dispositionError
+    }
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      async enqueueReconciledCandidate(): Promise<P2TRProductionCandidateEnqueueOutcome> {
+        throw new Error("candidate became non-canonical")
+      },
+    }
+    const { gate, token } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer
+    )
+    const record = (
+      gate as unknown as {
+        candidateTokens: WeakMap<
+          object,
+          { receipt: P2TRProductionCandidateAuthorizationReceipt }
+        >
+      }
+    ).candidateTokens.get(token)!
+    const guard = {
+      tokenID: record.receipt.tokenID,
+      manifestHash: record.receipt.manifestHash,
+      candidateDigest: record.receipt.candidateDigest,
+      maxAttemptCount: 3,
+    }
+    journal.guards.push(guard)
+    recoveries.push({ guard, authorization: record.receipt })
+
+    await assert.rejects(
+      gate.recoverCandidateEnqueueTransactionGuards(),
+      (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.match(
+          error.message,
+          /activation-blocking candidate enqueue alerts/
+        )
+        assert.ok(error.cause instanceof AggregateError)
+        assert.equal(error.cause.errors.length, 1)
+        assert.equal(error.cause.errors[0], dispositionError)
+        return true
+      }
+    )
+  })
 })
 
 class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
@@ -635,6 +696,9 @@ function candidateStateStore(
     async saveCandidateEnqueueRetryExhaustionAlert(alert) {
       coordinator.stage(() => journal.exhaustionAlerts.push(alert))
     },
+    async resolveCandidateEnqueueRetryExhaustionAlert() {
+      throw new Error("unused test dependency")
+    },
     async saveCandidateEnqueueNonRetryableFailure(failure) {
       coordinator.stage(() => journal.nonRetryableFailures.push(failure))
     },
@@ -723,6 +787,7 @@ function gateForCandidate(
   ) as P2TRProductionActivationGate
   Object.assign(gate, {
     dependencies,
+    manifestHash: MANIFEST_HASH,
     candidateTokens,
     candidateEnqueueTransactionMaxAttempts: maxAttempts,
   })

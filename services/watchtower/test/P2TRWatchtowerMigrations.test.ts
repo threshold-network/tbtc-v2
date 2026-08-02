@@ -49,6 +49,10 @@ describe("P2TR watchtower migration bodies", () => {
           version: 6,
           filename: "006_p2tr_candidate_enqueue_generation_authority.sql",
         },
+        {
+          version: 7,
+          filename: "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+        },
       ]
     )
   })
@@ -156,6 +160,36 @@ describe("P2TR watchtower migration bodies", () => {
       /candidate_authorization\.consumed_at IS NULL[\s\S]*?candidate_authorization\.invalidated_at IS NULL[\s\S]*?candidate_authorization\.expires_at > clock_timestamp\(\)/
     )
     assert.match(migration, /active outbox capacity is exhausted or reserved/)
+  })
+
+  it("repairs expired armed authority and adds append-only alert resolution", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/007_p2tr_candidate_enqueue_recovery_hardening.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /JOIN p2tr_candidate_enqueue_transaction_guard guard_row/
+    )
+    assert.match(migration, /authz\.generation_authority_version = 0/)
+    assert.doesNotMatch(migration, /authz\.expires_at > clock_timestamp\(\)/)
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_candidate_enqueue_retry_exhaustion_resolution/
+    )
+    assert.match(
+      migration,
+      /FOREIGN KEY \([\s\S]*?alert_detail_digest[\s\S]*?REFERENCES p2tr_candidate_enqueue_retry_exhaustion_alert/
+    )
+    assert.match(
+      migration,
+      /p2tr_candidate_enqueue_retry_resolution_immutable_trigger[\s\S]*?BEFORE UPDATE OR DELETE/
+    )
   })
 })
 

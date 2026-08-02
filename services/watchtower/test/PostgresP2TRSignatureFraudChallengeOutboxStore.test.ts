@@ -220,6 +220,10 @@ async function createTestDatabase(
       "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
       import.meta.url
     ),
+    new URL(
+      "../migrations/007_p2tr_candidate_enqueue_recovery_hardening.sql",
+      import.meta.url
+    ),
   ]) {
     await client.query(await readFile(migration, "utf8"))
   }

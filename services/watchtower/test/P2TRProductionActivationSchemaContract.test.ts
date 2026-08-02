@@ -36,6 +36,13 @@ const generationAuthorityMigration = readFileSync(
   ),
   "utf8"
 )
+const recoveryHardeningMigration = readFileSync(
+  new URL(
+    "../migrations/007_p2tr_candidate_enqueue_recovery_hardening.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -253,6 +260,39 @@ describe("production activation PostgreSQL schema contract", () => {
     assert.match(
       armGuard,
       /JOIN p2tr_watchtower_activation_manifest current_manifest[\s\S]*?current_manifest\.manifest_hash = guard_row\.manifest_hash/
+    )
+  })
+
+  it("backfills expired guarded authority and resolves reviewed retry alerts", () => {
+    assert.match(
+      recoveryHardeningMigration,
+      /JOIN p2tr_candidate_enqueue_transaction_guard guard_row/
+    )
+    assert.doesNotMatch(
+      recoveryHardeningMigration,
+      /authz\.expires_at > clock_timestamp\(\)/
+    )
+    assert.match(
+      recoveryHardeningMigration,
+      /CREATE TABLE p2tr_candidate_enqueue_retry_exhaustion_resolution/
+    )
+    const runtimeAlerts = methodSource(
+      activationStore,
+      "readRuntimeAlertHealth",
+      "readEthereumJournalHealth"
+    )
+    assert.match(
+      runtimeAlerts,
+      /p2tr_candidate_enqueue_retry_exhaustion_resolution resolution/
+    )
+    const resolution = methodSource(
+      activationStore,
+      "resolveCandidateEnqueueRetryExhaustionAlert",
+      "saveCandidateEnqueueNonRetryableFailure"
+    )
+    assert.match(
+      resolution,
+      /INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_resolution/
     )
   })
 

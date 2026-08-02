@@ -6,6 +6,7 @@ import {
   type P2TRProductionCandidateAuthorizationReceipt,
   type P2TRProductionCandidateEnqueueNonRetryableFailure,
   type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
+  type P2TRProductionCandidateEnqueueRetryExhaustionResolution,
   type P2TRProductionCandidateEnqueueTransactionGuard,
   type P2TRProductionCandidateEnqueueTransactionRecovery,
   type P2TRProductionCandidateEnqueueTransactionResolution,
@@ -560,7 +561,13 @@ export class PostgresP2TRProductionActivationStore
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
                 WHERE alert.manifest_hash = manifest.manifest_hash
-                  AND alert.activation_blocking = true)
+                  AND alert.activation_blocking = true
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_retry_exhaustion_resolution resolution
+                     WHERE resolution.manifest_hash = alert.manifest_hash
+                       AND resolution.token_id = alert.token_id
+                  ))
                 AS candidate_enqueue_retry_exhaustion_count
          FROM p2tr_watchtower_activation_manifest manifest
         WHERE manifest.singleton = true
@@ -1576,9 +1583,7 @@ export class PostgresP2TRProductionActivationStore
         row.candidate_digest,
         "recovery candidate digest"
       )
-      if (
-        candidateDigest !== computeP2TRProductionCandidateDigest(candidate)
-      ) {
+      if (candidateDigest !== computeP2TRProductionCandidateDigest(candidate)) {
         throw new Error(
           "Candidate enqueue recovery row does not match its candidate digest"
         )
@@ -1869,6 +1874,79 @@ export class PostgresP2TRProductionActivationStore
     ) {
       throw new Error(
         "Candidate enqueue retry alert conflicts with durable state"
+      )
+    }
+  }
+
+  async resolveCandidateEnqueueRetryExhaustionAlert(
+    resolution: P2TRProductionCandidateEnqueueRetryExhaustionResolution
+  ): Promise<void> {
+    const normalized =
+      normalizeCandidateEnqueueRetryExhaustionResolution(resolution)
+    await this.assertCurrentActivationManifest(normalized.manifestHash)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_resolution
+         (manifest_hash, token_id, candidate_digest, alert_detail_digest,
+          resolution_digest, reason, resolved_at_unix_ms)
+       SELECT alert.manifest_hash, alert.token_id, alert.candidate_digest,
+              alert.detail_digest, $4, $5, $6
+         FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+        WHERE alert.manifest_hash = $1
+          AND alert.token_id = $2
+          AND alert.candidate_digest = $3
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "retry resolution manifest"),
+        hexBuffer(normalized.tokenID, "retry resolution token"),
+        hexBuffer(normalized.candidateDigest, "retry resolution candidate"),
+        hexBuffer(
+          normalized.resolutionDigest,
+          "retry resolution evidence digest"
+        ),
+        normalized.reason,
+        normalized.resolvedAtUnixMs,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue retry alert resolution insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      resolution_digest: string
+      reason: string
+      resolved_at_unix_ms: string | number
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(resolution_digest, 'hex') AS resolution_digest,
+              reason, resolved_at_unix_ms
+         FROM p2tr_candidate_enqueue_retry_exhaustion_resolution
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "retry resolution manifest"),
+        hexBuffer(normalized.tokenID, "retry resolution token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored retry resolution candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].resolution_digest,
+        "stored retry resolution evidence digest"
+      ) !== normalized.resolutionDigest ||
+      stored.rows[0].reason !== normalized.reason ||
+      databaseInteger(
+        stored.rows[0].resolved_at_unix_ms,
+        "stored retry resolution time"
+      ) !== normalized.resolvedAtUnixMs
+    ) {
+      throw new Error(
+        "Candidate enqueue retry alert resolution conflicts with durable state"
       )
     }
   }
@@ -2433,15 +2511,34 @@ function normalizeCandidateEnqueueRetryExhaustionAlert(
   }
 }
 
+function normalizeCandidateEnqueueRetryExhaustionResolution(
+  resolution: P2TRProductionCandidateEnqueueRetryExhaustionResolution
+): P2TRProductionCandidateEnqueueRetryExhaustionResolution {
+  return {
+    tokenID: bytes32(resolution.tokenID, "retry resolution token"),
+    manifestHash: bytes32(resolution.manifestHash, "retry resolution manifest"),
+    candidateDigest: bytes32(
+      resolution.candidateDigest,
+      "retry resolution candidate"
+    ),
+    resolutionDigest: bytes32(
+      resolution.resolutionDigest,
+      "retry resolution evidence digest"
+    ),
+    reason: boundedString(resolution.reason, 1_024, "retry resolution reason"),
+    resolvedAtUnixMs: nonNegativeInteger(
+      resolution.resolvedAtUnixMs,
+      "retry resolution time"
+    ),
+  }
+}
+
 function normalizeCandidateEnqueueNonRetryableFailure(
   failure: P2TRProductionCandidateEnqueueNonRetryableFailure
 ): P2TRProductionCandidateEnqueueNonRetryableFailure {
   return {
     tokenID: bytes32(failure.tokenID, "enqueue failure token"),
-    manifestHash: bytes32(
-      failure.manifestHash,
-      "enqueue failure manifest"
-    ),
+    manifestHash: bytes32(failure.manifestHash, "enqueue failure manifest"),
     candidateDigest: bytes32(
       failure.candidateDigest,
       "enqueue failure candidate"

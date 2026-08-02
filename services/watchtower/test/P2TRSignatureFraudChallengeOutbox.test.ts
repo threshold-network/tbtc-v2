@@ -1960,6 +1960,7 @@ test("carries the real scheduler generation-cap outcome through the activation g
   const stateStore = {
     p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
     async armCandidateEnqueueTransactionGuard() {},
+    async resolveCandidateEnqueueRetryExhaustionAlert() {},
     async saveCandidateEnqueueNonRetryableFailure() {},
     async lockCandidateAuthorization() {},
     async assertCandidateIndexed() {},
@@ -2277,7 +2278,15 @@ test("authorizes exact signer and projected pre-CAS broadcast boundaries", async
       assert.equal(binding.preparedTransactionHash, undefined)
     }
   }
-  authorizer.onConsume = (binding) => consumedStages.push(binding.stage)
+  authorizer.onConsume = (binding) => {
+    if (binding.stage === "broadcast") {
+      const durable = store.records.get(normalizeKey(binding.recordID))
+      assert.equal(durable?.status, "broadcast-pending")
+      assert.equal(durable?.version, binding.recordVersion)
+      assert.equal(durable?.broadcastAttempts, binding.attempt)
+    }
+    consumedStages.push(binding.stage)
+  }
   preparer.afterInitialSign = async () => {
     assert.deepEqual(consumedStages, ["prepare"])
   }
@@ -2618,6 +2627,44 @@ test("keeps unresolved recovery work scoped to its exact nonce lane", async () =
     ),
     false
   )
+})
+
+test("re-sweeps lane recovery after backlog appears post-startup", async () => {
+  const store = new InMemoryOutboxStore()
+  const expiredRecord = await enqueue(store, createIntent("ae"))
+  const target = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 40_000
+  )
+
+  // Establish the process-local startup barrier before the later lease exists.
+  await outbox.recoverExpiredPreparationLeases()
+  store.records.set(normalizeKey(expiredRecord.recordID), {
+    ...expiredRecord,
+    status: "preparing",
+    version: expiredRecord.version + 1,
+    preparationAttempts: 1,
+    preparationLease: { owner: "stalled-worker", expiresAtUnixMs: 3_000 },
+    preparationSender: preparer.transactionSender,
+    selectedLaneID: preparer.laneID,
+    selectedSignerIdentity: preparer.signerIdentity,
+    updatedAtUnixMs: 2_000,
+  })
+
+  const skipped = await outbox.prepare(target.recordID, "target-worker")
+  assert.equal(skipped.status, "queued")
+  assert.equal((await store.get(expiredRecord.recordID))?.status, "preparing")
+
+  const prepared = await outbox.prepare(target.recordID, "target-worker")
+  assert.equal(prepared.status, "prepared", prepared.lastError)
+  assert.equal((await store.get(expiredRecord.recordID))?.status, "queued")
+  assert.equal(preparer.calls, 1)
 })
 
 test("blocks a signer claim when canonical provenance invalidation wins the shared lock", async () => {
@@ -3878,7 +3925,7 @@ test("keeps wrong broadcaster hash post-send pending and reconcilable", async ()
   )
 })
 
-test("does not journal a broadcast attempt when pre-send authorization fails", async () => {
+test("does not broadcast when pre-send authorization fails", async () => {
   for (const rejection of ["acquisition", "consumption"] as const) {
     const store = new InMemoryOutboxStore()
     const record = await enqueue(store)
@@ -3897,20 +3944,64 @@ test("does not journal a broadcast attempt when pre-send authorization fails", a
     )
     await outbox.prepare(record.recordID, "worker-a")
     if (rejection === "acquisition") {
-      authorizer.rejectAuthorization = new Error("evidence provider unavailable")
+      authorizer.rejectAuthorization = new Error(
+        "evidence provider unavailable"
+      )
     } else {
       authorizer.rejectConsumption = new Error("authorization became stale")
     }
 
     const result = await outbox.broadcast(record.recordID)
 
-    assert.equal(result.status, "prepared")
-    assert.equal(result.broadcastAttempts, 0)
-    assert.equal(result.preparedTransactionVariants?.[0].broadcastAttempts, 0)
-    assert.equal(result.lastBroadcastAtUnixMs, undefined)
+    assert.equal(
+      result.status,
+      rejection === "acquisition" ? "prepared" : "broadcast-pending"
+    )
+    assert.equal(result.broadcastAttempts, rejection === "acquisition" ? 0 : 1)
+    assert.equal(
+      result.preparedTransactionVariants?.[0].broadcastAttempts,
+      rejection === "acquisition" ? 0 : 1
+    )
+    assert.equal(
+      result.lastBroadcastAtUnixMs,
+      rejection === "acquisition" ? undefined : 2_000
+    )
     assert.equal(broadcaster.rawTransactions.length, 0)
     assert.match(result.lastError ?? "", /authorization .*before send/)
   }
+})
+
+test("revalidates broadcast authority after the provenance attempt CAS", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const broadcaster = new RecordingBroadcaster()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  store.beforeProvenanceCAS = async (_current, next) => {
+    if (next.status === "broadcast-pending") {
+      authorizer.rejectConsumption = new Error(
+        "authorization was superseded while the CAS waited"
+      )
+    }
+  }
+
+  const result = await outbox.broadcast(record.recordID)
+
+  assert.equal(result.status, "broadcast-pending")
+  assert.equal(result.broadcastAttempts, 1)
+  assert.deepEqual(broadcaster.rawTransactions, [])
+  assert.match(result.lastError ?? "", /superseded while the CAS waited/)
 })
 
 test("pre-send recheck cancels only before the irreversible boundary", async () => {
