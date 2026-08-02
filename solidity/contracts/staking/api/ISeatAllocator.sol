@@ -32,6 +32,11 @@ interface ISeatAllocator {
     /// @param stakingProvider Address of the staking provider.
     function refreshAuthorization(address stakingProvider) external;
 
+    /// @notice Checkpoints reward and commission accounting immediately
+    ///         before the signer registry overwrites a commission schedule.
+    /// @dev Callable only by the signer registry.
+    function checkpointRewards(address stakingProvider) external;
+
     /// @notice Returns the staking provider's live seat weight: zero if the
     ///         provider is not active in the signer registry, or its effective
     ///         self-bond (net of any queued self-bond withdrawal) is below the

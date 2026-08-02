@@ -59,7 +59,6 @@ library FrostWalletExposure {
     ///         via delegatecall, so the log is attributed to the
     ///         `FrostWalletRegistry` address.
     event WalletExposureReconciledClosed(bytes32 indexed walletID);
-
     /// @notice Raised when `setLedger` is called after the ledger address
     ///         has already been set. The ledger wiring is one-shot;
     ///         migrating to a new ledger is upgrade-only.
@@ -279,6 +278,7 @@ library FrostWalletExposure {
         FrostRegistryWallets.Data storage wallets,
         SortitionPool sortitionPool,
         mapping(address => address) storage operatorToStakingProvider,
+        IFrostAuthorizationSource authorizationSource,
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external {
@@ -325,6 +325,7 @@ library FrostWalletExposure {
                 uniqueProviders,
                 uniqueSeatCounts
             );
+            authorizationSource.onWalletExposureReconciled(uniqueProviders);
 
             emit WalletExposureReconciledRegistered(walletID);
         } else {

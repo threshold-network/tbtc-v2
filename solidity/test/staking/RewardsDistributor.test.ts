@@ -11,6 +11,7 @@ import type {
 } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
+const { increaseTime } = helpers.time
 
 describe("RewardsDistributor", () => {
   let deployer: SignerWithAddress
@@ -373,7 +374,15 @@ describe("RewardsDistributor", () => {
       })
 
       it("should keep everything as commission at 100% commission", async () => {
-        await signerRegistry.setCommissionBps(provider1.address, 10000)
+        const effectiveAt =
+          (await ethers.provider.getBlock("latest")).timestamp + 100
+        await signerRegistry.setCommissionSchedule(
+          provider1.address,
+          1000,
+          10000,
+          effectiveAt
+        )
+        await increaseTime(100)
         await notify(400)
 
         // provider1 weight 100 of total 400: accrues 100.
@@ -393,11 +402,10 @@ describe("RewardsDistributor", () => {
         expect(await stakeVault.creditCount()).to.equal(creditCountBefore)
       })
 
-      it("should apply the commission rate effective at settlement time", async () => {
-        // provider2 accrues another tranche, then its commission changes
-        // before settlement: the new rate applies to the whole unsettled
-        // accrual (commission timing across rate changes is enforced by the
-        // signer registry's notice period, mirrored here by the mock).
+      it("should not retroactively apply an uncheckpointed mock rate change", async () => {
+        // provider2 accrues another tranche, then this deliberately simplistic
+        // mock changes its base rate without a notice boundary. The distributor
+        // keeps using the checkpointed rate instead of repricing history.
         await notify(400)
         await signerRegistry.setCommissionBps(provider2.address, 2000)
 
@@ -405,12 +413,11 @@ describe("RewardsDistributor", () => {
           .connect(thirdParty)
           .settleOperator(provider2.address)
 
-        // provider2 was settled after the first tranche; since then two
-        // more tranches of 400 landed at weight 300/400, so 600 is
-        // unsettled, split at the new 20% rate.
+        // provider2 was settled after the first tranche; since then two more
+        // tranches landed at weight 300/400, all under its checkpointed 0%.
         await expect(tx)
           .to.emit(rewardsDistributor, "OperatorSettled")
-          .withArgs(provider2.address, to1e18(120), to1e18(480))
+          .withArgs(provider2.address, 0, to1e18(600))
       })
     })
 
@@ -442,6 +449,74 @@ describe("RewardsDistributor", () => {
         expect(await tbtc.balanceOf(stakeVault.address)).to.equal(9)
         expect(await tbtc.balanceOf(rewardsDistributor.address)).to.equal(1)
       })
+    })
+  })
+
+  describe("commission notice boundary", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+      await signerRegistry.setCommissionBps(provider1.address, 1000)
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider1.address, to1e18(100))
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should charge the old and new rates only on their respective tranches", async () => {
+      const latestBlock = await ethers.provider.getBlock("latest")
+      const effectiveAt = latestBlock.timestamp + 100
+      await signerRegistry.setCommissionSchedule(
+        provider1.address,
+        1000,
+        2000,
+        effectiveAt
+      )
+
+      await notify(100)
+      await increaseTime(100)
+      await notify(100)
+
+      await expect(
+        rewardsDistributor.connect(thirdParty).settleOperator(provider1.address)
+      )
+        .to.emit(rewardsDistributor, "OperatorSettled")
+        .withArgs(provider1.address, to1e18(30), to1e18(170))
+    })
+
+    it("should preserve a matured rate when a new schedule replaces it", async () => {
+      let latestBlock = await ethers.provider.getBlock("latest")
+      await signerRegistry.setCommissionSchedule(
+        provider1.address,
+        1000,
+        2000,
+        latestBlock.timestamp + 100
+      )
+      await increaseTime(100)
+
+      // Mirrors SignerRegistry declaring again: checkpoint the matured rate
+      // even though no reward landed under the first schedule, then overwrite.
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider1.address, to1e18(100))
+      latestBlock = await ethers.provider.getBlock("latest")
+      await signerRegistry.setCommissionSchedule(
+        provider1.address,
+        2000,
+        3000,
+        latestBlock.timestamp + 100
+      )
+
+      await notify(100)
+      await increaseTime(100)
+      await notify(100)
+      await expect(
+        rewardsDistributor.connect(thirdParty).settleOperator(provider1.address)
+      )
+        .to.emit(rewardsDistributor, "OperatorSettled")
+        .withArgs(provider1.address, to1e18(50), to1e18(150))
     })
   })
 

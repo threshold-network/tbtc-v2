@@ -183,6 +183,24 @@ contract SeatAllocator is
     ///      over-covers realistic slashes regardless of delegated collateral.
     mapping(address => uint64) public exposureFloorEpoch;
 
+    /// @notice Reward weight last accepted by the distributor. Reductions are
+    ///         synchronized atomically with vault withdrawals.
+    mapping(address => uint96) public lastSyncedRewardWeight;
+
+    /// @notice End of the registry-imposed TBTC reward ban for each provider.
+    mapping(address => uint64) public rewardIneligibleUntil;
+
+    struct FailedSlashReport {
+        uint96 amount;
+        uint256 rewardMultiplier;
+        address notifier;
+        address[] stakingProviders;
+        bool exists;
+    }
+
+    mapping(uint256 => FailedSlashReport) internal failedSlashReports;
+    uint256 public nextFailedSlashReportId;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots. Removing the delegation-factor and
@@ -190,7 +208,7 @@ contract SeatAllocator is
     // slots, so the gap is widened to keep the reserve at 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[37] private __gap;
+    uint256[33] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -221,6 +239,12 @@ contract SeatAllocator is
         address indexed notifier,
         address[] stakingProviders
     );
+    event SlashReportQueued(uint256 indexed reportId);
+    event SlashReportRetried(uint256 indexed reportId);
+    event RewardIneligibilitySet(
+        address indexed stakingProvider,
+        uint64 ineligibleUntil
+    );
     event AuthorizationSyncFailed(address indexed stakingProvider);
     event EqualSeatWeightUpdateStarted(
         uint96 newEqualSeatWeight,
@@ -233,11 +257,19 @@ contract SeatAllocator is
     error NoDecreasePending();
     error ZeroEqualSeatWeight();
     error EqualSeatWeightBelowRegistryMinimum();
+    error NotSignerRegistry();
+    error RewardWeightSyncRequired();
+    error InvalidSlashReport();
 
     modifier onlyWalletRegistry() {
         if (msg.sender != address(frostWalletRegistry)) {
             revert NotWalletRegistry();
         }
+        _;
+    }
+
+    modifier onlySignerRegistry() {
+        if (msg.sender != address(signerRegistry)) revert NotSignerRegistry();
         _;
     }
 
@@ -440,6 +472,12 @@ contract SeatAllocator is
         view
         returns (uint96)
     {
+        if (
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp < rewardIneligibleUntil[stakingProvider]
+        ) {
+            return 0;
+        }
         if (currentWeight(stakingProvider) == 0) {
             return 0;
         }
@@ -475,16 +513,16 @@ contract SeatAllocator is
     ///      same target is skipped so permissionless refreshes cannot
     ///      needlessly restart the registry-side decrease clock.
     ///
-    ///      The registry sync and rewards distributor calls are guarded:
-    ///      this function sits on paths that must not be blocked by a
-    ///      misbehaving registry or distributor (`StakeVault` exit
-    ///      finalization, `SignerRegistry.ejectOperator`). On failure the
-    ///      local bookkeeping is left untouched, the provider is marked
-    ///      dirty, and `AuthorizationSyncFailed` is emitted — a later
-    ///      permissionless `refreshAuthorization` completes the sync.
+    ///      Increases retain the retryable fail-open behavior. Reductions fail
+    ///      closed: if either registry authorization or distributor reward
+    ///      weight cannot be reduced, the caller's capital/status transition
+    ///      reverts so stale weight can never earn after withdrawal.
     function refreshAuthorization(address stakingProvider) external override {
         uint96 newWeight = currentWeight(stakingProvider);
         uint96 syncedWeight = lastSyncedWeight[stakingProvider];
+        uint96 newRewardWeight = rewardWeight(stakingProvider);
+        uint96 syncedRewardWeight = lastSyncedRewardWeight[stakingProvider];
+        bool rewardWeightReduction = newRewardWeight < syncedRewardWeight;
 
         weightDirty[stakingProvider] = false;
 
@@ -507,6 +545,9 @@ contract SeatAllocator is
                         newWeight
                     );
                 } catch {
+                    if (rewardWeightReduction) {
+                        revert RewardWeightSyncRequired();
+                    }
                     weightDirty[stakingProvider] = true;
                     emit AuthorizationSyncFailed(stakingProvider);
                     return;
@@ -523,6 +564,9 @@ contract SeatAllocator is
                 lastSyncedWeight[stakingProvider] = newWeight;
                 emit WeightIncreased(stakingProvider, syncedWeight, newWeight);
             } catch {
+                if (rewardWeightReduction) {
+                    revert RewardWeightSyncRequired();
+                }
                 weightDirty[stakingProvider] = true;
                 emit AuthorizationSyncFailed(stakingProvider);
                 return;
@@ -543,6 +587,9 @@ contract SeatAllocator is
                     newWeight
                 );
             } catch {
+                if (rewardWeightReduction) {
+                    revert RewardWeightSyncRequired();
+                }
                 weightDirty[stakingProvider] = true;
                 emit AuthorizationSyncFailed(stakingProvider);
                 return;
@@ -557,27 +604,51 @@ contract SeatAllocator is
         // non-overflowing uint96 add-and-clamp), and currentWeight(p) is
         // already evaluated unprotected earlier on this path, so wiring the
         // uncapped weight in here introduces no new revert surface.
-        try
+        if (rewardWeightReduction) {
             rewardsDistributor.onWeightChanged(
                 stakingProvider,
-                rewardWeight(stakingProvider)
-            )
-        {} catch {
-            weightDirty[stakingProvider] = true;
-            emit AuthorizationSyncFailed(stakingProvider);
-        }
+                newRewardWeight
+            );
+            lastSyncedRewardWeight[stakingProvider] = newRewardWeight;
+        } else
+            try
+                rewardsDistributor.onWeightChanged(
+                    stakingProvider,
+                    newRewardWeight
+                )
+            {
+                lastSyncedRewardWeight[stakingProvider] = newRewardWeight;
+            } catch {
+                weightDirty[stakingProvider] = true;
+                emit AuthorizationSyncFailed(stakingProvider);
+            }
+    }
+
+    /// @notice See {ISeatAllocator-checkpointRewards}.
+    function checkpointRewards(address stakingProvider)
+        external
+        override
+        onlySignerRegistry
+    {
+        rewardsDistributor.onWeightChanged(
+            stakingProvider,
+            lastSyncedRewardWeight[stakingProvider]
+        );
     }
 
     /// @notice Returns the authorization weight the registry currently
     ///         knows for the staking provider — the last synced value, not
     ///         the live computation. Mirrors `FrostAllowlist` semantics so
     ///         pool and registry stay consistent between refreshes.
-    function authorizedWeight(address stakingProvider, address)
+    function authorizedWeight(address stakingProvider, address operator)
         external
         view
         override
         returns (uint96)
     {
+        if (signerRegistry.nodeOperatorOf(stakingProvider) != operator) {
+            return 0;
+        }
         return lastSyncedWeight[stakingProvider];
     }
 
@@ -646,12 +717,10 @@ contract SeatAllocator is
     ///         weight dirty so anyone can subsequently call
     ///         `refreshAuthorization` to sync the reduced weight. No
     ///         registry callbacks are made here.
-    /// @dev Can only be called by the FROST wallet registry. Past the
-    ///      caller check this function MUST NOT revert — the Bridge
-    ///      lifecycle (`seize` on timeout/fraud paths) depends on it. The
-    ///      slashing module call is wrapped in try/catch and guarded on
-    ///      code presence as defense in depth; a failure only emits
-    ///      `SlashReportFailed`.
+    /// @dev Can only be called by the FROST wallet registry. The report is
+    ///      persisted before the best-effort slashing-module call. A module
+    ///      failure therefore leaves a permissionlessly retryable report
+    ///      instead of losing the offense after the Bridge lifecycle moves on.
     function reportMaliciousBehavior(
         uint96 amount,
         uint256 rewardMultiplier,
@@ -669,8 +738,19 @@ contract SeatAllocator is
             stakingProviders
         );
 
+        uint256 reportId = nextFailedSlashReportId++;
+        FailedSlashReport storage failedReport = failedSlashReports[reportId];
+        failedReport.amount = amount;
+        failedReport.rewardMultiplier = rewardMultiplier;
+        failedReport.notifier = notifier;
+        failedReport.exists = true;
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            failedReport.stakingProviders.push(stakingProviders[i]);
+        }
+
         if (address(slashingModule).code.length == 0) {
             emit SlashReportFailed(notifier, stakingProviders);
+            emit SlashReportQueued(reportId);
             return;
         }
 
@@ -681,8 +761,82 @@ contract SeatAllocator is
                 rewardMultiplier,
                 notifier
             )
-        {} catch {
+        {
+            delete failedSlashReports[reportId];
+        } catch {
             emit SlashReportFailed(notifier, stakingProviders);
+            emit SlashReportQueued(reportId);
+        }
+    }
+
+    /// @notice Permissionlessly retries a slash report that could not be
+    ///         booked on the registry lifecycle transaction.
+    function retrySlashReport(uint256 reportId) external {
+        FailedSlashReport storage report = failedSlashReports[reportId];
+        if (!report.exists) revert InvalidSlashReport();
+        address[] memory stakingProviders = report.stakingProviders;
+        slashingModule.report(
+            stakingProviders,
+            report.amount,
+            report.rewardMultiplier,
+            report.notifier
+        );
+        delete failedSlashReports[reportId];
+        emit SlashReportRetried(reportId);
+    }
+
+    function failedSlashReport(uint256 reportId)
+        external
+        view
+        returns (
+            uint96 amount,
+            uint256 rewardMultiplier,
+            address notifier,
+            address[] memory stakingProviders,
+            bool exists
+        )
+    {
+        FailedSlashReport storage report = failedSlashReports[reportId];
+        return (
+            report.amount,
+            report.rewardMultiplier,
+            report.notifier,
+            report.stakingProviders,
+            report.exists
+        );
+    }
+
+    /// @notice See {IFrostAuthorizationSource-onOperatorInactivity}.
+    function onOperatorInactivity(
+        address[] memory stakingProviders,
+        uint64 ineligibleUntil
+    ) external override onlyWalletRegistry {
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            if (ineligibleUntil > rewardIneligibleUntil[stakingProvider]) {
+                rewardIneligibleUntil[stakingProvider] = ineligibleUntil;
+            }
+            rewardsDistributor.onWeightChanged(stakingProvider, 0);
+            lastSyncedRewardWeight[stakingProvider] = 0;
+            emit RewardIneligibilitySet(stakingProvider, ineligibleUntil);
+        }
+    }
+
+    /// @notice See {IFrostAuthorizationSource-onWalletExposureReconciled}.
+    function onWalletExposureReconciled(address[] memory stakingProviders)
+        external
+        override
+        onlyWalletRegistry
+    {
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            uint64 floorEpoch = walletExposureLedger.currentEpoch(
+                stakingProvider
+            );
+            if (floorEpoch > exposureFloorEpoch[stakingProvider]) {
+                exposureFloorEpoch[stakingProvider] = floorEpoch;
+                emit ExposureFloorAdvanced(stakingProvider, floorEpoch);
+            }
         }
     }
 

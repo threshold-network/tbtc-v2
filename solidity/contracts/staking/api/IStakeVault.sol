@@ -91,12 +91,12 @@ interface IStakeVault {
     /// @param amount Amount of seized T to transfer.
     function payoutSeized(address to, uint96 amount) external;
 
-    /// @notice Credits `tbtcAmount` of TBTC rewards to the given staking
-    ///         provider's pool by increasing the pool's reward-per-share
-    ///         accumulator. The TBTC MUST already have been transferred to
-    ///         the vault before this call. If the pool has no shares, the
-    ///         full amount is routed to the provider's beneficiary as
-    ///         claimable rewards instead.
+    /// @notice Credits `tbtcAmount` of post-commission TBTC rewards to the
+    ///         given staking provider. The self-bond tranche is routed to the
+    ///         provider beneficiary and the delegated tranche increases the
+    ///         pool's reward-per-share accumulator, pro rata to their T
+    ///         capital. The TBTC MUST already be held by the vault. If there
+    ///         are no shares, the full amount is routed to the beneficiary.
     /// @dev Callable only by the rewards distributor.
     /// @param stakingProvider Address of the staking provider whose pool is
     ///        credited.

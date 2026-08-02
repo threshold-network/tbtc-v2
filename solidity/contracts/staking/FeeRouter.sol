@@ -104,16 +104,22 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
     ///         was initiated; zero if no update is pending.
     uint256 public rewardShareBpsChangeInitiated;
 
+    address public newDaoTreasury;
+    uint256 public daoTreasuryChangeInitiated;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[47] private __gap;
+    uint256[45] private __gap;
 
     event RewardShareBpsUpdateStarted(
         uint16 newRewardShareBps,
         uint256 timestamp
     );
     event RewardShareBpsUpdated(uint16 rewardShareBps);
+    event DaoTreasuryUpdateStarted(address daoTreasury, uint256 timestamp);
+    event DaoTreasuryUpdated(address daoTreasury);
+    event EthDistributed(address indexed daoTreasury, uint256 amount);
     event RevenueDistributed(
         uint256 satoshisConverted,
         uint256 tbtcToRewards,
@@ -212,6 +218,29 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
         newRewardShareBps = 0;
     }
 
+    function beginDaoTreasuryUpdate(address _newDaoTreasury)
+        external
+        onlyOwner
+    {
+        if (_newDaoTreasury == address(0)) revert ZeroAddress();
+        newDaoTreasury = _newDaoTreasury;
+        /* solhint-disable-next-line not-rely-on-time */
+        daoTreasuryChangeInitiated = block.timestamp;
+        /* solhint-disable-next-line not-rely-on-time */
+        emit DaoTreasuryUpdateStarted(_newDaoTreasury, block.timestamp);
+    }
+
+    function finalizeDaoTreasuryUpdate() external onlyOwner {
+        GovernanceUtils.onlyAfterGovernanceDelay(
+            daoTreasuryChangeInitiated,
+            governanceDelay
+        );
+        daoTreasury = newDaoTreasury;
+        emit DaoTreasuryUpdated(daoTreasury);
+        daoTreasuryChangeInitiated = 0;
+        newDaoTreasury = address(0);
+    }
+
     /// @notice Distributes all revenue currently held by the router.
     ///         Permissionless. Three steps:
     ///         (1) if the router holds a Bank balance, converts it into TBTC
@@ -219,8 +248,9 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
     ///         (2) splits the router's full TBTC balance: `rewardShareBps`
     ///         to the rewards distributor (transferred first, then accounted
     ///         via `notifyReward`), remainder to the DAO treasury;
-    ///         (3) sends the router's full ETH balance to the DAO treasury.
-    ///         Every step is a no-op — not a revert — at zero balance.
+    ///         ETH is deliberately handled by the independent
+    ///         `distributeEth` entrypoint so a reverting treasury can never
+    ///         freeze Bank conversion or TBTC distribution.
     /// @dev OM-deprecation variant: there is no separate optimistic-minting
     ///      fee leg; any TBTC arriving directly at the router is still
     ///      picked up by step (2).
@@ -256,27 +286,20 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
             }
         }
 
-        // (3) Pass the full ETH balance through to the DAO treasury.
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0) {
-            // `daoTreasury` is a governance-set sink, not caller input, so a
-            // permissionless `distribute()` can only forward ETH to that fixed
-            // address. The disable must sit directly above the call for Slither
-            // to honour it; solhint is suppressed same-line.
-            // slither-disable-next-line arbitrary-send-eth,low-level-calls
-            (bool success, ) = daoTreasury.call{value: ethBalance}(""); // solhint-disable-line avoid-low-level-calls
-            if (!success) {
-                revert EthTransferFailed();
-            }
+        if (satoshis > 0 || tbtcBalance > 0) {
+            emit RevenueDistributed(satoshis, rewardShare, treasuryShare, 0);
         }
+    }
 
-        if (satoshis > 0 || tbtcBalance > 0 || ethBalance > 0) {
-            emit RevenueDistributed(
-                satoshis,
-                rewardShare,
-                treasuryShare,
-                ethBalance
-            );
-        }
+    /// @notice Permissionlessly forwards the router's full ETH balance to the
+    ///         DAO treasury. A failure affects only this ETH attempt; TBTC
+    ///         distribution remains independently callable.
+    function distributeEth() external {
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance == 0) return;
+        // slither-disable-next-line arbitrary-send-eth,low-level-calls
+        (bool success, ) = daoTreasury.call{value: ethBalance}(""); // solhint-disable-line avoid-low-level-calls
+        if (!success) revert EthTransferFailed();
+        emit EthDistributed(daoTreasury, ethBalance);
     }
 }

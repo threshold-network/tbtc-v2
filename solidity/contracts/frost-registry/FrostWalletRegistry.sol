@@ -743,6 +743,14 @@ contract FrostWalletRegistry is
         WalletExposure.setLedger(walletExposureData, _walletExposureLedger);
     }
 
+    /// @notice Replaces the DKG validator through registry governance. The
+    ///         governance contract supplies the protocol delay; replacement is
+    ///         allowed only while the DKG state machine is idle and only with a
+    ///         validator bound to this registry's sortition pool.
+    function updateDkgValidator(DKGValidator _dkgValidator) external {
+        Inactivity.setDkgValidator(dkg, _dkgValidator, governance, msg.sender);
+    }
+
     /// @notice Returns the wallet exposure ledger address; the zero address
     ///         while the ledger has not been set.
     function walletExposureLedger()
@@ -1191,34 +1199,16 @@ contract FrostWalletRegistry is
     ) external {
         uint256 gasStart = gasleft();
 
-        bytes32 walletID = claim.walletID;
-
-        require(nonce == inactivityClaimNonce[walletID], "Invalid nonce");
-
-        bytes32 xOnlyOutputKey = wallets.getWalletXOnlyOutputKey(walletID);
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
-
-        require(
-            memberIdsHash == keccak256(abi.encode(groupMembers)),
-            "Invalid group members"
-        );
-
-        uint32[] memory ineligibleOperators = Inactivity.verifyClaim(
+        Inactivity.verifyAndBanOperatorInactivity(
+            wallets,
             sortitionPool,
+            authorization.operatorToStakingProvider,
+            _currentAuthorizationSource(),
+            inactivityClaimNonce,
             claim,
-            xOnlyOutputKey,
             nonce,
-            groupMembers
-        );
-
-        inactivityClaimNonce[walletID]++;
-
-        emit InactivityClaimed(walletID, nonce, msg.sender);
-
-        sortitionPool.setRewardIneligibility(
-            ineligibleOperators,
-            // solhint-disable-next-line not-rely-on-time
-            block.timestamp + _sortitionPoolRewardsBanDuration
+            groupMembers,
+            _sortitionPoolRewardsBanDuration
         );
 
         // RFC v4 §"Non-goals": the FROST registry does not
@@ -1325,6 +1315,7 @@ contract FrostWalletRegistry is
             wallets,
             sortitionPool,
             authorization.operatorToStakingProvider,
+            _currentAuthorizationSource(),
             walletID,
             walletMembersIDs
         );

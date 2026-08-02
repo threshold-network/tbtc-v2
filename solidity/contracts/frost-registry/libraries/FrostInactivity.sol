@@ -19,6 +19,9 @@ import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.
 import "@keep-network/random-beacon/contracts/libraries/BytesLib.sol";
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 
+import "../api/IFrostAuthorizationSource.sol";
+import "../FrostDkgValidator.sol";
+import "./FrostDkg.sol";
 import "./FrostRegistryWallets.sol";
 
 library FrostInactivity {
@@ -65,6 +68,38 @@ library FrostInactivity {
     ///         supporting the inactivity claim.
     uint256 public constant signatureByteSize = 65;
 
+    event InactivityClaimed(
+        bytes32 indexed walletID,
+        uint256 nonce,
+        address notifier
+    );
+    event DkgValidatorUpdated(address indexed dkgValidator);
+
+    /// @notice Replaces the registry's DKG validator while no DKG is active.
+    function setDkgValidator(
+        FrostDkg.Data storage dkg,
+        FrostDkgValidator newDkgValidator,
+        address governance,
+        address caller
+    ) external {
+        require(caller == governance, "Caller is not the governance");
+        require(
+            FrostDkg.currentState(dkg) == FrostDkg.State.IDLE,
+            "Current state is not IDLE"
+        );
+        require(
+            address(newDkgValidator) != address(0),
+            "DKG Validator required"
+        );
+        require(
+            address(newDkgValidator.sortitionPool()) ==
+                address(dkg.sortitionPool),
+            "Sortition Pool mismatch"
+        );
+        dkg.dkgValidator = newDkgValidator;
+        emit DkgValidatorUpdated(address(newDkgValidator));
+    }
+
     /// @notice Verifies the inactivity claim according to the rules defined in
     ///         `Claim` struct documentation. Reverts if verification fails.
     /// @dev Wallet signing group members hash is validated upstream in
@@ -85,6 +120,70 @@ library FrostInactivity {
         uint256 nonce,
         uint32[] calldata groupMembers
     ) external view returns (uint32[] memory inactiveMembers) {
+        return
+            _verifyClaim(
+                sortitionPool,
+                claim,
+                xOnlyOutputKey,
+                nonce,
+                groupMembers
+            );
+    }
+
+    /// @notice Verifies a claim and checkpoints both the sortition-pool and
+    ///         authorization-source reward bans in one registry delegatecall.
+    function verifyAndBanOperatorInactivity(
+        FrostRegistryWallets.Data storage wallets,
+        SortitionPool sortitionPool,
+        mapping(address => address) storage operatorToStakingProvider,
+        IFrostAuthorizationSource authorizationSource,
+        mapping(bytes32 => uint256) storage inactivityClaimNonce,
+        Claim calldata claim,
+        uint256 nonce,
+        uint32[] calldata groupMembers,
+        uint256 banDuration
+    ) external {
+        bytes32 walletID = claim.walletID;
+        require(nonce == inactivityClaimNonce[walletID], "Invalid nonce");
+        require(
+            FrostRegistryWallets.getWalletMembersIdsHash(wallets, walletID) ==
+                keccak256(abi.encode(groupMembers)),
+            "Invalid group members"
+        );
+
+        uint32[] memory inactiveMembers = _verifyClaim(
+            sortitionPool,
+            claim,
+            FrostRegistryWallets.getWalletXOnlyOutputKey(wallets, walletID),
+            nonce,
+            groupMembers
+        );
+        inactivityClaimNonce[walletID]++;
+        emit InactivityClaimed(walletID, nonce, msg.sender);
+
+        /* solhint-disable-next-line not-rely-on-time */
+        uint64 ineligibleUntil = uint64(block.timestamp + banDuration);
+        sortitionPool.setRewardIneligibility(inactiveMembers, ineligibleUntil);
+        address[] memory inactiveProviders = new address[](
+            inactiveMembers.length
+        );
+        for (uint256 i = 0; i < inactiveMembers.length; i++) {
+            address operator = sortitionPool.getIDOperator(inactiveMembers[i]);
+            inactiveProviders[i] = operatorToStakingProvider[operator];
+        }
+        authorizationSource.onOperatorInactivity(
+            inactiveProviders,
+            ineligibleUntil
+        );
+    }
+
+    function _verifyClaim(
+        SortitionPool sortitionPool,
+        Claim calldata claim,
+        bytes32 xOnlyOutputKey,
+        uint256 nonce,
+        uint32[] calldata groupMembers
+    ) private view returns (uint32[] memory inactiveMembers) {
         // Validate inactive members indices. Maximum indices count is equal to
         // the group size and is not limited deliberately to leave a theoretical
         // possibility to accuse more members than `groupSize - groupThreshold`.

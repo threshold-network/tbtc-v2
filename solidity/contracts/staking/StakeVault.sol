@@ -26,6 +26,7 @@ import "./api/ISignerRegistry.sol";
 import "./api/ISeatAllocator.sol";
 import "./api/ISlashingModule.sol";
 import "./api/IWalletExposureLedger.sol";
+import "./api/IRewardsDistributor.sol";
 
 /// @title StakeVault
 /// @notice Singleton vault custodying all staked T for the delegated staking
@@ -85,6 +86,11 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         uint256 pendingShares;
         // TBTC rewards per share, scaled by 1e18.
         uint256 rewardPerShareAccumulator;
+        // Generation increments when slashing wipes all delegated assets.
+        // Outstanding shares from an older generation remain redeemable only
+        // for rewards accrued before the wipe; they can never capture a later
+        // deposit.
+        uint64 generation;
     }
 
     struct UndelegationRequest {
@@ -142,7 +148,6 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     mapping(address => mapping(address => uint256)) internal rewardDebt;
     // Settled, claimable TBTC rewards.
     mapping(address => mapping(address => uint256)) internal claimableRewards;
-
     UndelegationRequest[] public undelegationRequests;
     SelfBondWithdrawalRequest[] public selfBondWithdrawalRequests;
 
@@ -150,10 +155,21 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     ///         slashing module until paid out via `payoutSeized`.
     uint256 public seizedBalance;
 
+    /// @notice Delegation rollout gate. Default-off and reversible through the
+    ///         same two-step governance delay as the other vault parameters.
+    bool public delegationEnabled;
+    bool public newDelegationEnabled;
+    uint256 public delegationChangeInitiated;
+
+    mapping(address => mapping(address => uint64)) internal shareGeneration;
+    mapping(address => mapping(uint64 => uint256))
+        internal generationFinalRewardAccumulator;
+    mapping(uint256 => uint64) internal undelegationRequestGeneration;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[47] private __gap;
+    uint256[42] private __gap;
 
     event SignerRegistrySet(address signerRegistry);
     event SeatAllocatorSet(address seatAllocator);
@@ -168,6 +184,9 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     event UndelegationDelayUpdated(uint64 undelegationDelay);
     event MinSelfBondUpdateStarted(uint96 newMinSelfBond, uint256 timestamp);
     event MinSelfBondUpdated(uint96 minSelfBond);
+    event DelegationUpdateStarted(bool enabled, uint256 timestamp);
+    event DelegationUpdated(bool enabled);
+    event PoolWiped(address indexed stakingProvider, uint64 newGeneration);
 
     event SelfBondDeposited(address indexed stakingProvider, uint96 amount);
     event Delegated(
@@ -224,7 +243,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     error AlreadySet();
     error AmountCannotBeZero();
     error ProviderNotActive();
-    error PoolWipedOut();
+    error DelegationDisabled();
     error InsufficientShares();
     error InsufficientSelfBond();
     error SelfBondBelowMinimum();
@@ -378,6 +397,27 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         newMinSelfBond = 0;
     }
 
+    /// @notice Begins a delayed delegation-gate update. Governance may disable
+    ///         new deposits without affecting exits or existing positions.
+    function beginDelegationUpdate(bool enabled) external onlyOwner {
+        newDelegationEnabled = enabled;
+        /* solhint-disable-next-line not-rely-on-time */
+        delegationChangeInitiated = block.timestamp;
+        /* solhint-disable-next-line not-rely-on-time */
+        emit DelegationUpdateStarted(enabled, block.timestamp);
+    }
+
+    /// @notice Finalizes a pending delegation-gate update.
+    function finalizeDelegationUpdate() external onlyOwner {
+        GovernanceUtils.onlyAfterGovernanceDelay(
+            delegationChangeInitiated,
+            governanceDelay
+        );
+        delegationEnabled = newDelegationEnabled;
+        delegationChangeInitiated = 0;
+        emit DelegationUpdated(delegationEnabled);
+    }
+
     // ---------------------------------------------------------------------
     // Self-bond
     // ---------------------------------------------------------------------
@@ -390,6 +430,9 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         if (amount == 0) revert AmountCannotBeZero();
         if (!signerRegistry.isActive(msg.sender)) revert ProviderNotActive();
 
+        // Attribute rewards earned by the existing self-bond/delegation mix
+        // before changing that mix.
+        IRewardsDistributor(rewardsDistributor).settleOperator(msg.sender);
         pools[msg.sender].selfBond += amount;
 
         emit SelfBondDeposited(msg.sender, amount);
@@ -477,6 +520,9 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             true
         );
 
+        // Attribute rewards earned by the existing self-bond/delegation mix
+        // before reducing the operator tranche.
+        IRewardsDistributor(rewardsDistributor).settleOperator(msg.sender);
         Pool storage pool = pools[msg.sender];
 
         // Slashes during the wait consume queued self-bond too; cap the
@@ -508,29 +554,30 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     /// @param amount Amount of T to delegate.
     function delegate(address stakingProvider, uint96 amount) external {
         if (amount == 0) revert AmountCannotBeZero();
+        if (!delegationEnabled) revert DelegationDisabled();
         if (!signerRegistry.isActive(stakingProvider)) {
             revert ProviderNotActive();
         }
 
+        IRewardsDistributor(rewardsDistributor).settleOperator(stakingProvider);
+        _settleRewards(stakingProvider, msg.sender);
+
         Pool storage pool = pools[stakingProvider];
+
+        if (pool.totalShares > 0 && pool.delegatedAssets == 0) {
+            _resetWipedPool(stakingProvider, pool);
+            _settleRewards(stakingProvider, msg.sender);
+        }
 
         uint256 mintedShares;
         if (pool.totalShares == 0) {
             // First deposit: 1 share per asset wei.
             mintedShares = amount;
         } else {
-            if (pool.delegatedAssets == 0) {
-                // The pool was fully slashed while shares are outstanding;
-                // minting at any price would let the wiped shares capture
-                // value from the new deposit.
-                revert PoolWipedOut();
-            }
             mintedShares =
                 (uint256(amount) * pool.totalShares) /
                 pool.delegatedAssets;
         }
-
-        _settleRewards(stakingProvider, msg.sender);
 
         pool.delegatedAssets += amount;
         pool.totalShares += mintedShares;
@@ -556,6 +603,8 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     {
         if (shares_ == 0) revert AmountCannotBeZero();
 
+        _settleRewards(stakingProvider, msg.sender);
+
         uint256 freeShares = poolShares[stakingProvider][msg.sender] -
             delegatorQueuedShares[stakingProvider][msg.sender];
         if (shares_ > freeShares) revert InsufficientShares();
@@ -563,7 +612,6 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         // Shares stay in the pool so the share balance does not change, but
         // settle anyway to keep reward accounting anchored at every queue
         // mutation.
-        _settleRewards(stakingProvider, msg.sender);
         _updateRewardDebt(stakingProvider, msg.sender);
 
         delegatorQueuedShares[stakingProvider][msg.sender] += shares_;
@@ -585,6 +633,8 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
                 finalized: false
             })
         );
+        undelegationRequestGeneration[requestId] = pools[stakingProvider]
+            .generation;
 
         emit UndelegationRequested(
             requestId,
@@ -645,9 +695,21 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             false
         );
 
+        IRewardsDistributor(rewardsDistributor).settleOperator(stakingProvider);
         _settleRewards(stakingProvider, msg.sender);
 
         Pool storage pool = pools[stakingProvider];
+        if (undelegationRequestGeneration[requestId] != pool.generation) {
+            request.finalized = true;
+            emit UndelegationFinalized(
+                requestId,
+                stakingProvider,
+                msg.sender,
+                request.shares,
+                0
+            );
+            return;
+        }
         uint256 assets = (request.shares * pool.delegatedAssets) /
             pool.totalShares;
 
@@ -706,6 +768,9 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             : pool.delegatedAssets;
         if (fromDelegated > 0) {
             pool.delegatedAssets -= fromDelegated;
+            if (pool.delegatedAssets == 0 && pool.totalShares > 0) {
+                _resetWipedPool(stakingProvider, pool);
+            }
         }
 
         seized = fromSelfBond + fromDelegated;
@@ -731,10 +796,11 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     // ---------------------------------------------------------------------
 
     /// @notice See `IStakeVault.creditReward`. The TBTC must already have
-    ///         been transferred to the vault. If the pool has no shares the
-    ///         full amount is routed to the provider's beneficiary as
-    ///         claimable rewards instead (falling back to the provider
-    ///         address if no beneficiary is registered).
+    ///         been transferred to the vault. The post-commission amount is
+    ///         split between the self-bond and delegated tranches pro rata to
+    ///         their T capital; the self-bond share is routed to the provider
+    ///         beneficiary and only the delegated share enters the per-share
+    ///         accumulator.
     function creditReward(address stakingProvider, uint256 tbtcAmount)
         external
         override
@@ -745,20 +811,32 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         if (tbtcAmount == 0) return;
 
         Pool storage pool = pools[stakingProvider];
-        if (pool.totalShares == 0) {
+        uint256 totalCapital = uint256(pool.selfBond) + pool.delegatedAssets;
+        uint256 selfBondReward = totalCapital == 0
+            ? tbtcAmount
+            : (tbtcAmount * pool.selfBond) / totalCapital;
+        uint256 delegatedReward = tbtcAmount - selfBondReward;
+
+        if (selfBondReward > 0 || pool.totalShares == 0) {
             address beneficiary = signerRegistry.beneficiaryOf(stakingProvider);
             if (beneficiary == address(0)) {
                 beneficiary = stakingProvider;
             }
-            claimableRewards[stakingProvider][beneficiary] += tbtcAmount;
+            uint256 beneficiaryReward = selfBondReward;
+            if (pool.totalShares == 0) {
+                beneficiaryReward += delegatedReward;
+                delegatedReward = 0;
+            }
+            claimableRewards[stakingProvider][beneficiary] += beneficiaryReward;
             emit RewardRoutedToBeneficiary(
                 stakingProvider,
                 beneficiary,
-                tbtcAmount
+                beneficiaryReward
             );
-        } else {
+        }
+        if (delegatedReward > 0) {
             pool.rewardPerShareAccumulator +=
-                (tbtcAmount * REWARD_PRECISION) /
+                (delegatedReward * REWARD_PRECISION) /
                 pool.totalShares;
         }
 
@@ -769,6 +847,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     ///         the given staking provider's pool.
     /// @param stakingProvider Address of the staking provider.
     function claimRewards(address stakingProvider) external {
+        IRewardsDistributor(rewardsDistributor).settleOperator(stakingProvider);
         _settleRewards(stakingProvider, msg.sender);
         _updateRewardDebt(stakingProvider, msg.sender);
 
@@ -840,7 +919,11 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         override
         returns (uint256)
     {
-        return poolShares[stakingProvider][delegator];
+        return
+            shareGeneration[stakingProvider][delegator] ==
+                pools[stakingProvider].generation
+                ? poolShares[stakingProvider][delegator]
+                : 0;
     }
 
     /// @notice Returns the total shares of the given provider's pool.
@@ -869,7 +952,11 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         view
         returns (uint256)
     {
-        return delegatorQueuedShares[stakingProvider][delegator];
+        return
+            shareGeneration[stakingProvider][delegator] ==
+                pools[stakingProvider].generation
+                ? delegatorQueuedShares[stakingProvider][delegator]
+                : 0;
     }
 
     /// @notice Returns the provider pool's TBTC reward-per-share
@@ -890,13 +977,21 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         view
         returns (uint256)
     {
+        Pool storage pool = pools[stakingProvider];
+        uint64 delegatorGeneration = shareGeneration[stakingProvider][
+            delegator
+        ];
+        uint256 accumulator = delegatorGeneration == pool.generation
+            ? pool.rewardPerShareAccumulator
+            : generationFinalRewardAccumulator[stakingProvider][
+                delegatorGeneration
+            ];
         uint256 accrued = (poolShares[stakingProvider][delegator] *
-            pools[stakingProvider].rewardPerShareAccumulator) /
-            REWARD_PRECISION;
+            accumulator) / REWARD_PRECISION;
+        uint256 debt = rewardDebt[stakingProvider][delegator];
         return
             claimableRewards[stakingProvider][delegator] +
-            accrued -
-            rewardDebt[stakingProvider][delegator];
+            (accrued > debt ? accrued - debt : 0);
     }
 
     /// @notice Returns the number of undelegation requests ever created.
@@ -989,12 +1084,27 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     function _settleRewards(address stakingProvider, address delegator)
         internal
     {
+        Pool storage pool = pools[stakingProvider];
+        uint64 delegatorGeneration = shareGeneration[stakingProvider][
+            delegator
+        ];
+        uint256 accumulator = delegatorGeneration == pool.generation
+            ? pool.rewardPerShareAccumulator
+            : generationFinalRewardAccumulator[stakingProvider][
+                delegatorGeneration
+            ];
         uint256 accrued = (poolShares[stakingProvider][delegator] *
-            pools[stakingProvider].rewardPerShareAccumulator) /
-            REWARD_PRECISION;
+            accumulator) / REWARD_PRECISION;
         uint256 debt = rewardDebt[stakingProvider][delegator];
         if (accrued > debt) {
             claimableRewards[stakingProvider][delegator] += accrued - debt;
+        }
+
+        if (delegatorGeneration != pool.generation) {
+            poolShares[stakingProvider][delegator] = 0;
+            delegatorQueuedShares[stakingProvider][delegator] = 0;
+            rewardDebt[stakingProvider][delegator] = 0;
+            shareGeneration[stakingProvider][delegator] = pool.generation;
         }
     }
 
@@ -1003,10 +1113,24 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     function _updateRewardDebt(address stakingProvider, address delegator)
         internal
     {
+        shareGeneration[stakingProvider][delegator] = pools[stakingProvider]
+            .generation;
         rewardDebt[stakingProvider][delegator] =
             (poolShares[stakingProvider][delegator] *
                 pools[stakingProvider].rewardPerShareAccumulator) /
             REWARD_PRECISION;
+    }
+
+    function _resetWipedPool(address stakingProvider, Pool storage pool)
+        internal
+    {
+        generationFinalRewardAccumulator[stakingProvider][
+            pool.generation
+        ] = pool.rewardPerShareAccumulator;
+        pool.totalShares = 0;
+        pool.pendingShares = 0;
+        pool.generation += 1;
+        emit PoolWiped(stakingProvider, pool.generation);
     }
 
     /// @dev Syncs the provider's authorization weight to the registry via

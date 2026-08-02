@@ -8,9 +8,8 @@ import { expect } from "chai"
 /// member ID in a DKG result's `members` array. Member IDs are
 /// sortition-pool operator IDs, so the same operator always
 /// carries the same ID and no address resolution is needed to
-/// count seats. The check lives in `validateFields` (walked by
-/// both the submit-side `isDkgResultValid` free call and the
-/// challenge path via `validate`), rejecting any result in
+/// count seats. The check lives in both `validateFields` and the
+/// submission-side `validateGroupMembers`, rejecting any result in
 /// which one member holds more than `maxSeatsPerWallet` seats.
 /// Zero disables the check entirely.
 ///

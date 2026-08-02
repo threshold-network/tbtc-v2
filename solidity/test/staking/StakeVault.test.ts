@@ -155,6 +155,10 @@ describe("StakeVault", () => {
       .connect(deployerSigner)
       .setSeatAllocator(seatAllocatorContract.address)
 
+    await vaultContract.connect(deployerSigner).beginDelegationUpdate(true)
+    await increaseTime(GOVERNANCE_DELAY)
+    await vaultContract.connect(deployerSigner).finalizeDelegationUpdate()
+
     await signerRegistryContract.setOperatorStatus(
       operatorSigner.address,
       OperatorStatus.Active
@@ -223,6 +227,23 @@ describe("StakeVault", () => {
     it("should set the token addresses", async () => {
       expect(await vault.tToken()).to.equal(tToken.address)
       expect(await vault.tbtcToken()).to.equal(tbtcToken.address)
+    })
+
+    it("should leave delegation disabled by default", async () => {
+      const deployment = await helpers.upgrades.deployProxy(
+        `StakeVaultDefaultGate_${randomBytes(8).toString("hex")}`,
+        {
+          contractName: "StakeVault",
+          initializerArgs: [
+            tToken.address,
+            tbtcToken.address,
+            GOVERNANCE_DELAY,
+          ],
+          factoryOpts: { signer: deployer },
+          proxyOpts: { kind: "transparent" },
+        }
+      )
+      expect(await deployment[0].delegationEnabled()).to.be.false
     })
 
     it("should set default parameters", async () => {
@@ -342,6 +363,34 @@ describe("StakeVault", () => {
           .to.emit(vault, "MinSelfBondUpdated")
           .withArgs(to1e18(1000))
         expect(await vault.minSelfBond()).to.equal(to1e18(1000))
+      })
+    })
+
+    context("delegation gate update", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should disable and re-enable delegation through delayed updates", async () => {
+        await vault.connect(deployer).beginDelegationUpdate(false)
+        await expect(
+          vault.connect(deployer).finalizeDelegationUpdate()
+        ).to.be.revertedWith("Governance delay has not elapsed")
+        await increaseTime(GOVERNANCE_DELAY)
+        await vault.connect(deployer).finalizeDelegationUpdate()
+        expect(await vault.delegationEnabled()).to.be.false
+        await expect(
+          vault.connect(delegator1).delegate(operator.address, 1)
+        ).to.be.revertedWith("DelegationDisabled")
+
+        await vault.connect(deployer).beginDelegationUpdate(true)
+        await increaseTime(GOVERNANCE_DELAY)
+        await vault.connect(deployer).finalizeDelegationUpdate()
+        expect(await vault.delegationEnabled()).to.be.true
       })
     })
   })
@@ -467,13 +516,19 @@ describe("StakeVault", () => {
       )
     })
 
-    it("should revert when the pool was fully wiped by slashing", async () => {
+    it("should reset shares when the pool is fully wiped by slashing", async () => {
       await reportSlash(operator.address, to1e18(1500))
       expect(await vault.delegatedAssetsOf(operator.address)).to.equal(0)
-      expect(await vault.totalSharesOf(operator.address)).to.be.gt(0)
-      await expect(
-        vault.connect(delegator1).delegate(operator.address, to1e18(100))
-      ).to.be.revertedWith("PoolWipedOut")
+      expect(await vault.totalSharesOf(operator.address)).to.equal(0)
+      expect(
+        await vault.sharesOf(operator.address, delegator1.address)
+      ).to.equal(0)
+
+      await vault.connect(delegator1).delegate(operator.address, to1e18(100))
+      expect(await vault.totalSharesOf(operator.address)).to.equal(to1e18(100))
+      expect(
+        await vault.sharesOf(operator.address, delegator1.address)
+      ).to.equal(to1e18(100))
     })
   })
 
@@ -1033,6 +1088,72 @@ describe("StakeVault", () => {
         to1e18(900)
       )
       await seatAllocator.setRevertOnRefresh(false)
+    })
+  })
+
+  describe("reward ownership and share checkpoints", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+      await signerRegistry.setBeneficiary(operator.address, beneficiary.address)
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should split post-commission rewards between self-bond and delegation", async () => {
+      await vault.connect(operator).depositSelfBond(to1e18(40000))
+      await vault.connect(delegator1).delegate(operator.address, to1e18(40000))
+
+      await creditReward(operator.address, to1e18(100))
+
+      expect(
+        await vault.claimableRewardsOf(operator.address, beneficiary.address)
+      ).to.equal(to1e18(50))
+      expect(
+        await vault.claimableRewardsOf(operator.address, delegator1.address)
+      ).to.equal(to1e18(50))
+    })
+
+    it("should settle distributor accrual before minting new shares", async () => {
+      await vault.connect(delegator1).delegate(operator.address, to1e18(100))
+      await tbtcToken.mint(vault.address, to1e18(25))
+      await distributor.configureSettlement(
+        vault.address,
+        operator.address,
+        to1e18(25)
+      )
+
+      await vault.connect(delegator2).delegate(operator.address, to1e18(100))
+
+      expect(
+        await vault.claimableRewardsOf(operator.address, delegator1.address)
+      ).to.equal(to1e18(25))
+      expect(
+        await vault.claimableRewardsOf(operator.address, delegator2.address)
+      ).to.equal(0)
+    })
+
+    it("should settle distributor accrual before burning exiting shares", async () => {
+      await vault.connect(delegator1).delegate(operator.address, to1e18(100))
+      await vault
+        .connect(delegator1)
+        .requestUndelegate(operator.address, to1e18(100))
+      await tbtcToken.mint(vault.address, to1e18(25))
+      await distributor.configureSettlement(
+        vault.address,
+        operator.address,
+        to1e18(25)
+      )
+      await increaseTime(UNDELEGATION_DELAY)
+
+      await vault.connect(delegator1).finalizeUndelegate(0)
+      expect(
+        await vault.sharesOf(operator.address, delegator1.address)
+      ).to.equal(0)
+      expect(
+        await vault.claimableRewardsOf(operator.address, delegator1.address)
+      ).to.equal(to1e18(25))
     })
   })
 

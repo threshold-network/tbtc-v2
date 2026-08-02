@@ -89,16 +89,34 @@ contract RewardsDistributor is
     mapping(address => uint256) public weightCheckpoint;
 
     /// @notice Rewards settled to each provider but not yet split between
-    ///         commission and the delegator share.
+    ///         commission and the vault's self-bond/delegated pool reward.
     mapping(address => uint256) public accruedRewards;
 
     /// @notice Operator commission claimable by each provider's beneficiary.
     mapping(address => uint256) public operatorCommission;
 
+    struct AccumulatorCheckpoint {
+        uint64 timestamp;
+        uint256 accumulator;
+    }
+
+    /// @notice Commission already attributed to each provider's unsettled
+    ///         gross rewards.
+    mapping(address => uint256) public accruedCommission;
+
+    /// @notice Commission rate applying at the provider's last reward
+    ///         checkpoint.
+    mapping(address => uint16) public commissionCheckpointBps;
+    mapping(address => bool) internal commissionCheckpointInitialized;
+
+    /// @notice Global accumulator history used to split a provider's accrual
+    ///         exactly at a noticed commission effective timestamp.
+    AccumulatorCheckpoint[] internal accumulatorCheckpoints;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[47] private __gap;
+    uint256[43] private __gap;
 
     event RewardNotified(uint256 amount, uint256 undistributedFolded);
     event WeightChanged(
@@ -109,7 +127,7 @@ contract RewardsDistributor is
     event OperatorSettled(
         address indexed stakingProvider,
         uint256 commission,
-        uint256 delegatorShare
+        uint256 poolReward
     );
     event CommissionClaimed(
         address indexed stakingProvider,
@@ -181,6 +199,7 @@ contract RewardsDistributor is
             ((tbtcAmount + folded) * ACCUMULATOR_PRECISION) /
             totalWeight;
         undistributedRewards = 0;
+        _recordAccumulatorCheckpoint();
         emit RewardNotified(tbtcAmount, folded);
     }
 
@@ -203,10 +222,11 @@ contract RewardsDistributor is
     /// @notice Settles the given provider's reward accrual and splits it:
     ///         `commissionBpsOf(provider)` of the accrual becomes operator
     ///         commission claimable by the beneficiary; the remainder is
-    ///         transferred to the stake vault and credited to the provider's
-    ///         pool. Permissionless; a no-op when nothing has accrued.
+    ///         transferred to the stake vault and split between the provider's
+    ///         self-bond and delegated tranches. Permissionless; a no-op when
+    ///         nothing has accrued.
     /// @param stakingProvider Address of the staking provider to settle.
-    function settleOperator(address stakingProvider) external {
+    function settleOperator(address stakingProvider) external override {
         _checkpoint(stakingProvider);
 
         uint256 amount = accruedRewards[stakingProvider];
@@ -214,19 +234,18 @@ contract RewardsDistributor is
             return;
         }
         accruedRewards[stakingProvider] = 0;
-
-        uint256 commission = (amount *
-            signerRegistry.commissionBpsOf(stakingProvider)) / 10000;
-        uint256 delegatorShare = amount - commission;
+        uint256 commission = accruedCommission[stakingProvider];
+        accruedCommission[stakingProvider] = 0;
+        uint256 poolReward = amount - commission;
 
         operatorCommission[stakingProvider] += commission;
 
-        if (delegatorShare > 0) {
-            tbtcToken.safeTransfer(address(stakeVault), delegatorShare);
-            stakeVault.creditReward(stakingProvider, delegatorShare);
+        if (poolReward > 0) {
+            tbtcToken.safeTransfer(address(stakeVault), poolReward);
+            stakeVault.creditReward(stakingProvider, poolReward);
         }
 
-        emit OperatorSettled(stakingProvider, commission, delegatorShare);
+        emit OperatorSettled(stakingProvider, commission, poolReward);
     }
 
     /// @notice Transfers the given provider's accumulated operator
@@ -272,13 +291,108 @@ contract RewardsDistributor is
     /// @dev Settles the provider's unsettled accrual at the current weight
     ///      and moves the checkpoint to the current accumulator value.
     function _checkpoint(address stakingProvider) internal {
-        uint256 delta = accRewardPerWeight - weightCheckpoint[stakingProvider];
+        uint256 checkpoint = weightCheckpoint[stakingProvider];
+        uint256 delta = accRewardPerWeight - checkpoint;
         uint96 weight = weightOf[stakingProvider];
+        (
+            uint16 baseCommissionBps,
+            uint16 pendingCommissionBps,
+            uint64 effectiveAt
+        ) = signerRegistry.commissionScheduleOf(stakingProvider);
+
+        uint16 previousCommissionBps = commissionCheckpointInitialized[
+            stakingProvider
+        ]
+            ? commissionCheckpointBps[stakingProvider]
+            : baseCommissionBps;
+        uint16 currentCommissionBps = effectiveAt != 0 &&
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp >= effectiveAt
+            ? pendingCommissionBps
+            : baseCommissionBps;
+
         if (delta > 0 && weight > 0) {
-            accruedRewards[stakingProvider] +=
-                (delta * weight) /
-                ACCUMULATOR_PRECISION;
+            if (
+                currentCommissionBps != previousCommissionBps &&
+                effectiveAt != 0
+            ) {
+                uint256 boundary = _accumulatorBefore(effectiveAt);
+                if (boundary < checkpoint) boundary = checkpoint;
+                if (boundary > accRewardPerWeight) {
+                    boundary = accRewardPerWeight;
+                }
+
+                _accrue(
+                    stakingProvider,
+                    ((boundary - checkpoint) * weight) / ACCUMULATOR_PRECISION,
+                    previousCommissionBps
+                );
+                _accrue(
+                    stakingProvider,
+                    ((accRewardPerWeight - boundary) * weight) /
+                        ACCUMULATOR_PRECISION,
+                    currentCommissionBps
+                );
+            } else {
+                _accrue(
+                    stakingProvider,
+                    (delta * weight) / ACCUMULATOR_PRECISION,
+                    previousCommissionBps
+                );
+            }
         }
+        // Keep the rate checkpoint current even when no rewards accrued. This
+        // is required when SignerRegistry checkpoints a matured schedule just
+        // before replacing it with a new declaration.
+        commissionCheckpointBps[stakingProvider] = currentCommissionBps;
+        commissionCheckpointInitialized[stakingProvider] = true;
         weightCheckpoint[stakingProvider] = accRewardPerWeight;
+    }
+
+    function _accrue(
+        address stakingProvider,
+        uint256 amount,
+        uint16 commissionBps
+    ) internal {
+        if (amount == 0) return;
+        accruedRewards[stakingProvider] += amount;
+        accruedCommission[stakingProvider] += (amount * commissionBps) / 10000;
+    }
+
+    function _recordAccumulatorCheckpoint() internal {
+        /* solhint-disable-next-line not-rely-on-time */
+        uint64 timestamp = uint64(block.timestamp);
+        uint256 length = accumulatorCheckpoints.length;
+        if (
+            length > 0 &&
+            accumulatorCheckpoints[length - 1].timestamp == timestamp
+        ) {
+            accumulatorCheckpoints[length - 1].accumulator = accRewardPerWeight;
+        } else {
+            accumulatorCheckpoints.push(
+                AccumulatorCheckpoint(timestamp, accRewardPerWeight)
+            );
+        }
+    }
+
+    /// @dev Returns the accumulator after the last reward notification whose
+    ///      timestamp is strictly before `timestamp`. Notifications at the
+    ///      effective timestamp use the newly-effective commission.
+    function _accumulatorBefore(uint64 timestamp)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 low = 0;
+        uint256 high = accumulatorCheckpoints.length;
+        while (low < high) {
+            uint256 mid = (low + high) / 2;
+            if (accumulatorCheckpoints[mid].timestamp < timestamp) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        return low == 0 ? 0 : accumulatorCheckpoints[low - 1].accumulator;
     }
 }

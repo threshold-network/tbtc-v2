@@ -8,7 +8,7 @@ pragma solidity 0.8.17;
 ///         model so future permissionless or bonded sources can be introduced
 ///         without reviving legacy staking coupling.
 interface IFrostAuthorizationSource {
-    function authorizedWeight(address operatorProvider, address application)
+    function authorizedWeight(address operatorProvider, address operator)
         external
         view
         returns (uint96);
@@ -32,4 +32,16 @@ interface IFrostAuthorizationSource {
         address notifier,
         address[] memory operatorProviders
     ) external;
+
+    /// @notice Mirrors a registry-accepted inactivity penalty into the
+    ///         authorization source's economic reward accounting.
+    function onOperatorInactivity(
+        address[] memory operatorProviders,
+        uint64 ineligibleUntil
+    ) external;
+
+    /// @notice Advances exit-gate floors after registry-authoritative wallet
+    ///         exposure has been repaired.
+    function onWalletExposureReconciled(address[] memory operatorProviders)
+        external;
 }

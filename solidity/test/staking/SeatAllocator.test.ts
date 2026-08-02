@@ -514,9 +514,9 @@ describe("SeatAllocator", () => {
       await allocator.connect(thirdParty).refreshAuthorization(provider)
 
       // Registry sync (seat weight) is the flat equal seat weight...
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
       const increaseCall = await mockRegistry.increaseCalls(0)
       expect(increaseCall.toAmount).to.equal(EQUAL_SEAT_WEIGHT)
       // ...but the reward leg received the uncapped 240k.
@@ -536,9 +536,9 @@ describe("SeatAllocator", () => {
       await stakeVault.setPendingUndelegationAssets(provider, to18(100_000))
       await allocator.refreshAuthorization(provider)
       expect(await allocator.decreasePending(provider)).to.be.false
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
       expect(await rewardsDistributor.lastWeight()).to.equal(to18(200_000))
 
       // A genuine increase in delegated capital raises only the reward weight;
@@ -546,9 +546,9 @@ describe("SeatAllocator", () => {
       await stakeVault.setPendingUndelegationAssets(provider, 0)
       await stakeVault.setDelegatedAssets(provider, to18(500_000))
       await allocator.refreshAuthorization(provider)
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
       expect(await rewardsDistributor.lastWeight()).to.equal(to18(600_000))
     })
   })
@@ -570,14 +570,23 @@ describe("SeatAllocator", () => {
       expect(call.fromAmount).to.equal(0)
       expect(call.toAmount).to.equal(EQUAL_SEAT_WEIGHT)
 
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
 
       expect(await rewardsDistributor.onWeightChangedCallCount()).to.equal(1)
       expect(await rewardsDistributor.lastStakingProvider()).to.equal(provider)
       // rewardWeight == selfBond (no delegation) == 40k here.
       expect(await rewardsDistributor.lastWeight()).to.equal(MIN_SELF_BOND)
+    })
+
+    it("binds registry authorization to the approved node operator", async () => {
+      await allocator.refreshAuthorization(provider)
+
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
+      expect(await allocator.authorizedWeight(provider, provider2)).to.equal(0)
     })
 
     it("does not call the registry when the weight is unchanged", async () => {
@@ -600,9 +609,9 @@ describe("SeatAllocator", () => {
         .to.emit(allocator, "WeightIncreased")
         .withArgs(provider, EQUAL_SEAT_WEIGHT, to18(80_000))
 
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(to18(80_000))
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        to18(80_000)
+      )
     })
 
     describe("decrease sequencing", () => {
@@ -626,12 +635,9 @@ describe("SeatAllocator", () => {
 
         // The registry-known weight MUST stay at the pre-decrease value
         // until the registry approves.
-        expect(
-          await allocator.authorizedWeight(
-            provider,
-            ethers.constants.AddressZero
-          )
-        ).to.equal(EQUAL_SEAT_WEIGHT)
+        expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+          EQUAL_SEAT_WEIGHT
+        )
         expect(await allocator.decreasePending(provider)).to.be.true
         expect(await allocator.pendingDecreaseTarget(provider)).to.equal(0)
 
@@ -687,12 +693,9 @@ describe("SeatAllocator", () => {
         // unchanged (only the initial 40k sync)
         expect(await mockRegistry.increaseCallsCount()).to.equal(1)
         expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(1)
-        expect(
-          await allocator.authorizedWeight(
-            provider,
-            ethers.constants.AddressZero
-          )
-        ).to.equal(EQUAL_SEAT_WEIGHT)
+        expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+          EQUAL_SEAT_WEIGHT
+        )
         expect(await allocator.decreasePending(provider)).to.be.true
       })
 
@@ -710,12 +713,7 @@ describe("SeatAllocator", () => {
           .withArgs(provider, EQUAL_SEAT_WEIGHT, 0)
 
         expect(await mockRegistry.lastApprovedWeight()).to.equal(0)
-        expect(
-          await allocator.authorizedWeight(
-            provider,
-            ethers.constants.AddressZero
-          )
-        ).to.equal(0)
+        expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
         expect(await allocator.decreasePending(provider)).to.be.false
         expect(await allocator.pendingDecreaseTarget(provider)).to.equal(0)
 
@@ -761,9 +759,7 @@ describe("SeatAllocator", () => {
       // Local bookkeeping untouched; the provider is marked dirty so the
       // sync can be retried permissionlessly.
       expect(await mockRegistry.increaseCallsCount()).to.equal(0)
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(0)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
       expect(await allocator.weightDirty(provider)).to.be.true
       // The distributor leg was skipped too (early return on failure).
       expect(await rewardsDistributor.onWeightChangedCallCount()).to.equal(0)
@@ -778,20 +774,21 @@ describe("SeatAllocator", () => {
       expect(await rewardsDistributor.lastWeight()).to.equal(MIN_SELF_BOND)
     })
 
-    it("survives a reverting registry on the decrease path", async () => {
+    it("makes a reward-weight decrease atomic with registry synchronization", async () => {
       // Sync 40k, then drop the weight to zero via deactivation.
       await allocator.refreshAuthorization(provider)
       await signerRegistry.setOperatorStatus(provider, STATUS_DEACTIVATING)
 
       await mockRegistry.setRevertOnAuthorizationCalls(true)
-      await expect(allocator.refreshAuthorization(provider))
-        .to.emit(allocator, "AuthorizationSyncFailed")
-        .withArgs(provider)
+      await expectCustomError(
+        allocator.refreshAuthorization(provider),
+        "RewardWeightSyncRequired"
+      )
 
       // No pending decrease was recorded — the registry never saw one.
       expect(await allocator.decreasePending(provider)).to.be.false
       expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(0)
-      expect(await allocator.weightDirty(provider)).to.be.true
+      expect(await allocator.weightDirty(provider)).to.be.false
 
       await mockRegistry.setRevertOnAuthorizationCalls(false)
       await expect(allocator.refreshAuthorization(provider))
@@ -801,7 +798,7 @@ describe("SeatAllocator", () => {
       expect(await allocator.weightDirty(provider)).to.be.false
     })
 
-    it("survives a reverting registry when re-pointing a pending decrease", async () => {
+    it("makes re-pointing a reward-weight decrease atomic", async () => {
       // Model a deployment whose FROST registry floor is 10k, so the
       // intermediate 20k target stays above the registry minimum.
       await mockRegistry.setMinimumAuthorization(to18(10_000))
@@ -814,13 +811,14 @@ describe("SeatAllocator", () => {
       // is deferred and the pending target stays at 20k.
       await signerRegistry.setOperatorStatus(provider, STATUS_DEACTIVATING)
       await mockRegistry.setRevertOnAuthorizationCalls(true)
-      await expect(allocator.refreshAuthorization(provider))
-        .to.emit(allocator, "AuthorizationSyncFailed")
-        .withArgs(provider)
+      await expectCustomError(
+        allocator.refreshAuthorization(provider),
+        "RewardWeightSyncRequired"
+      )
       expect(await allocator.pendingDecreaseTarget(provider)).to.equal(
         to18(20_000)
       )
-      expect(await allocator.weightDirty(provider)).to.be.true
+      expect(await allocator.weightDirty(provider)).to.be.false
 
       await mockRegistry.setRevertOnAuthorizationCalls(false)
       await allocator.refreshAuthorization(provider)
@@ -837,9 +835,9 @@ describe("SeatAllocator", () => {
 
       // The registry sync itself landed; only the distributor leg failed.
       expect(await mockRegistry.increaseCallsCount()).to.equal(1)
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
       expect(await allocator.weightDirty(provider)).to.be.true
 
       await rewardsDistributor.setRevertOnWeightChanged(false)
@@ -852,7 +850,7 @@ describe("SeatAllocator", () => {
       expect(await mockRegistry.increaseCallsCount()).to.equal(1)
     })
 
-    it("keeps SignerRegistry.ejectOperator alive when the registry sync reverts", async () => {
+    it("reverts SignerRegistry ejection until the weight reduction can synchronize", async () => {
       // Real SignerRegistry wired to the allocator: ejection pokes
       // refreshAuthorization; with the FROST registry down the ejection
       // must still land, and a later refresh completes the sync.
@@ -875,28 +873,30 @@ describe("SeatAllocator", () => {
       // Finalization pokes refreshAuthorization against a healthy
       // registry — the flat seat weight gets synced.
       await realRegistry.connect(governance).finalizeOperatorAddition(provider)
-      expect(
-        await allocator.authorizedWeight(provider, ethers.constants.AddressZero)
-      ).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
 
       // The FROST registry goes down and the provider's weight collapses
       // in the allocator's own signer registry view.
       await signerRegistry.setOperatorStatus(provider, STATUS_EJECTED)
       await mockRegistry.setRevertOnAuthorizationCalls(true)
 
+      await expectCustomError(
+        realRegistry.connect(governance).ejectOperator(provider),
+        "RewardWeightSyncRequired"
+      )
+      expect(await realRegistry.isActive(provider)).to.be.true
+      expect(await allocator.weightDirty(provider)).to.be.false
+      expect(await allocator.decreasePending(provider)).to.be.false
+
+      // Once the registry recovers, ejection and its decrease land atomically.
+      await mockRegistry.setRevertOnAuthorizationCalls(false)
       const tx = await realRegistry.connect(governance).ejectOperator(provider)
       await expect(tx)
         .to.emit(realRegistry, "OperatorEjected")
         .withArgs(provider)
       await expect(tx)
-        .to.emit(allocator, "AuthorizationSyncFailed")
-        .withArgs(provider)
-      expect(await allocator.weightDirty(provider)).to.be.true
-      expect(await allocator.decreasePending(provider)).to.be.false
-
-      // A later permissionless refresh completes the deferred decrease.
-      await mockRegistry.setRevertOnAuthorizationCalls(false)
-      await expect(allocator.connect(thirdParty).refreshAuthorization(provider))
         .to.emit(allocator, "WeightDecreaseRequested")
         .withArgs(provider, EQUAL_SEAT_WEIGHT, 0)
       expect(await allocator.decreasePending(provider)).to.be.true
@@ -994,6 +994,7 @@ describe("SeatAllocator", () => {
 
     it("never reverts when the slashing module reverts", async () => {
       await slashingModule.setRevertOnReport(true)
+      const reportId = await allocator.nextFailedSlashReportId()
 
       await expect(
         mockRegistry.callReportMaliciousBehavior(
@@ -1008,6 +1009,18 @@ describe("SeatAllocator", () => {
       expect(await slashingModule.reportCallCount()).to.equal(0)
       // The dirty marker still lands so the weight can be refreshed.
       expect(await allocator.weightDirty(provider)).to.be.true
+
+      const queued = await allocator.failedSlashReport(reportId)
+      expect(queued.exists).to.be.true
+      expect(queued.amount).to.equal(perSeatAmount)
+      expect(queued.stakingProviders).to.deep.equal([provider])
+
+      await slashingModule.setRevertOnReport(false)
+      await expect(allocator.connect(thirdParty).retrySlashReport(reportId))
+        .to.emit(allocator, "SlashReportRetried")
+        .withArgs(reportId)
+      expect(await slashingModule.reportCallCount()).to.equal(1)
+      expect((await allocator.failedSlashReport(reportId)).exists).to.be.false
     })
 
     it("clears the dirty marker on refresh", async () => {
@@ -1037,6 +1050,33 @@ describe("SeatAllocator", () => {
     })
   })
 
+  describe("inactivity reward ban", () => {
+    it("checkpoints the ban at entry and restores weight after expiry", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await allocator.refreshAuthorization(provider)
+
+      const latest = await ethers.provider.getBlock("latest")
+      const ineligibleUntil = latest.timestamp + 100
+      await mockRegistry.callOperatorInactivity(
+        allocator.address,
+        [provider],
+        ineligibleUntil
+      )
+
+      expect(await allocator.rewardIneligibleUntil(provider)).to.equal(
+        ineligibleUntil
+      )
+      expect(await allocator.rewardWeight(provider)).to.equal(0)
+      expect(await rewardsDistributor.lastWeight()).to.equal(0)
+
+      await increaseTime(100)
+      await allocator.connect(thirdParty).refreshAuthorization(provider)
+      expect(await allocator.rewardWeight(provider)).to.equal(MIN_SELF_BOND)
+      expect(await rewardsDistributor.lastWeight()).to.equal(MIN_SELF_BOND)
+    })
+  })
+
   describe("canFinalizeUndelegate", () => {
     it("allows finalization when the provider has no exposure", async () => {
       expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.true
@@ -1059,6 +1099,22 @@ describe("SeatAllocator", () => {
         .connect(ledgerRegistrySigner)
         .onWalletClosed(walletID)
       expect(await allocator.canFinalizeUndelegate(provider, 1)).to.be.true
+    })
+
+    it("advances the exposure floor when a live wallet is reconciled", async () => {
+      const walletID = ethers.utils.id("reconciled-wallet")
+      await exposureLedger
+        .connect(ledgerRegistrySigner)
+        .onWalletRegistered(walletID, [provider], [1])
+
+      // A request from epoch zero would miss the freshly repaired epoch one
+      // until the registry's reconciliation callback advances the floor.
+      expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.true
+      await mockRegistry.callWalletExposureReconciled(allocator.address, [
+        provider,
+      ])
+      expect(await allocator.exposureFloorEpoch(provider)).to.equal(1)
+      expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.false
     })
   })
 

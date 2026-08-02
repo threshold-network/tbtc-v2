@@ -55,4 +55,17 @@ contract MockSignerRegistry is ISignerRegistry {
     {
         return beneficiaries[stakingProvider];
     }
+
+    function commissionScheduleOf(address stakingProvider)
+        external
+        view
+        override
+        returns (
+            uint16,
+            uint16,
+            uint64
+        )
+    {
+        return (commissionBpsOf[stakingProvider], 0, 0);
+    }
 }

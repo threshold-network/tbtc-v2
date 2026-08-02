@@ -367,6 +367,14 @@ contract SignerRegistry is Initializable, OwnableUpgradeable, ISignerRegistry {
             revert CommissionStepTooBig();
         }
 
+        // A previous pending rate may already have matured. Checkpoint it
+        // before overwriting the schedule so rewards on the two sides of its
+        // effective timestamp can never be charged at the new declaration.
+        ISeatAllocator allocator = seatAllocator;
+        if (address(allocator) != address(0)) {
+            allocator.checkpointRewards(msg.sender);
+        }
+
         // Settle a matured pending commission into storage before
         // overwriting the pending slot so the previously declared value is
         // not lost.
@@ -457,6 +465,25 @@ contract SignerRegistry is Initializable, OwnableUpgradeable, ISignerRegistry {
         returns (uint16)
     {
         return effectiveCommissionBps(operators[stakingProvider]);
+    }
+
+    /// @notice See {ISignerRegistry-commissionScheduleOf}.
+    function commissionScheduleOf(address stakingProvider)
+        external
+        view
+        override
+        returns (
+            uint16 commissionBps,
+            uint16 pendingCommissionBps,
+            uint64 effectiveAt
+        )
+    {
+        Operator storage operator = operators[stakingProvider];
+        return (
+            operator.commissionBps,
+            operator.pendingCommissionBps,
+            operator.commissionEffectiveAt
+        );
     }
 
     /// @dev Pokes the seat allocator, if wired, so the registry-side

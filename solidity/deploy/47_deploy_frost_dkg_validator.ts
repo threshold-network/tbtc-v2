@@ -7,13 +7,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const FrostSortitionPool = await deployments.get("FrostSortitionPool")
 
-  // maxSeatsPerWallet = 0 keeps the per-wallet seat cap disabled at
-  // initial deployment; enabling it is a governance decision executed
-  // by deploying a new validator and pointing the registry's DKG
-  // library at it.
+  // Production variance/load guard from delegated-staking design section 10.
   const FrostDkgValidator = await deployments.deploy("FrostDkgValidator", {
     from: deployer,
-    args: [FrostSortitionPool.address, 0],
+    args: [FrostSortitionPool.address, 12],
     log: true,
     waitConfirmations: 1,
   })

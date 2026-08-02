@@ -153,22 +153,8 @@ contract FrostDkgValidator {
         // at most `groupSize` (100) entries is acceptable for a view-first
         // validation path; it exits as soon as an excessive multiplicity
         // is found.
-        if (maxSeatsPerWallet > 0) {
-            uint32[] calldata members = result.members;
-            for (uint256 i = 0; i < members.length; i++) {
-                uint256 seats = 1;
-                for (uint256 j = i + 1; j < members.length; j++) {
-                    if (members[i] == members[j]) {
-                        seats++;
-                        if (seats > maxSeatsPerWallet) {
-                            return (
-                                false,
-                                "Too many seats for a single member"
-                            );
-                        }
-                    }
-                }
-            }
+        if (_exceedsSeatCap(result.members)) {
+            return (false, "Too many seats for a single member");
         }
 
         // The number of misbehaved members can not exceed the threshold.
@@ -259,7 +245,28 @@ contract FrostDkgValidator {
                 return false;
             }
         }
-        return true;
+        // A selected group over the configured cap is a sampling outcome, not
+        // submitter malice. Reject it before the result can enter the
+        // challenge state, where the submitter would otherwise be slashable.
+        return !_exceedsSeatCap(resultMembers);
+    }
+
+    function _exceedsSeatCap(uint32[] calldata members)
+        internal
+        view
+        returns (bool)
+    {
+        if (maxSeatsPerWallet == 0) return false;
+        for (uint256 i = 0; i < members.length; i++) {
+            uint256 seats = 1;
+            for (uint256 j = i + 1; j < members.length; j++) {
+                if (members[i] == members[j]) {
+                    seats++;
+                    if (seats > maxSeatsPerWallet) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// @notice Computes the RFC v4 DKG result digest. Exposed as a

@@ -12,6 +12,8 @@ contract MockRewardsDistributor is IRewardsDistributor {
     uint96 public lastWeight;
     uint256 public onWeightChangedCalls;
     uint256 public notifiedRewards;
+    address public settlementVault;
+    mapping(address => uint256) public pendingSettlement;
 
     function onWeightChanged(address stakingProvider, uint96 newWeight)
         external
@@ -24,6 +26,22 @@ contract MockRewardsDistributor is IRewardsDistributor {
 
     function notifyReward(uint256 tbtcAmount) external override {
         notifiedRewards += tbtcAmount;
+    }
+
+    function configureSettlement(
+        address stakeVault,
+        address stakingProvider,
+        uint256 amount
+    ) external {
+        settlementVault = stakeVault;
+        pendingSettlement[stakingProvider] = amount;
+    }
+
+    function settleOperator(address stakingProvider) external override {
+        uint256 amount = pendingSettlement[stakingProvider];
+        if (amount == 0) return;
+        pendingSettlement[stakingProvider] = 0;
+        IStakeVault(settlementVault).creditReward(stakingProvider, amount);
     }
 
     /// @dev Forwards a reward credit to the given vault. The vault only

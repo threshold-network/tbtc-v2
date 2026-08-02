@@ -107,6 +107,8 @@ contract StakingFeeMockRewardsDistributor is IRewardsDistributor {
         lastNotifiedAmount = tbtcAmount;
         totalNotified += tbtcAmount;
     }
+
+    function settleOperator(address) external override {}
 }
 
 /// @dev Records `creditReward` calls made by the RewardsDistributor. The
@@ -132,10 +134,25 @@ contract StakingFeeMockStakeVault {
 ///      RewardsDistributor consumes: `commissionBpsOf` and `beneficiaryOf`.
 contract StakingMockSignerRegistryLite {
     mapping(address => uint16) public commissionBpsOf;
+    mapping(address => uint16) public pendingCommissionBpsOf;
+    mapping(address => uint64) public commissionEffectiveAtOf;
     mapping(address => address payable) internal beneficiaries;
 
     function setCommissionBps(address stakingProvider, uint16 bps) external {
         commissionBpsOf[stakingProvider] = bps;
+        pendingCommissionBpsOf[stakingProvider] = 0;
+        commissionEffectiveAtOf[stakingProvider] = 0;
+    }
+
+    function setCommissionSchedule(
+        address stakingProvider,
+        uint16 currentBps,
+        uint16 pendingBps,
+        uint64 effectiveAt
+    ) external {
+        commissionBpsOf[stakingProvider] = currentBps;
+        pendingCommissionBpsOf[stakingProvider] = pendingBps;
+        commissionEffectiveAtOf[stakingProvider] = effectiveAt;
     }
 
     function setBeneficiary(
@@ -151,6 +168,22 @@ contract StakingMockSignerRegistryLite {
         returns (address payable)
     {
         return beneficiaries[stakingProvider];
+    }
+
+    function commissionScheduleOf(address stakingProvider)
+        external
+        view
+        returns (
+            uint16,
+            uint16,
+            uint64
+        )
+    {
+        return (
+            commissionBpsOf[stakingProvider],
+            pendingCommissionBpsOf[stakingProvider],
+            commissionEffectiveAtOf[stakingProvider]
+        );
     }
 }
 

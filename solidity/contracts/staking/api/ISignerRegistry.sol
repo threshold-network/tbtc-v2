@@ -90,4 +90,17 @@ interface ISignerRegistry {
         external
         view
         returns (uint16);
+
+    /// @notice Returns the stored commission schedule. `commissionBps` is the
+    ///         rate before `effectiveAt`; `pendingCommissionBps` is the rate at
+    ///         and after that timestamp. A zero `effectiveAt` means no change
+    ///         is pending.
+    function commissionScheduleOf(address stakingProvider)
+        external
+        view
+        returns (
+            uint16 commissionBps,
+            uint16 pendingCommissionBps,
+            uint64 effectiveAt
+        );
 }

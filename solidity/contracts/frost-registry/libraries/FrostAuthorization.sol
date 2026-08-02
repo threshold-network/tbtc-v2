@@ -589,7 +589,7 @@ library FrostAuthorization {
     ) internal view returns (uint96) {
         uint96 authorizedWeight = authorizationSource.authorizedWeight(
             stakingProvider,
-            address(this)
+            self.stakingProviderToOperator[stakingProvider]
         );
 
         uint96 eligibleWeight = authorizedWeight > decreasingBy

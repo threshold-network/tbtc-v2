@@ -121,6 +121,24 @@ contract StakingMockWalletRegistry {
             stakingProviders
         );
     }
+
+    function callOperatorInactivity(
+        IFrostAuthorizationSource authorizationSource,
+        address[] calldata stakingProviders,
+        uint64 ineligibleUntil
+    ) external {
+        authorizationSource.onOperatorInactivity(
+            stakingProviders,
+            ineligibleUntil
+        );
+    }
+
+    function callWalletExposureReconciled(
+        IFrostAuthorizationSource authorizationSource,
+        address[] calldata stakingProviders
+    ) external {
+        authorizationSource.onWalletExposureReconciled(stakingProviders);
+    }
 }
 
 /// @notice Settable operator status / beneficiary source implementing
@@ -203,6 +221,19 @@ contract StakingMockSignerRegistry is ISignerRegistry {
         returns (uint16)
     {
         return commissions[stakingProvider];
+    }
+
+    function commissionScheduleOf(address stakingProvider)
+        external
+        view
+        override
+        returns (
+            uint16,
+            uint16,
+            uint64
+        )
+    {
+        return (commissions[stakingProvider], 0, 0);
     }
 }
 
@@ -457,4 +488,6 @@ contract StakingMockRewardsDistributor is IRewardsDistributor {
     function notifyReward(uint256) external override {
         // no-op
     }
+
+    function settleOperator(address) external override {}
 }

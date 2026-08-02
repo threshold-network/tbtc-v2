@@ -978,6 +978,27 @@ describe("SignerRegistry", () => {
         ).to.equal(1400)
       })
     })
+
+    context("when the seat allocator is wired", () => {
+      before(async () => {
+        await createSnapshot()
+        await signerRegistry
+          .connect(deployer)
+          .setSeatAllocator(seatAllocator.address)
+        seatAllocator.checkpointRewards.reset()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should checkpoint rewards before replacing the schedule", async () => {
+        await signerRegistry.connect(provider1).declareCommission(1500)
+        expect(seatAllocator.checkpointRewards).to.have.been.calledOnceWith(
+          provider1.address
+        )
+      })
+    })
   })
 
   describe("setSeatAllocator", () => {

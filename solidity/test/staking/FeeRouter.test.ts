@@ -347,7 +347,7 @@ describe("FeeRouter", () => {
           daoTreasury.address
         )
 
-        const tx = await feeRouter.connect(thirdParty).distribute()
+        const tx = await feeRouter.connect(thirdParty).distributeEth()
 
         expect(await ethers.provider.getBalance(feeRouter.address)).to.equal(0)
         expect(await ethers.provider.getBalance(daoTreasury.address)).to.equal(
@@ -355,8 +355,8 @@ describe("FeeRouter", () => {
         )
 
         await expect(tx)
-          .to.emit(feeRouter, "RevenueDistributed")
-          .withArgs(0, 0, 0, to1e18(3))
+          .to.emit(feeRouter, "EthDistributed")
+          .withArgs(daoTreasury.address, to1e18(3))
       })
 
       it("should revert when the treasury rejects ETH", async () => {
@@ -374,9 +374,16 @@ describe("FeeRouter", () => {
           to: rejectingRouter.address,
           value: to1e18(1),
         })
+        await tbtc.mint(rejectingRouter.address, to1e18(2))
 
+        await expect(rejectingRouter.connect(thirdParty).distribute()).to.not.be
+          .reverted
+        expect(await tbtc.balanceOf(rejectingRouter.address)).to.equal(0)
+        expect(await rewardsDistributor.lastNotifiedAmount()).to.equal(
+          to1e18(1)
+        )
         await expect(
-          rejectingRouter.connect(thirdParty).distribute()
+          rejectingRouter.connect(thirdParty).distributeEth()
         ).to.be.revertedWith("EthTransferFailed")
       })
     })
@@ -401,7 +408,7 @@ describe("FeeRouter", () => {
         await restoreSnapshot()
       })
 
-      it("should handle Bank sats, direct TBTC, and ETH in one call", async () => {
+      it("should handle Bank sats, direct TBTC, and ETH independently", async () => {
         const totalTbtc = mintedTbtc.add(directTbtc)
         const rewardShare = totalTbtc.mul(DEFAULT_REWARD_SHARE_BPS).div(10000)
         const treasuryShare = totalTbtc.sub(rewardShare)
@@ -410,6 +417,7 @@ describe("FeeRouter", () => {
         )
 
         const tx = await feeRouter.connect(thirdParty).distribute()
+        await feeRouter.connect(thirdParty).distributeEth()
 
         expect(await bank.balanceOf(feeRouter.address)).to.equal(0)
         expect(await tbtc.balanceOf(feeRouter.address)).to.equal(0)
@@ -430,7 +438,7 @@ describe("FeeRouter", () => {
 
         await expect(tx)
           .to.emit(feeRouter, "RevenueDistributed")
-          .withArgs(satoshis, rewardShare, treasuryShare, eth)
+          .withArgs(satoshis, rewardShare, treasuryShare, 0)
       })
     })
 
@@ -576,6 +584,39 @@ describe("FeeRouter", () => {
           expect(await feeRouter.rewardShareBpsChangeInitiated()).to.equal(0)
         })
       })
+    })
+  })
+
+  describe("daoTreasury update", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should reject a zero treasury", async () => {
+      await expect(
+        feeRouter
+          .connect(deployer)
+          .beginDaoTreasuryUpdate(ethers.constants.AddressZero)
+      ).to.be.revertedWith("ZeroAddress")
+    })
+
+    it("should apply a treasury replacement only after the governance delay", async () => {
+      await feeRouter
+        .connect(deployer)
+        .beginDaoTreasuryUpdate(thirdParty.address)
+      expect(await feeRouter.daoTreasury()).to.equal(daoTreasury.address)
+      await expect(
+        feeRouter.connect(deployer).finalizeDaoTreasuryUpdate()
+      ).to.be.revertedWith("Governance delay has not elapsed")
+
+      await increaseTime(GOVERNANCE_DELAY)
+      await feeRouter.connect(deployer).finalizeDaoTreasuryUpdate()
+      expect(await feeRouter.daoTreasury()).to.equal(thirdParty.address)
+      expect(await feeRouter.daoTreasuryChangeInitiated()).to.equal(0)
     })
   })
 })

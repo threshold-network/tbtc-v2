@@ -16,9 +16,9 @@
 pragma solidity 0.8.17;
 
 /// @notice Distributes TBTC protocol revenue to staking providers pro rata
-///         to their authorization weight, splitting each provider's accrual
-///         between operator commission (claimable by the beneficiary) and
-///         delegator rewards (credited to the stake vault).
+///         to their capital-based reward weight, splitting each provider's
+///         accrual between operator commission and the stake vault's
+///         self-bond/delegated pool reward.
 interface IRewardsDistributor {
     /// @notice Checkpoints the given staking provider's reward accrual at
     ///         its previous weight and records the new weight, updating the
@@ -40,4 +40,9 @@ interface IRewardsDistributor {
     /// @param tbtcAmount TBTC amount (18 decimals) already held by the
     ///        distributor.
     function notifyReward(uint256 tbtcAmount) external;
+
+    /// @notice Settles all reward accrual currently attributable to the given
+    ///         provider into the stake vault. Permissionless; a no-op when
+    ///         nothing has accrued.
+    function settleOperator(address stakingProvider) external;
 }

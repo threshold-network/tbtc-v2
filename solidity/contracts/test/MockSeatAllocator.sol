@@ -65,6 +65,8 @@ contract MockSeatAllocator is ISeatAllocator {
         lastRefreshedProvider = stakingProvider;
     }
 
+    function checkpointRewards(address) external override {}
+
     function currentWeight(address stakingProvider)
         external
         view

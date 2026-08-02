@@ -227,6 +227,18 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         emit MaliciousBehaviorIdentified(notifier, _stakingProviders);
     }
 
+    /// @notice The legacy allowlist has no TBTC reward distributor to mirror
+    ///         inactivity into. Kept as a registry-only compatibility no-op.
+    function onOperatorInactivity(address[] memory, uint64) external override {
+        if (msg.sender != address(walletRegistry)) revert NotWalletRegistry();
+    }
+
+    /// @notice The legacy allowlist has no stake-exit exposure floor. Kept as
+    ///         a registry-only compatibility no-op.
+    function onWalletExposureReconciled(address[] memory) external override {
+        if (msg.sender != address(walletRegistry)) revert NotWalletRegistry();
+    }
+
     /// @notice Role lookup for registry reward withdrawal. The beneficiary is
     ///         the operator provider itself and the authorizer is unused.
     function rolesOf(address stakingProvider)

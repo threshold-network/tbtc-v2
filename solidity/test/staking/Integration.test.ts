@@ -272,7 +272,7 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
     expect(
       await seatAllocator.authorizedWeight(
         sample.stakingProvider,
-        ethers.constants.AddressZero
+        sample.signer.address
       )
     ).to.equal(SELF_BOND)
     expect(
@@ -380,6 +380,9 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
 
     const sample = uniqueProviders[0]
     const sampleSeats = seatCountByProvider.get(sample)!
+    const sampleOperator = operators.find(
+      (operator) => operator.stakingProvider === sample
+    )!
 
     // The lifecycle owner (Bridge router stand-in) seizes stake from the
     // wallet members — the registry resolves members to staking
@@ -409,7 +412,10 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
     // callbacks on the report path.
     expect(await seatAllocator.weightDirty(sample)).to.be.true
     expect(
-      await seatAllocator.authorizedWeight(sample, ethers.constants.AddressZero)
+      await seatAllocator.authorizedWeight(
+        sample,
+        sampleOperator.signer.address
+      )
     ).to.equal(SELF_BOND)
   })
 
@@ -417,6 +423,9 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
     this.timeout(120_000)
 
     const sample = uniqueProviders[0]
+    const sampleOperator = operators.find(
+      (operator) => operator.stakingProvider === sample
+    )!
 
     // The slash dropped the self-bond below the minimum — the live
     // weight collapses to zero and the permissionless refresh files an
@@ -442,7 +451,10 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
 
     expect(await seatAllocator.decreasePending(sample)).to.be.false
     expect(
-      await seatAllocator.authorizedWeight(sample, ethers.constants.AddressZero)
+      await seatAllocator.authorizedWeight(
+        sample,
+        sampleOperator.signer.address
+      )
     ).to.equal(0)
   })
 

@@ -218,11 +218,11 @@ describe("Model B reward weighting (real SeatAllocator + real RewardsDistributor
 
     const auth1 = await seatAllocator.authorizedWeight(
       provider1.address,
-      ethers.constants.AddressZero
+      provider1.address
     )
     const auth2 = await seatAllocator.authorizedWeight(
       provider2.address,
-      ethers.constants.AddressZero
+      provider2.address
     )
     expect(auth1).to.equal(EQUAL_SEAT_WEIGHT)
     expect(auth2).to.equal(auth1)
@@ -306,11 +306,11 @@ describe("Model B reward weighting (real SeatAllocator + real RewardsDistributor
     // operators hold is equal, despite the 2:1 revenue split.
     const auth1 = await seatAllocator.authorizedWeight(
       provider1.address,
-      ethers.constants.AddressZero
+      provider1.address
     )
     const auth2 = await seatAllocator.authorizedWeight(
       provider2.address,
-      ethers.constants.AddressZero
+      provider2.address
     )
     expect(auth1).to.equal(EQUAL_SEAT_WEIGHT)
     expect(auth2).to.equal(auth1)
