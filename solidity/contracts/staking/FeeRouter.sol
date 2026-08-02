@@ -66,6 +66,9 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
     error ZeroAddress();
     error RewardShareBpsExceedsMax();
     error EthTransferFailed();
+    error AlreadySet();
+    error BankBalanceNotMigrated();
+    error TbtcBalanceNotMigrated();
 
     /// @notice Must match `TBTCVault.SATOSHI_MULTIPLIER`: the number of TBTC
     ///         wei minted per satoshi of Bank balance.
@@ -107,10 +110,15 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
     address public newDaoTreasury;
     uint256 public daoTreasuryChangeInitiated;
 
+    IFeeRouterBank public newBank;
+    IFeeRouterTbtcVault public newTbtcVault;
+    IERC20Upgradeable public newTbtcToken;
+    uint256 public infrastructureChangeInitiated;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[45] private __gap;
+    uint256[41] private __gap;
 
     event RewardShareBpsUpdateStarted(
         uint16 newRewardShareBps,
@@ -119,6 +127,18 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
     event RewardShareBpsUpdated(uint16 rewardShareBps);
     event DaoTreasuryUpdateStarted(address daoTreasury, uint256 timestamp);
     event DaoTreasuryUpdated(address daoTreasury);
+    event RewardsDistributorSet(address rewardsDistributor);
+    event InfrastructureUpdateStarted(
+        address bank,
+        address tbtcVault,
+        address tbtcToken,
+        uint256 timestamp
+    );
+    event InfrastructureUpdated(
+        address bank,
+        address tbtcVault,
+        address tbtcToken
+    );
     event EthDistributed(address indexed daoTreasury, uint256 amount);
     event RevenueDistributed(
         uint256 satoshisConverted,
@@ -163,7 +183,6 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
             _bank == address(0) ||
             _tbtcVault == address(0) ||
             _tbtcToken == address(0) ||
-            _rewardsDistributor == address(0) ||
             _daoTreasury == address(0)
         ) {
             revert ZeroAddress();
@@ -181,6 +200,18 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
         governanceDelay = _governanceDelay;
 
         __Ownable_init();
+    }
+
+    /// @notice Sets the rewards distributor after proxy deployment. Set once
+    ///         to break the distributor/router initializer cycle safely.
+    function setRewardsDistributor(address _rewardsDistributor)
+        external
+        onlyOwner
+    {
+        if (_rewardsDistributor == address(0)) revert ZeroAddress();
+        if (address(rewardsDistributor) != address(0)) revert AlreadySet();
+        rewardsDistributor = IRewardsDistributor(_rewardsDistributor);
+        emit RewardsDistributorSet(_rewardsDistributor);
     }
 
     /// @notice Begins the two-step update of `rewardShareBps`.
@@ -239,6 +270,70 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
         emit DaoTreasuryUpdated(daoTreasury);
         daoTreasuryChangeInitiated = 0;
         newDaoTreasury = address(0);
+    }
+
+    /// @notice Begins a delayed Bank/TBTCVault/TBTC infrastructure update. A
+    ///         vault swap normally retains Bank and TBTC; accepting all three
+    ///         pointers also supports a coordinated infrastructure migration.
+    function beginInfrastructureUpdate(
+        address _newBank,
+        address _newTbtcVault,
+        address _newTbtcToken
+    ) external onlyOwner {
+        if (
+            _newBank == address(0) ||
+            _newTbtcVault == address(0) ||
+            _newTbtcToken == address(0)
+        ) {
+            revert ZeroAddress();
+        }
+        newBank = IFeeRouterBank(_newBank);
+        newTbtcVault = IFeeRouterTbtcVault(_newTbtcVault);
+        newTbtcToken = IERC20Upgradeable(_newTbtcToken);
+        /* solhint-disable not-rely-on-time */
+        infrastructureChangeInitiated = block.timestamp;
+        emit InfrastructureUpdateStarted(
+            _newBank,
+            _newTbtcVault,
+            _newTbtcToken,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the pending infrastructure update. Changing Bank or
+    ///         TBTC is allowed only after the corresponding old balance has
+    ///         moved. Changing only the vault remains possible with a non-zero
+    ///         Bank balance so a failed/stale vault can be recovered.
+    function finalizeInfrastructureUpdate() external onlyOwner {
+        GovernanceUtils.onlyAfterGovernanceDelay(
+            infrastructureChangeInitiated,
+            governanceDelay
+        );
+        if (
+            address(newBank) != address(bank) &&
+            bank.balanceOf(address(this)) != 0
+        ) {
+            revert BankBalanceNotMigrated();
+        }
+        if (
+            address(newTbtcToken) != address(tbtcToken) &&
+            tbtcToken.balanceOf(address(this)) != 0
+        ) {
+            revert TbtcBalanceNotMigrated();
+        }
+        bank = newBank;
+        tbtcVault = newTbtcVault;
+        tbtcToken = newTbtcToken;
+        emit InfrastructureUpdated(
+            address(bank),
+            address(tbtcVault),
+            address(tbtcToken)
+        );
+        infrastructureChangeInitiated = 0;
+        newBank = IFeeRouterBank(address(0));
+        newTbtcVault = IFeeRouterTbtcVault(address(0));
+        newTbtcToken = IERC20Upgradeable(address(0));
     }
 
     /// @notice Distributes all revenue currently held by the router.

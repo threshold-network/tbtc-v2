@@ -203,6 +203,59 @@ describe("SeatAllocator", () => {
         "ZeroAddress"
       )
     })
+
+    it("allows set-once rewards wiring to break the initializer cycle", async () => {
+      const [instance] = await helpers.upgrades.deployProxy(
+        `SeatAllocatorDeferredRewards_${uniqueSuffix()}`,
+        {
+          contractName: "SeatAllocator",
+          initializerArgs: [
+            mockRegistry.address,
+            signerRegistry.address,
+            stakeVault.address,
+            slashingModule.address,
+            exposureLedger.address,
+            ethers.constants.AddressZero,
+            GOVERNANCE_DELAY,
+          ],
+          proxyOpts: { kind: "transparent" },
+        }
+      )
+      await instance
+        .connect(governance)
+        .setRewardsDistributor(rewardsDistributor.address)
+      expect(await instance.rewardsDistributor()).to.equal(
+        rewardsDistributor.address
+      )
+      await expect(
+        instance
+          .connect(governance)
+          .setRewardsDistributor(rewardsDistributor.address)
+      ).to.be.revertedWith("RewardsDistributorAlreadySet")
+    })
+
+    it("rejects deployment below the registry minimum authorization", async () => {
+      await mockRegistry.setMinimumAuthorization(to18(50_000))
+      await expectCustomError(
+        helpers.upgrades.deployProxy(
+          `SeatAllocatorInvalidInitialWeight_${uniqueSuffix()}`,
+          {
+            contractName: "SeatAllocator",
+            initializerArgs: [
+              mockRegistry.address,
+              signerRegistry.address,
+              stakeVault.address,
+              slashingModule.address,
+              exposureLedger.address,
+              rewardsDistributor.address,
+              GOVERNANCE_DELAY,
+            ],
+            proxyOpts: { kind: "transparent" },
+          }
+        ),
+        "EqualSeatWeightBelowRegistryMinimum"
+      )
+    })
   })
 
   // Option B — flat seat weight. Signing power is uniform by DAO curation:
@@ -337,6 +390,7 @@ describe("SeatAllocator", () => {
       await activate(provider)
       await stakeVault.setSelfBond(provider, to18(40_000))
       await stakeVault.setDelegatedAssets(provider, to18(200_000))
+      await allocator.refreshAuthorization(provider)
       // Seat weight is the uniform equal seat weight...
       expect(await allocator.currentWeight(provider)).to.equal(
         EQUAL_SEAT_WEIGHT
@@ -349,6 +403,7 @@ describe("SeatAllocator", () => {
       await activate(provider)
       await stakeVault.setSelfBond(provider, to18(1_000_000))
       await stakeVault.setDelegatedAssets(provider, to18(5_000_000))
+      await allocator.refreshAuthorization(provider)
       // Seat weight is flat regardless of the 6M of capital...
       expect(await allocator.currentWeight(provider)).to.equal(
         EQUAL_SEAT_WEIGHT
@@ -366,6 +421,8 @@ describe("SeatAllocator", () => {
       await stakeVault.setDelegatedAssets(provider, to18(2_000_000)) // raw 3M
       await stakeVault.setSelfBond(provider2, to18(1_000_000))
       await stakeVault.setDelegatedAssets(provider2, to18(5_000_000)) // raw 6M
+      await allocator.refreshAuthorization(provider)
+      await allocator.refreshAuthorization(provider2)
 
       // Identical flat seat weight, so signing power / decentralization is
       // unchanged between them.
@@ -390,6 +447,7 @@ describe("SeatAllocator", () => {
       await activate(provider)
       await stakeVault.setSelfBond(provider, to18(500_000))
       await stakeVault.setDelegatedAssets(provider, to18(1_500_000))
+      await allocator.refreshAuthorization(provider)
       const seatBefore = await allocator.currentWeight(provider)
       const rewardBefore = await allocator.rewardWeight(provider)
       expect(seatBefore).to.equal(EQUAL_SEAT_WEIGHT)
@@ -412,6 +470,7 @@ describe("SeatAllocator", () => {
       await activate(provider)
       await stakeVault.setSelfBond(provider, to18(100_000))
       await stakeVault.setDelegatedAssets(provider, to18(100_000))
+      await allocator.refreshAuthorization(provider)
       expect(await allocator.currentWeight(provider)).to.equal(
         EQUAL_SEAT_WEIGHT
       )
@@ -432,6 +491,8 @@ describe("SeatAllocator", () => {
     it("is zero for ineligible operators and restores on reactivation", async () => {
       await stakeVault.setSelfBond(provider, to18(1_000_000))
       await stakeVault.setDelegatedAssets(provider, to18(1_000_000))
+      await activate(provider)
+      await allocator.refreshAuthorization(provider)
 
       // No reward weight in any non-Active status, regardless of capital —
       // rewards are never paid to a non-signer.
@@ -461,6 +522,7 @@ describe("SeatAllocator", () => {
       // Self-bond exactly at the floor, with delegated capital on top.
       await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
       await stakeVault.setDelegatedAssets(provider, to18(200_000))
+      await allocator.refreshAuthorization(provider)
       // Active and at/above the floor: earns on the full uncapped capital.
       expect(await allocator.rewardWeight(provider)).to.equal(to18(240_000))
 
@@ -496,6 +558,7 @@ describe("SeatAllocator", () => {
       // gate passes, and rewardWeight clamps the overflowing raw sum.
       await stakeVault.setSelfBond(provider, MAX_UINT96)
       await stakeVault.setDelegatedAssets(provider, MAX_UINT96)
+      await allocator.refreshAuthorization(provider)
       expect(await allocator.currentWeight(provider)).to.equal(
         EQUAL_SEAT_WEIGHT
       )
@@ -697,6 +760,8 @@ describe("SeatAllocator", () => {
           EQUAL_SEAT_WEIGHT
         )
         expect(await allocator.decreasePending(provider)).to.be.true
+        expect(await allocator.rewardWeight(provider)).to.equal(0)
+        expect(await rewardsDistributor.lastWeight()).to.equal(0)
       })
 
       it("finalizes the decrease on registry approval and resumes increases", async () => {
@@ -811,14 +876,13 @@ describe("SeatAllocator", () => {
       // is deferred and the pending target stays at 20k.
       await signerRegistry.setOperatorStatus(provider, STATUS_DEACTIVATING)
       await mockRegistry.setRevertOnAuthorizationCalls(true)
-      await expectCustomError(
-        allocator.refreshAuthorization(provider),
-        "RewardWeightSyncRequired"
-      )
+      await expect(allocator.refreshAuthorization(provider))
+        .to.emit(allocator, "AuthorizationSyncFailed")
+        .withArgs(provider)
       expect(await allocator.pendingDecreaseTarget(provider)).to.equal(
         to18(20_000)
       )
-      expect(await allocator.weightDirty(provider)).to.be.false
+      expect(await allocator.weightDirty(provider)).to.be.true
 
       await mockRegistry.setRevertOnAuthorizationCalls(false)
       await allocator.refreshAuthorization(provider)
@@ -1018,6 +1082,7 @@ describe("SeatAllocator", () => {
           )
         )
       )
+      expect(await allocator.queuedSlashCount(provider)).to.equal(1)
 
       await slashingModule.setRevertOnReport(false)
       await expect(
@@ -1027,6 +1092,7 @@ describe("SeatAllocator", () => {
             provider2,
           ])
       ).to.be.revertedWith("InvalidSlashReport")
+      expect(await allocator.queuedSlashCount(provider)).to.equal(1)
       await expect(
         allocator
           .connect(thirdParty)
@@ -1040,6 +1106,7 @@ describe("SeatAllocator", () => {
       expect(await allocator.failedSlashReportHash(reportId)).to.equal(
         ethers.constants.HashZero
       )
+      expect(await allocator.queuedSlashCount(provider)).to.equal(0)
     })
 
     it("clears the dirty marker on refresh", async () => {

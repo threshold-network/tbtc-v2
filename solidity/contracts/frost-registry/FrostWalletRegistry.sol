@@ -162,8 +162,9 @@ contract FrostWalletRegistry is
 
     /// @notice Contract providing FROST operator authorization weights. The
     ///         current production source is `FrostAllowlist`, but the registry
-    ///         only depends on this neutral interface. Source migration is
-    ///         upgrade-only because `initializeV2` is intentionally one-shot.
+    ///         only depends on this neutral interface. This implementation
+    ///         adds an atomic governed source/active-roster migration and a
+    ///         repeatable governed path for rollback.
     IFrostAuthorizationSource public authorizationSource;
 
     /// @notice Ledger tracking which wallets each staking provider has live
@@ -274,6 +275,7 @@ contract FrostWalletRegistry is
     ///         Custom error (not require string) so it survives
     ///         all JSON-RPC node decoding paths.
     error LifecycleOwnerNotSet();
+    error AuthorizationSourceAddressZero();
 
     event OperatorRegistered(
         address indexed stakingProvider,
@@ -499,12 +501,30 @@ contract FrostWalletRegistry is
         reinitializer(2)
     {
         require(governance == msg.sender, "Caller is not the governance");
-        require(
-            _authorizationSource != address(0),
-            "Authorization source address cannot be zero"
-        );
+        if (_authorizationSource == address(0)) {
+            revert AuthorizationSourceAddressZero();
+        }
         authorizationSource = IFrostAuthorizationSource(_authorizationSource);
         emit AuthorizationSourceUpdated(_authorizationSource);
+    }
+
+    /// @notice Atomically migrates the authorization source and every active
+    ///         sortition-pool leaf. Callable by registry governance for normal
+    ///         migrations/rollback and by the EIP-1967 proxy admin so the first
+    ///         production cutover can be delivered through upgradeAndCall.
+    ///         The roster must enumerate the entire active pool; omissions and
+    ///         duplicates are rejected by the linked migration library.
+    function migrateAuthorizationSource(
+        IFrostAuthorizationSource _authorizationSource,
+        address[] calldata stakingProviders
+    ) external {
+        authorizationSource = _authorizationSource;
+        WalletExposure.migrateAuthorizationSource(
+            authorization,
+            sortitionPool,
+            authorizationSource,
+            stakingProviders
+        );
     }
 
     /// @notice Withdraws application rewards for the given staking provider.

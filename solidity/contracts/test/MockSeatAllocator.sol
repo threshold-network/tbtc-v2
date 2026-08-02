@@ -15,6 +15,7 @@ contract MockSeatAllocator is ISeatAllocator {
     bool public revertOnRefresh;
 
     mapping(address => uint96) public weights;
+    mapping(address => uint256) public override queuedSlashCount;
 
     // Mimics the wallet exposure ledger view backing the exit gate:
     // exposure exists at or before `epoch` if `hasExposure` and
@@ -28,6 +29,12 @@ contract MockSeatAllocator is ISeatAllocator {
 
     function setWeight(address stakingProvider, uint96 weight) external {
         weights[stakingProvider] = weight;
+    }
+
+    function setQueuedSlashCount(address stakingProvider, uint256 count)
+        external
+    {
+        queuedSlashCount[stakingProvider] = count;
     }
 
     function setExposure(
@@ -66,6 +73,8 @@ contract MockSeatAllocator is ISeatAllocator {
     }
 
     function checkpointRewards(address) external override {}
+
+    function syncRewardWeightAfterSlash(address) external override {}
 
     function currentWeight(address stakingProvider)
         external

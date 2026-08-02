@@ -198,6 +198,12 @@ contract SeatAllocator is
     mapping(uint256 => bytes32) public failedSlashReportHash;
     uint256 public nextFailedSlashReportId;
 
+    /// @notice Number of retryable slash reports currently queued for each
+    ///         provider. The vault checks this in addition to the slashing
+    ///         module's booked-slash count so a failed report cannot be raced
+    ///         by an exit before a successful retry applies the haircut.
+    mapping(address => uint256) public override queuedSlashCount;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots. Removing the delegation-factor and
@@ -205,7 +211,7 @@ contract SeatAllocator is
     // slots, so the gap is widened to keep the reserve at 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[33] private __gap;
+    uint256[32] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -248,6 +254,12 @@ contract SeatAllocator is
         uint256 timestamp
     );
     event EqualSeatWeightUpdated(uint96 equalSeatWeight);
+    event RewardsDistributorSet(address rewardsDistributor);
+    event AuthorizationMigrated(
+        address indexed stakingProvider,
+        uint96 authorizationWeight,
+        uint96 rewardWeight
+    );
 
     error ZeroAddress();
     error NotWalletRegistry();
@@ -257,6 +269,8 @@ contract SeatAllocator is
     error NotSignerRegistry();
     error RewardWeightSyncRequired();
     error InvalidSlashReport();
+    error NotSlashingModule();
+    error RewardsDistributorAlreadySet();
 
     modifier onlyWalletRegistry() {
         if (msg.sender != address(frostWalletRegistry)) {
@@ -267,6 +281,11 @@ contract SeatAllocator is
 
     modifier onlySignerRegistry() {
         if (msg.sender != address(signerRegistry)) revert NotSignerRegistry();
+        _;
+    }
+
+    modifier onlySlashingModule() {
+        if (msg.sender != address(slashingModule)) revert NotSlashingModule();
         _;
     }
 
@@ -306,8 +325,7 @@ contract SeatAllocator is
             _signerRegistry == address(0) ||
             _stakeVault == address(0) ||
             _slashingModule == address(0) ||
-            _walletExposureLedger == address(0) ||
-            _rewardsDistributor == address(0)
+            _walletExposureLedger == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -328,6 +346,24 @@ contract SeatAllocator is
         // (40,000e18); see the storage-var invariant. Uniform across all
         // eligible operators, so its magnitude does not affect selection.
         equalSeatWeight = 40_000e18;
+        if (equalSeatWeight < frostWalletRegistry.minimumAuthorization()) {
+            revert EqualSeatWeightBelowRegistryMinimum();
+        }
+    }
+
+    /// @notice Sets the rewards distributor after proxy deployment. This
+    ///         set-once hook breaks the allocator/distributor initializer
+    ///         cycle without exposing an uninitialized proxy.
+    function setRewardsDistributor(address _rewardsDistributor)
+        external
+        onlyOwner
+    {
+        if (_rewardsDistributor == address(0)) revert ZeroAddress();
+        if (address(rewardsDistributor) != address(0)) {
+            revert RewardsDistributorAlreadySet();
+        }
+        rewardsDistributor = IRewardsDistributor(_rewardsDistributor);
+        emit RewardsDistributorSet(_rewardsDistributor);
     }
 
     /// @notice Begins the equal seat weight update process.
@@ -443,10 +479,11 @@ contract SeatAllocator is
     ///      therefore never buys signing power, only a proportional share of
     ///      rewards (and matching slashing exposure).
     ///
-    ///      The eligibility gate is shared with {currentWeight}: this returns
-    ///      0 whenever `currentWeight == 0`, so a provider that is not an
-    ///      active, allowlisted, sufficiently self-bonded operator
-    ///      signer earns nothing — rewards are never paid to a non-signer.
+    ///      The eligibility gate requires both a live non-zero weight and a
+    ///      registry-synchronized non-zero weight with no decrease pending.
+    ///      This prevents a provider whose pool leaf has already been reduced
+    ///      to zero from restoring rewards during the registry's decrease
+    ///      delay by briefly restoring its live self-bond.
     ///      Otherwise it returns the raw uncapped sum clamped to
     ///      `type(uint96).max` (the total T supply fits in a uint96, but the
     ///      clamp is kept as defense in depth). The sum deliberately does NOT
@@ -475,7 +512,11 @@ contract SeatAllocator is
         ) {
             return 0;
         }
-        if (currentWeight(stakingProvider) == 0) {
+        if (
+            currentWeight(stakingProvider) == 0 ||
+            lastSyncedWeight[stakingProvider] == 0 ||
+            decreasePending[stakingProvider]
+        ) {
             return 0;
         }
 
@@ -593,6 +634,12 @@ contract SeatAllocator is
             }
         }
 
+        // An authorization increase above may have changed the registry-
+        // eligibility gate used by rewardWeight (lastSyncedWeight from zero to
+        // non-zero). Recompute before synchronizing the distributor.
+        newRewardWeight = rewardWeight(stakingProvider);
+        rewardWeightReduction = newRewardWeight < syncedRewardWeight;
+
         // Reward accrual tracks the UNCAPPED reward weight (Model B), while
         // the registry-sync calls above use the flat, uniform seat weight.
         // dev: the try/catch guards only the onWeightChanged call, NOT the
@@ -631,6 +678,53 @@ contract SeatAllocator is
             stakingProvider,
             lastSyncedRewardWeight[stakingProvider]
         );
+    }
+
+    /// @notice See {ISeatAllocator-syncRewardWeightAfterSlash}.
+    function syncRewardWeightAfterSlash(address stakingProvider)
+        external
+        override
+        onlySlashingModule
+    {
+        uint96 newRewardWeight = rewardWeight(stakingProvider);
+        rewardsDistributor.onWeightChanged(stakingProvider, newRewardWeight);
+        lastSyncedRewardWeight[stakingProvider] = newRewardWeight;
+    }
+
+    /// @notice Atomically prepares the active registry roster for an
+    ///         authorization-source migration. Called by the wallet registry
+    ///         from its governed source-migration transaction before it
+    ///         rewrites sortition-pool leaves.
+    /// @dev This hook deliberately performs no registry callback: the registry
+    ///      has already selected this allocator as its source and owns the
+    ///      surrounding atomic roster synchronization.
+    function prepareAuthorizationMigration(address[] calldata stakingProviders)
+        external
+        onlyWalletRegistry
+    {
+        if (address(rewardsDistributor) == address(0)) revert ZeroAddress();
+
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            decreasePending[stakingProvider] = false;
+            delete pendingDecreaseTarget[stakingProvider];
+
+            uint96 authorizationWeight = currentWeight(stakingProvider);
+            lastSyncedWeight[stakingProvider] = authorizationWeight;
+            uint96 newRewardWeight = rewardWeight(stakingProvider);
+            rewardsDistributor.onWeightChanged(
+                stakingProvider,
+                newRewardWeight
+            );
+            lastSyncedRewardWeight[stakingProvider] = newRewardWeight;
+            weightDirty[stakingProvider] = false;
+
+            emit AuthorizationMigrated(
+                stakingProvider,
+                authorizationWeight,
+                newRewardWeight
+            );
+        }
     }
 
     /// @notice Returns the authorization weight the registry currently
@@ -710,10 +804,10 @@ contract SeatAllocator is
     /// @notice Books a malicious behavior report against the listed staking
     ///         providers (one entry per offending seat): forwards the
     ///         per-seat slash to the slashing module — which applies the
-    ///         economic haircut atomically — and marks each provider's
-    ///         weight dirty so anyone can subsequently call
-    ///         `refreshAuthorization` to sync the reduced weight. No
-    ///         registry callbacks are made here.
+    ///         reward checkpoint, economic haircut, and reward-weight update
+    ///         atomically — and marks each provider's authorization weight
+    ///         dirty so anyone can subsequently call `refreshAuthorization`.
+    ///         No registry callbacks are made here.
     /// @dev Can only be called by the FROST wallet registry. The report is
     ///      persisted before the best-effort slashing-module call. A module
     ///      failure therefore leaves a permissionlessly retryable report
@@ -739,6 +833,7 @@ contract SeatAllocator is
         failedSlashReportHash[reportId] = keccak256(
             abi.encode(amount, rewardMultiplier, notifier, stakingProviders)
         );
+        _changeQueuedSlashCounts(stakingProviders, true);
 
         if (address(slashingModule).code.length == 0) {
             emit SlashReportFailed(notifier, stakingProviders);
@@ -755,6 +850,7 @@ contract SeatAllocator is
             )
         {
             delete failedSlashReportHash[reportId];
+            _changeQueuedSlashCounts(stakingProviders, false);
         } catch {
             emit SlashReportFailed(notifier, stakingProviders);
             emit SlashReportQueued(reportId);
@@ -785,7 +881,36 @@ contract SeatAllocator is
             notifier
         );
         delete failedSlashReportHash[reportId];
+        _changeQueuedSlashCounts(stakingProviders, false);
         emit SlashReportRetried(reportId);
+    }
+
+    /// @dev Increments or decrements each distinct non-zero provider once per
+    ///      report. Counts are written before the external report call so an
+    ///      EIP-150 gas-starved catch still leaves a durable exit hold.
+    function _changeQueuedSlashCounts(
+        address[] memory stakingProviders,
+        bool increment
+    ) internal {
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            if (stakingProvider == address(0)) continue;
+
+            bool seen;
+            for (uint256 j = 0; j < i; j++) {
+                if (stakingProviders[j] == stakingProvider) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen) continue;
+
+            if (increment) {
+                queuedSlashCount[stakingProvider] += 1;
+            } else {
+                queuedSlashCount[stakingProvider] -= 1;
+            }
+        }
     }
 
     /// @notice See {IFrostAuthorizationSource-onOperatorInactivity}.

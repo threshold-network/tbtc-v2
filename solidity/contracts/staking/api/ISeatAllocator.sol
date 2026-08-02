@@ -37,6 +37,21 @@ interface ISeatAllocator {
     /// @dev Callable only by the signer registry.
     function checkpointRewards(address stakingProvider) external;
 
+    /// @notice Synchronizes a provider's reward weight immediately after the
+    ///         slashing module mutates its vault capital. Reverts if the
+    ///         distributor cannot accept the reduction so the slash report is
+    ///         queued and exits remain blocked instead of leaving stale reward
+    ///         weight behind.
+    function syncRewardWeightAfterSlash(address stakingProvider) external;
+
+    /// @notice Number of failed slash reports queued against the provider.
+    ///         The stake vault treats any non-zero value as an exit hold until
+    ///         the report is retried successfully.
+    function queuedSlashCount(address stakingProvider)
+        external
+        view
+        returns (uint256);
+
     /// @notice Returns the staking provider's live seat weight: zero if the
     ///         provider is not active in the signer registry, or its effective
     ///         self-bond (net of any queued self-bond withdrawal) is below the

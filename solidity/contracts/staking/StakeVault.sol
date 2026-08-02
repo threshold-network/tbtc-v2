@@ -40,8 +40,10 @@ import "./api/IRewardsDistributor.sol";
 ///        queued-but-unfinalized self-bond withdrawal) and only then
 ///        haircuts `delegatedAssets`, dropping the share price pro-rata for
 ///        all delegators including pending exits. It caps at the available
-///        balance and never reverts — it is on the never-revert
-///        malicious-behavior reporting path.
+///        balance. It checkpoints lazy rewards before mutating the pool, so
+///        a downstream failure may revert the module call; SeatAllocator's
+///        durable queue preserves the outer never-revert registry path and
+///        holds exits until retry succeeds.
 ///      - Both exits (`finalizeUndelegate`, `finalizeSelfBondWithdrawal`) are
 ///        blocked by the fixed `undelegationDelay` cooldown and while the
 ///        slashing module holds a pending slash for the provider. They differ
@@ -112,6 +114,10 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
 
     uint256 internal constant REWARD_PRECISION = 1e18;
 
+    /// @notice Governance bounds for the disclosed fixed exit cooldown.
+    uint64 public constant MIN_UNDELEGATION_DELAY = 14 days;
+    uint64 public constant MAX_UNDELEGATION_DELAY = 60 days;
+
     IERC20Upgradeable public tToken;
     IERC20Upgradeable public tbtcToken;
 
@@ -166,10 +172,15 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         internal generationFinalRewardAccumulator;
     mapping(uint256 => uint64) internal undelegationRequestGeneration;
 
+    /// @notice Cooldown snapshotted when each request is filed so later
+    ///         governance updates apply prospectively only.
+    mapping(uint256 => uint64) public undelegationRequestDelay;
+    mapping(uint256 => uint64) public selfBondWithdrawalRequestDelay;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[42] private __gap;
+    uint256[40] private __gap;
 
     event SignerRegistrySet(address signerRegistry);
     event SeatAllocatorSet(address seatAllocator);
@@ -257,6 +268,8 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     error CallerNotRewardsDistributor();
     error InsufficientSeizedBalance();
     error NothingToClaim();
+    error UndelegationDelayTooShort();
+    error UndelegationDelayTooLong();
 
     modifier onlySlashingModule() {
         if (msg.sender != slashingModule) revert CallerNotSlashingModule();
@@ -354,6 +367,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         external
         onlyOwner
     {
+        _validateUndelegationDelay(_newUndelegationDelay);
         /* solhint-disable-next-line not-rely-on-time */
         uint256 timestamp = block.timestamp;
         newUndelegationDelay = _newUndelegationDelay;
@@ -368,6 +382,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             undelegationDelayChangeInitiated,
             governanceDelay
         );
+        _validateUndelegationDelay(newUndelegationDelay);
         undelegationDelay = newUndelegationDelay;
         emit UndelegationDelayUpdated(undelegationDelay);
         undelegationDelayChangeInitiated = 0;
@@ -480,6 +495,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
                 finalized: false
             })
         );
+        selfBondWithdrawalRequestDelay[requestId] = undelegationDelay;
 
         emit SelfBondWithdrawalRequested(
             requestId,
@@ -516,6 +532,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         _checkExitGates(
             msg.sender,
             request.requestedAt,
+            selfBondWithdrawalRequestDelay[requestId],
             request.epochAtRequest,
             true
         );
@@ -635,6 +652,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         );
         undelegationRequestGeneration[requestId] = pools[stakingProvider]
             .generation;
+        undelegationRequestDelay[requestId] = undelegationDelay;
 
         emit UndelegationRequested(
             requestId,
@@ -691,6 +709,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         _checkExitGates(
             stakingProvider,
             request.requestedAt,
+            undelegationRequestDelay[requestId],
             request.epochAtRequest,
             false
         );
@@ -743,15 +762,24 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     ///         consumed to zero (including queued-but-unfinalized self-bond
     ///         withdrawals) before delegated assets are haircut. Caps at the
     ///         available balance and never reverts for `amount` greater than
-    ///         what is available. Performs no external calls and does NOT
-    ///         refresh the allocator — this is the never-revert reporting
-    ///         path; the allocator marks the weight dirty separately.
+    ///         what is available. Before changing tranche composition it
+    ///         settles the distributor's lazy accrual at the pre-slash mix;
+    ///         any settlement failure reverts the module call so the allocator
+    ///         can queue the report and hold exits. It does NOT refresh registry
+    ///         authorization; the allocator marks that weight dirty separately.
     function applySlash(address stakingProvider, uint96 amount)
         external
         override
         onlySlashingModule
         returns (uint96 seized)
     {
+        if (rewardsDistributor == address(0)) revert ZeroAddress();
+
+        // Attribute every already-notified reward tranche using the pool's
+        // pre-slash self-bond/delegation composition. The distributor calls
+        // back into creditReward before this function mutates either tranche.
+        IRewardsDistributor(rewardsDistributor).settleOperator(stakingProvider);
+
         Pool storage pool = pools[stakingProvider];
 
         uint96 fromSelfBond = amount <= pool.selfBond ? amount : pool.selfBond;
@@ -1052,17 +1080,26 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     function _checkExitGates(
         address stakingProvider,
         uint64 requestedAt,
+        uint64 delayAtRequest,
         uint64 epochAtRequest,
         bool enforceLifecycleGate
     ) internal view {
+        // A zero snapshot can only belong to a request created by an older
+        // implementation. Preserve its then-current behavior on upgrade;
+        // every new request snapshots a bounded non-zero delay.
+        uint64 effectiveDelay = delayAtRequest == 0
+            ? undelegationDelay
+            : delayAtRequest;
         /* solhint-disable-next-line not-rely-on-time */
-        if (block.timestamp < uint256(requestedAt) + undelegationDelay) {
+        if (block.timestamp < uint256(requestedAt) + effectiveDelay) {
             revert UndelegationDelayNotElapsed();
         }
         if (
             ISlashingModule(slashingModule).pendingSlashCount(
                 stakingProvider
-            ) != 0
+            ) !=
+            0 ||
+            seatAllocator.queuedSlashCount(stakingProvider) != 0
         ) {
             revert PendingSlashExists();
         }
@@ -1075,6 +1112,15 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             ) {
                 revert LiveWalletExposure();
             }
+        }
+    }
+
+    function _validateUndelegationDelay(uint64 delay_) internal pure {
+        if (delay_ < MIN_UNDELEGATION_DELAY) {
+            revert UndelegationDelayTooShort();
+        }
+        if (delay_ > MAX_UNDELEGATION_DELAY) {
+            revert UndelegationDelayTooLong();
         }
     }
 
@@ -1135,8 +1181,9 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
 
     /// @dev Syncs the provider's authorization weight to the registry via
     ///      the seat allocator. Tolerates unset allocator to keep bootstrap
-    ///      wiring order flexible. Deliberately NOT called from `applySlash`
-    ///      (never-revert path).
+    ///      wiring order flexible. Deliberately NOT called from `applySlash`;
+    ///      the slashing module synchronizes reward weight atomically and the
+    ///      allocator separately marks registry authorization dirty.
     function _refresh(address stakingProvider) internal {
         if (address(seatAllocator) != address(0)) {
             seatAllocator.refreshAuthorization(stakingProvider);

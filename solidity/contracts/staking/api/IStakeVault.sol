@@ -72,9 +72,11 @@ interface IStakeVault {
     ///         available — it seizes what it can and returns the seized
     ///         amount. Seized T is held by the vault, earmarked to the
     ///         slashing module until paid out via `payoutSeized`.
-    /// @dev Callable only by the slashing module. Part of the never-revert
-    ///      malicious-behavior reporting path; performs no external calls
-    ///      that could revert.
+    /// @dev Callable only by the slashing module. Before mutating the pool it
+    ///      checkpoints lazy rewards through the distributor. A downstream
+    ///      failure may therefore revert the module call; the allocator's
+    ///      durable retry queue keeps the outer registry lifecycle path
+    ///      non-reverting and blocks exits until the report succeeds.
     /// @param stakingProvider Address of the staking provider to slash.
     /// @param amount Requested slash amount.
     /// @return seized Actual amount seized (<= `amount`).

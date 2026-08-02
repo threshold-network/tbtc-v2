@@ -21,6 +21,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "../GovernanceUtils.sol";
 import "./api/ISlashingModule.sol";
 import "./api/IStakeVault.sol";
+import "./api/ISeatAllocator.sol";
 
 /// @title SlashingModule
 /// @notice Books slashes against staking providers' vault pools and manages
@@ -32,14 +33,13 @@ import "./api/IStakeVault.sol";
 ///         a provider, the vault blocks exit finalization for that
 ///         provider's pool — closing the race where a delegator exits at
 ///         full share price between an offense and slash execution.
-/// @dev `report` is on the registry's malicious-behavior reporting path,
-///      which the Bridge lifecycle depends on, and therefore MUST NOT
-///      revert: the provider loop is bounded, duplicate providers are
-///      aggregated in memory, out-of-range inputs are clamped rather than
-///      rejected, and the only external call — `stakeVault.applySlash` — is
-///      non-reverting by specification. There is no cancel function in v1:
-///      objective offenses carry no veto; the guardian can only pause the
-///      movement of seized funds, never undo the booked haircut.
+/// @dev `report` is called behind SeatAllocator's retry queue. Accounting is
+///      default-off for Phase 1 record-only rollout; once activated, reward
+///      checkpointing, the haircut, and reward-weight reduction are one atomic
+///      transaction. Any downstream failure reverts to the allocator, which
+///      durably queues the report and keeps provider exits blocked until retry.
+///      There is no cancel function in v1: objective offenses carry no veto;
+///      the guardian can only pause movement of already seized funds.
 contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     struct PendingSlash {
         address stakingProvider;
@@ -104,10 +104,16 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     /// @notice See `ISlashingModule.pendingSlashCount`.
     mapping(address => uint256) public override pendingSlashCount;
 
+    /// @notice Default-off gate for economic haircut accounting. Governance
+    ///         activates or deactivates it through the delayed two-step rail.
+    bool public economicSlashingEnabled;
+    bool public newEconomicSlashingEnabled;
+    uint256 public economicSlashingChangeInitiated;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[47] private __gap;
+    uint256[45] private __gap;
 
     event SeatAllocatorSet(address seatAllocator);
     event GuardianUpdated(address guardian);
@@ -148,6 +154,9 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     );
     event SlashMovementPaused(address guardian);
     event SlashMovementUnpaused(address guardian);
+    event EconomicSlashingUpdateStarted(bool enabled, uint256 timestamp);
+    event EconomicSlashingUpdated(bool enabled);
+    event SlashReportRecorded(bytes32 indexed reportHash);
 
     error ZeroAddress();
     error AlreadySet();
@@ -224,6 +233,31 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         if (_restitutionReserve == address(0)) revert ZeroAddress();
         restitutionReserve = _restitutionReserve;
         emit RestitutionReserveUpdated(_restitutionReserve);
+    }
+
+    /// @notice Begins a delayed update of economic slash accounting. While
+    ///         disabled, reports remain observable but no T is seized.
+    function beginEconomicSlashingUpdate(bool enabled) external onlyOwner {
+        if (enabled && seatAllocator == address(0)) revert ZeroAddress();
+        newEconomicSlashingEnabled = enabled;
+        /* solhint-disable-next-line not-rely-on-time */
+        economicSlashingChangeInitiated = block.timestamp;
+        /* solhint-disable-next-line not-rely-on-time */
+        emit EconomicSlashingUpdateStarted(enabled, block.timestamp);
+    }
+
+    /// @notice Finalizes a pending economic-slashing gate update.
+    function finalizeEconomicSlashingUpdate() external onlyOwner {
+        GovernanceUtils.onlyAfterGovernanceDelay(
+            economicSlashingChangeInitiated,
+            governanceDelay
+        );
+        if (newEconomicSlashingEnabled && seatAllocator == address(0)) {
+            revert ZeroAddress();
+        }
+        economicSlashingEnabled = newEconomicSlashingEnabled;
+        economicSlashingChangeInitiated = 0;
+        emit EconomicSlashingUpdated(economicSlashingEnabled);
     }
 
     // ---------------------------------------------------------------------
@@ -309,6 +343,20 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     ) external override {
         if (msg.sender != seatAllocator) revert CallerNotSeatAllocator();
 
+        if (!economicSlashingEnabled) {
+            emit SlashReportRecorded(
+                keccak256(
+                    abi.encode(
+                        stakingProviders,
+                        perSeatAmount,
+                        rewardMultiplier,
+                        notifier
+                    )
+                )
+            );
+            return;
+        }
+
         uint256 length = stakingProviders.length;
         if (length == 0) {
             return;
@@ -376,6 +424,13 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
         uint96 seized = stakeVault.applySlash(
             stakingProvider,
             uint96(totalAmount)
+        );
+
+        // The vault haircut changes reward capital. Reduce the distributor's
+        // weight before the report can commit so no permissionless reward
+        // tranche can accrue at the pre-slash weight.
+        ISeatAllocator(seatAllocator).syncRewardWeightAfterSlash(
+            stakingProvider
         );
 
         /* solhint-disable-next-line not-rely-on-time */

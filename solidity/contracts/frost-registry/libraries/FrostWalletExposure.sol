@@ -15,10 +15,21 @@
 pragma solidity 0.8.17;
 
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
+import "@openzeppelin/contracts/utils/StorageSlot.sol";
 
 import "../api/IFrostAuthorizationSource.sol";
 import "./FrostRegistryWallets.sol";
+import {FrostAuthorization as Authorization} from "./FrostAuthorization.sol";
 import "../../staking/api/IWalletExposureLedger.sol";
+
+interface IFrostAuthorizationMigration {
+    function prepareAuthorizationMigration(address[] calldata stakingProviders)
+        external;
+}
+
+interface IFrostRegistryGovernance {
+    function governance() external view returns (address);
+}
 
 /// @title FROST wallet exposure notification
 /// @notice Resolves a registered wallet's signing group member IDs to their
@@ -28,6 +39,8 @@ import "../../staking/api/IWalletExposureLedger.sol";
 ///         `FrostWalletRegistry` bytecode — the registry runs close to the
 ///         contract size limit.
 library FrostWalletExposure {
+    using Authorization for Authorization.Data;
+
     struct Data {
         // Wallet exposure ledger notified about wallet registrations and
         // closures. Zero address while unset — notifications are skipped.
@@ -38,6 +51,7 @@ library FrostWalletExposure {
     /// @dev Emitted via delegatecall, so the log is attributed to the
     ///      `FrostWalletRegistry` address.
     event WalletExposureLedgerSet(address walletExposureLedger);
+    event AuthorizationSourceUpdated(address authorizationSource);
 
     /// @notice Emitted when a notification call to the wallet exposure
     ///         ledger reverted. The failure is swallowed on purpose —
@@ -83,6 +97,90 @@ library FrostWalletExposure {
     ///         calls revert OUTSIDE the try/catch, bricking DKG result
     ///         approval and wallet closure.
     error WalletExposureLedgerNotContract();
+    error AuthorizationSourceAddressZero();
+    error CallerNotGovernanceOrProxyAdmin();
+    error AuthorizationMigrationPreparationFailed(bytes reason);
+
+    /// @notice Validates and rewrites every active sortition-pool leaf for an
+    ///         authorization-source migration. Kept in this linked library so
+    ///         the registry remains below the EIP-170 bytecode limit.
+    function migrateAuthorizationSource(
+        Authorization.Data storage authorization,
+        SortitionPool sortitionPool,
+        IFrostAuthorizationSource authorizationSource,
+        address[] calldata stakingProviders
+    ) external {
+        if (
+            msg.sender != IFrostRegistryGovernance(address(this)).governance()
+        ) {
+            address proxyAdmin = StorageSlot
+                .getAddressSlot(
+                    0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
+                )
+                .value;
+            if (msg.sender != proxyAdmin) {
+                revert CallerNotGovernanceOrProxyAdmin();
+            }
+        }
+        if (address(authorizationSource) == address(0)) {
+            revert AuthorizationSourceAddressZero();
+        }
+        emit AuthorizationSourceUpdated(address(authorizationSource));
+        uint256 rosterLength = stakingProviders.length;
+        require(
+            rosterLength == sortitionPool.operatorsInPool(),
+            "Authorization roster length mismatch"
+        );
+
+        for (uint256 i = 0; i < rosterLength; i++) {
+            address stakingProvider = stakingProviders[i];
+            address operator = authorization.stakingProviderToOperator[
+                stakingProvider
+            ];
+            require(
+                operator != address(0) &&
+                    sortitionPool.isOperatorInPool(operator),
+                "Authorization roster operator not pooled"
+            );
+            require(
+                authorization.pendingDecreases[stakingProvider].decreasingAt ==
+                    0,
+                "Authorization decrease pending"
+            );
+            for (uint256 j = 0; j < i; j++) {
+                require(
+                    stakingProviders[j] != stakingProvider,
+                    "Duplicate authorization roster provider"
+                );
+            }
+        }
+
+        // Stateful sources seed their synchronized authorization/reward state
+        // here. The deployed Phase-0 FrostAllowlist predates this optional
+        // hook, so tolerate only an empty-data missing-selector revert. Bubble
+        // every real hook failure so the surrounding source change rolls back.
+        // solhint-disable-next-line avoid-low-level-calls
+        (bool prepared, bytes memory returnData) = address(authorizationSource)
+            .call(
+                abi.encodeWithSelector(
+                    IFrostAuthorizationMigration
+                        .prepareAuthorizationMigration
+                        .selector,
+                    stakingProviders
+                )
+            );
+        if (!prepared && returnData.length != 0) {
+            revert AuthorizationMigrationPreparationFailed(returnData);
+        }
+
+        for (uint256 i = 0; i < rosterLength; i++) {
+            authorization.updateOperatorStatus(
+                authorizationSource,
+                sortitionPool,
+                authorization.stakingProviderToOperator[stakingProviders[i]]
+            );
+        }
+    }
 
     /// @notice Sets the wallet exposure ledger address. One-shot: reverts
     ///         if the ledger has already been set, if the given address

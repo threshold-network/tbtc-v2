@@ -125,6 +125,35 @@ describe("RewardsDistributor", () => {
         )
       ).to.be.revertedWith("Initializable: contract is already initialized")
     })
+
+    it("should allow deferred set-once cycle wiring", async () => {
+      const [instance] = await helpers.upgrades.deployProxy(
+        `RewardsDistributorDeferred_${randomBytes(8).toString("hex")}`,
+        {
+          contractName: "RewardsDistributor",
+          initializerArgs: [
+            tbtc.address,
+            stakeVault.address,
+            signerRegistry.address,
+            ethers.constants.AddressZero,
+            ethers.constants.AddressZero,
+          ],
+          factoryOpts: { signer: deployer },
+          proxyOpts: { kind: "transparent" },
+        }
+      )
+
+      await instance.connect(deployer).setSeatAllocator(seatAllocator.address)
+      await instance.connect(deployer).setFeeRouter(feeRouter.address)
+      expect(await instance.seatAllocator()).to.equal(seatAllocator.address)
+      expect(await instance.feeRouter()).to.equal(feeRouter.address)
+      await expect(
+        instance.connect(deployer).setSeatAllocator(seatAllocator.address)
+      ).to.be.revertedWith("AlreadySet")
+      await expect(
+        instance.connect(deployer).setFeeRouter(feeRouter.address)
+      ).to.be.revertedWith("AlreadySet")
+    })
   })
 
   describe("access control", () => {

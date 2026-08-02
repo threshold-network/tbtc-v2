@@ -48,6 +48,7 @@ contract RewardsDistributor is
     error CallerNotFeeRouter();
     error CallerNotBeneficiary();
     error NothingToClaim();
+    error AlreadySet();
 
     /// @notice Precision of the reward-per-weight accumulator.
     uint256 public constant ACCUMULATOR_PRECISION = 1e18;
@@ -134,6 +135,8 @@ contract RewardsDistributor is
         address indexed beneficiary,
         uint256 amount
     );
+    event SeatAllocatorSet(address seatAllocator);
+    event FeeRouterSet(address feeRouter);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -166,9 +169,7 @@ contract RewardsDistributor is
         if (
             _tbtcToken == address(0) ||
             _stakeVault == address(0) ||
-            _signerRegistry == address(0) ||
-            _seatAllocator == address(0) ||
-            _feeRouter == address(0)
+            _signerRegistry == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -180,6 +181,22 @@ contract RewardsDistributor is
         feeRouter = _feeRouter;
 
         __Ownable_init();
+    }
+
+    /// @notice Sets the seat allocator after proxy deployment. Set once.
+    function setSeatAllocator(address _seatAllocator) external onlyOwner {
+        if (_seatAllocator == address(0)) revert ZeroAddress();
+        if (seatAllocator != address(0)) revert AlreadySet();
+        seatAllocator = _seatAllocator;
+        emit SeatAllocatorSet(_seatAllocator);
+    }
+
+    /// @notice Sets the fee router after proxy deployment. Set once.
+    function setFeeRouter(address _feeRouter) external onlyOwner {
+        if (_feeRouter == address(0)) revert ZeroAddress();
+        if (feeRouter != address(0)) revert AlreadySet();
+        feeRouter = _feeRouter;
+        emit FeeRouterSet(_feeRouter);
     }
 
     /// @notice See {IRewardsDistributor-notifyReward}. The TBTC MUST already

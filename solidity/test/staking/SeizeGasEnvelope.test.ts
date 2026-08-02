@@ -15,20 +15,18 @@ const OperatorStatus = { None: 0, Active: 1, Deactivating: 2, Ejected: 3 }
 // The hard upper bound the slashing module truncates report input to; the
 // never-revert seize path must survive at this size without reverting.
 const MAX_REPORT_SEATS = 100
+const MAX_UNIQUE_PROVIDERS = 35
 
 const PER_SEAT = to1e18(500)
-const DELEGATION_PER_PROVIDER = to1e18(1000)
+const DELEGATION_PER_PROVIDER = to1e18(2000)
 
 // Worst-case gas ceiling for the whole never-revert seize path
 // (SeatAllocator.reportMaliciousBehavior -> SlashingModule.report ->
-// StakeVault.applySlash) driven at MAX_REPORT_SEATS DISTINCT providers, each
-// with stake so the atomic haircut does real work. Measured worst case is
-// ~16.29M gas; the 17M ceiling is a tight regression guard that still stays
-// comfortably under the 30M block gas limit so a Bridge seize call remains
-// feasible. This is a strict envelope: it uses every seat in a real FROST
-// wallet as a distinct provider, while production wallets aggregate to far
-// fewer unique operators (<=35 per the design).
-const GAS_BUDGET = 17_000_000
+// StakeVault.applySlash) driven at all 100 FROST seats and the design's
+// accepted maximum of 35 unique providers, each with stake so the atomic
+// haircut does real work. Keep the envelope below the post-Fusaka per-
+// transaction cap as well as the block limit.
+const GAS_BUDGET = 8_000_000
 
 describe("Seize gas envelope (never-revert report path)", () => {
   let deployer: SignerWithAddress
@@ -36,7 +34,7 @@ describe("Seize gas envelope (never-revert report path)", () => {
   let notifier: SignerWithAddress
   // Stands in for the FROST wallet registry: the only caller allowed to
   // drive reportMaliciousBehavior on the allocator.
-  let registry: SignerWithAddress
+  let registry: Contract
 
   let vault: Contract
   let slashingModule: Contract
@@ -46,7 +44,7 @@ describe("Seize gas envelope (never-revert report path)", () => {
 
   before(async function setup() {
     this.timeout(300_000)
-    ;[deployer, delegator, notifier, registry] = await ethers.getSigners()
+    ;[deployer, delegator, notifier] = await ethers.getSigners()
 
     const tToken = await (await ethers.getContractFactory("TestERC20"))
       .connect(deployer)
@@ -64,6 +62,11 @@ describe("Seize gas envelope (never-revert report path)", () => {
       .deploy()
     const distributor = await (
       await ethers.getContractFactory("StakingMockRewardsDistributor")
+    )
+      .connect(deployer)
+      .deploy()
+    registry = await (
+      await ethers.getContractFactory("StakingMockWalletRegistry")
     )
       .connect(deployer)
       .deploy()
@@ -120,36 +123,51 @@ describe("Seize gas envelope (never-revert report path)", () => {
       .connect(deployer)
       .setSeatAllocator(seatAllocator.address)
     await vault.connect(deployer).beginDelegationUpdate(true)
+    await slashingModule.connect(deployer).beginEconomicSlashingUpdate(true)
     await increaseTime(GOVERNANCE_DELAY)
     await vault.connect(deployer).finalizeDelegationUpdate()
+    await slashingModule.connect(deployer).finalizeEconomicSlashingUpdate()
 
-    // Fund the delegator and stake into 100 distinct provider pools so
-    // every applySlash in the report loop haircuts real delegated assets.
-    const totalStake = DELEGATION_PER_PROVIDER.mul(MAX_REPORT_SEATS)
+    // Fund the delegator and stake into the maximum expected 35 distinct
+    // provider pools. Fill all 100 report seats by cycling those providers.
+    const totalStake = DELEGATION_PER_PROVIDER.mul(MAX_UNIQUE_PROVIDERS)
     await tToken.connect(deployer).mint(delegator.address, totalStake)
     await tToken.connect(delegator).approve(vault.address, totalStake)
 
-    for (let i = 0; i < MAX_REPORT_SEATS; i++) {
+    for (let i = 0; i < MAX_UNIQUE_PROVIDERS; i++) {
       const provider = ethers.Wallet.createRandom().address
       providers.push(provider)
       await signerRegistry.setOperatorStatus(provider, OperatorStatus.Active)
       await vault.connect(delegator).delegate(provider, DELEGATION_PER_PROVIDER)
     }
+    const uniqueProviders = [...providers]
+    for (let i = MAX_UNIQUE_PROVIDERS; i < MAX_REPORT_SEATS; i++) {
+      providers.push(uniqueProviders[i % MAX_UNIQUE_PROVIDERS])
+    }
   })
 
-  it("processes MAX_REPORT_SEATS distinct providers under the gas budget without reverting", async () => {
-    const tx = await seatAllocator
-      .connect(registry)
-      .reportMaliciousBehavior(PER_SEAT, 100, notifier.address, providers)
+  it("processes all report seats across the maximum expected unique providers under budget", async () => {
+    const tx = await registry.callReportMaliciousBehavior(
+      seatAllocator.address,
+      PER_SEAT,
+      100,
+      notifier.address,
+      providers,
+      // A best-effort try/catch deliberately makes both the full accounting
+      // path and the queued fallback successful transactions. Gas estimation
+      // therefore targets the cheaper fallback; provide the block envelope
+      // explicitly so this test measures the intended full path.
+      { gasLimit: 16_777_000 }
+    )
     const receipt = await tx.wait()
 
     // The never-revert path completed and booked every unique provider (the
     // report was NOT swallowed by the allocator's try/catch).
     expect(await slashingModule.pendingSlashesLength()).to.equal(
-      MAX_REPORT_SEATS
+      MAX_UNIQUE_PROVIDERS
     )
     expect(await slashingModule.pendingSlashCount(providers[0])).to.equal(1)
-    // Atomic haircut landed: 500 T taken from each 1000 T delegated pool.
+    // Provider 0 owns three seats: 1500 T is taken from its 2000 T pool.
     expect(await vault.delegatedAssetsOf(providers[0])).to.equal(to1e18(500))
     expect(await vault.seizedBalance()).to.equal(PER_SEAT.mul(MAX_REPORT_SEATS))
     // Weight-dirty marker set for each reported provider.
@@ -157,9 +175,43 @@ describe("Seize gas envelope (never-revert report path)", () => {
 
     // eslint-disable-next-line no-console
     console.log(
-      `      worst-case seize gas (${MAX_REPORT_SEATS} unique providers): ` +
+      `      worst-case seize gas (${MAX_REPORT_SEATS} seats, ` +
+        `${MAX_UNIQUE_PROVIDERS} unique providers): ` +
         `${receipt.gasUsed.toString()}`
     )
     expect(receipt.gasUsed).to.be.lt(GAS_BUDGET)
+  })
+
+  it("durably queues every provider when the downstream report is gas-starved", async () => {
+    const gasStarvedProviders = Array.from(
+      { length: MAX_REPORT_SEATS },
+      () => ethers.Wallet.createRandom().address
+    )
+    const reportId = await seatAllocator.nextFailedSlashReportId()
+
+    await expect(
+      registry.callReportMaliciousBehavior(
+        seatAllocator.address,
+        PER_SEAT,
+        100,
+        notifier.address,
+        gasStarvedProviders,
+        { gasLimit: 16_777_000 }
+      )
+    )
+      .to.emit(seatAllocator, "SlashReportQueued")
+      .withArgs(reportId)
+
+    // The downstream call consumed its allowance and reverted atomically, but
+    // the allocator wrote its exit holds before forwarding gas.
+    expect(await slashingModule.pendingSlashesLength()).to.equal(
+      MAX_UNIQUE_PROVIDERS
+    )
+    expect(
+      await seatAllocator.queuedSlashCount(gasStarvedProviders[0])
+    ).to.equal(1)
+    expect(await seatAllocator.failedSlashReportHash(reportId)).not.to.equal(
+      ethers.constants.HashZero
+    )
   })
 })

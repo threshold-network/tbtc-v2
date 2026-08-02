@@ -1,5 +1,5 @@
 /* eslint-disable no-await-in-loop */
-import hre, { deployments, ethers, helpers, waffle } from "hardhat"
+import hre, { deployments, ethers, helpers, upgrades, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
 import { expect } from "chai"
@@ -43,6 +43,7 @@ async function expectCustomError(
 describe("FrostWalletRegistry allowlist authorization", () => {
   let deployer: SignerWithAddress
   let thirdParty: SignerWithAddress
+  let proxyAdminOwner: SignerWithAddress
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
   let frostAllowlist: any
@@ -57,6 +58,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     ;({ deployer, thirdParty, bridge } = await waffle.loadFixture(
       bridgeFixture
     ))
+    ;({ esdm: proxyAdminOwner } = await helpers.signers.getNamedSigners())
 
     const t = await deployments.get("T")
     const reimbursementPool = await deployments.get("ReimbursementPool")
@@ -159,6 +161,130 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     }
 
     expect(await frostSortitionPool.operatorsInPool()).to.equal(OPERATOR_COUNT)
+  })
+
+  it("atomically migrates and rolls back the complete active authorization roster", async () => {
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
+    const weight = await frostWalletRegistry.minimumAuthorization()
+    const migratedWeight = weight.mul(2)
+    const wallets = await deriveFundedOperatorWallets(hre, OPERATOR_COUNT)
+    const providers = wallets.map((wallet) => wallet.address)
+
+    for (const wallet of wallets) {
+      await frostAllowlist
+        .connect(deployer)
+        .addStakingProvider(wallet.address, weight)
+      await frostWalletRegistry.connect(wallet).registerOperator(wallet.address)
+      await frostWalletRegistry.connect(wallet).joinSortitionPool()
+    }
+
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const migrationSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+    for (const provider of providers) {
+      await migrationSource.setWeight(provider, migratedWeight)
+    }
+
+    await expectCustomError(
+      frostWalletRegistry
+        .connect(thirdParty)
+        .migrateAuthorizationSource(migrationSource.address, providers),
+      "CallerNotGovernanceOrProxyAdmin"
+    )
+    // Exercise the production cutover shape: deploy the new implementation
+    // and have ProxyAdmin perform upgradeAndCall. The migration library
+    // recognizes the EIP-1967 admin while ordinary non-governance callers
+    // remain rejected. Governance retains the repeatable direct rollback path.
+    const InactivityFactory = await ethers.getContractFactory("FrostInactivity")
+    const inactivity = await InactivityFactory.connect(deployer).deploy()
+    const ExposureFactory = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const exposure = await ExposureFactory.connect(deployer).deploy()
+    const RegistryFactory = await ethers.getContractFactory(
+      "FrostWalletRegistry",
+      {
+        signer: deployer,
+        libraries: {
+          FrostInactivity: inactivity.address,
+          FrostWalletExposure: exposure.address,
+        },
+      }
+    )
+    const implementation = await RegistryFactory.deploy(
+      frostSortitionPool.address
+    )
+    const migrationCall = frostWalletRegistry.interface.encodeFunctionData(
+      "migrateAuthorizationSource",
+      [migrationSource.address, providers]
+    )
+    const proxyAdmin = await upgrades.admin.getInstance()
+    await expect(
+      proxyAdmin
+        .connect(proxyAdminOwner)
+        .upgradeAndCall(
+          frostWalletRegistry.address,
+          implementation.address,
+          migrationCall
+        )
+    )
+      .to.emit(frostWalletRegistry, "AuthorizationSourceUpdated")
+      .withArgs(migrationSource.address)
+
+    expect(await migrationSource.prepareCalls()).to.equal(1)
+    for (const provider of providers) {
+      expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(
+        migratedWeight
+      )
+    }
+
+    // Rollback uses the already-populated production FrostAllowlist. Its
+    // deployed implementation predates the optional preparation hook; the
+    // migration tolerates that missing selector and still rewrites every leaf.
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(frostAllowlist.address, providers)
+    for (const provider of providers) {
+      expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(weight)
+    }
+  })
+
+  it("rejects an incomplete active migration roster", async () => {
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+    const weight = await frostWalletRegistry.minimumAuthorization()
+    const wallets = await deriveFundedOperatorWallets(hre, OPERATOR_COUNT)
+    for (const wallet of wallets) {
+      await frostAllowlist
+        .connect(deployer)
+        .addStakingProvider(wallet.address, weight)
+      await frostWalletRegistry.connect(wallet).registerOperator(wallet.address)
+      await frostWalletRegistry.connect(wallet).joinSortitionPool()
+    }
+
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const migrationSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(migrationSource.address, [
+          wallets[0].address,
+        ])
+    ).to.be.revertedWith("Authorization roster length mismatch")
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      frostAllowlist.address
+    )
   })
 
   it("rejects authorization reads before allowlist initialization", async () => {

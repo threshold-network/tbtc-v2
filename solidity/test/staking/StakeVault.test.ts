@@ -156,8 +156,14 @@ describe("StakeVault", () => {
       .setSeatAllocator(seatAllocatorContract.address)
 
     await vaultContract.connect(deployerSigner).beginDelegationUpdate(true)
+    await slashingModuleContract
+      .connect(deployerSigner)
+      .beginEconomicSlashingUpdate(true)
     await increaseTime(GOVERNANCE_DELAY)
     await vaultContract.connect(deployerSigner).finalizeDelegationUpdate()
+    await slashingModuleContract
+      .connect(deployerSigner)
+      .finalizeEconomicSlashingUpdate()
 
     await signerRegistryContract.setOperatorStatus(
       operatorSigner.address,
@@ -318,7 +324,9 @@ describe("StakeVault", () => {
       })
 
       it("should not update the delay before the governance delay", async () => {
-        await vault.connect(deployer).beginUndelegationDelayUpdate(3600)
+        await vault
+          .connect(deployer)
+          .beginUndelegationDelayUpdate(14 * 24 * 3600)
         expect(await vault.undelegationDelay()).to.equal(UNDELEGATION_DELAY)
         await expect(
           vault.connect(deployer).finalizeUndelegationDelayUpdate()
@@ -332,8 +340,17 @@ describe("StakeVault", () => {
           .finalizeUndelegationDelayUpdate()
         await expect(tx)
           .to.emit(vault, "UndelegationDelayUpdated")
-          .withArgs(3600)
-        expect(await vault.undelegationDelay()).to.equal(3600)
+          .withArgs(14 * 24 * 3600)
+        expect(await vault.undelegationDelay()).to.equal(14 * 24 * 3600)
+      })
+
+      it("should reject delays outside the disclosed 14-60 day range", async () => {
+        await expect(
+          vault.connect(deployer).beginUndelegationDelayUpdate(14 * 86400 - 1)
+        ).to.be.revertedWith("UndelegationDelayTooShort")
+        await expect(
+          vault.connect(deployer).beginUndelegationDelayUpdate(60 * 86400 + 1)
+        ).to.be.revertedWith("UndelegationDelayTooLong")
       })
     })
 
@@ -644,6 +661,34 @@ describe("StakeVault", () => {
       await expect(
         vault.connect(delegator1).finalizeUndelegate(0)
       ).to.be.revertedWith("UndelegationDelayNotElapsed")
+    })
+
+    it("should keep the request's original cooldown when governance shortens the global delay", async () => {
+      expect(await vault.undelegationRequestDelay(0)).to.equal(
+        UNDELEGATION_DELAY
+      )
+      await vault.connect(deployer).beginUndelegationDelayUpdate(14 * 24 * 3600)
+      await increaseTime(GOVERNANCE_DELAY)
+      await vault.connect(deployer).finalizeUndelegationDelayUpdate()
+      await increaseTime(7 * 24 * 3600)
+
+      await expect(
+        vault.connect(delegator1).finalizeUndelegate(0)
+      ).to.be.revertedWith("UndelegationDelayNotElapsed")
+
+      await increaseTime(31 * 24 * 3600)
+      await vault.connect(delegator1).finalizeUndelegate(0)
+    })
+
+    it("should block an exit while the allocator has a queued slash report", async () => {
+      await increaseTime(UNDELEGATION_DELAY)
+      await seatAllocator.setQueuedSlashCount(operator.address, 1)
+      await expect(
+        vault.connect(delegator1).finalizeUndelegate(0)
+      ).to.be.revertedWith("PendingSlashExists")
+
+      await seatAllocator.setQueuedSlashCount(operator.address, 0)
+      await vault.connect(delegator1).finalizeUndelegate(0)
     })
 
     it("should finalize even while a wallet at or before the request epoch is live (delegator path is not lifecycle-gated)", async () => {

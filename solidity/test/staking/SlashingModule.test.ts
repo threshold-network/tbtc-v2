@@ -148,8 +148,14 @@ describe("SlashingModule", () => {
       .connect(deployerSigner)
       .setSeatAllocator(seatAllocatorContract.address)
     await vaultContract.connect(deployerSigner).beginDelegationUpdate(true)
+    await slashingModuleContract
+      .connect(deployerSigner)
+      .beginEconomicSlashingUpdate(true)
     await increaseTime(GOVERNANCE_DELAY)
     await vaultContract.connect(deployerSigner).finalizeDelegationUpdate()
+    await slashingModuleContract
+      .connect(deployerSigner)
+      .finalizeEconomicSlashingUpdate()
 
     await signerRegistryContract.setOperatorStatus(
       operatorSigner.address,
@@ -222,6 +228,19 @@ describe("SlashingModule", () => {
       )
       expect(await slashingModule.governanceDelay()).to.equal(GOVERNANCE_DELAY)
       expect(await slashingModule.movementPaused()).to.be.false
+    })
+
+    it("should leave economic slashing disabled on a fresh deployment", async () => {
+      const deployment = await helpers.upgrades.deployProxy(
+        `SlashingModuleDefaultGate_${randomBytes(8).toString("hex")}`,
+        {
+          contractName: "SlashingModule",
+          initializerArgs: [vault.address, GOVERNANCE_DELAY],
+          factoryOpts: { signer: deployer },
+          proxyOpts: { kind: "transparent" },
+        }
+      )
+      expect(await deployment[0].economicSlashingEnabled()).to.be.false
     })
 
     it("should default the guardian and restitution reserve to the owner", async () => {
@@ -373,6 +392,20 @@ describe("SlashingModule", () => {
     it("should be a no-op for an empty provider list", async () => {
       await createSnapshot()
       await report([], to1e18(100), 0)
+      expect(await slashingModule.pendingSlashesLength()).to.equal(0)
+      await restoreSnapshot()
+    })
+
+    it("should record but not haircut reports while economic slashing is disabled", async () => {
+      await createSnapshot()
+      await slashingModule.connect(deployer).beginEconomicSlashingUpdate(false)
+      await increaseTime(GOVERNANCE_DELAY)
+      await slashingModule.connect(deployer).finalizeEconomicSlashingUpdate()
+
+      await vault.connect(operator).depositSelfBond(to1e18(1000))
+      const tx = await report([operator.address], to1e18(100), 0)
+      await expect(tx).to.emit(slashingModule, "SlashReportRecorded")
+      expect(await vault.selfBondOf(operator.address)).to.equal(to1e18(1000))
       expect(await slashingModule.pendingSlashesLength()).to.equal(0)
       await restoreSnapshot()
     })

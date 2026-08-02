@@ -171,8 +171,21 @@ describe("FeeRouter", () => {
       await expectDeploymentRevert({ tbtcToken: ZERO_ADDRESS })
     })
 
-    it("should revert given a zero distributor address", async () => {
-      await expectDeploymentRevert({ rewardsDistributor: ZERO_ADDRESS })
+    it("should allow deferred set-once distributor wiring", async () => {
+      const router = await deployRouter({
+        rewardsDistributor: ZERO_ADDRESS,
+      })
+      await router
+        .connect(deployer)
+        .setRewardsDistributor(rewardsDistributor.address)
+      expect(await router.rewardsDistributor()).to.equal(
+        rewardsDistributor.address
+      )
+      await expect(
+        router
+          .connect(deployer)
+          .setRewardsDistributor(rewardsDistributor.address)
+      ).to.be.revertedWith("AlreadySet")
     })
 
     it("should revert given a zero treasury address", async () => {
@@ -617,6 +630,88 @@ describe("FeeRouter", () => {
       await feeRouter.connect(deployer).finalizeDaoTreasuryUpdate()
       expect(await feeRouter.daoTreasury()).to.equal(thirdParty.address)
       expect(await feeRouter.daoTreasuryChangeInitiated()).to.equal(0)
+    })
+  })
+
+  describe("Bank/TBTCVault infrastructure update", () => {
+    it("should switch to a replacement vault only after the governance delay", async () => {
+      const VaultFactory = await ethers.getContractFactory(
+        "contracts/test/staking/StakingFeeMocks.sol:StakingMockTBTCVault"
+      )
+      const replacementVault = (await VaultFactory.connect(deployer).deploy(
+        bank.address,
+        tbtc.address
+      )) as StakingMockTBTCVault
+
+      await feeRouter
+        .connect(deployer)
+        .beginInfrastructureUpdate(
+          bank.address,
+          replacementVault.address,
+          tbtc.address
+        )
+      await expect(
+        feeRouter.connect(deployer).finalizeInfrastructureUpdate()
+      ).to.be.revertedWith("Governance delay has not elapsed")
+      await increaseTime(GOVERNANCE_DELAY)
+      await feeRouter.connect(deployer).finalizeInfrastructureUpdate()
+
+      await bank.setBalance(feeRouter.address, 10)
+      await feeRouter.distribute()
+      expect(await bank.balanceOf(replacementVault.address)).to.equal(10)
+      expect(await bank.balanceOf(tbtcVault.address)).to.equal(0)
+    })
+
+    it("should not abandon a balance when changing Bank", async () => {
+      const BankFactory = await ethers.getContractFactory(
+        "contracts/test/staking/StakingFeeMocks.sol:StakingMockBank"
+      )
+      const replacementBank = (await BankFactory.connect(
+        deployer
+      ).deploy()) as StakingMockBank
+      const VaultFactory = await ethers.getContractFactory(
+        "contracts/test/staking/StakingFeeMocks.sol:StakingMockTBTCVault"
+      )
+      const replacementVault = (await VaultFactory.connect(deployer).deploy(
+        replacementBank.address,
+        tbtc.address
+      )) as StakingMockTBTCVault
+
+      await bank.setBalance(feeRouter.address, 1)
+      await feeRouter
+        .connect(deployer)
+        .beginInfrastructureUpdate(
+          replacementBank.address,
+          replacementVault.address,
+          tbtc.address
+        )
+      await increaseTime(GOVERNANCE_DELAY)
+      await expect(
+        feeRouter.connect(deployer).finalizeInfrastructureUpdate()
+      ).to.be.revertedWith("BankBalanceNotMigrated")
+    })
+
+    it("should not abandon a TBTC balance when changing the token", async () => {
+      const TokenFactory = await ethers.getContractFactory(
+        "contracts/test/staking/StakingFeeMocks.sol:StakingTestToken"
+      )
+      const replacementToken = (await TokenFactory.connect(
+        deployer
+      ).deploy()) as StakingTestToken
+      await tbtc.connect(deployer).mint(feeRouter.address, to1e18(1))
+
+      await feeRouter
+        .connect(deployer)
+        .beginInfrastructureUpdate(
+          bank.address,
+          tbtcVault.address,
+          replacementToken.address
+        )
+      await increaseTime(GOVERNANCE_DELAY)
+      await expect(
+        feeRouter.connect(deployer).finalizeInfrastructureUpdate()
+      ).to.be.revertedWith("TbtcBalanceNotMigrated")
+      expect(await feeRouter.tbtcToken()).to.equal(tbtc.address)
     })
   })
 })

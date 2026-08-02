@@ -21,6 +21,71 @@ import "../staking/api/ISignerRegistry.sol";
 import "../staking/api/ISlashingModule.sol";
 import "../staking/api/IRewardsDistributor.sol";
 
+/// @dev Settable authorization source used to prove registry source migration
+///      and active sortition-roster synchronization.
+contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
+    mapping(address => uint96) public weights;
+    uint256 public prepareCalls;
+
+    function setWeight(address stakingProvider, uint96 weight) external {
+        weights[stakingProvider] = weight;
+    }
+
+    function prepareAuthorizationMigration(address[] calldata) external {
+        prepareCalls += 1;
+    }
+
+    function authorizedWeight(address stakingProvider, address)
+        external
+        view
+        override
+        returns (uint96)
+    {
+        return weights[stakingProvider];
+    }
+
+    function approveAuthorizationDecrease(address)
+        external
+        pure
+        override
+        returns (uint96)
+    {
+        return 0;
+    }
+
+    function rolesOf(address)
+        external
+        pure
+        override
+        returns (
+            address,
+            address payable,
+            address
+        )
+    {
+        return (address(0), payable(address(0)), address(0));
+    }
+
+    function reportMaliciousBehavior(
+        uint96,
+        uint256,
+        address,
+        address[] memory
+    ) external pure override {}
+
+    function onOperatorInactivity(address[] memory, uint64)
+        external
+        pure
+        override
+    {}
+
+    function onWalletExposureReconciled(address[] memory)
+        external
+        pure
+        override
+    {}
+}
+
 /// @dev Test stubs for the delegated staking module's seat allocator and
 ///      wallet exposure ledger tests. `StakingMockWalletRegistry` records
 ///      the authorization callbacks the allocator drives and forwards
