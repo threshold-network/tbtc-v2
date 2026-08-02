@@ -1316,6 +1316,10 @@ export class P2TRProductionActivationGate {
       }
     }
     if (recoveryErrors.length === 0) return
+    const aggregate = new AggregateError(
+      recoveryErrors,
+      "Candidate enqueue guard recovery failed"
+    )
 
     try {
       const health =
@@ -1330,13 +1334,14 @@ export class P2TRProductionActivationGate {
           ? readinessError.message
           : "Production runtime alert health failed after candidate enqueue guard recovery",
         {
-          cause: new AggregateError(
-            recoveryErrors,
-            "Candidate enqueue guard recovery failed"
-          ),
+          cause: aggregate,
         }
       )
     }
+    // A non-retryable resume can terminalize its guard, making runtime health
+    // clean while still abandoning the confirmed candidate. Fail this startup
+    // attempt with the original diagnostics instead of silently discarding them.
+    throw aggregate
   }
 
   private async armCandidateEnqueueTransactionGuardWithRetry(

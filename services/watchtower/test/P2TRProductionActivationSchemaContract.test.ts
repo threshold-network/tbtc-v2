@@ -43,6 +43,13 @@ const recoveryHardeningMigration = readFileSync(
   ),
   "utf8"
 )
+const challengeSeriesMigration = readFileSync(
+  new URL(
+    "../migrations/008_p2tr_candidate_enqueue_challenge_series.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -116,6 +123,28 @@ describe("production activation PostgreSQL schema contract", () => {
     assert.match(
       generationAuthorityMigration,
       /DROP INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx/
+    )
+  })
+
+  it("binds candidate consumption to the challenge-series observation alias", () => {
+    assert.match(
+      activationStore,
+      /outbox\.observation_id =\s*p2tr_candidate_enqueue_authorizations\.challenge_key[\s\S]*?outbox\.bridge_challenge_key =\s*p2tr_candidate_enqueue_authorizations\.challenge_key/
+    )
+    assert.match(
+      challengeSeriesMigration,
+      /'\,"observationID\":' \|\|[\s\S]*?encode\(challenge_key_value, 'hex'\)/
+    )
+    assert.match(
+      challengeSeriesMigration,
+      /outbox\.observation_id = challenge_key_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
+    )
+  })
+
+  it("preserves expired authority owned by an unresolved enqueue guard", () => {
+    assert.match(
+      activationStore,
+      /UPDATE p2tr_candidate_enqueue_authorizations[\s\S]*?expires_at <= clock_timestamp\(\)[\s\S]*?FROM p2tr_candidate_enqueue_transaction_guard guard_row[\s\S]*?p2tr_candidate_enqueue_transaction_resolution resolution[\s\S]*?p2tr_candidate_enqueue_retry_exhaustion_alert alert[\s\S]*?p2tr_candidate_enqueue_non_retryable_failure failure/
     )
   })
 

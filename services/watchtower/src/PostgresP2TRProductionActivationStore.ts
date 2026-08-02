@@ -813,7 +813,38 @@ export class PostgresP2TRProductionActivationStore
         WHERE candidate_digest = $1
           AND consumed_at IS NULL
           AND invalidated_at IS NULL
-          AND expires_at <= clock_timestamp()`,
+          AND expires_at <= clock_timestamp()
+          -- A committed guard owns this exact authority after receipt expiry.
+          -- Leave it intact until one of the append-only terminal dispositions
+          -- proves that recovery no longer needs it.
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
+                 WHERE guard_row.manifest_hash =
+                         p2tr_candidate_enqueue_authorizations.manifest_hash
+                   AND guard_row.token_id =
+                         p2tr_candidate_enqueue_authorizations.token_id
+                   AND guard_row.candidate_digest =
+                         p2tr_candidate_enqueue_authorizations.candidate_digest
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                      WHERE resolution.manifest_hash = guard_row.manifest_hash
+                        AND resolution.token_id = guard_row.token_id
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                      WHERE alert.manifest_hash = guard_row.manifest_hash
+                        AND alert.token_id = guard_row.token_id
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                      WHERE failure.manifest_hash = guard_row.manifest_hash
+                        AND failure.token_id = guard_row.token_id
+                   )
+              )`,
       [hexBuffer(normalized.candidateDigest, "candidate digest")]
     )
     const result = await this.session.query(
@@ -1235,7 +1266,7 @@ export class PostgresP2TRProductionActivationStore
                AND outbox.series_id =
                      p2tr_candidate_enqueue_authorizations.expected_outbox_series_id
                AND outbox.observation_id =
-                     p2tr_candidate_enqueue_authorizations.observation_id
+                     p2tr_candidate_enqueue_authorizations.challenge_key
                AND outbox.bridge_challenge_key =
                      p2tr_candidate_enqueue_authorizations.challenge_key
                AND outbox.bitcoin_tx_hash =

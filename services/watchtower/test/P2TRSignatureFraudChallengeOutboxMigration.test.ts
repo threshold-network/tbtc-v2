@@ -40,6 +40,13 @@ const activationHandshakeSource = readFileSync(
   ),
   "utf8"
 )
+const postgresOutboxStoreSource = readFileSync(
+  new URL(
+    "../src/PostgresP2TRSignatureFraudChallengeOutboxStore.ts",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 test("leaves transaction ownership to the ordered migration runner", () => {
   const orderedMigrations = readdirSync(migrationsURL)
@@ -605,6 +612,10 @@ test("records append-only broadcast boundaries per generation and variant", () =
   assert.match(
     migration,
     /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_outbox_broadcast_attempt/
+  )
+  assert.match(
+    postgresOutboxStoreSource,
+    /lastBroadcastProviderAccepted === false[\s\S]*?\? "rejected"[\s\S]*?acknowledgementResult/
   )
 })
 

@@ -3281,6 +3281,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     )
     if (
       latestVariant.lastBroadcastAtUnixMs !== undefined &&
+      latestVariant.lastBroadcastProviderAccepted !== false &&
       nowUnixMs - latestVariant.lastBroadcastAtUnixMs <
         this.minimumRebroadcastIntervalMs
     ) {
@@ -3364,7 +3365,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         attempted,
         `Broadcast authorization was rejected before send: ${errorMessage(
           error
-        )}`
+        )}`,
+        true
       )
     }
 
@@ -4483,19 +4485,39 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
 
   private async applyPreBroadcastAuthorizationFailure(
     current: P2TRSignatureFraudChallengeOutboxRecord,
-    reason: string
+    reason: string,
+    acknowledgeAttemptRejected = false
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     const nowUnixMs = requireUnixMilliseconds(
       this.now(),
       "Challenge outbox pre-broadcast authorization failure time"
     )
+    const rejectedReason = requireReason(
+      reason,
+      "Challenge outbox pre-broadcast authorization failure"
+    )
+    const variants = current.preparedTransactionVariants
+    let acknowledgedVariants = variants
+    if (acknowledgeAttemptRejected) {
+      if (variants === undefined || variants.length === 0) {
+        throw new Error(
+          "Rejected broadcast authorization lacks its durable attempt variant"
+        )
+      }
+      acknowledgedVariants = replaceLatestPreparedVariant(variants, {
+        ...variants[variants.length - 1],
+        lastBroadcastProviderAccepted: false,
+        lastError: rejectedReason,
+      })
+    }
     const next = nextRecord(current, {
       status: current.status,
+      preparedTransactionVariants: acknowledgedVariants,
+      lastBroadcastProviderAccepted: acknowledgeAttemptRejected
+        ? false
+        : current.lastBroadcastProviderAccepted,
       updatedAtUnixMs: nowUnixMs,
-      lastError: requireReason(
-        reason,
-        "Challenge outbox pre-broadcast authorization failure"
-      ),
+      lastError: rejectedReason,
     })
     await this.store.compareAndSwap(current.recordID, current.version, next)
     return this.requireRecord(current.recordID)

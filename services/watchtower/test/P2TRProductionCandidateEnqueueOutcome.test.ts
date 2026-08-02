@@ -442,6 +442,61 @@ describe("production candidate enqueue outcomes", () => {
     )
   })
 
+  it("surfaces a recovery error even when its terminal disposition makes health clean", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    const journal = emptyCandidateJournal()
+    const recoveries: P2TRProductionCandidateEnqueueTransactionRecovery[] = []
+    const stateStore = candidateStateStore(
+      coordinator,
+      [],
+      journal,
+      undefined,
+      recoveries
+    )
+    const recoveryError = new Error("candidate authority became invalid")
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      async enqueueReconciledCandidate(): Promise<P2TRProductionCandidateEnqueueOutcome> {
+        throw recoveryError
+      },
+    }
+    const { gate, token } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer
+    )
+    const record = (
+      gate as unknown as {
+        candidateTokens: WeakMap<
+          object,
+          { receipt: P2TRProductionCandidateAuthorizationReceipt }
+        >
+      }
+    ).candidateTokens.get(token)!
+    const guard = {
+      tokenID: record.receipt.tokenID,
+      manifestHash: record.receipt.manifestHash,
+      candidateDigest: record.receipt.candidateDigest,
+      maxAttemptCount: 3,
+    }
+    journal.guards.push(guard)
+    recoveries.push({ guard, authorization: record.receipt })
+
+    await assert.rejects(
+      gate.recoverCandidateEnqueueTransactionGuards(),
+      (error: unknown) => {
+        assert.ok(error instanceof AggregateError)
+        assert.match(error.message, /Candidate enqueue guard recovery failed/)
+        assert.deepEqual(error.errors, [recoveryError])
+        return true
+      }
+    )
+    assert.equal(journal.nonRetryableFailures.length, 1)
+    assert.doesNotThrow(() =>
+      assertP2TRProductionRuntimeAlertHealth(healthFor(journal), MANIFEST_HASH)
+    )
+  })
+
   it("attaches guard recovery failures to the activation blocker", async () => {
     const coordinator = new RollbackAwareCoordinator()
     const journal = emptyCandidateJournal()

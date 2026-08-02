@@ -289,6 +289,62 @@ describe(
           "utf8"
         )
         await database.query(`BEGIN;\n${recoveryHardeningMigration}\nCOMMIT;`)
+        const challengeSeriesMigration = await readFile(
+          new URL(
+            "../migrations/008_p2tr_candidate_enqueue_challenge_series.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${challengeSeriesMigration}\nCOMMIT;`)
+
+        const expectedSeriesID = createHash("sha256")
+          .update(
+            JSON.stringify({
+              domain: "tbtc-p2tr-signature-fraud-outbox-series-v1",
+              protocol: "COMPLETE_V2",
+              evidenceProtocolID:
+                "0x12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef",
+              chainID: 31337,
+              domainChainID: 31337,
+              routerAddress: "0x1234567890abcdef1234567890abcdef12345678",
+              observationID: challengeKey,
+              inputIndex: 0,
+              bridgeChallengeKey: challengeKey,
+              signingKey: inputOutputKey,
+              bindingTxHash: WORD("00"),
+              bindingOutputIndex: 0,
+            })
+          )
+          .digest("hex")
+        const repairedSeries = await database.query<{
+          computed_series_id: string
+          expected_outbox_series_id: string
+        }>(
+          `SELECT encode(
+                    p2tr_candidate_enqueue_series_id(
+                      $1, $2, $3, 0, $4,
+                      'registered-wallet-output', $5, 0
+                    ),
+                    'hex'
+                  ) AS computed_series_id,
+                  encode(expected_outbox_series_id, 'hex')
+                    AS expected_outbox_series_id
+             FROM p2tr_candidate_enqueue_authorizations
+            WHERE token_id = $6`,
+          [
+            bytes(manifestHash),
+            bytes(observationID),
+            bytes(challengeKey),
+            bytes(inputOutputKey),
+            bytes(fundingTxid),
+            bytes(tokenID),
+          ]
+        )
+        assert.deepEqual(repairedSeries.rows[0], {
+          computed_series_id: expectedSeriesID,
+          expected_outbox_series_id: expectedSeriesID,
+        })
 
         await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
           async () => {

@@ -1160,7 +1160,8 @@ const dispatcher = (
   onRecoveryBacklog?: (report: {
     backlogRemaining: boolean
   }) => Promise<void> | void,
-  boundaryAuthorizer = new FixedBoundaryAuthorizer()
+  boundaryAuthorizer = new FixedBoundaryAuthorizer(),
+  minimumRebroadcastIntervalMs = 0
 ) =>
   new P2TRSignatureFraudChallengeOutboxDispatcher(
     store,
@@ -1172,7 +1173,7 @@ const dispatcher = (
     new FixedCanonicalResolutionVerifier(),
     {
       irreversibleBoundaryAuthorizer: boundaryAuthorizer,
-      minimumRebroadcastIntervalMs: 0,
+      minimumRebroadcastIntervalMs,
       recoveryPageSize,
       onRecoveryBacklog,
       now,
@@ -3963,6 +3964,14 @@ test("does not broadcast when pre-send authorization fails", async () => {
       rejection === "acquisition" ? 0 : 1
     )
     assert.equal(
+      result.preparedTransactionVariants?.[0].lastBroadcastProviderAccepted,
+      rejection === "acquisition" ? undefined : false
+    )
+    assert.equal(
+      result.lastBroadcastProviderAccepted,
+      rejection === "acquisition" ? undefined : false
+    )
+    assert.equal(
       result.lastBroadcastAtUnixMs,
       rejection === "acquisition" ? undefined : 2_000
     )
@@ -4000,8 +4009,47 @@ test("revalidates broadcast authority after the provenance attempt CAS", async (
 
   assert.equal(result.status, "broadcast-pending")
   assert.equal(result.broadcastAttempts, 1)
+  assert.equal(
+    result.preparedTransactionVariants?.[0].lastBroadcastProviderAccepted,
+    false
+  )
+  assert.equal(result.lastBroadcastProviderAccepted, false)
   assert.deepEqual(broadcaster.rawTransactions, [])
   assert.match(result.lastError ?? "", /superseded while the CAS waited/)
+})
+
+test("retries a rejected post-CAS authorization without a send delay", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const broadcaster = new RecordingBroadcaster()
+  const authorizer = new FixedBoundaryAuthorizer()
+  let nowUnixMs = 2_000
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => nowUnixMs,
+    100,
+    undefined,
+    authorizer,
+    30_000
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  authorizer.rejectConsumption = new Error("authorization expired")
+
+  const rejected = await outbox.broadcast(record.recordID)
+  assert.equal(rejected.lastBroadcastProviderAccepted, false)
+  assert.deepEqual(broadcaster.rawTransactions, [])
+
+  authorizer.rejectConsumption = undefined
+  nowUnixMs++
+  const accepted = await outbox.broadcast(record.recordID)
+
+  assert.equal(accepted.broadcastAttempts, 2)
+  assert.equal(accepted.lastBroadcastProviderAccepted, true)
+  assert.equal(broadcaster.rawTransactions.length, 1)
 })
 
 test("pre-send recheck cancels only before the irreversible boundary", async () => {

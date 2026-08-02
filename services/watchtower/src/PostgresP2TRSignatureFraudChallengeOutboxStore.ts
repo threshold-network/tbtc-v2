@@ -3586,7 +3586,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         variant.lastError !== undefined &&
         variant.lastBroadcastProviderAccepted === undefined
       if (acknowledgementChanged || ambiguousRecorded) {
-        const accepted = variant.lastBroadcastProviderAccepted === true
+        const acknowledgementResult =
+          variant.lastBroadcastProviderAccepted === true
+            ? "accepted"
+            : variant.lastBroadcastProviderAccepted === false
+            ? "rejected"
+            : "ambiguous"
         await this.options.session.query(
           `INSERT INTO p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement (
               record_id, generation, variant_sequence, attempt_number, result,
@@ -3601,8 +3606,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             next.generation,
             variant.sequence,
             variant.broadcastAttempts,
-            accepted ? "accepted" : "ambiguous",
-            accepted
+            acknowledgementResult,
+            acknowledgementResult === "accepted"
               ? stripHex(
                   hexValue(
                     variant.preparedTransaction.transactionHash,
@@ -3610,11 +3615,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
                   )
                 )
               : null,
-            accepted
+            acknowledgementResult === "accepted"
               ? null
               : requireText(
                   variant.lastError,
-                  "Ambiguous broadcast error",
+                  "Broadcast acknowledgement error",
                   1024
                 ),
             next.updatedAtUnixMs,

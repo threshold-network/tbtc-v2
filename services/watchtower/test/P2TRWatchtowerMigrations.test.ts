@@ -53,6 +53,10 @@ describe("P2TR watchtower migration bodies", () => {
           version: 7,
           filename: "007_p2tr_candidate_enqueue_recovery_hardening.sql",
         },
+        {
+          version: 8,
+          filename: "008_p2tr_candidate_enqueue_challenge_series.sql",
+        },
       ]
     )
   })
@@ -189,6 +193,30 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /p2tr_candidate_enqueue_retry_resolution_immutable_trigger[\s\S]*?BEFORE UPDATE OR DELETE/
+    )
+  })
+
+  it("repairs candidate authority to use the SDK challenge-series identity", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/008_p2tr_candidate_enqueue_challenge_series.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /'\,"observationID\":' \|\|[\s\S]*?encode\(challenge_key_value, 'hex'\)/
+    )
+    assert.match(
+      migration,
+      /outbox\.observation_id = challenge_key_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
+    )
+    assert.match(
+      migration,
+      /WHERE authz\.consumed_at IS NULL[\s\S]*?authz\.invalidated_at IS NULL[\s\S]*?UPDATE p2tr_candidate_enqueue_authorizations authz/
     )
   })
 })
