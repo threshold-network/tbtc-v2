@@ -324,6 +324,16 @@ describe(
         await database.query(
           `BEGIN;\n${manifestRotationDispositionMigration}\nCOMMIT;`
         )
+        const provenanceAlertRetirementMigration = await readFile(
+          new URL(
+            "../migrations/012_p2tr_provenance_alert_retirement.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(
+          `BEGIN;\n${provenanceAlertRetirementMigration}\nCOMMIT;`
+        )
 
         const expectedSeriesID = createHash("sha256")
           .update(
@@ -416,14 +426,6 @@ describe(
             })
           }
         )
-        await database.query(
-          `UPDATE p2tr_watchtower_activation_manifest
-              SET activation_sequence = 3,
-                  manifest_hash = $1,
-                  activated_at = clock_timestamp()
-            WHERE singleton = true`,
-          [bytes(manifestHash)]
-        )
         await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
           async () => {
             await stateStore.resolveCandidateEnqueueRetryExhaustionAlert({
@@ -435,7 +437,7 @@ describe(
               resolvedAtUnixMs: 10_000,
             })
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
-              manifestHash,
+              manifestHash: rotatedManifestHash,
               unresolvedCandidateEnqueueTransactionGuardCount: 0,
               candidateEnqueueRetryExhaustionCount: 0,
             })

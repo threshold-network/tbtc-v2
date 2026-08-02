@@ -70,6 +70,10 @@ describe("P2TR watchtower migration bodies", () => {
           filename:
             "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
         },
+        {
+          version: 12,
+          filename: "012_p2tr_provenance_alert_retirement.sql",
+        },
       ]
     )
   })
@@ -306,6 +310,26 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /AFTER UPDATE ON p2tr_watchtower_activation_manifest/
+    )
+  })
+
+  it("retires the duplicate provenance alert with its incident journal", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/012_p2tr_provenance_alert_retirement.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_outbox_activation_revalidation/
+    )
+    assert.match(
+      migration,
+      /a\.code <> 'provenance-reconciliation-incident'[\s\S]*?pi\.record_id = a\.record_id[\s\S]*?p2tr_signature_fraud_challenge_provenance_incident_resolution/
     )
   })
 })

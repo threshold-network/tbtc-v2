@@ -1917,7 +1917,6 @@ export class PostgresP2TRProductionActivationStore
   ): Promise<void> {
     const normalized =
       normalizeCandidateEnqueueRetryExhaustionResolution(resolution)
-    await this.assertCurrentActivationManifest(normalized.manifestHash)
     const inserted = await this.session.query(
       `INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_resolution
          (manifest_hash, token_id, candidate_digest, alert_detail_digest,

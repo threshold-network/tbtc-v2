@@ -47,6 +47,10 @@ const postgresOutboxStoreSource = readFileSync(
   ),
   "utf8"
 )
+const provenanceAlertRetirementMigration = readFileSync(
+  new URL("012_p2tr_provenance_alert_retirement.sql", migrationsURL),
+  "utf8"
+).replace(/\s+/g, " ")
 
 test("leaves transaction ownership to the ordered migration runner", () => {
   const orderedMigrations = readdirSync(migrationsURL)
@@ -74,6 +78,17 @@ test("leaves transaction ownership to the ordered migration runner", () => {
   if (canonicalJournalIndex !== -1) {
     assert.ok(canonicalJournalIndex < challengeOutboxIndex)
   }
+})
+
+test("revalidation follows append-only provenance incident retirement", () => {
+  assert.match(
+    provenanceAlertRetirementMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_outbox_activation_revalidation/
+  )
+  assert.match(
+    provenanceAlertRetirementMigration,
+    /a\.code <> 'provenance-reconciliation-incident'[\s\S]*pi\.record_id = a\.record_id[\s\S]*p2tr_signature_fraud_challenge_provenance_incident_resolution/
+  )
 })
 
 test("binds candidate authority to an exact successor generation", () => {

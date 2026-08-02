@@ -2836,6 +2836,31 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       )
     }
     const previous = variants[variants.length - 1].preparedTransaction
+    const replacementFeeInfeasibility = replacementFeePolicyInfeasibility(
+      previous,
+      selectedFeePolicy
+    )
+    if (replacementFeeInfeasibility !== undefined) {
+      const rejectedAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Challenge outbox infeasible replacement time"
+      )
+      const rejected = nextRecord(current, {
+        updatedAtUnixMs: rejectedAtUnixMs,
+        lastError: replacementFeeInfeasibility,
+      })
+      if (
+        !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
+          key,
+          current.version,
+          current.canonicalProvenance,
+          rejected
+        ))
+      ) {
+        return this.requireRecord(key)
+      }
+      return rejected
+    }
     const nowUnixMs = requireUnixMilliseconds(
       this.now(),
       "Challenge outbox replacement preparation time"
@@ -6174,6 +6199,62 @@ const validatePreparedTransactionFeePolicy = (
     )
   }
   return prepared
+}
+
+const replacementFeePolicyInfeasibility = (
+  previous: P2TRSignatureFraudPreparedChallengeTransaction,
+  policy: P2TRSignatureFraudChallengeTransactionFeePolicy
+): string | undefined => {
+  if (previous.eip1559 === undefined) {
+    throw new Error(
+      "Prepared challenge transaction lacks EIP-1559 fee metadata"
+    )
+  }
+  const previousGasLimit = BigInt(
+    normalizePositivePolicyUint256(
+      previous.eip1559.gasLimit,
+      "Previous challenge gas limit"
+    )
+  )
+  const requiredMaxFeePerGas = minimumReplacementFee(
+    BigInt(
+      normalizePositivePolicyUint256(
+        previous.eip1559.maxFeePerGas,
+        "Previous challenge max fee per gas"
+      )
+    ),
+    policy.minimumReplacementFeeBumpBps
+  )
+  const requiredMaxPriorityFeePerGas = minimumReplacementFee(
+    BigInt(
+      normalizePolicyUint256(
+        previous.eip1559.maxPriorityFeePerGas,
+        "Previous challenge priority fee per gas"
+      )
+    ),
+    policy.minimumReplacementFeeBumpBps
+  )
+  if (
+    requiredMaxFeePerGas > BigInt(policy.maxFeePerGas) ||
+    requiredMaxPriorityFeePerGas > BigInt(policy.maxPriorityFeePerGas) ||
+    previousGasLimit * requiredMaxFeePerGas > BigInt(policy.maxTotalFeeWei)
+  ) {
+    return "Challenge replacement is impossible within its manifest-bound fee caps; the current signed variant remains active"
+  }
+  return undefined
+}
+
+const minimumReplacementFee = (
+  previous: bigint,
+  minimumReplacementFeeBumpBps: number
+): bigint => {
+  const denominator = 10_000n
+  const percentageMinimum =
+    (previous * (denominator + BigInt(minimumReplacementFeeBumpBps)) +
+      denominator -
+      1n) /
+    denominator
+  return percentageMinimum > previous ? percentageMinimum : previous + 1n
 }
 
 const validateIndependentTransport = (

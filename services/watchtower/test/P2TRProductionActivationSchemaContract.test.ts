@@ -71,12 +71,26 @@ const manifestRotationDispositionMigration = readFileSync(
   ),
   "utf8"
 )
+const provenanceAlertRetirementMigration = readFileSync(
+  new URL(
+    "../migrations/012_p2tr_provenance_alert_retirement.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
     assert.doesNotMatch(
       activationStore,
       /p2tr_candidate_enqueue_authorizations authorization/
+    )
+  })
+
+  it("does not retain a duplicate provenance alert after incident retirement", () => {
+    assert.match(
+      provenanceAlertRetirementMigration,
+      /a\.code <> 'provenance-reconciliation-incident'[\s\S]*?pi\.record_id = a\.record_id[\s\S]*?p2tr_signature_fraud_challenge_provenance_incident_resolution/
     )
   })
 
@@ -396,6 +410,7 @@ describe("production activation PostgreSQL schema contract", () => {
       resolution,
       /INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_resolution/
     )
+    assert.doesNotMatch(resolution, /assertCurrentActivationManifest/)
   })
 
   it("revalidates durable candidate authority without steady-state dispatcher gates", () => {

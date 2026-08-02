@@ -466,6 +466,26 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                     FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
                    WHERE ar.alert_id = p2tr_signature_fraud_challenge_critical_alert.alert_id
                 )
+            -- A provenance alert mirrors the record-scoped incident journal.
+            -- Once every incident for that record has append-only retirement
+            -- evidence, retaining the duplicate alert would make the valid
+            -- retirement ineffective because this alert type deliberately has
+            -- no independent resolution path.
+            AND (
+                  code <> 'provenance-reconciliation-incident'
+                  OR EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_provenance_incident pi
+                       WHERE pi.record_id =
+                             p2tr_signature_fraud_challenge_critical_alert.record_id
+                         AND pi.activation_blocking
+                         AND NOT EXISTS (
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_provenance_incident_resolution ir
+                              WHERE ir.incident_id = pi.incident_id
+                         )
+                  )
+                )
           ORDER BY alert_id`
       ),
       session.query<DigestRow>(

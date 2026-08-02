@@ -304,7 +304,16 @@ const activationManifest = (manifestHash = ACTIVATION_MANIFEST_HASH) => ({
 
 const feePolicyManifest = (
   activationManifestHash = ACTIVATION_MANIFEST_HASH,
-  challengeValueWei = "1234"
+  challengeValueWei = "1234",
+  laneOverrides: Partial<
+    Omit<
+      P2TRSignatureFraudChallengeTransactionFeePolicy,
+      | "policyHash"
+      | "activationManifestHash"
+      | "chainID"
+      | "challengeValueWei"
+    >
+  > = {}
 ) => {
   const withoutHash = {
     activationManifestHash,
@@ -320,6 +329,7 @@ const feePolicyManifest = (
         maxPriorityFeePerGas: "10",
         maxTotalFeeWei: "100000000",
         minimumReplacementFeeBumpBps: 1000,
+        ...laneOverrides,
       },
     ],
   }
@@ -990,9 +1000,9 @@ const evidenceCheckpoint = (): P2TRSignatureFraudOutboxEvidenceCheckpoint => ({
 
 const createRecord = (
   intent = createIntent(),
-  evidence = evidenceCheckpoint()
+  evidence = evidenceCheckpoint(),
+  policy = feePolicyManifest()
 ): P2TRSignatureFraudChallengeOutboxRecord => {
-  const policy = feePolicyManifest()
   const eligibility = ethereumEligibility(
     intent,
     evidence.ethereumLifecycleBlockNumber,
@@ -1042,9 +1052,12 @@ const createRecord = (
 
 const enqueue = async (
   store: InMemoryOutboxStore,
-  intent = createIntent()
+  intent = createIntent(),
+  policy = feePolicyManifest()
 ): Promise<P2TRSignatureFraudChallengeOutboxRecord> =>
-  store.insertGenerationIfAbsent(createRecord(intent))
+  store.insertGenerationIfAbsent(
+    createRecord(intent, evidenceCheckpoint(), policy)
+  )
 
 const provenanceInvalidationEvidence = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
@@ -3822,6 +3835,10 @@ test("rejects a replacement below the manifest transaction-pool bump", async () 
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const preparer = new DynamicFeePreparer()
+  preparer.initialMaxFeePerGas = 50
+  preparer.initialPriorityFeePerGas = 5
+  preparer.replacementMaxFeePerGas = 51
+  preparer.replacementPriorityFeePerGas = 6
   const outbox = dispatcher(store, preparer)
 
   await outbox.prepare(record.recordID, "worker-a")
@@ -3837,6 +3854,55 @@ test("rejects a replacement below the manifest transaction-pool bump", async () 
     /policy-bound transaction-pool fee bump/
   )
   assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
+})
+
+test("rejects fee bumps that cannot fit the manifest caps before the signer boundary", async () => {
+  for (const testCase of [
+    {
+      policy: feePolicyManifest(),
+      initialMaxFeePerGas: 100,
+      initialPriorityFeePerGas: 10,
+    },
+    {
+      policy: feePolicyManifest(ACTIVATION_MANIFEST_HASH, "1234", {
+        maxPriorityFeePerGas: "0",
+      }),
+      initialMaxFeePerGas: 20,
+      initialPriorityFeePerGas: 0,
+    },
+    {
+      policy: feePolicyManifest(ACTIVATION_MANIFEST_HASH, "1234", {
+        maxTotalFeeWei: "50000000",
+      }),
+      initialMaxFeePerGas: 50,
+      initialPriorityFeePerGas: 5,
+    },
+  ]) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store, createIntent(), testCase.policy)
+    const preparer = new DynamicFeePreparer()
+    preparer.initialMaxFeePerGas = testCase.initialMaxFeePerGas
+    preparer.initialPriorityFeePerGas = testCase.initialPriorityFeePerGas
+    const outbox = dispatcher(store, preparer)
+
+    await outbox.prepare(record.recordID, "worker-a")
+    const rejected = await outbox.prepareReplacement(
+      record.recordID,
+      "worker-b"
+    )
+
+    assert.equal(rejected.status, "prepared")
+    assert.equal(rejected.preparedTransactionVariants?.length, 1)
+    assert.equal(rejected.preparationAttempts, 1)
+    assert.equal(rejected.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(rejected.preparationLease, undefined)
+    assert.equal(preparer.replacementCalls, 0)
+    assert.equal(store.criticalAlerts.length, 0)
+    assert.match(
+      rejected.lastError ?? "",
+      /impossible.*manifest-bound fee caps/
+    )
+  }
 })
 
 test("enforces manifest-bound fee and exact value caps at every boundary", async () => {

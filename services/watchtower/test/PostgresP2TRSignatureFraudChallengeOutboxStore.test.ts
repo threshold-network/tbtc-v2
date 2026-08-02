@@ -179,7 +179,7 @@ async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
   initialSignerConfiguration = signerConfiguration(),
-  throughMigrationVersion = 11
+  throughMigrationVersion = 12
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -240,6 +240,10 @@ async function createTestDatabase(
     ),
     new URL(
       "../migrations/011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/012_p2tr_provenance_alert_retirement.sql",
       import.meta.url
     ),
   ]
@@ -6320,7 +6324,20 @@ postgresTest(
     ).attestActivationChallenge(activationRequest)
     await commit(database.client)
     assert.equal(retired.payload.state.provenanceIncidentCount, 0)
+    assert.equal(retired.payload.state.activationBlockingAlertCount, 0)
+    assert.equal(retired.payload.state.activationBlockingCriticalAlertCount, 0)
     assert.equal(retired.payload.state.activeSignerInvocationCount, 0)
+
+    const revalidation = normalizeOutboxRevalidation(
+      (
+        await database.client.query<Record<string, string | number>>(
+          `SELECT *
+             FROM p2tr_signature_fraud_outbox_activation_revalidation($1, $2)`,
+          [Buffer.from(MANIFEST_HASH.slice(2), "hex"), 5_000]
+        )
+      ).rows[0]
+    )
+    assert.equal(revalidation.activationBlockingCriticalAlertCount, 0)
 
     const evidence = await database.client.query<{
       outcome: string
