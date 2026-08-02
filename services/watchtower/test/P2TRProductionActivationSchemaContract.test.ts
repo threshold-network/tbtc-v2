@@ -437,6 +437,19 @@ describe("production activation PostgreSQL schema contract", () => {
       /FROM p2tr_candidate_enqueue_transaction_guard guard_row[\s\S]*?JOIN p2tr_candidate_enqueue_authorizations authz/
     )
     assert.match(recovery, /ORDER BY guard_row\.token_id/)
+    const runtimeHealth = methodSource(
+      activationStore,
+      "readRuntimeAlertHealth",
+      "readEthereumJournalHealth"
+    )
+    assert.match(
+      runtimeHealth,
+      /FROM p2tr_candidate_enqueue_transaction_guard guard_row[\s\S]*?JOIN p2tr_candidate_enqueue_authorizations authz/
+    )
+    assert.doesNotMatch(
+      runtimeHealth,
+      /guard_row\.manifest_hash = manifest\.manifest_hash/
+    )
     assert.match(
       activationRuntime,
       /await gate\.recoverCandidateEnqueueTransactionGuards\(\)[\s\S]*?await gate\.assertReady\(\)/

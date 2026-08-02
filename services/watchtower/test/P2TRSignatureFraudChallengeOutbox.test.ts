@@ -1972,6 +1972,9 @@ test("carries the real scheduler generation-cap outcome through the activation g
     isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown() {
       return false
     },
+    isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort() {
+      return false
+    },
     isP2TRSignatureFraudWatchtowerTransactionActive() {
       return active
     },
@@ -4042,6 +4045,45 @@ test("paces repeated pre-send authorization acquisition failures", async () => {
   const retried = await outbox.broadcast(record.recordID)
   assert.equal(retried.version, first.version + 1)
   assert.equal(authorizationRequests, 2)
+  assert.deepEqual(rechecker.stages, ["before-broadcast", "before-broadcast"])
+})
+
+test("paces persistent pre-broadcast recheck failures", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const rechecker = new FixedRechecker()
+  let nowUnixMs = 2_000
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    rechecker,
+    new FixedReconciler(),
+    () => nowUnixMs,
+    100,
+    undefined,
+    new FixedBoundaryAuthorizer(),
+    100
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  rechecker.stages.length = 0
+  rechecker.resolution = {
+    status: "unknown",
+    reason: "canonical providers are unavailable",
+  }
+
+  const first = await outbox.broadcast(record.recordID)
+  nowUnixMs = 2_050
+  const paced = await outbox.broadcast(record.recordID)
+
+  assert.equal(first.lastPreBroadcastRecheckAtUnixMs, 2_000)
+  assert.equal(first.lastPreBroadcastRecheckStatus, "unknown")
+  assert.equal(paced.version, first.version)
+  assert.deepEqual(rechecker.stages, ["before-broadcast"])
+
+  nowUnixMs = 2_100
+  const retried = await outbox.broadcast(record.recordID)
+  assert.equal(retried.version, first.version + 1)
   assert.deepEqual(rechecker.stages, ["before-broadcast", "before-broadcast"])
 })
 

@@ -885,11 +885,16 @@ export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
   domain: P2TRSignatureFraudBridgeChallengeDomain,
   canonical: P2TRCompleteV2ChallengeEvidenceCanonicalContext
 ): P2TRCompleteV2SignatureFraudChallengeEvidence => {
+  if (observation.bridgeChallengeKey === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "COMPLETE_V2 evidence requires a domain-bound observation"
+    )
+  }
   validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
     registeredWalletIDs: canonical.registeredWalletIDs,
     walletInputKeyBindings: canonical.walletInputKeyBindings,
-    bridgeChallengeDomain:
-      observation.bridgeChallengeKey === undefined ? undefined : domain,
+    bridgeChallengeDomain: domain,
   })
 
   const inputIndex = observation.inputIndex

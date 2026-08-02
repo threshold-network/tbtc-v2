@@ -532,6 +532,9 @@ export class PostgresP2TRProductionActivationStore
       candidate_enqueue_retry_exhaustion_count: string | number
     }>(
       `SELECT encode(manifest.manifest_hash, 'hex') AS manifest_hash,
+              -- An armed guard remains a readiness blocker after activation
+              -- manifest rotation. Its invalidated authorization cannot be
+              -- resumed, but hiding it would silently drop the candidate.
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
                  JOIN p2tr_candidate_enqueue_authorizations authz
@@ -539,8 +542,7 @@ export class PostgresP2TRProductionActivationStore
                   AND authz.token_id = guard_row.token_id
                   AND authz.candidate_digest =
                        guard_row.candidate_digest
-                WHERE guard_row.manifest_hash = manifest.manifest_hash
-                  AND NOT EXISTS (
+                WHERE NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
                      WHERE resolution.manifest_hash = guard_row.manifest_hash

@@ -867,6 +867,9 @@ export type P2TRProductionTransactionCoordinator = {
   isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
     error: unknown
   ): boolean
+  isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+    error: unknown
+  ): boolean
   isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
 }
 
@@ -1352,12 +1355,15 @@ export class P2TRProductionActivationGate {
       attemptCount <= this.candidateEnqueueTransactionMaxAttempts;
       attemptCount++
     ) {
+      let transactionCallbackStarted = false
       try {
         await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-          () =>
-            this.dependencies.stateStore.armCandidateEnqueueTransactionGuard(
+          () => {
+            transactionCallbackStarted = true
+            return this.dependencies.stateStore.armCandidateEnqueueTransactionGuard(
               guard
             )
+          }
         )
         return
       } catch (error) {
@@ -1366,6 +1372,12 @@ export class P2TRProductionActivationGate {
             error
           )
         ) {
+          throw error
+        }
+        if (!transactionCallbackStarted) {
+          if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
+            continue
+          }
           throw error
         }
         const sqlState =
@@ -1457,6 +1469,18 @@ export class P2TRProductionActivationGate {
           // within the bounded budget, and leave the guard unresolved if the
           // budget is exhausted so restart recovery can try again. They must
           // never be recorded as terminal application failures.
+          if (attemptCount < maxAttemptCount) continue
+          throw error
+        }
+        if (
+          this.dependencies.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+            error
+          )
+        ) {
+          // No COMMIT was issued, so replaying the complete database-only
+          // transaction is safe. If the bounded budget is exhausted, retain
+          // the armed guard for restart recovery rather than terminalizing a
+          // confirmed transport abort as an application failure.
           if (attemptCount < maxAttemptCount) continue
           throw error
         }

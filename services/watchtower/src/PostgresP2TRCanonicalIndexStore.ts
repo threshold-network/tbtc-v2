@@ -187,6 +187,7 @@ export type P2TRRetryablePostgresSQLState =
 export type P2TRPostgresTransactionConfirmedAbortReason =
   | "retryable-sqlstate"
   | "pre-transaction-retryable-sqlstate"
+  | "pre-commit-transport-abort"
   | "rollback-command"
 
 /**
@@ -208,7 +209,9 @@ export class P2TRPostgresTransactionConfirmedAbortError extends Error {
     readonly operationError: unknown
   ) {
     super(
-      sqlState === undefined
+      reason === "pre-commit-transport-abort"
+        ? "PostgreSQL transport failed before COMMIT; the transaction was aborted"
+        : sqlState === undefined
         ? "PostgreSQL confirmed that the transaction was rolled back"
         : reason === "pre-transaction-retryable-sqlstate"
         ? `PostgreSQL rejected pre-transaction work with ${sqlState}`
@@ -251,6 +254,7 @@ type P2TRPostgresTransactionAttempt = {
     sqlState: P2TRRetryablePostgresSQLState
     error: unknown
   }
+  preCommitTransportAbort?: unknown
 }
 
 const REQUIRED_SCHEMA_VERSION = 4
@@ -522,6 +526,16 @@ export class PostgresP2TRCanonicalIndexStore
     )
   }
 
+  isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+    error: unknown
+  ): boolean {
+    return (
+      isP2TRPostgresTransactionConfirmedAbortError(error) &&
+      this.ownConfirmedAborts.has(error) &&
+      error.reason === "pre-commit-transport-abort"
+    )
+  }
+
   isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
     return this.transaction.getStore() !== undefined
   }
@@ -680,11 +694,29 @@ export class PostgresP2TRCanonicalIndexStore
               rollbackError,
               "PostgreSQL ROLLBACK failed"
             )
+            if (attempt.preCommitTransportAbort !== undefined) {
+              throw this.ownConfirmedAbort(
+                confirmedPostgresAbortError(
+                  attempt,
+                  "pre-commit-transport-abort",
+                  error
+                )
+              )
+            }
             throw error
           }
           if (attempt.confirmedAbort !== undefined) {
             throw this.ownConfirmedAbort(
               confirmedPostgresAbortError(attempt, "retryable-sqlstate", error)
+            )
+          }
+          if (attempt.preCommitTransportAbort !== undefined) {
+            throw this.ownConfirmedAbort(
+              confirmedPostgresAbortError(
+                attempt,
+                "pre-commit-transport-abort",
+                error
+              )
             )
           }
         } else if (transactionPhase === "begin") {
@@ -9535,11 +9567,24 @@ const observeRetryablePostgresAborts = (
       // only serialization/deadlock responses have established abort
       // semantics there; cancellation and lock errors remain unknown.
       const sqlState = retryablePostgresSQLState(error)
-      const commit = text.trim().toUpperCase() === "COMMIT"
+      const command = text.trim().toUpperCase()
+      const commit = command === "COMMIT"
       if (sqlState !== undefined && attempt.confirmedAbort === undefined) {
         if (!commit || sqlState === "40001" || sqlState === "40P01") {
           attempt.confirmedAbort = { sqlState, error }
         }
+      }
+      if (
+        command !== "COMMIT" &&
+        command !== "ROLLBACK" &&
+        postgresSQLState(error) === undefined &&
+        attempt.preCommitTransportAbort === undefined
+      ) {
+        // An ordinary statement that loses its transport before COMMIT cannot
+        // commit. Remember that provenance even if the callback catches or
+        // wraps the raw client error; a successful ROLLBACK or destroyed
+        // session then proves the whole attempt is safe to retry.
+        attempt.preCommitTransportAbort = error
       }
       throw error
     }
@@ -9553,6 +9598,9 @@ const throwRecordedPostgresAbort = (
   if (attempt.confirmedAbort !== undefined) {
     throw attempt.confirmedAbort.error
   }
+  if (attempt.preCommitTransportAbort !== undefined) {
+    throw attempt.preCommitTransportAbort
+  }
 }
 
 const confirmedPostgresAbortError = (
@@ -9563,9 +9611,19 @@ const confirmedPostgresAbortError = (
   new P2TRPostgresTransactionConfirmedAbortError(
     reason,
     attempt.confirmedAbort?.sqlState,
-    attempt.confirmedAbort?.error,
+    attempt.confirmedAbort?.error ?? attempt.preCommitTransportAbort,
     operationError
   )
+
+const postgresSQLState = (value: unknown): string | undefined => {
+  if (typeof value !== "object" || value === null || !("code" in value)) {
+    return undefined
+  }
+  const code = (value as { code?: unknown }).code
+  return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)
+    ? code
+    : undefined
+}
 
 const normalizePostgresCommandTag = (value: unknown): string | undefined =>
   typeof value === "string" ? value.trim().toUpperCase() : undefined

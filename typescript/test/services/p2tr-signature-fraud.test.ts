@@ -2113,6 +2113,34 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
+  it("rejects a domainless observation from the COMPLETE_V2 evidence builder", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex]
+    )
+
+    expect(observation.bridgeChallengeKey).to.equal(undefined)
+    expectWitnessError(
+      () =>
+        buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+          observation,
+          bridgeChallengeDomain,
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [],
+          }
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
   it("builds a domain-bound durable submission intent and authenticates its signed raw transaction", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
@@ -2145,6 +2173,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       routerAddress,
       challengeDepositAmount: 1234,
     })
+    expect(() =>
+      validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
+    ).not.to.throw()
     const expectedCalldata =
       encodeP2TRSignatureFraudRouterSubmitCalldata(completeEvidence)
 

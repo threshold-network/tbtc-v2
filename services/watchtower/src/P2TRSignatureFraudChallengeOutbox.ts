@@ -3278,9 +3278,19 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
             current.lastBroadcastAuthorizationFailureAtUnixMs,
             "Challenge outbox last broadcast authorization failure time"
           )
+    const lastRecheckFailureAtUnixMs =
+      current.lastPreBroadcastRecheckStatus === undefined ||
+      current.lastPreBroadcastRecheckStatus === "eligible" ||
+      current.lastPreBroadcastRecheckAtUnixMs === undefined
+        ? -1
+        : requireUnixMilliseconds(
+            current.lastPreBroadcastRecheckAtUnixMs,
+            "Challenge outbox last failed pre-broadcast recheck time"
+          )
     const lastPacingBoundaryUnixMs = Math.max(
       latestVariant.lastBroadcastAtUnixMs ?? -1,
-      lastAuthorizationFailureAtUnixMs
+      lastAuthorizationFailureAtUnixMs,
+      lastRecheckFailureAtUnixMs
     )
     if (
       lastPacingBoundaryUnixMs >= 0 &&
