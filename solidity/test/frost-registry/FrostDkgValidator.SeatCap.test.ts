@@ -160,7 +160,7 @@ describe("FrostDkgValidator per-wallet seat cap", () => {
     })
   })
 
-  describe("when the cap is 12 (production value)", () => {
+  describe("when the cap is 12 (post-bootstrap activation target)", () => {
     let validator: any
 
     before(async () => {

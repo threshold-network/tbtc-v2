@@ -70,9 +70,10 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     const Validator = await ethers.getContractFactory("FrostDkgValidator")
     const validator = await Validator.deploy(
       pool.address,
-      0 // maxSeatsPerWallet disabled
+      0 // Phase-0 maxSeatsPerWallet disabled
     )
     await validator.deployed()
+    expect(await validator.maxSeatsPerWallet()).to.equal(0)
 
     const FrostInactivity = await ethers.getContractFactory("FrostInactivity")
     const frostInactivity = await FrostInactivity.deploy()
@@ -168,6 +169,7 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     const CappedValidator = await ethers.getContractFactory("FrostDkgValidator")
     const cappedValidator = await CappedValidator.deploy(pool.address, 12)
     await cappedValidator.deployed()
+    expect(await cappedValidator.maxSeatsPerWallet()).to.equal(12)
     await expect(
       registry
         .connect(operatorSigners[0])
