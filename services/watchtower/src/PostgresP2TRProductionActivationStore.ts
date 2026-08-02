@@ -560,10 +560,11 @@ export class PostgresP2TRProductionActivationStore
                      WHERE failure.manifest_hash = guard_row.manifest_hash
                        AND failure.token_id = guard_row.token_id
                   )) AS unresolved_candidate_enqueue_transaction_guard_count,
+              -- Retry-exhaustion alerts are append-only blockers and must
+              -- remain visible after their authority's manifest is superseded.
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
-                WHERE alert.manifest_hash = manifest.manifest_hash
-                  AND alert.activation_blocking = true
+                WHERE alert.activation_blocking = true
                   AND NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_retry_exhaustion_resolution resolution

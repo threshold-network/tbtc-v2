@@ -629,7 +629,13 @@ export class PostgresP2TRCanonicalIndexStore
           error,
           "PostgreSQL readiness fence acquisition failed"
         )
-        releaseError = clientError
+        // A SQLSTATE response before the session fence is acquired proves the
+        // connection is alive and holds no fence, so it is safe to return to
+        // the pool. Transport failures and failures after acquisition leave
+        // session state uncertain and must destroy the pooled connection.
+        if (readinessFenceLocked || postgresSQLState(error) === undefined) {
+          releaseError = clientError
+        }
         const sqlState = retryablePostgresSQLState(error)
         if (sqlState !== undefined) {
           const attempt: P2TRPostgresTransactionAttempt = {
@@ -9539,10 +9545,7 @@ const postgresClientError = (value: unknown, context: string): Error =>
 const retryablePostgresSQLState = (
   value: unknown
 ): P2TRRetryablePostgresSQLState | undefined => {
-  if (typeof value !== "object" || value === null || !("code" in value)) {
-    return undefined
-  }
-  const code = (value as { code?: unknown }).code
+  const code = postgresSQLState(value)
   return code === "40001" ||
     code === "40P01" ||
     code === "55P03" ||

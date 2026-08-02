@@ -97,7 +97,7 @@ describe("PostgreSQL production transaction capabilities", () => {
       client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
       false
     )
-    assert.ok(client.releasedWith instanceof Error)
+    assert.equal(client.releasedWith, undefined)
   })
 
   it("brands an exclusive enqueue-fence timeout as retryable before BEGIN", async () => {
@@ -128,6 +128,25 @@ describe("PostgreSQL production transaction capabilities", () => {
       client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
       false
     )
+    assert.equal(client.releasedWith, undefined)
+  })
+
+  it("destroys a session when pre-snapshot fence acquisition loses transport", async () => {
+    const client = new TransactionClient("FENCE_TRANSPORT")
+    const coordinator = coordinatorFor(client)
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => undefined
+      ),
+      /readiness fence transport failure/
+    )
+
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.ok(client.releasedWith instanceof Error)
   })
 
   it("serializes writers on both sides of the pre-snapshot readiness fence", async () => {
@@ -439,7 +458,12 @@ class TransactionClient implements P2TRPostgresClient {
   releasedWith: Error | undefined
 
   constructor(
-    private readonly failure?: "COMMIT" | "ROLLBACK" | "FENCE" | "UNLOCK",
+    private readonly failure?:
+      | "COMMIT"
+      | "ROLLBACK"
+      | "FENCE"
+      | "FENCE_TRANSPORT"
+      | "UNLOCK",
     private readonly liveCandidateAuthorizationCount = 0,
     private readonly readinessFence?: ReadinessFence,
     private readonly recoveryBacklogAtMint = 0
@@ -455,14 +479,19 @@ class TransactionClient implements P2TRPostgresClient {
       throw new Error("UNLOCK failed")
     }
     if (
-      this.failure === "FENCE" &&
+      (this.failure === "FENCE" || this.failure === "FENCE_TRANSPORT") &&
       (text.includes("pg_advisory_lock(") ||
         text.includes("pg_advisory_lock_shared(")) &&
       !text.includes("pg_advisory_xact_lock")
     ) {
-      throw Object.assign(new Error("readiness fence lock timeout"), {
-        code: "55P03",
-      })
+      const error = new Error(
+        this.failure === "FENCE"
+          ? "readiness fence lock timeout"
+          : "readiness fence transport failure"
+      )
+      throw this.failure === "FENCE"
+        ? Object.assign(error, { code: "55P03" })
+        : error
     }
     if (text.includes("current_setting('lock_timeout')")) {
       return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }

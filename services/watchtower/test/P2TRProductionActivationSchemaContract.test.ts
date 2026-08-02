@@ -383,6 +383,10 @@ describe("production activation PostgreSQL schema contract", () => {
       runtimeAlerts,
       /p2tr_candidate_enqueue_retry_exhaustion_resolution resolution/
     )
+    assert.doesNotMatch(
+      runtimeAlerts,
+      /alert\.manifest_hash = manifest\.manifest_hash/
+    )
     const resolution = methodSource(
       activationStore,
       "resolveCandidateEnqueueRetryExhaustionAlert",

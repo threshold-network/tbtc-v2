@@ -61,6 +61,7 @@ describe(
         }
 
         const manifestHash = WORD("11")
+        const rotatedManifestHash = WORD("13")
         await database.query(
           `INSERT INTO p2tr_watchtower_activation_manifest
              (singleton, activation_sequence, manifest_hash,
@@ -396,6 +397,35 @@ describe(
               unresolvedCandidateEnqueueTransactionGuardCount: 0,
               candidateEnqueueRetryExhaustionCount: 1,
             })
+          }
+        )
+        await database.query(
+          `UPDATE p2tr_watchtower_activation_manifest
+              SET activation_sequence = 2,
+                  manifest_hash = $1,
+                  activated_at = clock_timestamp()
+            WHERE singleton = true`,
+          [bytes(rotatedManifestHash)]
+        )
+        await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          async () => {
+            assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {
+              manifestHash: rotatedManifestHash,
+              unresolvedCandidateEnqueueTransactionGuardCount: 0,
+              candidateEnqueueRetryExhaustionCount: 1,
+            })
+          }
+        )
+        await database.query(
+          `UPDATE p2tr_watchtower_activation_manifest
+              SET activation_sequence = 3,
+                  manifest_hash = $1,
+                  activated_at = clock_timestamp()
+            WHERE singleton = true`,
+          [bytes(manifestHash)]
+        )
+        await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          async () => {
             await stateStore.resolveCandidateEnqueueRetryExhaustionAlert({
               tokenID,
               manifestHash,
