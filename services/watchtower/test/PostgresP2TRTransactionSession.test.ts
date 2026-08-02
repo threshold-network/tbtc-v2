@@ -310,6 +310,10 @@ describe("PostgreSQL production transaction capabilities", () => {
       text.includes("FROM p2tr_candidate_enqueue_authorizations authz")
     )
     assert.ok(query)
+    assert.match(
+      query,
+      /JOIN p2tr_candidate_enqueue_transaction_guard guard_row/
+    )
     assert.match(query, /JOIN p2tr_readiness_certificates certificate/)
     assert.match(query, /JOIN p2tr_canonical_generations certified_generation/)
     assert.match(query, /JOIN p2tr_bitcoin_cursor certified_bitcoin/)
@@ -320,6 +324,7 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
     assert.doesNotMatch(query, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(query, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
+    assert.doesNotMatch(query, /expires_at > clock_timestamp\(\)/)
   })
 
   it("destroys sessions after COMMIT or ROLLBACK ambiguity", async () => {
@@ -545,7 +550,6 @@ class TransactionClient implements P2TRPostgresClient {
             candidate_digest: WORD("30"),
             consumed_at: null,
             invalidated_at: null,
-            live: true,
             canonical: true,
             current_manifest_hash: WORD("20"),
           },

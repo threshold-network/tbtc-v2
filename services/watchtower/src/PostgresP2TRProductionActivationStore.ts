@@ -1018,17 +1018,19 @@ export class PostgresP2TRProductionActivationStore
       candidate_digest: string
       consumed_at: string | null
       invalidated_at: string | null
-      live: boolean
       canonical: boolean
       current_manifest_hash: string
     }>(
-      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
-              consumed_at,
-              invalidated_at,
-              expires_at > clock_timestamp() AS live,
+      `SELECT encode(authz.candidate_digest, 'hex') AS candidate_digest,
+              authz.consumed_at,
+              authz.invalidated_at,
               encode(manifest.manifest_hash, 'hex') AS current_manifest_hash,
               true AS canonical
          FROM p2tr_candidate_enqueue_authorizations authz
+         JOIN p2tr_candidate_enqueue_transaction_guard guard_row
+           ON guard_row.manifest_hash = authz.manifest_hash
+          AND guard_row.token_id = authz.token_id
+          AND guard_row.candidate_digest = authz.candidate_digest
          JOIN p2tr_readiness_certificates certificate
            ON certificate.certificate_id =
                 authz.readiness_certificate_id
@@ -1096,7 +1098,28 @@ export class PostgresP2TRProductionActivationStore
               authz.funding_txid,
               authz.funding_vout
               ) expected_authority ON true
-        WHERE token_id = $1
+        WHERE authz.token_id = $1
+          -- Expiry gates the transition into this append-only guard. Once the
+          -- guard commits, crash recovery owns the exact authority until one
+          -- of its durable terminal dispositions exists.
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                 WHERE resolution.manifest_hash = guard_row.manifest_hash
+                   AND resolution.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                 WHERE alert.manifest_hash = guard_row.manifest_hash
+                   AND alert.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                 WHERE failure.manifest_hash = guard_row.manifest_hash
+                   AND failure.token_id = guard_row.token_id
+              )
           -- The certificate can remain structurally current while a later
           -- outbox write invalidates durable candidate authority. Candidate
           -- consumption runs behind the exclusive pre-snapshot fence, so
@@ -1127,7 +1150,7 @@ export class PostgresP2TRProductionActivationStore
              WHERE state = 'committed'
           )
         FOR UPDATE OF authz
-        FOR SHARE OF manifest, certificate, certified_generation,
+        FOR SHARE OF guard_row, manifest, certificate, certified_generation,
                      certified_bitcoin, certified_ethereum,
                      certified_ethereum_block`,
       [hexBuffer(tokenID, "candidate token")]
@@ -1140,11 +1163,10 @@ export class PostgresP2TRProductionActivationStore
         bytes32(manifestHash, "expected manifest hash") ||
       result.rows[0].consumed_at !== null ||
       result.rows[0].invalidated_at !== null ||
-      result.rows[0].live !== true ||
       result.rows[0].canonical !== true
     ) {
       throw new Error(
-        "Candidate authorization is absent, expired, used, or mismatched"
+        "Candidate authorization is absent, terminal, used, or mismatched"
       )
     }
   }
@@ -1167,7 +1189,37 @@ export class PostgresP2TRProductionActivationStore
           )
           AND consumed_at IS NULL
           AND invalidated_at IS NULL
-          AND expires_at > clock_timestamp()
+          -- The exact unresolved guard is the durable post-expiry authority.
+          -- Its creation required a live authorization; consumption still
+          -- binds the resulting outbox row and current generation authority.
+          AND EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_transaction_guard guard_row
+             WHERE guard_row.manifest_hash =
+                     p2tr_candidate_enqueue_authorizations.manifest_hash
+               AND guard_row.token_id =
+                     p2tr_candidate_enqueue_authorizations.token_id
+               AND guard_row.candidate_digest =
+                     p2tr_candidate_enqueue_authorizations.candidate_digest
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                  WHERE resolution.manifest_hash = guard_row.manifest_hash
+                    AND resolution.token_id = guard_row.token_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                  WHERE alert.manifest_hash = guard_row.manifest_hash
+                    AND alert.token_id = guard_row.token_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                  WHERE failure.manifest_hash = guard_row.manifest_hash
+                    AND failure.token_id = guard_row.token_id
+               )
+          )
           AND generation_authority_version = 1
           AND EXISTS (
             SELECT 1

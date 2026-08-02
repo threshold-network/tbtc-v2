@@ -1250,9 +1250,12 @@ export class P2TRProductionActivationGate {
       candidateDigest: record.receipt.candidateDigest,
       maxAttemptCount: this.candidateEnqueueTransactionMaxAttempts,
     }
-    // Commit the guard before entering any replayable transaction. A crash,
-    // non-retryable failure, or exhausted retry loop therefore leaves a
-    // restart-visible activation blocker rather than an untracked authority.
+    // Commit the guard before entering any replayable transaction. Expiry
+    // gates this transition; afterward the exact append-only guard becomes
+    // the durable authority that recovery can resume after the short-lived
+    // receipt expires. A crash therefore leaves a restart-visible activation
+    // blocker, while a non-retryable failure or exhausted retry loop records
+    // a durable terminal disposition.
     await this.armCandidateEnqueueTransactionGuardWithRetry(guard)
     const outcome = await this.runCandidateEnqueueTransactionWithRetry(
       record.receipt,

@@ -388,7 +388,7 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.exhaustionAlerts.length, 0)
   })
 
-  it("rehydrates and resumes a guard left armed by a prior process", async () => {
+  it("resumes an expired authorization from its durable armed guard", async () => {
     const coordinator = new RollbackAwareCoordinator()
     const dispositions: string[] = []
     const journal = emptyCandidateJournal()
@@ -428,6 +428,7 @@ describe("production candidate enqueue outcomes", () => {
       candidateDigest: record.receipt.candidateDigest,
       maxAttemptCount: 3,
     }
+    record.receipt.expiresAt = new Date(Date.now() - 60_000).toISOString()
     journal.guards.push(guard)
     recoveries.push({ guard, authorization: record.receipt })
 
@@ -435,6 +436,7 @@ describe("production candidate enqueue outcomes", () => {
 
     assert.deepEqual(dispositions, [ENQUEUED_INTENT_ID])
     assert.equal(journal.resolutions.length, 1)
+    assert.equal(journal.nonRetryableFailures.length, 0)
     assert.doesNotThrow(() =>
       assertP2TRProductionRuntimeAlertHealth(healthFor(journal), MANIFEST_HASH)
     )
@@ -584,7 +586,31 @@ function candidateStateStore(
     async issueCandidateAuthorization() {
       throw new Error("unused test dependency")
     },
-    async lockCandidateAuthorization() {},
+    async lockCandidateAuthorization(tokenID, candidateDigest, manifestHash) {
+      const terminal = new Set([
+        ...journal.resolutions.map(
+          (resolution) => `${resolution.manifestHash}:${resolution.tokenID}`
+        ),
+        ...journal.exhaustionAlerts.map(
+          (alert) => `${alert.manifestHash}:${alert.tokenID}`
+        ),
+        ...journal.nonRetryableFailures.map(
+          (failure) => `${failure.manifestHash}:${failure.tokenID}`
+        ),
+      ])
+      const guard = journal.guards.find(
+        (candidateGuard) =>
+          candidateGuard.tokenID === tokenID &&
+          candidateGuard.candidateDigest === candidateDigest &&
+          candidateGuard.manifestHash === manifestHash
+      )
+      if (
+        guard === undefined ||
+        terminal.has(`${guard.manifestHash}:${guard.tokenID}`)
+      ) {
+        throw new Error("candidate authorization lacks an unresolved guard")
+      }
+    },
     async consumeCandidateAuthorization(_tokenID, outboxIntentID) {
       coordinator.stage(() => {
         dispositions.push(outboxIntentID)

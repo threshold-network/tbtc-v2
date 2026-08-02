@@ -80,6 +80,7 @@ describe(
             }),
           ]
         )
+        await seedCanonicalReadinessPoint(database)
 
         const coordinator = new PostgresP2TRCanonicalIndexStore(database, {
           storeID: "activation.integration",
@@ -125,30 +126,6 @@ describe(
           coordinator.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
             (transactionSession) => {
               session = transactionSession
-              const query = transactionSession.query.bind(transactionSession)
-              transactionSession.query = (text, values) => {
-                if (text.includes("SELECT manifest.activation_sequence")) {
-                  return Promise.resolve({
-                    rows: [
-                      {
-                        activation_sequence: 1,
-                        outbox_max_recovery_backlog: 16,
-                        primary_bitcoin_generation: 1,
-                        primary_bitcoin_root: WORD("31").slice(2),
-                        primary_bitcoin_semantic_root: WORD("32").slice(2),
-                        local_bitcoin_height: 0,
-                        local_bitcoin_hash: WORD("33").slice(2),
-                        ethereum_journal_generation: 1,
-                        ethereum_history_root: WORD("34").slice(2),
-                        local_ethereum_block: 500,
-                        local_ethereum_hash: WORD("35").slice(2),
-                      },
-                    ],
-                    rowCount: 1,
-                  }) as ReturnType<typeof transactionSession.query>
-                }
-                return query(text, values)
-              }
               return new PostgresP2TRProductionActivationStore(
                 transactionSession,
                 {
@@ -166,15 +143,11 @@ describe(
               unresolvedCandidateEnqueueTransactionGuardCount: 0,
               candidateEnqueueRetryExhaustionCount: 0,
             })
-            assert.equal(
-              (
-                await stateStore.readOutboxRevalidation(
-                  manifestHash,
-                  Date.now()
-                )
-              ).activeGenerationCount,
-              0
+            const outboxRevalidation = await stateStore.readOutboxRevalidation(
+              manifestHash,
+              Date.now()
             )
+            assert.equal(outboxRevalidation.activeGenerationCount, 0)
 
             const bitcoinHash = WORD("33")
             const ethereumHash = WORD("35")
@@ -222,11 +195,44 @@ describe(
               payload: {
                 schema: "tbtc-p2tr-production-readiness-certificate/v1",
                 manifestHash,
+                outboxHandshake: {
+                  state: {
+                    configuredSignerLaneCount:
+                      outboxRevalidation.configuredSignerLaneCount,
+                    configuredSignerLaneSetHash:
+                      outboxRevalidation.configuredSignerLaneSetHash,
+                  },
+                },
               },
             })
 
             const tokenID = WORD("51")
             const candidateDigest = WORD("52")
+            const observationID = WORD("53")
+            const challengeKey = WORD("54")
+            const txid = WORD("55")
+            const wtxid = WORD("56")
+            const fundingTxid = WORD("59")
+            const inputOutputKey = WORD("5b")
+            const expectedAuthority = await session.query<{
+              expected_series_id: Buffer
+            }>(
+              `SELECT expected_series_id
+                 FROM p2tr_candidate_enqueue_expected_authority(
+                   $1, $2, $3, $4, $5, 0, $6,
+                   'registered-wallet-output', $7, 0
+                 )`,
+              [
+                bytes(manifestHash),
+                bytes(observationID),
+                bytes(challengeKey),
+                bytes(txid),
+                bytes(wtxid),
+                bytes(inputOutputKey),
+                bytes(fundingTxid),
+              ]
+            )
+            assert.equal(expectedAuthority.rowCount, 1)
             await session.query(
               `INSERT INTO p2tr_candidate_enqueue_authorizations (
                    token_id, manifest_hash, candidate_digest, observation_id,
@@ -255,22 +261,22 @@ describe(
                 bytes(tokenID),
                 bytes(manifestHash),
                 bytes(candidateDigest),
-                bytes(WORD("53")),
-                bytes(WORD("54")),
-                bytes(WORD("55")),
-                bytes(WORD("56")),
+                bytes(observationID),
+                bytes(challengeKey),
+                bytes(txid),
+                bytes(wtxid),
                 bytes(WORD("57")),
                 bytes(bitcoinHash),
                 bytes(ethereumHash),
                 bytes(WORD("58")),
-                bytes(WORD("59")),
+                bytes(fundingTxid),
                 bytes(WORD("5a")),
-                bytes(WORD("5b")),
+                bytes(inputOutputKey),
                 bytes(WORD("5c")),
                 bytes(WORD("5d")),
                 bytes(certificate.certificateID),
                 certificate.generation,
-                bytes(WORD("5e")),
+                expectedAuthority.rows[0].expected_series_id,
               ]
             )
             await stateStore.armCandidateEnqueueTransactionGuard({
@@ -291,6 +297,11 @@ describe(
               unresolvedCandidateEnqueueTransactionGuardCount: 1,
               candidateEnqueueRetryExhaustionCount: 0,
             })
+            await stateStore.lockCandidateAuthorization(
+              tokenID,
+              candidateDigest,
+              manifestHash
+            )
             await assert.rejects(
               stateStore.resolveCandidateEnqueueTransactionGuard({
                 tokenID,
@@ -322,3 +333,138 @@ describe(
     })
   }
 )
+
+async function seedCanonicalReadinessPoint(
+  database: IntegrationPool
+): Promise<void> {
+  const zero = Buffer.alloc(32)
+  const header = Buffer.alloc(80)
+  const domain = await database.query<{ domain_digest: Buffer }>(
+    `SELECT p2tr_assert_complete_authorization_domain($1, 31337, $2)
+              AS domain_digest`,
+    [
+      bytes(
+        "0x12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef"
+      ),
+      Buffer.from("12".repeat(20), "hex"),
+    ]
+  )
+  await database.query(
+    `SELECT p2tr_assert_watchtower_source_identity(
+              'activation.integration', 'activation-cluster',
+              'activation-operator', $1, $2
+            )`,
+    [bytes(WORD("21")), bytes(WORD("22"))]
+  )
+  const headerEvidence = await database.query<{ object_digest: Buffer }>(
+    `SELECT p2tr_store_single_chunk_evidence_object(
+              'bitcoin_header80', $1
+            ) AS object_digest`,
+    [header]
+  )
+  const rawBlockEvidence = await database.query<{ object_digest: Buffer }>(
+    `SELECT p2tr_store_single_chunk_evidence_object(
+              'bitcoin_raw_block', $1
+            ) AS object_digest`,
+    [header]
+  )
+  const bitcoinHash = bytes(WORD("33"))
+  const ethereumHash = bytes(WORD("35"))
+  const bitcoinChainRoot = bytes(WORD("31"))
+  const historyRoot = bytes(WORD("34"))
+
+  await database.query(
+    `INSERT INTO p2tr_bitcoin_blocks (
+        height, hash, header_bytes, header_object_digest,
+        raw_block_object_digest, parent_height, parent_hash,
+        parent_chain_commitment, chain_commitment,
+        block_content_commitment, parent_evidence_chain_commitment,
+        evidence_chain_commitment, transaction_count, input_count,
+        output_count, unresolved_input_count, is_checkpoint
+     ) VALUES (
+        0, $1, $2, $3, $4, NULL, $5, NULL, $6, $5, NULL, $5,
+        0, 0, 0, 0, true
+     )`,
+    [
+      bitcoinHash,
+      header,
+      headerEvidence.rows[0].object_digest,
+      rawBlockEvidence.rows[0].object_digest,
+      zero,
+      bitcoinChainRoot,
+    ]
+  )
+  await database.query(
+    `INSERT INTO p2tr_bitcoin_cursor (
+        singleton, store_id, configuration_fingerprint, network,
+        trust_domain_id, checkpoint_height, checkpoint_hash,
+        current_height, current_hash, current_chain_commitment,
+        current_evidence_chain_commitment, journal_block_count,
+        journal_transaction_count, journal_input_count,
+        journal_output_count, journal_unresolved_input_count
+     ) VALUES (
+        true, 'bitcoin.integration', $1, 'regtest', 'activation.integration',
+        0, $2, 0, $2, $3, $4, 1, 0, 0, 0, 0
+     )`,
+    [bytes(WORD("41")), bitcoinHash, bitcoinChainRoot, zero]
+  )
+  await database.query(
+    `INSERT INTO p2tr_ethereum_blocks (
+        block_number, block_hash, parent_hash, block_timestamp,
+        transactions_root, receipts_root, transaction_hashes,
+        transaction_digest, transaction_count, receipt_digest,
+        receipt_count, log_digest, log_count, required_event_digest,
+        block_required_event_count, history_root, required_event_count,
+        cumulative_block_count, cumulative_transaction_count,
+        cumulative_receipt_count, cumulative_log_count
+     ) VALUES (
+        500, $1, $2, 1, $2, $2, '[]'::jsonb, $2, 0, $2, 0, $2, 0,
+        $2, 0, $3, 0, 1, 0, 0, 0
+     )`,
+    [ethereumHash, zero, historyRoot]
+  )
+  await database.query(
+    `INSERT INTO p2tr_ethereum_cursor (
+        singleton, store_id, chain_id, configuration_fingerprint,
+        descriptor_set_hash, scan_start_block, checkpoint_block_number,
+        checkpoint_block_hash, current_block_number, current_block_hash,
+        generation, journal_block_count, journal_event_count,
+        coverage_block_count, coverage_transaction_count,
+        coverage_receipt_count, coverage_log_count
+     ) VALUES (
+        true, 'ethereum.integration', 31337, $1, $2, 500, 499, $3,
+        500, $4, 1, 1, 0, 1, 0, 0, 0
+     )`,
+    [bytes(WORD("42")), bytes(WORD("43")), bytes(WORD("44")), ethereumHash]
+  )
+  const readinessRoots = await database.query<{
+    projection_root: Buffer
+    semantic_root: Buffer
+  }>(
+    `SELECT p2tr_muhash_finalize(
+              projection_numerator, projection_denominator
+            ) AS projection_root,
+            p2tr_muhash_finalize(
+              semantic_numerator, semantic_denominator
+            ) AS semantic_root
+       FROM p2tr_readiness_projection_state
+      WHERE singleton = true`
+  )
+  const generation = await database.query<{ generation_id: string }>(
+    `SELECT p2tr_begin_canonical_generation(
+              $1, 0, $2, $3, 500, $4, $5, $6, $7
+            )::text AS generation_id`,
+    [
+      domain.rows[0].domain_digest,
+      bitcoinHash,
+      headerEvidence.rows[0].object_digest,
+      ethereumHash,
+      bitcoinChainRoot,
+      readinessRoots.rows[0].projection_root,
+      readinessRoots.rows[0].semantic_root,
+    ]
+  )
+  await database.query(`SELECT p2tr_seal_canonical_generation($1)`, [
+    generation.rows[0].generation_id,
+  ])
+}

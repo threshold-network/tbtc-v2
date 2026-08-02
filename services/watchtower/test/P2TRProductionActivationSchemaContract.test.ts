@@ -262,6 +262,25 @@ describe("production activation PostgreSQL schema contract", () => {
       "lockCandidateAuthorization",
       "consumeCandidateAuthorization"
     )
+    const consume = methodSource(
+      activationStore,
+      "consumeCandidateAuthorization",
+      "armCandidateEnqueueTransactionGuard"
+    )
+    assert.match(
+      lock,
+      /JOIN p2tr_candidate_enqueue_transaction_guard guard_row[\s\S]*?guard_row\.manifest_hash = authz\.manifest_hash[\s\S]*?guard_row\.token_id = authz\.token_id[\s\S]*?guard_row\.candidate_digest = authz\.candidate_digest/
+    )
+    assert.doesNotMatch(lock, /expires_at > clock_timestamp\(\)/)
+    assert.match(
+      lock,
+      /NOT EXISTS \([\s\S]*?p2tr_candidate_enqueue_transaction_resolution[\s\S]*?NOT EXISTS \([\s\S]*?p2tr_candidate_enqueue_retry_exhaustion_alert[\s\S]*?NOT EXISTS \([\s\S]*?p2tr_candidate_enqueue_non_retryable_failure/
+    )
+    assert.match(
+      consume,
+      /EXISTS \([\s\S]*?p2tr_candidate_enqueue_transaction_guard guard_row[\s\S]*?guard_row\.candidate_digest =\s+p2tr_candidate_enqueue_authorizations\.candidate_digest/
+    )
+    assert.doesNotMatch(consume, /expires_at > clock_timestamp\(\)/)
     assert.match(
       lock,
       /JOIN p2tr_readiness_certificates certificate[\s\S]*?certificate\.certificate_id =\s+authz\.readiness_certificate_id[\s\S]*?certificate\.certificate_generation =\s+authz\.readiness_certificate_generation/
