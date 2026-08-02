@@ -52,7 +52,6 @@ export type P2TRProductionOutboxActivationState =
     manifestOutboxCapacityConfigured: boolean
     currentReadinessCertificate?: P2TROutboxCurrentReadinessCertificate
     statusCounts: Readonly<Record<string, number>>
-    activeGenerationCount: number
     activeOldManifestGenerationCount: number
     expiredPreparationLeaseCount: number
     pendingNonceReleaseCount: number
@@ -467,6 +466,26 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                     FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
                    WHERE ar.alert_id = p2tr_signature_fraud_challenge_critical_alert.alert_id
                 )
+            -- A provenance alert mirrors the record-scoped incident journal.
+            -- Once every incident for that record has append-only retirement
+            -- evidence, retaining the duplicate alert would make the valid
+            -- retirement ineffective because this alert type deliberately has
+            -- no independent resolution path.
+            AND (
+                  code <> 'provenance-reconciliation-incident'
+                  OR EXISTS (
+                      SELECT 1
+                        FROM p2tr_signature_fraud_challenge_provenance_incident pi
+                       WHERE pi.record_id =
+                             p2tr_signature_fraud_challenge_critical_alert.record_id
+                         AND pi.activation_blocking
+                         AND NOT EXISTS (
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_provenance_incident_resolution ir
+                              WHERE ir.incident_id = pi.incident_id
+                         )
+                  )
+                )
           ORDER BY alert_id`
       ),
       session.query<DigestRow>(
@@ -568,6 +587,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                    AND o.reserved_nonce = g.transaction_nonce
                    AND o.signer_lane_id = g.signer_lane_id
                    AND o.signer_identity = g.signer_identity
+              ) AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_chainless_replay_guard r
+                 WHERE r.nonce_guard_record_id = g.record_id
+                   AND r.nonce_guard_id = g.nonce_guard_id
               ))
               OR
               (g.guard_kind = 'escaped-envelope' AND NOT EXISTS (
@@ -575,6 +599,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                   FROM p2tr_signature_fraud_challenge_escaped_envelope e
                  WHERE e.actual_guard_record_id = g.record_id
                    AND e.actual_nonce_guard_id = g.nonce_guard_id
+              ) AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_chainless_replay_guard r
+                 WHERE r.nonce_guard_record_id = g.record_id
+                   AND r.nonce_guard_id = g.nonce_guard_id
               ))
             )`
       ),
@@ -795,14 +824,22 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            FROM pg_class r
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE n.nspname = current_schema()
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
+            )
          UNION ALL
          SELECT 'view-definition', r.relname, pg_get_viewdef(r.oid, true)
            FROM pg_class r
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE n.nspname = current_schema()
             AND r.relkind IN ('v', 'm')
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
+            )
          UNION ALL
          SELECT 'column',
                 r.relname || '.' || a.attnum::text || '.' || a.attname,
@@ -825,7 +862,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
             AND d.adnum = a.attnum
            LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
           WHERE n.nspname = current_schema()
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
+            )
             AND a.attnum > 0
             AND NOT a.attisdropped
          UNION ALL
@@ -836,12 +877,20 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            JOIN pg_class t ON t.oid = c.conrelid
            JOIN pg_namespace n ON n.oid = t.relnamespace
           WHERE n.nspname = current_schema()
-            AND t.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                t.relname LIKE 'p2tr_signature_fraud_%'
+                OR t.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR t.relname = 'p2tr_watchtower_activation_manifest'
+            )
          UNION ALL
          SELECT 'index', indexname, indexdef
            FROM pg_indexes
           WHERE schemaname = current_schema()
-            AND tablename LIKE 'p2tr_signature_fraud_%'
+            AND (
+                tablename LIKE 'p2tr_signature_fraud_%'
+                OR tablename LIKE 'p2tr_candidate_enqueue_%'
+                OR tablename = 'p2tr_watchtower_activation_manifest'
+            )
          UNION ALL
          SELECT 'trigger', t.tgname,
                 concat_ws('|',
@@ -853,7 +902,11 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE NOT t.tgisinternal
             AND n.nspname = current_schema()
-            AND r.relname LIKE 'p2tr_signature_fraud_%'
+            AND (
+                r.relname LIKE 'p2tr_signature_fraud_%'
+                OR r.relname LIKE 'p2tr_candidate_enqueue_%'
+                OR r.relname = 'p2tr_watchtower_activation_manifest'
+            )
          UNION ALL
          SELECT 'function', p.proname, pg_get_functiondef(p.oid)
            FROM pg_proc p
@@ -861,7 +914,9 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
           WHERE n.nspname = current_schema()
             AND (
                 p.proname LIKE 'p2tr_signature_fraud_%'
+                OR p.proname LIKE 'p2tr_candidate_enqueue_%'
                 OR p.proname = 'p2tr_reverse_bytea'
+                OR p.proname = 'p2tr_watchtower_activation_manifest_monotonic'
             )
           ORDER BY object_kind, object_name, definition`
       ),

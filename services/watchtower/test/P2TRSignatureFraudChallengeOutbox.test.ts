@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import test from "node:test"
 
@@ -8,6 +9,7 @@ import {
   P2TRSignatureFraudChallengeTransactionFeePolicy,
   P2TRSignatureFraudChallengeTransactionPreparer,
   P2TRSignatureFraudPreparedChallengeTransaction,
+  P2TRSignatureFraudPreparedChallengeTransactionResponse,
   P2TRSignatureFraudPreparedNonceBurnTransaction,
   P2TRSignatureFraudNonceBurnEnvelope,
   P2TRSignatureFraudSignerInvocationRequest,
@@ -21,6 +23,8 @@ import {
   computeP2TRCompleteV2SignatureFraudChallengeIdentity,
   computeP2TRSignatureFraudSubmissionIntentID,
   computeP2TRSignatureFraudBoundNonceReservationID,
+  computeP2TRSignatureFraudSigningRequestDigest,
+  computeP2TRSignatureFraudSignerResponseBindingDigest,
   extractP2TRSignatureFraudWitnessObservations,
 } from "@keep-network/tbtc-v2.ts"
 import { Transaction } from "bitcoinjs-lib"
@@ -74,6 +78,7 @@ import {
   computeP2TRSignatureFraudOutboxRecordID,
   computeP2TRSignatureFraudOutboxSeriesID,
   computeP2TRSignatureFraudLegacyV4SignerBoundaryResolutionEvidenceDigest,
+  computeP2TRSignatureFraudLegacySignerInvocationID,
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
@@ -87,6 +92,12 @@ import {
   computeP2TRSignatureFraudSignerInvocationID,
   computeP2TRSignatureFraudSignerInvocationRequest,
 } from "../src/P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
+import {
+  P2TRProductionActivationGate,
+  P2TRProductionCandidateEnqueueRejectedError,
+  type P2TRProductionActivationDependencies,
+  type P2TRProductionCandidateAuthorizationToken,
+} from "../src/P2TRProductionActivation.js"
 import {
   InMemoryOutboxStore,
   RollbackAwareInMemoryOutboxStore,
@@ -161,19 +172,38 @@ const signTestChallengeTransaction = (
   calldata: string,
   maxFeePerGas: number,
   maxPriorityFeePerGas: number,
-  signingKey = `0x${"42".repeat(32)}`
+  signingKeyOrOverrides:
+    | string
+    | Partial<{
+        chainId: number
+        nonce: number
+        to: string | null
+        value: number
+        data: string
+      }> = {}
 ) => {
+  const signingKey =
+    typeof signingKeyOrOverrides === "string"
+      ? signingKeyOrOverrides
+      : `0x${"42".repeat(32)}`
+  const overrides =
+    typeof signingKeyOrOverrides === "string" ? {} : signingKeyOrOverrides
   const wallet = new Wallet(signingKey)
   const transaction = {
     type: 2,
-    chainId: 11155111,
-    nonce: 7,
+    chainId: overrides.chainId ?? 11155111,
+    nonce: overrides.nonce ?? 7,
     maxPriorityFeePerGas,
     maxFeePerGas,
     gasLimit: 1_000_000,
-    to: ROUTER_ADDRESS,
-    value: 1234,
-    data: calldata,
+    to:
+      overrides.to === undefined
+        ? ROUTER_ADDRESS
+        : overrides.to === null
+        ? undefined
+        : overrides.to,
+    value: overrides.value ?? 1234,
+    data: overrides.data ?? calldata,
     accessList: [],
   }
   const unsigned = utils.serializeTransaction(transaction)
@@ -205,6 +235,61 @@ const signLegacyTestChallengeTransaction = (calldata: string) => {
   }
 }
 
+const signEIP7702TestChallengeTransaction = (calldata: string) => {
+  const wallet = new Wallet(`0x${"42".repeat(32)}`)
+  const authority = new Wallet(`0x${"43".repeat(32)}`)
+  const quantity = (value: number): string =>
+    value === 0 ? "0x" : utils.hexlify(utils.stripZeros(utils.arrayify(value)))
+  const authorizationUnsigned = [
+    quantity(11155111),
+    ROUTER_ADDRESS,
+    quantity(0),
+  ]
+  const authorizationSignature = authority
+    ._signingKey()
+    .signDigest(
+      utils.keccak256(
+        utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+      )
+    )
+  const authorization = [
+    ...authorizationUnsigned,
+    quantity(authorizationSignature.recoveryParam),
+    utils.hexlify(utils.stripZeros(utils.arrayify(authorizationSignature.r))),
+    utils.hexlify(utils.stripZeros(utils.arrayify(authorizationSignature.s))),
+  ]
+  const unsigned = [
+    quantity(11155111),
+    quantity(7),
+    quantity(2),
+    quantity(20),
+    quantity(1_000_000),
+    ROUTER_ADDRESS,
+    quantity(1234),
+    calldata,
+    [],
+    [authorization],
+  ]
+  const signature = wallet
+    ._signingKey()
+    .signDigest(
+      utils.keccak256(utils.concat(["0x04", utils.RLP.encode(unsigned)]))
+    )
+  const rawTransaction = utils.hexConcat([
+    "0x04",
+    utils.RLP.encode([
+      ...unsigned,
+      quantity(signature.recoveryParam),
+      utils.hexlify(utils.stripZeros(utils.arrayify(signature.r))),
+      utils.hexlify(utils.stripZeros(utils.arrayify(signature.s))),
+    ]),
+  ])
+  return {
+    rawTransaction,
+    transactionHash: utils.keccak256(rawTransaction),
+  }
+}
+
 const defaultTestCall = completeV2TestCall(SIGHASH)
 const signedTestTransaction = signTestChallengeTransaction(
   defaultTestCall.calldata,
@@ -227,6 +312,9 @@ const legacySignedTestTransaction = signLegacyTestChallengeTransaction(
 )
 const LEGACY_RAW_TRANSACTION = legacySignedTestTransaction.rawTransaction
 const LEGACY_TRANSACTION_HASH = legacySignedTestTransaction.transactionHash
+const eip7702SignedTestTransaction = signEIP7702TestChallengeTransaction(
+  defaultTestCall.calldata
+)
 
 const activationManifest = (manifestHash = ACTIVATION_MANIFEST_HASH) => ({
   manifestHash,
@@ -248,12 +336,19 @@ const DECOY_LANE = {
   maxFeePerGas: "99",
   maxPriorityFeePerGas: "9",
   maxTotalFeeWei: "99999999",
+  minimumReplacementFeeBumpBps: 1000,
 }
 
 const feePolicyManifest = (
   leadingLanes: (typeof DECOY_LANE)[] = [],
   activationManifestHash = ACTIVATION_MANIFEST_HASH,
-  challengeValueWei = "1234"
+  challengeValueWei = "1234",
+  laneOverrides: Partial<
+    Omit<
+      P2TRSignatureFraudChallengeTransactionFeePolicy,
+      "policyHash" | "activationManifestHash" | "chainID" | "challengeValueWei"
+    >
+  > = {}
 ) => {
   const withoutHash = {
     activationManifestHash,
@@ -269,6 +364,8 @@ const feePolicyManifest = (
         maxFeePerGas: "100",
         maxPriorityFeePerGas: "10",
         maxTotalFeeWei: "100000000",
+        minimumReplacementFeeBumpBps: 1000,
+        ...laneOverrides,
       },
     ],
   }
@@ -437,6 +534,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   readonly wallet = new Wallet(`0x${"42".repeat(32)}`)
   calls = 0
   replacementCalls = 0
+  readonly initialInvocationIDs: string[] = []
+  readonly replacementInvocationIDs: string[] = []
+  readonly tombstonedInvocationIDs = new Set<string>()
   reservationCalls = 0
   releasedReservations: string[] = []
   readonly acknowledgedReleaseRequests = new Set<string>()
@@ -470,6 +570,9 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   afterBurnSign?: (
     prepared: P2TRSignatureFraudPreparedNonceBurnTransaction
   ) => Promise<void>
+  mutateInitialResponse?: (
+    prepared: P2TRSignatureFraudPreparedChallengeTransactionResponse
+  ) => P2TRSignatureFraudPreparedChallengeTransactionResponse
 
   async reserveSignatureFraudChallengeNonce(
     intent: P2TRSignatureFraudSubmissionIntent,
@@ -563,23 +666,28 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     _reservation: P2TRSignatureFraudBoundNonceReservation,
     _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.calls++
     this.invocations.push(invocation)
+    this.initialInvocationIDs.push(invocation.invocationID.toPrefixedString())
     await Promise.resolve()
-    const prepared = {
-      intentID: intent.intentID,
-      rawTransaction: this.rawTransaction,
-      transactionHash: Hex.from(this.transactionHash),
-      sender: this.returnedSender ?? this.transactionSender,
-      nonce: 7,
-      invocation:
-        this.echoInvocation === undefined
-          ? invocation
-          : this.echoInvocation(invocation),
-    }
+    const prepared = await this.authenticateResponse(
+      {
+        intentID: intent.intentID,
+        rawTransaction: this.rawTransaction,
+        transactionHash: Hex.from(this.transactionHash),
+        sender: this.returnedSender ?? this.transactionSender,
+        nonce: 7,
+        invocation:
+          this.echoInvocation === undefined
+            ? invocation
+            : this.echoInvocation(invocation),
+      },
+      invocation.invocationID,
+      invocation.requestDigest
+    )
     await this.afterInitialSign?.(prepared)
-    return prepared
+    return this.mutateInitialResponse?.(prepared) ?? prepared
   }
 
   /** Signs a genuine self-transfer; the wallet IS the configured lane sender. */
@@ -625,28 +733,67 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     _previous: P2TRSignatureFraudPreparedChallengeTransaction,
     _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.replacementCalls++
     this.invocations.push(invocation)
+    this.replacementInvocationIDs.push(
+      invocation.invocationID.toPrefixedString()
+    )
     await Promise.resolve()
-    const prepared = {
-      intentID: intent.intentID,
-      rawTransaction: this.replacementRawTransaction,
-      transactionHash: Hex.from(this.replacementTransactionHash),
-      sender: TRANSACTION_SENDER,
-      nonce: 7,
-      invocation:
-        this.echoInvocation === undefined
-          ? invocation
-          : this.echoInvocation(invocation),
-    }
+    const prepared = await this.authenticateResponse(
+      {
+        intentID: intent.intentID,
+        rawTransaction: this.replacementRawTransaction,
+        transactionHash: Hex.from(this.replacementTransactionHash),
+        sender: TRANSACTION_SENDER,
+        nonce: 7,
+        invocation:
+          this.echoInvocation === undefined
+            ? invocation
+            : this.echoInvocation(invocation),
+      },
+      invocation.invocationID,
+      invocation.requestDigest
+    )
     await this.afterReplacementSign?.(prepared)
     return prepared
+  }
+
+  protected async authenticateResponse(
+    prepared: P2TRSignatureFraudPreparedChallengeTransaction,
+    signerInvocationID: Hex,
+    signingRequestDigest: Hex
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
+    const responseDigest = computeP2TRSignatureFraudSignerResponseBindingDigest(
+      signingRequestDigest,
+      signerInvocationID,
+      prepared.transactionHash
+    )
+    return {
+      ...prepared,
+      signerInvocationID,
+      signingRequestDigest,
+      responseBindingSignature: await this.wallet.signMessage(
+        utils.arrayify(responseDigest.toPrefixedString())
+      ),
+    }
+  }
+
+  async tombstoneSignatureFraudSignerInvocation(signerInvocationID: Hex) {
+    const invocationID = signerInvocationID.toPrefixedString()
+    this.tombstonedInvocationIDs.add(invocationID)
+    return {
+      invocationID: signerInvocationID,
+      tombstonedAtUnixMs: 1_900,
+      receiptDigest: Hex.from(
+        utils.keccak256(utils.toUtf8Bytes(`tombstone:${invocationID}`))
+      ),
+    }
   }
 }
 
 class AmbiguousRemotePreparer extends FixedPreparer {
-  override async prepareSignatureFraudChallengeTransaction(): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  override async prepareSignatureFraudChallengeTransaction(): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.calls++
     throw new Error("remote signer disconnected after signing")
   }
@@ -668,7 +815,7 @@ class DynamicFeePreparer extends FixedPreparer {
     maxPriorityFeePerGas: number,
     value: string,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     const rawTransaction = await this.wallet.signTransaction({
       type: 2,
       to: intent.routerAddress,
@@ -681,14 +828,18 @@ class DynamicFeePreparer extends FixedPreparer {
       maxPriorityFeePerGas,
     })
     const parsed = utils.parseTransaction(rawTransaction)
-    return {
-      intentID: intent.intentID,
-      rawTransaction,
-      transactionHash: Hex.from(parsed.hash!),
-      sender: this.wallet.address,
-      nonce: 7,
-      invocation,
-    }
+    return this.authenticateResponse(
+      {
+        intentID: intent.intentID,
+        rawTransaction,
+        transactionHash: Hex.from(parsed.hash!),
+        sender: this.wallet.address,
+        nonce: 7,
+        invocation,
+      },
+      invocation.invocationID,
+      invocation.requestDigest
+    )
   }
 
   override async prepareSignatureFraudChallengeTransaction(
@@ -696,7 +847,7 @@ class DynamicFeePreparer extends FixedPreparer {
     _reservation: P2TRSignatureFraudBoundNonceReservation,
     _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.calls++
     return this.sign(
       intent,
@@ -714,7 +865,7 @@ class DynamicFeePreparer extends FixedPreparer {
     _previous: P2TRSignatureFraudPreparedChallengeTransaction,
     _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse> {
     this.replacementCalls++
     return this.sign(
       intent,
@@ -895,7 +1046,7 @@ const createIntent = (seed = "aa"): P2TRSignatureFraudSubmissionIntent => {
   const withoutID: Omit<P2TRSignatureFraudSubmissionIntent, "intentID"> = {
     protocol: P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL,
     evidenceProtocolID: Hex.from(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID),
-    observationID: Hex.from(`0x${seed.repeat(32)}`),
+    observationID: completeCall.identity,
     inputIndex: 0,
     bridgeChallengeKey: completeCall.identity,
     walletID: Hex.from(WALLET_ID),
@@ -1037,6 +1188,7 @@ const twoLaneFeePolicyManifest = () =>
       maxFeePerGas: "100",
       maxPriorityFeePerGas: "10",
       maxTotalFeeWei: "100000000",
+      minimumReplacementFeeBumpBps: 1000,
     },
   ])
 
@@ -1049,9 +1201,87 @@ const enqueue = async (
     createRecord(intent, evidenceCheckpoint(), policy)
   )
 
+class LostPreIOCommitStore extends InMemoryOutboxStore {
+  loseNextSignerBoundaryCommit = false
+  loseNextNonceReleaseBoundaryCommit = false
+  failSignerBoundaryDeterministically?: Error
+  failNonceReleaseBoundaryDeterministically?: Error
+  retryableReadFailuresAfterLostSignerCommit = 0
+  private retryableReadFailuresRemaining = 0
+  signerBoundaryAttempts = 0
+  nonceReleaseBoundaryAttempts = 0
+
+  override async get(
+    recordID: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
+    if (this.retryableReadFailuresRemaining > 0) {
+      this.retryableReadFailuresRemaining--
+      const error = new Error("durable boundary reload response lost")
+      this.retryablePersistenceErrors.add(error)
+      throw error
+    }
+    return super.get(recordID)
+  }
+
+  override async compareAndSwapWithCurrentCanonicalProvenance(
+    recordID: string,
+    expectedVersion: number,
+    expectedProvenance: P2TRSignatureFraudCanonicalProvenanceBinding,
+    next: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<boolean> {
+    if (next.activeSignerInvocationStartedAtUnixMs !== undefined) {
+      this.signerBoundaryAttempts++
+      if (this.failSignerBoundaryDeterministically !== undefined) {
+        throw this.failSignerBoundaryDeterministically
+      }
+    }
+    const persisted = await super.compareAndSwapWithCurrentCanonicalProvenance(
+      recordID,
+      expectedVersion,
+      expectedProvenance,
+      next
+    )
+    if (
+      persisted &&
+      this.loseNextSignerBoundaryCommit &&
+      next.activeSignerInvocationStartedAtUnixMs !== undefined
+    ) {
+      this.loseNextSignerBoundaryCommit = false
+      this.retryableReadFailuresRemaining =
+        this.retryableReadFailuresAfterLostSignerCommit
+      const error = new Error("signer-boundary commit response lost")
+      this.retryablePersistenceErrors.add(error)
+      throw error
+    }
+    return persisted
+  }
+
+  override async beginNonceReleaseAttempt(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    invokedAtUnixMs: number
+  ): Promise<boolean> {
+    this.nonceReleaseBoundaryAttempts++
+    if (this.failNonceReleaseBoundaryDeterministically !== undefined) {
+      throw this.failNonceReleaseBoundaryDeterministically
+    }
+    const persisted = await super.beginNonceReleaseAttempt(
+      attempt,
+      invokedAtUnixMs
+    )
+    if (persisted && this.loseNextNonceReleaseBoundaryCommit) {
+      this.loseNextNonceReleaseBoundaryCommit = false
+      const error = new Error("nonce-release commit response lost")
+      this.retryablePersistenceErrors.add(error)
+      throw error
+    }
+    return persisted
+  }
+}
+
 const provenanceInvalidationEvidence = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
-  invalidatedAtUnixMs = 2_000
+  invalidatedAtUnixMs = 2_000,
+  observationID: Hex | string = record.intent.observationID
 ): P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence => {
   const withoutHash = {
     provenanceTombstoneID: `0x${"74".repeat(32)}`,
@@ -1062,7 +1292,10 @@ const provenanceInvalidationEvidence = (
       blockHash: record.evidenceCheckpoint.bitcoinBlockHash,
       blockHeight: record.evidenceCheckpoint.bitcoinBlockHeight,
     },
-    observationID: record.intent.observationID.toPrefixedString(),
+    observationID:
+      observationID instanceof Hex
+        ? observationID.toPrefixedString()
+        : observationID,
     candidateDigest: record.canonicalProvenance.candidateDigest,
     candidateProvenanceGeneration:
       record.canonicalProvenance.candidateProvenanceGeneration,
@@ -1163,7 +1396,8 @@ const dispatcher = (
   onRecoveryBacklog?: (report: {
     backlogRemaining: boolean
   }) => Promise<void> | void,
-  boundaryAuthorizer = new FixedBoundaryAuthorizer()
+  boundaryAuthorizer = new FixedBoundaryAuthorizer(),
+  minimumRebroadcastIntervalMs = 0
 ) =>
   new P2TRSignatureFraudChallengeOutboxDispatcher(
     store,
@@ -1175,7 +1409,7 @@ const dispatcher = (
     new FixedCanonicalResolutionVerifier(),
     {
       irreversibleBoundaryAuthorizer: boundaryAuthorizer,
-      minimumRebroadcastIntervalMs: 0,
+      minimumRebroadcastIntervalMs,
       recoveryPageSize,
       onRecoveryBacklog,
       now,
@@ -1234,6 +1468,7 @@ const acceptedOwnResolution = (
       blockNumber: 108,
       blockHash: `0x${"18".repeat(32)}`,
     },
+    consensusFinalized: true,
     receipt: {
       transactionHash,
       status: 1,
@@ -1412,8 +1647,17 @@ const canonicalEligibilitySnapshot =
       .toString("hex")}`
     const blockHash = `0x${"42".repeat(32)}`
     const lifecycleHash = `0x${"43".repeat(32)}`
+    const occurrenceID = Hex.from(`0x${"70".repeat(32)}`)
+    assert.equal(
+      observation.observationID.toString(),
+      observation.bridgeChallengeKey?.toString()
+    )
+    assert.notEqual(
+      occurrenceID.toString(),
+      observation.observationID.toString()
+    )
     const challengeRecord = {
-      observationID: observation.observationID,
+      observationID: occurrenceID,
       // Deliberately absent: enqueue derives from the candidate row instead.
       observation: undefined,
       status: "observed",
@@ -1456,7 +1700,7 @@ const canonicalEligibilitySnapshot =
       evidenceCheckpoint: checkpoint,
       canonicalProvenance: canonicalProvenance(
         candidate,
-        observation.observationID,
+        occurrenceID,
         checkpoint,
         completeIntent.bridgeChallengeKey,
         "71",
@@ -1575,21 +1819,28 @@ test("keeps the live envelope chain separate from the immutable Router domain", 
   )
 })
 
-test("derives enqueue intent only from the locked canonical witness candidate", async () => {
+test("enqueues an SDK-extracted challenge-key observation from a distinct occurrence", async () => {
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
-  const second = await scheduler(store).enqueueConfirmedChallenge(
+  const second = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_001
   )
 
   assert.equal(first.status, "queued")
-  assert.equal(first.intent.observationID.toString(), observationID.toString())
+  assert.notEqual(
+    first.intent.observationID.toString(),
+    observationID.toString()
+  )
+  assert.equal(
+    first.intent.observationID.toString(),
+    first.intent.bridgeChallengeKey.toString()
+  )
   assert.equal(first.evidenceCheckpoint.bitcoinWitnessTxHash.length, 66)
   assert.equal(
     second.intent.intentID.toString(),
@@ -1657,7 +1908,7 @@ test("derives enqueue intent only from the locked canonical witness candidate", 
     invalidStore.eligibilitySnapshot = canonicalEligibilitySnapshot()
     check.mutate(invalidStore.eligibilitySnapshot)
     await assert.rejects(
-      scheduler(invalidStore).enqueueConfirmedChallenge(observationID),
+      scheduler(invalidStore).enqueueConfirmedChallengeRecord(observationID),
       check.message
     )
   }
@@ -1667,13 +1918,13 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
   await invalidateP2TRSignatureFraudCanonicalProvenance(
     store,
-    provenanceInvalidationEvidence(first)
+    provenanceInvalidationEvidence(first, 2_000, observationID)
   )
 
   const rotatedManifestHash = `0x${"93".repeat(32)}`
@@ -1717,7 +1968,7 @@ test("restores a provenance-invalidated series after challenge deposit rotation"
     store,
     1235,
     rotatedManifestHash
-  ).enqueueConfirmedChallenge(observationID, 3_000)
+  ).enqueueConfirmedChallengeRecord(observationID, 3_000)
 
   assert.equal(restored.generation, 1)
   assert.equal(restored.generationTrigger.kind, "provenance-restored")
@@ -1733,7 +1984,7 @@ test("restores a reorg-cancelled series after manifest-bound policy rotation", a
   const store = new InMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
@@ -1813,7 +2064,7 @@ test("restores a reorg-cancelled series after manifest-bound policy rotation", a
     store,
     1235,
     rotatedManifestHash
-  ).enqueueConfirmedChallenge(observationID, 3_000)
+  ).enqueueConfirmedChallengeRecord(observationID, 3_000)
 
   assert.equal(restored.generation, 1)
   assert.equal(restored.generationTrigger.kind, "canonical-reappearance")
@@ -1833,7 +2084,7 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
   const store = new RollbackAwareInMemoryOutboxStore()
   store.eligibilitySnapshot = canonicalEligibilitySnapshot()
   const observationID = store.eligibilitySnapshot.challengeRecord.observationID
-  const first = await scheduler(store).enqueueConfirmedChallenge(
+  const first = await scheduler(store).enqueueConfirmedChallengeRecord(
     observationID,
     1_000
   )
@@ -1854,6 +2105,7 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
       blockNumber: 500,
       blockHash: ETHEREUM_CURSOR_HASH,
     },
+    consensusFinalized: true,
     receipt: {
       transactionHash: TRANSACTION_HASH,
       status: 0,
@@ -1878,12 +2130,196 @@ test("commits the generation-cap alert before rejecting enqueue", async () => {
   }
   store.records.set(normalizeKey(first.recordID), capped)
 
-  await assert.rejects(
-    scheduler(store).enqueueConfirmedChallenge(observationID, 2_000),
-    /persisted an activation-blocking alert/
+  const outcome = await scheduler(store).enqueueConfirmedChallenge(
+    observationID,
+    2_000
   )
+  assert.equal(outcome.kind, "generation-cap-exhausted")
+  if (outcome.kind !== "generation-cap-exhausted") {
+    assert.fail("expected the capped scheduler outcome")
+  }
+  assert.equal(outcome.outboxIntentID, capped.recordID)
   assert.equal(store.criticalAlerts.length, 1)
   assert.equal(store.criticalAlerts[0].code, "generation-cap-exhausted")
+})
+
+test("carries the real scheduler generation-cap outcome through the activation gate commit", async () => {
+  const store = new RollbackAwareInMemoryOutboxStore()
+  store.eligibilitySnapshot = canonicalEligibilitySnapshot()
+  const observationID = store.eligibilitySnapshot.challengeRecord.observationID
+  const challengeScheduler = scheduler(store)
+  const first = await challengeScheduler.enqueueConfirmedChallengeRecord(
+    observationID,
+    1_000
+  )
+  const disposition = withCanonicalAttestations<
+    Extract<
+      P2TRSignatureFraudChallengeOutboxResolution,
+      { status: "terminal-reverted" }
+    >
+  >({
+    status: "terminal-reverted",
+    observedHead: { blockNumber: 500, blockHash: ETHEREUM_CURSOR_HASH },
+    finalizedThrough: { blockNumber: 500, blockHash: ETHEREUM_CURSOR_HASH },
+    consensusFinalized: true,
+    receipt: {
+      transactionHash: TRANSACTION_HASH,
+      status: 0,
+      blockNumber: 499,
+      blockHash: `0x${"91".repeat(32)}`,
+    },
+    routerChallenge: {
+      exists: false,
+      challengeKey: first.intent.bridgeChallengeKey.toPrefixedString(),
+      readAtBlock: 500,
+    },
+  })
+  const capped: P2TRSignatureFraudChallengeOutboxRecord = {
+    ...first,
+    status: "generation-required",
+    generation: 31,
+    generationDisposition: disposition,
+    canonicalEthereumEligibility: {
+      ...first.canonicalEthereumEligibility,
+      readSetHash: `0x${"92".repeat(32)}`,
+    },
+  }
+  store.records.set(normalizeKey(first.recordID), capped)
+
+  let active = false
+  let commits = 0
+  const coordinator = {
+    p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
+    async runInP2TRSignatureFraudWatchtowerTransaction<T>(
+      operation: () => Promise<T>
+    ): Promise<T> {
+      if (active) return operation()
+      active = true
+      try {
+        const result = await operation()
+        commits++
+        return result
+      } finally {
+        active = false
+      }
+    },
+    assertP2TRSignatureFraudWatchtowerTransactionalParticipants() {},
+    readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState() {
+      return undefined
+    },
+    isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown() {
+      return false
+    },
+    isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort() {
+      return false
+    },
+    isP2TRSignatureFraudWatchtowerTransactionActive() {
+      return active
+    },
+  }
+  const resolutions: Array<{ outboxIntentID: string; outcomeKind: string }> = []
+  const consumed: string[] = []
+  const stateStore = {
+    p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
+    async armCandidateEnqueueTransactionGuard() {},
+    async resolveCandidateEnqueueRetryExhaustionAlert() {},
+    async resolveCandidateEnqueueManifestRotationDisposition() {},
+    async saveCandidateEnqueueNonRetryableFailure() {},
+    async lockCandidateAuthorization() {},
+    async assertCandidateIndexed() {},
+    async consumeCandidateAuthorization(
+      _tokenID: string,
+      outboxIntentID: string
+    ) {
+      consumed.push(outboxIntentID)
+    },
+    async resolveCandidateEnqueueTransactionGuard(resolution: {
+      outboxIntentID: string
+      outcomeKind: string
+    }) {
+      resolutions.push(resolution)
+    },
+  }
+  const candidateEnqueuer = {
+    p2trSignatureFraudWatchtowerTransactionalStoreID: "scheduler-gate-test",
+    async enqueueReconciledCandidate() {
+      return challengeScheduler.enqueueConfirmedChallenge(observationID, 2_000)
+    },
+  }
+  const snapshot = store.eligibilitySnapshot
+  const candidate = {
+    txid: snapshot.canonicalCandidate.txid.replace(/^0x/, ""),
+    wtxid: snapshot.canonicalCandidate.wtxid.replace(/^0x/, ""),
+    blockHash: snapshot.canonicalCandidate.blockHash.replace(/^0x/, ""),
+    blockHeight: snapshot.canonicalCandidate.blockHeight,
+    inputIndex: snapshot.canonicalCandidate.inputIndex,
+    observationID: normalizeKey(observationID),
+    challengeKey: snapshot.canonicalProvenance.challengeKey,
+  }
+  const canonicalJSON = (value: unknown): string => {
+    if (value === null || typeof value !== "object")
+      return JSON.stringify(value)
+    if (Array.isArray(value)) {
+      return `[${value.map(canonicalJSON).join(",")}]`
+    }
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJSON(record[key])}`)
+      .join(",")}}`
+  }
+  const candidateDigest = `0x${createHash("sha256")
+    .update(canonicalJSON(candidate))
+    .digest("hex")}`
+  const token = Object.freeze(
+    {}
+  ) as unknown as P2TRProductionCandidateAuthorizationToken
+  const receipt = {
+    tokenID: `0x${"11".repeat(32)}`,
+    manifestHash: ACTIVATION_MANIFEST_HASH,
+    candidateDigest,
+    candidate,
+    readinessCertificate: {
+      certificateID: `0x${"12".repeat(32)}`,
+      generation: 1,
+    },
+    verifiedBitcoin: {
+      height: candidate.blockHeight,
+      hash: candidate.blockHash,
+    },
+    verifiedEthereum: {
+      blockNumber: 500,
+      blockHash: ETHEREUM_CURSOR_HASH,
+    },
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  const gate = Object.create(
+    P2TRProductionActivationGate.prototype
+  ) as P2TRProductionActivationGate
+  Object.assign(gate, {
+    dependencies: {
+      stateStore,
+      candidateEnqueuer,
+      transactionCoordinator: coordinator,
+    } as unknown as P2TRProductionActivationDependencies,
+    candidateTokens: new WeakMap([[token, { receipt, consumed: false }]]),
+    candidateEnqueueTransactionMaxAttempts: 3,
+  })
+
+  await assert.rejects(
+    gate.consumeCandidateAuthorization(token, candidate),
+    (error: unknown) => {
+      assert.ok(error instanceof P2TRProductionCandidateEnqueueRejectedError)
+      assert.equal(error.outboxIntentID, capped.recordID)
+      return true
+    }
+  )
+  assert.equal(commits, 2)
+  assert.deepEqual(consumed, [capped.recordID])
+  assert.equal(resolutions.length, 1)
+  assert.equal(resolutions[0].outboxIntentID, capped.recordID)
+  assert.equal(resolutions[0].outcomeKind, "generation-cap-exhausted")
+  assert.equal(store.criticalAlerts[0].recordID, capped.recordID)
 })
 
 test("does not let an unrelated active COMPLETE reservation suppress fraud", async () => {
@@ -1904,7 +2340,7 @@ test("does not let an unrelated active COMPLETE reservation suppress fraud", asy
   )
   store.eligibilitySnapshot = snapshot
 
-  const result = await scheduler(store).enqueueConfirmedChallenge(
+  const result = await scheduler(store).enqueueConfirmedChallengeRecord(
     snapshot.challengeRecord.observationID,
     1_000
   )
@@ -1978,7 +2414,7 @@ test("rejects a wrong per-input observation or funding binding under the same tr
     mutate(snapshot)
     store.eligibilitySnapshot = snapshot
     await assert.rejects(
-      scheduler(store).enqueueConfirmedChallenge(
+      scheduler(store).enqueueConfirmedChallengeRecord(
         snapshot.challengeRecord.observationID
       ),
       /Canonical provenance does not authenticate/
@@ -2049,7 +2485,7 @@ test("refuses to construct without an irreversible-boundary authorizer", () => {
   )
 })
 
-test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", async () => {
+test("authorizes exact signer and projected pre-CAS broadcast boundaries", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
   const preparer = new FixedPreparer()
@@ -2059,7 +2495,6 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
   authorizer.beforeAuthorize = async (binding) => {
     const durable = await store.get(binding.recordID)
     assert.ok(durable)
-    assert.equal(durable.version, binding.recordVersion)
     assert.equal(durable.generation, binding.generation)
     assert.equal(
       durable.reservedNonce === undefined
@@ -2120,8 +2555,9 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
       assert.equal(binding.replacedTransactionHash, undefined)
     }
     if (binding.stage === "broadcast") {
-      assert.equal(durable.status, "broadcast-pending")
-      assert.equal(durable.broadcastAttempts, binding.attempt)
+      assert.equal(durable.status, "prepared")
+      assert.equal(durable.version + 1, binding.recordVersion)
+      assert.equal(durable.broadcastAttempts + 1, binding.attempt)
       assert.equal(
         durable.preparedTransaction === undefined
           ? undefined
@@ -2129,6 +2565,7 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
         binding.preparedTransactionHash
       )
     } else {
+      assert.equal(durable.version, binding.recordVersion)
       assert.equal(durable.status, "preparing")
       assert.equal(
         durable.activeSignerInvocationStartedAtUnixMs !== undefined,
@@ -2138,7 +2575,15 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
       assert.equal(binding.preparedTransactionHash, undefined)
     }
   }
-  authorizer.onConsume = (binding) => consumedStages.push(binding.stage)
+  authorizer.onConsume = (binding) => {
+    if (binding.stage === "broadcast") {
+      const durable = store.records.get(normalizeKey(binding.recordID))
+      assert.equal(durable?.status, "broadcast-pending")
+      assert.equal(durable?.version, binding.recordVersion)
+      assert.equal(durable?.broadcastAttempts, binding.attempt)
+    }
+    consumedStages.push(binding.stage)
+  }
   preparer.afterInitialSign = async () => {
     assert.deepEqual(consumedStages, ["prepare"])
   }
@@ -2162,7 +2607,8 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
 
   assert.equal(
     (await outbox.prepare(record.recordID, "worker-a")).status,
-    "prepared"
+    "prepared",
+    (await store.get(record.recordID))?.lastError
   )
   assert.equal(
     (await outbox.prepareReplacement(record.recordID, "worker-b")).status,
@@ -2255,6 +2701,67 @@ test("recovers an initial reservation when authorization rejects before signer I
   assert.equal(recovered?.status, "queued")
   assert.equal(recovered?.reservedNonce, undefined)
   assert.equal(preparer.releasedReservations.length, 1)
+})
+
+test("retires an initial signer boundary whose commit response is lost before I/O", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  store.loseNextSignerBoundaryCommit = true
+  store.retryableReadFailuresAfterLostSignerCommit = 2
+
+  const result = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.equal(result.status, "preparing")
+  assert.equal(result.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(result.signerInvocationStartedAtUnixMs, undefined)
+  assert.equal(preparer.calls, 0)
+  assert.match(result.lastError ?? "", /persistence was ambiguous/)
+})
+
+test("retires a replacement signer boundary whose commit response is lost before I/O", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const outbox = dispatcher(store, preparer)
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
+  store.loseNextSignerBoundaryCommit = true
+  store.retryableReadFailuresAfterLostSignerCommit = 2
+
+  const result = await outbox.prepareReplacement(record.recordID, "worker-b")
+
+  assert.equal(result.status, "prepared")
+  assert.equal(result.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(result.preparationLease, undefined)
+  assert.equal(result.preparedTransactionVariants?.length, 1)
+  assert.equal(preparer.replacementCalls, 0)
+  assert.match(result.lastError ?? "", /persistence was ambiguous/)
+})
+
+test("propagates a deterministic signer-boundary failure without retrying", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const failure = new Error("signer boundary constraint rejected")
+  store.failSignerBoundaryDeterministically = failure
+
+  await assert.rejects(
+    dispatcher(store, preparer).prepare(record.recordID, "worker-a"),
+    (error: unknown) => error === failure
+  )
+
+  assert.equal(store.signerBoundaryAttempts, 1)
+  assert.equal(preparer.calls, 0)
+  assert.equal(
+    (await store.get(record.recordID))?.activeSignerInvocationStartedAtUnixMs,
+    undefined
+  )
 })
 
 test("recovers an invalidated initial authorization without inventing signer I/O", async () => {
@@ -2359,6 +2866,114 @@ test("reserves one durable sender lane before signing", async () => {
   assert.equal(preparer.calls, 1)
   assert.equal(results.filter(({ status }) => status === "prepared").length, 1)
   assert.equal(results.filter(({ status }) => status === "queued").length, 1)
+})
+
+test("keeps unresolved recovery work scoped to its exact nonce lane", async () => {
+  const store = new InMemoryOutboxStore()
+  const foreignReleaseRecord = await enqueue(store, createIntent("ac"))
+  const foreignExpiredRecord = await enqueue(store, createIntent("ad"))
+  const target = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const foreignSender = "0x3333333333333333333333333333333333333333"
+  const foreignReservation = {
+    ...(await preparer.reserveSignatureFraudChallengeNonce(
+      foreignReleaseRecord.intent,
+      Hex.from(foreignReleaseRecord.recordID),
+      foreignReleaseRecord.generation,
+      1
+    )),
+    laneID: "lane.foreign",
+    signerIdentity: "signer.foreign",
+    sender: foreignSender,
+  }
+  const releaseRequestID = `0x${"91".repeat(32)}`
+  store.nonceReleaseRequests.set(releaseRequestID, {
+    releaseRequestID,
+    recordID: foreignReleaseRecord.recordID,
+    generation: foreignReleaseRecord.generation,
+    reservation: foreignReservation,
+    voidEvidenceDigest: `0x${"92".repeat(32)}`,
+    requestedAtUnixMs: 2_000,
+    attemptCount: 0,
+    ambiguous: false,
+  })
+  store.records.set(normalizeKey(foreignExpiredRecord.recordID), {
+    ...foreignExpiredRecord,
+    status: "preparing",
+    version: foreignExpiredRecord.version + 1,
+    preparationAttempts: 1,
+    preparationLease: { owner: "foreign-worker", expiresAtUnixMs: 3_000 },
+    preparationSender: foreignSender,
+    selectedLaneID: "lane.foreign",
+    selectedSignerIdentity: "signer.foreign",
+    updatedAtUnixMs: 2_000,
+  })
+
+  const prepared = await dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 40_000
+  ).prepare(target.recordID, "target-worker")
+
+  assert.equal(prepared.status, "prepared", prepared.lastError)
+  assert.equal(preparer.calls, 1)
+  assert.equal(await store.hasPendingNonceReleases(), true)
+  assert.equal(
+    await store.hasPendingNonceReleasesForLane(
+      target.intent.chainID,
+      preparer.transactionSender
+    ),
+    false
+  )
+  assert.equal(
+    await store.hasExpiredPreparationLeasesForLane(
+      target.intent.chainID,
+      preparer.transactionSender,
+      40_000
+    ),
+    false
+  )
+})
+
+test("re-sweeps lane recovery after backlog appears post-startup", async () => {
+  const store = new InMemoryOutboxStore()
+  const expiredRecord = await enqueue(store, createIntent("ae"))
+  const target = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 40_000
+  )
+
+  // Establish the process-local startup barrier before the later lease exists.
+  await outbox.recoverExpiredPreparationLeases()
+  store.records.set(normalizeKey(expiredRecord.recordID), {
+    ...expiredRecord,
+    status: "preparing",
+    version: expiredRecord.version + 1,
+    preparationAttempts: 1,
+    preparationLease: { owner: "stalled-worker", expiresAtUnixMs: 3_000 },
+    preparationSender: preparer.transactionSender,
+    selectedLaneID: preparer.laneID,
+    selectedSignerIdentity: preparer.signerIdentity,
+    updatedAtUnixMs: 2_000,
+  })
+
+  const skipped = await outbox.prepare(target.recordID, "target-worker")
+  assert.equal(skipped.status, "queued")
+  assert.equal((await store.get(expiredRecord.recordID))?.status, "preparing")
+
+  const prepared = await outbox.prepare(target.recordID, "target-worker")
+  assert.equal(prepared.status, "prepared", prepared.lastError)
+  assert.equal((await store.get(expiredRecord.recordID))?.status, "queued")
+  assert.equal(preparer.calls, 1)
 })
 
 test("blocks a signer claim when canonical provenance invalidation wins the shared lock", async () => {
@@ -2699,6 +3314,8 @@ test("records a contract-mismatch quarantine with the reserved sender", async ()
   )
   assert.ok(attempt)
   assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_101), true)
+  assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_101), true)
+  assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_102), false)
 
   assert.equal(
     await store.recordNonceReleaseAttemptResult(attempt, {
@@ -2753,6 +3370,66 @@ test("keeps normal lease-recovery release ambiguous until an exact ack", async (
   assert.equal(preparer.calls, 0)
 })
 
+test("invokes the allocator after reconciling a lost nonce-release marker response", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now
+  )
+  store.loseNextNonceReleaseBoundaryCommit = true
+  store.beforeProvenanceCAS = async (_current, next) => {
+    if (next.activeSignerInvocationStartedAtUnixMs === undefined) return
+    store.beforeProvenanceCAS = undefined
+    now = 40_001
+    await outbox.recoverExpiredPreparationLeases()
+  }
+
+  const result = await outbox.prepare(record.recordID, "worker-a")
+
+  assert.equal(result.status, "queued")
+  assert.equal(await store.hasPendingNonceReleases(), false)
+  assert.equal(preparer.calls, 0)
+  assert.equal(preparer.releasedReservations.length, 1)
+})
+
+test("propagates a deterministic nonce-release marker failure without retrying", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now
+  )
+  const failure = new Error("nonce release constraint rejected")
+  store.failNonceReleaseBoundaryDeterministically = failure
+  store.beforeProvenanceCAS = async (_current, next) => {
+    if (next.activeSignerInvocationStartedAtUnixMs === undefined) return
+    store.beforeProvenanceCAS = undefined
+    now = 40_001
+    await outbox.recoverExpiredPreparationLeases()
+  }
+
+  await assert.rejects(
+    outbox.prepare(record.recordID, "worker-a"),
+    (error: unknown) => error === failure
+  )
+
+  assert.equal(store.nonceReleaseBoundaryAttempts, 1)
+  assert.equal(preparer.releasedReservations.length, 0)
+})
+
 test("captures exact bytes when provenance invalidation wins after signer invocation", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -2782,6 +3459,242 @@ test("captures exact bytes when provenance invalidation wins after signer invoca
     ),
     true
   )
+})
+
+test("quarantines oversized initial signer metadata before lease expiry", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.rawTransaction = await preparer.wallet.signTransaction({
+    type: 2,
+    chainId: record.intent.chainID,
+    nonce: 7,
+    maxPriorityFeePerGas: 10,
+    maxFeePerGas: 100,
+    gasLimit: 1_000_000,
+    to: record.intent.routerAddress,
+    value: record.intent.value,
+    data: record.intent.calldata,
+    accessList: [
+      {
+        address: record.intent.routerAddress,
+        storageKeys: Array.from(
+          { length: 130 },
+          (_, index) => `0x${index.toString(16).padStart(64, "0")}`
+        ),
+      },
+    ],
+  })
+  preparer.transactionHash = utils.keccak256(preparer.rawTransaction)
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now
+  )
+
+  const captured = await outbox.prepare(record.recordID, "worker-oversized")
+
+  assert.equal(captured.status, "quarantined")
+  assert.equal(captured.preparationLease, undefined)
+  assert.equal(captured.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(captured.signerInvocationStartedAtUnixMs, 2_000)
+  assert.equal(captured.unexpectedSignedArtifacts?.length ?? 0, 0)
+  assert.ok(
+    ["malformed-signed-envelope", "oversized-signed-envelope"].includes(
+      captured.signerQuarantines?.at(-1)?.reasonCode ?? ""
+    )
+  )
+
+  now = 40_001
+  const recovery = await outbox.recoverExpiredPreparationLeases()
+  assert.equal(recovery.backlogRemaining, false)
+  assert.equal((await store.get(record.recordID))?.status, "quarantined")
+})
+
+test("journals recoverable signed bytes before rejecting response metadata", async () => {
+  const mutations: Array<
+    (
+      response: P2TRSignatureFraudPreparedChallengeTransactionResponse
+    ) => P2TRSignatureFraudPreparedChallengeTransactionResponse
+  > = [
+    (response) => ({ ...response, intentID: Hex.from(`0x${"91".repeat(32)}`) }),
+    (response) => ({
+      ...response,
+      transactionHash: Hex.from(`0x${"92".repeat(32)}`),
+    }),
+    (response) => ({
+      ...response,
+      sender: "0x0000000000000000000000000000000000000093",
+    }),
+    (response) => ({ ...response, nonce: response.nonce + 1 }),
+  ]
+
+  for (const mutate of mutations) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const preparer = new FixedPreparer()
+    preparer.mutateInitialResponse = mutate
+    const result = await dispatcher(store, preparer).prepare(
+      record.recordID,
+      "worker-a"
+    )
+
+    assert.equal(result.status, "quarantined")
+    assert.equal(result.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(result.unexpectedSignedArtifacts?.length, 1)
+    assert.equal(
+      result.unexpectedSignedArtifacts?.[0].preparedTransaction.rawTransaction,
+      RAW_TRANSACTION
+    )
+    assert.equal(
+      normalizeKey(
+        result.unexpectedSignedArtifacts![0].preparedTransaction.transactionHash
+      ),
+      TRANSACTION_HASH
+    )
+    assert.equal(
+      result.unexpectedSignedArtifacts?.[0].preparedTransaction.nonce,
+      7
+    )
+  }
+})
+
+test("persists the actual lane, call, and value before rejecting signer intent", async () => {
+  const unexpected = [
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      chainId: 11155112,
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      to: "0x3333333333333333333333333333333333333333",
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      data: "0x1234",
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      value: 1235,
+    }),
+    signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+      to: null,
+      data: "0x6000",
+      value: 0,
+    }),
+  ]
+
+  for (const signed of unexpected) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const preparer = new FixedPreparer()
+    preparer.rawTransaction = signed.rawTransaction
+    preparer.transactionHash = signed.transactionHash
+
+    const result = await dispatcher(store, preparer).prepare(
+      record.recordID,
+      "worker-a"
+    )
+
+    const artifact = result.unexpectedSignedArtifacts?.[0]?.preparedTransaction
+    const parsed = utils.parseTransaction(signed.rawTransaction)
+    assert.equal(result.status, "quarantined")
+    assert.ok(artifact)
+    assert.equal(normalizeKey(artifact.transactionHash), parsed.hash)
+    assert.equal(artifact.sender, parsed.from)
+    assert.equal(artifact.nonce, parsed.nonce)
+    assert.equal(artifact.chainID, parsed.chainId)
+    assert.equal(artifact.to, parsed.to ?? undefined)
+    assert.equal(artifact.calldata, parsed.data)
+    assert.equal(artifact.value, parsed.value.toString())
+  }
+})
+
+test("terminalizes a captured same-lane artifact that consumed the protected nonce", async () => {
+  const signed = signTestChallengeTransaction(defaultTestCall.calldata, 20, 2, {
+    to: "0x3333333333333333333333333333333333333333",
+  })
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.rawTransaction = signed.rawTransaction
+  preparer.transactionHash = signed.transactionHash
+  const reconciler = new FixedReconciler()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    reconciler
+  )
+
+  const quarantined = await outbox.prepare(record.recordID, "worker-a")
+  const artifact =
+    quarantined.unexpectedSignedArtifacts?.[0]?.preparedTransaction
+  assert.equal(quarantined.status, "quarantined")
+  assert.ok(artifact)
+
+  reconciler.resolution = withCanonicalAttestations({
+    status: "terminal-nonce-consumed",
+    observedHead: {
+      blockNumber: 172,
+      blockHash: `0x${"12".repeat(32)}`,
+    },
+    finalizedThrough: {
+      blockNumber: 108,
+      blockHash: `0x${"18".repeat(32)}`,
+    },
+    consensusFinalized: true,
+    routerChallenge: {
+      exists: false,
+      challengeKey: CHALLENGE_KEY,
+      readAtBlock: 108,
+    },
+    sender: artifact.sender,
+    transactionNonce: artifact.nonce,
+    finalizedAccountNonce: artifact.nonce + 1,
+    accountNonceReadAtBlock: 108,
+    transactionAbsent: true,
+    consumingTransaction: {
+      transactionHash: artifact.transactionHash.toPrefixedString(),
+      sender: artifact.sender,
+      nonce: artifact.nonce,
+      blockNumber: 101,
+      blockHash: `0x${"56".repeat(32)}`,
+    },
+  } as Parameters<typeof withCanonicalAttestations>[0])
+
+  const reconciled = await outbox.reconcile(record.recordID)
+  assert.equal(reconciled.status, "generation-required")
+  assert.equal(reconciled.lastResolutionStatus, "terminal-nonce-consumed")
+  assert.equal(
+    reconciled.finalNonceResolution?.status,
+    "terminal-nonce-consumed"
+  )
+})
+
+test("retains the active boundary for an uncorrelated signer response", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.mutateInitialResponse = (response) => ({
+    ...response,
+    signerInvocationID: Hex.from(`0x${"94".repeat(32)}`),
+  })
+
+  const result = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.equal(result.status, "preparing")
+  assert.equal(result.activeSignerInvocationStartedAtUnixMs, 2_000)
+  assert.equal(result.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    result.signerQuarantines?.at(-1)?.reasonCode,
+    "ambiguous-signer-invocation"
+  )
+  assert.match(result.lastError ?? "", /another request or invocation/)
 })
 
 test("does not let lease recovery steal an active signer boundary", async () => {
@@ -3179,6 +4092,31 @@ test("rejects non-replaceable legacy envelopes after retaining the signer lane",
   assert.match(result.lastError ?? "", /requires an EIP-1559/)
 })
 
+test("retains and guards EIP-7702 signer bytes before rejecting broadcast policy", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.rawTransaction = eip7702SignedTestTransaction.rawTransaction
+  preparer.transactionHash = eip7702SignedTestTransaction.transactionHash
+  const outbox = dispatcher(store, preparer)
+
+  const result = await outbox.prepare(record.recordID, "worker-a")
+  assert.equal(result.status, "quarantined")
+  assert.equal(
+    result.preparationSender?.toLowerCase(),
+    TRANSACTION_SENDER.toLowerCase()
+  )
+  assert.equal(result.preparedTransactionVariants, undefined)
+  assert.equal(result.unexpectedSignedArtifacts?.length, 1)
+  assert.equal(
+    normalizeKey(
+      result.unexpectedSignedArtifacts![0].preparedTransaction.transactionHash
+    ),
+    eip7702SignedTestTransaction.transactionHash.toLowerCase()
+  )
+  assert.match(result.lastError ?? "", /requires an EIP-1559|unsupported/)
+})
+
 test("persists send boundary and retries only identical signed bytes", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -3214,6 +4152,16 @@ test("appends fee replacements and reconciles every same-nonce hash", async () =
   const preparer = new FixedPreparer()
   const broadcaster = new RecordingBroadcaster()
   const reconciler = new FixedReconciler()
+  let expectedInitialInvocationID: string | undefined
+  let expectedReplacementInvocationID: string | undefined
+  preparer.afterInitialSign = async () => {
+    const boundary = await store.get(record.recordID)
+    expectedInitialInvocationID = boundary!.activeSignerInvocationID
+  }
+  preparer.afterReplacementSign = async () => {
+    const boundary = await store.get(record.recordID)
+    expectedReplacementInvocationID = boundary!.activeSignerInvocationID
+  }
   const outbox = dispatcher(
     store,
     preparer,
@@ -3227,6 +4175,10 @@ test("appends fee replacements and reconciles every same-nonce hash", async () =
   const replaced = await outbox.prepareReplacement(record.recordID, "worker-b")
   assert.equal(replaced.status, "broadcast-pending")
   assert.equal(preparer.replacementCalls, 1)
+  assert.deepEqual(preparer.initialInvocationIDs, [expectedInitialInvocationID])
+  assert.deepEqual(preparer.replacementInvocationIDs, [
+    expectedReplacementInvocationID,
+  ])
   assert.deepEqual(
     replaced.preparedTransactionVariants?.map((variant) => ({
       sequence: variant.sequence,
@@ -3277,8 +4229,85 @@ test("rejects non-increasing replacements without forgetting signed state", asyn
     ),
     TRANSACTION_HASH
   )
-  assert.match(quarantined.lastError ?? "", /strictly increase|distinct/)
+  assert.match(
+    quarantined.lastError ?? "",
+    /policy-bound transaction-pool fee bump|distinct/
+  )
   assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
+})
+
+test("rejects a replacement below the manifest transaction-pool bump", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new DynamicFeePreparer()
+  preparer.initialMaxFeePerGas = 50
+  preparer.initialPriorityFeePerGas = 5
+  preparer.replacementMaxFeePerGas = 51
+  preparer.replacementPriorityFeePerGas = 6
+  const outbox = dispatcher(store, preparer)
+
+  await outbox.prepare(record.recordID, "worker-a")
+  const quarantined = await outbox.prepareReplacement(
+    record.recordID,
+    "worker-b"
+  )
+
+  assert.equal(quarantined.status, "prepared")
+  assert.equal(quarantined.preparedTransactionVariants?.length, 1)
+  assert.match(
+    quarantined.lastError ?? "",
+    /policy-bound transaction-pool fee bump/
+  )
+  assert.equal(store.criticalAlerts.at(-1)?.code, "signed-state-quarantined")
+})
+
+test("rejects fee bumps that cannot fit the manifest caps before the signer boundary", async () => {
+  for (const testCase of [
+    {
+      policy: feePolicyManifest(),
+      initialMaxFeePerGas: 100,
+      initialPriorityFeePerGas: 10,
+    },
+    {
+      policy: feePolicyManifest([], ACTIVATION_MANIFEST_HASH, "1234", {
+        maxPriorityFeePerGas: "0",
+      }),
+      initialMaxFeePerGas: 20,
+      initialPriorityFeePerGas: 0,
+    },
+    {
+      policy: feePolicyManifest([], ACTIVATION_MANIFEST_HASH, "1234", {
+        maxTotalFeeWei: "50000000",
+      }),
+      initialMaxFeePerGas: 50,
+      initialPriorityFeePerGas: 5,
+    },
+  ]) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store, createIntent(), testCase.policy)
+    const preparer = new DynamicFeePreparer()
+    preparer.initialMaxFeePerGas = testCase.initialMaxFeePerGas
+    preparer.initialPriorityFeePerGas = testCase.initialPriorityFeePerGas
+    const outbox = dispatcher(store, preparer)
+
+    await outbox.prepare(record.recordID, "worker-a")
+    const rejected = await outbox.prepareReplacement(
+      record.recordID,
+      "worker-b"
+    )
+
+    assert.equal(rejected.status, "prepared")
+    assert.equal(rejected.preparedTransactionVariants?.length, 1)
+    assert.equal(rejected.preparationAttempts, 1)
+    assert.equal(rejected.activeSignerInvocationStartedAtUnixMs, undefined)
+    assert.equal(rejected.preparationLease, undefined)
+    assert.equal(preparer.replacementCalls, 0)
+    assert.equal(store.criticalAlerts.length, 0)
+    assert.match(
+      rejected.lastError ?? "",
+      /impossible.*manifest-bound fee caps/
+    )
+  }
 })
 
 test("enforces manifest-bound fee and exact value caps at every boundary", async () => {
@@ -3360,6 +4389,17 @@ test("enforces manifest-bound fee and exact value caps at every boundary", async
   )
 })
 
+test("rejects a fee policy whose total cap cannot fund its fixed gas limit", () => {
+  assert.throws(
+    () =>
+      feePolicyManifest([], ACTIVATION_MANIFEST_HASH, "1234", {
+        maxGasLimit: "1000000",
+        maxTotalFeeWei: "999999",
+      }),
+    /total fee cannot fund its fixed gas limit/
+  )
+})
+
 test("rejects fee-policy manifest drift for an existing generation", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -3392,6 +4432,225 @@ test("keeps wrong broadcaster hash post-send pending and reconcilable", async ()
     result.lastError ?? "",
     /does not match the persisted raw transaction/
   )
+})
+
+test("does not broadcast when pre-send authorization fails", async () => {
+  for (const rejection of ["acquisition", "consumption"] as const) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const broadcaster = new RecordingBroadcaster()
+    const authorizer = new FixedBoundaryAuthorizer()
+    const outbox = dispatcher(
+      store,
+      new FixedPreparer(),
+      broadcaster,
+      new FixedRechecker(),
+      new FixedReconciler(),
+      () => 2_000,
+      100,
+      undefined,
+      authorizer
+    )
+    await outbox.prepare(record.recordID, "worker-a")
+    if (rejection === "acquisition") {
+      authorizer.rejectAuthorization = new Error(
+        "evidence provider unavailable"
+      )
+    } else {
+      authorizer.rejectConsumption = new Error("authorization became stale")
+    }
+
+    const result = await outbox.broadcast(record.recordID)
+
+    assert.equal(
+      result.status,
+      rejection === "acquisition" ? "prepared" : "broadcast-pending"
+    )
+    assert.equal(result.broadcastAttempts, rejection === "acquisition" ? 0 : 1)
+    assert.equal(
+      result.preparedTransactionVariants?.[0].broadcastAttempts,
+      rejection === "acquisition" ? 0 : 1
+    )
+    assert.equal(
+      result.preparedTransactionVariants?.[0].lastBroadcastProviderAccepted,
+      rejection === "acquisition" ? undefined : false
+    )
+    assert.equal(
+      result.lastBroadcastProviderAccepted,
+      rejection === "acquisition" ? undefined : false
+    )
+    assert.equal(
+      result.lastBroadcastAtUnixMs,
+      rejection === "acquisition" ? undefined : 2_000
+    )
+    assert.equal(result.lastBroadcastAuthorizationFailureAtUnixMs, 2_000)
+    assert.equal(broadcaster.rawTransactions.length, 0)
+    assert.match(result.lastError ?? "", /authorization .*before send/)
+  }
+})
+
+test("paces repeated pre-send authorization acquisition failures", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const broadcaster = new RecordingBroadcaster()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const rechecker = new FixedRechecker()
+  let nowUnixMs = 2_000
+  let authorizationRequests = 0
+  authorizer.beforeAuthorize = async () => {
+    authorizationRequests++
+  }
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    broadcaster,
+    rechecker,
+    new FixedReconciler(),
+    () => nowUnixMs,
+    100,
+    undefined,
+    authorizer,
+    100
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  authorizationRequests = 0
+  rechecker.stages.length = 0
+  authorizer.rejectAuthorization = new Error("evidence provider unavailable")
+
+  const first = await outbox.broadcast(record.recordID)
+  nowUnixMs = 2_050
+  const paced = await outbox.broadcast(record.recordID)
+
+  assert.equal(paced.version, first.version)
+  assert.equal(authorizationRequests, 1)
+  assert.deepEqual(rechecker.stages, ["before-broadcast"])
+  assert.equal(broadcaster.rawTransactions.length, 0)
+
+  nowUnixMs = 2_100
+  const retried = await outbox.broadcast(record.recordID)
+  assert.equal(retried.version, first.version + 1)
+  assert.equal(authorizationRequests, 2)
+  assert.deepEqual(rechecker.stages, ["before-broadcast", "before-broadcast"])
+})
+
+test("paces persistent pre-broadcast recheck failures", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const rechecker = new FixedRechecker()
+  let nowUnixMs = 2_000
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    rechecker,
+    new FixedReconciler(),
+    () => nowUnixMs,
+    100,
+    undefined,
+    new FixedBoundaryAuthorizer(),
+    100
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  rechecker.stages.length = 0
+  rechecker.resolution = {
+    status: "unknown",
+    reason: "canonical providers are unavailable",
+  }
+
+  const first = await outbox.broadcast(record.recordID)
+  nowUnixMs = 2_050
+  const paced = await outbox.broadcast(record.recordID)
+
+  assert.equal(first.lastPreBroadcastRecheckAtUnixMs, 2_000)
+  assert.equal(first.lastPreBroadcastRecheckStatus, "unknown")
+  assert.equal(paced.version, first.version)
+  assert.deepEqual(rechecker.stages, ["before-broadcast"])
+
+  nowUnixMs = 2_100
+  const retried = await outbox.broadcast(record.recordID)
+  assert.equal(retried.version, first.version + 1)
+  assert.deepEqual(rechecker.stages, ["before-broadcast", "before-broadcast"])
+})
+
+test("revalidates broadcast authority after the provenance attempt CAS", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const broadcaster = new RecordingBroadcaster()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  store.beforeProvenanceCAS = async (_current, next) => {
+    if (next.status === "broadcast-pending") {
+      authorizer.rejectConsumption = new Error(
+        "authorization was superseded while the CAS waited"
+      )
+    }
+  }
+
+  const result = await outbox.broadcast(record.recordID)
+
+  assert.equal(result.status, "broadcast-pending")
+  assert.equal(result.broadcastAttempts, 1)
+  assert.equal(
+    result.preparedTransactionVariants?.[0].lastBroadcastProviderAccepted,
+    false
+  )
+  assert.equal(result.lastBroadcastProviderAccepted, false)
+  assert.deepEqual(broadcaster.rawTransactions, [])
+  assert.match(result.lastError ?? "", /superseded while the CAS waited/)
+})
+
+test("paces retries after a rejected post-CAS authorization", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const broadcaster = new RecordingBroadcaster()
+  const authorizer = new FixedBoundaryAuthorizer()
+  let nowUnixMs = 2_000
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => nowUnixMs,
+    100,
+    undefined,
+    authorizer,
+    30_000
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  authorizer.rejectConsumption = new Error("authorization expired")
+
+  const rejected = await outbox.broadcast(record.recordID)
+  assert.equal(rejected.lastBroadcastProviderAccepted, false)
+  assert.deepEqual(broadcaster.rawTransactions, [])
+  const authorizationCountAfterRejection = authorizer.bindings.length
+
+  authorizer.rejectConsumption = undefined
+  nowUnixMs++
+  const paced = await outbox.broadcast(record.recordID)
+
+  assert.equal(paced.broadcastAttempts, 1)
+  assert.equal(paced.lastBroadcastProviderAccepted, false)
+  assert.equal(authorizer.bindings.length, authorizationCountAfterRejection)
+  assert.equal(broadcaster.rawTransactions.length, 0)
+
+  nowUnixMs = 32_000
+  const accepted = await outbox.broadcast(record.recordID)
+
+  assert.equal(accepted.broadcastAttempts, 2)
+  assert.equal(accepted.lastBroadcastProviderAccepted, true)
+  assert.equal(broadcaster.rawTransactions.length, 1)
 })
 
 test("pre-send recheck cancels only before the irreversible boundary", async () => {
@@ -3591,6 +4850,32 @@ test("accepts only decoded, finalized canonical own evidence", async () => {
   assert.match(unresolved.lastError ?? "", /decoded submission call/)
 })
 
+test("does not terminalize at an application-depth head without consensus finality", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const reconciler = new FixedReconciler()
+  const resolution = acceptedOwnResolution()
+  assert.equal(resolution.status, "accepted-own")
+  reconciler.resolution = {
+    ...resolution,
+    consensusFinalized: false,
+  } as unknown as P2TRSignatureFraudChallengeOutboxResolution
+  const outbox = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    reconciler
+  )
+  await outbox.prepare(record.recordID, "worker-a")
+  await outbox.broadcast(record.recordID)
+
+  const unresolved = await outbox.reconcile(record.recordID)
+  assert.equal(unresolved.status, "broadcast-pending")
+  assert.equal(unresolved.lastResolutionStatus, "unknown")
+  assert.match(unresolved.lastError ?? "", /consensus-finalized/)
+})
+
 test("keeps eligible evidence open after finalized nonce disposition", async () => {
   const finalizedEvidence = {
     observedHead: {
@@ -3601,6 +4886,7 @@ test("keeps eligible evidence open after finalized nonce disposition", async () 
       blockNumber: 108,
       blockHash: `0x${"18".repeat(32)}`,
     },
+    consensusFinalized: true as const,
     routerChallenge: {
       exists: false as const,
       challengeKey: CHALLENGE_KEY,
@@ -4298,7 +5584,18 @@ const neverInvokedBoundaryResolution = (
     signerInvocationID,
     providerTombstone: {
       signerInvocationID,
+      invocationID: computeP2TRSignatureFraudLegacySignerInvocationID({
+        recordID: record.recordID,
+        boundaryStartedAtUnixMs,
+        preparationAttempts: record.preparationAttempts,
+        nonceReservationID:
+          record.reservedNonce!.reservationID.toPrefixedString(),
+        stage: "prepare",
+      }),
       receipt,
+      receiptDigest: `0x${createHash("sha256")
+        .update(Buffer.from(receipt.slice(2), "hex"))
+        .digest("hex")}`,
       tombstonedAtUnixMs: boundaryStartedAtUnixMs,
     },
     boundaryStartedAtUnixMs,
@@ -4638,6 +5935,7 @@ test("keeps a durable burn claim through boundary resolution and lease recovery"
     finalizedAccountNonce: stranded.reservedNonce!.nonce + 1,
     accountNonceReadAtBlock: 108,
     transactionAbsent: true,
+    consensusFinalized: true,
     consumingTransaction: {
       transactionHash: retried.contestedNonceBurn!.transactionHash,
       sender: TRANSACTION_SENDER,

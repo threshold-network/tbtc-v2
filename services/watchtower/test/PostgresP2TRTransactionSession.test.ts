@@ -72,11 +72,19 @@ describe("PostgreSQL production transaction capabilities", () => {
     const client = new TransactionClient("FENCE")
     const coordinator = coordinatorFor(client)
 
-    await assert.rejects(
-      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-        async () => undefined
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.match(String(error), /pre-transaction work with 55P03/)
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
       ),
-      /readiness fence lock timeout/
+      "55P03"
     )
 
     assert.deepEqual(client.queries.slice(0, 4), [
@@ -85,6 +93,79 @@ describe("PostgreSQL production transaction capabilities", () => {
       "SELECT pg_advisory_lock_shared(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))",
       "SELECT set_config('lock_timeout', $1, false)",
     ])
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.equal(client.releasedWith, undefined)
+  })
+
+  it("brands an exclusive enqueue-fence timeout as retryable before BEGIN", async () => {
+    const client = new TransactionClient("FENCE")
+    const coordinator = coordinatorFor(client)
+    let callbackInvoked = false
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          callbackInvoked = true
+        },
+        { readinessFence: "exclusive" }
+      )
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.equal(callbackInvoked, false)
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "55P03"
+    )
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.equal(client.releasedWith, undefined)
+  })
+
+  it("destroys a session when pre-snapshot fence acquisition loses transport", async () => {
+    const client = new TransactionClient("FENCE_TRANSPORT")
+    const coordinator = coordinatorFor(client)
+
+    await assert.rejects(
+      coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => undefined
+      ),
+      /readiness fence transport failure/
+    )
+
+    assert.equal(
+      client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
+      false
+    )
+    assert.ok(client.releasedWith instanceof Error)
+  })
+
+  it("destroys a session when fence cancellation cannot disprove a granted lock", async () => {
+    const client = new TransactionClient("FENCE_CANCELLED")
+    const coordinator = coordinatorFor(client)
+
+    const error = await coordinator
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+
+    assert.equal(
+      coordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        error
+      ),
+      "57014"
+    )
     assert.equal(
       client.queries.includes("BEGIN ISOLATION LEVEL SERIALIZABLE"),
       false
@@ -307,9 +388,13 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
 
     const query = client.queries.find((text) =>
-      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
+      text.includes("FROM p2tr_candidate_enqueue_authorizations authz")
     )
     assert.ok(query)
+    assert.match(
+      query,
+      /JOIN p2tr_candidate_enqueue_transaction_guard guard_row/
+    )
     assert.match(query, /JOIN p2tr_readiness_certificates certificate/)
     assert.match(query, /JOIN p2tr_canonical_generations certified_generation/)
     assert.match(query, /JOIN p2tr_bitcoin_cursor certified_bitcoin/)
@@ -320,6 +405,7 @@ describe("PostgreSQL production transaction capabilities", () => {
     )
     assert.doesNotMatch(query, /JOIN p2tr_bitcoin_blocks bitcoin_block\b/)
     assert.doesNotMatch(query, /JOIN p2tr_ethereum_blocks ethereum_block\b/)
+    assert.doesNotMatch(query, /expires_at > clock_timestamp\(\)/)
   })
 
   it("destroys sessions after COMMIT or ROLLBACK ambiguity", async () => {
@@ -333,6 +419,21 @@ describe("PostgreSQL production transaction capabilities", () => {
       )
       assert.ok(client.releasedWith instanceof Error)
     }
+  })
+
+  it("returns committed work when the later readiness-fence unlock fails", async () => {
+    const client = new TransactionClient("UNLOCK")
+    const coordinator = coordinatorFor(client)
+
+    assert.equal(
+      await coordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => "committed-outbox-intent"
+      ),
+      "committed-outbox-intent"
+    )
+    assert.ok(client.queries.includes("COMMIT"))
+    assert.ok(client.releasedWith instanceof Error)
+    assert.match(client.releasedWith.message, /UNLOCK failed/)
   })
 })
 
@@ -381,7 +482,13 @@ class TransactionClient implements P2TRPostgresClient {
   releasedWith: Error | undefined
 
   constructor(
-    private readonly failure?: "COMMIT" | "ROLLBACK" | "FENCE",
+    private readonly failure?:
+      | "COMMIT"
+      | "ROLLBACK"
+      | "FENCE"
+      | "FENCE_CANCELLED"
+      | "FENCE_TRANSPORT"
+      | "UNLOCK",
     private readonly liveCandidateAuthorizationCount = 0,
     private readonly readinessFence?: ReadinessFence,
     private readonly recoveryBacklogAtMint = 0
@@ -393,14 +500,31 @@ class TransactionClient implements P2TRPostgresClient {
   ): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
     if (text === this.failure) throw new Error(`${text} failed`)
+    if (this.failure === "UNLOCK" && text.includes("pg_advisory_unlock")) {
+      throw new Error("UNLOCK failed")
+    }
     if (
-      this.failure === "FENCE" &&
-      text.includes("pg_advisory_lock_shared(") &&
-      !text.includes("pg_advisory_xact_lock_shared(")
+      (this.failure === "FENCE" ||
+        this.failure === "FENCE_CANCELLED" ||
+        this.failure === "FENCE_TRANSPORT") &&
+      (text.includes("pg_advisory_lock(") ||
+        text.includes("pg_advisory_lock_shared(")) &&
+      !text.includes("pg_advisory_xact_lock")
     ) {
-      throw Object.assign(new Error("readiness fence lock timeout"), {
-        code: "55P03",
-      })
+      const error = new Error(
+        this.failure === "FENCE"
+          ? "readiness fence lock timeout"
+          : this.failure === "FENCE_CANCELLED"
+          ? "readiness fence statement cancelled after possible grant"
+          : "readiness fence transport failure"
+      )
+      if (this.failure === "FENCE") {
+        throw Object.assign(error, { code: "55P03" })
+      }
+      if (this.failure === "FENCE_CANCELLED") {
+        throw Object.assign(error, { code: "57014" })
+      }
+      throw error
     }
     if (text.includes("current_setting('lock_timeout')")) {
       return { rows: [{ lock_timeout: "0" }] as Row[], rowCount: 1 }
@@ -520,16 +644,13 @@ class TransactionClient implements P2TRPostgresClient {
     if (text.includes("INSERT INTO p2tr_candidate_enqueue_authorizations")) {
       return { rows: [], rowCount: 1 }
     }
-    if (
-      text.includes("FROM p2tr_candidate_enqueue_authorizations authorization")
-    ) {
+    if (text.includes("FROM p2tr_candidate_enqueue_authorizations authz")) {
       return {
         rows: [
           {
             candidate_digest: WORD("30"),
             consumed_at: null,
             invalidated_at: null,
-            live: true,
             canonical: true,
             current_manifest_hash: WORD("20"),
           },

@@ -50,6 +50,20 @@ jobs:
       github.event_name != 'pull_request'
         || needs.watchtower-detect-changes.outputs.path-filter == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: watchtower_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d watchtower_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
         with:
@@ -107,4 +121,9 @@ jobs:
 
       - name: Tests
         working-directory: ./services/watchtower
+        env:
+          P2TR_WATCHTOWER_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/watchtower_test
+        # PostgreSQL advisory fences are database-wide, while these files use
+        # per-test schemas in one database. Keep the PostgreSQL-backed files
+        # from contending on the same production lock keys.
         run: pnpm test

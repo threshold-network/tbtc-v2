@@ -159,6 +159,8 @@ export async function runP2TRWatchtowerMigrations(
   const client = await pool.connect()
   let locked = false
   let lockAcquisitionResolved = false
+  let readinessPreSnapshotFenceLocked = false
+  let readinessSnapshotFenceLocked = false
   let primaryError: Error | undefined
   let releaseError: Error | undefined
   const applied: P2TRWatchtowerMigration[] = []
@@ -189,6 +191,52 @@ export async function runP2TRWatchtowerMigrations(
         ORDER BY version`
     )
     assertAppliedMigrationPrefix(existing.rows, immutableMigrations)
+
+    if (existing.rows.length < immutableMigrations.length) {
+      // Canonical writers take the shared pre-snapshot fence before BEGIN and
+      // the legacy readiness-snapshot lock inside their transaction. Take both
+      // exclusive session locks before any migration BEGIN: the first blocks
+      // current writers from opening a snapshot, while the second drains older
+      // writers that only know the transaction-scoped lock. A migration can
+      // therefore never wait behind a writer while retaining an older
+      // SERIALIZABLE snapshot.
+      const lockTimeout = await client.query<{ lock_timeout: string }>(
+        "SELECT current_setting('lock_timeout') AS lock_timeout"
+      )
+      if (lockTimeout.rows.length !== 1) {
+        throw new Error("Watchtower migration lock timeout is unavailable")
+      }
+      const priorLockTimeout = boundedString(
+        lockTimeout.rows[0].lock_timeout,
+        64,
+        "Watchtower migration lock timeout"
+      )
+      try {
+        await client.query("SELECT set_config('lock_timeout', $1, false)", [
+          `${lockTimeoutMs}ms`,
+        ])
+        try {
+          await client.query(
+            "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0))"
+          )
+          readinessPreSnapshotFenceLocked = true
+          await client.query(
+            "SELECT pg_advisory_lock(hashtextextended('p2tr-readiness-snapshot', 0))"
+          )
+          readinessSnapshotFenceLocked = true
+        } finally {
+          await client.query("SELECT set_config('lock_timeout', $1, false)", [
+            priorLockTimeout,
+          ])
+        }
+      } catch (error) {
+        releaseError = asError(
+          error,
+          "Watchtower migration readiness fence outcome is unknown"
+        )
+        throw error
+      }
+    }
 
     for (
       let index = existing.rows.length;
@@ -267,6 +315,40 @@ export async function runP2TRWatchtowerMigrations(
     primaryError = asError(error, "Watchtower migration failed")
     throw error
   } finally {
+    if (readinessSnapshotFenceLocked && releaseError === undefined) {
+      try {
+        const unlocked = await client.query<{ unlocked: boolean }>(
+          "SELECT pg_advisory_unlock(hashtextextended('p2tr-readiness-snapshot', 0)) AS unlocked"
+        )
+        if (unlocked.rows.length !== 1 || unlocked.rows[0].unlocked !== true) {
+          releaseError = new Error(
+            "Watchtower migration readiness-snapshot fence release was not confirmed"
+          )
+        }
+      } catch (error) {
+        releaseError = asError(
+          error,
+          "Watchtower migration readiness-snapshot fence release failed"
+        )
+      }
+    }
+    if (readinessPreSnapshotFenceLocked && releaseError === undefined) {
+      try {
+        const unlocked = await client.query<{ unlocked: boolean }>(
+          "SELECT pg_advisory_unlock(hashtextextended('p2tr-readiness-pre-snapshot-fence', 0)) AS unlocked"
+        )
+        if (unlocked.rows.length !== 1 || unlocked.rows[0].unlocked !== true) {
+          releaseError = new Error(
+            "Watchtower migration pre-snapshot fence release was not confirmed"
+          )
+        }
+      } catch (error) {
+        releaseError = asError(
+          error,
+          "Watchtower migration pre-snapshot fence release failed"
+        )
+      }
+    }
     if (locked) {
       try {
         const unlocked = await client.query<{ unlocked: boolean }>(
@@ -581,6 +663,17 @@ function normalizeChecksum(value: string): string {
 function positiveInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive safe integer`)
+  }
+  return value
+}
+
+function boundedString(value: unknown, maximum: number, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
+    throw new Error(`${label} is invalid`)
   }
   return value
 }

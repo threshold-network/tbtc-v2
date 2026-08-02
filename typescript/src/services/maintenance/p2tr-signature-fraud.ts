@@ -686,6 +686,11 @@ export type P2TRSignatureFraudPreparedChallengeTransaction = {
    * itself to the request is enforced separately, field by field, below.
    */
   invocation?: P2TRSignatureFraudSignerInvocationRequest
+  /** Raw-envelope facts are populated by recovery, never trusted from a signer. */
+  chainID?: number
+  to?: string
+  calldata?: string
+  value?: string
   eip1559?: {
     transactionType: 2
     gasLimit: string
@@ -693,6 +698,35 @@ export type P2TRSignatureFraudPreparedChallengeTransaction = {
     maxPriorityFeePerGas: string
   }
 }
+
+/**
+ * Intent-independent facts recovered from any parseable signed Ethereum
+ * transaction. Watchtowers persist this envelope before applying call or fee
+ * policy so an unexpected signer result cannot lose its actual nonce lane.
+ */
+export type P2TRSignatureFraudSignedTransactionEnvelope = {
+  rawTransaction: string
+  transactionHash: Hex
+  sender: string
+  nonce: number
+  chainID: number
+  to?: string
+  calldata: string
+  value: string
+}
+
+/**
+ * Signer response authenticated by the reserved transaction sender. The
+ * response signature binds both the exact request and invocation to the
+ * returned transaction hash, so a delayed response cannot be mistaken for a
+ * later same-intent/same-nonce invocation.
+ */
+export type P2TRSignatureFraudPreparedChallengeTransactionResponse =
+  P2TRSignatureFraudPreparedChallengeTransaction & {
+    signerInvocationID: Hex
+    signingRequestDigest: Hex
+    responseBindingSignature: string
+  }
 
 export const P2TR_SIGNATURE_FRAUD_NONCE_RESERVATION_DOMAIN =
   "tbtc-p2tr-signature-fraud-nonce-reservation-v1"
@@ -730,6 +764,18 @@ export type P2TRSignatureFraudSignerLaneIdentity = {
   transactionSender: string
 }
 
+/**
+ * Durable provider acknowledgement that one deterministic signer invocation
+ * has been tombstoned. A conforming signer MUST atomically reject both queued
+ * and future requests carrying the same invocation ID after issuing this
+ * receipt.
+ */
+export type P2TRSignatureFraudSignerInvocationTombstone = {
+  invocationID: Hex
+  tombstonedAtUnixMs: number
+  receiptDigest: Hex
+}
+
 /** Immutable activation-manifest fee/value envelope for one signer lane. */
 export type P2TRSignatureFraudChallengeTransactionFeePolicy = {
   policyHash: Hex
@@ -748,6 +794,8 @@ export type P2TRSignatureFraudChallengeTransactionFeePolicy = {
   maxFeePerGas: string
   maxPriorityFeePerGas: string
   maxTotalFeeWei: string
+  /** Minimum transaction-pool replacement bump applied to both fee caps. */
+  minimumReplacementFeeBumpBps: number
 }
 
 export interface P2TRSignatureFraudChallengeTransactionPreparer {
@@ -788,7 +836,7 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
     reservation: P2TRSignatureFraudBoundNonceReservation,
     feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse>
 
   /**
    * Signs an EIP-1559 replacement for the same durable intent, sender, and
@@ -801,7 +849,7 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
     previous: P2TRSignatureFraudPreparedChallengeTransaction,
     feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
-  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransactionResponse>
 
   /**
    * Signs a value-less self-transfer that spends the reserved nonce, so an
@@ -819,6 +867,15 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
     envelope: P2TRSignatureFraudNonceBurnEnvelope,
     invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedNonceBurnTransaction>
+
+  /**
+   * Durably prevents a delayed or retried signer request from ever executing.
+   * The operation MUST be idempotent by `signerInvocationID`, and the receipt
+   * must be provider-authenticated so orphan recovery can verify it locally.
+   */
+  tombstoneSignatureFraudSignerInvocation(
+    signerInvocationID: Hex
+  ): Promise<P2TRSignatureFraudSignerInvocationTombstone>
 }
 
 const p2trSignatureFraudRouterInterface = new utils.Interface([
@@ -906,11 +963,16 @@ export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
   domain: P2TRSignatureFraudBridgeChallengeDomain,
   canonical: P2TRCompleteV2ChallengeEvidenceCanonicalContext
 ): P2TRCompleteV2SignatureFraudChallengeEvidence => {
+  if (observation.bridgeChallengeKey === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "COMPLETE_V2 evidence requires a domain-bound observation"
+    )
+  }
   validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
     registeredWalletIDs: canonical.registeredWalletIDs,
     walletInputKeyBindings: canonical.walletInputKeyBindings,
-    bridgeChallengeDomain:
-      observation.bridgeChallengeKey === undefined ? undefined : domain,
+    bridgeChallengeDomain: domain,
   })
 
   const inputIndex = observation.inputIndex
@@ -1136,6 +1198,9 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
     }
   )
   if (
+    !toBytes32Hex(intent.observationID, "COMPLETE_V2 observation ID").equals(
+      expectedIdentity
+    ) ||
     !toBytes32Hex(
       intent.bridgeChallengeIdentity,
       "COMPLETE_V2 challenge identity"
@@ -1147,7 +1212,7 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "COMPLETE_V2 challenge identity or key is invalid"
+      "COMPLETE_V2 observation ID, challenge identity, or key is invalid"
     )
   }
 
@@ -1598,6 +1663,279 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
   }
 }
 
+export type P2TRSignatureFraudSigningRequestStage = "prepare" | "replacement"
+
+/**
+ * Commits every value supplied to a transaction signer. The intent identity
+ * is recomputed from the exact call, while the remaining fields bind the
+ * authenticated nonce, selected lane/signer, fee policy, invocation, and (for
+ * replacements) the previous signed transaction.
+ *
+ * @param stage Signer API stage being invoked.
+ * @param intent Exact fraud-challenge submission intent.
+ * @param reservation Authenticated nonce reservation selected for the call.
+ * @param feePolicy Manifest-bound fee policy selected for the call.
+ * @param signerInvocationID Deterministic identifier for this signer call.
+ * @param previousTransactionHash Prior signed transaction for a replacement.
+ * @returns Digest committing to the complete signer request.
+ */
+export const computeP2TRSignatureFraudSigningRequestDigest = (
+  stage: P2TRSignatureFraudSigningRequestStage,
+  intent: P2TRSignatureFraudSubmissionIntent,
+  reservation: P2TRSignatureFraudBoundNonceReservation,
+  feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+  signerInvocationID: Hex | Buffer | string,
+  previousTransactionHash?: Hex | Buffer | string
+): Hex => {
+  validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
+  const { intentID: declaredIntentID, ...intentWithoutID } = intent
+  const recomputedIntentID =
+    computeP2TRSignatureFraudSubmissionIntentID(intentWithoutID)
+  if (
+    !toBytes32Hex(declaredIntentID, "Signing request intent ID").equals(
+      recomputedIntentID
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Signing request intent ID does not match its exact call"
+    )
+  }
+  if ((stage === "replacement") !== (previousTransactionHash !== undefined)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Only a replacement signing request may name a previous transaction"
+    )
+  }
+
+  const normalizedReservationID = toBytes32Hex(
+    reservation.reservationID,
+    "Signing request reservation ID"
+  )
+  const normalizedReservationIntentID = toBytes32Hex(
+    reservation.intentID,
+    "Signing request reservation intent ID"
+  )
+  if (!normalizedReservationIntentID.equals(recomputedIntentID)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Signing request reservation is bound to another intent"
+    )
+  }
+  const normalizedSender = normalizeP2TRSignatureFraudSubmissionAddress(
+    reservation.sender,
+    "Signing request reserved sender"
+  )
+  const policySender = normalizeP2TRSignatureFraudSubmissionAddress(
+    feePolicy.sender,
+    "Signing request fee-policy sender"
+  )
+  const policyChainID = normalizeP2TRSignatureFraudSubmissionChainID(
+    feePolicy.chainID
+  )
+  if (
+    feePolicy.laneID !== reservation.laneID ||
+    feePolicy.signerIdentity !== reservation.signerIdentity ||
+    policySender !== normalizedSender ||
+    policyChainID !== intent.chainID
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Signing request fee policy does not match its selected signer lane"
+    )
+  }
+
+  const previousHash =
+    previousTransactionHash === undefined
+      ? `0x${"00".repeat(32)}`
+      : toBytes32Hex(
+          previousTransactionHash,
+          "Signing request previous transaction hash"
+        ).toPrefixedString()
+  const bytes32 = (value: Hex | Buffer | string, label: string): string =>
+    toBytes32Hex(value, label).toPrefixedString()
+  return Hex.from(
+    utils.keccak256(
+      utils.defaultAbiCoder.encode(
+        [
+          "string",
+          "string",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "uint32",
+          "uint32",
+          "bytes32",
+          "bytes32",
+          "address",
+          "uint256",
+          "bytes32",
+          "bytes32",
+          "uint256",
+          "bytes32",
+          "bytes32",
+          "address",
+          "uint256",
+          "uint256",
+          "uint256",
+          "uint256",
+          "uint256",
+          "uint32",
+          "bytes32",
+          "bytes32",
+        ],
+        [
+          "tbtc-p2tr-signature-fraud-signing-request-v1",
+          stage,
+          recomputedIntentID.toPrefixedString(),
+          normalizedReservationID.toPrefixedString(),
+          bytes32(
+            reservation.outboxRecordID,
+            "Signing request outbox record ID"
+          ),
+          reservation.generation,
+          reservation.reservationEpoch,
+          utils.id(reservation.laneID),
+          utils.id(reservation.signerIdentity),
+          normalizedSender,
+          reservation.nonce,
+          bytes32(feePolicy.policyHash, "Signing request policy hash"),
+          bytes32(
+            feePolicy.activationManifestHash,
+            "Signing request activation manifest hash"
+          ),
+          policyChainID,
+          utils.id(feePolicy.laneID),
+          utils.id(feePolicy.signerIdentity),
+          policySender,
+          normalizeP2TRSignatureFraudSubmissionValue(
+            feePolicy.challengeValueWei
+          ),
+          normalizeP2TRSignatureFraudSubmissionValue(feePolicy.maxGasLimit),
+          normalizeP2TRSignatureFraudSubmissionValue(feePolicy.maxFeePerGas),
+          normalizeP2TRSignatureFraudSubmissionValue(
+            feePolicy.maxPriorityFeePerGas
+          ),
+          normalizeP2TRSignatureFraudSubmissionValue(feePolicy.maxTotalFeeWei),
+          normalizeP2TRSignatureFraudReplacementFeeBumpBps(
+            feePolicy.minimumReplacementFeeBumpBps
+          ),
+          bytes32(signerInvocationID, "Signer invocation ID"),
+          previousHash,
+        ]
+      )
+    )
+  )
+}
+
+/**
+ * Computes the digest signed by the reserved sender over one signer response.
+ *
+ * @param signingRequestDigest Digest of the exact signer request.
+ * @param signerInvocationID Deterministic identifier for the signer call.
+ * @param transactionHash Hash of the transaction returned by the signer.
+ * @returns Digest authenticating the exact signer response.
+ */
+export const computeP2TRSignatureFraudSignerResponseBindingDigest = (
+  signingRequestDigest: Hex | Buffer | string,
+  signerInvocationID: Hex | Buffer | string,
+  transactionHash: Hex | Buffer | string
+): Hex =>
+  Hex.from(
+    utils.keccak256(
+      utils.defaultAbiCoder.encode(
+        ["string", "bytes32", "bytes32", "bytes32"],
+        [
+          "tbtc-p2tr-signature-fraud-signer-response-v1",
+          toBytes32Hex(
+            signingRequestDigest,
+            "Signing request digest"
+          ).toPrefixedString(),
+          toBytes32Hex(
+            signerInvocationID,
+            "Signer invocation ID"
+          ).toPrefixedString(),
+          toBytes32Hex(
+            transactionHash,
+            "Signed response transaction hash"
+          ).toPrefixedString(),
+        ]
+      )
+    )
+  )
+
+/**
+ * Verifies that a signer response belongs to the exact active invocation and
+ * that the reserved transaction sender authenticated that correlation.
+ *
+ * @param response Prepared transaction response returned by the signer.
+ * @param expectedSigningRequestDigest Expected exact request digest.
+ * @param expectedSignerInvocationID Expected deterministic invocation ID.
+ * @param actualTransactionHash Hash rederived from the returned transaction.
+ * @param expectedSender Address owning the authenticated nonce reservation.
+ * @returns An empty return value; throws if the response is not authentic.
+ */
+export const validateP2TRSignatureFraudSignerResponseBinding = (
+  response: P2TRSignatureFraudPreparedChallengeTransactionResponse,
+  expectedSigningRequestDigest: Hex | Buffer | string,
+  expectedSignerInvocationID: Hex | Buffer | string,
+  actualTransactionHash: Hex | Buffer | string,
+  expectedSender: string
+): void => {
+  const requestDigest = toBytes32Hex(
+    expectedSigningRequestDigest,
+    "Expected signing request digest"
+  )
+  const invocationID = toBytes32Hex(
+    expectedSignerInvocationID,
+    "Expected signer invocation ID"
+  )
+  if (
+    !toBytes32Hex(
+      response.signingRequestDigest,
+      "Returned signing request digest"
+    ).equals(requestDigest) ||
+    !toBytes32Hex(
+      response.signerInvocationID,
+      "Returned signer invocation ID"
+    ).equals(invocationID)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Signer response is for another request or invocation"
+    )
+  }
+  const responseDigest = computeP2TRSignatureFraudSignerResponseBindingDigest(
+    requestDigest,
+    invocationID,
+    actualTransactionHash
+  )
+  let recovered: string
+  try {
+    recovered = utils.verifyMessage(
+      utils.arrayify(responseDigest.toPrefixedString()),
+      utils.hexlify(response.responseBindingSignature)
+    )
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Signer response invocation binding signature is invalid"
+    )
+  }
+  if (
+    utils.getAddress(recovered) !==
+    normalizeP2TRSignatureFraudSubmissionAddress(
+      expectedSender,
+      "Expected signer response sender"
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Signer response invocation binding is not authenticated by the reserved sender"
+    )
+  }
+}
+
 /**
  * Builds the immutable call intent that must be committed with the evidence
  * checkpoint before a transaction is signed or broadcast.
@@ -1666,70 +2004,42 @@ export const buildP2TRSignatureFraudSubmissionIntent = (
 }
 
 /**
- * Authenticates a signed transaction against its durable intent and derives
- * the canonical hash/sender/nonce from the raw bytes. This validation must run
- * before the outbox stores the prepared transaction.
+ * Recovers the exact lane and call from any parseable signed Ethereum
+ * transaction without applying challenge intent or fee policy.
  *
- * @param intent Durable submission intent the signed bytes must satisfy.
- * @param prepared Prepared transaction whose raw bytes are authenticated.
- * @param invocation Signer invocation request the transaction must echo.
- *        Optional because the durable variant ledger re-validates historical
- *        variants long after their request is gone. Supplied: the echo must
- *        match exactly. Omitted: the echo is preserved untouched, never
- *        invented.
- * @returns The prepared transaction with hash, sender and nonce rederived from
- *          the raw bytes rather than taken from the caller.
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns Hash, sender, nonce, chain, destination, calldata, and value
+ *          recovered only from the signed bytes.
  */
-export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
-  intent: P2TRSignatureFraudSubmissionIntent,
-  prepared: P2TRSignatureFraudPreparedChallengeTransaction,
-  invocation?: P2TRSignatureFraudSignerInvocationRequest
-): P2TRSignatureFraudPreparedChallengeTransaction => {
-  validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
-  const expectedIntentID = computeP2TRSignatureFraudSubmissionIntentID({
-    protocol: intent.protocol,
-    evidenceProtocolID: intent.evidenceProtocolID,
-    observationID: intent.observationID,
-    inputIndex: intent.inputIndex,
-    bridgeChallengeKey: intent.bridgeChallengeKey,
-    walletID: intent.walletID,
-    signingKey: intent.signingKey,
-    bindingTxHash: intent.bindingTxHash,
-    bindingOutputIndex: intent.bindingOutputIndex,
-    bridgeChallengeIdentity: intent.bridgeChallengeIdentity,
-    sighash: intent.sighash,
-    nonceX: intent.nonceX,
-    signatureScalar: intent.signatureScalar,
-    domainChainID: intent.domainChainID,
-    chainID: intent.chainID,
-    bridgeAddress: normalizeP2TRSignatureFraudSubmissionAddress(
-      intent.bridgeAddress,
-      "Challenge submission Bridge address"
-    ),
-    routerAddress: normalizeP2TRSignatureFraudSubmissionAddress(
-      intent.routerAddress,
-      "Challenge submission Router address"
-    ),
-    calldata: utils.hexlify(intent.calldata),
-    value: normalizeP2TRSignatureFraudSubmissionValue(intent.value),
-  })
-  if (
-    !toBytes32Hex(intent.intentID, "Submission intent ID").equals(
-      expectedIntentID
-    ) ||
-    !toBytes32Hex(prepared.intentID, "Prepared submission intent ID").equals(
-      expectedIntentID
-    )
-  ) {
+export const recoverP2TRSignatureFraudSignedTransactionEnvelope = (
+  rawTransaction: string
+): P2TRSignatureFraudSignedTransactionEnvelope => {
+  let normalizedRawTransaction: string
+  try {
+    normalizedRawTransaction = utils.hexlify(rawTransaction).toLowerCase()
+  } catch {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "Prepared challenge transaction intent ID does not match its call"
+      "Prepared challenge transaction must be a signed raw Ethereum transaction"
     )
   }
-
+  const firstByte = utils.arrayify(normalizedRawTransaction)[0]
+  if (firstByte === 3 || firstByte === 4) {
+    try {
+      return recoverP2TRSignatureFraudNewTypedTransactionEnvelope(
+        normalizedRawTransaction,
+        firstByte
+      )
+    } catch {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared challenge transaction must be a signed raw Ethereum transaction"
+      )
+    }
+  }
   let parsed: ReturnType<typeof utils.parseTransaction>
   try {
-    parsed = utils.parseTransaction(utils.hexlify(prepared.rawTransaction))
+    parsed = utils.parseTransaction(normalizedRawTransaction)
   } catch {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -1743,33 +2053,208 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
       "Prepared challenge transaction must include a recoverable signature"
     )
   }
-
-  const parsedHash = toBytes32Hex(
-    parsed.hash,
-    "Prepared challenge transaction hash"
-  )
-  const declaredHash = toBytes32Hex(
-    prepared.transactionHash,
-    "Prepared challenge transaction hash"
-  )
-  if (!parsedHash.equals(declaredHash)) {
+  if (!Number.isSafeInteger(parsed.nonce) || parsed.nonce < 0) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
-      "Prepared challenge transaction hash does not match its raw bytes"
+      "Prepared challenge transaction nonce is invalid"
+    )
+  }
+  if (!Number.isSafeInteger(parsed.chainId) || parsed.chainId < 0) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction chain ID is invalid"
     )
   }
 
+  return {
+    rawTransaction: normalizedRawTransaction,
+    transactionHash: toBytes32Hex(
+      parsed.hash,
+      "Prepared challenge transaction hash"
+    ),
+    sender: utils.getAddress(parsed.from),
+    nonce: parsed.nonce,
+    chainID: parsed.chainId,
+    // ethers represents contract creation with a null destination. Preserve
+    // that as an absent destination so the signed sender/chain/nonce evidence
+    // can still be durably guarded even though it cannot match Router intent.
+    to:
+      parsed.to === undefined || parsed.to === null
+        ? undefined
+        : utils.getAddress(parsed.to),
+    calldata: utils.hexlify(parsed.data).toLowerCase(),
+    value: parsed.value.toString(),
+  }
+}
+
+type P2TRSignatureFraudRLPValue = string | P2TRSignatureFraudRLPValue[]
+
+const recoverP2TRSignatureFraudNewTypedTransactionEnvelope = (
+  rawTransaction: string,
+  transactionType: 3 | 4
+): P2TRSignatureFraudSignedTransactionEnvelope => {
+  const bytes = utils.arrayify(rawTransaction)
+  const decoded = utils.RLP.decode(
+    utils.hexlify(bytes.slice(1))
+  ) as P2TRSignatureFraudRLPValue
+  if (!Array.isArray(decoded)) {
+    throw new Error("Typed transaction payload is not an RLP list")
+  }
+  // EIP-4844's pooled network form wraps the signed transaction body with
+  // blobs, commitments, and proofs. Its transaction hash and signature still
+  // cover the first (payload-body) element only.
+  const body =
+    transactionType === 3 && decoded.length === 4 && Array.isArray(decoded[0])
+      ? decoded[0]
+      : decoded
+  const expectedLength = transactionType === 3 ? 14 : 13
+  if (body.length !== expectedLength) {
+    throw new Error("Typed transaction has an invalid signed field count")
+  }
+  const signatureOffset = expectedLength - 3
+  const chainID = p2trSignatureFraudSafeRLPQuantity(
+    body[0],
+    "typed transaction chain ID"
+  )
+  const nonce = p2trSignatureFraudSafeRLPQuantity(
+    body[1],
+    "typed transaction nonce"
+  )
+  const to = p2trSignatureFraudRLPScalar(
+    body[5],
+    "typed transaction destination"
+  )
+  if (utils.arrayify(to).length !== 0 && utils.arrayify(to).length !== 20) {
+    throw new Error("Typed transaction destination has an invalid length")
+  }
+  const value = p2trSignatureFraudRLPQuantity(
+    body[6],
+    "typed transaction value"
+  )
+  const calldata = p2trSignatureFraudRLPScalar(
+    body[7],
+    "typed transaction calldata"
+  )
+  const yParity = p2trSignatureFraudSafeRLPQuantity(
+    body[signatureOffset],
+    "typed transaction signature parity"
+  )
+  if (yParity !== 0 && yParity !== 1) {
+    throw new Error("Typed transaction signature parity is invalid")
+  }
+  const r = p2trSignatureFraudSignatureScalar(
+    body[signatureOffset + 1],
+    "typed transaction signature r"
+  )
+  const s = p2trSignatureFraudSignatureScalar(
+    body[signatureOffset + 2],
+    "typed transaction signature s"
+  )
+  const typePrefix = utils.hexlify(transactionType)
+  const signedBody = utils.RLP.encode(body)
+  const signingDigest = utils.keccak256(
+    utils.concat([typePrefix, utils.RLP.encode(body.slice(0, signatureOffset))])
+  )
+  const sender = utils.recoverAddress(signingDigest, {
+    r,
+    s,
+    recoveryParam: yParity,
+  })
+  return {
+    rawTransaction,
+    transactionHash: Hex.from(
+      utils.keccak256(utils.concat([typePrefix, signedBody]))
+    ),
+    sender: utils.getAddress(sender),
+    nonce,
+    chainID,
+    to: utils.arrayify(to).length === 0 ? undefined : utils.getAddress(to),
+    calldata: utils.hexlify(calldata).toLowerCase(),
+    value: value.toString(),
+  }
+}
+
+const p2trSignatureFraudRLPScalar = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): string => {
+  if (typeof value !== "string") throw new Error(`${label} is not scalar`)
+  return utils.hexlify(value).toLowerCase()
+}
+
+const p2trSignatureFraudRLPQuantity = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): bigint => {
+  const encoded = p2trSignatureFraudRLPScalar(value, label)
+  const bytes = utils.arrayify(encoded)
+  if (bytes.length > 0 && bytes[0] === 0) {
+    throw new Error(`${label} is not minimally encoded`)
+  }
+  return bytes.length === 0 ? 0n : BigInt(encoded)
+}
+
+const p2trSignatureFraudSafeRLPQuantity = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): number => {
+  const numeric = p2trSignatureFraudRLPQuantity(value, label)
+  if (numeric > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} exceeds a safe integer`)
+  }
+  return Number(numeric)
+}
+
+const p2trSignatureFraudSignatureScalar = (
+  value: P2TRSignatureFraudRLPValue,
+  label: string
+): string => {
+  const scalar = p2trSignatureFraudRLPQuantity(value, label)
+  if (scalar === 0n || scalar >= 1n << 256n) {
+    throw new Error(`${label} is invalid`)
+  }
+  return utils.hexZeroPad(utils.hexlify(value as string), 32)
+}
+
+/**
+ * Authenticates a signed transaction against its durable challenge intent.
+ *
+ * @param intent Durable submission intent the signed bytes must satisfy.
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns The prepared transaction with every envelope fact rederived from
+ *          the raw bytes rather than taken from the signer response.
+ */
+export const recoverP2TRSignatureFraudPreparedChallengeTransaction = (
+  intent: P2TRSignatureFraudSubmissionIntent,
+  rawTransaction: string
+): P2TRSignatureFraudPreparedChallengeTransaction => {
+  validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
+  const { intentID: declaredIntentID, ...intentWithoutID } = intent
+  const expectedIntentID =
+    computeP2TRSignatureFraudSubmissionIntentID(intentWithoutID)
+  if (
+    !toBytes32Hex(declaredIntentID, "Submission intent ID").equals(
+      expectedIntentID
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge submission intent ID does not match its call"
+    )
+  }
+
+  const recovered =
+    recoverP2TRSignatureFraudSignedTransactionEnvelope(rawTransaction)
   const expectedRouter = normalizeP2TRSignatureFraudSubmissionAddress(
     intent.routerAddress,
     "Challenge submission Router address"
   )
   if (
-    parsed.to === undefined ||
-    utils.getAddress(parsed.to) !== expectedRouter ||
-    parsed.chainId !== intent.chainID ||
-    parsed.data.toLowerCase() !==
-      utils.hexlify(intent.calldata).toLowerCase() ||
-    !parsed.value.eq(intent.value)
+    recovered.to === undefined ||
+    recovered.to !== expectedRouter ||
+    recovered.chainID !== intent.chainID ||
+    recovered.calldata !== utils.hexlify(intent.calldata).toLowerCase() ||
+    recovered.value !== normalizeP2TRSignatureFraudSubmissionValue(intent.value)
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -1777,14 +2262,54 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
     )
   }
 
+  return { intentID: expectedIntentID, ...recovered }
+}
+
+/**
+ * Authenticates signed challenge bytes, signer invocation, and response.
+ *
+ * @param intent Durable submission intent the signed bytes must satisfy.
+ * @param prepared Prepared transaction whose raw bytes are authenticated.
+ * @param invocation Exact signer invocation, when validating a fresh response.
+ * @returns The canonical prepared transaction derived from the signed bytes.
+ */
+export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
+  intent: P2TRSignatureFraudSubmissionIntent,
+  prepared: P2TRSignatureFraudPreparedChallengeTransaction,
+  invocation?: P2TRSignatureFraudSignerInvocationRequest
+): P2TRSignatureFraudPreparedChallengeTransaction => {
+  const recovered = recoverP2TRSignatureFraudPreparedChallengeTransaction(
+    intent,
+    prepared.rawTransaction
+  )
   if (
-    !Number.isSafeInteger(parsed.nonce) ||
-    parsed.nonce < 0 ||
-    prepared.nonce !== parsed.nonce ||
+    !toBytes32Hex(prepared.intentID, "Prepared submission intent ID").equals(
+      recovered.intentID
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction intent ID does not match its call"
+    )
+  }
+
+  const declaredHash = toBytes32Hex(
+    prepared.transactionHash,
+    "Prepared challenge transaction hash"
+  )
+  if (!recovered.transactionHash.equals(declaredHash)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction hash does not match its raw bytes"
+    )
+  }
+
+  if (
+    prepared.nonce !== recovered.nonce ||
     normalizeP2TRSignatureFraudSubmissionAddress(
       prepared.sender,
       "Prepared challenge transaction sender"
-    ) !== utils.getAddress(parsed.from)
+    ) !== recovered.sender
   ) {
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
@@ -1823,14 +2348,17 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
         "Prepared challenge transaction does not echo its signer invocation request"
       )
     }
+    validateP2TRSignatureFraudSignerResponseBinding(
+      prepared as P2TRSignatureFraudPreparedChallengeTransactionResponse,
+      invocation.requestDigest,
+      invocation.invocationID,
+      recovered.transactionHash,
+      recovered.sender
+    )
   }
 
   return {
-    intentID: expectedIntentID,
-    rawTransaction: utils.hexlify(prepared.rawTransaction).toLowerCase(),
-    transactionHash: parsedHash,
-    sender: utils.getAddress(parsed.from),
-    nonce: parsed.nonce,
+    ...recovered,
     ...(echo === undefined ? {} : { invocation: echo }),
   }
 }
@@ -1995,6 +2523,88 @@ export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
   }
 }
 
+export type P2TRSignatureFraudPreparedTransactionEnvelope =
+  | { transactionType: 0 | 1 | 3 | 4 }
+  | {
+      transactionType: 2
+      gasLimit: string
+      maxFeePerGas: string
+      maxPriorityFeePerGas: string
+    }
+
+/**
+ * Parses forensic envelope fields without applying the outbox broadcast
+ * policy. This is used only after signature and intent recovery, so policy-
+ * invalid but signed bytes can still be quarantined durably.
+ *
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns The recovered envelope type and EIP-1559 fee fields, when present.
+ */
+export const inspectP2TRSignatureFraudPreparedTransactionEnvelope = (
+  rawTransaction: string
+): P2TRSignatureFraudPreparedTransactionEnvelope => {
+  let normalizedRawTransaction: string
+  try {
+    normalizedRawTransaction = utils.hexlify(rawTransaction)
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction envelope type is unavailable"
+    )
+  }
+  const firstByte = utils.arrayify(normalizedRawTransaction)[0]
+  if (firstByte === 3 || firstByte === 4) {
+    // Perform full signed-envelope recovery here too; type inspection must not
+    // make malformed new typed bytes eligible for durable nonce guarding.
+    recoverP2TRSignatureFraudSignedTransactionEnvelope(normalizedRawTransaction)
+    return { transactionType: firstByte }
+  }
+  let parsed: ReturnType<typeof utils.parseTransaction>
+  try {
+    parsed = utils.parseTransaction(normalizedRawTransaction)
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction envelope type is unavailable"
+    )
+  }
+  const normalized = parsed.type ?? 0
+  if (normalized !== 0 && normalized !== 1 && normalized !== 2) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction envelope type is unsupported"
+    )
+  }
+  if (normalized !== 2) return { transactionType: normalized }
+  if (
+    parsed.maxFeePerGas === undefined ||
+    parsed.maxPriorityFeePerGas === undefined
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared EIP-1559 transaction fee fields are unavailable"
+    )
+  }
+  return {
+    transactionType: 2,
+    gasLimit: parsed.gasLimit.toString(),
+    maxFeePerGas: parsed.maxFeePerGas.toString(),
+    maxPriorityFeePerGas: parsed.maxPriorityFeePerGas.toString(),
+  }
+}
+
+/**
+ * Returns the parsed Ethereum envelope type, treating untyped RLP as type 0.
+ *
+ * @param rawTransaction Signed Ethereum transaction bytes.
+ * @returns The parsed Ethereum transaction type.
+ */
+export const getP2TRSignatureFraudPreparedTransactionType = (
+  rawTransaction: string
+): 0 | 1 | 2 | 3 | 4 =>
+  inspectP2TRSignatureFraudPreparedTransactionEnvelope(rawTransaction)
+    .transactionType
+
 /**
  * Authenticates a prepared transaction and requires an EIP-1559 envelope.
  *
@@ -2085,19 +2695,23 @@ export const validateP2TRSignatureFraudPreparedChallengeTransactionReservation =
 
 /**
  * Authenticates an EIP-1559 replacement against an already-persisted variant.
- * Both fee caps must strictly increase, gas limit cannot decrease, and every
- * call/identity field remains protected by the durable-intent validator.
+ * Both fee caps must satisfy the policy-bound minimum replacement bump, gas
+ * limit cannot decrease, and every call/identity field remains protected by
+ * the durable-intent validator.
  *
  * @param intent Durable submission intent both variants must satisfy.
  * @param previous Already-persisted variant being replaced.
  * @param replacement Candidate replacement transaction.
+ * @param minimumReplacementFeeBumpBps Policy-bound minimum transaction-pool
+ *        bump for both fee caps.
  * @returns The validated replacement transaction.
  */
 export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
   (
     intent: P2TRSignatureFraudSubmissionIntent,
     previous: P2TRSignatureFraudPreparedChallengeTransaction,
-    replacement: P2TRSignatureFraudPreparedChallengeTransaction
+    replacement: P2TRSignatureFraudPreparedChallengeTransaction,
+    minimumReplacementFeeBumpBps: number
   ): P2TRSignatureFraudPreparedChallengeTransaction => {
     const validatedPrevious =
       validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
@@ -2138,15 +2752,23 @@ export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
       )
     }
     if (
-      replacementEnvelope.maxFeePerGas.lte(previousEnvelope.maxFeePerGas) ||
-      replacementEnvelope.maxPriorityFeePerGas.lte(
-        previousEnvelope.maxPriorityFeePerGas
+      replacementEnvelope.maxFeePerGas.lt(
+        minimumP2TRSignatureFraudReplacementFee(
+          previousEnvelope.maxFeePerGas,
+          minimumReplacementFeeBumpBps
+        )
+      ) ||
+      replacementEnvelope.maxPriorityFeePerGas.lt(
+        minimumP2TRSignatureFraudReplacementFee(
+          previousEnvelope.maxPriorityFeePerGas,
+          minimumReplacementFeeBumpBps
+        )
       ) ||
       replacementEnvelope.gasLimit.lt(previousEnvelope.gasLimit)
     ) {
       throw new P2TRWitnessSignatureError(
         "invalid-watchtower-state",
-        "Challenge fee replacement must strictly increase both EIP-1559 fee caps without decreasing gas limit"
+        "Challenge fee replacement does not satisfy its policy-bound transaction-pool fee bump or decreases gas limit"
       )
     }
     if (
@@ -2162,6 +2784,44 @@ export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
 
     return validatedReplacement
   }
+
+const P2TR_SIGNATURE_FRAUD_REPLACEMENT_FEE_BPS_DENOMINATOR = 10_000
+const P2TR_SIGNATURE_FRAUD_MAX_REPLACEMENT_FEE_BUMP_BPS = 10_000
+
+const normalizeP2TRSignatureFraudReplacementFeeBumpBps = (
+  value: number
+): number => {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > P2TR_SIGNATURE_FRAUD_MAX_REPLACEMENT_FEE_BUMP_BPS
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge replacement fee bump must be between 1 and 10000 basis points"
+    )
+  }
+  return value
+}
+
+const minimumP2TRSignatureFraudReplacementFee = (
+  previous: BigNumber,
+  minimumReplacementFeeBumpBps: number
+): BigNumber => {
+  const bump = normalizeP2TRSignatureFraudReplacementFeeBumpBps(
+    minimumReplacementFeeBumpBps
+  )
+  const denominator = BigNumber.from(
+    P2TR_SIGNATURE_FRAUD_REPLACEMENT_FEE_BPS_DENOMINATOR
+  )
+  const percentageMinimum = previous
+    .mul(denominator.add(bump))
+    .add(denominator.sub(1))
+    .div(denominator)
+  // Preserve the existing requirement that both caps strictly increase even
+  // when a zero priority fee would otherwise round to zero.
+  return percentageMinimum.gt(previous) ? percentageMinimum : previous.add(1)
+}
 
 export type P2TRSignatureFraudBridgeChallengePayloadInput = {
   txid: string

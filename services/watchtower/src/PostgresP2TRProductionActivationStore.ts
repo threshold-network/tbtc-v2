@@ -4,8 +4,12 @@ import {
   type P2TRProductionActivationEnvelope,
   type P2TRProductionBitcoinCandidate,
   type P2TRProductionCandidateAuthorizationReceipt,
+  type P2TRProductionCandidateEnqueueManifestRotationResolution,
+  type P2TRProductionCandidateEnqueueNonRetryableFailure,
   type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
+  type P2TRProductionCandidateEnqueueRetryExhaustionResolution,
   type P2TRProductionCandidateEnqueueTransactionGuard,
+  type P2TRProductionCandidateEnqueueTransactionRecovery,
   type P2TRProductionCandidateEnqueueTransactionResolution,
   type P2TRProductionEthereumJournalHealth,
   type P2TRProductionBitcoinIndexHealth,
@@ -15,6 +19,7 @@ import {
   type P2TRProductionReadinessCertificateReference,
   type P2TRProductionRuntimeAlertHealth,
   type P2TRProductionStateStore,
+  computeP2TRProductionCandidateDigest,
 } from "./P2TRProductionActivation.js"
 import {
   assertP2TRPostgresTransactionSession,
@@ -79,6 +84,10 @@ export function normalizeOutboxRevalidation(
     recoveryBacklogCount: databaseInteger(
       row.recovery_backlog_count,
       "revalidated recovery backlog count"
+    ),
+    activeGenerationCount: databaseInteger(
+      row.active_generation_count,
+      "revalidated active outbox generation count"
     ),
     configuredSignerLaneCount: databaseInteger(
       row.configured_signer_lane_count,
@@ -280,17 +289,17 @@ export class PostgresP2TRProductionActivationStore
       live_authorization_count: string | number
     }>(
       `SELECT count(*)::bigint AS live_authorization_count
-         FROM p2tr_candidate_enqueue_authorizations authorization
+         FROM p2tr_candidate_enqueue_authorizations authz
          JOIN p2tr_readiness_certificates certificate
            ON certificate.certificate_id =
-                authorization.readiness_certificate_id
+                authz.readiness_certificate_id
           AND certificate.certificate_generation =
-                authorization.readiness_certificate_generation
+                authz.readiness_certificate_generation
           AND certificate.is_current
           AND certificate.invalidated_at IS NULL
-        WHERE authorization.consumed_at IS NULL
-          AND authorization.invalidated_at IS NULL
-          AND authorization.expires_at > clock_timestamp()`
+        WHERE authz.consumed_at IS NULL
+          AND authz.invalidated_at IS NULL
+          AND authz.expires_at > clock_timestamp()`
     )
     if (
       liveAuthorizations.rows.length !== 1 ||
@@ -524,19 +533,55 @@ export class PostgresP2TRProductionActivationStore
       candidate_enqueue_retry_exhaustion_count: string | number
     }>(
       `SELECT encode(manifest.manifest_hash, 'hex') AS manifest_hash,
-              (SELECT count(*)
+              -- An armed guard remains a readiness blocker after activation
+              -- manifest rotation. A rotation disposition cannot be resumed,
+              -- so it contributes to the same blocker count until an operator
+              -- appends explicit resolution evidence.
+              ((SELECT count(*)
                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
-                WHERE guard_row.manifest_hash = manifest.manifest_hash
-                  AND NOT EXISTS (
+                 JOIN p2tr_candidate_enqueue_authorizations authz
+                   ON authz.manifest_hash = guard_row.manifest_hash
+                  AND authz.token_id = guard_row.token_id
+                  AND authz.candidate_digest =
+                       guard_row.candidate_digest
+                WHERE NOT EXISTS (
                     SELECT 1
                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
                      WHERE resolution.manifest_hash = guard_row.manifest_hash
                        AND resolution.token_id = guard_row.token_id
-                  )) AS unresolved_candidate_enqueue_transaction_guard_count,
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                     WHERE alert.manifest_hash = guard_row.manifest_hash
+                       AND alert.token_id = guard_row.token_id
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                     WHERE failure.manifest_hash = guard_row.manifest_hash
+                       AND failure.token_id = guard_row.token_id
+                  ))
+               +
+               (SELECT count(*)
+                  FROM p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+                 WHERE NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_manifest_rotation_resolution resolution
+                      WHERE resolution.manifest_hash = disposition.manifest_hash
+                        AND resolution.token_id = disposition.token_id
+                 ))) AS unresolved_candidate_enqueue_transaction_guard_count,
+              -- Retry-exhaustion alerts are append-only blockers and must
+              -- remain visible after their authority's manifest is superseded.
               (SELECT count(*)
                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
-                WHERE alert.manifest_hash = manifest.manifest_hash
-                  AND alert.activation_blocking = true)
+                WHERE alert.activation_blocking = true
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_retry_exhaustion_resolution resolution
+                     WHERE resolution.manifest_hash = alert.manifest_hash
+                       AND resolution.token_id = alert.token_id
+                  ))
                 AS candidate_enqueue_retry_exhaustion_count
          FROM p2tr_watchtower_activation_manifest manifest
         WHERE manifest.singleton = true
@@ -782,7 +827,38 @@ export class PostgresP2TRProductionActivationStore
         WHERE candidate_digest = $1
           AND consumed_at IS NULL
           AND invalidated_at IS NULL
-          AND expires_at <= clock_timestamp()`,
+          AND expires_at <= clock_timestamp()
+          -- A committed guard owns this exact authority after receipt expiry.
+          -- Leave it intact until one of the append-only terminal dispositions
+          -- proves that recovery no longer needs it.
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_transaction_guard guard_row
+                 WHERE guard_row.manifest_hash =
+                         p2tr_candidate_enqueue_authorizations.manifest_hash
+                   AND guard_row.token_id =
+                         p2tr_candidate_enqueue_authorizations.token_id
+                   AND guard_row.candidate_digest =
+                         p2tr_candidate_enqueue_authorizations.candidate_digest
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                      WHERE resolution.manifest_hash = guard_row.manifest_hash
+                        AND resolution.token_id = guard_row.token_id
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                      WHERE alert.manifest_hash = guard_row.manifest_hash
+                        AND alert.token_id = guard_row.token_id
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                      WHERE failure.manifest_hash = guard_row.manifest_hash
+                        AND failure.token_id = guard_row.token_id
+                   )
+              )`,
       [hexBuffer(normalized.candidateDigest, "candidate digest")]
     )
     const result = await this.session.query(
@@ -892,7 +968,11 @@ export class PostgresP2TRProductionActivationStore
           input_wallet_id, input_output_key, input_binding_kind,
           input_binding_source_event_id, candidate_provenance_generation,
           provenance_fingerprint, readiness_certificate_id,
-          readiness_certificate_generation, expires_at)
+          readiness_certificate_generation, expires_at,
+          generation_authority_version, expected_outbox_series_id,
+          expected_outbox_generation,
+          expected_outbox_disposition, expected_outbox_predecessor_id,
+          expected_outbox_evidence_id)
        SELECT $1, $2, $3,
               eligible.observation_id, eligible.challenge_key,
               $4, $5, eligible.input_index, $6, $7, $8, $9, $10, $11,
@@ -904,14 +984,45 @@ export class PostgresP2TRProductionActivationStore
               eligible.provenance_fingerprint,
               eligible.readiness_certificate_id,
               eligible.readiness_certificate_generation,
-              $12::timestamptz
+              $12::timestamptz, 1, authority.expected_series_id,
+              authority.expected_generation,
+              authority.expected_disposition,
+              authority.expected_predecessor_id,
+              authority.expected_evidence_id
          FROM eligible_observation eligible
+         CROSS JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+           $2,
+           eligible.observation_id,
+           eligible.challenge_key,
+           $4,
+           $5,
+           eligible.input_index,
+           eligible.input_output_key,
+           eligible.input_binding_kind,
+           eligible.funding_txid,
+           eligible.funding_vout
+         ) authority
         WHERE $12::timestamptz > clock_timestamp()
           AND $12::timestamptz <=
               clock_timestamp() + ($13 * interval '1 millisecond')
           AND NOT EXISTS (
-            SELECT 1 FROM p2tr_candidate_enqueue_authorizations
-             WHERE candidate_digest = $3 AND consumed_at IS NOT NULL
+            SELECT 1
+              FROM p2tr_candidate_enqueue_authorizations prior
+             WHERE prior.consumed_at IS NOT NULL
+               AND (
+                 (
+                   prior.generation_authority_version = 0
+                   AND prior.candidate_digest = $3
+                 )
+                 OR (
+                   prior.expected_outbox_series_id =
+                     authority.expected_series_id
+                   AND prior.expected_outbox_generation =
+                     authority.expected_generation
+                   AND prior.expected_outbox_disposition =
+                     authority.expected_disposition
+                 )
+               )
           )`,
       [
         hexBuffer(normalized.tokenID, "candidate token"),
@@ -959,36 +1070,38 @@ export class PostgresP2TRProductionActivationStore
       candidate_digest: string
       consumed_at: string | null
       invalidated_at: string | null
-      live: boolean
       canonical: boolean
       current_manifest_hash: string
     }>(
-      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
-              consumed_at,
-              invalidated_at,
-              expires_at > clock_timestamp() AS live,
+      `SELECT encode(authz.candidate_digest, 'hex') AS candidate_digest,
+              authz.consumed_at,
+              authz.invalidated_at,
               encode(manifest.manifest_hash, 'hex') AS current_manifest_hash,
               true AS canonical
-         FROM p2tr_candidate_enqueue_authorizations authorization
+         FROM p2tr_candidate_enqueue_authorizations authz
+         JOIN p2tr_candidate_enqueue_transaction_guard guard_row
+           ON guard_row.manifest_hash = authz.manifest_hash
+          AND guard_row.token_id = authz.token_id
+          AND guard_row.candidate_digest = authz.candidate_digest
          JOIN p2tr_readiness_certificates certificate
            ON certificate.certificate_id =
-                authorization.readiness_certificate_id
+                authz.readiness_certificate_id
           AND certificate.certificate_generation =
-                authorization.readiness_certificate_generation
+                authz.readiness_certificate_generation
           AND certificate.is_current
           AND certificate.invalidated_at IS NULL
-          AND certificate.manifest_hash = authorization.manifest_hash
+          AND certificate.manifest_hash = authz.manifest_hash
           AND certificate.bitcoin_height =
-                authorization.verified_bitcoin_height
+                authz.verified_bitcoin_height
           AND certificate.bitcoin_hash =
-                authorization.verified_bitcoin_hash
+                authz.verified_bitcoin_hash
           AND certificate.ethereum_block_number =
-                authorization.verified_ethereum_block
+                authz.verified_ethereum_block
           AND certificate.ethereum_block_hash =
-                authorization.verified_ethereum_hash
+                authz.verified_ethereum_hash
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
-          AND manifest.manifest_hash = authorization.manifest_hash
+          AND manifest.manifest_hash = authz.manifest_hash
           AND manifest.activation_sequence =
                 certificate.manifest_activation_sequence
          JOIN p2tr_canonical_generations certified_generation
@@ -1020,14 +1133,76 @@ export class PostgresP2TRProductionActivationStore
                 certified_ethereum.current_block_hash
           AND certified_ethereum_block.history_root =
                 certificate.ethereum_history_root
-        WHERE token_id = $1
+         JOIN LATERAL
+              p2tr_signature_fraud_outbox_activation_revalidation(
+                authz.manifest_hash,
+                floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
+              ) outbox_health ON true
+         JOIN LATERAL p2tr_candidate_enqueue_expected_authority(
+              authz.manifest_hash,
+              authz.observation_id,
+              authz.challenge_key,
+              authz.txid,
+              authz.wtxid,
+              authz.input_index,
+              authz.input_output_key,
+              authz.input_binding_kind,
+              authz.funding_txid,
+              authz.funding_vout
+              ) expected_authority ON true
+        WHERE authz.token_id = $1
+          -- Expiry gates the transition into this append-only guard. Once the
+          -- guard commits, crash recovery owns the exact authority until one
+          -- of its durable terminal dispositions exists.
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                 WHERE resolution.manifest_hash = guard_row.manifest_hash
+                   AND resolution.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                 WHERE alert.manifest_hash = guard_row.manifest_hash
+                   AND alert.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                 WHERE failure.manifest_hash = guard_row.manifest_hash
+                   AND failure.token_id = guard_row.token_id
+              )
+          -- The certificate can remain structurally current while a later
+          -- outbox write invalidates durable candidate authority. Candidate
+          -- consumption runs behind the exclusive pre-snapshot fence, so
+          -- these authority predicates are stable through the enqueue commit.
+          AND outbox_health.activation_blocking_critical_alert_count = 0
+          AND outbox_health.ambiguous_transaction_count = 0
+          AND outbox_health.unresolved_legacy_quarantine_count = 0
+          AND outbox_health.configured_signer_lane_count =
+                (certificate.payload #>>
+                  '{outboxHandshake,state,configuredSignerLaneCount}')::bigint
+          AND outbox_health.configured_signer_lane_set_hash =
+                certificate.payload #>>
+                  '{outboxHandshake,state,configuredSignerLaneSetHash}'
+          AND authz.generation_authority_version = 1
+          AND authz.expected_outbox_series_id =
+                expected_authority.expected_series_id
+          AND authz.expected_outbox_generation =
+                expected_authority.expected_generation
+          AND authz.expected_outbox_disposition =
+                expected_authority.expected_disposition
+          AND authz.expected_outbox_predecessor_id IS NOT DISTINCT FROM
+                expected_authority.expected_predecessor_id
+          AND authz.expected_outbox_evidence_id IS NOT DISTINCT FROM
+                expected_authority.expected_evidence_id
           AND certified_generation.generation_id = (
             SELECT max(generation_id)
               FROM p2tr_canonical_generations
              WHERE state = 'committed'
           )
-        FOR UPDATE OF authorization
-        FOR SHARE OF manifest, certificate, certified_generation,
+        FOR UPDATE OF authz
+        FOR SHARE OF guard_row, manifest, certificate, certified_generation,
                      certified_bitcoin, certified_ethereum,
                      certified_ethereum_block`,
       [hexBuffer(tokenID, "candidate token")]
@@ -1040,11 +1215,10 @@ export class PostgresP2TRProductionActivationStore
         bytes32(manifestHash, "expected manifest hash") ||
       result.rows[0].consumed_at !== null ||
       result.rows[0].invalidated_at !== null ||
-      result.rows[0].live !== true ||
       result.rows[0].canonical !== true
     ) {
       throw new Error(
-        "Candidate authorization is absent, expired, used, or mismatched"
+        "Candidate authorization is absent, terminal, used, or mismatched"
       )
     }
   }
@@ -1067,7 +1241,152 @@ export class PostgresP2TRProductionActivationStore
           )
           AND consumed_at IS NULL
           AND invalidated_at IS NULL
-          AND expires_at > clock_timestamp()`,
+          -- The exact unresolved guard is the durable post-expiry authority.
+          -- Its creation required a live authorization; consumption still
+          -- binds the resulting outbox row and current generation authority.
+          AND EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_transaction_guard guard_row
+             WHERE guard_row.manifest_hash =
+                     p2tr_candidate_enqueue_authorizations.manifest_hash
+               AND guard_row.token_id =
+                     p2tr_candidate_enqueue_authorizations.token_id
+               AND guard_row.candidate_digest =
+                     p2tr_candidate_enqueue_authorizations.candidate_digest
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                  WHERE resolution.manifest_hash = guard_row.manifest_hash
+                    AND resolution.token_id = guard_row.token_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                  WHERE alert.manifest_hash = guard_row.manifest_hash
+                    AND alert.token_id = guard_row.token_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                  WHERE failure.manifest_hash = guard_row.manifest_hash
+                    AND failure.token_id = guard_row.token_id
+               )
+          )
+          AND generation_authority_version = 1
+          AND EXISTS (
+            SELECT 1
+              FROM p2tr_signature_fraud_challenge_outbox outbox
+             WHERE outbox.record_id = $2
+               AND outbox.series_id =
+                     p2tr_candidate_enqueue_authorizations.expected_outbox_series_id
+               AND outbox.observation_id =
+                     p2tr_candidate_enqueue_authorizations.challenge_key
+               AND outbox.bridge_challenge_key =
+                     p2tr_candidate_enqueue_authorizations.challenge_key
+               AND outbox.bitcoin_tx_hash =
+                     p2tr_candidate_enqueue_authorizations.txid
+               AND outbox.bitcoin_wtxid =
+                     p2tr_candidate_enqueue_authorizations.wtxid
+               AND outbox.bitcoin_input_index =
+                     p2tr_candidate_enqueue_authorizations.input_index
+               AND outbox.signing_key =
+                     p2tr_candidate_enqueue_authorizations.input_output_key
+               AND outbox.binding_tx_hash = CASE
+                     p2tr_candidate_enqueue_authorizations.input_binding_kind
+                     WHEN 'registered-wallet-output'
+                       THEN decode(repeat('00', 32), 'hex')
+                     WHEN 'deposit-binding'
+                       THEN p2tr_reverse_bytea(
+                         p2tr_candidate_enqueue_authorizations.funding_txid
+                       )
+                   END
+               AND outbox.binding_output_index = CASE
+                     p2tr_candidate_enqueue_authorizations.input_binding_kind
+                     WHEN 'registered-wallet-output' THEN 0
+                     WHEN 'deposit-binding'
+                       THEN p2tr_candidate_enqueue_authorizations.funding_vout
+                   END
+               AND (
+                 (
+                   expected_outbox_generation <= 31
+                   AND outbox.generation = expected_outbox_generation
+                   AND outbox.activation_manifest_hash =
+                         p2tr_candidate_enqueue_authorizations.manifest_hash
+                   AND (
+                     (
+                       expected_outbox_disposition = 'initial'
+                       AND outbox.generation = 0
+                       AND outbox.previous_record_id IS NULL
+                       AND outbox.generation_cause IS NULL
+                     )
+                     OR (
+                       expected_outbox_disposition = 'nonce-disposition'
+                       AND outbox.previous_record_id =
+                             expected_outbox_predecessor_id
+                       AND outbox.generation_cause IN (
+                             'finalized-revert',
+                             'finalized-nonce-consumed'
+                           )
+                       AND outbox.prior_nonce_disposition_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition =
+                             'canonical-reappearance'
+                       AND outbox.previous_record_id =
+                             expected_outbox_predecessor_id
+                       AND outbox.generation_cause =
+                             'canonical-reappearance'
+                       AND outbox.prior_cancellation_evidence_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition = 'provenance-restored'
+                       AND outbox.previous_record_id =
+                             expected_outbox_predecessor_id
+                       AND outbox.generation_cause = 'provenance-restored'
+                       AND outbox.prior_provenance_invalidation_id =
+                             expected_outbox_evidence_id
+                     )
+                   )
+                 )
+                 OR (
+                   expected_outbox_generation = 32
+                   AND outbox.generation = 31
+                   AND outbox.record_id = expected_outbox_predecessor_id
+                   AND (
+                     (
+                       expected_outbox_disposition = 'nonce-disposition'
+                       AND outbox.status = 'generation-required'
+                       AND outbox.nonce_disposition_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition =
+                             'canonical-reappearance'
+                       AND outbox.status = 'cancelled-reorg'
+                       AND outbox.cancellation_evidence_id =
+                             expected_outbox_evidence_id
+                     )
+                     OR (
+                       expected_outbox_disposition = 'provenance-restored'
+                       AND outbox.status =
+                             'cancelled-provenance-invalidated'
+                       AND outbox.provenance_invalidation_id =
+                             expected_outbox_evidence_id
+                     )
+                   )
+                   AND EXISTS (
+                     SELECT 1
+                       FROM p2tr_signature_fraud_challenge_critical_alert alert
+                      WHERE alert.record_id = outbox.record_id
+                        AND alert.generation = outbox.generation
+                        AND alert.code = 'generation-cap-exhausted'
+                        AND alert.activation_blocking = true
+                   )
+                 )
+               )
+          )`,
       [
         hexBuffer(tokenID, "candidate token"),
         hexBuffer(outboxIntentID, "outbox intent ID"),
@@ -1086,20 +1405,73 @@ export class PostgresP2TRProductionActivationStore
     await this.assertCurrentActivationManifest(normalized.manifestHash)
     const guardDigest = candidateEnqueueTransactionGuardDigest(normalized)
     const inserted = await this.session.query(
-      `INSERT INTO p2tr_candidate_enqueue_transaction_guard
+      `WITH locked_capacity AS MATERIALIZED (
+         -- The no-op UPDATE is a write fence, not merely a row lock. Every
+         -- outbox INSERT updates this singleton too, so a SERIALIZABLE guard
+         -- transaction cannot reserve from a snapshot predating another
+         -- reservation or active-generation insert.
+         UPDATE p2tr_signature_fraud_challenge_outbox_capacity
+            SET active_generation_count = active_generation_count
+          WHERE singleton = true
+        RETURNING active_generation_count
+       ), unresolved_capacity AS MATERIALIZED (
+         SELECT count(*)::bigint AS reservation_count
+           FROM p2tr_candidate_enqueue_transaction_guard guard_row
+           JOIN p2tr_candidate_enqueue_authorizations authz
+             ON authz.manifest_hash = guard_row.manifest_hash
+            AND authz.token_id = guard_row.token_id
+            AND authz.candidate_digest = guard_row.candidate_digest
+           JOIN p2tr_watchtower_activation_manifest current_manifest
+             ON current_manifest.singleton = true
+            AND current_manifest.manifest_hash = guard_row.manifest_hash
+          WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                     WHERE resolution.manifest_hash = guard_row.manifest_hash
+                       AND resolution.token_id = guard_row.token_id
+                )
+            AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                     WHERE alert.manifest_hash = guard_row.manifest_hash
+                       AND alert.token_id = guard_row.token_id
+                )
+            AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                     WHERE failure.manifest_hash = guard_row.manifest_hash
+                       AND failure.token_id = guard_row.token_id
+                )
+       )
+       INSERT INTO p2tr_candidate_enqueue_transaction_guard
          (manifest_hash, token_id, candidate_digest, max_attempt_count,
           guard_digest)
        SELECT $1, $2, $3, $4, $5
-         FROM p2tr_candidate_enqueue_authorizations authorization
+         FROM p2tr_candidate_enqueue_authorizations authz
          JOIN p2tr_watchtower_activation_manifest manifest
            ON manifest.singleton = true
-          AND manifest.manifest_hash = authorization.manifest_hash
-        WHERE authorization.token_id = $2
-          AND authorization.manifest_hash = $1
-          AND authorization.candidate_digest = $3
-          AND authorization.consumed_at IS NULL
-          AND authorization.invalidated_at IS NULL
-          AND authorization.expires_at > clock_timestamp()
+          AND manifest.manifest_hash = authz.manifest_hash
+         CROSS JOIN locked_capacity capacity
+         CROSS JOIN unresolved_capacity reserved
+        WHERE authz.token_id = $2
+          AND authz.manifest_hash = $1
+          AND authz.candidate_digest = $3
+          AND authz.consumed_at IS NULL
+          AND authz.invalidated_at IS NULL
+          AND authz.expires_at > clock_timestamp()
+          AND (
+              EXISTS (
+                  SELECT 1
+                    FROM p2tr_candidate_enqueue_transaction_guard existing
+                   WHERE existing.manifest_hash = $1
+                     AND existing.token_id = $2
+                     AND existing.candidate_digest = $3
+              )
+              OR capacity.active_generation_count +
+                   reserved.reservation_count <
+                   (manifest.payload #>>
+                    '{outbox,maxActiveOutboxRecords}')::bigint
+          )
        ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
       [
         hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
@@ -1119,17 +1491,33 @@ export class PostgresP2TRProductionActivationStore
       max_attempt_count: string | number
       guard_digest: string
     }>(
-      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
-              max_attempt_count,
-              encode(guard_digest, 'hex') AS guard_digest
-         FROM p2tr_candidate_enqueue_transaction_guard
-        WHERE manifest_hash = $1 AND token_id = $2
-        FOR SHARE`,
+      `SELECT encode(guard_row.candidate_digest, 'hex') AS candidate_digest,
+              guard_row.max_attempt_count,
+              encode(guard_row.guard_digest, 'hex') AS guard_digest
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_watchtower_activation_manifest manifest
+           ON manifest.singleton = true
+          AND manifest.manifest_hash = guard_row.manifest_hash
+        WHERE guard_row.manifest_hash = $1
+          AND guard_row.token_id = $2
+          AND authz.consumed_at IS NULL
+          AND authz.invalidated_at IS NULL
+          AND authz.expires_at > clock_timestamp()
+        FOR SHARE OF guard_row, authz, manifest`,
       [
         hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
         hexBuffer(normalized.tokenID, "enqueue guard token"),
       ]
     )
+    if (stored.rows.length === 0) {
+      throw new Error(
+        "Candidate enqueue guard could not reserve active outbox capacity"
+      )
+    }
     if (
       stored.rows.length !== 1 ||
       bytes32(stored.rows[0].candidate_digest, "stored guard candidate") !==
@@ -1147,6 +1535,159 @@ export class PostgresP2TRProductionActivationStore
     }
   }
 
+  async listUnresolvedCandidateEnqueueTransactionGuards(): Promise<
+    readonly P2TRProductionCandidateEnqueueTransactionRecovery[]
+  > {
+    const result = await this.session.query<{
+      token_id: string
+      manifest_hash: string
+      candidate_digest: string
+      max_attempt_count: string | number
+      txid: string
+      wtxid: string
+      bitcoin_block_height: string | number
+      bitcoin_block_hash: string
+      input_index: string | number
+      observation_id: string
+      challenge_key: string
+      readiness_certificate_id: string
+      readiness_certificate_generation: string | number
+      verified_bitcoin_height: string | number
+      verified_bitcoin_hash: string
+      verified_ethereum_block: string | number
+      verified_ethereum_hash: string
+      expires_at: Date | string
+    }>(
+      `SELECT encode(authz.token_id, 'hex') AS token_id,
+              encode(authz.manifest_hash, 'hex') AS manifest_hash,
+              encode(authz.candidate_digest, 'hex') AS candidate_digest,
+              guard_row.max_attempt_count,
+              encode(authz.txid, 'hex') AS txid,
+              encode(authz.wtxid, 'hex') AS wtxid,
+              authz.bitcoin_block_height,
+              encode(authz.bitcoin_block_hash, 'hex') AS bitcoin_block_hash,
+              authz.input_index,
+              encode(authz.observation_id, 'hex') AS observation_id,
+              encode(authz.challenge_key, 'hex') AS challenge_key,
+              encode(authz.readiness_certificate_id, 'hex')
+                AS readiness_certificate_id,
+              authz.readiness_certificate_generation,
+              authz.verified_bitcoin_height,
+              encode(authz.verified_bitcoin_hash, 'hex')
+                AS verified_bitcoin_hash,
+              authz.verified_ethereum_block,
+              encode(authz.verified_ethereum_hash, 'hex')
+                AS verified_ethereum_hash,
+              authz.expires_at
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_watchtower_activation_manifest manifest
+           ON manifest.singleton = true
+          AND manifest.manifest_hash = guard_row.manifest_hash
+        WHERE NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                 WHERE resolution.manifest_hash = guard_row.manifest_hash
+                   AND resolution.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                 WHERE alert.manifest_hash = guard_row.manifest_hash
+                   AND alert.token_id = guard_row.token_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_candidate_enqueue_non_retryable_failure failure
+                 WHERE failure.manifest_hash = guard_row.manifest_hash
+                   AND failure.token_id = guard_row.token_id
+              )
+        ORDER BY guard_row.token_id
+        FOR SHARE OF guard_row, authz, manifest`
+    )
+    return result.rows.map((row) => {
+      const candidate = normalizeRecoveryCandidate({
+        txid: row.txid,
+        wtxid: row.wtxid,
+        blockHeight: databaseInteger(
+          row.bitcoin_block_height,
+          "recovery candidate block height"
+        ),
+        blockHash: row.bitcoin_block_hash,
+        inputIndex: databaseInteger(
+          row.input_index,
+          "recovery candidate input index"
+        ),
+        observationID: row.observation_id,
+        challengeKey: row.challenge_key,
+      })
+      const candidateDigest = bytes32(
+        row.candidate_digest,
+        "recovery candidate digest"
+      )
+      if (candidateDigest !== computeP2TRProductionCandidateDigest(candidate)) {
+        throw new Error(
+          "Candidate enqueue recovery row does not match its candidate digest"
+        )
+      }
+      const manifestHash = bytes32(row.manifest_hash, "recovery manifest hash")
+      const tokenID = bytes32(row.token_id, "recovery token")
+      const maxAttemptCount = boundedPositiveInteger(
+        databaseInteger(row.max_attempt_count, "recovery guard attempt bound"),
+        8,
+        "recovery guard attempt bound"
+      )
+      return {
+        guard: {
+          tokenID,
+          manifestHash,
+          candidateDigest,
+          maxAttemptCount,
+        },
+        authorization: {
+          tokenID,
+          manifestHash,
+          candidateDigest,
+          candidate,
+          readinessCertificate: {
+            certificateID: bytes32(
+              row.readiness_certificate_id,
+              "recovery readiness certificate"
+            ),
+            generation: databaseInteger(
+              row.readiness_certificate_generation,
+              "recovery readiness certificate generation"
+            ),
+          },
+          verifiedBitcoin: {
+            height: databaseInteger(
+              row.verified_bitcoin_height,
+              "recovery verified Bitcoin height"
+            ),
+            hash: bytes32(
+              row.verified_bitcoin_hash,
+              "recovery verified Bitcoin hash"
+            ).slice(2),
+          },
+          verifiedEthereum: {
+            blockNumber: databaseInteger(
+              row.verified_ethereum_block,
+              "recovery verified Ethereum block"
+            ),
+            blockHash: bytes32(
+              row.verified_ethereum_hash,
+              "recovery verified Ethereum hash"
+            ),
+          },
+          expiresAt: new Date(row.expires_at).toISOString(),
+        },
+      }
+    })
+  }
+
   async resolveCandidateEnqueueTransactionGuard(
     resolution: P2TRProductionCandidateEnqueueTransactionResolution
   ): Promise<void> {
@@ -1159,15 +1700,15 @@ export class PostgresP2TRProductionActivationStore
       outbox_intent_id: string | null
     }>(
       `SELECT encode(guard_row.candidate_digest, 'hex') AS candidate_digest,
-              authorization.consumed_at,
-              encode(authorization.outbox_intent_id, 'hex') AS outbox_intent_id
+              authz.consumed_at,
+              encode(authz.outbox_intent_id, 'hex') AS outbox_intent_id
          FROM p2tr_candidate_enqueue_transaction_guard guard_row
-         JOIN p2tr_candidate_enqueue_authorizations authorization
-           ON authorization.manifest_hash = guard_row.manifest_hash
-          AND authorization.token_id = guard_row.token_id
-          AND authorization.candidate_digest = guard_row.candidate_digest
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
         WHERE guard_row.manifest_hash = $1 AND guard_row.token_id = $2
-        FOR UPDATE OF guard_row, authorization`,
+        FOR UPDATE OF guard_row, authz`,
       [
         hexBuffer(normalized.manifestHash, "enqueue resolution manifest"),
         hexBuffer(normalized.tokenID, "enqueue resolution token"),
@@ -1215,6 +1756,12 @@ export class PostgresP2TRProductionActivationStore
               FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
              WHERE alert.manifest_hash = guard_row.manifest_hash
                AND alert.token_id = guard_row.token_id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_non_retryable_failure failure
+             WHERE failure.manifest_hash = guard_row.manifest_hash
+               AND failure.token_id = guard_row.token_id
           )
        ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
       [
@@ -1319,6 +1866,12 @@ export class PostgresP2TRProductionActivationStore
              WHERE resolution.manifest_hash = guard_row.manifest_hash
                AND resolution.token_id = guard_row.token_id
           )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_non_retryable_failure failure
+             WHERE failure.manifest_hash = guard_row.manifest_hash
+               AND failure.token_id = guard_row.token_id
+          )
        ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
       [
         hexBuffer(normalized.manifestHash, "retry alert manifest"),
@@ -1366,6 +1919,230 @@ export class PostgresP2TRProductionActivationStore
     ) {
       throw new Error(
         "Candidate enqueue retry alert conflicts with durable state"
+      )
+    }
+  }
+
+  async resolveCandidateEnqueueRetryExhaustionAlert(
+    resolution: P2TRProductionCandidateEnqueueRetryExhaustionResolution
+  ): Promise<void> {
+    const normalized =
+      normalizeCandidateEnqueueRetryExhaustionResolution(resolution)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_resolution
+         (manifest_hash, token_id, candidate_digest, alert_detail_digest,
+          resolution_digest, reason, resolved_at_unix_ms)
+       SELECT alert.manifest_hash, alert.token_id, alert.candidate_digest,
+              alert.detail_digest, $4, $5, $6
+         FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+        WHERE alert.manifest_hash = $1
+          AND alert.token_id = $2
+          AND alert.candidate_digest = $3
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "retry resolution manifest"),
+        hexBuffer(normalized.tokenID, "retry resolution token"),
+        hexBuffer(normalized.candidateDigest, "retry resolution candidate"),
+        hexBuffer(
+          normalized.resolutionDigest,
+          "retry resolution evidence digest"
+        ),
+        normalized.reason,
+        normalized.resolvedAtUnixMs,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue retry alert resolution insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      resolution_digest: string
+      reason: string
+      resolved_at_unix_ms: string | number
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(resolution_digest, 'hex') AS resolution_digest,
+              reason, resolved_at_unix_ms
+         FROM p2tr_candidate_enqueue_retry_exhaustion_resolution
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "retry resolution manifest"),
+        hexBuffer(normalized.tokenID, "retry resolution token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored retry resolution candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].resolution_digest,
+        "stored retry resolution evidence digest"
+      ) !== normalized.resolutionDigest ||
+      stored.rows[0].reason !== normalized.reason ||
+      databaseInteger(
+        stored.rows[0].resolved_at_unix_ms,
+        "stored retry resolution time"
+      ) !== normalized.resolvedAtUnixMs
+    ) {
+      throw new Error(
+        "Candidate enqueue retry alert resolution conflicts with durable state"
+      )
+    }
+  }
+
+  async resolveCandidateEnqueueManifestRotationDisposition(
+    resolution: P2TRProductionCandidateEnqueueManifestRotationResolution
+  ): Promise<void> {
+    const normalized =
+      normalizeCandidateEnqueueManifestRotationResolution(resolution)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_manifest_rotation_resolution
+         (manifest_hash, token_id, candidate_digest, failure_digest,
+          replacement_manifest_hash, replacement_activation_sequence,
+          resolution_digest, reason, resolved_at_unix_ms)
+       SELECT disposition.manifest_hash, disposition.token_id,
+              disposition.candidate_digest, disposition.failure_digest,
+              disposition.replacement_manifest_hash,
+              disposition.replacement_activation_sequence,
+              $4, $5, $6
+         FROM p2tr_candidate_enqueue_manifest_rotation_disposition disposition
+        WHERE disposition.manifest_hash = $1
+          AND disposition.token_id = $2
+          AND disposition.candidate_digest = $3
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "rotation resolution manifest"),
+        hexBuffer(normalized.tokenID, "rotation resolution token"),
+        hexBuffer(normalized.candidateDigest, "rotation resolution candidate"),
+        hexBuffer(
+          normalized.resolutionDigest,
+          "rotation resolution evidence digest"
+        ),
+        normalized.reason,
+        normalized.resolvedAtUnixMs,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue manifest-rotation resolution insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      resolution_digest: string
+      reason: string
+      resolved_at_unix_ms: string | number
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(resolution_digest, 'hex') AS resolution_digest,
+              reason, resolved_at_unix_ms
+         FROM p2tr_candidate_enqueue_manifest_rotation_resolution
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "rotation resolution manifest"),
+        hexBuffer(normalized.tokenID, "rotation resolution token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored rotation resolution candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].resolution_digest,
+        "stored rotation resolution evidence digest"
+      ) !== normalized.resolutionDigest ||
+      stored.rows[0].reason !== normalized.reason ||
+      databaseInteger(
+        stored.rows[0].resolved_at_unix_ms,
+        "stored rotation resolution time"
+      ) !== normalized.resolvedAtUnixMs
+    ) {
+      throw new Error(
+        "Candidate enqueue manifest-rotation resolution conflicts with durable state"
+      )
+    }
+  }
+
+  async saveCandidateEnqueueNonRetryableFailure(
+    failure: P2TRProductionCandidateEnqueueNonRetryableFailure
+  ): Promise<void> {
+    const normalized = normalizeCandidateEnqueueNonRetryableFailure(failure)
+    await this.assertCurrentActivationManifest(normalized.manifestHash)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_non_retryable_failure
+         (manifest_hash, token_id, candidate_digest, failure_digest)
+       SELECT guard_row.manifest_hash, guard_row.token_id,
+              guard_row.candidate_digest, $4
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authz
+           ON authz.manifest_hash = guard_row.manifest_hash
+          AND authz.token_id = guard_row.token_id
+          AND authz.candidate_digest = guard_row.candidate_digest
+        WHERE guard_row.manifest_hash = $1
+          AND guard_row.token_id = $2
+          AND guard_row.candidate_digest = $3
+          AND authz.consumed_at IS NULL
+          AND authz.outbox_intent_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_transaction_resolution resolution
+             WHERE resolution.manifest_hash = guard_row.manifest_hash
+               AND resolution.token_id = guard_row.token_id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+             WHERE alert.manifest_hash = guard_row.manifest_hash
+               AND alert.token_id = guard_row.token_id
+          )
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue failure manifest"),
+        hexBuffer(normalized.tokenID, "enqueue failure token"),
+        hexBuffer(normalized.candidateDigest, "enqueue failure candidate"),
+        hexBuffer(normalized.failureDigest, "enqueue failure digest"),
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue non-retryable failure insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      failure_digest: string
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(failure_digest, 'hex') AS failure_digest
+         FROM p2tr_candidate_enqueue_non_retryable_failure
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue failure manifest"),
+        hexBuffer(normalized.tokenID, "enqueue failure token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored enqueue failure candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].failure_digest,
+        "stored enqueue failure digest"
+      ) !== normalized.failureDigest
+    ) {
+      throw new Error(
+        "Candidate enqueue non-retryable failure conflicts with durable state"
       )
     }
   }
@@ -1838,7 +2615,12 @@ function normalizeCandidateEnqueueTransactionResolution(
 function normalizeCandidateEnqueueRetryExhaustionAlert(
   alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
 ): P2TRProductionCandidateEnqueueRetryExhaustionAlert {
-  if (alert.lastSQLState !== "40001" && alert.lastSQLState !== "40P01") {
+  if (
+    alert.lastSQLState !== "40001" &&
+    alert.lastSQLState !== "40P01" &&
+    alert.lastSQLState !== "55P03" &&
+    alert.lastSQLState !== "57014"
+  ) {
     throw new Error("Candidate enqueue retry alert SQLSTATE is unsupported")
   }
   return {
@@ -1854,6 +2636,71 @@ function normalizeCandidateEnqueueRetryExhaustionAlert(
   }
 }
 
+function normalizeCandidateEnqueueRetryExhaustionResolution(
+  resolution: P2TRProductionCandidateEnqueueRetryExhaustionResolution
+): P2TRProductionCandidateEnqueueRetryExhaustionResolution {
+  return {
+    tokenID: bytes32(resolution.tokenID, "retry resolution token"),
+    manifestHash: bytes32(resolution.manifestHash, "retry resolution manifest"),
+    candidateDigest: bytes32(
+      resolution.candidateDigest,
+      "retry resolution candidate"
+    ),
+    resolutionDigest: bytes32(
+      resolution.resolutionDigest,
+      "retry resolution evidence digest"
+    ),
+    reason: boundedString(resolution.reason, 1_024, "retry resolution reason"),
+    resolvedAtUnixMs: nonNegativeInteger(
+      resolution.resolvedAtUnixMs,
+      "retry resolution time"
+    ),
+  }
+}
+
+function normalizeCandidateEnqueueManifestRotationResolution(
+  resolution: P2TRProductionCandidateEnqueueManifestRotationResolution
+): P2TRProductionCandidateEnqueueManifestRotationResolution {
+  return {
+    tokenID: bytes32(resolution.tokenID, "rotation resolution token"),
+    manifestHash: bytes32(
+      resolution.manifestHash,
+      "rotation resolution manifest"
+    ),
+    candidateDigest: bytes32(
+      resolution.candidateDigest,
+      "rotation resolution candidate"
+    ),
+    resolutionDigest: bytes32(
+      resolution.resolutionDigest,
+      "rotation resolution evidence digest"
+    ),
+    reason: boundedString(
+      resolution.reason,
+      1_024,
+      "rotation resolution reason"
+    ),
+    resolvedAtUnixMs: nonNegativeInteger(
+      resolution.resolvedAtUnixMs,
+      "rotation resolution time"
+    ),
+  }
+}
+
+function normalizeCandidateEnqueueNonRetryableFailure(
+  failure: P2TRProductionCandidateEnqueueNonRetryableFailure
+): P2TRProductionCandidateEnqueueNonRetryableFailure {
+  return {
+    tokenID: bytes32(failure.tokenID, "enqueue failure token"),
+    manifestHash: bytes32(failure.manifestHash, "enqueue failure manifest"),
+    candidateDigest: bytes32(
+      failure.candidateDigest,
+      "enqueue failure candidate"
+    ),
+    failureDigest: bytes32(failure.failureDigest, "enqueue failure digest"),
+  }
+}
+
 function candidateEnqueueTransactionGuardDigest(
   guard: P2TRProductionCandidateEnqueueTransactionGuard
 ): Buffer {
@@ -1861,6 +2708,32 @@ function candidateEnqueueTransactionGuardDigest(
     "tbtc-p2tr-candidate-enqueue-transaction-guard/v1",
     guard
   )
+}
+
+function normalizeRecoveryCandidate(
+  candidate: P2TRProductionBitcoinCandidate
+): P2TRProductionBitcoinCandidate {
+  return {
+    txid: bytes32(candidate.txid, "recovery candidate txid").slice(2),
+    wtxid: bytes32(candidate.wtxid, "recovery candidate wtxid").slice(2),
+    blockHeight: nonNegativeInteger(
+      candidate.blockHeight,
+      "recovery candidate block height"
+    ),
+    blockHash: bytes32(
+      candidate.blockHash,
+      "recovery candidate block hash"
+    ).slice(2),
+    inputIndex: uint32(candidate.inputIndex, "recovery candidate input index"),
+    observationID: bytes32(
+      candidate.observationID,
+      "recovery candidate observation ID"
+    ),
+    challengeKey: bytes32(
+      candidate.challengeKey,
+      "recovery candidate challenge key"
+    ),
+  }
 }
 
 function candidateEnqueueTransactionResolutionDigest(

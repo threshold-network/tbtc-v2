@@ -10,6 +10,7 @@ import {
   calculateP2TREvidenceObjectDigest,
   calculateP2TRReadinessExportStreamLeafDigest,
   isP2TRPostgresTransactionConfirmedAbortError,
+  isP2TRPostgresTransactionUnknownOutcomeError,
   PostgresP2TRCanonicalIndexStore,
   verifyP2TRReadinessExportObjectFrames,
 } from "../src/PostgresP2TRCanonicalIndexStore.js"
@@ -338,6 +339,73 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
   })
 
+  it("brands an uncoded statement transport failure before COMMIT as a confirmed abort", async () => {
+    const transportError = Object.assign(
+      new Error("connection lost during statement"),
+      { code: "ECONNRESET" }
+    )
+    const client = new FakeClient({ "SELECT transport": transportError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const adapter =
+      store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT transport") })
+      )
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(() => adapter.query()),
+      (error) => {
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+        if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+        assert.equal(error.reason, "pre-commit-transport-abort")
+        assert.equal(error.sqlState, undefined)
+        assert.equal(error.postgresError, transportError)
+        assert.equal(error.operationError, transportError)
+        assert.equal(
+          store.isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+            error
+          ),
+          true
+        )
+        return true
+      }
+    )
+
+    assert.equal(lastTransactionCommand(client.statements), "ROLLBACK")
+    assert.equal(client.statements.includes("COMMIT"), false)
+    assert.equal(client.releaseArgument, undefined)
+  })
+
+  it("keeps a pre-COMMIT transport abort retryable when ROLLBACK also loses its connection", async () => {
+    const transportError = new Error("connection lost during statement")
+    const rollbackError = new Error("connection lost during rollback")
+    const client = new FakeClient({
+      "SELECT transport": transportError,
+      ROLLBACK: rollbackError,
+    })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const adapter =
+      store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT transport") })
+      )
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(() => adapter.query()),
+      (error) =>
+        store.isP2TRSignatureFraudWatchtowerTransactionConfirmedPreCommitTransportAbort(
+          error
+        )
+    )
+
+    assert.equal(client.statements.includes("COMMIT"), false)
+    assert.equal(client.releaseArgument, rollbackError)
+  })
+
   it("surfaces a server 40001 during COMMIT as a confirmed abort", async () => {
     const commitError = Object.assign(new Error("serialization at commit"), {
       code: "40001",
@@ -370,6 +438,53 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.equal(client.releaseArgument, undefined)
   })
 
+  for (const sqlState of ["23503", "23514", "P0001"] as const) {
+    it(`surfaces a definitive ${sqlState} during COMMIT as a confirmed nonretryable abort`, async () => {
+      const commitError = Object.assign(
+        new Error(`deferred constraint rejected commit ${sqlState}`),
+        { code: sqlState }
+      )
+      const client = new FakeClient({ COMMIT: commitError })
+      const store = new PostgresP2TRCanonicalIndexStore(
+        new FakePool(client),
+        storeOptions()
+      )
+
+      await assert.rejects(
+        store.runInP2TRSignatureFraudWatchtowerTransaction(
+          async () => "result"
+        ),
+        (error) => {
+          assert.equal(
+            isP2TRPostgresTransactionConfirmedAbortError(error),
+            true
+          )
+          if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+          assert.equal(error.reason, "definitive-commit-sqlstate")
+          assert.equal(error.sqlState, sqlState)
+          assert.equal(error.postgresError, commitError)
+          assert.equal(
+            store.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+              error
+            ),
+            undefined
+          )
+          assert.equal(
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+              error
+            ),
+            false
+          )
+          return true
+        }
+      )
+
+      assert.equal(lastTransactionCommand(client.statements), "COMMIT")
+      assert.equal(client.statements.includes("ROLLBACK"), false)
+      assert.equal(client.releaseArgument, undefined)
+    })
+  }
+
   it("keeps an uncoded COMMIT transport failure outcome unknown", async () => {
     const commitError = new Error("commit response lost")
     const client = new FakeClient({ COMMIT: commitError })
@@ -383,6 +498,12 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       (error) => {
         assert.match(String(error), /transaction outcome is unknown/)
         assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), false)
+        assert.equal(isP2TRPostgresTransactionUnknownOutcomeError(error), true)
+        assert.equal(
+          store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(error),
+          true
+        )
+        assert.equal((error as Error).cause, commitError)
         return true
       }
     )
@@ -512,7 +633,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
   })
 
   it("brands retryable SQLSTATEs only after a confirmed transaction rollback", async () => {
-    for (const sqlState of ["40001", "40P01"] as const) {
+    for (const sqlState of ["40001", "40P01", "55P03", "57014"] as const) {
       const pool = new FakePool(
         new FakeClient({
           "SELECT retryable": Object.assign(
@@ -590,6 +711,22 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
         (failure: unknown) => failure
       )
     assert.match(String(commitError), /transaction outcome is unknown/)
+    assert.equal(
+      isP2TRPostgresTransactionUnknownOutcomeError(commitError),
+      true
+    )
+    assert.equal(
+      commitStore.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+        commitError
+      ),
+      true
+    )
+    assert.equal(
+      applicationStore.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+        commitError
+      ),
+      false
+    )
     assert.equal(
       commitStore.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
         commitError

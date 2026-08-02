@@ -978,6 +978,29 @@ describe("irreversible outbox boundary authorization", () => {
     )
   })
 
+  it("rejects a cached attestation that does not echo the boundary nonce", async () => {
+    const fixture = makeProofFixture()
+    const staleFixture = makeProofFixture({
+      requestBinding: { recordVersion: 3 },
+    })
+    const evidence = await makeVerifiedBoundaryEvidence(staleFixture)
+    const binding = irreversibleBinding(fixture)
+    const authorizer =
+      new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
+        {
+          async acquireVerifiedP2TRSignatureFraudBoundaryEvidence() {
+            return evidence
+          },
+        },
+        () => NOW
+      )
+
+    await assert.rejects(
+      authorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(binding),
+      /stale or for another attempt/
+    )
+  })
+
   it("rejects forged, wrong-stage, wrong-attempt, and stale capabilities", async () => {
     const fixture = makeProofFixture()
     const evidence = await makeVerifiedBoundaryEvidence(fixture)
@@ -1076,7 +1099,7 @@ describe("irreversible outbox boundary authorization", () => {
         ...binding,
         preparedTransactionHash: undefined,
       }),
-      /Only a broadcast authorization may name prepared transaction bytes/
+      /Signer authorizations require an exact request digest|Only a broadcast authorization may name prepared transaction bytes|broadcast authorizations require exact prepared bytes/
     )
   })
 

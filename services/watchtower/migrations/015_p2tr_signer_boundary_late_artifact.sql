@@ -54,6 +54,24 @@ BEGIN
         RAISE EXCEPTION 'late signed artifact does not match its durable signer boundary';
     END IF;
 
+    IF EXISTS (
+        SELECT 1
+          FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+               resolution
+         WHERE resolution.record_id = outbox_record.record_id
+           AND resolution.boundary_started_at_unix_ms =
+               outbox_record.active_signer_invocation_started_at_unix_ms
+           AND resolution.preparation_attempts =
+               outbox_record.preparation_attempts
+           AND resolution.nonce_reservation_id =
+               outbox_record.nonce_reservation_id
+           AND resolution.outcome = 'signed'
+           AND resolution.signed_transaction_hash <> NEW.transaction_hash
+    ) THEN
+        RAISE EXCEPTION
+            'escaped signed artifact does not match the authenticated orphan resolution';
+    END IF;
+
     SELECT * INTO fee_policy
       FROM p2tr_signature_fraud_challenge_fee_policy
      WHERE record_id = NEW.record_id
@@ -63,12 +81,11 @@ BEGIN
        AND policy_hash = outbox_record.fee_policy_hash
      FOR SHARE;
 
-    IF NOT FOUND
-       OR NEW.gas_limit > fee_policy.max_gas_limit
-       OR NEW.max_fee_per_gas > fee_policy.max_fee_per_gas
-       OR NEW.max_priority_fee_per_gas > fee_policy.max_priority_fee_per_gas
-       OR NEW.gas_limit * NEW.max_fee_per_gas > fee_policy.max_total_fee_wei THEN
-        RAISE EXCEPTION 'late signed artifact exceeds its manifest-bound fee policy';
+    -- This table is forensic quarantine, not a broadcast queue. Policy-invalid
+    -- signed bytes must remain recoverable, while the policy row still proves
+    -- which durable lane owned the boundary.
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'late signed artifact lacks its manifest-bound fee policy';
     END IF;
     RETURN NEW;
 END;

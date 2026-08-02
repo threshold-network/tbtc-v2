@@ -710,6 +710,7 @@ CREATE FUNCTION p2tr_signature_fraud_signer_lane_configuration_hash(
     _max_fee_per_gas numeric,
     _max_priority_fee_per_gas numeric,
     _max_total_fee_wei numeric,
+    _minimum_replacement_fee_bump_bps integer,
     _signer_code_hash bytea
 )
 RETURNS bytea
@@ -729,6 +730,8 @@ AS $$
         ',"maxGasLimit":' || to_json(_max_gas_limit::text)::text ||
         ',"maxPriorityFeePerGas":' || to_json(_max_priority_fee_per_gas::text)::text ||
         ',"maxTotalFeeWei":' || to_json(_max_total_fee_wei::text)::text ||
+        ',"minimumReplacementFeeBumpBps":' ||
+            _minimum_replacement_fee_bump_bps::text ||
         ',"policyHash":' ||
             to_json(('0x' || encode(_policy_hash, 'hex'))::text)::text ||
         ',"sender":' || to_json(('0x' || encode(_sender, 'hex'))::text)::text ||
@@ -772,6 +775,9 @@ CREATE TABLE p2tr_signature_fraud_signer_lane_configuration (
         max_total_fee_wei BETWEEN 1 AND
             115792089237316195423570985008687907853269984665640564039457584007913129639935
     ),
+    minimum_replacement_fee_bump_bps integer NOT NULL CHECK (
+        minimum_replacement_fee_bump_bps BETWEEN 1 AND 10000
+    ),
     signer_code_hash bytea NOT NULL CHECK (octet_length(signer_code_hash) = 32),
     configuration_hash bytea NOT NULL CHECK (
         octet_length(configuration_hash) = 32
@@ -788,6 +794,7 @@ CREATE TABLE p2tr_signature_fraud_signer_lane_configuration (
                 max_fee_per_gas,
                 max_priority_fee_per_gas,
                 max_total_fee_wei,
+                minimum_replacement_fee_bump_bps,
                 signer_code_hash
             )
     ),
@@ -819,7 +826,8 @@ CREATE TABLE p2tr_signature_fraud_signer_lane_configuration (
         max_gas_limit,
         max_fee_per_gas,
         max_priority_fee_per_gas,
-        max_total_fee_wei
+        max_total_fee_wei,
+        minimum_replacement_fee_bump_bps
     )
 );
 
@@ -857,6 +865,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_fee_policy (
         max_total_fee_wei BETWEEN 1 AND
             115792089237316195423570985008687907853269984665640564039457584007913129639935
     ),
+    minimum_replacement_fee_bump_bps integer NOT NULL CHECK (
+        minimum_replacement_fee_bump_bps BETWEEN 1 AND 10000
+    ),
     PRIMARY KEY (record_id, signer_lane_id),
     UNIQUE (record_id, signer_identity),
     UNIQUE (record_id, sender),
@@ -892,7 +903,8 @@ CREATE TABLE p2tr_signature_fraud_challenge_fee_policy (
         max_gas_limit,
         max_fee_per_gas,
         max_priority_fee_per_gas,
-        max_total_fee_wei
+        max_total_fee_wei,
+        minimum_replacement_fee_bump_bps
     ) REFERENCES p2tr_signature_fraud_signer_lane_configuration (
         activation_manifest_hash,
         chain_id,
@@ -904,7 +916,8 @@ CREATE TABLE p2tr_signature_fraud_challenge_fee_policy (
         max_gas_limit,
         max_fee_per_gas,
         max_priority_fee_per_gas,
-        max_total_fee_wei
+        max_total_fee_wei,
+        minimum_replacement_fee_bump_bps
     ) ON DELETE RESTRICT
 );
 
@@ -918,7 +931,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_guard (
         'bound-reservation',
         'escaped-envelope'
     )),
-    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
+    chain_id numeric(78, 0) NOT NULL CHECK (
+        chain_id BETWEEN 0 AND 9007199254740991
+    ),
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
@@ -1885,6 +1900,11 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         octet_length(nonce_reservation_id) = 32
     ),
     stage text NOT NULL CHECK (stage IN ('prepare', 'replacement')),
+    -- The provider's deterministic tombstone namespace is checked alongside
+    -- the full custody request-binding signer_invocation_id declared above.
+    provider_invocation_id bytea NOT NULL CHECK (
+        octet_length(provider_invocation_id) = 32
+    ),
     invoked_at_unix_ms bigint NOT NULL CHECK (
         invoked_at_unix_ms BETWEEN boundary_started_at_unix_ms
             AND 9007199254740991
@@ -1895,6 +1915,15 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     signed_transaction_hash bytea CHECK (
         signed_transaction_hash IS NULL
         OR octet_length(signed_transaction_hash) = 32
+    ),
+    provider_tombstoned_at_unix_ms bigint CHECK (
+        provider_tombstoned_at_unix_ms IS NULL
+        OR provider_tombstoned_at_unix_ms BETWEEN invoked_at_unix_ms
+            AND 9007199254740991
+    ),
+    provider_tombstone_receipt_digest bytea CHECK (
+        provider_tombstone_receipt_digest IS NULL
+        OR octet_length(provider_tombstone_receipt_digest) = 32
     ),
     provider_evidence_digest bytea NOT NULL CHECK (
         octet_length(provider_evidence_digest) = 32
@@ -1942,6 +1971,33 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     -- Signed bytes are named exactly when, and only when, the signer is proven
     -- to have produced them.
     CHECK ((outcome = 'signed') = (signed_transaction_hash IS NOT NULL)),
+    -- Absence observations alone cannot stop a delayed queued request. The
+    -- provider tombstone must already be durable before `never-invoked` can
+    -- clear the database boundary.
+    CHECK (
+        (outcome = 'never-invoked'
+         AND provider_tombstoned_at_unix_ms IS NOT NULL
+         AND provider_tombstone_receipt_digest IS NOT NULL)
+        OR
+        (outcome <> 'never-invoked'
+         AND provider_tombstoned_at_unix_ms IS NULL
+         AND provider_tombstone_receipt_digest IS NULL)
+    ),
+    -- Both stacked tombstone representations must describe the same opaque
+    -- provider receipt and the same durable fencing instant.
+    CHECK (
+        (provider_tombstone_receipt IS NULL)
+            = (provider_tombstone_receipt_digest IS NULL)
+    ),
+    CHECK (
+        provider_tombstone_receipt IS NULL
+        OR provider_tombstone_receipt_digest
+            = sha256(provider_tombstone_receipt)
+    ),
+    CHECK (
+        provider_tombstone_at_unix_ms
+            IS NOT DISTINCT FROM provider_tombstoned_at_unix_ms
+    ),
     CHECK (primary_trust_domain_id <> corroborating_trust_domain_id),
     CHECK (primary_evidence_digest = resolution_evidence_digest),
     CHECK (corroborating_evidence_digest = resolution_evidence_digest),
@@ -2027,6 +2083,18 @@ BEGIN
             'orphaned signer boundary resolution does not name the durable signer stage';
     END IF;
 
+    IF NEW.provider_invocation_id <> sha256(
+           convert_to('tbtc-p2tr-signer-invocation-v1', 'UTF8')
+           || NEW.record_id
+           || int8send(NEW.boundary_started_at_unix_ms)
+           || int8send(NEW.preparation_attempts::bigint)
+           || NEW.nonce_reservation_id
+           || sha256(convert_to(NEW.stage, 'UTF8'))
+       ) THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary tombstone does not name the deterministic invocation';
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
                'tbtc-p2tr-signer-boundary-independent-resolution-v4',
@@ -2038,6 +2106,7 @@ BEGIN
            || int8send(NEW.preparation_attempts::bigint)
            || NEW.nonce_reservation_id
            || sha256(convert_to(NEW.stage, 'UTF8'))
+           || NEW.signer_invocation_id
            || int8send(NEW.invoked_at_unix_ms)
            || sha256(convert_to(NEW.outcome, 'UTF8'))
            || COALESCE(
@@ -2073,8 +2142,14 @@ BEGIN
             'orphaned signer boundary resolution digest is invalid';
     END IF;
 
-    IF NEW.primary_attested_at_unix_ms < NEW.invoked_at_unix_ms
-       OR NEW.corroborating_attested_at_unix_ms < NEW.invoked_at_unix_ms
+    IF NEW.primary_attested_at_unix_ms < GREATEST(
+           NEW.invoked_at_unix_ms,
+           COALESCE(NEW.provider_tombstoned_at_unix_ms, 0)
+       )
+       OR NEW.corroborating_attested_at_unix_ms < GREATEST(
+           NEW.invoked_at_unix_ms,
+           COALESCE(NEW.provider_tombstoned_at_unix_ms, 0)
+       )
        OR NEW.primary_attested_at_unix_ms > NEW.resolved_at_unix_ms
        OR NEW.corroborating_attested_at_unix_ms > NEW.resolved_at_unix_ms THEN
         RAISE EXCEPTION
@@ -2082,6 +2157,10 @@ BEGIN
     END IF;
 
     IF NEW.outcome = 'never-invoked' THEN
+        IF NEW.provider_tombstoned_at_unix_ms > NEW.resolved_at_unix_ms THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary provider tombstone falls outside the resolution window';
+        END IF;
         escaped :=
             outbox_record.signer_invocation_started_at_unix_ms IS NOT NULL
             OR outbox_record.prepared_transaction_hash IS NOT NULL
@@ -2299,6 +2378,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_quarantine (
     ),
     quarantine_reason text NOT NULL CHECK (quarantine_reason IN (
         'ambiguous-signer-invocation',
+        'wrong-chain',
         'wrong-sender',
         'wrong-nonce',
         'malformed-signed-envelope',
@@ -2413,8 +2493,11 @@ CREATE TRIGGER p2tr_signature_fraud_validate_signer_quarantine_insert_trigger
 BEFORE INSERT ON p2tr_signature_fraud_challenge_signer_quarantine
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_signer_quarantine_insert();
 
--- If a signer returns a valid envelope for an unexpected sender or nonce, the
--- exact bytes and the actual sender/nonce guard are retained forever.
+-- If a signer returns a parseable envelope on an unexpected chain, sender, or
+-- nonce, its recovered identity and actual nonce guard are retained forever.
+-- Exact bytes are retained when they fit the fixed forensic bound; otherwise
+-- the same append-only row keeps bounded metadata and explicitly records why
+-- the payload was omitted.
 CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     escaped_envelope_id bytea PRIMARY KEY CHECK (octet_length(escaped_envelope_id) = 32),
     record_id bytea NOT NULL REFERENCES p2tr_signature_fraud_challenge_outbox(record_id) ON DELETE RESTRICT,
@@ -2422,7 +2505,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     expected_reservation_id bytea NOT NULL CHECK (octet_length(expected_reservation_id) = 32),
     actual_guard_record_id bytea NOT NULL CHECK (octet_length(actual_guard_record_id) = 32),
     actual_nonce_guard_id bytea NOT NULL CHECK (octet_length(actual_nonce_guard_id) = 32),
-    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
+    expected_chain_id numeric(78, 0) NOT NULL CHECK (expected_chain_id > 0),
+    actual_chain_id numeric(78, 0) NOT NULL CHECK (
+        actual_chain_id BETWEEN 0 AND 9007199254740991
+    ),
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     expected_sender bytea NOT NULL CHECK (octet_length(expected_sender) = 20),
@@ -2435,9 +2521,24 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     actual_guard_signer_identity text NOT NULL CHECK (
         length(actual_guard_signer_identity) BETWEEN 1 AND 128
     ),
-    transaction_type smallint NOT NULL CHECK (transaction_type IN (0, 1, 2)),
-    raw_transaction bytea NOT NULL CHECK (
+    transaction_type smallint NOT NULL CHECK (
+        transaction_type IN (0, 1, 2, 3, 4)
+    ),
+    to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
+    calldata bytea CHECK (
+        calldata IS NULL OR octet_length(calldata) <= 4096
+    ),
+    transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
+    raw_transaction bytea CHECK (
+        raw_transaction IS NULL OR
         octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
+    payload_omitted_for_size boolean NOT NULL,
+    calldata_byte_length bigint NOT NULL CHECK (
+        calldata_byte_length BETWEEN 0 AND 9007199254740991
+    ),
+    raw_transaction_byte_length bigint NOT NULL CHECK (
+        raw_transaction_byte_length BETWEEN 1 AND 9007199254740991
     ),
     transaction_hash bytea NOT NULL UNIQUE CHECK (octet_length(transaction_hash) = 32),
     captured_at_unix_ms bigint NOT NULL CHECK (
@@ -2449,7 +2550,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     FOREIGN KEY (
         record_id,
         expected_reservation_id,
-        chain_id,
+        expected_chain_id,
         expected_sender,
         expected_nonce,
         signer_lane_id,
@@ -2466,7 +2567,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     FOREIGN KEY (
         actual_guard_record_id,
         actual_nonce_guard_id,
-        chain_id,
+        actual_chain_id,
         actual_sender,
         actual_nonce,
         actual_guard_signer_lane_id,
@@ -2480,14 +2581,36 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
         signer_lane_id,
         signer_identity
     ) ON DELETE RESTRICT,
-    CHECK (actual_sender <> expected_sender OR actual_nonce <> expected_nonce)
+    CHECK (
+        actual_chain_id <> expected_chain_id
+        OR actual_sender <> expected_sender
+        OR actual_nonce <> expected_nonce
+    ),
+    CHECK (
+        (
+            payload_omitted_for_size
+            AND calldata IS NULL
+            AND raw_transaction IS NULL
+            AND (
+                calldata_byte_length > 4096
+                OR raw_transaction_byte_length > 4096
+            )
+        ) OR (
+            NOT payload_omitted_for_size
+            AND calldata IS NOT NULL
+            AND raw_transaction IS NOT NULL
+            AND calldata_byte_length = octet_length(calldata)
+            AND raw_transaction_byte_length = octet_length(raw_transaction)
+        )
+    )
 );
 
 -- A signer can return the exact expected sender/nonce envelope after any
 -- concurrent transition (including lease expiry or canonical invalidation)
--- has already won the normal state CAS. Those bytes are not a normal variant,
--- but they are still capable of reaching the network and are an immutable,
--- activation-blocking incident independent from the mutable outbox head.
+-- has already won the normal state CAS. The exact bytes are retained when
+-- bounded; an oversized payload instead retains the same recovered metadata.
+-- Either form is an immutable, activation-blocking incident independent from
+-- the mutable outbox head.
 CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     artifact_id bytea PRIMARY KEY CHECK (octet_length(artifact_id) = 32),
     record_id bytea NOT NULL,
@@ -2502,20 +2625,65 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     intent_id bytea NOT NULL CHECK (octet_length(intent_id) = 32),
-    raw_transaction bytea NOT NULL CHECK (
+    to_address bytea CHECK (to_address IS NULL OR octet_length(to_address) = 20),
+    calldata bytea CHECK (
+        calldata IS NULL OR octet_length(calldata) <= 4096
+    ),
+    transaction_value numeric(78, 0) NOT NULL CHECK (transaction_value >= 0),
+    raw_transaction bytea CHECK (
+        raw_transaction IS NULL OR
         octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
+    payload_omitted_for_size boolean NOT NULL,
+    calldata_byte_length bigint NOT NULL CHECK (
+        calldata_byte_length BETWEEN 0 AND 9007199254740991
+    ),
+    raw_transaction_byte_length bigint NOT NULL CHECK (
+        raw_transaction_byte_length BETWEEN 1 AND 9007199254740991
     ),
     transaction_hash bytea NOT NULL UNIQUE CHECK (
         octet_length(transaction_hash) = 32
     ),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
-    transaction_type smallint NOT NULL CHECK (transaction_type = 2),
-    gas_limit numeric(78, 0) NOT NULL CHECK (gas_limit > 0),
-    max_fee_per_gas numeric(78, 0) NOT NULL CHECK (max_fee_per_gas > 0),
-    max_priority_fee_per_gas numeric(78, 0) NOT NULL CHECK (
-        max_priority_fee_per_gas >= 0
-        AND max_priority_fee_per_gas <= max_fee_per_gas
+    transaction_type smallint NOT NULL CHECK (
+        transaction_type IN (0, 1, 2, 3, 4)
+    ),
+    gas_limit numeric(78, 0),
+    max_fee_per_gas numeric(78, 0),
+    max_priority_fee_per_gas numeric(78, 0),
+    CHECK (
+        (
+            transaction_type = 2
+            AND gas_limit IS NOT NULL
+            AND max_fee_per_gas IS NOT NULL
+            AND max_priority_fee_per_gas IS NOT NULL
+            AND gas_limit >= 0
+            AND max_fee_per_gas >= 0
+            AND max_priority_fee_per_gas >= 0
+        ) OR (
+            transaction_type IN (0, 1, 3, 4)
+            AND gas_limit IS NULL
+            AND max_fee_per_gas IS NULL
+            AND max_priority_fee_per_gas IS NULL
+        )
+    ),
+    CHECK (
+        (
+            payload_omitted_for_size
+            AND calldata IS NULL
+            AND raw_transaction IS NULL
+            AND (
+                calldata_byte_length > 4096
+                OR raw_transaction_byte_length > 4096
+            )
+        ) OR (
+            NOT payload_omitted_for_size
+            AND calldata IS NOT NULL
+            AND raw_transaction IS NOT NULL
+            AND calldata_byte_length = octet_length(calldata)
+            AND raw_transaction_byte_length = octet_length(raw_transaction)
+        )
     ),
     captured_at_unix_ms bigint NOT NULL CHECK (
         captured_at_unix_ms BETWEEN 0 AND 9007199254740991
@@ -2714,10 +2882,17 @@ AS $$
 DECLARE
     expected_series_id bytea;
     expected_status text;
+    expected_active_signer_invocation_started_at_unix_ms bigint;
     expected_latest_variant_sequence smallint;
 BEGIN
-    SELECT series_id, status, latest_variant_sequence
-    INTO expected_series_id, expected_status, expected_latest_variant_sequence
+    SELECT series_id,
+           status,
+           active_signer_invocation_started_at_unix_ms,
+           latest_variant_sequence
+    INTO expected_series_id,
+         expected_status,
+         expected_active_signer_invocation_started_at_unix_ms,
+         expected_latest_variant_sequence
     FROM p2tr_signature_fraud_challenge_outbox
     WHERE record_id = NEW.record_id
       AND generation = NEW.generation
@@ -2742,7 +2917,16 @@ BEGIN
     END IF;
     IF NEW.code = 'signed-state-quarantined'
        AND expected_latest_variant_sequence IS NULL
-       AND expected_status <> 'quarantined' THEN
+       AND expected_status <> 'quarantined'
+       AND NOT (
+           expected_status = 'preparing'
+           AND expected_active_signer_invocation_started_at_unix_ms IS NOT NULL
+           AND EXISTS (
+               SELECT 1
+                 FROM p2tr_signature_fraud_challenge_signer_quarantine q
+                WHERE q.record_id = NEW.record_id
+           )
+       ) THEN
         RAISE EXCEPTION 'signed-state quarantine alert requires a signer boundary';
     END IF;
     IF NEW.code = 'late-signed-artifact-captured'
@@ -2929,17 +3113,28 @@ BEGIN
     IF actual_guard.nonce_guard_id IS NULL
        OR NOT FOUND
        OR actual_guard.voided_before_sign_at_unix_ms IS NOT NULL
+       OR actual_guard.chain_id <> NEW.actual_chain_id
+       OR actual_guard.sender <> NEW.actual_sender
+       OR actual_guard.transaction_nonce <> NEW.actual_nonce
+       OR actual_guard.signer_lane_id <> NEW.actual_guard_signer_lane_id
+       OR actual_guard.signer_identity <> NEW.actual_guard_signer_identity
        OR recorded_reason NOT IN (
+           'wrong-chain',
            'wrong-sender',
            'wrong-nonce',
            'ambiguous-signer-invocation'
        )
-       OR (NEW.actual_sender = NEW.expected_sender
+       OR (NEW.actual_chain_id = NEW.expected_chain_id
+           AND NEW.actual_sender = NEW.expected_sender
            AND NEW.actual_nonce = NEW.expected_nonce)
        OR (recorded_reason = 'wrong-sender'
-           AND NEW.actual_sender = NEW.expected_sender)
+           AND (NEW.actual_chain_id <> NEW.expected_chain_id
+                OR NEW.actual_sender = NEW.expected_sender))
+       OR (recorded_reason = 'wrong-chain'
+           AND NEW.actual_chain_id = NEW.expected_chain_id)
        OR (recorded_reason = 'wrong-nonce'
-           AND (NEW.actual_sender <> NEW.expected_sender
+           AND (NEW.actual_chain_id <> NEW.expected_chain_id
+                OR NEW.actual_sender <> NEW.expected_sender
                 OR NEW.actual_nonce = NEW.expected_nonce)) THEN
         RAISE EXCEPTION 'escaped signed envelope does not match its quarantine reason';
     END IF;
@@ -3045,12 +3240,12 @@ BEGIN
        AND policy_hash = outbox_record.fee_policy_hash
      FOR SHARE;
 
-    IF NOT FOUND
-       OR NEW.gas_limit > fee_policy.max_gas_limit
-       OR NEW.max_fee_per_gas > fee_policy.max_fee_per_gas
-       OR NEW.max_priority_fee_per_gas > fee_policy.max_priority_fee_per_gas
-       OR NEW.gas_limit * NEW.max_fee_per_gas > fee_policy.max_total_fee_wei THEN
-        RAISE EXCEPTION 'late signed artifact exceeds its manifest-bound fee policy';
+    -- This table is a forensic quarantine, not a broadcast queue. Preserve
+    -- authenticated signed bytes even when their envelope violates the
+    -- manifest fee/access-list policy; the signer-policy row is still required
+    -- to bind the incident to the lane that was authorized at the boundary.
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'late signed artifact lacks its manifest-bound fee policy';
     END IF;
     RETURN NEW;
 END;
@@ -3112,9 +3307,6 @@ BEGIN
         IF NOT FOUND
            OR parent_guard.guard_kind <> 'bound-reservation'
            OR parent_guard.record_id <> NEW.record_id
-           OR parent_guard.chain_id <> NEW.chain_id
-           OR parent_guard.signer_lane_id <> NEW.signer_lane_id
-           OR parent_guard.signer_identity <> NEW.signer_identity
            OR parent_guard.voided_before_sign_at_unix_ms IS NOT NULL THEN
             RAISE EXCEPTION 'escaped nonce guard is not bound to its signer reservation';
         END IF;
@@ -3214,11 +3406,17 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
+    request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
     prior_sequence integer;
     prior_expires_at bigint;
     prior_invoked boolean;
     prior_result_kind text;
 BEGIN
+    SELECT * INTO request
+    FROM p2tr_signature_fraud_challenge_nonce_release_request
+    WHERE release_request_id = NEW.release_request_id
+    FOR UPDATE;
+
     IF COALESCE((
         SELECT contract_mismatch_blocked
         FROM p2tr_signature_fraud_nonce_allocator_global_barrier
@@ -3227,12 +3425,7 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    PERFORM 1
-    FROM p2tr_signature_fraud_challenge_nonce_release_request
-    WHERE release_request_id = NEW.release_request_id
-    FOR UPDATE;
-
-    IF NOT FOUND OR EXISTS (
+    IF request.release_request_id IS NULL OR EXISTS (
         SELECT 1
         FROM p2tr_signature_fraud_challenge_nonce_release_terminal
         WHERE release_request_id = NEW.release_request_id
@@ -3446,6 +3639,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
+    request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
     barrier_release_request bytea;
     barrier_release_sequence integer;
     invocation_exists boolean;
@@ -3458,7 +3652,7 @@ BEGIN
 
     SELECT active_release_request_id, active_release_attempt_sequence
       INTO barrier_release_request, barrier_release_sequence
-      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
      WHERE chain_id = lane_chain_id
        AND sender = lane_sender
      FOR UPDATE;
@@ -3554,6 +3748,7 @@ DECLARE
     attempt p2tr_signature_fraud_challenge_nonce_release_attempt%ROWTYPE;
     invocation p2tr_signature_fraud_challenge_nonce_release_invocation%ROWTYPE;
     ambiguous_result p2tr_signature_fraud_challenge_nonce_release_result%ROWTYPE;
+    request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
     barrier_request bytea;
     barrier_sequence integer;
     lane_chain_id numeric(78, 0);
@@ -3579,9 +3774,9 @@ BEGIN
     WHERE release_request_id = NEW.release_request_id
       AND attempt_sequence = NEW.attempt_sequence;
 
-    SELECT active_release_request_id, active_release_attempt_sequence
+    SELECT b.active_release_request_id, b.active_release_attempt_sequence
       INTO barrier_request, barrier_sequence
-      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
      WHERE chain_id = lane_chain_id
        AND sender = lane_sender
      FOR UPDATE;
@@ -3730,11 +3925,11 @@ BEGIN
     FOR SHARE;
 
     IF NOT FOUND
-       OR NEW.gas_limit > fee_policy.max_gas_limit
+       OR NEW.gas_limit <> fee_policy.max_gas_limit
        OR NEW.max_fee_per_gas > fee_policy.max_fee_per_gas
        OR NEW.max_priority_fee_per_gas > fee_policy.max_priority_fee_per_gas
        OR NEW.gas_limit * NEW.max_fee_per_gas > fee_policy.max_total_fee_wei THEN
-        RAISE EXCEPTION 'signed variant exceeds its manifest-bound fee or value policy';
+        RAISE EXCEPTION 'signed variant does not match its manifest-bound fee or value policy';
     END IF;
 
     IF NEW.variant_sequence = 0 THEN
@@ -3763,8 +3958,14 @@ BEGIN
         END IF;
         IF NEW.max_fee_per_gas <= previous_variant.max_fee_per_gas
            OR NEW.max_priority_fee_per_gas <= previous_variant.max_priority_fee_per_gas
+           OR NEW.max_fee_per_gas * 10000 <
+                previous_variant.max_fee_per_gas *
+                (10000 + fee_policy.minimum_replacement_fee_bump_bps)
+           OR NEW.max_priority_fee_per_gas * 10000 <
+                previous_variant.max_priority_fee_per_gas *
+                (10000 + fee_policy.minimum_replacement_fee_bump_bps)
            OR NEW.gas_limit < previous_variant.gas_limit THEN
-            RAISE EXCEPTION 'P2TR challenge replacement fee envelope did not strictly increase';
+            RAISE EXCEPTION 'P2TR challenge replacement fee envelope did not satisfy its manifest bump';
         END IF;
     END IF;
     RETURN NEW;
@@ -4336,9 +4537,7 @@ BEGIN
             SELECT 1
             FROM p2tr_signature_fraud_challenge_nonce_release_request r
             WHERE r.chain_id = NEW.chain_id
-              AND (r.signer_lane_id = NEW.selected_signer_lane_id
-                   OR r.signer_identity = NEW.selected_signer_identity
-                   OR r.sender = NEW.selected_sender)
+              AND r.sender = NEW.selected_sender
               AND NOT EXISTS (
                   SELECT 1
                   FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
@@ -4357,19 +4556,6 @@ BEGIN
                    OR q.expected_sender = NEW.selected_sender)
         ) THEN
             RAISE EXCEPTION 'selected P2TR challenge signer lane is quarantined';
-        END IF;
-
-        IF EXISTS (
-            SELECT 1
-            FROM p2tr_signature_fraud_challenge_critical_alert a
-            WHERE a.code = 'reservation-release-failed'
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
-                  WHERE ar.alert_id = a.alert_id
-              )
-        ) THEN
-            RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer lanes';
         END IF;
 
         PERFORM 1
@@ -4610,9 +4796,7 @@ BEGIN
             SELECT 1
             FROM p2tr_signature_fraud_challenge_nonce_release_request r
             WHERE r.chain_id = NEW.chain_id
-              AND (r.signer_lane_id = NEW.selected_signer_lane_id
-                   OR r.signer_identity = NEW.selected_signer_identity
-                   OR r.sender = NEW.selected_sender)
+              AND r.sender = NEW.selected_sender
               AND NOT EXISTS (
                   SELECT 1
                   FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
@@ -4918,7 +5102,7 @@ BEGIN
 
         IF quarantine_reason IS NULL
            OR NEW.status <> 'quarantined'
-           OR (quarantine_reason IN ('wrong-sender', 'wrong-nonce')
+           OR (quarantine_reason IN ('wrong-chain', 'wrong-sender', 'wrong-nonce')
                AND NOT EXISTS (
                    SELECT 1
                    FROM p2tr_signature_fraud_challenge_escaped_envelope ee
@@ -5144,6 +5328,11 @@ BEGIN
 
     rotation_at := clock_timestamp();
     rotation_at_unix_ms := floor(extract(epoch FROM rotation_at) * 1000)::bigint;
+
+    UPDATE p2tr_readiness_certificates
+       SET is_current = false,
+           invalidated_at = rotation_at
+     WHERE is_current;
 
     UPDATE p2tr_candidate_enqueue_authorizations
        SET invalidated_at = rotation_at
@@ -5597,6 +5786,7 @@ RETURNS TABLE (
     ambiguous_transaction_count bigint,
     unresolved_legacy_quarantine_count bigint,
     recovery_backlog_count bigint,
+    active_generation_count bigint,
     configured_signer_lane_count bigint,
     configured_signer_lane_set_hash text,
     quarantined_signer_lane_count bigint,
@@ -5709,6 +5899,21 @@ AS $$
                        WHERE x.release_request_id = r.release_request_id
                   )
              )
+           )::bigint,
+           (
+             SELECT count(*)
+               FROM p2tr_signature_fraud_challenge_outbox o
+              WHERE o.status NOT IN (
+                  'accepted-own',
+                  'satisfied-external',
+                  'terminal-reverted',
+                  'terminal-nonce-consumed',
+                  'generation-required',
+                  'cancelled-before-broadcast',
+                  'cancelled-honest-spend',
+                  'cancelled-reorg',
+                  'cancelled-provenance-invalidated'
+              )
            )::bigint,
            (
              SELECT count(*)

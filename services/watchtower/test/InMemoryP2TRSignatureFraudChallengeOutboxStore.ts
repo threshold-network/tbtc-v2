@@ -8,7 +8,8 @@
  */
 import {
   Hex,
-  validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
+  inspectP2TRSignatureFraudPreparedTransactionEnvelope,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
@@ -65,6 +66,15 @@ export const normalizeKey = (value: Hex | string): string =>
     ? value.toPrefixedString().toLowerCase()
     : value.toLowerCase()
 
+const nonceLaneKey = (chainID: number, sender: string): string =>
+  `${chainID}:${sender.toLowerCase()}`
+
+const hexByteLength = (value: Hex | string): number => {
+  const rendered =
+    value instanceof Hex ? value.toPrefixedString() : value.toLowerCase()
+  return (rendered.startsWith("0x") ? rendered.length - 2 : rendered.length) / 2
+}
+
 export const normalizeOwner = (value: string): string => {
   const normalized = value.trim()
   if (
@@ -90,6 +100,7 @@ export class InMemoryOutboxStore
   readonly p2trSignatureFraudWatchtowerStoreProfile =
     "transactional-production" as const
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID = "outbox.test"
+  readonly retryablePersistenceErrors = new Set<unknown>()
   readonly records = new Map<string, P2TRSignatureFraudChallengeOutboxRecord>()
   readonly quarantines: P2TRSignatureFraudLegacySubmissionQuarantine[] = []
   readonly criticalAlerts: P2TRSignatureFraudOutboxCriticalAlert[] = []
@@ -129,10 +140,15 @@ export class InMemoryOutboxStore
       outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
       evidenceDigest: string
       signedTransactionHash?: string
+      providerTombstone?: {
+        invocationID: string
+        tombstonedAtUnixMs: number
+        receiptDigest: string
+      }
       resolvedAtUnixMs: number
     }
   >()
-  nonceReleaseContractMismatchBlocked = false
+  readonly nonceReleaseContractMismatchBlockedLanes = new Set<string>()
   eligibilitySnapshot?: P2TRSignatureFraudChallengeOutboxEligibilitySnapshot
   readonly invalidatedProvenanceFingerprints = new Set<string>()
   beforeProvenanceCAS?: (
@@ -141,6 +157,10 @@ export class InMemoryOutboxStore
   ) => Promise<void>
 
   assertExternalIOTransactionBoundary(): void {}
+
+  isP2TRSignatureFraudWatchtowerPersistenceRetryable(error: unknown): boolean {
+    return this.retryablePersistenceErrors.has(error)
+  }
 
   async insertGenerationIfAbsent(
     record: P2TRSignatureFraudChallengeOutboxRecord
@@ -244,6 +264,34 @@ export class InMemoryOutboxStore
     })
   }
 
+  async hasExpiredPreparationLeasesForLane(
+    chainID: number,
+    sender: string,
+    nowUnixMs: number
+  ): Promise<boolean> {
+    const lane = nonceLaneKey(chainID, sender)
+    return [...this.records.values()].some(
+      (record) =>
+        record.status === "preparing" &&
+        record.preparationLease !== undefined &&
+        record.preparationLease.expiresAtUnixMs <= nowUnixMs &&
+        record.preparationSender !== undefined &&
+        nonceLaneKey(record.intent.chainID, record.preparationSender) === lane
+    )
+  }
+
+  async hasPendingNonceReleasesForLane(
+    chainID: number,
+    sender: string
+  ): Promise<boolean> {
+    const lane = nonceLaneKey(chainID, sender)
+    return [...this.nonceReleaseRequests.entries()].some(
+      ([id, request]) =>
+        !this.releaseAcknowledged(id) &&
+        this.nonceReleaseLaneKey(request) === lane
+    )
+  }
+
   async getNonceReleaseRequest(
     releaseRequestID: string
   ): Promise<P2TRSignatureFraudNonceReleaseRequest | undefined> {
@@ -341,9 +389,12 @@ export class InMemoryOutboxStore
   ): Promise<P2TRSignatureFraudNonceReleaseAttempt | undefined> {
     const id = normalizeKey(releaseRequestID)
     const normalizedOwner = normalizeOwner(owner)
+    const request = this.nonceReleaseRequests.get(id)
     if (
-      this.nonceReleaseContractMismatchBlocked ||
-      !this.nonceReleaseRequests.has(id) ||
+      request === undefined ||
+      this.nonceReleaseContractMismatchBlockedLanes.has(
+        this.nonceReleaseLaneKey(request) ?? ""
+      ) ||
       this.releaseAcknowledged(id)
     ) {
       return undefined
@@ -397,7 +448,43 @@ export class InMemoryOutboxStore
     const latest = attempts[attempts.length - 1]
     const key = `${id}:${attempt.attemptSequence}`
     const attemptOwner = normalizeOwner(attempt.owner)
+    const request = this.nonceReleaseRequests.get(id)
+    const lane =
+      request === undefined ? undefined : this.nonceReleaseLaneKey(request)
+    const laneHasActiveSigner =
+      lane !== undefined &&
+      [...this.records.values()].some(
+        (record) =>
+          record.activeSignerInvocationStartedAtUnixMs !== undefined &&
+          record.preparationSender !== undefined &&
+          nonceLaneKey(record.intent.chainID, record.preparationSender) === lane
+      )
+    const laneHasActiveRelease =
+      lane !== undefined &&
+      [...this.nonceReleaseInvocations].some((invocationKey) => {
+        const [releaseID] = invocationKey.split(":")
+        const activeRequest = this.nonceReleaseRequests.get(releaseID)
+        return (
+          activeRequest !== undefined &&
+          !this.releaseAcknowledged(releaseID) &&
+          this.nonceReleaseLaneKey(activeRequest) === lane
+        )
+      })
+    const invocationAlreadyExists = this.nonceReleaseInvocations.has(key)
+    if (invocationAlreadyExists) {
+      return (
+        latest !== undefined &&
+        latest.attemptSequence === attempt.attemptSequence &&
+        latest.owner === attemptOwner &&
+        latest.startedAtUnixMs === attempt.startedAtUnixMs &&
+        latest.expiresAtUnixMs === attempt.expiresAtUnixMs &&
+        this.nonceReleaseInvocationTimes.get(key) === invokedAtUnixMs
+      )
+    }
     if (
+      request === undefined ||
+      laneHasActiveSigner ||
+      laneHasActiveRelease ||
       latest === undefined ||
       latest.attemptSequence !== attempt.attemptSequence ||
       latest.owner !== attemptOwner ||
@@ -405,8 +492,7 @@ export class InMemoryOutboxStore
       latest.expiresAtUnixMs !== attempt.expiresAtUnixMs ||
       invokedAtUnixMs < attempt.startedAtUnixMs ||
       invokedAtUnixMs > attempt.expiresAtUnixMs ||
-      this.nonceReleaseResults.get(id)?.has(attempt.attemptSequence) ||
-      this.nonceReleaseInvocations.has(key)
+      this.nonceReleaseResults.get(id)?.has(attempt.attemptSequence)
     ) {
       return false
     }
@@ -463,8 +549,12 @@ export class InMemoryOutboxStore
       }
     }
     if (result.kind === "contract-mismatch") {
-      this.nonceReleaseContractMismatchBlocked = true
       const request = this.nonceReleaseRequests.get(id)
+      const lane =
+        request === undefined ? undefined : this.nonceReleaseLaneKey(request)
+      if (lane !== undefined) {
+        this.nonceReleaseContractMismatchBlockedLanes.add(lane)
+      }
       const record =
         request === undefined
           ? undefined
@@ -552,7 +642,12 @@ export class InMemoryOutboxStore
     }
     this.nonceReleaseResolutions.set(key, resolution.outcome)
     if (resolution.outcome === "terminal-unsafe") {
-      this.nonceReleaseContractMismatchBlocked = true
+      const request = this.nonceReleaseRequests.get(id)
+      const lane =
+        request === undefined ? undefined : this.nonceReleaseLaneKey(request)
+      if (lane !== undefined) {
+        this.nonceReleaseContractMismatchBlockedLanes.add(lane)
+      }
       return "unsafe"
     }
     return "acknowledged"
@@ -612,6 +707,7 @@ export class InMemoryOutboxStore
         outcome: normalized.outcome,
         evidenceDigest: normalized.evidenceDigest,
         signedTransactionHash: normalized.signedTransactionHash,
+        providerTombstone: normalized.providerTombstone,
         resolvedAtUnixMs: normalized.resolvedAtUnixMs,
       })
     }
@@ -751,6 +847,22 @@ export class InMemoryOutboxStore
       !this.preservesSignedVariantIdentities(current, next)
     ) {
       return false
+    }
+    for (const transaction of [
+      next.preparedTransaction,
+      ...(next.preparedTransactionVariants ?? []).map(
+        (variant) => variant.preparedTransaction
+      ),
+      ...(next.unexpectedSignedArtifacts ?? []).map(
+        (artifact) => artifact.preparedTransaction
+      ),
+    ]) {
+      if (
+        transaction !== undefined &&
+        hexByteLength(transaction.rawTransaction) > 4_096
+      ) {
+        throw new Error("Signed Ethereum transaction exceeds the durable bound")
+      }
     }
     this.records.set(key, next)
     this.syncNonceReleaseRequests(current, next)
@@ -908,10 +1020,33 @@ export class InMemoryOutboxStore
         "Late signed artifact has no retained durable signer boundary"
       )
     }
-    validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
-      current.intent,
-      artifact.preparedTransaction
+    const recovered = recoverP2TRSignatureFraudSignedTransactionEnvelope(
+      artifact.preparedTransaction.rawTransaction
     )
+    if (
+      normalizeKey(artifact.preparedTransaction.intentID) !==
+        normalizeKey(current.intent.intentID) ||
+      normalizeKey(artifact.preparedTransaction.transactionHash) !==
+        normalizeKey(recovered.transactionHash) ||
+      normalizeKey(artifact.preparedTransaction.sender) !==
+        normalizeKey(recovered.sender) ||
+      artifact.preparedTransaction.nonce !== recovered.nonce
+    ) {
+      throw new Error(
+        "Unexpected signed artifact metadata does not match its raw envelope"
+      )
+    }
+    const envelope = inspectP2TRSignatureFraudPreparedTransactionEnvelope(
+      recovered.rawTransaction
+    )
+    const normalizedArtifact = {
+      ...artifact,
+      preparedTransaction: {
+        intentID: current.intent.intentID,
+        ...recovered,
+        ...(envelope.transactionType === 2 ? { eip1559: envelope } : {}),
+      },
+    }
     if (
       typeof artifact.reason !== "string" ||
       artifact.reason.length === 0 ||
@@ -922,9 +1057,7 @@ export class InMemoryOutboxStore
       )
     }
     const artifacts = current.unexpectedSignedArtifacts ?? []
-    const capturedHash = normalizeKey(
-      artifact.preparedTransaction.transactionHash
-    )
+    const capturedHash = normalizeKey(recovered.transactionHash)
     // The adapter's idempotency covers persisted variants as well as prior
     // late artifacts.
     const alreadyCaptured =
@@ -976,11 +1109,15 @@ export class InMemoryOutboxStore
       )
     }
     const expectedLaneArtifact =
-      normalizeKey(artifact.preparedTransaction.sender) ===
-        normalizeKey(reservation.sender) &&
-      artifact.preparedTransaction.nonce === reservation.nonce
+      recovered.chainID === current.intent.chainID &&
+      normalizeKey(recovered.sender) === normalizeKey(reservation.sender) &&
+      recovered.nonce === reservation.nonce
+    const metadataOnlyCapture =
+      hexByteLength(normalizedArtifact.preparedTransaction.calldata) > 4_096 ||
+      hexByteLength(normalizedArtifact.preparedTransaction.rawTransaction) >
+        4_096
     const priorQuarantines = current.signerQuarantines ?? []
-    const addedQuarantine =
+    let addedQuarantine =
       signerQuarantine !== undefined &&
       !priorQuarantines.some(
         (existing) =>
@@ -989,6 +1126,31 @@ export class InMemoryOutboxStore
       )
         ? signerQuarantine
         : undefined
+    if (
+      metadataOnlyCapture &&
+      addedQuarantine === undefined &&
+      !priorQuarantines.some(
+        (candidate) =>
+          candidate.reservationID !== undefined &&
+          normalizeKey(candidate.reservationID) ===
+            normalizeKey(reservation.reservationID)
+      )
+    ) {
+      addedQuarantine = {
+        laneID: reservation.laneID,
+        signerIdentity: reservation.signerIdentity,
+        expectedSender: reservation.sender,
+        expectedNonce: reservation.nonce,
+        reservationID: prefixedReservationID(
+          reservation.reservationID.toString()
+        ),
+        reasonCode: "oversized-signed-envelope",
+        quarantinedAtUnixMs: artifact.capturedAtUnixMs,
+        reason:
+          "Signer returned a parseable envelope that exceeded the durable signed-transaction bound; only authenticated metadata was retained",
+        detailsDigest: normalizeKey(recovered.transactionHash),
+      }
+    }
     const signerQuarantines =
       addedQuarantine === undefined
         ? current.signerQuarantines
@@ -1000,6 +1162,7 @@ export class InMemoryOutboxStore
         .reverse()
         .some(
           (candidate) =>
+            candidate.reasonCode === "wrong-chain" ||
             candidate.reasonCode === "wrong-sender" ||
             candidate.reasonCode === "wrong-nonce" ||
             candidate.reasonCode === "ambiguous-signer-invocation"
@@ -1013,15 +1176,21 @@ export class InMemoryOutboxStore
       ...current,
       version: current.version + 1,
       status:
-        current.provenanceInvalidationEvidence === undefined
-          ? current.status
-          : "provenance-invalidated-awaiting-reconciliation",
+        current.provenanceInvalidationEvidence !== undefined
+          ? "provenance-invalidated-awaiting-reconciliation"
+          : metadataOnlyCapture && current.preparationResumeStatus === undefined
+          ? "quarantined"
+          : metadataOnlyCapture
+          ? current.preparationResumeStatus ?? current.status
+          : current.status,
       preparationLease:
-        current.provenanceInvalidationEvidence === undefined
+        current.provenanceInvalidationEvidence === undefined &&
+        !metadataOnlyCapture
           ? current.preparationLease
           : undefined,
       preparationResumeStatus:
-        current.provenanceInvalidationEvidence === undefined
+        current.provenanceInvalidationEvidence === undefined &&
+        !metadataOnlyCapture
           ? current.preparationResumeStatus
           : undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
@@ -1032,13 +1201,17 @@ export class InMemoryOutboxStore
       signerInvocationID:
         current.signerInvocationID ?? current.activeSignerInvocationID,
       signerQuarantines,
-      unexpectedSignedArtifacts: alreadyCaptured
-        ? artifacts
-        : [...artifacts, artifact],
+      unexpectedSignedArtifacts:
+        alreadyCaptured || metadataOnlyCapture
+          ? artifacts
+          : [...artifacts, normalizedArtifact],
       updatedAtUnixMs: Math.max(
         current.updatedAtUnixMs,
         artifact.capturedAtUnixMs
       ),
+      lastError: metadataOnlyCapture
+        ? "Signer returned an oversized signed envelope; authenticated metadata was retained and the signer lane was quarantined"
+        : current.lastError,
     }
     this.records.set(key, next)
     if (
@@ -1304,6 +1477,15 @@ export class InMemoryOutboxStore
         (attempt) => results?.get(attempt.attemptSequence) !== "acknowledged"
       ),
     }
+  }
+
+  private nonceReleaseLaneKey(
+    request: P2TRSignatureFraudNonceReleaseRequest
+  ): string | undefined {
+    const record = this.records.get(normalizeKey(request.recordID))
+    return record === undefined
+      ? undefined
+      : nonceLaneKey(record.intent.chainID, request.reservation.sender)
   }
 
   private hasLaneConflict(

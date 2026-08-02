@@ -11,7 +11,7 @@ const migrationURL = new URL(
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
 const lateArtifactMigrationURL = new URL(
-  "006_p2tr_signer_boundary_late_artifact.sql",
+  "015_p2tr_signer_boundary_late_artifact.sql",
   migrationsURL
 )
 const lateArtifactMigrationSource = readFileSync(
@@ -20,7 +20,7 @@ const lateArtifactMigrationSource = readFileSync(
 )
 const lateArtifactMigration = lateArtifactMigrationSource.replace(/\s+/g, " ")
 const nonceFinalityMigrationURL = new URL(
-  "007_p2tr_signer_boundary_nonce_finality.sql",
+  "016_p2tr_signer_boundary_nonce_finality.sql",
   migrationsURL
 )
 const nonceFinalityMigrationSource = readFileSync(
@@ -29,7 +29,7 @@ const nonceFinalityMigrationSource = readFileSync(
 )
 const nonceFinalityMigration = nonceFinalityMigrationSource.replace(/\s+/g, " ")
 const exactGasMigrationURL = new URL(
-  "008_p2tr_signed_variant_exact_gas.sql",
+  "017_p2tr_signed_variant_exact_gas.sql",
   migrationsURL
 )
 const exactGasMigrationSource = readFileSync(exactGasMigrationURL, "utf8")
@@ -46,6 +46,14 @@ const depositBindingByteOrderMigration = readFileSync(
   new URL("005_p2tr_deposit_binding_byte_order.sql", migrationsURL),
   "utf8"
 ).replace(/\s+/g, " ")
+const candidateEnqueueRetryMigration = readFileSync(
+  new URL("004_p2tr_candidate_enqueue_retry_alerts.sql", migrationsURL),
+  "utf8"
+).replace(/\s+/g, " ")
+const candidateEnqueueGenerationAuthorityMigration = readFileSync(
+  new URL("006_p2tr_candidate_enqueue_generation_authority.sql", migrationsURL),
+  "utf8"
+).replace(/\s+/g, " ")
 const activationHandshakeSource = readFileSync(
   new URL(
     "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
@@ -53,6 +61,17 @@ const activationHandshakeSource = readFileSync(
   ),
   "utf8"
 )
+const postgresOutboxStoreSource = readFileSync(
+  new URL(
+    "../src/PostgresP2TRSignatureFraudChallengeOutboxStore.ts",
+    import.meta.url
+  ),
+  "utf8"
+)
+const provenanceAlertRetirementMigration = readFileSync(
+  new URL("012_p2tr_provenance_alert_retirement.sql", migrationsURL),
+  "utf8"
+).replace(/\s+/g, " ")
 
 test("leaves transaction ownership to the ordered migration runner", () => {
   const orderedMigrations = readdirSync(migrationsURL)
@@ -77,10 +96,10 @@ test("leaves transaction ownership to the ordered migration runner", () => {
     "003_p2tr_signature_fraud_challenge_outbox.sql"
   )
   const lateArtifactIndex = orderedMigrations.indexOf(
-    "006_p2tr_signer_boundary_late_artifact.sql"
+    "015_p2tr_signer_boundary_late_artifact.sql"
   )
   const nonceFinalityIndex = orderedMigrations.indexOf(
-    "007_p2tr_signer_boundary_nonce_finality.sql"
+    "016_p2tr_signer_boundary_nonce_finality.sql"
   )
   assert.notEqual(challengeOutboxIndex, -1)
   assert.notEqual(lateArtifactIndex, -1)
@@ -90,6 +109,80 @@ test("leaves transaction ownership to the ordered migration runner", () => {
   if (canonicalJournalIndex !== -1) {
     assert.ok(canonicalJournalIndex < challengeOutboxIndex)
   }
+})
+
+test("revalidation follows append-only provenance incident retirement", () => {
+  assert.match(
+    provenanceAlertRetirementMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_outbox_activation_revalidation/
+  )
+  assert.match(
+    provenanceAlertRetirementMigration,
+    /a\.code <> 'provenance-reconciliation-incident'[\s\S]*pi\.record_id = a\.record_id[\s\S]*p2tr_signature_fraud_challenge_provenance_incident_resolution/
+  )
+})
+
+test("binds candidate authority to an exact successor generation", () => {
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /UPDATE p2tr_bitcoin_candidate_observations SET binding_tx_hash = p2tr_reverse_bytea\(local_funding_txid\)/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /VALIDATE CONSTRAINT p2tr_candidate_observation_binding_matches_funding/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_series_id/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_generation/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_disposition/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /generation-required[\s\S]*?head_record\.generation \+ 1/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_predecessor_id/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /expected_outbox_evidence_id/
+  )
+  assert.doesNotMatch(
+    candidateEnqueueGenerationAuthorityMigration,
+    /UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /p2tr_candidate_enqueue_authorizations_generation_consumed_idx ON p2tr_candidate_enqueue_authorizations \( expected_outbox_series_id, expected_outbox_generation, expected_outbox_disposition \)/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /p2tr_candidate_enqueue_series_id\([\s\S]*?ethereum,chainID[\s\S]*?p2tr_complete_authorization_domain[\s\S]*?domain_chain_id_value[\s\S]*?outbox,routerAddress[\s\S]*?tbtc-p2tr-signature-fraud-outbox-series-v1[\s\S]*?COMPLETE_V2/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /WHERE outbox\.series_id = expected_series_id/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /UPDATE p2tr_signature_fraud_challenge_outbox outbox SET legacy_deposit_binding_byte_order = true[\s\S]*?INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine[\s\S]*?VALIDATE CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_chainless_replay_guard[\s\S]*?PRIMARY KEY \(escaped_envelope_id, replay_chain_id\)/
+  )
+  assert.match(
+    candidateEnqueueGenerationAuthorityMigration,
+    /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_nonce_guard_void\(\)[\s\S]*?p2tr_signature_fraud_challenge_chainless_replay_guard replay[\s\S]*?replay\.nonce_guard_record_id = OLD\.record_id[\s\S]*?replay\.nonce_guard_id = OLD\.nonce_guard_id/
+  )
 })
 
 test("stores append-only evidence generations linked to an exact predecessor", () => {
@@ -152,6 +245,19 @@ test("stores only compact fixed per-input evidence", () => {
     ).length,
     3
   )
+  assert.equal(
+    (migration.match(/payload_omitted_for_size boolean NOT NULL/g) ?? [])
+      .length,
+    2
+  )
+  assert.match(
+    migration,
+    /payload_omitted_for_size[\s\S]*?calldata IS NULL[\s\S]*?raw_transaction IS NULL[\s\S]*?calldata_byte_length > 4096[\s\S]*?raw_transaction_byte_length > 4096/
+  )
+})
+
+test("requires every durable signed variant to use the exact policy gas limit", () => {
+  assert.match(migration, /OR NEW\.gas_limit <> fee_policy\.max_gas_limit/)
 })
 
 test("serializes a manifest-bound global active-record capacity", () => {
@@ -363,6 +469,10 @@ test("persists deposit binding hashes in the Bridge's native byte order", () => 
   )
   assert.match(
     depositBindingByteOrderMigration,
+    /AND NOT \( outbox\.status = 'cancelled-before-broadcast' AND outbox\.legacy_deposit_binding_byte_order \)/
+  )
+  assert.match(
+    depositBindingByteOrderMigration,
     /reject_legacy_quarantine_mutation_trigger BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_legacy_submission_quarantine/
   )
 })
@@ -457,6 +567,21 @@ test("requires a durable bound nonce guard before signer invocation", () => {
   assert.match(migration, /P2TR challenge nonce guards cannot be deleted/)
 })
 
+test("releases armed enqueue capacity through an append-only non-retryable disposition", () => {
+  assert.match(
+    candidateEnqueueRetryMigration,
+    /CREATE TABLE p2tr_candidate_enqueue_non_retryable_failure/
+  )
+  assert.match(
+    candidateEnqueueRetryMigration,
+    /non_retryable_failure_immutable_trigger BEFORE UPDATE OR DELETE ON p2tr_candidate_enqueue_non_retryable_failure/
+  )
+  assert.match(
+    candidateEnqueueRetryMigration,
+    /p2tr_signature_fraud_consume_generation_capacity[\s\S]*?NOT EXISTS \( SELECT 1 FROM p2tr_candidate_enqueue_non_retryable_failure/
+  )
+})
+
 test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
   assert.match(
     migration,
@@ -485,6 +610,10 @@ test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
   assert.match(
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_fee_policy/
+  )
+  assert.match(
+    migration,
+    /minimum_replacement_fee_bump_bps integer NOT NULL CHECK \( minimum_replacement_fee_bump_bps BETWEEN 1 AND 10000 \)/
   )
   assert.match(
     migration,
@@ -520,7 +649,11 @@ test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
   )
   assert.match(
     migration,
-    /NEW\.max_fee_per_gas <= previous_variant\.max_fee_per_gas OR NEW\.max_priority_fee_per_gas <= previous_variant\.max_priority_fee_per_gas OR NEW\.gas_limit < previous_variant\.gas_limit/
+    /NEW\.max_fee_per_gas \* 10000 < previous_variant\.max_fee_per_gas \* \(10000 \+ fee_policy\.minimum_replacement_fee_bump_bps\)/
+  )
+  assert.match(
+    migration,
+    /NEW\.max_priority_fee_per_gas \* 10000 < previous_variant\.max_priority_fee_per_gas \* \(10000 \+ fee_policy\.minimum_replacement_fee_bump_bps\)/
   )
   assert.match(
     migration,
@@ -548,6 +681,10 @@ test("records append-only broadcast boundaries per generation and variant", () =
   assert.match(
     migration,
     /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_outbox_broadcast_attempt/
+  )
+  assert.match(
+    postgresOutboxStoreSource,
+    /lastBroadcastProviderAccepted === false[\s\S]*?\? "rejected"[\s\S]*?acknowledgementResult/
   )
 })
 
@@ -644,12 +781,24 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   )
   assert.match(
     migration,
-    /actual_sender <> expected_sender OR actual_nonce <> expected_nonce/
+    /actual_chain_id <> expected_chain_id[\s\S]*?OR actual_sender <> expected_sender[\s\S]*?OR actual_nonce <> expected_nonce/
   )
   assert.match(migration, /guard_kind = 'escaped-envelope'/)
   assert.match(
     migration,
-    /quarantine_reason IN \('wrong-sender', 'wrong-nonce'\)/
+    /actual_guard\.chain_id <> NEW\.actual_chain_id[\s\S]*?actual_guard\.signer_lane_id <> NEW\.actual_guard_signer_lane_id/
+  )
+  assert.match(
+    migration,
+    /recorded_reason NOT IN \( 'wrong-chain', 'wrong-sender', 'wrong-nonce', 'ambiguous-signer-invocation' \)/
+  )
+  assert.match(
+    migration,
+    /NEW\.actual_chain_id = NEW\.expected_chain_id AND NEW\.actual_sender = NEW\.expected_sender AND NEW\.actual_nonce = NEW\.expected_nonce/
+  )
+  assert.match(
+    migration,
+    /quarantine_reason IN \('wrong-chain', 'wrong-sender', 'wrong-nonce'\)/
   )
   assert.match(
     migration,
@@ -658,6 +807,10 @@ test("isolates quarantined signers and protects escaped sender nonces", () => {
   assert.match(
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_challenge_late_signed_artifact[\s\S]*?transaction_type IN \(0, 1, 2, 3, 4\)[\s\S]*?transaction_type = 2[\s\S]*?gas_limit IS NOT NULL[\s\S]*?max_fee_per_gas IS NOT NULL[\s\S]*?max_priority_fee_per_gas IS NOT NULL[\s\S]*?transaction_type IN \(0, 1, 3, 4\)[\s\S]*?gas_limit IS NULL/
   )
   assert.match(migration, /expected_provenance_fingerprint bytea NOT NULL/)
   assert.match(
@@ -719,6 +872,10 @@ test("records immutable activation-blocking alerts at bounded ledger caps", () =
   )
   assert.match(
     migration,
+    /expected_status = 'preparing'[\s\S]*expected_active_signer_invocation_started_at_unix_ms IS NOT NULL[\s\S]*FROM p2tr_signature_fraud_challenge_signer_quarantine q/
+  )
+  assert.match(
+    migration,
     /critical alert is not bound to the exact P2TR challenge series/
   )
   assert.match(
@@ -745,6 +902,11 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
     /CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier/
   )
   assert.match(migration, /unresolved_release_count integer NOT NULL DEFAULT 0/)
+  assert.match(migration, /PRIMARY KEY \(chain_id, sender\)/)
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_seed_nonce_allocator_lane_barrier_trigger/
+  )
   assert.match(
     migration,
     /p2tr_signature_fraud_register_pending_nonce_release_trigger AFTER INSERT/
@@ -752,6 +914,10 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   assert.match(
     migration,
     /active_signer_invocation_count = active_signer_invocation_count \+ 1/
+  )
+  assert.match(
+    migration,
+    /WHERE chain_id = NEW\.chain_id\s+AND sender = NEW\.selected_sender/
   )
   assert.match(
     migration,
@@ -825,7 +991,7 @@ test("counts durable burn claims in activation signer-I/O truth", () => {
   )
 })
 
-test("resolves an orphaned signer boundary only on dual-attested evidence", () => {
+test("resolves an orphaned signer boundary only after a provider tombstone", () => {
   assert.match(
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
@@ -964,6 +1130,24 @@ test("applies the manifest recovery bound to health and blocking reasons", () =>
   )
 })
 
+test("accounts for chainless replay references in nonce-guard health", () => {
+  assert.match(
+    activationHandshakeSource,
+    /p2tr_signature_fraud_challenge_chainless_replay_guard r[\s\S]*?r\.nonce_guard_record_id = g\.record_id[\s\S]*?r\.nonce_guard_id = g\.nonce_guard_id/
+  )
+})
+
+test("keeps capacity saturation as enqueue backpressure instead of an activation blocker", () => {
+  assert.doesNotMatch(
+    activationHandshakeSource,
+    /manifest-bound-active-outbox-capacity-exhausted/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /const healthy =[\s\S]*?manifestOutboxCapacityConfigured/
+  )
+})
+
 test("counts unresolved Ethereum broadcasts in activation health", () => {
   assert.match(
     activationHandshakeSource,
@@ -996,6 +1180,10 @@ test("rotates manifests and outbox provenance in one database trigger", () => {
     migration,
     /activation manifest rotation invalidated the generation provenance/
   )
+  assert.match(
+    migration,
+    /UPDATE p2tr_readiness_certificates SET is_current = false, invalidated_at = rotation_at WHERE is_current; UPDATE p2tr_candidate_enqueue_authorizations/
+  )
   assert.match(migration, /record_state = jsonb_set\(/)
   assert.match(
     migration,
@@ -1024,7 +1212,23 @@ test("attests security-critical view definitions in the schema hash", () => {
   assert.match(activationHandshakeSource, /pg_get_viewdef\(r\.oid, true\)/)
   assert.match(activationHandshakeSource, /'view-definition'/)
   assert.match(activationHandshakeSource, /'enabled=' \|\| t\.tgenabled::text/)
+  assert.match(
+    activationHandshakeSource,
+    /relname LIKE 'p2tr_candidate_enqueue_%'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /proname LIKE 'p2tr_candidate_enqueue_%'/
+  )
   assert.match(activationHandshakeSource, /p\.proname = 'p2tr_reverse_bytea'/)
+  assert.match(
+    activationHandshakeSource,
+    /relname = 'p2tr_watchtower_activation_manifest'/
+  )
+  assert.match(
+    activationHandshakeSource,
+    /p\.proname = 'p2tr_watchtower_activation_manifest_monotonic'/
+  )
 })
 
 test("protects serialized generation identity alongside normalized columns", () => {
@@ -1039,10 +1243,10 @@ test("protects serialized generation identity alongside normalized columns", () 
 })
 
 test("makes the durable signed-variant gas invariant the exact runtime one", () => {
-  // 003 is checksum-tracked, so the strict comparison arrives by replacing the
-  // trigger function in an append-only migration rather than editing it there.
-  assert.match(migration, /NEW\.gas_limit > fee_policy\.max_gas_limit/)
-  assert.doesNotMatch(migration, /NEW\.gas_limit <> fee_policy\.max_gas_limit/)
+  // Fresh installs get the strict invariant directly, while the append-only
+  // migration upgrades databases that applied the earlier trigger definition.
+  assert.match(migration, /NEW\.gas_limit <> fee_policy\.max_gas_limit/)
+  assert.doesNotMatch(migration, /NEW\.gas_limit > fee_policy\.max_gas_limit/)
   assert.match(
     exactGasMigration,
     /CREATE OR REPLACE FUNCTION p2tr_signature_fraud_validate_variant_append\(\)/
@@ -1055,11 +1259,12 @@ test("makes the durable signed-variant gas invariant the exact runtime one", () 
   // Everything else about the trigger has to survive the replacement.
   for (const preserved of [
     /signed variant does not match the durable bound nonce reservation/,
-    /signed variant exceeds its manifest-bound fee or value policy/,
+    /signed variant does not match its manifest-bound fee or value policy/,
     /initial P2TR challenge variant is not append-only/,
     /P2TR challenge variant sequence is not contiguous/,
     /P2TR challenge replacement changed sender or nonce/,
-    /P2TR challenge replacement fee envelope did not strictly increase/,
+    /minimum_replacement_fee_bump_bps/,
+    /P2TR challenge replacement fee envelope did not satisfy its manifest bump/,
   ]) {
     assert.match(migration, preserved)
     assert.match(exactGasMigration, preserved)

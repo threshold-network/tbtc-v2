@@ -1,13 +1,12 @@
--- Make the durable signed-variant gas invariant the exact one the runtime
--- enforces.
+-- Make the durable signed-variant gas and replacement-fee invariants the exact
+-- ones the runtime enforces.
 --
 -- Migration 003 is checksum-tracked, so the trigger function is replaced here
--- rather than edited there. The only change is the gas-limit comparison: 003
--- accepted anything at or below the
--- manifest value, while the runtime validator has always required the exact
--- manifest-bound limit. A variant signed below it is affordable and passes the
--- fee ceilings, but runs out of gas on chain and consumes the reserved nonce
--- for nothing. Any writer that bypasses the runtime validator -- an older
+-- rather than edited there. The replacement retains the manifest-bound minimum
+-- replacement bump introduced by the activation hardening stack while making
+-- the gas-limit comparison exact. A variant signed below the fixed limit can
+-- pass the fee ceilings but run out of gas on chain and consume the reserved
+-- nonce for nothing. Any writer that bypasses the runtime validator -- an older
 -- worker during a rolling deployment, or a direct store write -- could make
 -- exactly that transaction durable and broadcastable, so the database has to
 -- hold the strict invariant too.
@@ -70,7 +69,7 @@ BEGIN
        OR NEW.max_fee_per_gas > fee_policy.max_fee_per_gas
        OR NEW.max_priority_fee_per_gas > fee_policy.max_priority_fee_per_gas
        OR NEW.gas_limit * NEW.max_fee_per_gas > fee_policy.max_total_fee_wei THEN
-        RAISE EXCEPTION 'signed variant exceeds its manifest-bound fee or value policy';
+        RAISE EXCEPTION 'signed variant does not match its manifest-bound fee or value policy';
     END IF;
 
     IF NEW.variant_sequence = 0 THEN
@@ -99,8 +98,14 @@ BEGIN
         END IF;
         IF NEW.max_fee_per_gas <= previous_variant.max_fee_per_gas
            OR NEW.max_priority_fee_per_gas <= previous_variant.max_priority_fee_per_gas
+           OR NEW.max_fee_per_gas * 10000 <
+                previous_variant.max_fee_per_gas *
+                (10000 + fee_policy.minimum_replacement_fee_bump_bps)
+           OR NEW.max_priority_fee_per_gas * 10000 <
+                previous_variant.max_priority_fee_per_gas *
+                (10000 + fee_policy.minimum_replacement_fee_bump_bps)
            OR NEW.gas_limit < previous_variant.gas_limit THEN
-            RAISE EXCEPTION 'P2TR challenge replacement fee envelope did not strictly increase';
+            RAISE EXCEPTION 'P2TR challenge replacement fee envelope did not satisfy its manifest bump';
         END IF;
     END IF;
     RETURN NEW;

@@ -79,7 +79,9 @@ import {
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudPreparedNonceBurnTransaction,
+  validateP2TRCompleteV2SignatureFraudSubmissionIntent,
   validateP2TRSignatureFraudWitnessObservationConsistency,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
 import { Hex } from "../../src/lib/utils"
 
@@ -2112,6 +2114,34 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
+  it("rejects a domainless observation from the COMPLETE_V2 evidence builder", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex]
+    )
+
+    expect(observation.bridgeChallengeKey).to.equal(undefined)
+    expectWitnessError(
+      () =>
+        buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+          observation,
+          bridgeChallengeDomain,
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [],
+          }
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
   it("builds a domain-bound durable submission intent and authenticates its signed raw transaction", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
@@ -2144,6 +2174,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       routerAddress,
       challengeDepositAmount: 1234,
     })
+    expect(() =>
+      validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
+    ).not.to.throw()
     const expectedCalldata =
       encodeP2TRSignatureFraudRouterSubmitCalldata(completeEvidence)
 
@@ -2180,6 +2213,14 @@ describe("P2TR signature-fraud witness parsing", () => {
         calldata: intent.calldata,
         value: intent.value,
       }).toString()
+    )
+    expectWitnessError(
+      () =>
+        validateP2TRCompleteV2SignatureFraudSubmissionIntent({
+          ...intent,
+          observationID: Hex.from(`0x${"ff".repeat(32)}`),
+        }),
+      "invalid-watchtower-state"
     )
 
     const wallet = new Wallet(`0x${"42".repeat(32)}`)
@@ -2547,7 +2588,8 @@ describe("P2TR signature-fraud witness parsing", () => {
       validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
         intent,
         previous,
-        replacement
+        replacement,
+        1000
       )
     expect(validated.transactionHash.toString()).to.equal(
       replacement.transactionHash.toString()
@@ -2559,7 +2601,8 @@ describe("P2TR signature-fraud witness parsing", () => {
         validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
           intent,
           previous,
-          unchangedPriorityFee
+          unchangedPriorityFee,
+          1000
         ),
       "invalid-watchtower-state"
     )
@@ -2569,10 +2612,89 @@ describe("P2TR signature-fraud witness parsing", () => {
         validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
           intent,
           previous,
-          changedNonce
+          changedNonce,
+          1000
         ),
       "invalid-watchtower-state"
     )
+    const underpricedPercentageBump = await sign(7, 21, 3)
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
+          intent,
+          previous,
+          underpricedPercentageBump,
+          1000
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
+  it("recovers the forensic lane and call from a signed EIP-7702 envelope", async () => {
+    const signer = new Wallet(`0x${"42".repeat(32)}`)
+    const authority = new Wallet(`0x${"43".repeat(32)}`)
+    const chainID = 11155111
+    const nonce = 7
+    const destination = "0x2222222222222222222222222222222222222222"
+    const quantity = (value: BigNumberish): string => {
+      const encoded = BigNumber.from(value)
+      return encoded.isZero()
+        ? "0x"
+        : utils.hexlify(utils.stripZeros(utils.arrayify(encoded)))
+    }
+    const authorizationUnsigned = [quantity(chainID), destination, quantity(0)]
+    const authorizationSignature = authority
+      ._signingKey()
+      .signDigest(
+        utils.keccak256(
+          utils.concat(["0x05", utils.RLP.encode(authorizationUnsigned)])
+        )
+      )
+    const authorization = [
+      ...authorizationUnsigned,
+      quantity(authorizationSignature.recoveryParam),
+      utils.hexlify(utils.stripZeros(utils.arrayify(authorizationSignature.r))),
+      utils.hexlify(utils.stripZeros(utils.arrayify(authorizationSignature.s))),
+    ]
+    const unsigned = [
+      quantity(chainID),
+      quantity(nonce),
+      quantity(2),
+      quantity(20),
+      quantity(100_000),
+      destination,
+      quantity(1234),
+      "0x1234",
+      [],
+      [authorization],
+    ]
+    const signature = signer
+      ._signingKey()
+      .signDigest(
+        utils.keccak256(utils.concat(["0x04", utils.RLP.encode(unsigned)]))
+      )
+    const rawTransaction = utils.hexConcat([
+      "0x04",
+      utils.RLP.encode([
+        ...unsigned,
+        quantity(signature.recoveryParam),
+        utils.hexlify(utils.stripZeros(utils.arrayify(signature.r))),
+        utils.hexlify(utils.stripZeros(utils.arrayify(signature.s))),
+      ]),
+    ])
+
+    const recovered =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(rawTransaction)
+    expect(recovered.rawTransaction).to.equal(rawTransaction.toLowerCase())
+    expect(recovered.transactionHash.toPrefixedString()).to.equal(
+      utils.keccak256(rawTransaction)
+    )
+    expect(recovered.chainID).to.equal(chainID)
+    expect(recovered.sender).to.equal(signer.address)
+    expect(recovered.nonce).to.equal(nonce)
+    expect(recovered.to).to.equal(utils.getAddress(destination))
+    expect(recovered.calldata).to.equal("0x1234")
+    expect(recovered.value).to.equal("1234")
   })
 
   it("authenticates nonce reservations against the exact record and signer lane", async () => {
@@ -2783,6 +2905,38 @@ describe("P2TR signature-fraud witness parsing", () => {
       gasPrice: 2,
     })
     const wrongParsed = utils.parseTransaction(wrongRawTransaction)
+
+    const recoveredUnexpectedEnvelope =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(wrongRawTransaction)
+    expect(
+      recoveredUnexpectedEnvelope.transactionHash.toPrefixedString()
+    ).to.equal(wrongParsed.hash)
+    expect(recoveredUnexpectedEnvelope.sender).to.equal(wallet.address)
+    expect(recoveredUnexpectedEnvelope.nonce).to.equal(9)
+    expect(recoveredUnexpectedEnvelope.chainID).to.equal(intent.chainID)
+    expect(recoveredUnexpectedEnvelope.to).to.equal(
+      "0x3333333333333333333333333333333333333333"
+    )
+    expect(recoveredUnexpectedEnvelope.calldata).to.equal(intent.calldata)
+    expect(recoveredUnexpectedEnvelope.value).to.equal(intent.value)
+
+    const contractCreationRawTransaction = await wallet.signTransaction({
+      data: "0x6000",
+      value: 0,
+      chainId: intent.chainID,
+      nonce: 10,
+      gasLimit: 1_000_000,
+      gasPrice: 2,
+    })
+    const recoveredContractCreation =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(
+        contractCreationRawTransaction
+      )
+    expect(recoveredContractCreation.sender).to.equal(wallet.address)
+    expect(recoveredContractCreation.chainID).to.equal(intent.chainID)
+    expect(recoveredContractCreation.nonce).to.equal(10)
+    expect(recoveredContractCreation.to).to.equal(undefined)
+    expect(recoveredContractCreation.calldata).to.equal("0x6000")
 
     expectWitnessError(
       () =>

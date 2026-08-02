@@ -119,6 +119,18 @@ BEGIN
             'orphaned signer boundary resolution does not name the durable signer stage';
     END IF;
 
+    IF NEW.provider_invocation_id <> sha256(
+           convert_to('tbtc-p2tr-signer-invocation-v1', 'UTF8')
+           || NEW.record_id
+           || int8send(NEW.boundary_started_at_unix_ms)
+           || int8send(NEW.preparation_attempts::bigint)
+           || NEW.nonce_reservation_id
+           || sha256(convert_to(NEW.stage, 'UTF8'))
+       ) THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary tombstone does not name the deterministic provider invocation';
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
                'tbtc-p2tr-signer-boundary-independent-resolution-v5',
@@ -130,6 +142,7 @@ BEGIN
            || int8send(NEW.preparation_attempts::bigint)
            || NEW.nonce_reservation_id
            || sha256(convert_to(NEW.stage, 'UTF8'))
+           || NEW.signer_invocation_id
            || int8send(NEW.invoked_at_unix_ms)
            || sha256(convert_to(NEW.outcome, 'UTF8'))
            || COALESCE(
@@ -175,8 +188,14 @@ BEGIN
             'orphaned signer boundary resolution digest is invalid';
     END IF;
 
-    IF NEW.primary_attested_at_unix_ms < NEW.invoked_at_unix_ms
-       OR NEW.corroborating_attested_at_unix_ms < NEW.invoked_at_unix_ms
+    IF NEW.primary_attested_at_unix_ms < GREATEST(
+           NEW.invoked_at_unix_ms,
+           COALESCE(NEW.provider_tombstone_at_unix_ms, 0)
+       )
+       OR NEW.corroborating_attested_at_unix_ms < GREATEST(
+           NEW.invoked_at_unix_ms,
+           COALESCE(NEW.provider_tombstone_at_unix_ms, 0)
+       )
        OR NEW.primary_attested_at_unix_ms > NEW.resolved_at_unix_ms
        OR NEW.corroborating_attested_at_unix_ms > NEW.resolved_at_unix_ms THEN
         RAISE EXCEPTION

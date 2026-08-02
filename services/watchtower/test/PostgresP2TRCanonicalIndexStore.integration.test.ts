@@ -47,6 +47,88 @@ describe(
   "PostgresP2TRCanonicalIndexStore integration",
   { skip: postgresURL === undefined },
   () => {
+    it("classifies real deferred constraint failures as confirmed COMMIT aborts", async () => {
+      await withIntegrationStore(async ({ store, database }) => {
+        await database.query(
+          `CREATE TABLE p2tr_deferred_parent (id integer PRIMARY KEY);
+           CREATE TABLE p2tr_deferred_child (
+             id integer PRIMARY KEY,
+             parent_id integer REFERENCES p2tr_deferred_parent(id)
+               DEFERRABLE INITIALLY DEFERRED
+           );
+           CREATE TABLE p2tr_deferred_trigger_fixture (
+             id integer PRIMARY KEY
+           );
+           CREATE FUNCTION p2tr_deferred_trigger_rejection()
+           RETURNS trigger LANGUAGE plpgsql AS $body$
+           BEGIN
+             RAISE EXCEPTION 'deferred trigger rejected commit';
+           END
+           $body$;
+           CREATE CONSTRAINT TRIGGER p2tr_deferred_trigger_rejection_trigger
+           AFTER INSERT ON p2tr_deferred_trigger_fixture
+           DEFERRABLE INITIALLY DEFERRED
+           FOR EACH ROW EXECUTE FUNCTION p2tr_deferred_trigger_rejection();`
+        )
+        const adapter =
+          store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+            (session) => ({
+              violateForeignKey: () =>
+                session.query(
+                  `INSERT INTO p2tr_deferred_child (id, parent_id)
+                   VALUES (1, 999)`
+                ),
+              violateConstraintTrigger: () =>
+                session.query(
+                  `INSERT INTO p2tr_deferred_trigger_fixture (id) VALUES (1)`
+                ),
+            })
+          )
+
+        for (const [sqlState, operation] of [
+          ["23503", adapter.violateForeignKey],
+          ["P0001", adapter.violateConstraintTrigger],
+        ] as const) {
+          const error = await store
+            .runInP2TRSignatureFraudWatchtowerTransaction(operation)
+            .then(
+              () => undefined,
+              (failure: unknown) => failure
+            )
+          assert.equal(
+            isP2TRPostgresTransactionConfirmedAbortError(error),
+            true
+          )
+          if (!isP2TRPostgresTransactionConfirmedAbortError(error)) continue
+          assert.equal(error.reason, "definitive-commit-sqlstate")
+          assert.equal(error.sqlState, sqlState)
+          assert.equal(
+            store.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+              error
+            ),
+            undefined
+          )
+          assert.equal(
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+              error
+            ),
+            false
+          )
+        }
+
+        const rolledBack = await database.query<{ child_count: string }>(
+          `SELECT
+             (SELECT count(*)::text FROM p2tr_deferred_child) AS child_count,
+             (SELECT count(*)::text FROM p2tr_deferred_trigger_fixture)
+               AS trigger_count`
+        )
+        assert.deepEqual(rolledBack.rows[0], {
+          child_count: "0",
+          trigger_count: "0",
+        })
+      })
+    })
+
     it("atomically replaces a reorged chain and removes orphaned Ethereum evidence", async () => {
       const require = createRequire(import.meta.url)
       const { Pool } = require("pg") as {
@@ -70,6 +152,15 @@ describe(
           "003_p2tr_signature_fraud_challenge_outbox.sql",
           "004_p2tr_candidate_enqueue_retry_alerts.sql",
           "005_p2tr_deposit_binding_byte_order.sql",
+          "006_p2tr_candidate_enqueue_generation_authority.sql",
+          "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+          "008_p2tr_candidate_enqueue_challenge_series.sql",
+          "009_p2tr_candidate_enqueue_capacity_authority.sql",
+          "010_p2tr_candidate_enqueue_transient_retries.sql",
+          "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+          "012_p2tr_provenance_alert_retirement.sql",
+          "013_p2tr_fee_policy_feasibility.sql",
+          "014_p2tr_candidate_enqueue_rotation_resolution.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -1972,6 +2063,15 @@ const withIntegrationStore = async (
       "003_p2tr_signature_fraud_challenge_outbox.sql",
       "004_p2tr_candidate_enqueue_retry_alerts.sql",
       "005_p2tr_deposit_binding_byte_order.sql",
+      "006_p2tr_candidate_enqueue_generation_authority.sql",
+      "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+      "008_p2tr_candidate_enqueue_challenge_series.sql",
+      "009_p2tr_candidate_enqueue_capacity_authority.sql",
+      "010_p2tr_candidate_enqueue_transient_retries.sql",
+      "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+      "012_p2tr_provenance_alert_retirement.sql",
+      "013_p2tr_fee_policy_feasibility.sql",
+      "014_p2tr_candidate_enqueue_rotation_resolution.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),
@@ -2242,7 +2342,32 @@ describe(
         // Reconstruct the pre-005 schema and seal a generation whose deposit
         // observation still commits to the display-order funding txid.
         await database.query(
-          `ALTER TABLE p2tr_bitcoin_candidate_observations
+          `DROP TABLE p2tr_signature_fraud_challenge_chainless_replay_guard;
+           DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
+             ON p2tr_candidate_enqueue_authorizations;
+           DROP FUNCTION p2tr_candidate_enqueue_generation_authority_guard();
+           DROP INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx;
+           CREATE UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx
+             ON p2tr_candidate_enqueue_authorizations (candidate_digest)
+             WHERE consumed_at IS NOT NULL;
+           DROP FUNCTION p2tr_candidate_enqueue_expected_authority(
+             bytea, bytea, bytea, bytea, bytea, bigint, bytea, text,
+             bytea, bigint
+           );
+           DROP FUNCTION p2tr_candidate_enqueue_series_id(
+             bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
+           );
+           ALTER TABLE p2tr_candidate_enqueue_authorizations
+             DROP CONSTRAINT p2tr_candidate_enqueue_generation_authority_shape,
+             DROP COLUMN generation_authority_version,
+             DROP COLUMN expected_outbox_series_id,
+             DROP COLUMN expected_outbox_generation,
+             DROP COLUMN expected_outbox_disposition,
+             DROP COLUMN expected_outbox_predecessor_id,
+             DROP COLUMN expected_outbox_evidence_id;
+           DELETE FROM p2tr_watchtower_schema_version
+            WHERE component = 'candidate-enqueue-generation-authority';
+           ALTER TABLE p2tr_bitcoin_candidate_observations
              DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
            ALTER TABLE p2tr_signature_fraud_challenge_outbox
              DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
@@ -2386,6 +2511,73 @@ describe(
         assert.equal(
           sealed.rows[0].generation_semantic_root,
           sealed.rows[0].current_semantic_root
+        )
+
+        // Model the row that the old migration runner could miss after taking
+        // its SERIALIZABLE snapshot but before acquiring the writer fence.
+        // Migration 006 must repair that upgrade state and validate the
+        // normalized constraint under the runner's corrected session fence.
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             DISABLE TRIGGER p2tr_candidate_input_disposition_guard;`
+        )
+        await database.query(
+          `UPDATE p2tr_bitcoin_candidate_observations
+              SET binding_tx_hash = local_funding_txid,
+                  disposition_evidence_object_digest = NULL
+            WHERE binding_kind = 'deposit'`
+        )
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             ENABLE TRIGGER p2tr_candidate_input_disposition_guard;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             ADD CONSTRAINT p2tr_candidate_observation_binding_matches_funding
+             CHECK (
+               (binding_kind = 'wallet' AND signing_key = wallet_id AND
+                binding_tx_hash = decode(repeat('00', 32), 'hex') AND
+                binding_output_index = 0) OR
+               (binding_kind = 'deposit' AND signing_key = output_key AND
+                binding_tx_hash = p2tr_reverse_bytea(local_funding_txid) AND
+                binding_output_index = local_funding_vout)
+             ) NOT VALID`
+        )
+        const generationAuthorityMigration = await readFile(
+          new URL(
+            "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${generationAuthorityMigration}\nCOMMIT;`)
+        const repaired = await database.query<{
+          binding_tx_hash: string
+          constraint_validated: boolean
+          generation_id: string
+        }>(
+          `SELECT encode(observation.binding_tx_hash, 'hex')
+                    AS binding_tx_hash,
+                  constraint_record.convalidated AS constraint_validated,
+                  (SELECT max(generation_id)::text
+                     FROM p2tr_canonical_generations
+                    WHERE state = 'committed') AS generation_id
+             FROM p2tr_bitcoin_candidate_observations observation
+             JOIN pg_constraint constraint_record
+               ON constraint_record.conrelid =
+                    'p2tr_bitcoin_candidate_observations'::regclass
+              AND constraint_record.conname =
+                    'p2tr_candidate_observation_binding_matches_funding'
+            WHERE observation.binding_kind = 'deposit'`
+        )
+        assert.equal(
+          repaired.rows[0].binding_tx_hash,
+          Buffer.from(funding.txid, "hex").reverse().toString("hex")
+        )
+        assert.equal(repaired.rows[0].constraint_validated, true)
+        assert.equal(
+          Number(repaired.rows[0].generation_id),
+          Number(sealed.rows[0].generation_id) + 1
         )
       })
     })
