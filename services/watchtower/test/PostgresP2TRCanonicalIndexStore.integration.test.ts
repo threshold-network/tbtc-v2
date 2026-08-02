@@ -72,6 +72,8 @@ describe(
           "005_p2tr_deposit_binding_byte_order.sql",
           "006_p2tr_candidate_enqueue_generation_authority.sql",
           "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+          "008_p2tr_candidate_enqueue_challenge_series.sql",
+          "009_p2tr_candidate_enqueue_capacity_authority.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -1976,6 +1978,8 @@ const withIntegrationStore = async (
       "005_p2tr_deposit_binding_byte_order.sql",
       "006_p2tr_candidate_enqueue_generation_authority.sql",
       "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+      "008_p2tr_candidate_enqueue_challenge_series.sql",
+      "009_p2tr_candidate_enqueue_capacity_authority.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),

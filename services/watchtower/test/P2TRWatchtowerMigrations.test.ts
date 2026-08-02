@@ -57,6 +57,10 @@ describe("P2TR watchtower migration bodies", () => {
           version: 8,
           filename: "008_p2tr_candidate_enqueue_challenge_series.sql",
         },
+        {
+          version: 9,
+          filename: "009_p2tr_candidate_enqueue_capacity_authority.sql",
+        },
       ]
     )
   })
@@ -196,7 +200,7 @@ describe("P2TR watchtower migration bodies", () => {
     )
   })
 
-  it("repairs candidate authority to use the SDK challenge-series identity", async () => {
+  it("records the superseded challenge-key series repair", async () => {
     const migration = await readFile(
       new URL(
         "../migrations/008_p2tr_candidate_enqueue_challenge_series.sql",
@@ -217,6 +221,34 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /WHERE authz\.consumed_at IS NULL[\s\S]*?authz\.invalidated_at IS NULL[\s\S]*?UPDATE p2tr_candidate_enqueue_authorizations authz/
+    )
+  })
+
+  it("restores occurrence-bound series parity and exact capacity authority", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/009_p2tr_candidate_enqueue_capacity_authority.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /'\,"observationID\":' \|\|[\s\S]*?encode\(observation_id_value, 'hex'\)/
+    )
+    assert.match(
+      migration,
+      /outbox\.observation_id = observation_id_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
+    )
+    assert.match(
+      migration,
+      /authz\.expected_outbox_series_id = NEW\.series_id[\s\S]*?authz\.expected_outbox_generation = NEW\.generation[\s\S]*?authz\.expected_outbox_disposition = CASE/
+    )
+    assert.doesNotMatch(
+      migration,
+      /guard_row\.candidate_digest = NEW\.canonical_candidate_digest/
     )
   })
 })

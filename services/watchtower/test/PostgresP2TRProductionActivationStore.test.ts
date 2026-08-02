@@ -297,6 +297,14 @@ describe(
           "utf8"
         )
         await database.query(`BEGIN;\n${challengeSeriesMigration}\nCOMMIT;`)
+        const capacityAuthorityMigration = await readFile(
+          new URL(
+            "../migrations/009_p2tr_candidate_enqueue_capacity_authority.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${capacityAuthorityMigration}\nCOMMIT;`)
 
         const expectedSeriesID = createHash("sha256")
           .update(
@@ -308,7 +316,7 @@ describe(
               chainID: 31337,
               domainChainID: 31337,
               routerAddress: "0x1234567890abcdef1234567890abcdef12345678",
-              observationID: challengeKey,
+              observationID,
               inputIndex: 0,
               bridgeChallengeKey: challengeKey,
               signingKey: inputOutputKey,

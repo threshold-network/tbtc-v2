@@ -50,6 +50,13 @@ const challengeSeriesMigration = readFileSync(
   ),
   "utf8"
 )
+const capacityAuthorityMigration = readFileSync(
+  new URL(
+    "../migrations/009_p2tr_candidate_enqueue_capacity_authority.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -126,18 +133,22 @@ describe("production activation PostgreSQL schema contract", () => {
     )
   })
 
-  it("binds candidate consumption to the challenge-series observation alias", () => {
+  it("binds candidate consumption to distinct occurrence and challenge identities", () => {
     assert.match(
       activationStore,
-      /outbox\.observation_id =\s*p2tr_candidate_enqueue_authorizations\.challenge_key[\s\S]*?outbox\.bridge_challenge_key =\s*p2tr_candidate_enqueue_authorizations\.challenge_key/
+      /outbox\.observation_id =\s*p2tr_candidate_enqueue_authorizations\.observation_id[\s\S]*?outbox\.bridge_challenge_key =\s*p2tr_candidate_enqueue_authorizations\.challenge_key/
     )
     assert.match(
       challengeSeriesMigration,
       /'\,"observationID\":' \|\|[\s\S]*?encode\(challenge_key_value, 'hex'\)/
     )
     assert.match(
-      challengeSeriesMigration,
-      /outbox\.observation_id = challenge_key_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
+      capacityAuthorityMigration,
+      /'\,"observationID\":' \|\|[\s\S]*?encode\(observation_id_value, 'hex'\)/
+    )
+    assert.match(
+      capacityAuthorityMigration,
+      /outbox\.observation_id = observation_id_value[\s\S]*?outbox\.bridge_challenge_key = challenge_key_value/
     )
   })
 

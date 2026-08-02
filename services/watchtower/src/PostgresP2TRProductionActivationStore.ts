@@ -1266,7 +1266,7 @@ export class PostgresP2TRProductionActivationStore
                AND outbox.series_id =
                      p2tr_candidate_enqueue_authorizations.expected_outbox_series_id
                AND outbox.observation_id =
-                     p2tr_candidate_enqueue_authorizations.challenge_key
+                     p2tr_candidate_enqueue_authorizations.observation_id
                AND outbox.bridge_challenge_key =
                      p2tr_candidate_enqueue_authorizations.challenge_key
                AND outbox.bitcoin_tx_hash =

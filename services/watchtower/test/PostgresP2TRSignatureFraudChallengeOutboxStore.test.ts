@@ -177,7 +177,8 @@ async function cleanupPostgresTestResources(
 async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
-  initialSignerConfiguration = signerConfiguration()
+  initialSignerConfiguration = signerConfiguration(),
+  throughMigrationVersion = 9
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -190,7 +191,7 @@ async function createTestDatabase(
   await client.query(`CREATE SCHEMA ${schema}`)
   resources.schemas.add(schema)
   await client.query(`SET search_path TO ${schema}`)
-  for (const migration of [
+  const migrations = [
     runtimeMigrationDirectory === undefined
       ? new URL("../migrations/001_p2tr_canonical_index.sql", import.meta.url)
       : new URL(
@@ -224,7 +225,16 @@ async function createTestDatabase(
       "../migrations/007_p2tr_candidate_enqueue_recovery_hardening.sql",
       import.meta.url
     ),
-  ]) {
+    new URL(
+      "../migrations/008_p2tr_candidate_enqueue_challenge_series.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/009_p2tr_candidate_enqueue_capacity_authority.sql",
+      import.meta.url
+    ),
+  ]
+  for (const migration of migrations.slice(0, throughMigrationVersion)) {
     await client.query(await readFile(migration, "utf8"))
   }
   await seedCanonicalPoint(client, maxActiveOutboxRecords, domainChainID)
@@ -1522,13 +1532,37 @@ postgresTest(
   async () => {
     const database = await createTestDatabase(2)
     await insertRecord(database, outboxRecord(10))
-    const reserved = outboxRecord(11)
+    const reservedFixture = outboxRecord(11)
+    assert.notEqual(
+      reservedFixture.intent.observationID.toPrefixedString(),
+      reservedFixture.intent.bridgeChallengeKey.toPrefixedString()
+    )
+    const reserved = {
+      ...reservedFixture,
+      seriesID: computeP2TRSignatureFraudOutboxSeriesID(reservedFixture.intent),
+    }
     const unrelated = outboxRecord(12)
     await insertCandidateEnqueueGuard(
       database,
       reserved,
       `0x${"e1".repeat(32)}`
     )
+    const sqlSeries = await database.client.query<{
+      series_id: string
+    }>(
+      `SELECT encode(
+                p2tr_candidate_enqueue_series_id(
+                  manifest_hash, observation_id, challenge_key, input_index,
+                  input_output_key, input_binding_kind, funding_txid,
+                  funding_vout
+                ),
+                'hex'
+              ) AS series_id
+         FROM p2tr_candidate_enqueue_authorizations
+        WHERE token_id = $1`,
+      [hexBuffer(`0x${"e1".repeat(32)}`)]
+    )
+    assert.equal(`0x${sqlSeries.rows[0].series_id}`, reserved.seriesID)
 
     await begin(database.client)
     await assert.rejects(
@@ -3170,7 +3204,12 @@ postgresTest(
 postgresTest(
   "retires legacy deposit intents, including rows missed by migration 005",
   async () => {
-    const database = await createTestDatabase()
+    const database = await createTestDatabase(
+      1_024,
+      CHAIN_ID,
+      signerConfiguration(),
+      4
+    )
     const queuedRecord = depositBoundOutboxRecord(236)
     const reversiblePreparation = depositBoundOutboxRecord(237)
     await insertRecord(database, queuedRecord)
@@ -3186,62 +3225,8 @@ postgresTest(
     )
     await commit(database.client)
 
-    // Reconstruct v3 and make both normalized deposit hashes legacy
-    // display-order values without manufacturing replacement signed intents.
-    await database.client.query(
-      `DROP TABLE p2tr_signature_fraud_challenge_chainless_replay_guard;
-       DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
-         ON p2tr_candidate_enqueue_authorizations;
-       DROP FUNCTION p2tr_candidate_enqueue_generation_authority_guard();
-       DROP INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx;
-       CREATE UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx
-         ON p2tr_candidate_enqueue_authorizations (candidate_digest)
-         WHERE consumed_at IS NOT NULL;
-       DROP FUNCTION p2tr_candidate_enqueue_expected_authority(
-         bytea, bytea, bytea, bytea, bytea, bigint, bytea, text, bytea,
-         bigint
-       );
-       DROP FUNCTION p2tr_candidate_enqueue_series_id(
-         bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
-       );
-       ALTER TABLE p2tr_candidate_enqueue_authorizations
-         DROP CONSTRAINT p2tr_candidate_enqueue_generation_authority_shape,
-         DROP COLUMN generation_authority_version,
-         DROP COLUMN expected_outbox_series_id,
-         DROP COLUMN expected_outbox_generation,
-         DROP COLUMN expected_outbox_disposition,
-         DROP COLUMN expected_outbox_predecessor_id,
-         DROP COLUMN expected_outbox_evidence_id;
-       DELETE FROM p2tr_watchtower_schema_version
-        WHERE component = 'candidate-enqueue-generation-authority';
-       ALTER TABLE p2tr_bitcoin_candidate_observations
-         DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
-       ALTER TABLE p2tr_bitcoin_candidate_observations
-         ADD CONSTRAINT p2tr_candidate_observation_legacy_binding
-         CHECK (
-           (binding_kind = 'wallet' AND signing_key = wallet_id AND
-            binding_tx_hash = decode(repeat('00', 32), 'hex') AND
-            binding_output_index = 0) OR
-           (binding_kind = 'deposit' AND signing_key = output_key AND
-            binding_tx_hash = local_funding_txid AND
-            binding_output_index = local_funding_vout)
-         );
-       ALTER TABLE p2tr_signature_fraud_challenge_outbox
-         DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
-       DROP TRIGGER p2tr_signature_fraud_guard_legacy_deposit_binding_marker_trigger
-         ON p2tr_signature_fraud_challenge_outbox;
-       DROP TRIGGER p2tr_signature_fraud_retire_legacy_deposit_binding_trigger
-         ON p2tr_signature_fraud_challenge_outbox;
-       DROP FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker();
-       DROP FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding();
-       ALTER TABLE p2tr_signature_fraud_challenge_outbox
-         DROP COLUMN legacy_deposit_binding_byte_order;
-       DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
-         ON p2tr_signature_fraud_legacy_submission_quarantine;
-       UPDATE p2tr_watchtower_schema_version
-          SET version = 3
-        WHERE component = 'canonical-evidence-index'`
-    )
+    // Make both v4 deposit hashes legacy display-order values without
+    // manufacturing replacement signed intents.
     await database.client.query("SET session_replication_role = replica")
     for (const record of [queuedRecord, reversiblePreparation]) {
       await database.client.query(
@@ -3255,8 +3240,6 @@ postgresTest(
       )
     }
     await database.client.query("SET session_replication_role = origin")
-    await database.client.query("DROP FUNCTION p2tr_reverse_bytea(bytea)")
-
     const migration = await readFile(
       new URL(
         "../migrations/005_p2tr_deposit_binding_byte_order.sql",
