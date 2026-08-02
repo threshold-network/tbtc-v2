@@ -1647,7 +1647,9 @@ export interface P2TRSignatureFraudChallengeOutboxStore
   ): Promise<P2TRSignatureFraudNonceReleaseAttempt | undefined>
   /**
    * Commits the irreversible allocator-I/O boundary for an exact live attempt.
-   * A resultless invocation is never reclaimed merely because time elapsed.
+   * Repeating the exact attempt and invocation time is idempotently successful
+   * so a caller can reconcile a lost commit response before provider I/O. A
+   * resultless invocation is never reclaimed merely because time elapsed.
    */
   beginNonceReleaseAttempt(
     attempt: P2TRSignatureFraudNonceReleaseAttempt,
@@ -2515,15 +2517,28 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       updatedAtUnixMs: signerBoundaryTime,
       lastError: undefined,
     })
-    if (
-      !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
-        key,
-        reserved.version,
-        reserved.canonicalProvenance,
-        signerBoundary
-      ))
-    ) {
-      return this.requireRecord(key)
+    try {
+      if (
+        !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
+          key,
+          reserved.version,
+          reserved.canonicalProvenance,
+          signerBoundary
+        ))
+      ) {
+        return this.requireRecord(key)
+      }
+    } catch (error) {
+      // COMMIT may have installed the marker even when its response was lost.
+      // No signer call has occurred yet, so reconcile this exact boundary as
+      // known-uninvoked instead of stranding an activation-blocking marker.
+      return this.reconcileUninvokedSignerBoundaryPersistence(
+        reserved,
+        signerBoundary,
+        `Initial signer-boundary persistence was ambiguous before signer I/O: ${errorMessage(
+          error
+        )}`
+      )
     }
 
     const signerInvocationID = Hex.from(
@@ -2931,15 +2946,25 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       updatedAtUnixMs: signerBoundaryTime,
       lastError: undefined,
     })
-    if (
-      !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
-        key,
-        claimed.version,
-        claimed.canonicalProvenance,
-        signerBoundary
-      ))
-    ) {
-      return this.requireRecord(key)
+    try {
+      if (
+        !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
+          key,
+          claimed.version,
+          claimed.canonicalProvenance,
+          signerBoundary
+        ))
+      ) {
+        return this.requireRecord(key)
+      }
+    } catch (error) {
+      return this.reconcileUninvokedSignerBoundaryPersistence(
+        claimed,
+        signerBoundary,
+        `Replacement signer-boundary persistence was ambiguous before signer I/O: ${errorMessage(
+          error
+        )}`
+      )
     }
 
     const signerInvocationID = Hex.from(
@@ -4245,9 +4270,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Nonce-release allocator invocation time"
     )
-    if (
-      !(await this.store.beginNonceReleaseAttempt(attempt, invokedAtUnixMs))
-    ) {
+    if (!(await this.beginNonceReleaseAttemptDurably(attempt, invokedAtUnixMs))) {
       return "skipped"
     }
 
@@ -4901,6 +4924,71 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Active signer invocation time"
       ),
     ].join(":")
+  }
+
+  /**
+   * Resolves a lost response from the pre-signer CAS. The predecessor version
+   * proves the first CAS did not commit and may be retried; the exact boundary
+   * proves it did commit and can be retired because this worker has not called
+   * the signer. Any concurrent successor is returned without being rewritten.
+   */
+  private async reconcileUninvokedSignerBoundaryPersistence(
+    predecessor: P2TRSignatureFraudChallengeOutboxRecord,
+    signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const expectedBoundaryIdentity = this.signerBoundaryIdentity(signerBoundary)
+    for (let retry = 0; retry < 8; retry++) {
+      const durable = await this.requireRecord(signerBoundary.recordID)
+      if (durable.activeSignerInvocationStartedAtUnixMs !== undefined) {
+        if (this.signerBoundaryIdentity(durable) !== expectedBoundaryIdentity) {
+          throw new Error(
+            "Ambiguous signer-boundary persistence no longer owns the durable boundary"
+          )
+        }
+        return this.completeUninvokedSignerBoundary(signerBoundary, reason)
+      }
+      if (durable.version !== predecessor.version) return durable
+
+      try {
+        const persisted =
+          await this.store.compareAndSwapWithCurrentCanonicalProvenance(
+            predecessor.recordID,
+            predecessor.version,
+            predecessor.canonicalProvenance,
+            signerBoundary
+          )
+        if (!persisted) return this.requireRecord(predecessor.recordID)
+      } catch {
+        // Reload after every uncertain retry. If the marker committed, the
+        // exact-identity branch above completes it before this method returns.
+        continue
+      }
+    }
+    throw new Error("Ambiguous signer-boundary persistence did not converge")
+  }
+
+  /**
+   * `beginNonceReleaseAttempt` is idempotent for the exact attempt and
+   * invocation time. Retrying after a lost COMMIT response therefore either
+   * confirms the existing marker or reestablishes it before allocator I/O.
+   */
+  private async beginNonceReleaseAttemptDurably(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    invokedAtUnixMs: number
+  ): Promise<boolean> {
+    for (let retry = 0; retry < 8; retry++) {
+      try {
+        return await this.store.beginNonceReleaseAttempt(
+          attempt,
+          invokedAtUnixMs
+        )
+      } catch {
+        // The transaction may have committed. Retry the exact idempotent
+        // marker before allowing the allocator call to escape this process.
+      }
+    }
+    throw new Error("Nonce-release invocation persistence did not converge")
   }
 
   /**
@@ -6440,6 +6528,11 @@ const normalizeChallengeFeePolicyManifestWithoutHash = (
       )
       if (BigInt(maxPriorityFeePerGas) > BigInt(maxFeePerGas)) {
         throw new Error("Challenge fee policy priority fee exceeds its max fee")
+      }
+      if (BigInt(maxTotalFeeWei) < BigInt(maxGasLimit)) {
+        throw new Error(
+          "Challenge fee policy total fee cannot fund its fixed gas limit"
+        )
       }
       return {
         laneID: requireBoundedText(

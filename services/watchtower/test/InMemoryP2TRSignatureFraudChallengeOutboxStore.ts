@@ -407,6 +407,17 @@ export class InMemoryOutboxStore
           this.nonceReleaseLaneKey(activeRequest) === lane
         )
       })
+    const invocationAlreadyExists = this.nonceReleaseInvocations.has(key)
+    if (invocationAlreadyExists) {
+      return (
+        latest !== undefined &&
+        latest.attemptSequence === attempt.attemptSequence &&
+        latest.owner === attemptOwner &&
+        latest.startedAtUnixMs === attempt.startedAtUnixMs &&
+        latest.expiresAtUnixMs === attempt.expiresAtUnixMs &&
+        this.nonceReleaseInvocationTimes.get(key) === invokedAtUnixMs
+      )
+    }
     if (
       request === undefined ||
       laneHasActiveSigner ||
@@ -418,8 +429,7 @@ export class InMemoryOutboxStore
       latest.expiresAtUnixMs !== attempt.expiresAtUnixMs ||
       invokedAtUnixMs < attempt.startedAtUnixMs ||
       invokedAtUnixMs > attempt.expiresAtUnixMs ||
-      this.nonceReleaseResults.get(id)?.has(attempt.attemptSequence) ||
-      this.nonceReleaseInvocations.has(key)
+      this.nonceReleaseResults.get(id)?.has(attempt.attemptSequence)
     ) {
       return false
     }

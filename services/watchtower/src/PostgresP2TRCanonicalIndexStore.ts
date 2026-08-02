@@ -186,6 +186,7 @@ export type P2TRRetryablePostgresSQLState =
 
 export type P2TRPostgresTransactionConfirmedAbortReason =
   | "retryable-sqlstate"
+  | "definitive-commit-sqlstate"
   | "pre-transaction-retryable-sqlstate"
   | "pre-commit-transport-abort"
   | "rollback-command"
@@ -204,13 +205,15 @@ export class P2TRPostgresTransactionConfirmedAbortError extends Error {
 
   constructor(
     readonly reason: P2TRPostgresTransactionConfirmedAbortReason,
-    readonly sqlState: P2TRRetryablePostgresSQLState | undefined,
+    readonly sqlState: string | undefined,
     readonly postgresError: unknown,
     readonly operationError: unknown
   ) {
     super(
       reason === "pre-commit-transport-abort"
         ? "PostgreSQL transport failed before COMMIT; the transaction was aborted"
+        : reason === "definitive-commit-sqlstate" && sqlState !== undefined
+        ? `PostgreSQL rejected COMMIT with definitive SQLSTATE ${sqlState}`
         : sqlState === undefined
         ? "PostgreSQL confirmed that the transaction was rolled back"
         : reason === "pre-transaction-retryable-sqlstate"
@@ -251,7 +254,7 @@ export const isP2TRPostgresTransactionUnknownOutcomeError = (
 
 type P2TRPostgresTransactionAttempt = {
   confirmedAbort?: {
-    sqlState: P2TRRetryablePostgresSQLState
+    sqlState: string
     error: unknown
   }
   preCommitTransportAbort?: unknown
@@ -514,7 +517,7 @@ export class PostgresP2TRCanonicalIndexStore
   ): P2TRRetryablePostgresSQLState | undefined {
     if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return undefined
     if (!this.ownConfirmedAborts.has(error)) return undefined
-    return error.sqlState
+    return retryablePostgresSQLStateCode(error.sqlState)
   }
 
   isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
@@ -736,7 +739,11 @@ export class PostgresP2TRCanonicalIndexStore
           if (attempt.confirmedAbort !== undefined) {
             transactionPhase = "finished"
             throw this.ownConfirmedAbort(
-              confirmedPostgresAbortError(attempt, "retryable-sqlstate", error)
+              confirmedPostgresAbortError(
+                attempt,
+                confirmedPostgresCommitAbortReason(attempt),
+                error
+              )
             )
           }
           const commitError = postgresClientError(
@@ -9545,7 +9552,12 @@ const postgresClientError = (value: unknown, context: string): Error =>
 const retryablePostgresSQLState = (
   value: unknown
 ): P2TRRetryablePostgresSQLState | undefined => {
-  const code = postgresSQLState(value)
+  return retryablePostgresSQLStateCode(postgresSQLState(value))
+}
+
+const retryablePostgresSQLStateCode = (
+  code: string | undefined
+): P2TRRetryablePostgresSQLState | undefined => {
   return code === "40001" ||
     code === "40P01" ||
     code === "55P03" ||
@@ -9553,6 +9565,22 @@ const retryablePostgresSQLState = (
     ? code
     : undefined
 }
+
+const definitivePostgresCommitAbortSQLState = (
+  value: unknown
+): string | undefined => {
+  const code = postgresSQLState(value)
+  return code !== undefined && (code.startsWith("23") || code === "P0001")
+    ? code
+    : undefined
+}
+
+const confirmedPostgresCommitAbortReason = (
+  attempt: P2TRPostgresTransactionAttempt
+): P2TRPostgresTransactionConfirmedAbortReason =>
+  retryablePostgresSQLStateCode(attempt.confirmedAbort?.sqlState) === undefined
+    ? "definitive-commit-sqlstate"
+    : "retryable-sqlstate"
 
 const observeRetryablePostgresAborts = (
   client: P2TRPostgresClient,
@@ -9567,15 +9595,25 @@ const observeRetryablePostgresAborts = (
     } catch (error) {
       // A server response to an ordinary statement proves the transaction can
       // be rolled back and retried. Keep COMMIT's stricter outcome boundary:
-      // only serialization/deadlock responses have established abort
-      // semantics there; cancellation and lock errors remain unknown.
-      const sqlState = retryablePostgresSQLState(error)
+      // serialization/deadlock plus definitive integrity/trigger rejections
+      // establish abort semantics there; cancellation and lock errors remain
+      // unknown because they need not describe the completed transaction.
       const command = text.trim().toUpperCase()
       const commit = command === "COMMIT"
-      if (sqlState !== undefined && attempt.confirmedAbort === undefined) {
-        if (!commit || sqlState === "40001" || sqlState === "40P01") {
-          attempt.confirmedAbort = { sqlState, error }
-        }
+      const retryableSQLState = retryablePostgresSQLState(error)
+      const confirmedCommitSQLState = commit
+        ? definitivePostgresCommitAbortSQLState(error)
+        : undefined
+      const confirmedSQLState = commit
+        ? retryableSQLState === "40001" || retryableSQLState === "40P01"
+          ? retryableSQLState
+          : confirmedCommitSQLState
+        : retryableSQLState
+      if (
+        confirmedSQLState !== undefined &&
+        attempt.confirmedAbort === undefined
+      ) {
+        attempt.confirmedAbort = { sqlState: confirmedSQLState, error }
       }
       if (
         command !== "COMMIT" &&

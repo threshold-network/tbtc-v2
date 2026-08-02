@@ -438,6 +438,48 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.equal(client.releaseArgument, undefined)
   })
 
+  for (const sqlState of ["23503", "23514", "P0001"] as const) {
+    it(`surfaces a definitive ${sqlState} during COMMIT as a confirmed nonretryable abort`, async () => {
+      const commitError = Object.assign(
+        new Error(`deferred constraint rejected commit ${sqlState}`),
+        { code: sqlState }
+      )
+      const client = new FakeClient({ COMMIT: commitError })
+      const store = new PostgresP2TRCanonicalIndexStore(
+        new FakePool(client),
+        storeOptions()
+      )
+
+      await assert.rejects(
+        store.runInP2TRSignatureFraudWatchtowerTransaction(async () =>
+          "result"
+        ),
+        (error) => {
+          assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+          if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+          assert.equal(error.reason, "definitive-commit-sqlstate")
+          assert.equal(error.sqlState, sqlState)
+          assert.equal(error.postgresError, commitError)
+          assert.equal(
+            store.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+              error
+            ),
+            undefined
+          )
+          assert.equal(
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(error),
+            false
+          )
+          return true
+        }
+      )
+
+      assert.equal(lastTransactionCommand(client.statements), "COMMIT")
+      assert.equal(client.statements.includes("ROLLBACK"), false)
+      assert.equal(client.releaseArgument, undefined)
+    })
+  }
+
   it("keeps an uncoded COMMIT transport failure outcome unknown", async () => {
     const commitError = new Error("commit response lost")
     const client = new FakeClient({ COMMIT: commitError })

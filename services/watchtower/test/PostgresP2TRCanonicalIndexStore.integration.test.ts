@@ -47,6 +47,83 @@ describe(
   "PostgresP2TRCanonicalIndexStore integration",
   { skip: postgresURL === undefined },
   () => {
+    it("classifies real deferred constraint failures as confirmed COMMIT aborts", async () => {
+      await withIntegrationStore(async ({ store, database }) => {
+        await database.query(
+          `CREATE TABLE p2tr_deferred_parent (id integer PRIMARY KEY);
+           CREATE TABLE p2tr_deferred_child (
+             id integer PRIMARY KEY,
+             parent_id integer REFERENCES p2tr_deferred_parent(id)
+               DEFERRABLE INITIALLY DEFERRED
+           );
+           CREATE TABLE p2tr_deferred_trigger_fixture (
+             id integer PRIMARY KEY
+           );
+           CREATE FUNCTION p2tr_deferred_trigger_rejection()
+           RETURNS trigger LANGUAGE plpgsql AS $body$
+           BEGIN
+             RAISE EXCEPTION 'deferred trigger rejected commit';
+           END
+           $body$;
+           CREATE CONSTRAINT TRIGGER p2tr_deferred_trigger_rejection_trigger
+           AFTER INSERT ON p2tr_deferred_trigger_fixture
+           DEFERRABLE INITIALLY DEFERRED
+           FOR EACH ROW EXECUTE FUNCTION p2tr_deferred_trigger_rejection();`
+        )
+        const adapter =
+          store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+            (session) => ({
+              violateForeignKey: () =>
+                session.query(
+                  `INSERT INTO p2tr_deferred_child (id, parent_id)
+                   VALUES (1, 999)`
+                ),
+              violateConstraintTrigger: () =>
+                session.query(
+                  `INSERT INTO p2tr_deferred_trigger_fixture (id) VALUES (1)`
+                ),
+            })
+          )
+
+        for (const [sqlState, operation] of [
+          ["23503", adapter.violateForeignKey],
+          ["P0001", adapter.violateConstraintTrigger],
+        ] as const) {
+          const error = await store
+            .runInP2TRSignatureFraudWatchtowerTransaction(operation)
+            .then(
+              () => undefined,
+              (failure: unknown) => failure
+            )
+          assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+          if (!isP2TRPostgresTransactionConfirmedAbortError(error)) continue
+          assert.equal(error.reason, "definitive-commit-sqlstate")
+          assert.equal(error.sqlState, sqlState)
+          assert.equal(
+            store.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+              error
+            ),
+            undefined
+          )
+          assert.equal(
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(error),
+            false
+          )
+        }
+
+        const rolledBack = await database.query<{ child_count: string }>(
+          `SELECT
+             (SELECT count(*)::text FROM p2tr_deferred_child) AS child_count,
+             (SELECT count(*)::text FROM p2tr_deferred_trigger_fixture)
+               AS trigger_count`
+        )
+        assert.deepEqual(rolledBack.rows[0], {
+          child_count: "0",
+          trigger_count: "0",
+        })
+      })
+    })
+
     it("atomically replaces a reorged chain and removes orphaned Ethereum evidence", async () => {
       const require = createRequire(import.meta.url)
       const { Pool } = require("pg") as {
@@ -77,6 +154,7 @@ describe(
           "010_p2tr_candidate_enqueue_transient_retries.sql",
           "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
           "012_p2tr_provenance_alert_retirement.sql",
+          "013_p2tr_fee_policy_feasibility.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -1986,6 +2064,7 @@ const withIntegrationStore = async (
       "010_p2tr_candidate_enqueue_transient_retries.sql",
       "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
       "012_p2tr_provenance_alert_retirement.sql",
+      "013_p2tr_fee_policy_feasibility.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),

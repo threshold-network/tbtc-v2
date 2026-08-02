@@ -179,7 +179,7 @@ async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
   initialSignerConfiguration = signerConfiguration(),
-  throughMigrationVersion = 12
+  throughMigrationVersion = 13
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -244,6 +244,10 @@ async function createTestDatabase(
     ),
     new URL(
       "../migrations/012_p2tr_provenance_alert_retirement.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/013_p2tr_fee_policy_feasibility.sql",
       import.meta.url
     ),
   ]
@@ -2292,6 +2296,14 @@ postgresTest(
     assert.equal(
       await database.store.beginNonceReleaseAttempt(attempt, 10_001),
       true
+    )
+    assert.equal(
+      await database.store.beginNonceReleaseAttempt(attempt, 10_001),
+      true
+    )
+    assert.equal(
+      await database.store.beginNonceReleaseAttempt(attempt, 10_002),
+      false
     )
 
     const restartedClient = await openSchemaClient(database.schema)

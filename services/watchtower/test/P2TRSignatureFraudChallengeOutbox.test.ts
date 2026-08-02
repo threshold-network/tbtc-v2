@@ -1059,6 +1059,49 @@ const enqueue = async (
     createRecord(intent, evidenceCheckpoint(), policy)
   )
 
+class LostPreIOCommitStore extends InMemoryOutboxStore {
+  loseNextSignerBoundaryCommit = false
+  loseNextNonceReleaseBoundaryCommit = false
+
+  override async compareAndSwapWithCurrentCanonicalProvenance(
+    recordID: string,
+    expectedVersion: number,
+    expectedProvenance: P2TRSignatureFraudCanonicalProvenanceBinding,
+    next: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<boolean> {
+    const persisted = await super.compareAndSwapWithCurrentCanonicalProvenance(
+      recordID,
+      expectedVersion,
+      expectedProvenance,
+      next
+    )
+    if (
+      persisted &&
+      this.loseNextSignerBoundaryCommit &&
+      next.activeSignerInvocationStartedAtUnixMs !== undefined
+    ) {
+      this.loseNextSignerBoundaryCommit = false
+      throw new Error("signer-boundary commit response lost")
+    }
+    return persisted
+  }
+
+  override async beginNonceReleaseAttempt(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    invokedAtUnixMs: number
+  ): Promise<boolean> {
+    const persisted = await super.beginNonceReleaseAttempt(
+      attempt,
+      invokedAtUnixMs
+    )
+    if (persisted && this.loseNextNonceReleaseBoundaryCommit) {
+      this.loseNextNonceReleaseBoundaryCommit = false
+      throw new Error("nonce-release commit response lost")
+    }
+    return persisted
+  }
+}
+
 const provenanceInvalidationEvidence = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
   invalidatedAtUnixMs = 2_000,
@@ -2492,6 +2535,45 @@ test("recovers an initial reservation when authorization rejects before signer I
   assert.equal(preparer.releasedReservations.length, 1)
 })
 
+test("retires an initial signer boundary whose commit response is lost before I/O", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  store.loseNextSignerBoundaryCommit = true
+
+  const result = await dispatcher(store, preparer).prepare(
+    record.recordID,
+    "worker-a"
+  )
+
+  assert.equal(result.status, "preparing")
+  assert.equal(result.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(result.signerInvocationStartedAtUnixMs, undefined)
+  assert.equal(preparer.calls, 0)
+  assert.match(result.lastError ?? "", /persistence was ambiguous/)
+})
+
+test("retires a replacement signer boundary whose commit response is lost before I/O", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const outbox = dispatcher(store, preparer)
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
+  store.loseNextSignerBoundaryCommit = true
+
+  const result = await outbox.prepareReplacement(record.recordID, "worker-b")
+
+  assert.equal(result.status, "prepared")
+  assert.equal(result.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(result.preparationLease, undefined)
+  assert.equal(result.preparedTransactionVariants?.length, 1)
+  assert.equal(preparer.replacementCalls, 0)
+  assert.match(result.lastError ?? "", /persistence was ambiguous/)
+})
+
 test("recovers an invalidated initial authorization without inventing signer I/O", async () => {
   const store = new InMemoryOutboxStore()
   const record = await enqueue(store)
@@ -2954,6 +3036,8 @@ test("records a contract-mismatch quarantine with the reserved sender", async ()
   )
   assert.ok(attempt)
   assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_101), true)
+  assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_101), true)
+  assert.equal(await store.beginNonceReleaseAttempt(attempt, 2_102), false)
 
   assert.equal(
     await store.recordNonceReleaseAttemptResult(attempt, {
@@ -3006,6 +3090,35 @@ test("keeps normal lease-recovery release ambiguous until an exact ack", async (
   assert.equal(result.signerQuarantines?.length ?? 0, 0)
   assert.equal(await store.hasPendingNonceReleases(), true)
   assert.equal(preparer.calls, 0)
+})
+
+test("invokes the allocator after reconciling a lost nonce-release marker response", async () => {
+  const store = new LostPreIOCommitStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now
+  )
+  store.loseNextNonceReleaseBoundaryCommit = true
+  store.beforeProvenanceCAS = async (_current, next) => {
+    if (next.activeSignerInvocationStartedAtUnixMs === undefined) return
+    store.beforeProvenanceCAS = undefined
+    now = 40_001
+    await outbox.recoverExpiredPreparationLeases()
+  }
+
+  const result = await outbox.prepare(record.recordID, "worker-a")
+
+  assert.equal(result.status, "queued")
+  assert.equal(await store.hasPendingNonceReleases(), false)
+  assert.equal(preparer.calls, 0)
+  assert.equal(preparer.releasedReservations.length, 1)
 })
 
 test("captures exact bytes when provenance invalidation wins after signer invocation", async () => {
@@ -3978,6 +4091,17 @@ test("enforces manifest-bound fee and exact value caps at every boundary", async
   assert.equal(
     replacementStore.criticalAlerts.at(-1)?.code,
     "signed-state-quarantined"
+  )
+})
+
+test("rejects a fee policy whose total cap cannot fund its fixed gas limit", () => {
+  assert.throws(
+    () =>
+      feePolicyManifest(ACTIVATION_MANIFEST_HASH, "1234", {
+        maxGasLimit: "1000000",
+        maxTotalFeeWei: "999999",
+      }),
+    /total fee cannot fund its fixed gas limit/
   )
 })
 

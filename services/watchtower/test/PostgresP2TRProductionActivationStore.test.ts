@@ -334,6 +334,16 @@ describe(
         await database.query(
           `BEGIN;\n${provenanceAlertRetirementMigration}\nCOMMIT;`
         )
+        const feePolicyFeasibilityMigration = await readFile(
+          new URL(
+            "../migrations/013_p2tr_fee_policy_feasibility.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(
+          `BEGIN;\n${feePolicyFeasibilityMigration}\nCOMMIT;`
+        )
 
         const expectedSeriesID = createHash("sha256")
           .update(

@@ -923,11 +923,28 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       "Nonce-release invocation time"
     )
     const inserted = await this.options.session.query(
-      `INSERT INTO p2tr_signature_fraud_challenge_nonce_release_invocation (
-          release_request_id, attempt_sequence, owner, invoked_at_unix_ms
-       ) VALUES (decode($1, 'hex'), $2, $3, $4)
-       ON CONFLICT (release_request_id, attempt_sequence) DO NOTHING
-       RETURNING release_request_id`,
+      `WITH inserted AS (
+         INSERT INTO p2tr_signature_fraud_challenge_nonce_release_invocation (
+             release_request_id, attempt_sequence, owner, invoked_at_unix_ms
+         ) VALUES (decode($1, 'hex'), $2, $3, $4)
+         ON CONFLICT (release_request_id, attempt_sequence) DO NOTHING
+         RETURNING release_request_id
+       )
+       SELECT release_request_id FROM inserted
+       UNION ALL
+       SELECT invocation.release_request_id
+         FROM p2tr_signature_fraud_challenge_nonce_release_invocation invocation
+         JOIN p2tr_signature_fraud_challenge_nonce_release_attempt attempt
+           ON attempt.release_request_id = invocation.release_request_id
+          AND attempt.attempt_sequence = invocation.attempt_sequence
+        WHERE invocation.release_request_id = decode($1, 'hex')
+          AND invocation.attempt_sequence = $2
+          AND invocation.owner = $3
+          AND invocation.invoked_at_unix_ms = $4
+          AND attempt.owner = $3
+          AND attempt.started_at_unix_ms = $5
+          AND attempt.expires_at_unix_ms = $6
+       LIMIT 1`,
       [
         releaseID,
         positiveSafeInteger(
@@ -936,6 +953,14 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         ),
         attemptOwner,
         invokedAt,
+        unixMilliseconds(
+          attempt.startedAtUnixMs,
+          "Nonce-release attempt start time"
+        ),
+        unixMilliseconds(
+          attempt.expiresAtUnixMs,
+          "Nonce-release attempt expiration"
+        ),
       ]
     )
     return inserted.rowCount === 1
