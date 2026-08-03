@@ -9,6 +9,16 @@ import { deriveFundedOperatorWallets } from "../integration/utils/frost-wallet-r
 
 let testDeploymentCounter = 0
 
+const encodeLiveWalletProof = (
+  liveWalletIDs: string[],
+  historicalWalletsCreated: number,
+  historicalWalletsClosed: number
+): string =>
+  ethers.utils.defaultAbiCoder.encode(
+    ["bytes32[]", "uint256", "uint256"],
+    [liveWalletIDs, historicalWalletsCreated, historicalWalletsClosed]
+  )
+
 async function expectCustomError(
   promise: Promise<unknown>,
   errorName: string
@@ -190,11 +200,28 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     for (const provider of providers) {
       await migrationSource.setWeight(provider, migratedWeight)
     }
+    const emptyWalletProof = encodeLiveWalletProof([], 0, 0)
+
+    const [walletExposureLedger] = await helpers.upgrades.deployProxy(
+      `WalletExposureLedgerMigrationTest${testDeploymentCounter}`,
+      {
+        contractName: "WalletExposureLedger",
+        initializerArgs: [frostWalletRegistry.address],
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+    await frostWalletRegistry
+      .connect(deployer)
+      .setWalletExposureLedger(walletExposureLedger.address)
 
     await expectCustomError(
       frostWalletRegistry
         .connect(thirdParty)
-        .migrateAuthorizationSource(migrationSource.address, providers),
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          providers,
+          emptyWalletProof
+        ),
       "CallerNotGovernanceOrProxyAdmin"
     )
     // Exercise the production cutover shape: deploy the new implementation
@@ -222,7 +249,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     )
     const migrationCall = frostWalletRegistry.interface.encodeFunctionData(
       "migrateAuthorizationSource",
-      [migrationSource.address, providers]
+      [migrationSource.address, providers, emptyWalletProof]
     )
     const proxyAdmin = await upgrades.admin.getInstance()
     await expect(
@@ -249,7 +276,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     // migration tolerates that missing selector and still rewrites every leaf.
     await frostWalletRegistry
       .connect(deployer)
-      .migrateAuthorizationSource(frostAllowlist.address, providers)
+      .migrateAuthorizationSource(frostAllowlist.address, providers, "0x")
     for (const provider of providers) {
       expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(weight)
     }
@@ -278,9 +305,11 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     await expect(
       frostWalletRegistry
         .connect(deployer)
-        .migrateAuthorizationSource(migrationSource.address, [
-          wallets[0].address,
-        ])
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          [wallets[0].address],
+          "0x"
+        )
     ).to.be.revertedWith("Authorization roster length mismatch")
     expect(await frostWalletRegistry.authorizationSource()).to.equal(
       frostAllowlist.address

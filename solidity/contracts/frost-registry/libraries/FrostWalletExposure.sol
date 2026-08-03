@@ -31,6 +31,10 @@ interface IFrostRegistryGovernance {
     function governance() external view returns (address);
 }
 
+interface IFrostRegistryDkgState {
+    function getWalletCreationState() external view returns (uint8);
+}
+
 /// @title FROST wallet exposure notification
 /// @notice Resolves a registered wallet's signing group member IDs to their
 ///         staking providers and notifies the wallet exposure ledger. Kept
@@ -45,6 +49,14 @@ library FrostWalletExposure {
         // Wallet exposure ledger notified about wallet registrations and
         // closures. Zero address while unset — notifications are skipped.
         IWalletExposureLedger ledger;
+        // Lifecycle events observed since the implementation containing these
+        // counters became active. The pre-upgrade portion is supplied once,
+        // and permanently recorded, during the first stateful-source migration.
+        uint256 walletsCreatedAfterUpgrade;
+        uint256 walletsClosedAfterUpgrade;
+        uint256 historicalWalletsCreated;
+        uint256 historicalWalletsClosed;
+        bool historicalWalletCountSet;
     }
 
     /// @notice Emitted when the wallet exposure ledger address is set.
@@ -73,6 +85,13 @@ library FrostWalletExposure {
     ///         via delegatecall, so the log is attributed to the
     ///         `FrostWalletRegistry` address.
     event WalletExposureReconciledClosed(bytes32 indexed walletID);
+
+    /// @notice Emitted once when governance supplies the event-audited wallet
+    ///         lifecycle totals from before the exposure counters existed.
+    event HistoricalWalletCountSet(
+        uint256 walletsCreated,
+        uint256 walletsClosed
+    );
     /// @notice Raised when `setLedger` is called after the ledger address
     ///         has already been set. The ledger wiring is one-shot;
     ///         migrating to a new ledger is upgrade-only.
@@ -100,16 +119,30 @@ library FrostWalletExposure {
     error AuthorizationSourceAddressZero();
     error CallerNotGovernanceOrProxyAdmin();
     error AuthorizationMigrationPreparationFailed(bytes reason);
+    error WalletExposureLedgerMigrationNotReady();
+    error HistoricalWalletCountInvalid();
+    error HistoricalWalletCountMismatch();
+    error LiveWalletRosterLengthMismatch();
+    error LiveWalletRosterDuplicate();
+    error LiveWalletRosterWalletNotRegistered();
+    error LiveWalletRosterLedgerMismatch();
 
     /// @notice Validates and rewrites every active sortition-pool leaf for an
     ///         authorization-source migration. Kept in this linked library so
     ///         the registry remains below the EIP-170 bytecode limit.
     function migrateAuthorizationSource(
+        Data storage self,
         Authorization.Data storage authorization,
         SortitionPool sortitionPool,
+        FrostRegistryWallets.Data storage wallets,
         IFrostAuthorizationSource authorizationSource,
-        address[] calldata stakingProviders
+        address[] calldata stakingProviders,
+        bytes calldata liveWalletProof
     ) external {
+        require(
+            IFrostRegistryDkgState(address(this)).getWalletCreationState() == 0,
+            "Current state is not IDLE"
+        );
         if (
             msg.sender != IFrostRegistryGovernance(address(this)).governance()
         ) {
@@ -126,13 +159,58 @@ library FrostWalletExposure {
             revert AuthorizationSourceAddressZero();
         }
         emit AuthorizationSourceUpdated(address(authorizationSource));
-        uint256 rosterLength = stakingProviders.length;
+        _validateAuthorizationRoster(
+            authorization,
+            sortitionPool,
+            stakingProviders
+        );
+
+        // Stateful sources seed their synchronized authorization/reward state
+        // here. The deployed Phase-0 FrostAllowlist predates this optional
+        // hook, so tolerate only an empty-data missing-selector revert. Bubble
+        // every real hook failure so the surrounding source change rolls back.
+        // solhint-disable-next-line avoid-low-level-calls
+        (bool prepared, bytes memory returnData) = address(authorizationSource)
+            .call(
+                abi.encodeWithSelector(
+                    IFrostAuthorizationMigration
+                        .prepareAuthorizationMigration
+                        .selector,
+                    stakingProviders
+                )
+            );
+        if (!prepared && returnData.length != 0) {
+            revert AuthorizationMigrationPreparationFailed(returnData);
+        }
+
+        // The legacy FrostAllowlist has no preparation hook. A successful
+        // preparation call identifies a stateful authorization source (the
+        // SeatAllocator in production), for which stake exits depend on a
+        // complete wallet exposure ledger. Gate that migration on a complete,
+        // event-auditable roster while keeping emergency rollback available.
+        if (prepared) {
+            _verifyLiveWalletRoster(self, wallets, liveWalletProof);
+        }
+
+        _rewriteAuthorizationRoster(
+            authorization,
+            sortitionPool,
+            authorizationSource,
+            stakingProviders
+        );
+    }
+
+    function _validateAuthorizationRoster(
+        Authorization.Data storage authorization,
+        SortitionPool sortitionPool,
+        address[] calldata stakingProviders
+    ) private view {
         require(
-            rosterLength == sortitionPool.operatorsInPool(),
+            stakingProviders.length == sortitionPool.operatorsInPool(),
             "Authorization roster length mismatch"
         );
 
-        for (uint256 i = 0; i < rosterLength; i++) {
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
             address stakingProvider = stakingProviders[i];
             address operator = authorization.stakingProviderToOperator[
                 stakingProvider
@@ -154,31 +232,95 @@ library FrostWalletExposure {
                 );
             }
         }
+    }
 
-        // Stateful sources seed their synchronized authorization/reward state
-        // here. The deployed Phase-0 FrostAllowlist predates this optional
-        // hook, so tolerate only an empty-data missing-selector revert. Bubble
-        // every real hook failure so the surrounding source change rolls back.
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool prepared, bytes memory returnData) = address(authorizationSource)
-            .call(
-                abi.encodeWithSelector(
-                    IFrostAuthorizationMigration
-                        .prepareAuthorizationMigration
-                        .selector,
-                    stakingProviders
-                )
-            );
-        if (!prepared && returnData.length != 0) {
-            revert AuthorizationMigrationPreparationFailed(returnData);
-        }
-
-        for (uint256 i = 0; i < rosterLength; i++) {
+    function _rewriteAuthorizationRoster(
+        Authorization.Data storage authorization,
+        SortitionPool sortitionPool,
+        IFrostAuthorizationSource authorizationSource,
+        address[] calldata stakingProviders
+    ) private {
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
             authorization.updateOperatorStatus(
                 authorizationSource,
                 sortitionPool,
                 authorization.stakingProviderToOperator[stakingProviders[i]]
             );
+        }
+    }
+
+    function _verifyLiveWalletRoster(
+        Data storage self,
+        FrostRegistryWallets.Data storage wallets,
+        bytes calldata liveWalletProof
+    ) private {
+        (
+            bytes32[] memory liveWalletIDs,
+            uint256 historicalWalletsCreated,
+            uint256 historicalWalletsClosed
+        ) = abi.decode(liveWalletProof, (bytes32[], uint256, uint256));
+        IWalletExposureLedger walletExposureLedger = self.ledger;
+        if (
+            address(walletExposureLedger) == address(0) ||
+            address(walletExposureLedger).code.length == 0
+        ) {
+            revert WalletExposureLedgerMigrationNotReady();
+        }
+
+        if (!self.historicalWalletCountSet) {
+            if (historicalWalletsClosed > historicalWalletsCreated) {
+                revert HistoricalWalletCountInvalid();
+            }
+            self.historicalWalletsCreated = historicalWalletsCreated;
+            self.historicalWalletsClosed = historicalWalletsClosed;
+            self.historicalWalletCountSet = true;
+            emit HistoricalWalletCountSet(
+                historicalWalletsCreated,
+                historicalWalletsClosed
+            );
+        } else if (
+            self.historicalWalletsCreated != historicalWalletsCreated ||
+            self.historicalWalletsClosed != historicalWalletsClosed
+        ) {
+            revert HistoricalWalletCountMismatch();
+        }
+
+        uint256 totalWalletsCreated = historicalWalletsCreated +
+            self.walletsCreatedAfterUpgrade;
+        uint256 totalWalletsClosed = historicalWalletsClosed +
+            self.walletsClosedAfterUpgrade;
+        if (totalWalletsClosed > totalWalletsCreated) {
+            revert HistoricalWalletCountInvalid();
+        }
+        if (liveWalletIDs.length != totalWalletsCreated - totalWalletsClosed) {
+            revert LiveWalletRosterLengthMismatch();
+        }
+
+        for (uint256 i = 0; i < liveWalletIDs.length; i++) {
+            bytes32 walletID = liveWalletIDs[i];
+            if (!FrostRegistryWallets.isWalletRegistered(wallets, walletID)) {
+                revert LiveWalletRosterWalletNotRegistered();
+            }
+            for (uint256 j = 0; j < i; j++) {
+                if (liveWalletIDs[j] == walletID) {
+                    revert LiveWalletRosterDuplicate();
+                }
+            }
+
+            (
+                address[] memory providers,
+                uint64[] memory epochs,
+                uint32[] memory seatCounts,
+                bool live
+            ) = walletExposureLedger.getWalletExposure(walletID);
+            if (
+                !live ||
+                providers.length == 0 ||
+                providers.length != epochs.length ||
+                providers.length != seatCounts.length
+            ) {
+                revert LiveWalletRosterLedgerMismatch();
+            }
         }
     }
 
@@ -206,8 +348,9 @@ library FrostWalletExposure {
     ///         providers (same member-ID → operator → staking provider
     ///         resolution as the registry's `seize`), aggregates them into
     ///         unique provider / seat-count arrays, and notifies the wallet
-    ///         exposure ledger about the registered wallet. No-op when the
-    ///         ledger is not wired (zero address).
+    ///         exposure ledger about the registered wallet. The lifecycle
+    ///         counter advances even when the ledger is not wired; only the
+    ///         ledger notification is skipped.
     /// @dev The ledger call is wrapped in try/catch: DKG result approval
     ///      MUST NOT be bricked by the ledger, so a failure only emits
     ///      `WalletExposureLedgerCallFailed`.
@@ -225,6 +368,7 @@ library FrostWalletExposure {
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external {
+        self.walletsCreatedAfterUpgrade++;
         IWalletExposureLedger walletExposureLedger = self.ledger;
         if (address(walletExposureLedger) == address(0)) {
             return;
@@ -506,15 +650,43 @@ library FrostWalletExposure {
         );
     }
 
-    /// @notice Notifies the wallet exposure ledger that the given wallet
-    ///         has been closed. No-op when the ledger is not wired (zero
-    ///         address).
+    /// @notice Checks whether an operator occupies the requested position in
+    ///         a registered wallet's authenticated member list.
+    function isWalletMember(
+        FrostRegistryWallets.Data storage wallets,
+        SortitionPool sortitionPool,
+        bytes32 walletID,
+        uint32[] calldata walletMembersIDs,
+        address operator,
+        uint256 walletMemberIndex
+    ) external view returns (bool) {
+        uint32 operatorID = sortitionPool.getOperatorID(operator);
+        require(operatorID != 0, "Not a sortition pool operator");
+
+        require(
+            FrostRegistryWallets.getWalletMembersIdsHash(wallets, walletID) ==
+                keccak256(abi.encode(walletMembersIDs)),
+            "Invalid wallet members identifiers"
+        );
+        require(
+            1 <= walletMemberIndex &&
+                walletMemberIndex <= walletMembersIDs.length,
+            "Wallet member index is out of range"
+        );
+
+        return walletMembersIDs[walletMemberIndex - 1] == operatorID;
+    }
+
+    /// @notice Records that a wallet was closed and notifies the wallet
+    ///         exposure ledger. The lifecycle counter advances even when the
+    ///         ledger is not wired; only the ledger notification is skipped.
     /// @dev The ledger call is wrapped in try/catch: `closeWallet` is
     ///      driven by the Bridge lifecycle and MUST NOT revert because of
     ///      the ledger, so a failure only emits
     ///      `WalletExposureLedgerCallFailed`.
     /// @param walletID ID of the closed wallet.
     function notifyWalletClosed(Data storage self, bytes32 walletID) external {
+        self.walletsClosedAfterUpgrade++;
         IWalletExposureLedger walletExposureLedger = self.ledger;
         if (address(walletExposureLedger) == address(0)) {
             return;

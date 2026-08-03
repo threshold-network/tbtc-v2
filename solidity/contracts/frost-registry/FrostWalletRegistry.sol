@@ -174,8 +174,9 @@ contract FrostWalletRegistry is
     ///         are skipped entirely. Once set by governance via
     ///         `setWalletExposureLedger` it cannot be changed (set-once).
     ///         Exposed via the `walletExposureLedger()` view.
-    /// @dev Appended storage (single slot) — this contract is upgradeable;
-    ///      never reorder the variables above. The exposure logic lives in
+    /// @dev Appended storage block — this contract is upgradeable; never
+    ///      reorder the variables above or the fields in `WalletExposure.Data`.
+    ///      The exposure logic lives in
     ///      the externally linked `FrostWalletExposure` library to keep
     ///      this contract under the bytecode size limit; the library also
     ///      declares the `WalletExposureLedgerSet` /
@@ -513,17 +514,29 @@ contract FrostWalletRegistry is
     ///         migrations/rollback and by the EIP-1967 proxy admin so the first
     ///         production cutover can be delivered through upgradeAndCall.
     ///         The roster must enumerate the entire active pool; omissions and
-    ///         duplicates are rejected by the linked migration library.
+    ///         duplicates are rejected by the linked migration library. A
+    ///         stateful target additionally requires the complete live-wallet
+    ///         roster and event-audited pre-upgrade wallet lifecycle totals.
+    /// @param _authorizationSource New authorization source.
+    /// @param stakingProviders Complete active sortition-pool provider roster.
+    /// @param liveWalletProof ABI encoding of `(bytes32[] liveWalletIDs,
+    ///        uint256 historicalWalletsCreated,
+    ///        uint256 historicalWalletsClosed)`. Required for a stateful
+    ///        target; ignored when rolling back to the Phase-0 allowlist.
     function migrateAuthorizationSource(
         IFrostAuthorizationSource _authorizationSource,
-        address[] calldata stakingProviders
+        address[] calldata stakingProviders,
+        bytes calldata liveWalletProof
     ) external {
         authorizationSource = _authorizationSource;
         WalletExposure.migrateAuthorizationSource(
+            walletExposureData,
             authorization,
             sortitionPool,
+            wallets,
             authorizationSource,
-            stakingProviders
+            stakingProviders,
+            liveWalletProof
         );
     }
 
@@ -1382,24 +1395,15 @@ contract FrostWalletRegistry is
         address operator,
         uint256 walletMemberIndex
     ) external view returns (bool) {
-        uint32 operatorID = sortitionPool.getOperatorID(operator);
-
-        require(operatorID != 0, "Not a sortition pool operator");
-
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
-
-        require(
-            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
-            "Invalid wallet members identifiers"
-        );
-
-        require(
-            1 <= walletMemberIndex &&
-                walletMemberIndex <= walletMembersIDs.length,
-            "Wallet member index is out of range"
-        );
-
-        return walletMembersIDs[walletMemberIndex - 1] == operatorID;
+        return
+            WalletExposure.isWalletMember(
+                wallets,
+                sortitionPool,
+                walletID,
+                walletMembersIDs,
+                operator,
+                walletMemberIndex
+            );
     }
 
     /// @notice Checks if awaiting seed timed out.

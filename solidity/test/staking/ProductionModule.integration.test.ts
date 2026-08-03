@@ -218,7 +218,11 @@ describe("Delegated staking production-contract integration", () => {
     // the real allocator and rewrites the existing pool leaf.
     await frostWalletRegistry.migrateAuthorizationSource(
       seatAllocator.address,
-      [provider.address]
+      [provider.address],
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32[]", "uint256", "uint256"],
+        [[], 0, 0]
+      )
     )
     expect(await frostWalletRegistry.authorizationSource()).to.equal(
       seatAllocator.address

@@ -49,6 +49,16 @@ import {
 
 const uniqueSuffix = (): string => randomBytes(8).toString("hex")
 
+const encodeLiveWalletProof = (
+  liveWalletIDs: string[],
+  historicalWalletsCreated: number,
+  historicalWalletsClosed: number
+): string =>
+  ethers.utils.defaultAbiCoder.encode(
+    ["bytes32[]", "uint256", "uint256"],
+    [liveWalletIDs, historicalWalletsCreated, historicalWalletsClosed]
+  )
+
 // Assert a transaction reverts with a specific no-arg custom error by
 // decoding the 4-byte selector (this toolchain does not register
 // chai's `revertedWithCustomError` matcher). Mirrors the sibling
@@ -91,6 +101,7 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
   let frostSortitionPool: any
+  let frostAllowlist: any
   let randomBeacon: any
   let operators: Awaited<ReturnType<typeof registerOperators>>
 
@@ -196,8 +207,7 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
         dkgParams.resultSubmissionTimeout,
         dkgParams.submitterPrecedencePeriodLength
       )
-
-    const [frostAllowlist] = await helpers.upgrades.deployProxy(
+    ;[frostAllowlist] = await helpers.upgrades.deployProxy(
       `FrostAllowlistExposureReconcileTest_${uniqueSuffix()}`,
       {
         contractName: "FrostAllowlist",
@@ -343,6 +353,30 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       const record = await ledger.getWalletExposure(walletKeyA)
       expect(record.live).to.be.false
       expect(record.epochs.length).to.equal(0)
+    })
+
+    it("blocks stateful migration while a live registry wallet is absent from the ledger", async () => {
+      const MigrationSourceFactory = await ethers.getContractFactory(
+        "StakingMigrationAuthorizationSource"
+      )
+      const migrationSource = await MigrationSourceFactory.connect(
+        deployer
+      ).deploy()
+      const providers = operators.map((operator) => operator.stakingProvider)
+
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            providers,
+            encodeLiveWalletProof([walletKeyA], 0, 0)
+          ),
+        "LiveWalletRosterLedgerMismatch"
+      )
+      expect(await frostWalletRegistry.authorizationSource()).to.equal(
+        frostAllowlist.address
+      )
     })
 
     it("rejects a forged members list (wrong hash)", async () => {
@@ -492,6 +526,116 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
           .reconcileWalletExposure(walletKeyA, members),
         "WalletExposureInSync"
       )
+    })
+  })
+
+  describe("authorization migration wallet roster", () => {
+    let migrationSource: any
+    let providers: string[]
+
+    before(async function prepareMigrationSource() {
+      this.timeout(300_000)
+      providers = operators.map((operator) => operator.stakingProvider)
+      const MigrationSourceFactory = await ethers.getContractFactory(
+        "StakingMigrationAuthorizationSource"
+      )
+      migrationSource = await MigrationSourceFactory.connect(deployer).deploy()
+      const weight = await frostWalletRegistry.minimumAuthorization()
+      for (const provider of providers) {
+        await migrationSource.setWeight(provider, weight)
+      }
+    })
+
+    it("rejects an incomplete live-wallet roster", async () => {
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            providers,
+            encodeLiveWalletProof([], 0, 0)
+          ),
+        "LiveWalletRosterLengthMismatch"
+      )
+    })
+
+    it("rejects a roster entry absent from the registry", async () => {
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            providers,
+            encodeLiveWalletProof([ethers.utils.id("unknown-wallet")], 0, 0)
+          ),
+        "LiveWalletRosterWalletNotRegistered"
+      )
+    })
+
+    it("rejects duplicate wallet IDs even when the claimed count matches", async () => {
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            providers,
+            encodeLiveWalletProof([walletKeyA, walletKeyA], 1, 0)
+          ),
+        "LiveWalletRosterDuplicate"
+      )
+    })
+
+    it("migrates only after every live wallet is registered in the ledger", async () => {
+      await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          providers,
+          encodeLiveWalletProof([walletKeyA], 0, 0)
+        )
+      expect(await frostWalletRegistry.authorizationSource()).to.equal(
+        migrationSource.address
+      )
+    })
+
+    it("keeps the audited historical counts immutable across rollback", async () => {
+      await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(frostAllowlist.address, providers, "0x")
+
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            providers,
+            encodeLiveWalletProof([walletKeyA], 1, 1)
+          ),
+        "HistoricalWalletCountMismatch"
+      )
+      expect(await frostWalletRegistry.authorizationSource()).to.equal(
+        frostAllowlist.address
+      )
+    })
+
+    it("rejects migration while DKG is active", async () => {
+      await ethers.provider.send("hardhat_impersonateAccount", [bridge.address])
+      const bridgeImpersonated = await ethers.getSigner(bridge.address)
+      await hre.network.provider.send("hardhat_setBalance", [
+        bridge.address,
+        "0x56BC75E2D63100000",
+      ])
+      await frostWalletRegistry.connect(bridgeImpersonated).requestNewWallet()
+
+      await expect(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            providers,
+            encodeLiveWalletProof([walletKeyA], 0, 0)
+          )
+      ).to.be.revertedWith("Current state is not IDLE")
     })
   })
 })
