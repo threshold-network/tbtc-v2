@@ -106,7 +106,10 @@ describe("FrostDkg liveness security", () => {
     pool.selectGroup.returns(selectedMembers)
 
     const Validator = await ethers.getContractFactory("FrostDkgValidator")
-    const validator = await Validator.deploy(pool.address)
+    const validator = await Validator.deploy(
+      pool.address,
+      0 // maxSeatsPerWallet disabled
+    )
     await validator.deployed()
 
     const Harness = await ethers.getContractFactory("FrostDkgLivenessHarness")
@@ -136,6 +139,38 @@ describe("FrostDkg liveness security", () => {
     )
 
     expect(await harness.state()).to.equal(AWAITING_RESULT)
+  })
+
+  it("rejects an over-cap selected group at submission without entering challenge", async () => {
+    const overCapMembers = [...selectedMembers]
+    overCapMembers[1] = MALICIOUS_SELECTED_ID
+    overCapMembers[2] = MALICIOUS_SELECTED_ID
+    pool.selectGroup.returns(overCapMembers)
+
+    const Validator = await ethers.getContractFactory("FrostDkgValidator")
+    const validator = await Validator.deploy(pool.address, 2)
+    await validator.deployed()
+    const Harness = await ethers.getContractFactory("FrostDkgLivenessHarness")
+    const cappedHarness = await Harness.deploy(
+      pool.address,
+      validator.address,
+      honestSelected.address,
+      CHALLENGE_PERIOD,
+      SUBMISSION_TIMEOUT
+    )
+    await cappedHarness.deployed()
+    pool.isLocked.returns(false)
+    await cappedHarness.lockState()
+    pool.isLocked.returns(true)
+    await cappedHarness.start(ethers.utils.id("over-cap-selected-group"))
+
+    await expectCustomError(
+      cappedHarness
+        .connect(maliciousSelected)
+        .submitResult(resultFor(1, overCapMembers)),
+      "InvalidGroupMembers"
+    )
+    expect(await cappedHarness.state()).to.equal(AWAITING_RESULT)
   })
 
   it("blocks a challenged submitter from repeating while preserving honest resubmission", async () => {

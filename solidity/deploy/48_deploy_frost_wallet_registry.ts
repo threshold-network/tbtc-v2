@@ -31,14 +31,20 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const FrostDkgValidator = await deployments.get("FrostDkgValidator")
   const Bridge = await deployments.get("Bridge")
 
-  // Only FrostInactivity needs separate deployment + linking
-  // (it has `external` functions, the linkable subset). The
-  // other libraries (FrostAuthorization, FrostDkg,
-  // FrostRegistryWallets) are internal-only and get inlined by
-  // the compiler. If a future change exposes `external` surface
-  // on any of them, deploy them here and add to
-  // `factoryOpts.libraries`.
+  // Only FrostInactivity and FrostWalletExposure need separate
+  // deployment + linking (they have `external` functions, the
+  // linkable subset). The other libraries (FrostAuthorization,
+  // FrostDkg, FrostRegistryWallets) are internal-only and get
+  // inlined by the compiler. If a future change exposes
+  // `external` surface on any of them, deploy them here and add
+  // to `factoryOpts.libraries`.
   const FrostInactivity = await deployments.deploy("FrostInactivity", {
+    from: deployer,
+    log: true,
+    waitConfirmations: 1,
+  })
+
+  const FrostWalletExposure = await deployments.deploy("FrostWalletExposure", {
     from: deployer,
     log: true,
     waitConfirmations: 1,
@@ -57,6 +63,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         signer: await ethers.getSigner(deployer),
         libraries: {
           FrostInactivity: FrostInactivity.address,
+          FrostWalletExposure: FrostWalletExposure.address,
         },
       },
       proxyOpts: {
@@ -335,6 +342,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(FrostInactivity)
+    await helpers.etherscan.verify(FrostWalletExposure)
 
     await hre.run("verify", {
       address: proxyDeployment.address,

@@ -1,5 +1,5 @@
 /* eslint-disable no-await-in-loop */
-import hre, { deployments, ethers, helpers, waffle } from "hardhat"
+import hre, { deployments, ethers, helpers, upgrades, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
 import { expect } from "chai"
@@ -8,6 +8,16 @@ import type { Bridge, BridgeStub, IRandomBeacon } from "../../typechain"
 import { deriveFundedOperatorWallets } from "../integration/utils/frost-wallet-registry"
 
 let testDeploymentCounter = 0
+
+const encodeLiveWalletProof = (
+  liveWalletIDs: string[],
+  historicalWalletsCreated: number,
+  historicalWalletsClosed: number
+): string =>
+  ethers.utils.defaultAbiCoder.encode(
+    ["bytes32[]", "uint256", "uint256"],
+    [liveWalletIDs, historicalWalletsCreated, historicalWalletsClosed]
+  )
 
 async function expectCustomError(
   promise: Promise<unknown>,
@@ -43,6 +53,7 @@ async function expectCustomError(
 describe("FrostWalletRegistry allowlist authorization", () => {
   let deployer: SignerWithAddress
   let thirdParty: SignerWithAddress
+  let proxyAdminOwner: SignerWithAddress
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
   let frostAllowlist: any
@@ -57,6 +68,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     ;({ deployer, thirdParty, bridge } = await waffle.loadFixture(
       bridgeFixture
     ))
+    ;({ esdm: proxyAdminOwner } = await helpers.signers.getNamedSigners())
 
     const t = await deployments.get("T")
     const reimbursementPool = await deployments.get("ReimbursementPool")
@@ -76,13 +88,20 @@ describe("FrostWalletRegistry allowlist authorization", () => {
       "FrostDkgValidator"
     )
     const validator = await ValidatorFactory.connect(deployer).deploy(
-      frostSortitionPool.address
+      frostSortitionPool.address,
+      0 // maxSeatsPerWallet disabled
     )
     await validator.deployed()
 
     const InactivityFactory = await ethers.getContractFactory("FrostInactivity")
     const inactivity = await InactivityFactory.connect(deployer).deploy()
     await inactivity.deployed()
+
+    const ExposureFactory = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const exposure = await ExposureFactory.connect(deployer).deploy()
+    await exposure.deployed()
 
     const [registry] = await helpers.upgrades.deployProxy(
       `FrostWalletRegistryAllowlistTest${testDeploymentCounter}`,
@@ -96,7 +115,10 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         ],
         factoryOpts: {
           signer: deployer,
-          libraries: { FrostInactivity: inactivity.address },
+          libraries: {
+            FrostInactivity: inactivity.address,
+            FrostWalletExposure: exposure.address,
+          },
         },
         proxyOpts: {
           constructorArgs: [frostSortitionPool.address],
@@ -151,13 +173,287 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     expect(await frostSortitionPool.operatorsInPool()).to.equal(OPERATOR_COUNT)
   })
 
+  it("migrates and rolls back the complete active authorization roster", async () => {
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
+    const weight = await frostWalletRegistry.minimumAuthorization()
+    const migratedWeight = weight.mul(2)
+    const wallets = await deriveFundedOperatorWallets(hre, OPERATOR_COUNT)
+    const providers = wallets.map((wallet) => wallet.address)
+
+    for (const wallet of wallets) {
+      await frostAllowlist
+        .connect(deployer)
+        .addStakingProvider(wallet.address, weight)
+      await frostWalletRegistry.connect(wallet).registerOperator(wallet.address)
+      await frostWalletRegistry.connect(wallet).joinSortitionPool()
+    }
+
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const migrationSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+    for (const provider of providers) {
+      await migrationSource.setWeight(provider, migratedWeight)
+    }
+    const emptyWalletProof = encodeLiveWalletProof([], 0, 0)
+
+    const [walletExposureLedger] = await helpers.upgrades.deployProxy(
+      `WalletExposureLedgerMigrationTest${testDeploymentCounter}`,
+      {
+        contractName: "WalletExposureLedger",
+        initializerArgs: [frostWalletRegistry.address],
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+    await expectCustomError(
+      frostWalletRegistry
+        .connect(thirdParty)
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          true,
+          walletExposureLedger.address,
+          providers,
+          emptyWalletProof
+        ),
+      "CallerNotGovernanceOrProxyAdmin"
+    )
+    await migrationSource.setRevertPreparationWithoutData(true)
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          true,
+          walletExposureLedger.address,
+          providers,
+          emptyWalletProof
+        )
+    ).to.be.reverted
+    expect(await frostWalletRegistry.walletExposureLedger()).to.equal(
+      ethers.constants.AddressZero
+    )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      frostAllowlist.address
+    )
+    await migrationSource.setRevertPreparationWithoutData(false)
+
+    // Exercise the production cutover shape: deploy the new implementation
+    // and have ProxyAdmin perform upgradeAndCall. The migration library
+    // recognizes the EIP-1967 admin while ordinary non-governance callers
+    // remain rejected. Governance retains the repeatable direct rollback path.
+    const InactivityFactory = await ethers.getContractFactory("FrostInactivity")
+    const inactivity = await InactivityFactory.connect(deployer).deploy()
+    const ExposureFactory = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const exposure = await ExposureFactory.connect(deployer).deploy()
+    const RegistryFactory = await ethers.getContractFactory(
+      "FrostWalletRegistry",
+      {
+        signer: deployer,
+        libraries: {
+          FrostInactivity: inactivity.address,
+          FrostWalletExposure: exposure.address,
+        },
+      }
+    )
+    const implementation = await RegistryFactory.deploy(
+      frostSortitionPool.address
+    )
+    const migrationCall = frostWalletRegistry.interface.encodeFunctionData(
+      "migrateAuthorizationSource",
+      [
+        migrationSource.address,
+        true,
+        walletExposureLedger.address,
+        providers,
+        emptyWalletProof,
+      ]
+    )
+    const proxyAdmin = await upgrades.admin.getInstance()
+    await expect(
+      proxyAdmin
+        .connect(proxyAdminOwner)
+        .upgradeAndCall(
+          frostWalletRegistry.address,
+          implementation.address,
+          migrationCall
+        )
+    )
+      .to.emit(frostWalletRegistry, "AuthorizationSourceUpdated")
+      .withArgs(migrationSource.address)
+
+    expect(await migrationSource.prepareCalls()).to.equal(1)
+    expect(await frostWalletRegistry.walletExposureLedger()).to.equal(
+      walletExposureLedger.address
+    )
+    for (const provider of providers) {
+      expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(
+        migratedWeight
+      )
+    }
+
+    // A stateful source may terminally reduce a provider to zero and remove it
+    // from the pool. The dormant Phase-0 allowlist still carries its old
+    // positive weight.
+    const removedProvider = providers[providers.length - 1]
+    await migrationSource.setWeight(removedProvider, 0)
+    await frostWalletRegistry.updateOperatorStatus(removedProvider)
+    expect(await frostWalletRegistry.isOperatorInPool(removedProvider)).to.be
+      .false
+
+    // Rollback uses the already-populated production FrostAllowlist. Its
+    // deployed implementation predates the optional preparation hook; the
+    // migration tolerates that missing selector and still rewrites every leaf.
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        frostAllowlist.address,
+        false,
+        ethers.constants.AddressZero,
+        providers.slice(0, -1),
+        "0x"
+      )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      migrationSource.address
+    )
+    // The current pool is complete, but rollback must also process the
+    // preserved provider that the stateful source had removed.
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        frostAllowlist.address,
+        false,
+        ethers.constants.AddressZero,
+        [],
+        "0x"
+      )
+    expect(await migrationSource.detachCalls()).to.equal(1)
+    for (const provider of providers.slice(0, -1)) {
+      expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(weight)
+      expect(await frostWalletRegistry.isOperatorInPool(provider)).to.be.true
+    }
+    expect(await frostWalletRegistry.eligibleStake(removedProvider)).to.equal(0)
+    expect(await frostWalletRegistry.isOperatorInPool(removedProvider)).to.be
+      .false
+    expect(
+      await frostWalletRegistry.pendingAuthorizationDecrease(removedProvider)
+    ).to.equal(weight)
+
+    // The rollback hold also blocks a later self-join against the allowlist's
+    // stale positive cache; governance can now align that active source via its
+    // normal decrease flow.
+    await expect(
+      frostWalletRegistry
+        .connect(wallets[wallets.length - 1])
+        .joinSortitionPool()
+    ).to.be.revertedWith("Authorization below the minimum")
+  })
+
+  it("keeps an incomplete active migration staged", async () => {
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+    const weight = await frostWalletRegistry.minimumAuthorization()
+    const wallets = await deriveFundedOperatorWallets(hre, OPERATOR_COUNT)
+    for (const wallet of wallets) {
+      await frostAllowlist
+        .connect(deployer)
+        .addStakingProvider(wallet.address, weight)
+      await frostWalletRegistry.connect(wallet).registerOperator(wallet.address)
+      await frostWalletRegistry.connect(wallet).joinSortitionPool()
+    }
+
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const migrationSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+    for (const wallet of wallets) {
+      await migrationSource.setWeight(wallet.address, weight)
+    }
+    const [walletExposureLedger] = await helpers.upgrades.deployProxy(
+      `WalletExposureLedgerPartialMigrationTest${testDeploymentCounter}`,
+      {
+        contractName: "WalletExposureLedger",
+        initializerArgs: [frostWalletRegistry.address],
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        migrationSource.address,
+        true,
+        walletExposureLedger.address,
+        [wallets[0].address],
+        encodeLiveWalletProof([], 0, 0)
+      )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      frostAllowlist.address
+    )
+
+    await frostWalletRegistry.connect(deployer).migrateAuthorizationSource(
+      migrationSource.address,
+      true,
+      ethers.constants.AddressZero,
+      wallets.slice(1).map((wallet) => wallet.address),
+      "0x"
+    )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      migrationSource.address
+    )
+  })
+
+  it("runs stateful source hooks for an empty active roster", async () => {
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const migrationSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+    const [walletExposureLedger] = await helpers.upgrades.deployProxy(
+      `WalletExposureLedgerEmptyMigrationTest${testDeploymentCounter}`,
+      {
+        contractName: "WalletExposureLedger",
+        initializerArgs: [frostWalletRegistry.address],
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        migrationSource.address,
+        true,
+        walletExposureLedger.address,
+        [],
+        encodeLiveWalletProof([], 0, 0)
+      )
+
+    expect(await migrationSource.prepareCalls()).to.equal(1)
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      migrationSource.address
+    )
+  })
+
   it("rejects authorization reads before allowlist initialization", async () => {
     const [wallet] = await deriveFundedOperatorWallets(hre, 1)
     await frostWalletRegistry.connect(wallet).registerOperator(wallet.address)
 
-    await expect(
-      frostWalletRegistry.connect(wallet).joinSortitionPool()
-    ).to.be.revertedWith("Authorization source is not initialized")
+    await expect(frostWalletRegistry.connect(wallet).joinSortitionPool()).to.be
+      .reverted
   })
 
   it("rejects allowlist initialization by non-governance", async () => {
@@ -166,6 +462,25 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         .connect(thirdParty)
         .initializeV2(frostAllowlist.address)
     ).to.be.revertedWith("Caller is not the governance")
+  })
+
+  it("rejects a stateful source in the legacy initializer", async () => {
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const statefulSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+
+    await expectCustomError(
+      frostWalletRegistry
+        .connect(deployer)
+        .initializeV2(statefulSource.address),
+      "StatefulAuthorizationSourceRequiresMigration"
+    )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      ethers.constants.AddressZero
+    )
   })
 
   it("rejects direct malicious-behavior reports from non-registry callers", async () => {

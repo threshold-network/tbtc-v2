@@ -17,6 +17,11 @@ interface IFrostAllowlistWalletRegistry {
         uint96 fromAmount,
         uint96 toAmount
     ) external;
+
+    function pendingAuthorizationDecrease(address stakingProvider)
+        external
+        view
+        returns (uint96);
 }
 
 /// @title FrostAllowlist
@@ -81,6 +86,21 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         __Ownable2Step_init();
 
         walletRegistry = IFrostAllowlistWalletRegistry(_walletRegistry);
+    }
+
+    function isStatefulAuthorizationSource()
+        external
+        pure
+        override
+        returns (bool)
+    {
+        return false;
+    }
+
+    /// @notice Allowlist weights are individually governed uint96 values and
+    ///         therefore have no uniform ceiling below the type maximum.
+    function authorizationCeiling() external pure override returns (uint96) {
+        return type(uint96).max;
     }
 
     /// @notice Adds a new staking provider with the given authorization weight.
@@ -189,7 +209,17 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         }
 
         if (!info.decreasePending) {
-            revert NoDecreasePending();
+            // A stateful-to-allowlist rollback may create the registry-side
+            // decrease atomically because the dormant allowlist could not call
+            // the then-active registry source. Derive that matching target so
+            // the synthetic hold is directly approvable after the normal delay.
+            uint96 decreasingBy = walletRegistry.pendingAuthorizationDecrease(
+                stakingProvider
+            );
+            if (decreasingBy == 0 || decreasingBy > currentWeight) {
+                revert NoDecreasePending();
+            }
+            newWeight = currentWeight - decreasingBy;
         }
 
         emit WeightDecreaseFinalized(stakingProvider, currentWeight, newWeight);
@@ -225,6 +255,18 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         }
 
         emit MaliciousBehaviorIdentified(notifier, _stakingProviders);
+    }
+
+    /// @notice The legacy allowlist has no TBTC reward distributor to mirror
+    ///         inactivity into. Kept as a registry-only compatibility no-op.
+    function onOperatorInactivity(address[] memory, uint64) external override {
+        if (msg.sender != address(walletRegistry)) revert NotWalletRegistry();
+    }
+
+    /// @notice The legacy allowlist has no stake-exit exposure floor. Kept as
+    ///         a registry-only compatibility no-op.
+    function onWalletExposureReconciled(address[] memory) external override {
+        if (msg.sender != address(walletRegistry)) revert NotWalletRegistry();
     }
 
     /// @notice Role lookup for registry reward withdrawal. The beneficiary is

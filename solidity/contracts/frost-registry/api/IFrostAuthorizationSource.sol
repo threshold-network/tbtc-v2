@@ -8,7 +8,17 @@ pragma solidity 0.8.17;
 ///         model so future permissionless or bonded sources can be introduced
 ///         without reviving legacy staking coupling.
 interface IFrostAuthorizationSource {
-    function authorizedWeight(address operatorProvider, address application)
+    /// @notice Reports whether the source requires the registry's stateful
+    ///         migration hooks and wallet-exposure invariants.
+    function isStatefulAuthorizationSource() external pure returns (bool);
+
+    /// @notice Highest authorization weight this source can assign to an
+    ///         eligible provider. Registry governance must not set its minimum
+    ///         authorization above this ceiling or every provider becomes
+    ///         ineligible. Sources without a uniform ceiling return uint96 max.
+    function authorizationCeiling() external view returns (uint96);
+
+    function authorizedWeight(address operatorProvider, address operator)
         external
         view
         returns (uint96);
@@ -32,4 +42,16 @@ interface IFrostAuthorizationSource {
         address notifier,
         address[] memory operatorProviders
     ) external;
+
+    /// @notice Mirrors a registry-accepted inactivity penalty into the
+    ///         authorization source's economic reward accounting.
+    function onOperatorInactivity(
+        address[] memory operatorProviders,
+        uint64 ineligibleUntil
+    ) external;
+
+    /// @notice Advances exit-gate floors after registry-authoritative wallet
+    ///         exposure has been repaired.
+    function onWalletExposureReconciled(address[] memory operatorProviders)
+        external;
 }

@@ -519,6 +519,50 @@ library FrostAuthorization {
         }
     }
 
+    /// @notice Rewrites an operator leaf during a governed authorization-source
+    ///         migration. Unlike the permissionless status updater, this helper
+    ///         also inserts an eligible registered operator that is absent from
+    ///         the pool. This is required by rollback: a stateful source may
+    ///         have removed an operator whose legacy allowlist weight is still
+    ///         positive.
+    /// @dev The migration caller validates each non-overlapping roster batch
+    ///      while the DKG is IDLE and delays source activation until all
+    ///      snapshotted providers have been processed.
+    function migrateOperatorStatus(
+        Data storage self,
+        IFrostAuthorizationSource authorizationSource,
+        SortitionPool sortitionPool,
+        address operator
+    ) internal {
+        address stakingProvider = self.operatorToStakingProvider[operator];
+        require(stakingProvider != address(0), "Unknown operator");
+
+        AuthorizationDecrease storage decrease = self.pendingDecreases[
+            stakingProvider
+        ];
+        uint96 eligibleWeight = eligibleStake(
+            self,
+            authorizationSource,
+            stakingProvider,
+            decrease.decreasingBy
+        );
+
+        emit OperatorStatusUpdated(stakingProvider, operator);
+
+        if (sortitionPool.isOperatorInPool(operator)) {
+            sortitionPool.updateOperatorStatus(operator, eligibleWeight);
+        } else if (eligibleWeight != 0) {
+            sortitionPool.insertOperator(operator, eligibleWeight);
+        }
+
+        if (decrease.decreasingAt == type(uint64).max) {
+            decrease.decreasingAt =
+                // solhint-disable-next-line not-rely-on-time
+                uint64(block.timestamp) +
+                self.parameters.authorizationDecreaseDelay;
+        }
+    }
+
     /// @notice Checks if the operator's authorization is in sync with the
     ///         operator's weight in the sortition pool.
     ///         If the operator is not in the sortition pool and their
@@ -589,7 +633,7 @@ library FrostAuthorization {
     ) internal view returns (uint96) {
         uint96 authorizedWeight = authorizationSource.authorizedWeight(
             stakingProvider,
-            address(this)
+            self.stakingProviderToOperator[stakingProvider]
         );
 
         uint96 eligibleWeight = authorizedWeight > decreasingBy

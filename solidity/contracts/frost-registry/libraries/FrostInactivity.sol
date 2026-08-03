@@ -19,11 +19,24 @@ import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.
 import "@keep-network/random-beacon/contracts/libraries/BytesLib.sol";
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 
+import "../../GovernanceUtils.sol";
+import "../api/IFrostAuthorizationSource.sol";
+import "../FrostDkgValidator.sol";
+import "./FrostDkg.sol";
 import "./FrostRegistryWallets.sol";
+
+interface IFrostRegistryGovernance {
+    function governance() external view returns (address);
+}
 
 library FrostInactivity {
     using BytesLib for bytes;
     using ECDSAUpgradeable for bytes32;
+
+    struct DkgValidatorUpdate {
+        FrostDkgValidator pendingValidator;
+        uint256 initiatedAt;
+    }
 
     struct Claim {
         // ID of the wallet whose signing group is raising the inactivity claim.
@@ -65,6 +78,72 @@ library FrostInactivity {
     ///         supporting the inactivity claim.
     uint256 public constant signatureByteSize = 65;
 
+    event InactivityClaimed(
+        bytes32 indexed walletID,
+        uint256 nonce,
+        address notifier
+    );
+    event DkgValidatorUpdated(address indexed dkgValidator);
+    event DkgValidatorUpdateStarted(
+        address indexed dkgValidator,
+        uint256 timestamp
+    );
+    event AuthorizationSourceCallbackFailed(bytes4 indexed selector);
+
+    /// @notice Begins the delayed replacement of the registry's DKG validator.
+    function beginDkgValidatorUpdate(
+        FrostDkg.Data storage dkg,
+        DkgValidatorUpdate storage update,
+        FrostDkgValidator newDkgValidator
+    ) external {
+        require(
+            msg.sender == IFrostRegistryGovernance(address(this)).governance(),
+            "Caller is not the governance"
+        );
+        require(
+            address(newDkgValidator) != address(0),
+            "DKG Validator required"
+        );
+        require(
+            address(newDkgValidator.sortitionPool()) ==
+                address(dkg.sortitionPool),
+            "Sortition Pool mismatch"
+        );
+        update.pendingValidator = newDkgValidator;
+        /* solhint-disable not-rely-on-time */
+        update.initiatedAt = block.timestamp;
+        emit DkgValidatorUpdateStarted(
+            address(newDkgValidator),
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the replacement after the fixed 48-hour delay.
+    function finalizeDkgValidatorUpdate(
+        FrostDkg.Data storage dkg,
+        DkgValidatorUpdate storage update
+    ) external {
+        require(
+            msg.sender == IFrostRegistryGovernance(address(this)).governance(),
+            "Caller is not the governance"
+        );
+        GovernanceUtils.onlyAfterGovernanceDelay(update.initiatedAt, 2 days);
+        require(
+            FrostDkg.currentState(dkg) == FrostDkg.State.IDLE,
+            "Current state is not IDLE"
+        );
+        require(
+            address(update.pendingValidator.sortitionPool()) ==
+                address(dkg.sortitionPool),
+            "Sortition Pool mismatch"
+        );
+        dkg.dkgValidator = update.pendingValidator;
+        emit DkgValidatorUpdated(address(update.pendingValidator));
+        update.pendingValidator = FrostDkgValidator(address(0));
+        update.initiatedAt = 0;
+    }
+
     /// @notice Verifies the inactivity claim according to the rules defined in
     ///         `Claim` struct documentation. Reverts if verification fails.
     /// @dev Wallet signing group members hash is validated upstream in
@@ -85,6 +164,96 @@ library FrostInactivity {
         uint256 nonce,
         uint32[] calldata groupMembers
     ) external view returns (uint32[] memory inactiveMembers) {
+        return
+            _verifyClaim(
+                sortitionPool,
+                claim,
+                xOnlyOutputKey,
+                nonce,
+                groupMembers
+            );
+    }
+
+    /// @notice Verifies a claim and checkpoints both the sortition-pool and
+    ///         authorization-source reward bans in one registry delegatecall.
+    function verifyAndBanOperatorInactivity(
+        FrostRegistryWallets.Data storage wallets,
+        SortitionPool sortitionPool,
+        mapping(address => address) storage operatorToStakingProvider,
+        IFrostAuthorizationSource authorizationSource,
+        bool statefulAuthorizationSource,
+        mapping(bytes32 => uint256) storage inactivityClaimNonce,
+        Claim calldata claim,
+        uint256 nonce,
+        uint32[] calldata groupMembers,
+        uint256 banDuration
+    ) external {
+        require(nonce == inactivityClaimNonce[claim.walletID], "Invalid nonce");
+        require(
+            FrostRegistryWallets.getWalletMembersIdsHash(
+                wallets,
+                claim.walletID
+            ) == keccak256(abi.encode(groupMembers)),
+            "Invalid group members"
+        );
+
+        uint32[] memory inactiveMembers = _verifyClaim(
+            sortitionPool,
+            claim,
+            FrostRegistryWallets.getWalletXOnlyOutputKey(
+                wallets,
+                claim.walletID
+            ),
+            nonce,
+            groupMembers
+        );
+        inactivityClaimNonce[claim.walletID]++;
+        emit InactivityClaimed(claim.walletID, nonce, msg.sender);
+
+        /* solhint-disable-next-line not-rely-on-time */
+        uint64 ineligibleUntil = uint64(block.timestamp + banDuration);
+        sortitionPool.setRewardIneligibility(inactiveMembers, ineligibleUntil);
+        address[] memory inactiveProviders = new address[](
+            inactiveMembers.length
+        );
+        for (uint256 i = 0; i < inactiveMembers.length; i++) {
+            address operator = sortitionPool.getIDOperator(inactiveMembers[i]);
+            inactiveProviders[i] = operatorToStakingProvider[operator];
+        }
+        if (statefulAuthorizationSource) {
+            // The nonce and sortition-pool ban are one-shot state changes.
+            // Once the stateful source is active, its economic reward ban must
+            // land in the same transaction so an accepted claim can never be
+            // consumed without enforcing the corresponding reward penalty.
+            authorizationSource.onOperatorInactivity(
+                inactiveProviders,
+                ineligibleUntil
+            );
+        } else if (address(authorizationSource).code.length != 0) {
+            try
+                authorizationSource.onOperatorInactivity(
+                    inactiveProviders,
+                    ineligibleUntil
+                )
+            {} catch {
+                emit AuthorizationSourceCallbackFailed(
+                    IFrostAuthorizationSource.onOperatorInactivity.selector
+                );
+            }
+        } else {
+            emit AuthorizationSourceCallbackFailed(
+                IFrostAuthorizationSource.onOperatorInactivity.selector
+            );
+        }
+    }
+
+    function _verifyClaim(
+        SortitionPool sortitionPool,
+        Claim calldata claim,
+        bytes32 xOnlyOutputKey,
+        uint256 nonce,
+        uint32[] calldata groupMembers
+    ) private view returns (uint32[] memory inactiveMembers) {
         // Validate inactive members indices. Maximum indices count is equal to
         // the group size and is not limited deliberately to leave a theoretical
         // possibility to accuse more members than `groupSize - groupThreshold`.

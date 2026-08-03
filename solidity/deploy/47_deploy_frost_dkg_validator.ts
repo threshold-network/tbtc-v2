@@ -7,9 +7,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const FrostSortitionPool = await deployments.get("FrostSortitionPool")
 
+  // Phase 0 starts from an incrementally bootstrapped FrostAllowlist whose
+  // weights are not guaranteed to be uniform. Keep the rejection-based seat
+  // cap disabled until SeatAllocator equal weights and at least 30 eligible
+  // operators are live. Governance can then deploy a cap-12 validator and
+  // install it through FrostWalletRegistry's delayed begin/finalize validator
+  // update flow while DKG is IDLE.
   const FrostDkgValidator = await deployments.deploy("FrostDkgValidator", {
     from: deployer,
-    args: [FrostSortitionPool.address],
+    args: [FrostSortitionPool.address, 0],
     log: true,
     waitConfirmations: 1,
   })

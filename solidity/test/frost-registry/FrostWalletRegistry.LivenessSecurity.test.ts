@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import hre, { ethers } from "hardhat"
+import hre, { ethers, helpers } from "hardhat"
 import { smock } from "@defi-wonderland/smock"
 import chai, { expect } from "chai"
 
@@ -68,16 +68,29 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     reimbursementPool.refund.returns()
 
     const Validator = await ethers.getContractFactory("FrostDkgValidator")
-    const validator = await Validator.deploy(pool.address)
+    const validator = await Validator.deploy(
+      pool.address,
+      0 // Phase-0 maxSeatsPerWallet disabled
+    )
     await validator.deployed()
+    expect(await validator.maxSeatsPerWallet()).to.equal(0)
 
     const FrostInactivity = await ethers.getContractFactory("FrostInactivity")
     const frostInactivity = await FrostInactivity.deploy()
     await frostInactivity.deployed()
 
+    const FrostWalletExposure = await ethers.getContractFactory(
+      "FrostWalletExposure"
+    )
+    const frostWalletExposure = await FrostWalletExposure.deploy()
+    await frostWalletExposure.deployed()
+
     const Registry = await ethers.getContractFactory("FrostWalletRegistry", {
       signer: deployer,
-      libraries: { FrostInactivity: frostInactivity.address },
+      libraries: {
+        FrostInactivity: frostInactivity.address,
+        FrostWalletExposure: frostWalletExposure.address,
+      },
     })
     const implementation = await Registry.deploy(pool.address, {
       gasLimit: 12_000_000,
@@ -152,5 +165,44 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     )
     expect(pool.unlock).to.have.been.calledOnce
     expect(await registry.isWalletRegistered(xOnlyOutputKey)).to.equal(true)
+
+    const CappedValidator = await ethers.getContractFactory("FrostDkgValidator")
+    const cappedValidator = await CappedValidator.deploy(pool.address, 12)
+    await cappedValidator.deployed()
+    expect(await cappedValidator.maxSeatsPerWallet()).to.equal(12)
+    await expect(
+      registry
+        .connect(operatorSigners[0])
+        .beginDkgValidatorUpdate(cappedValidator.address)
+    ).to.be.revertedWith("Caller is not the governance")
+    pool.isLocked.returns(false)
+    await registry.beginDkgValidatorUpdate(cappedValidator.address)
+    await expect(registry.finalizeDkgValidatorUpdate()).to.be.revertedWith(
+      "Governance delay has not elapsed"
+    )
+    await helpers.time.increaseTime(2 * 24 * 60 * 60)
+    await registry.finalizeDkgValidatorUpdate()
+
+    // Start another DKG and verify the registry now delegates validation to
+    // the replacement, cap-enabled validator.
+    await registry.connect(walletOwnerSigner).requestNewWallet()
+    pool.isLocked.returns(true)
+    await registry
+      .connect(randomBeaconSigner)
+      .__beaconCallback(
+        ethers.BigNumber.from(ethers.utils.id("second-seed")),
+        0
+      )
+    const overCapMembers = [...selectedMembers]
+    const [firstSelectedMember] = selectedMembers
+    for (let i = 1; i < 13; i += 1) {
+      overCapMembers[i] = firstSelectedMember
+    }
+    const [overCapValid, overCapError] = await registry.isDkgResultValid({
+      ...result,
+      members: overCapMembers,
+    })
+    expect(overCapValid).to.equal(false)
+    expect(overCapError).to.equal("Too many seats for a single member")
   })
 })
