@@ -249,17 +249,28 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
     expectedProviders = exp.providers
     expectedSeatCounts = exp.seatCounts
 
-    // Now deploy + wire a REAL ledger (registry as its sole caller).
-    // It starts with NO record of wallet A — the desync to reconcile.
+    // Now deploy a REAL ledger behind a test-only forwarding controller. The
+    // controller lets individual tests reject a registration hook without
+    // relying on backend-specific runtime bytecode mutation. It starts with NO
+    // record of wallet A — the desync to reconcile.
+    const ControlledLedgerFactory = await ethers.getContractFactory(
+      "ControlledWalletExposureLedger"
+    )
+    const controlledLedger = await ControlledLedgerFactory.connect(
+      deployer
+    ).deploy(frostWalletRegistry.address)
+    await controlledLedger.deployed()
+
     const [ledgerInstance] = await helpers.upgrades.deployProxy(
       `WalletExposureLedgerReconcileTest_${uniqueSuffix()}`,
       {
         contractName: "WalletExposureLedger",
-        initializerArgs: [frostWalletRegistry.address],
+        initializerArgs: [controlledLedger.address],
         proxyOpts: { kind: "transparent" },
       }
     )
-    ledger = ledgerInstance
+    await controlledLedger.connect(deployer).setTarget(ledgerInstance.address)
+    ledger = controlledLedger
   })
 
   /// Drives one full DKG round (request → seed → submit → approve) and
@@ -823,11 +834,10 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
 
     it("rolls a stateful exposure repair back when floor advancement fails", async function rollsBackExposureRepair() {
       this.timeout(300_000)
-      const ledgerRuntimeCode = await ethers.provider.getCode(ledger.address)
 
       // Make the lifecycle hook fail without reverting DKG approval, then
-      // restore the real ledger code so the maintenance repair can run.
-      await hre.network.provider.send("hardhat_setCode", [ledger.address, "0x"])
+      // restore forwarding so the maintenance repair can run.
+      await ledger.connect(deployer).setRevertOnWalletRegistered(true)
       let walletBMembers: number[] = []
       try {
         const { dkgResult } = await runDkgRound(
@@ -836,10 +846,7 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
         )
         walletBMembers = dkgResult.members
       } finally {
-        await hre.network.provider.send("hardhat_setCode", [
-          ledger.address,
-          ledgerRuntimeCode,
-        ])
+        await ledger.connect(deployer).setRevertOnWalletRegistered(false)
       }
 
       await migrationSource.setRevertExposureReconciliation(true)
@@ -896,9 +903,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
 
     it("advances the detached exit-gate source during legacy reconciliation", async function advancesDetachedFloor() {
       this.timeout(300_000)
-      const ledgerRuntimeCode = await ethers.provider.getCode(ledger.address)
 
-      await hre.network.provider.send("hardhat_setCode", [ledger.address, "0x"])
+      await ledger.connect(deployer).setRevertOnWalletRegistered(true)
       let walletCMembers: number[] = []
       try {
         const { dkgResult } = await runDkgRound(
@@ -907,10 +913,7 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
         )
         walletCMembers = dkgResult.members
       } finally {
-        await hre.network.provider.send("hardhat_setCode", [
-          ledger.address,
-          ledgerRuntimeCode,
-        ])
+        await ledger.connect(deployer).setRevertOnWalletRegistered(false)
       }
 
       const callbackCountBefore =
