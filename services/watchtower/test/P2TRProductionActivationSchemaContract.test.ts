@@ -78,6 +78,13 @@ const provenanceAlertRetirementMigration = readFileSync(
   ),
   "utf8"
 )
+const transportExhaustionMigration = readFileSync(
+  new URL(
+    "../migrations/015_p2tr_candidate_enqueue_transport_exhaustion.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("production activation PostgreSQL schema contract", () => {
   it("does not use PostgreSQL's reserved authorization keyword as an alias", () => {
@@ -191,6 +198,21 @@ describe("production activation PostgreSQL schema contract", () => {
     )
     assert.match(transactionCoordinator, /code === "55P03"/)
     assert.match(transactionCoordinator, /code === "57014"/)
+  })
+
+  it("persists confirmed transport exhaustion as an activation blocker", () => {
+    assert.match(
+      transportExhaustionMigration,
+      /last_abort_reason = 'pre-commit-transport-abort'/
+    )
+    assert.match(
+      activationGate,
+      /lastAbortReason: "pre-commit-transport-abort"[\s\S]*?saveCandidateEnqueueRetryExhaustionAlert/
+    )
+    assert.match(
+      activationStore,
+      /last_sqlstate, last_abort_reason, failure_digest, detail_digest[\s\S]*?activation_blocking/
+    )
   })
 
   it("retries confirmed pre-COMMIT aborts while arming the guard", () => {

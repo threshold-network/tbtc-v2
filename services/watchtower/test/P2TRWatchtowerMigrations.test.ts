@@ -82,6 +82,10 @@ describe("P2TR watchtower migration bodies", () => {
           version: 14,
           filename: "014_p2tr_candidate_enqueue_rotation_resolution.sql",
         },
+        {
+          version: 15,
+          filename: "015_p2tr_candidate_enqueue_transport_exhaustion.sql",
+        },
       ]
     )
   })
@@ -342,6 +346,23 @@ describe("P2TR watchtower migration bodies", () => {
     assert.match(
       migration,
       /p2tr_candidate_enqueue_rotation_resolution_immutable_trigger[\s\S]*?BEFORE UPDATE OR DELETE/
+    )
+  })
+
+  it("keeps transport-abort exhaustion blocking in the retry journal", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/015_p2tr_candidate_enqueue_transport_exhaustion.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(migration, /ALTER COLUMN last_sqlstate DROP NOT NULL/)
+    assert.match(
+      migration,
+      /last_abort_reason = 'pre-commit-transport-abort'[\s\S]*?failure_digest IS NOT NULL/
     )
   })
 

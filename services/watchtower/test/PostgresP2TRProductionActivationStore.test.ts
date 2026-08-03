@@ -356,6 +356,14 @@ describe(
         await database.query(
           `BEGIN;\n${manifestRotationResolutionMigration}\nCOMMIT;`
         )
+        const transportExhaustionMigration = await readFile(
+          new URL(
+            "../migrations/015_p2tr_candidate_enqueue_transport_exhaustion.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${transportExhaustionMigration}\nCOMMIT;`)
 
         const expectedSeriesID = createHash("sha256")
           .update(
@@ -422,7 +430,8 @@ describe(
               manifestHash,
               candidateDigest,
               attemptCount: 3,
-              lastSQLState: "57014",
+              lastAbortReason: "pre-commit-transport-abort",
+              failureDigest: WORD("66"),
             })
             await cloneCandidateAuthorization(
               session,
@@ -467,7 +476,7 @@ describe(
               manifestHash,
               candidateDigest,
               resolutionDigest: WORD("62"),
-              reason: "operator verified the bounded retry incident",
+              reason: "operator verified the transport retry incident",
               resolvedAtUnixMs: 10_000,
             })
             assert.deepEqual(await stateStore.readRuntimeAlertHealth(), {

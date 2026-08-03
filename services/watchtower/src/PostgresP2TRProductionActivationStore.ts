@@ -1850,12 +1850,22 @@ export class PostgresP2TRProductionActivationStore
       throw new Error("Candidate enqueue retry alert does not match its guard")
     }
     const detailDigest = candidateEnqueueRetryExhaustionDigest(normalized)
+    const lastSQLState = normalized.lastSQLState ?? null
+    const lastAbortReason = normalized.lastAbortReason ?? null
+    const failureDigest =
+      normalized.failureDigest === undefined
+        ? null
+        : hexBuffer(
+            normalized.failureDigest,
+            "retry alert transport failure digest"
+          )
     const inserted = await this.session.query(
       `INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_alert
          (manifest_hash, token_id, candidate_digest, attempt_count,
-          last_sqlstate, detail_digest, activation_blocking)
+          last_sqlstate, last_abort_reason, failure_digest, detail_digest,
+          activation_blocking)
        SELECT guard_row.manifest_hash, guard_row.token_id,
-              guard_row.candidate_digest, $4, $5, $6, true
+              guard_row.candidate_digest, $4, $5, $6, $7, $8, true
          FROM p2tr_candidate_enqueue_transaction_guard guard_row
         WHERE guard_row.manifest_hash = $1
           AND guard_row.token_id = $2
@@ -1878,7 +1888,9 @@ export class PostgresP2TRProductionActivationStore
         hexBuffer(normalized.tokenID, "retry alert token"),
         hexBuffer(normalized.candidateDigest, "retry alert candidate"),
         normalized.attemptCount,
-        normalized.lastSQLState,
+        lastSQLState,
+        lastAbortReason,
+        failureDigest,
         detailDigest,
       ]
     )
@@ -1888,12 +1900,15 @@ export class PostgresP2TRProductionActivationStore
     const stored = await this.session.query<{
       candidate_digest: string
       attempt_count: string | number
-      last_sqlstate: string
+      last_sqlstate: string | null
+      last_abort_reason: string | null
+      failure_digest: string | null
       detail_digest: string
       activation_blocking: boolean
     }>(
       `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
-              attempt_count, last_sqlstate,
+              attempt_count, last_sqlstate, last_abort_reason,
+              encode(failure_digest, 'hex') AS failure_digest,
               encode(detail_digest, 'hex') AS detail_digest,
               activation_blocking
          FROM p2tr_candidate_enqueue_retry_exhaustion_alert
@@ -1912,7 +1927,15 @@ export class PostgresP2TRProductionActivationStore
         stored.rows[0].attempt_count,
         "stored retry attempt count"
       ) !== normalized.attemptCount ||
-      stored.rows[0].last_sqlstate !== normalized.lastSQLState ||
+      stored.rows[0].last_sqlstate !== lastSQLState ||
+      stored.rows[0].last_abort_reason !== lastAbortReason ||
+      (failureDigest === null
+        ? stored.rows[0].failure_digest !== null
+        : stored.rows[0].failure_digest === null ||
+          bytes32(
+            stored.rows[0].failure_digest,
+            "stored retry transport failure digest"
+          ) !== normalized.failureDigest) ||
       bytes32(stored.rows[0].detail_digest, "stored retry alert digest") !==
         `0x${detailDigest.toString("hex")}` ||
       stored.rows[0].activation_blocking !== true
@@ -2615,15 +2638,7 @@ function normalizeCandidateEnqueueTransactionResolution(
 function normalizeCandidateEnqueueRetryExhaustionAlert(
   alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
 ): P2TRProductionCandidateEnqueueRetryExhaustionAlert {
-  if (
-    alert.lastSQLState !== "40001" &&
-    alert.lastSQLState !== "40P01" &&
-    alert.lastSQLState !== "55P03" &&
-    alert.lastSQLState !== "57014"
-  ) {
-    throw new Error("Candidate enqueue retry alert SQLSTATE is unsupported")
-  }
-  return {
+  const common = {
     tokenID: bytes32(alert.tokenID, "retry alert token"),
     manifestHash: bytes32(alert.manifestHash, "retry alert manifest"),
     candidateDigest: bytes32(alert.candidateDigest, "retry alert candidate"),
@@ -2632,6 +2647,38 @@ function normalizeCandidateEnqueueRetryExhaustionAlert(
       8,
       "retry alert attempt count"
     ),
+  }
+  if (alert.lastAbortReason === "pre-commit-transport-abort") {
+    if (alert.lastSQLState !== undefined || alert.failureDigest === undefined) {
+      throw new Error(
+        "Candidate enqueue transport retry alert detail is inconsistent"
+      )
+    }
+    return {
+      ...common,
+      lastAbortReason: alert.lastAbortReason,
+      failureDigest: bytes32(
+        alert.failureDigest,
+        "retry alert transport failure digest"
+      ),
+    }
+  }
+  if (
+    alert.lastSQLState !== "40001" &&
+    alert.lastSQLState !== "40P01" &&
+    alert.lastSQLState !== "55P03" &&
+    alert.lastSQLState !== "57014"
+  ) {
+    throw new Error("Candidate enqueue retry alert SQLSTATE is unsupported")
+  }
+  if (
+    alert.lastAbortReason !== undefined ||
+    alert.failureDigest !== undefined
+  ) {
+    throw new Error("Candidate enqueue retry alert detail is inconsistent")
+  }
+  return {
+    ...common,
     lastSQLState: alert.lastSQLState,
   }
 }

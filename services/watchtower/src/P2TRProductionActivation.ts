@@ -674,13 +674,30 @@ export type P2TRProductionReadinessCertificateInput = {
   payload: Readonly<Record<string, unknown>>
 }
 
+export type P2TRProductionCandidateEnqueueRetryableSQLState =
+  | "40001"
+  | "40P01"
+  | "55P03"
+  | "57014"
+
 export type P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
   tokenID: string
   manifestHash: string
   candidateDigest: string
   attemptCount: number
-  lastSQLState: "40001" | "40P01" | "55P03" | "57014"
-}
+} & (
+  | {
+      lastSQLState: P2TRProductionCandidateEnqueueRetryableSQLState
+      lastAbortReason?: never
+      failureDigest?: never
+    }
+  | {
+      lastSQLState?: never
+      lastAbortReason: "pre-commit-transport-abort"
+      /** Bounded, one-way digest of the final transport failure. */
+      failureDigest: string
+    }
+)
 
 export type P2TRProductionCandidateEnqueueRetryExhaustionResolution = {
   tokenID: string
@@ -853,8 +870,12 @@ export class P2TRProductionCandidateEnqueueRetryExhaustedError extends Error {
     readonly alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert,
     options?: ErrorOptions
   ) {
+    const finalFailure =
+      alert.lastSQLState === undefined
+        ? "a confirmed pre-COMMIT transport abort"
+        : `PostgreSQL ${alert.lastSQLState}`
     super(
-      `Candidate authorization and enqueue transaction exhausted ${alert.attemptCount} transaction attempts after PostgreSQL ${alert.lastSQLState}`,
+      `Candidate authorization and enqueue transaction exhausted ${alert.attemptCount} transaction attempts after ${finalFailure}`,
       options
     )
     this.name = "P2TRProductionCandidateEnqueueRetryExhaustedError"
@@ -874,9 +895,7 @@ export type P2TRProductionTransactionCoordinator = {
   ): void
   readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
     error: unknown
-  ):
-    | P2TRProductionCandidateEnqueueRetryExhaustionAlert["lastSQLState"]
-    | undefined
+  ): P2TRProductionCandidateEnqueueRetryableSQLState | undefined
   isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
     error: unknown
   ): boolean
@@ -1504,10 +1523,27 @@ export class P2TRProductionActivationGate {
           )
         ) {
           // No COMMIT was issued, so replaying the complete database-only
-          // transaction is safe. If the bounded budget is exhausted, fall
-          // through to the append-only failure disposition below so the armed
-          // guard retains a durable explanation instead of wedging recovery.
+          // transaction is safe. Exhaustion is still transient infrastructure
+          // failure, so persist it as an activation blocker that requires
+          // explicit operator resolution rather than abandoning the candidate.
           if (attemptCount < maxAttemptCount) continue
+          const alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
+            tokenID: receipt.tokenID,
+            manifestHash: receipt.manifestHash,
+            candidateDigest: receipt.candidateDigest,
+            attemptCount,
+            lastAbortReason: "pre-commit-transport-abort",
+            failureDigest: candidateEnqueueTransportAbortFailureDigest(error),
+          }
+          await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+            () =>
+              this.dependencies.stateStore.saveCandidateEnqueueRetryExhaustionAlert(
+                alert
+              )
+          )
+          throw new P2TRProductionCandidateEnqueueRetryExhaustedError(alert, {
+            cause: error,
+          })
         }
         const lastSQLState =
           this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
@@ -1793,6 +1829,19 @@ function candidateEnqueueNonRetryableFailureDigest(error: unknown): string {
       : "unknown non-retryable candidate enqueue failure"
   return `0x${createHash("sha256")
     .update("tbtc-p2tr-candidate-enqueue-non-retryable-failure/v1\0", "utf8")
+    .update(detail.slice(0, 4_096), "utf8")
+    .digest("hex")}`
+}
+
+function candidateEnqueueTransportAbortFailureDigest(error: unknown): string {
+  const detail =
+    error instanceof Error
+      ? `${error.name}\0${error.message}`
+      : typeof error === "string"
+      ? error
+      : "unknown candidate enqueue transport abort"
+  return `0x${createHash("sha256")
+    .update("tbtc-p2tr-candidate-enqueue-transport-abort/v1\0", "utf8")
     .update(detail.slice(0, 4_096), "utf8")
     .digest("hex")}`
 }

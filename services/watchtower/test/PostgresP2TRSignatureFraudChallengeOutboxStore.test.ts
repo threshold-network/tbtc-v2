@@ -179,7 +179,7 @@ async function createTestDatabase(
   maxActiveOutboxRecords = 1_024,
   domainChainID = CHAIN_ID,
   initialSignerConfiguration = signerConfiguration(),
-  throughMigrationVersion = 14
+  throughMigrationVersion = 15
 ): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   const resources = postgresTestResources.getStore()
@@ -252,6 +252,10 @@ async function createTestDatabase(
     ),
     new URL(
       "../migrations/014_p2tr_candidate_enqueue_rotation_resolution.sql",
+      import.meta.url
+    ),
+    new URL(
+      "../migrations/015_p2tr_candidate_enqueue_transport_exhaustion.sql",
       import.meta.url
     ),
   ]
