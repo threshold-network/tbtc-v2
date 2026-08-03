@@ -372,14 +372,42 @@ describe("StakeVault", () => {
       it("should apply the two-step delayed update", async () => {
         await vault.connect(deployer).beginMinSelfBondUpdate(to1e18(1000))
         await expect(
-          vault.connect(deployer).finalizeMinSelfBondUpdate()
+          vault.connect(deployer).finalizeMinSelfBondUpdate([])
         ).to.be.revertedWith("Governance delay has not elapsed")
         await increaseTime(GOVERNANCE_DELAY)
-        const tx = await vault.connect(deployer).finalizeMinSelfBondUpdate()
+        const tx = await vault.connect(deployer).finalizeMinSelfBondUpdate([])
         await expect(tx)
           .to.emit(vault, "MinSelfBondUpdated")
           .withArgs(to1e18(1000))
         expect(await vault.minSelfBond()).to.equal(to1e18(1000))
+      })
+
+      it("should atomically synchronize the complete roster when raising the floor", async () => {
+        const raisedFloor = to1e18(50_000)
+        await vault.connect(deployer).beginMinSelfBondUpdate(raisedFloor)
+        await increaseTime(GOVERNANCE_DELAY)
+
+        await seatAllocator.setRevertOnRosterSync(true)
+        await expect(
+          vault
+            .connect(deployer)
+            .finalizeMinSelfBondUpdate([operator.address, operator2.address])
+        ).to.be.revertedWith("MockSeatAllocator: roster sync reverted")
+        expect(await vault.minSelfBond()).to.equal(to1e18(1000))
+
+        await seatAllocator.setRevertOnRosterSync(false)
+        await vault
+          .connect(deployer)
+          .finalizeMinSelfBondUpdate([operator.address, operator2.address])
+
+        expect(await vault.minSelfBond()).to.equal(raisedFloor)
+        expect(await seatAllocator.synchronizedRosterLength()).to.equal(2)
+        expect(await seatAllocator.synchronizedRoster(0)).to.equal(
+          operator.address
+        )
+        expect(await seatAllocator.synchronizedRoster(1)).to.equal(
+          operator2.address
+        )
       })
     })
 

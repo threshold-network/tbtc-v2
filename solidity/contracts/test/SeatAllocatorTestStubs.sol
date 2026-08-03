@@ -343,6 +343,13 @@ contract StakingMockWalletRegistry {
     ) external {
         allocator.prepareAuthorizationMigration(stakingProviders);
     }
+
+    function callDetachAuthorizationSource(
+        SeatAllocator allocator,
+        address[] calldata stakingProviders
+    ) external {
+        allocator.detachAuthorizationSource(stakingProviders);
+    }
 }
 
 /// @notice Settable operator status / beneficiary source implementing
@@ -350,6 +357,7 @@ contract StakingMockWalletRegistry {
 contract StakingMockSignerRegistry is ISignerRegistry {
     mapping(address => OperatorStatus) internal statuses;
     mapping(address => address payable) internal beneficiaries;
+    mapping(address => bool) internal beneficiaryConfigured;
     mapping(address => uint16) internal commissions;
     mapping(address => address) internal nodeOperators;
     mapping(address => address) internal providers;
@@ -365,6 +373,7 @@ contract StakingMockSignerRegistry is ISignerRegistry {
         address payable beneficiary
     ) external {
         beneficiaries[stakingProvider] = beneficiary;
+        beneficiaryConfigured[stakingProvider] = true;
     }
 
     function setCommissionBps(address stakingProvider, uint16 commissionBps)
@@ -424,9 +433,10 @@ contract StakingMockSignerRegistry is ISignerRegistry {
         override
         returns (address payable)
     {
-        address payable beneficiary = beneficiaries[stakingProvider];
-        return
-            beneficiary != address(0) ? beneficiary : payable(stakingProvider);
+        if (beneficiaryConfigured[stakingProvider]) {
+            return beneficiaries[stakingProvider];
+        }
+        return payable(stakingProvider);
     }
 
     function commissionBpsOf(address stakingProvider)
@@ -493,6 +503,13 @@ contract StakingMockStakeVault is ISeatAllocatorStakeVault {
 
     function setMinSelfBond(uint96 amount) external {
         minSelfBondValue = amount;
+    }
+
+    function synchronizeAuthorizationRoster(
+        SeatAllocator allocator,
+        address[] calldata stakingProviders
+    ) external {
+        allocator.synchronizeAuthorizationRoster(stakingProviders);
     }
 
     function selfBondOf(address stakingProvider)

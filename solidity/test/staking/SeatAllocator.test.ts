@@ -276,6 +276,69 @@ describe("SeatAllocator", () => {
       expect(await allocator.lastSyncedRewardWeight(provider)).to.equal(0)
       expect(await rewardsDistributor.onWeightChangedCallCount()).to.equal(0)
     })
+
+    it("invalidates a cached provider omitted from both rollback rosters", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await mockRegistry.setOperatorInPool(provider, false)
+
+      // A provider can cache authorization before it ever joins the pool.
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.lastSyncedWeight(provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
+      expect(await allocator.lastSyncedGeneration(provider)).to.equal(0)
+
+      // The current pool roster omits that provider during detachment and the
+      // later reattachment. Ejection while detached makes its live weight 0.
+      await mockRegistry.callDetachAuthorizationSource(allocator.address, [
+        provider2,
+      ])
+      await signerRegistry.setOperatorStatus(provider, STATUS_EJECTED)
+      await mockRegistry.callPrepareAuthorizationMigration(allocator.address, [
+        provider2,
+      ])
+
+      expect(await allocator.authorizationGeneration()).to.equal(1)
+      expect(await allocator.lastSyncedWeight(provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
+
+      // A refresh cannot revive the stale snapshot when both live and
+      // generation-valid synchronized weight are zero.
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
+    })
+
+    it("atomically synchronizes authorization and reward weights after a global floor change", async () => {
+      await activate(provider)
+      await activate(provider2)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await stakeVault.setSelfBond(provider2, to18(60_000))
+      await stakeVault.setDelegatedAssets(provider, to18(10_000))
+      await stakeVault.setDelegatedAssets(provider2, to18(10_000))
+      await allocator.refreshAuthorization(provider)
+      await allocator.refreshAuthorization(provider2)
+
+      await stakeVault.setMinSelfBond(to18(50_000))
+      await stakeVault.synchronizeAuthorizationRoster(allocator.address, [
+        provider,
+        provider2,
+      ])
+
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
+      expect(await allocator.lastSyncedRewardWeight(provider)).to.equal(0)
+      expect(await allocator.authorizedWeight(provider2, provider2)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
+      expect(await allocator.lastSyncedRewardWeight(provider2)).to.equal(
+        to18(70_000)
+      )
+      expect(await mockRegistry.synchronizedRosterLength()).to.equal(2)
+      expect(await mockRegistry.synchronizedRoster(0)).to.equal(provider)
+      expect(await mockRegistry.synchronizedRoster(1)).to.equal(provider2)
+    })
   })
 
   // Option B — flat seat weight. Signing power is uniform by DAO curation:
@@ -1273,6 +1336,16 @@ describe("SeatAllocator", () => {
       expect(roles.stakeOwner).to.equal(governance.address)
       expect(roles.beneficiary).to.equal(beneficiary)
       expect(roles.authorizer).to.equal(ethers.constants.AddressZero)
+    })
+
+    it("falls back to the staking provider when no beneficiary is registered", async () => {
+      await signerRegistry.setBeneficiary(
+        provider,
+        ethers.constants.AddressZero
+      )
+
+      const roles = await allocator.rolesOf(provider)
+      expect(roles.beneficiary).to.equal(provider)
     })
   })
 

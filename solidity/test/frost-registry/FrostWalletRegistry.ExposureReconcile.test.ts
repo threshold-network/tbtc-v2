@@ -118,6 +118,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
     "0xabcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01"
   const walletKeyB =
     "0xbcdefa02bcdefa02bcdefa02bcdefa02bcdefa02bcdefa02bcdefa02bcdefa02"
+  const walletKeyC =
+    "0xcdefab03cdefab03cdefab03cdefab03cdefab03cdefab03cdefab03cdefab03"
 
   before(async function setupFixture() {
     // 100 sequential operator registrations + one DKG flow.
@@ -848,6 +850,51 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       )
       expect(await frostWalletRegistry.authorizationSource()).to.equal(
         frostAllowlist.address
+      )
+    })
+
+    it("advances the detached exit-gate source during legacy reconciliation", async function advancesDetachedFloor() {
+      this.timeout(300_000)
+      const ledgerRuntimeCode = await ethers.provider.getCode(ledger.address)
+
+      await hre.network.provider.send("hardhat_setCode", [ledger.address, "0x"])
+      let walletCMembers: number[] = []
+      try {
+        const { dkgResult } = await runDkgRound(
+          walletKeyC,
+          "frost-reconcile-seed-C"
+        )
+        walletCMembers = dkgResult.members
+      } finally {
+        await hre.network.provider.send("hardhat_setCode", [
+          ledger.address,
+          ledgerRuntimeCode,
+        ])
+      }
+
+      const callbackCountBefore =
+        await migrationSource.reconciledProvidersLength()
+      await migrationSource.setRevertExposureReconciliation(true)
+      await expect(
+        frostWalletRegistry
+          .connect(thirdParty)
+          .reconcileWalletExposure(walletKeyC, walletCMembers)
+      ).to.be.revertedWith("exposure reconciliation reverted")
+      expect(
+        (await ledger.getWalletExposure(walletKeyC)).epochs
+      ).to.have.lengthOf(0)
+
+      await migrationSource.setRevertExposureReconciliation(false)
+      await frostWalletRegistry
+        .connect(thirdParty)
+        .reconcileWalletExposure(walletKeyC, walletCMembers)
+
+      expect(await migrationSource.reconciledProvidersLength()).to.be.gt(
+        callbackCountBefore
+      )
+      expect(await ledger.getWalletExposure(walletKeyC)).to.have.property(
+        "live",
+        true
       )
     })
 

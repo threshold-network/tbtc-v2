@@ -73,6 +73,10 @@ library FrostWalletExposure {
         // cutover. Rollback uses it as the target roster so providers removed
         // by the stateful source can be reinserted atomically.
         address[] rollbackStakingProviders;
+        // Stateful source that enforces StakeVault's live-exposure exit gate.
+        // Retained across a rollback so one-shot repairs can still advance the
+        // detached allocator's per-provider exposure floors.
+        IFrostAuthorizationSource exitGateAuthorizationSource;
     }
 
     /// @notice Emitted when the wallet exposure ledger address is set.
@@ -145,6 +149,7 @@ library FrostWalletExposure {
     error LiveWalletRosterDuplicate();
     error LiveWalletRosterWalletNotRegistered();
     error LiveWalletRosterLedgerMismatch();
+    error ExitGateAuthorizationSourceUnavailable();
 
     /// @notice Validates and rewrites every active sortition-pool leaf for an
     ///         authorization-source migration. Kept in this linked library so
@@ -223,6 +228,7 @@ library FrostWalletExposure {
                 stakingProviders,
                 liveWalletProof
             );
+            self.exitGateAuthorizationSource = authorizationSource;
         }
 
         _rewriteMigrationRoster(
@@ -766,24 +772,52 @@ library FrostWalletExposure {
                 // one-shot, unsafe partial repair. Require both writes to
                 // succeed or revert them atomically.
                 authorizationSource.onWalletExposureReconciled(uniqueProviders);
-            } else if (address(authorizationSource).code.length != 0) {
-                try
-                    authorizationSource.onWalletExposureReconciled(
+            } else {
+                IFrostAuthorizationSource exitGateAuthorizationSource = self
+                    .exitGateAuthorizationSource;
+                bool currentSourceAdvancedFloor;
+
+                if (address(exitGateAuthorizationSource) != address(0)) {
+                    if (address(exitGateAuthorizationSource).code.length == 0) {
+                        revert ExitGateAuthorizationSourceUnavailable();
+                    }
+                    // StakeVault remains wired to the stateful allocator while
+                    // the registry is rolled back to the legacy source. Floor
+                    // advancement is therefore still part of the one-shot
+                    // repair and must succeed atomically with the ledger write.
+                    exitGateAuthorizationSource.onWalletExposureReconciled(
                         uniqueProviders
-                    )
-                {} catch {
+                    );
+                    currentSourceAdvancedFloor =
+                        address(exitGateAuthorizationSource) ==
+                        address(authorizationSource);
+                }
+
+                if (
+                    !currentSourceAdvancedFloor &&
+                    address(authorizationSource).code.length != 0
+                ) {
+                    try
+                        authorizationSource.onWalletExposureReconciled(
+                            uniqueProviders
+                        )
+                    {} catch {
+                        emit AuthorizationSourceCallbackFailed(
+                            IFrostAuthorizationSource
+                                .onWalletExposureReconciled
+                                .selector
+                        );
+                    }
+                } else if (
+                    !currentSourceAdvancedFloor &&
+                    address(authorizationSource).code.length == 0
+                ) {
                     emit AuthorizationSourceCallbackFailed(
                         IFrostAuthorizationSource
                             .onWalletExposureReconciled
                             .selector
                     );
                 }
-            } else {
-                emit AuthorizationSourceCallbackFailed(
-                    IFrostAuthorizationSource
-                        .onWalletExposureReconciled
-                        .selector
-                );
             }
 
             emit WalletExposureReconciledRegistered(walletID);

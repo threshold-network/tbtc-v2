@@ -242,6 +242,16 @@ contract SeatAllocator is
     mapping(uint256 => mapping(address => bool))
         public failedSlashProviderRetried;
 
+    /// @notice Generation of authorization snapshots accepted by
+    ///         {authorizedWeight}. Detachment advances the generation in O(1),
+    ///         invalidating snapshots for providers omitted from the current
+    ///         sortition-pool roster.
+    uint256 public authorizationGeneration;
+
+    /// @notice Generation in which each provider's authorization snapshot was
+    ///         last synchronized.
+    mapping(address => uint256) public lastSyncedGeneration;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots. Removing the delegation-factor and
@@ -249,7 +259,7 @@ contract SeatAllocator is
     // slots, so the gap is widened to keep the reserve at 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[28] private __gap;
+    uint256[26] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -318,6 +328,8 @@ contract SeatAllocator is
     error NodeOperatorMismatch();
     error SlashProviderAlreadyRetried();
     error SlashProviderNotInReport();
+    error NotStakeVault();
+    error AuthorizationSourceNotAttached();
 
     modifier onlyWalletRegistry() {
         if (msg.sender != address(frostWalletRegistry)) {
@@ -333,6 +345,11 @@ contract SeatAllocator is
 
     modifier onlySlashingModule() {
         if (msg.sender != address(slashingModule)) revert NotSlashingModule();
+        _;
+    }
+
+    modifier onlyStakeVault() {
+        if (msg.sender != address(stakeVault)) revert NotStakeVault();
         _;
     }
 
@@ -470,8 +487,9 @@ contract SeatAllocator is
         // rewrite every current pool leaf in the same transaction. Any roster,
         // pending-decrease, or DKG-state failure reverts the global value too.
         for (uint256 i = 0; i < stakingProviders.length; i++) {
-            lastSyncedWeight[stakingProviders[i]] = currentWeight(
-                stakingProviders[i]
+            _cacheAuthorizationWeight(
+                stakingProviders[i],
+                currentWeight(stakingProviders[i])
             );
         }
         frostWalletRegistry.migrateAuthorizationSource(
@@ -530,6 +548,31 @@ contract SeatAllocator is
         return equalSeatWeight;
     }
 
+    function _cacheAuthorizationWeight(address stakingProvider, uint96 weight)
+        internal
+    {
+        lastSyncedWeight[stakingProvider] = weight;
+        lastSyncedGeneration[stakingProvider] = authorizationGeneration;
+    }
+
+    /// @dev Returns zero for a snapshot invalidated by an authorization-source
+    ///      detachment, even after the allocator is later reattached. The
+    ///      generation check covers providers absent from both migration
+    ///      rosters without requiring an enumerable cache.
+    function _cachedAuthorizationWeight(address stakingProvider)
+        internal
+        view
+        returns (uint96)
+    {
+        if (
+            !authorizationAttached ||
+            lastSyncedGeneration[stakingProvider] != authorizationGeneration
+        ) {
+            return 0;
+        }
+        return lastSyncedWeight[stakingProvider];
+    }
+
     /// @notice The staking provider's UNCAPPED reward weight: the total
     ///         delegated capital backing the provider
     ///         (`selfBondOf + delegatedAssetsOf`), used solely to apportion
@@ -583,7 +626,7 @@ contract SeatAllocator is
         }
         if (
             currentWeight(stakingProvider) == 0 ||
-            lastSyncedWeight[stakingProvider] == 0 ||
+            _cachedAuthorizationWeight(stakingProvider) == 0 ||
             decreasePending[stakingProvider] ||
             !frostWalletRegistry.isOperatorInPool(
                 signerRegistry.nodeOperatorOf(stakingProvider)
@@ -629,7 +672,7 @@ contract SeatAllocator is
     ///      reverts so stale weight can never earn after withdrawal.
     function refreshAuthorization(address stakingProvider) external override {
         uint96 newWeight = currentWeight(stakingProvider);
-        uint96 syncedWeight = lastSyncedWeight[stakingProvider];
+        uint96 syncedWeight = _cachedAuthorizationWeight(stakingProvider);
         uint96 newRewardWeight = rewardWeight(stakingProvider);
         uint96 syncedRewardWeight = lastSyncedRewardWeight[stakingProvider];
         bool rewardWeightReduction = newRewardWeight < syncedRewardWeight;
@@ -679,7 +722,7 @@ contract SeatAllocator is
                     newWeight
                 )
             {
-                lastSyncedWeight[stakingProvider] = newWeight;
+                _cacheAuthorizationWeight(stakingProvider, newWeight);
                 emit WeightIncreased(stakingProvider, syncedWeight, newWeight);
             } catch {
                 if (rewardWeightReduction) {
@@ -771,6 +814,39 @@ contract SeatAllocator is
         lastSyncedRewardWeight[stakingProvider] = newRewardWeight;
     }
 
+    /// @notice See {ISeatAllocator-synchronizeAuthorizationRoster}.
+    function synchronizeAuthorizationRoster(address[] calldata stakingProviders)
+        external
+        override
+        onlyStakeVault
+    {
+        if (!authorizationAttached) revert AuthorizationSourceNotAttached();
+
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            _cacheAuthorizationWeight(
+                stakingProvider,
+                currentWeight(stakingProvider)
+            );
+
+            uint96 newRewardWeight = rewardWeight(stakingProvider);
+            rewardsDistributor.onWeightChanged(
+                stakingProvider,
+                newRewardWeight
+            );
+            lastSyncedRewardWeight[stakingProvider] = newRewardWeight;
+            weightDirty[stakingProvider] = false;
+        }
+
+        frostWalletRegistry.migrateAuthorizationSource(
+            IFrostAuthorizationSource(address(this)),
+            true,
+            address(0),
+            stakingProviders,
+            ""
+        );
+    }
+
     /// @notice Atomically prepares the active registry roster for an
     ///         authorization-source migration. Called by the wallet registry
     ///         from its governed source-migration transaction before it
@@ -814,7 +890,7 @@ contract SeatAllocator is
             delete pendingDecreaseTarget[stakingProvider];
 
             uint96 authorizationWeight = currentWeight(stakingProvider);
-            lastSyncedWeight[stakingProvider] = authorizationWeight;
+            _cacheAuthorizationWeight(stakingProvider, authorizationWeight);
             uint96 newRewardWeight = rewardWeight(stakingProvider);
             rewardsDistributor.onWeightChanged(
                 stakingProvider,
@@ -841,9 +917,10 @@ contract SeatAllocator is
         onlyWalletRegistry
     {
         authorizationAttached = false;
+        authorizationGeneration += 1;
         for (uint256 i = 0; i < stakingProviders.length; i++) {
             address stakingProvider = stakingProviders[i];
-            lastSyncedWeight[stakingProvider] = 0;
+            _cacheAuthorizationWeight(stakingProvider, 0);
             decreasePending[stakingProvider] = false;
             delete pendingDecreaseTarget[stakingProvider];
             if (lastSyncedRewardWeight[stakingProvider] != 0) {
@@ -868,7 +945,7 @@ contract SeatAllocator is
         if (signerRegistry.nodeOperatorOf(stakingProvider) != operator) {
             return 0;
         }
-        return lastSyncedWeight[stakingProvider];
+        return _cachedAuthorizationWeight(stakingProvider);
     }
 
     /// @notice Finalizes a previously requested authorization decrease.
@@ -894,10 +971,10 @@ contract SeatAllocator is
             revert NoDecreasePending();
         }
 
-        uint96 oldWeight = lastSyncedWeight[stakingProvider];
+        uint96 oldWeight = _cachedAuthorizationWeight(stakingProvider);
         uint96 newWeight = pendingDecreaseTarget[stakingProvider];
 
-        lastSyncedWeight[stakingProvider] = newWeight;
+        _cacheAuthorizationWeight(stakingProvider, newWeight);
         decreasePending[stakingProvider] = false;
         delete pendingDecreaseTarget[stakingProvider];
 
@@ -922,11 +999,11 @@ contract SeatAllocator is
             address authorizer
         )
     {
-        return (
-            owner(),
-            signerRegistry.beneficiaryOf(stakingProvider),
-            address(0)
-        );
+        beneficiary = signerRegistry.beneficiaryOf(stakingProvider);
+        if (beneficiary == address(0)) {
+            beneficiary = payable(stakingProvider);
+        }
+        return (owner(), beneficiary, address(0));
     }
 
     /// @notice Books a malicious behavior report against the listed staking

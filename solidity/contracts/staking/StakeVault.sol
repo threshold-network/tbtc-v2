@@ -400,14 +400,24 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         emit MinSelfBondUpdateStarted(_newMinSelfBond, timestamp);
     }
 
-    /// @notice Finalizes the minimum self-bond update process.
-    /// @dev Can be called only after the governance delay elapsed.
-    function finalizeMinSelfBondUpdate() external onlyOwner {
+    /// @notice Finalizes the minimum self-bond update process and atomically
+    ///         synchronizes every current sortition-pool provider against the
+    ///         new eligibility floor.
+    /// @param stakingProviders Complete current sortition-pool roster. The
+    ///        wallet registry validates completeness and uniqueness.
+    /// @dev Can be called only after the governance delay elapsed. Any
+    ///      authorization, reward-weight, roster, or pool-leaf sync failure
+    ///      reverts the global floor update too.
+    function finalizeMinSelfBondUpdate(address[] calldata stakingProviders)
+        external
+        onlyOwner
+    {
         GovernanceUtils.onlyAfterGovernanceDelay(
             minSelfBondChangeInitiated,
             governanceDelay
         );
         minSelfBond = newMinSelfBond;
+        seatAllocator.synchronizeAuthorizationRoster(stakingProviders);
         emit MinSelfBondUpdated(minSelfBond);
         minSelfBondChangeInitiated = 0;
         newMinSelfBond = 0;

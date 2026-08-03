@@ -13,6 +13,8 @@ contract MockSeatAllocator is ISeatAllocator {
     mapping(address => uint256) public refreshCount;
     address public lastRefreshedProvider;
     bool public revertOnRefresh;
+    bool public revertOnRosterSync;
+    address[] public synchronizedRoster;
 
     mapping(address => uint96) public weights;
     mapping(address => uint256) public override queuedSlashCount;
@@ -25,6 +27,10 @@ contract MockSeatAllocator is ISeatAllocator {
 
     function setRevertOnRefresh(bool _revertOnRefresh) external {
         revertOnRefresh = _revertOnRefresh;
+    }
+
+    function setRevertOnRosterSync(bool _revertOnRosterSync) external {
+        revertOnRosterSync = _revertOnRosterSync;
     }
 
     function setWeight(address stakingProvider, uint96 weight) external {
@@ -93,6 +99,18 @@ contract MockSeatAllocator is ISeatAllocator {
     function checkpointRewards(address) external override {}
 
     function syncRewardWeightAfterSlash(address) external override {}
+
+    function synchronizeAuthorizationRoster(address[] calldata stakingProviders)
+        external
+        override
+    {
+        require(!revertOnRosterSync, "MockSeatAllocator: roster sync reverted");
+        synchronizedRoster = stakingProviders;
+    }
+
+    function synchronizedRosterLength() external view returns (uint256) {
+        return synchronizedRoster.length;
+    }
 
     function currentWeight(address stakingProvider)
         external
