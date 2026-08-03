@@ -187,10 +187,6 @@ describe("Delegated staking production-contract integration", () => {
     await seatAllocator.setRewardsDistributor(rewardsDistributor.address)
     await rewardsDistributor.setFeeRouter(feeRouter.address)
     await feeRouter.setRewardsDistributor(rewardsDistributor.address)
-    await frostWalletRegistry.setWalletExposureLedger(
-      walletExposureLedger.address
-    )
-
     // Activate one real signer and self-bond it while Phase 0 still uses the
     // event-only FrostAllowlist.
     await signerRegistry.beginOperatorAddition(
@@ -218,6 +214,8 @@ describe("Delegated staking production-contract integration", () => {
     // the real allocator and rewrites the existing pool leaf.
     await frostWalletRegistry.migrateAuthorizationSource(
       seatAllocator.address,
+      true,
+      walletExposureLedger.address,
       [provider.address],
       ethers.utils.defaultAbiCoder.encode(
         ["bytes32[]", "uint256", "uint256"],
@@ -227,8 +225,20 @@ describe("Delegated staking production-contract integration", () => {
     expect(await frostWalletRegistry.authorizationSource()).to.equal(
       seatAllocator.address
     )
+    expect(await frostWalletRegistry.walletExposureLedger()).to.equal(
+      walletExposureLedger.address
+    )
     expect(await frostWalletRegistry.eligibleStake(provider.address)).to.equal(
       to18(40_000)
+    )
+
+    // A uniform-seat-weight change is not visible until every current pool
+    // leaf is rewritten in the same finalization transaction.
+    await seatAllocator.beginEqualSeatWeightUpdate(to18(80_000))
+    await helpers.time.increaseTime(2)
+    await seatAllocator.finalizeEqualSeatWeightUpdate([provider.address])
+    expect(await frostWalletRegistry.eligibleStake(provider.address)).to.equal(
+      to18(80_000)
     )
 
     await stakeVault.beginDelegationUpdate(true)
@@ -287,6 +297,18 @@ describe("Delegated staking production-contract integration", () => {
       await stakeVault.claimableRewardsOf(provider.address, delegator.address)
     ).to.equal(to18(60))
 
+    // Rollback detaches allocator callbacks before restoring the legacy
+    // source. Subsequent stake and signer lifecycle actions remain available
+    // even though the allocator held a non-zero synchronized seat weight.
+    await frostWalletRegistry.migrateAuthorizationSource(
+      frostAllowlist.address,
+      false,
+      ethers.constants.AddressZero,
+      [provider.address],
+      "0x"
+    )
+    expect(await seatAllocator.authorizationAttached()).to.be.false
+
     const shares = await stakeVault.sharesOf(
       provider.address,
       delegator.address
@@ -301,5 +323,8 @@ describe("Delegated staking production-contract integration", () => {
 
     await stakeVault.connect(delegator).claimRewards(provider.address)
     expect(await tbtcToken.balanceOf(delegator.address)).to.equal(to18(60))
+    await expect(signerRegistry.ejectOperator(provider.address))
+      .to.emit(signerRegistry, "OperatorEjected")
+      .withArgs(provider.address)
   })
 })

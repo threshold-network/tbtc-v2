@@ -26,13 +26,29 @@ import "../staking/api/IRewardsDistributor.sol";
 contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
     mapping(address => uint96) public weights;
     uint256 public prepareCalls;
+    uint256 public detachCalls;
+    bool public revertPreparationWithoutData;
 
     function setWeight(address stakingProvider, uint96 weight) external {
         weights[stakingProvider] = weight;
     }
 
     function prepareAuthorizationMigration(address[] calldata) external {
+        if (revertPreparationWithoutData) {
+            // solhint-disable-next-line no-inline-assembly
+            assembly {
+                revert(0, 0)
+            }
+        }
         prepareCalls += 1;
+    }
+
+    function detachAuthorizationSource(address[] calldata) external {
+        detachCalls += 1;
+    }
+
+    function setRevertPreparationWithoutData(bool value) external {
+        revertPreparationWithoutData = value;
     }
 
     function authorizedWeight(address stakingProvider, address)
@@ -86,6 +102,51 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
     {}
 }
 
+/// @dev Phase-0-shaped source deliberately omitting the post-Phase-0
+///      inactivity, exposure-reconcile, and migration-hook selectors.
+contract LegacyMigrationAuthorizationSource {
+    mapping(address => uint96) public weights;
+
+    function setWeight(address stakingProvider, uint96 weight) external {
+        weights[stakingProvider] = weight;
+    }
+
+    function authorizedWeight(address stakingProvider, address)
+        external
+        view
+        returns (uint96)
+    {
+        return weights[stakingProvider];
+    }
+
+    function approveAuthorizationDecrease(address stakingProvider)
+        external
+        view
+        returns (uint96)
+    {
+        return weights[stakingProvider];
+    }
+
+    function rolesOf(address stakingProvider)
+        external
+        pure
+        returns (
+            address,
+            address payable,
+            address
+        )
+    {
+        return (address(0), payable(stakingProvider), address(0));
+    }
+
+    function reportMaliciousBehavior(
+        uint96,
+        uint256,
+        address,
+        address[] memory
+    ) external pure {}
+}
+
 /// @dev Test stubs for the delegated staking module's seat allocator and
 ///      wallet exposure ledger tests. `StakingMockWalletRegistry` records
 ///      the authorization callbacks the allocator drives and forwards
@@ -108,7 +169,12 @@ contract StakingMockWalletRegistry {
 
     uint96 public lastApprovedWeight;
 
+    address public walletExposureLedger;
+
     bool public revertOnAuthorizationCalls;
+    mapping(address => bool) internal poolMembershipConfigured;
+    mapping(address => bool) internal poolMembership;
+    address[] public synchronizedRoster;
 
     /// @dev Mirrors the real FROST registry's pool-eligibility floor
     ///      (`minimumAuthorization()`). Defaults to the genesis 40,000e18 so
@@ -123,6 +189,33 @@ contract StakingMockWalletRegistry {
 
     function setMinimumAuthorization(uint96 _minimumAuthorization) external {
         minimumAuthorization = _minimumAuthorization;
+    }
+
+    function setWalletExposureLedger(address ledger) external {
+        walletExposureLedger = ledger;
+    }
+
+    function setOperatorInPool(address operator, bool inPool) external {
+        poolMembershipConfigured[operator] = true;
+        poolMembership[operator] = inPool;
+    }
+
+    function isOperatorInPool(address operator) external view returns (bool) {
+        return !poolMembershipConfigured[operator] || poolMembership[operator];
+    }
+
+    function migrateAuthorizationSource(
+        IFrostAuthorizationSource,
+        bool,
+        address,
+        address[] calldata stakingProviders,
+        bytes calldata
+    ) external {
+        synchronizedRoster = stakingProviders;
+    }
+
+    function synchronizedRosterLength() external view returns (uint256) {
+        return synchronizedRoster.length;
     }
 
     function authorizationIncreased(
@@ -437,6 +530,7 @@ contract StakingMockStakeVault is ISeatAllocatorStakeVault {
 contract StakingMockSlashingModule is ISlashingModule {
     StakingMockStakeVault public vault;
     bool public revertOnReport;
+    bool public override economicSlashingEnabled;
 
     uint256 public reportCallCount;
     uint96 public lastPerSeatAmount;
@@ -454,6 +548,10 @@ contract StakingMockSlashingModule is ISlashingModule {
         revertOnReport = _revertOnReport;
     }
 
+    function setEconomicSlashingEnabled(bool enabled) external {
+        economicSlashingEnabled = enabled;
+    }
+
     function setPendingSlashCount(address stakingProvider, uint256 count)
         external
     {
@@ -468,10 +566,15 @@ contract StakingMockSlashingModule is ISlashingModule {
         address[] calldata stakingProviders,
         uint96 perSeatAmount,
         uint256 rewardMultiplier,
-        address notifier
+        address notifier,
+        bool requireEconomicSlashing
     ) external override {
         // solhint-disable-next-line reason-string, custom-errors
         require(!revertOnReport, "StakingMockSlashingModule: forced revert");
+        require(
+            !requireEconomicSlashing || economicSlashingEnabled,
+            "StakingMockSlashingModule: economic slashing disabled"
+        );
 
         reportCallCount++;
         lastPerSeatAmount = perSeatAmount;

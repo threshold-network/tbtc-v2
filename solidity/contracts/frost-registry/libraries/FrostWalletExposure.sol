@@ -25,6 +25,9 @@ import "../../staking/api/IWalletExposureLedger.sol";
 interface IFrostAuthorizationMigration {
     function prepareAuthorizationMigration(address[] calldata stakingProviders)
         external;
+
+    function detachAuthorizationSource(address[] calldata stakingProviders)
+        external;
 }
 
 interface IFrostRegistryGovernance {
@@ -33,6 +36,13 @@ interface IFrostRegistryGovernance {
 
 interface IFrostRegistryDkgState {
     function getWalletCreationState() external view returns (uint8);
+}
+
+interface IFrostRegistryAuthorizationState {
+    function authorizationSource()
+        external
+        view
+        returns (IFrostAuthorizationSource);
 }
 
 /// @title FROST wallet exposure notification
@@ -57,6 +67,12 @@ library FrostWalletExposure {
         uint256 historicalWalletsCreated;
         uint256 historicalWalletsClosed;
         bool historicalWalletCountSet;
+        // True while the current source uses the stateful migration hooks.
+        bool statefulAuthorizationSource;
+        // Complete legacy roster captured immediately before the stateful
+        // cutover. Rollback uses it as the target roster so providers removed
+        // by the stateful source can be reinserted atomically.
+        address[] rollbackStakingProviders;
     }
 
     /// @notice Emitted when the wallet exposure ledger address is set.
@@ -71,6 +87,7 @@ library FrostWalletExposure {
     ///         bricked by the ledger. Emitted via delegatecall, so the
     ///         log is attributed to the `FrostWalletRegistry` address.
     event WalletExposureLedgerCallFailed(bytes32 indexed walletID);
+    event AuthorizationSourceCallbackFailed(bytes4 indexed selector);
 
     /// @notice Emitted when a swallowed `onWalletRegistered` hook is repaired
     ///         by `reconcile`: a wallet the registry still confirms as
@@ -117,8 +134,10 @@ library FrostWalletExposure {
     ///         approval and wallet closure.
     error WalletExposureLedgerNotContract();
     error AuthorizationSourceAddressZero();
+    error AuthorizationSourceNotContract();
     error CallerNotGovernanceOrProxyAdmin();
     error AuthorizationMigrationPreparationFailed(bytes reason);
+    error AuthorizationMigrationDetachmentFailed(bytes reason);
     error WalletExposureLedgerMigrationNotReady();
     error HistoricalWalletCountInvalid();
     error HistoricalWalletCountMismatch();
@@ -136,6 +155,8 @@ library FrostWalletExposure {
         SortitionPool sortitionPool,
         FrostRegistryWallets.Data storage wallets,
         IFrostAuthorizationSource authorizationSource,
+        bool statefulTarget,
+        address walletExposureLedger,
         address[] calldata stakingProviders,
         bytes calldata liveWalletProof
     ) external {
@@ -143,6 +164,30 @@ library FrostWalletExposure {
             IFrostRegistryDkgState(address(this)).getWalletCreationState() == 0,
             "Current state is not IDLE"
         );
+        IFrostAuthorizationSource currentAuthorizationSource = IFrostRegistryAuthorizationState(
+                address(this)
+            ).authorizationSource();
+        if (
+            msg.sender == address(currentAuthorizationSource) &&
+            address(authorizationSource) ==
+            address(currentAuthorizationSource) &&
+            statefulTarget == self.statefulAuthorizationSource &&
+            walletExposureLedger == address(0) &&
+            liveWalletProof.length == 0
+        ) {
+            _validateCurrentAuthorizationRoster(
+                authorization,
+                sortitionPool,
+                stakingProviders
+            );
+            _rewriteAuthorizationRoster(
+                authorization,
+                sortitionPool,
+                authorizationSource,
+                stakingProviders
+            );
+            return;
+        }
         if (
             msg.sender != IFrostRegistryGovernance(address(this)).governance()
         ) {
@@ -158,38 +203,116 @@ library FrostWalletExposure {
         if (address(authorizationSource) == address(0)) {
             revert AuthorizationSourceAddressZero();
         }
-        emit AuthorizationSourceUpdated(address(authorizationSource));
-        _validateAuthorizationRoster(
+        if (address(authorizationSource).code.length == 0) {
+            revert AuthorizationSourceNotContract();
+        }
+        _validateCurrentAuthorizationRoster(
             authorization,
             sortitionPool,
             stakingProviders
         );
 
-        // Stateful sources seed their synchronized authorization/reward state
-        // here. The deployed Phase-0 FrostAllowlist predates this optional
-        // hook, so tolerate only an empty-data missing-selector revert. Bubble
-        // every real hook failure so the surrounding source change rolls back.
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool prepared, bytes memory returnData) = address(authorizationSource)
-            .call(
-                abi.encodeWithSelector(
-                    IFrostAuthorizationMigration
-                        .prepareAuthorizationMigration
-                        .selector,
-                    stakingProviders
-                )
+        _detachCurrentStatefulSource(self, stakingProviders);
+
+        if (statefulTarget) {
+            _prepareStatefulTarget(
+                self,
+                wallets,
+                authorizationSource,
+                walletExposureLedger,
+                stakingProviders,
+                liveWalletProof
             );
-        if (!prepared && returnData.length != 0) {
-            revert AuthorizationMigrationPreparationFailed(returnData);
         }
 
-        // The legacy FrostAllowlist has no preparation hook. A successful
-        // preparation call identifies a stateful authorization source (the
-        // SeatAllocator in production), for which stake exits depend on a
-        // complete wallet exposure ledger. Gate that migration on a complete,
-        // event-auditable roster while keeping emergency rollback available.
-        if (prepared) {
-            _verifyLiveWalletRoster(self, wallets, liveWalletProof);
+        _rewriteMigrationRoster(
+            self,
+            authorization,
+            sortitionPool,
+            authorizationSource,
+            statefulTarget,
+            stakingProviders
+        );
+
+        self.statefulAuthorizationSource = statefulTarget;
+        emit AuthorizationSourceUpdated(address(authorizationSource));
+    }
+
+    function _detachCurrentStatefulSource(
+        Data storage self,
+        address[] calldata stakingProviders
+    ) private {
+        if (!self.statefulAuthorizationSource) return;
+
+        try
+            IFrostAuthorizationMigration(
+                address(
+                    IFrostRegistryAuthorizationState(address(this))
+                        .authorizationSource()
+                )
+            ).detachAuthorizationSource(stakingProviders)
+        {} catch (bytes memory reason) {
+            revert AuthorizationMigrationDetachmentFailed(reason);
+        }
+    }
+
+    function _prepareStatefulTarget(
+        Data storage self,
+        FrostRegistryWallets.Data storage wallets,
+        IFrostAuthorizationSource authorizationSource,
+        address walletExposureLedger,
+        address[] calldata stakingProviders,
+        bytes calldata liveWalletProof
+    ) private {
+        if (!self.statefulAuthorizationSource) {
+            delete self.rollbackStakingProviders;
+            for (uint256 i = 0; i < stakingProviders.length; i++) {
+                self.rollbackStakingProviders.push(stakingProviders[i]);
+            }
+        }
+
+        if (address(self.ledger) == address(0)) {
+            _setLedger(self, walletExposureLedger);
+        } else if (
+            walletExposureLedger != address(0) &&
+            walletExposureLedger != address(self.ledger)
+        ) {
+            revert WalletExposureLedgerAlreadySet();
+        }
+
+        // Stateful capability is explicit in calldata. Any preparation
+        // failure, including an empty-data revert, is therefore a real failure
+        // and must roll the source change back.
+        try
+            IFrostAuthorizationMigration(address(authorizationSource))
+                .prepareAuthorizationMigration(stakingProviders)
+        {} catch (bytes memory reason) {
+            revert AuthorizationMigrationPreparationFailed(reason);
+        }
+        _verifyLiveWalletRoster(self, wallets, liveWalletProof);
+    }
+
+    function _rewriteMigrationRoster(
+        Data storage self,
+        Authorization.Data storage authorization,
+        SortitionPool sortitionPool,
+        IFrostAuthorizationSource authorizationSource,
+        bool statefulTarget,
+        address[] calldata stakingProviders
+    ) private {
+        if (self.statefulAuthorizationSource && !statefulTarget) {
+            _validateTargetAuthorizationRoster(
+                authorization,
+                self.rollbackStakingProviders
+            );
+            _rewriteRollbackRoster(
+                authorization,
+                sortitionPool,
+                authorizationSource,
+                stakingProviders,
+                self.rollbackStakingProviders
+            );
+            return;
         }
 
         _rewriteAuthorizationRoster(
@@ -200,7 +323,7 @@ library FrostWalletExposure {
         );
     }
 
-    function _validateAuthorizationRoster(
+    function _validateCurrentAuthorizationRoster(
         Authorization.Data storage authorization,
         SortitionPool sortitionPool,
         address[] calldata stakingProviders
@@ -234,6 +357,25 @@ library FrostWalletExposure {
         }
     }
 
+    function _validateTargetAuthorizationRoster(
+        Authorization.Data storage authorization,
+        address[] storage stakingProviders
+    ) private view {
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            require(
+                authorization.stakingProviderToOperator[stakingProvider] !=
+                    address(0),
+                "Authorization roster operator unknown"
+            );
+            require(
+                authorization.pendingDecreases[stakingProvider].decreasingAt ==
+                    0,
+                "Authorization decrease pending"
+            );
+        }
+    }
+
     function _rewriteAuthorizationRoster(
         Authorization.Data storage authorization,
         SortitionPool sortitionPool,
@@ -241,11 +383,43 @@ library FrostWalletExposure {
         address[] calldata stakingProviders
     ) private {
         for (uint256 i = 0; i < stakingProviders.length; i++) {
-            authorization.updateOperatorStatus(
+            authorization.migrateOperatorStatus(
                 authorizationSource,
                 sortitionPool,
                 authorization.stakingProviderToOperator[stakingProviders[i]]
             );
+        }
+    }
+
+    function _rewriteRollbackRoster(
+        Authorization.Data storage authorization,
+        SortitionPool sortitionPool,
+        IFrostAuthorizationSource authorizationSource,
+        address[] calldata currentStakingProviders,
+        address[] storage rollbackStakingProviders
+    ) private {
+        // Rewrite every currently pooled leaf first. Providers absent from the
+        // legacy roster normally resolve to zero and are removed.
+        _rewriteAuthorizationRoster(
+            authorization,
+            sortitionPool,
+            authorizationSource,
+            currentStakingProviders
+        );
+
+        // Reinsert every preserved legacy provider whose stateful weight had
+        // fallen to zero and removed it from the pool.
+        for (uint256 i = 0; i < rollbackStakingProviders.length; i++) {
+            address operator = authorization.stakingProviderToOperator[
+                rollbackStakingProviders[i]
+            ];
+            if (!sortitionPool.isOperatorInPool(operator)) {
+                authorization.migrateOperatorStatus(
+                    authorizationSource,
+                    sortitionPool,
+                    operator
+                );
+            }
         }
     }
 
@@ -331,6 +505,10 @@ library FrostWalletExposure {
     ///         function.
     /// @param _ledger Address of the wallet exposure ledger.
     function setLedger(Data storage self, address _ledger) external {
+        _setLedger(self, _ledger);
+    }
+
+    function _setLedger(Data storage self, address _ledger) private {
         if (address(self.ledger) != address(0)) {
             revert WalletExposureLedgerAlreadySet();
         }
@@ -567,7 +745,25 @@ library FrostWalletExposure {
                 uniqueProviders,
                 uniqueSeatCounts
             );
-            authorizationSource.onWalletExposureReconciled(uniqueProviders);
+            if (address(authorizationSource).code.length != 0) {
+                try
+                    authorizationSource.onWalletExposureReconciled(
+                        uniqueProviders
+                    )
+                {} catch {
+                    emit AuthorizationSourceCallbackFailed(
+                        IFrostAuthorizationSource
+                            .onWalletExposureReconciled
+                            .selector
+                    );
+                }
+            } else {
+                emit AuthorizationSourceCallbackFailed(
+                    IFrostAuthorizationSource
+                        .onWalletExposureReconciled
+                        .selector
+                );
+            }
 
             emit WalletExposureReconciledRegistered(walletID);
         } else {

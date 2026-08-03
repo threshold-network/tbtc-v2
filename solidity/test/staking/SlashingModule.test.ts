@@ -385,7 +385,7 @@ describe("SlashingModule", () => {
       await expect(
         slashingModule
           .connect(executor)
-          .report([operator.address], to1e18(100), 0, notifier.address)
+          .report([operator.address], to1e18(100), 0, notifier.address, false)
       ).to.be.revertedWith("CallerNotSeatAllocator")
     })
 
@@ -403,6 +403,18 @@ describe("SlashingModule", () => {
       await slashingModule.connect(deployer).finalizeEconomicSlashingUpdate()
 
       await vault.connect(operator).depositSelfBond(to1e18(1000))
+      await expect(
+        seatAllocator.reportViaModuleWithEnforcement(
+          slashingModule.address,
+          [operator.address],
+          to1e18(100),
+          0,
+          notifier.address,
+          true
+        )
+      ).to.be.revertedWith("EconomicSlashingRequired")
+      expect(await vault.selfBondOf(operator.address)).to.equal(to1e18(1000))
+
       const tx = await report([operator.address], to1e18(100), 0)
       await expect(tx).to.emit(slashingModule, "SlashReportRecorded")
       expect(await vault.selfBondOf(operator.address)).to.equal(to1e18(1000))

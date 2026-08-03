@@ -74,6 +74,7 @@ library FrostInactivity {
         address notifier
     );
     event DkgValidatorUpdated(address indexed dkgValidator);
+    event AuthorizationSourceCallbackFailed(bytes4 indexed selector);
 
     /// @notice Replaces the registry's DKG validator while no DKG is active.
     function setDkgValidator(
@@ -171,10 +172,22 @@ library FrostInactivity {
             address operator = sortitionPool.getIDOperator(inactiveMembers[i]);
             inactiveProviders[i] = operatorToStakingProvider[operator];
         }
-        authorizationSource.onOperatorInactivity(
-            inactiveProviders,
-            ineligibleUntil
-        );
+        if (address(authorizationSource).code.length != 0) {
+            try
+                authorizationSource.onOperatorInactivity(
+                    inactiveProviders,
+                    ineligibleUntil
+                )
+            {} catch {
+                emit AuthorizationSourceCallbackFailed(
+                    IFrostAuthorizationSource.onOperatorInactivity.selector
+                );
+            }
+        } else {
+            emit AuthorizationSourceCallbackFailed(
+                IFrostAuthorizationSource.onOperatorInactivity.selector
+            );
+        }
     }
 
     function _verifyClaim(

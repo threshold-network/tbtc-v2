@@ -68,7 +68,7 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
     error EthTransferFailed();
     error AlreadySet();
     error BankBalanceNotMigrated();
-    error TbtcBalanceNotMigrated();
+    error TbtcTokenChangeUnsupported();
 
     /// @notice Must match `TBTCVault.SATOSHI_MULTIPLIER`: the number of TBTC
     ///         wei minted per satoshi of Bank balance.
@@ -272,9 +272,9 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
         newDaoTreasury = address(0);
     }
 
-    /// @notice Begins a delayed Bank/TBTCVault/TBTC infrastructure update. A
-    ///         vault swap normally retains Bank and TBTC; accepting all three
-    ///         pointers also supports a coordinated infrastructure migration.
+    /// @notice Begins a delayed Bank/TBTCVault infrastructure update. The
+    ///         reward token is included as an explicit invariant check and
+    ///         cannot change after initialization.
     function beginInfrastructureUpdate(
         address _newBank,
         address _newTbtcVault,
@@ -286,6 +286,12 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
             _newTbtcToken == address(0)
         ) {
             revert ZeroAddress();
+        }
+        // RewardsDistributor and StakeVault intentionally bind the reward
+        // token at initialization. A router-only token swap would strand the
+        // new asset and leave downstream accounting backed by the old token.
+        if (_newTbtcToken != address(tbtcToken)) {
+            revert TbtcTokenChangeUnsupported();
         }
         newBank = IFeeRouterBank(_newBank);
         newTbtcVault = IFeeRouterTbtcVault(_newTbtcVault);
@@ -301,26 +307,23 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
         /* solhint-enable not-rely-on-time */
     }
 
-    /// @notice Finalizes the pending infrastructure update. Changing Bank or
-    ///         TBTC is allowed only after the corresponding old balance has
-    ///         moved. Changing only the vault remains possible with a non-zero
-    ///         Bank balance so a failed/stale vault can be recovered.
+    /// @notice Finalizes the pending infrastructure update. Changing Bank is
+    ///         allowed only after its old balance has moved. Changing only the
+    ///         vault remains possible with a non-zero Bank balance so a
+    ///         failed/stale vault can be recovered.
     function finalizeInfrastructureUpdate() external onlyOwner {
         GovernanceUtils.onlyAfterGovernanceDelay(
             infrastructureChangeInitiated,
             governanceDelay
         );
+        if (address(newTbtcToken) != address(tbtcToken)) {
+            revert TbtcTokenChangeUnsupported();
+        }
         if (
             address(newBank) != address(bank) &&
             bank.balanceOf(address(this)) != 0
         ) {
             revert BankBalanceNotMigrated();
-        }
-        if (
-            address(newTbtcToken) != address(tbtcToken) &&
-            tbtcToken.balanceOf(address(this)) != 0
-        ) {
-            revert TbtcBalanceNotMigrated();
         }
         bank = newBank;
         tbtcVault = newTbtcVault;

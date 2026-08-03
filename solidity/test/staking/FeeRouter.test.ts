@@ -691,26 +691,22 @@ describe("FeeRouter", () => {
       ).to.be.revertedWith("BankBalanceNotMigrated")
     })
 
-    it("should not abandon a TBTC balance when changing the token", async () => {
+    it("should reject changing the downstream-bound reward token", async () => {
       const TokenFactory = await ethers.getContractFactory(
         "contracts/test/staking/StakingFeeMocks.sol:StakingTestToken"
       )
       const replacementToken = (await TokenFactory.connect(
         deployer
       ).deploy()) as StakingTestToken
-      await tbtc.connect(deployer).mint(feeRouter.address, to1e18(1))
-
-      await feeRouter
-        .connect(deployer)
-        .beginInfrastructureUpdate(
-          bank.address,
-          tbtcVault.address,
-          replacementToken.address
-        )
-      await increaseTime(GOVERNANCE_DELAY)
       await expect(
-        feeRouter.connect(deployer).finalizeInfrastructureUpdate()
-      ).to.be.revertedWith("TbtcBalanceNotMigrated")
+        feeRouter
+          .connect(deployer)
+          .beginInfrastructureUpdate(
+            bank.address,
+            tbtcVault.address,
+            replacementToken.address
+          )
+      ).to.be.reverted
       expect(await feeRouter.tbtcToken()).to.equal(tbtc.address)
     })
   })

@@ -60,7 +60,25 @@ contract MockSeatAllocator is ISeatAllocator {
             stakingProviders,
             perSeatAmount,
             rewardMultiplier,
-            notifier
+            notifier,
+            false
+        );
+    }
+
+    function reportViaModuleWithEnforcement(
+        address slashingModule,
+        address[] calldata stakingProviders,
+        uint96 perSeatAmount,
+        uint256 rewardMultiplier,
+        address notifier,
+        bool requireEconomicSlashing
+    ) external {
+        ISlashingModule(slashingModule).report(
+            stakingProviders,
+            perSeatAmount,
+            rewardMultiplier,
+            notifier,
+            requireEconomicSlashing
         );
     }
 

@@ -48,6 +48,18 @@ interface ISeatAllocatorWalletRegistry {
     ///         above this value, so the allocator's uniform `equalSeatWeight`
     ///         must never be set below it.
     function minimumAuthorization() external view returns (uint96);
+
+    function walletExposureLedger() external view returns (address);
+
+    function migrateAuthorizationSource(
+        IFrostAuthorizationSource authorizationSource,
+        bool statefulTarget,
+        address walletExposureLedger,
+        address[] calldata stakingProviders,
+        bytes calldata liveWalletProof
+    ) external;
+
+    function isOperatorInPool(address operator) external view returns (bool);
 }
 
 /// @notice The stake vault surface the seat allocator consumes beyond the
@@ -96,6 +108,8 @@ contract SeatAllocator is
     IFrostAuthorizationSource,
     ISeatAllocator
 {
+    uint256 public constant MAX_REPORT_SEATS = 100;
+
     ISeatAllocatorWalletRegistry public frostWalletRegistry;
     ISignerRegistry public signerRegistry;
     ISeatAllocatorStakeVault public stakeVault;
@@ -204,6 +218,25 @@ contract SeatAllocator is
     ///         by an exit before a successful retry applies the haircut.
     mapping(address => uint256) public override queuedSlashCount;
 
+    /// @notice False after an authorization rollback detaches this allocator
+    ///         from the FROST registry. Detached lifecycle refreshes never call
+    ///         registry authorization callbacks.
+    bool public authorizationAttached;
+
+    /// @notice Whether a queued report observed economic slashing enabled when
+    ///         it was first submitted. Such a report cannot be cleared by a
+    ///         later record-only call after governance disables the gate.
+    mapping(uint256 => bool) public failedSlashReportRequiresEnforcement;
+
+    /// @notice Number of unique providers in a queued report that still need
+    ///         a successful slash retry.
+    mapping(uint256 => uint256) public remainingFailedSlashProviders;
+
+    /// @notice Per-report provider completion marker used by bounded,
+    ///         permissionless one-provider retries.
+    mapping(uint256 => mapping(address => bool))
+        public failedSlashProviderRetried;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots. Removing the delegation-factor and
@@ -211,7 +244,7 @@ contract SeatAllocator is
     // slots, so the gap is widened to keep the reserve at 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[32] private __gap;
+    uint256[28] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -244,6 +277,10 @@ contract SeatAllocator is
     );
     event SlashReportQueued(uint256 indexed reportId);
     event SlashReportRetried(uint256 indexed reportId);
+    event SlashReportProviderRetried(
+        uint256 indexed reportId,
+        address indexed stakingProvider
+    );
     event RewardIneligibilitySet(
         address indexed stakingProvider,
         uint64 ineligibleUntil
@@ -260,6 +297,7 @@ contract SeatAllocator is
         uint96 authorizationWeight,
         uint96 rewardWeight
     );
+    event AuthorizationSourceDetached();
 
     error ZeroAddress();
     error NotWalletRegistry();
@@ -271,6 +309,9 @@ contract SeatAllocator is
     error InvalidSlashReport();
     error NotSlashingModule();
     error RewardsDistributorAlreadySet();
+    error WalletExposureLedgerMismatch();
+    error SlashProviderAlreadyRetried();
+    error SlashProviderNotInReport();
 
     modifier onlyWalletRegistry() {
         if (msg.sender != address(frostWalletRegistry)) {
@@ -346,6 +387,7 @@ contract SeatAllocator is
         // (40,000e18); see the storage-var invariant. Uniform across all
         // eligible operators, so its magnitude does not affect selection.
         equalSeatWeight = 40_000e18;
+        authorizationAttached = true;
         if (equalSeatWeight < frostWalletRegistry.minimumAuthorization()) {
             revert EqualSeatWeightBelowRegistryMinimum();
         }
@@ -398,6 +440,8 @@ contract SeatAllocator is
     }
 
     /// @notice Finalizes the equal seat weight update process.
+    /// @param stakingProviders Complete current sortition-pool roster, in any
+    ///        order. The registry validates completeness and uniqueness.
     /// @dev Can be called only after the governance delay elapsed. Re-checks
     ///      the registry-minimum invariant here — this is the binding
     ///      enforcement point — because the FROST registry's own
@@ -406,7 +450,7 @@ contract SeatAllocator is
     ///      below it is rejected (`EqualSeatWeightBelowRegistryMinimum`) so a
     ///      finalize can never push every eligible operator under the
     ///      registry floor and brick wallet formation.
-    function finalizeEqualSeatWeightUpdate()
+    function finalizeEqualSeatWeightUpdate(address[] calldata stakingProviders)
         external
         onlyOwner
         onlyAfterGovernanceDelay(equalSeatWeightChangeInitiated)
@@ -415,6 +459,23 @@ contract SeatAllocator is
             revert EqualSeatWeightBelowRegistryMinimum();
         }
         equalSeatWeight = newEqualSeatWeight;
+
+        // Synchronize the allocator snapshot first, then have the registry
+        // rewrite every current pool leaf in the same transaction. Any roster,
+        // pending-decrease, or DKG-state failure reverts the global value too.
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            lastSyncedWeight[stakingProviders[i]] = currentWeight(
+                stakingProviders[i]
+            );
+        }
+        frostWalletRegistry.migrateAuthorizationSource(
+            IFrostAuthorizationSource(address(this)),
+            true,
+            address(0),
+            stakingProviders,
+            ""
+        );
+
         emit EqualSeatWeightUpdated(newEqualSeatWeight);
         equalSeatWeightChangeInitiated = 0;
         newEqualSeatWeight = 0;
@@ -479,11 +540,12 @@ contract SeatAllocator is
     ///      therefore never buys signing power, only a proportional share of
     ///      rewards (and matching slashing exposure).
     ///
-    ///      The eligibility gate requires both a live non-zero weight and a
-    ///      registry-synchronized non-zero weight with no decrease pending.
-    ///      This prevents a provider whose pool leaf has already been reduced
-    ///      to zero from restoring rewards during the registry's decrease
-    ///      delay by briefly restoring its live self-bond.
+    ///      The eligibility gate requires a live non-zero weight, a
+    ///      registry-synchronized non-zero weight with no decrease pending,
+    ///      and the provider's registered operator to be in the sortition
+    ///      pool. This prevents both a provider that never participates in
+    ///      signing and one whose pool leaf has been reduced to zero from
+    ///      earning rewards.
     ///      Otherwise it returns the raw uncapped sum clamped to
     ///      `type(uint96).max` (the total T supply fits in a uint96, but the
     ///      clamp is kept as defense in depth). The sum deliberately does NOT
@@ -507,6 +569,7 @@ contract SeatAllocator is
         returns (uint96)
     {
         if (
+            !authorizationAttached ||
             /* solhint-disable-next-line not-rely-on-time */
             block.timestamp < rewardIneligibleUntil[stakingProvider]
         ) {
@@ -515,7 +578,10 @@ contract SeatAllocator is
         if (
             currentWeight(stakingProvider) == 0 ||
             lastSyncedWeight[stakingProvider] == 0 ||
-            decreasePending[stakingProvider]
+            decreasePending[stakingProvider] ||
+            !frostWalletRegistry.isOperatorInPool(
+                signerRegistry.nodeOperatorOf(stakingProvider)
+            )
         ) {
             return 0;
         }
@@ -563,6 +629,14 @@ contract SeatAllocator is
         bool rewardWeightReduction = newRewardWeight < syncedRewardWeight;
 
         weightDirty[stakingProvider] = false;
+
+        if (!authorizationAttached) {
+            if (syncedRewardWeight != 0) {
+                rewardsDistributor.onWeightChanged(stakingProvider, 0);
+                lastSyncedRewardWeight[stakingProvider] = 0;
+            }
+            return;
+        }
 
         if (decreasePending[stakingProvider]) {
             if (
@@ -696,13 +770,19 @@ contract SeatAllocator is
     ///         from its governed source-migration transaction before it
     ///         rewrites sortition-pool leaves.
     /// @dev This hook deliberately performs no registry callback: the registry
-    ///      has already selected this allocator as its source and owns the
-    ///      surrounding atomic roster synchronization.
+    ///      is executing the surrounding atomic source selection and owns the
+    ///      roster synchronization.
     function prepareAuthorizationMigration(address[] calldata stakingProviders)
         external
         onlyWalletRegistry
     {
         if (address(rewardsDistributor) == address(0)) revert ZeroAddress();
+        if (
+            frostWalletRegistry.walletExposureLedger() !=
+            address(walletExposureLedger)
+        ) revert WalletExposureLedgerMismatch();
+
+        authorizationAttached = true;
 
         for (uint256 i = 0; i < stakingProviders.length; i++) {
             address stakingProvider = stakingProviders[i];
@@ -725,6 +805,30 @@ contract SeatAllocator is
                 newRewardWeight
             );
         }
+    }
+
+    /// @notice Detaches the allocator during an atomic rollback to the legacy
+    ///         allowlist. Clears every current provider's allocator-side
+    ///         authorization and reward snapshot so later signer lifecycle
+    ///         actions do not call a registry that no longer recognizes this
+    ///         contract as its source.
+    function detachAuthorizationSource(address[] calldata stakingProviders)
+        external
+        onlyWalletRegistry
+    {
+        authorizationAttached = false;
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            lastSyncedWeight[stakingProvider] = 0;
+            decreasePending[stakingProvider] = false;
+            delete pendingDecreaseTarget[stakingProvider];
+            if (lastSyncedRewardWeight[stakingProvider] != 0) {
+                rewardsDistributor.onWeightChanged(stakingProvider, 0);
+                lastSyncedRewardWeight[stakingProvider] = 0;
+            }
+            weightDirty[stakingProvider] = false;
+        }
+        emit AuthorizationSourceDetached();
     }
 
     /// @notice Returns the authorization weight the registry currently
@@ -833,11 +937,30 @@ contract SeatAllocator is
         failedSlashReportHash[reportId] = keccak256(
             abi.encode(amount, rewardMultiplier, notifier, stakingProviders)
         );
-        _changeQueuedSlashCounts(stakingProviders, true);
+        remainingFailedSlashProviders[reportId] = _changeQueuedSlashCounts(
+            stakingProviders,
+            true
+        );
+
+        bool requireEconomicSlashing;
+        if (address(slashingModule).code.length != 0) {
+            try slashingModule.economicSlashingEnabled() returns (
+                bool enabled
+            ) {
+                requireEconomicSlashing = enabled;
+            } catch {}
+        }
+        failedSlashReportRequiresEnforcement[
+            reportId
+        ] = requireEconomicSlashing;
 
         if (address(slashingModule).code.length == 0) {
             emit SlashReportFailed(notifier, stakingProviders);
-            emit SlashReportQueued(reportId);
+            if (remainingFailedSlashProviders[reportId] != 0) {
+                emit SlashReportQueued(reportId);
+            } else {
+                _clearFailedSlashReport(reportId);
+            }
             return;
         }
 
@@ -846,14 +969,19 @@ contract SeatAllocator is
                 stakingProviders,
                 amount,
                 rewardMultiplier,
-                notifier
+                notifier,
+                requireEconomicSlashing
             )
         {
-            delete failedSlashReportHash[reportId];
             _changeQueuedSlashCounts(stakingProviders, false);
+            _clearFailedSlashReport(reportId);
         } catch {
             emit SlashReportFailed(notifier, stakingProviders);
-            emit SlashReportQueued(reportId);
+            if (remainingFailedSlashProviders[reportId] != 0) {
+                emit SlashReportQueued(reportId);
+            } else {
+                _clearFailedSlashReport(reportId);
+            }
         }
     }
 
@@ -866,23 +994,73 @@ contract SeatAllocator is
         address notifier,
         address[] calldata stakingProviders
     ) external {
-        bytes32 reportHash = failedSlashReportHash[reportId];
-        if (
-            reportHash == bytes32(0) ||
-            keccak256(
-                abi.encode(amount, rewardMultiplier, notifier, stakingProviders)
-            ) !=
-            reportHash
-        ) revert InvalidSlashReport();
+        _validateSlashReport(
+            reportId,
+            amount,
+            rewardMultiplier,
+            notifier,
+            stakingProviders
+        );
+        _requireNoProviderRetried(reportId, stakingProviders);
         slashingModule.report(
             stakingProviders,
             amount,
             rewardMultiplier,
+            notifier,
+            failedSlashReportRequiresEnforcement[reportId]
+        );
+        _changeQueuedSlashCounts(stakingProviders, false);
+        _clearFailedSlashReport(reportId);
+        emit SlashReportRetried(reportId);
+    }
+
+    /// @notice Retries one unique provider from a queued report. The original
+    ///         complete calldata is supplied only to verify the report digest;
+    ///         the expensive slashing call contains one aggregated provider,
+    ///         so every queued report remains processable below the block gas
+    ///         limit regardless of roster cardinality.
+    function retrySlashReportProvider(
+        uint256 reportId,
+        uint96 amount,
+        uint256 rewardMultiplier,
+        address notifier,
+        address[] calldata stakingProviders,
+        address stakingProvider
+    ) external {
+        _validateSlashReport(
+            reportId,
+            amount,
+            rewardMultiplier,
+            notifier,
+            stakingProviders
+        );
+        if (failedSlashProviderRetried[reportId][stakingProvider]) {
+            revert SlashProviderAlreadyRetried();
+        }
+
+        uint96 totalAmount = _providerSlashAmount(
+            stakingProviders,
+            stakingProvider,
+            amount
+        );
+        _reportProvider(
+            reportId,
+            stakingProvider,
+            totalAmount,
+            rewardMultiplier,
             notifier
         );
-        delete failedSlashReportHash[reportId];
-        _changeQueuedSlashCounts(stakingProviders, false);
-        emit SlashReportRetried(reportId);
+
+        failedSlashProviderRetried[reportId][stakingProvider] = true;
+        queuedSlashCount[stakingProvider] -= 1;
+        uint256 remaining = remainingFailedSlashProviders[reportId] - 1;
+        remainingFailedSlashProviders[reportId] = remaining;
+        emit SlashReportProviderRetried(reportId, stakingProvider);
+
+        if (remaining == 0) {
+            _clearFailedSlashReport(reportId);
+            emit SlashReportRetried(reportId);
+        }
     }
 
     /// @dev Increments or decrements each distinct non-zero provider once per
@@ -891,8 +1069,11 @@ contract SeatAllocator is
     function _changeQueuedSlashCounts(
         address[] memory stakingProviders,
         bool increment
-    ) internal {
-        for (uint256 i = 0; i < stakingProviders.length; i++) {
+    ) internal returns (uint256 uniqueCount) {
+        uint256 length = stakingProviders.length > MAX_REPORT_SEATS
+            ? MAX_REPORT_SEATS
+            : stakingProviders.length;
+        for (uint256 i = 0; i < length; i++) {
             address stakingProvider = stakingProviders[i];
             if (stakingProvider == address(0)) continue;
 
@@ -910,7 +1091,88 @@ contract SeatAllocator is
             } else {
                 queuedSlashCount[stakingProvider] -= 1;
             }
+            uniqueCount++;
         }
+    }
+
+    function _validateSlashReport(
+        uint256 reportId,
+        uint96 amount,
+        uint256 rewardMultiplier,
+        address notifier,
+        address[] calldata stakingProviders
+    ) internal view {
+        bytes32 reportHash = failedSlashReportHash[reportId];
+        if (
+            reportHash == bytes32(0) ||
+            keccak256(
+                abi.encode(amount, rewardMultiplier, notifier, stakingProviders)
+            ) !=
+            reportHash
+        ) revert InvalidSlashReport();
+    }
+
+    function _providerSlashAmount(
+        address[] calldata stakingProviders,
+        address stakingProvider,
+        uint96 amount
+    ) internal pure returns (uint96) {
+        uint256 length = stakingProviders.length > MAX_REPORT_SEATS
+            ? MAX_REPORT_SEATS
+            : stakingProviders.length;
+        uint256 seatCount;
+        for (uint256 i = 0; i < length; i++) {
+            if (stakingProviders[i] == stakingProvider) {
+                seatCount++;
+            }
+        }
+        if (stakingProvider == address(0) || seatCount == 0) {
+            revert SlashProviderNotInReport();
+        }
+
+        uint256 totalAmount = seatCount * uint256(amount);
+        return
+            totalAmount > type(uint96).max
+                ? type(uint96).max
+                : uint96(totalAmount);
+    }
+
+    function _reportProvider(
+        uint256 reportId,
+        address stakingProvider,
+        uint96 totalAmount,
+        uint256 rewardMultiplier,
+        address notifier
+    ) internal {
+        address[] memory provider = new address[](1);
+        provider[0] = stakingProvider;
+        slashingModule.report(
+            provider,
+            totalAmount,
+            rewardMultiplier,
+            notifier,
+            failedSlashReportRequiresEnforcement[reportId]
+        );
+    }
+
+    function _requireNoProviderRetried(
+        uint256 reportId,
+        address[] calldata stakingProviders
+    ) internal view {
+        uint256 length = stakingProviders.length > MAX_REPORT_SEATS
+            ? MAX_REPORT_SEATS
+            : stakingProviders.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (failedSlashProviderRetried[reportId][stakingProviders[i]]) {
+                revert SlashProviderAlreadyRetried();
+            }
+        }
+    }
+
+    function _clearFailedSlashReport(uint256 reportId) internal {
+        delete failedSlashReportHash[reportId];
+        delete failedSlashReportRequiresEnforcement[reportId];
+        delete remainingFailedSlashProviders[reportId];
     }
 
     /// @notice See {IFrostAuthorizationSource-onOperatorInactivity}.

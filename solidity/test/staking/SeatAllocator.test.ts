@@ -86,7 +86,7 @@ describe("SeatAllocator", () => {
   async function setEqualSeatWeight(newValue: BigNumber): Promise<void> {
     await allocator.connect(governance).beginEqualSeatWeightUpdate(newValue)
     await increaseTime(GOVERNANCE_DELAY)
-    await allocator.connect(governance).finalizeEqualSeatWeightUpdate()
+    await allocator.connect(governance).finalizeEqualSeatWeightUpdate([])
   }
 
   beforeEach(async () => {
@@ -138,6 +138,7 @@ describe("SeatAllocator", () => {
       }
     )
     exposureLedger = ledgerInstance
+    await mockRegistry.setWalletExposureLedger(exposureLedger.address)
 
     const [allocatorInstance] = await helpers.upgrades.deployProxy(
       `SeatAllocatorUnitTest_${deploymentId}`,
@@ -397,6 +398,26 @@ describe("SeatAllocator", () => {
       )
       // ...but the reward weight is the full uncapped capital 40k + 200k.
       expect(await allocator.rewardWeight(provider)).to.equal(to18(240_000))
+    })
+
+    it("does not reward an active provider until its operator is in the pool", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await mockRegistry.setOperatorInPool(provider, false)
+
+      // Authorization synchronization is permissionless and can happen before
+      // registerOperator/joinSortitionPool. It must not be enough to earn.
+      await allocator.connect(thirdParty).refreshAuthorization(provider)
+      expect(await allocator.lastSyncedWeight(provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
+      expect(await allocator.rewardWeight(provider)).to.equal(0)
+      expect(await rewardsDistributor.lastWeight()).to.equal(0)
+
+      await mockRegistry.setOperatorInPool(provider, true)
+      await allocator.connect(thirdParty).refreshAuthorization(provider)
+      expect(await allocator.rewardWeight(provider)).to.equal(MIN_SELF_BOND)
+      expect(await rewardsDistributor.lastWeight()).to.equal(MIN_SELF_BOND)
     })
 
     it("returns the uncapped capital for a large operator while the seat weight stays flat", async () => {
@@ -1109,6 +1130,106 @@ describe("SeatAllocator", () => {
       expect(await allocator.queuedSlashCount(provider)).to.equal(0)
     })
 
+    it("keeps an enforceable queued slash pending while the economic gate is disabled", async () => {
+      await slashingModule.setEconomicSlashingEnabled(true)
+      await slashingModule.setRevertOnReport(true)
+      const reportId = await allocator.nextFailedSlashReportId()
+      const reportProviders = [provider]
+
+      await mockRegistry.callReportMaliciousBehavior(
+        allocator.address,
+        perSeatAmount,
+        100,
+        notifier.address,
+        reportProviders
+      )
+      expect(await allocator.failedSlashReportRequiresEnforcement(reportId)).to
+        .be.true
+
+      await slashingModule.setRevertOnReport(false)
+      await slashingModule.setEconomicSlashingEnabled(false)
+      await expect(
+        allocator.retrySlashReport(
+          reportId,
+          perSeatAmount,
+          100,
+          notifier.address,
+          reportProviders
+        )
+      ).to.be.revertedWith(
+        "StakingMockSlashingModule: economic slashing disabled"
+      )
+      expect(await allocator.failedSlashReportHash(reportId)).not.to.equal(
+        ethers.constants.HashZero
+      )
+      expect(await allocator.queuedSlashCount(provider)).to.equal(1)
+
+      await slashingModule.setEconomicSlashingEnabled(true)
+      await allocator.retrySlashReport(
+        reportId,
+        perSeatAmount,
+        100,
+        notifier.address,
+        reportProviders
+      )
+      expect(await allocator.failedSlashReportHash(reportId)).to.equal(
+        ethers.constants.HashZero
+      )
+      expect(await allocator.queuedSlashCount(provider)).to.equal(0)
+    })
+
+    it("retries a high-cardinality queued report one provider at a time", async () => {
+      const reportProviders = Array.from({ length: 63 }, (_, index) =>
+        ethers.utils.getAddress(
+          ethers.utils.hexZeroPad(ethers.utils.hexlify(index + 1), 20)
+        )
+      )
+      await slashingModule.setRevertOnReport(true)
+      const reportId = await allocator.nextFailedSlashReportId()
+      await mockRegistry.callReportMaliciousBehavior(
+        allocator.address,
+        perSeatAmount,
+        100,
+        notifier.address,
+        reportProviders
+      )
+      expect(await allocator.remainingFailedSlashProviders(reportId)).to.equal(
+        63
+      )
+
+      await slashingModule.setRevertOnReport(false)
+      await allocator.retrySlashReportProvider(
+        reportId,
+        perSeatAmount,
+        100,
+        notifier.address,
+        reportProviders,
+        reportProviders[0]
+      )
+      expect(await slashingModule.lastStakingProvidersCount()).to.equal(1)
+      expect(await slashingModule.lastStakingProviders(0)).to.equal(
+        reportProviders[0]
+      )
+      expect(await allocator.queuedSlashCount(reportProviders[0])).to.equal(0)
+      expect(await allocator.queuedSlashCount(reportProviders[1])).to.equal(1)
+      expect(await allocator.remainingFailedSlashProviders(reportId)).to.equal(
+        62
+      )
+
+      // Once a provider has been processed, an all-or-nothing replay cannot
+      // double-slash it; remaining providers continue through bounded calls.
+      await expectCustomError(
+        allocator.retrySlashReport(
+          reportId,
+          perSeatAmount,
+          100,
+          notifier.address,
+          reportProviders
+        ),
+        "SlashProviderAlreadyRetried"
+      )
+    })
+
     it("clears the dirty marker on refresh", async () => {
       await mockRegistry.callReportMaliciousBehavior(
         allocator.address,
@@ -1355,12 +1476,12 @@ describe("SeatAllocator", () => {
         .beginEqualSeatWeightUpdate(to18(80_000))
 
       await expect(
-        allocator.connect(governance).finalizeEqualSeatWeightUpdate()
+        allocator.connect(governance).finalizeEqualSeatWeightUpdate([])
       ).to.be.revertedWith("Governance delay has not elapsed")
 
       await increaseTime(GOVERNANCE_DELAY)
       await expect(
-        allocator.connect(governance).finalizeEqualSeatWeightUpdate()
+        allocator.connect(governance).finalizeEqualSeatWeightUpdate([])
       )
         .to.emit(allocator, "EqualSeatWeightUpdated")
         .withArgs(to18(80_000))
@@ -1372,6 +1493,29 @@ describe("SeatAllocator", () => {
       await stakeVault.setSelfBond(provider, to18(500_000))
       await stakeVault.setDelegatedAssets(provider, to18(1_000_000))
       expect(await allocator.currentWeight(provider)).to.equal(to18(80_000))
+    })
+
+    it("synchronizes the complete roster in the weight-finalization transaction", async () => {
+      await activate(provider)
+      await activate(provider2)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await stakeVault.setSelfBond(provider2, MIN_SELF_BOND)
+      await allocator.refreshAuthorization(provider)
+      await allocator.refreshAuthorization(provider2)
+
+      await allocator
+        .connect(governance)
+        .beginEqualSeatWeightUpdate(to18(80_000))
+      await increaseTime(GOVERNANCE_DELAY)
+      await allocator
+        .connect(governance)
+        .finalizeEqualSeatWeightUpdate([provider, provider2])
+
+      expect(await allocator.lastSyncedWeight(provider)).to.equal(to18(80_000))
+      expect(await allocator.lastSyncedWeight(provider2)).to.equal(to18(80_000))
+      expect(await mockRegistry.synchronizedRosterLength()).to.equal(2)
+      expect(await mockRegistry.synchronizedRoster(0)).to.equal(provider)
+      expect(await mockRegistry.synchronizedRoster(1)).to.equal(provider2)
     })
 
     it("rejects a zero equal seat weight", async () => {
@@ -1403,14 +1547,14 @@ describe("SeatAllocator", () => {
       await mockRegistry.setMinimumAuthorization(to18(40_000))
       await increaseTime(GOVERNANCE_DELAY)
       await expectCustomError(
-        allocator.connect(governance).finalizeEqualSeatWeightUpdate(),
+        allocator.connect(governance).finalizeEqualSeatWeightUpdate([]),
         "EqualSeatWeightBelowRegistryMinimum"
       )
     })
 
     it("rejects finalization without a pending update", async () => {
       await expect(
-        allocator.connect(governance).finalizeEqualSeatWeightUpdate()
+        allocator.connect(governance).finalizeEqualSeatWeightUpdate([])
       ).to.be.revertedWith("Change not initiated")
     })
   })

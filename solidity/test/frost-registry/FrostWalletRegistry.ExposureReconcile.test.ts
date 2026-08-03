@@ -112,6 +112,7 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
   let expectedProviders: string[]
   let expectedSeatCounts: number[]
   let members: number[]
+  let selectedGroupMembers: Awaited<ReturnType<typeof selectFrostGroup>>
 
   const walletKeyA =
     "0xabcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01"
@@ -239,6 +240,7 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       "frost-reconcile-seed-A"
     )
     members = dkgResult.members
+    selectedGroupMembers = groupMembers
     const exp = expectedExposure(groupMembers)
     expectedProviders = exp.providers
     expectedSeatCounts = exp.seatCounts
@@ -369,6 +371,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
           .connect(deployer)
           .migrateAuthorizationSource(
             migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
             providers,
             encodeLiveWalletProof([walletKeyA], 0, 0)
           ),
@@ -397,10 +401,82 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       )
     })
 
-    it("reconciles: records the wallet live with the resolved providers", async () => {
+    it("keeps inactivity and reconciliation live with the deployed legacy callback surface", async () => {
+      const LegacySourceFactory = await ethers.getContractFactory(
+        "LegacyMigrationAuthorizationSource"
+      )
+      const legacySource = await LegacySourceFactory.connect(deployer).deploy()
+      const providers = operators.map((operator) => operator.stakingProvider)
+      const weight = await frostWalletRegistry.minimumAuthorization()
+      for (const provider of providers) {
+        await legacySource.setWeight(provider, weight)
+      }
       await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          legacySource.address,
+          false,
+          ethers.constants.AddressZero,
+          providers,
+          "0x"
+        )
+
+      const network = await ethers.provider.getNetwork()
+      const inactiveMembersIndices = [1]
+      const messageHash = ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256", "uint256", "bytes32", "uint256[]", "bool"],
+          [network.chainId, 0, walletKeyA, inactiveMembersIndices, false]
+        )
+      )
+      const signatures = await Promise.all(
+        selectedGroupMembers
+          .slice(0, 51)
+          .map((member) =>
+            member.signer.signMessage(ethers.utils.arrayify(messageHash))
+          )
+      )
+      const inactivityTx = await frostWalletRegistry
+        .connect(selectedGroupMembers[0].signer)
+        .notifyOperatorInactivity(
+          {
+            walletID: walletKeyA,
+            inactiveMembersIndices,
+            heartbeatFailed: false,
+            signatures: ethers.utils.hexConcat(signatures),
+            signingMembersIndices: Array.from({ length: 51 }, (_, i) => i + 1),
+          },
+          0,
+          members
+        )
+      await inactivityTx.wait()
+      expect(
+        await frostWalletRegistry.inactivityClaimNonce(walletKeyA)
+      ).to.equal(1)
+
+      const reconcileTx = await frostWalletRegistry
         .connect(thirdParty)
         .reconcileWalletExposure(walletKeyA, members)
+      const reconcileReceipt = await reconcileTx.wait()
+      const callbackFailureTopic = ethers.utils.id(
+        "AuthorizationSourceCallbackFailed(bytes4)"
+      )
+      expect(
+        reconcileReceipt.logs.some(
+          (log: { topics: string[] }) =>
+            log.topics[0].toLowerCase() === callbackFailureTopic.toLowerCase()
+        )
+      ).to.be.true
+
+      await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          frostAllowlist.address,
+          false,
+          ethers.constants.AddressZero,
+          providers,
+          "0x"
+        )
 
       const record = await ledger.getWalletExposure(walletKeyA)
       expect(record.live).to.be.true
@@ -552,6 +628,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
           .connect(deployer)
           .migrateAuthorizationSource(
             migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
             providers,
             encodeLiveWalletProof([], 0, 0)
           ),
@@ -565,6 +643,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
           .connect(deployer)
           .migrateAuthorizationSource(
             migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
             providers,
             encodeLiveWalletProof([ethers.utils.id("unknown-wallet")], 0, 0)
           ),
@@ -578,6 +658,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
           .connect(deployer)
           .migrateAuthorizationSource(
             migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
             providers,
             encodeLiveWalletProof([walletKeyA, walletKeyA], 1, 0)
           ),
@@ -590,6 +672,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
         .connect(deployer)
         .migrateAuthorizationSource(
           migrationSource.address,
+          true,
+          ethers.constants.AddressZero,
           providers,
           encodeLiveWalletProof([walletKeyA], 0, 0)
         )
@@ -601,13 +685,21 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
     it("keeps the audited historical counts immutable across rollback", async () => {
       await frostWalletRegistry
         .connect(deployer)
-        .migrateAuthorizationSource(frostAllowlist.address, providers, "0x")
+        .migrateAuthorizationSource(
+          frostAllowlist.address,
+          false,
+          ethers.constants.AddressZero,
+          providers,
+          "0x"
+        )
 
       await expectCustomError(
         frostWalletRegistry
           .connect(deployer)
           .migrateAuthorizationSource(
             migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
             providers,
             encodeLiveWalletProof([walletKeyA], 1, 1)
           ),
@@ -632,6 +724,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
           .connect(deployer)
           .migrateAuthorizationSource(
             migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
             providers,
             encodeLiveWalletProof([walletKeyA], 0, 0)
           )

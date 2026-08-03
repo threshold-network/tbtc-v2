@@ -106,7 +106,7 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
 
     /// @notice Default-off gate for economic haircut accounting. Governance
     ///         activates or deactivates it through the delayed two-step rail.
-    bool public economicSlashingEnabled;
+    bool public override economicSlashingEnabled;
     bool public newEconomicSlashingEnabled;
     uint256 public economicSlashingChangeInitiated;
 
@@ -171,6 +171,7 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     error MovementNotPaused();
     error ExecutorRewardBpsTooHigh();
     error MovementDelayTooLong();
+    error EconomicSlashingRequired();
 
     modifier onlyGuardian() {
         if (msg.sender != guardian) revert CallerNotGuardian();
@@ -329,21 +330,25 @@ contract SlashingModule is ISlashingModule, Initializable, OwnableUpgradeable {
     ///         report time — one vault `applySlash` per unique provider,
     ///         with duplicate entries aggregated per-seat — and enqueues a
     ///         pending slash per unique provider whose seized funds become
-    ///         movable after the movement delay. Never reverts for
-    ///         well-formed callers: empty input is a no-op, oversized input
-    ///         is truncated to `MAX_REPORT_SEATS` entries, zero-address
-    ///         entries are skipped, reward multipliers above 100 are clamped
-    ///         to 100, and zero-stake providers are booked with a zero
-    ///         seized amount.
+    ///         movable after the movement delay. When economic slashing is
+    ///         disabled, a report that requires enforcement reverts and is
+    ///         left queued by SeatAllocator. Otherwise empty input is a
+    ///         no-op, oversized input is truncated to `MAX_REPORT_SEATS`,
+    ///         zero-address entries are skipped, reward multipliers above 100
+    ///         are clamped, and zero-stake providers book a zero seizure.
     function report(
         address[] calldata stakingProviders,
         uint96 perSeatAmount,
         uint256 rewardMultiplier,
-        address notifier
+        address notifier,
+        bool requireEconomicSlashing
     ) external override {
         if (msg.sender != seatAllocator) revert CallerNotSeatAllocator();
 
         if (!economicSlashingEnabled) {
+            if (requireEconomicSlashing) {
+                revert EconomicSlashingRequired();
+            }
             emit SlashReportRecorded(
                 keccak256(
                     abi.encode(

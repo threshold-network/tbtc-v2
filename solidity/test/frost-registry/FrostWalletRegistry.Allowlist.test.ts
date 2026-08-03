@@ -210,20 +210,38 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    await frostWalletRegistry
-      .connect(deployer)
-      .setWalletExposureLedger(walletExposureLedger.address)
-
     await expectCustomError(
       frostWalletRegistry
         .connect(thirdParty)
         .migrateAuthorizationSource(
           migrationSource.address,
+          true,
+          walletExposureLedger.address,
           providers,
           emptyWalletProof
         ),
       "CallerNotGovernanceOrProxyAdmin"
     )
+    await migrationSource.setRevertPreparationWithoutData(true)
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          true,
+          walletExposureLedger.address,
+          providers,
+          emptyWalletProof
+        )
+    ).to.be.reverted
+    expect(await frostWalletRegistry.walletExposureLedger()).to.equal(
+      ethers.constants.AddressZero
+    )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      frostAllowlist.address
+    )
+    await migrationSource.setRevertPreparationWithoutData(false)
+
     // Exercise the production cutover shape: deploy the new implementation
     // and have ProxyAdmin perform upgradeAndCall. The migration library
     // recognizes the EIP-1967 admin while ordinary non-governance callers
@@ -249,7 +267,13 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     )
     const migrationCall = frostWalletRegistry.interface.encodeFunctionData(
       "migrateAuthorizationSource",
-      [migrationSource.address, providers, emptyWalletProof]
+      [
+        migrationSource.address,
+        true,
+        walletExposureLedger.address,
+        providers,
+        emptyWalletProof,
+      ]
     )
     const proxyAdmin = await upgrades.admin.getInstance()
     await expect(
@@ -265,20 +289,39 @@ describe("FrostWalletRegistry allowlist authorization", () => {
       .withArgs(migrationSource.address)
 
     expect(await migrationSource.prepareCalls()).to.equal(1)
+    expect(await frostWalletRegistry.walletExposureLedger()).to.equal(
+      walletExposureLedger.address
+    )
     for (const provider of providers) {
       expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(
         migratedWeight
       )
     }
 
+    // A stateful source may reduce a provider to zero and remove it from the
+    // pool. Rollback must use the preserved Phase-0 roster to reinsert it.
+    const removedProvider = providers[providers.length - 1]
+    await migrationSource.setWeight(removedProvider, 0)
+    await frostWalletRegistry.updateOperatorStatus(removedProvider)
+    expect(await frostWalletRegistry.isOperatorInPool(removedProvider)).to.be
+      .false
+
     // Rollback uses the already-populated production FrostAllowlist. Its
     // deployed implementation predates the optional preparation hook; the
     // migration tolerates that missing selector and still rewrites every leaf.
     await frostWalletRegistry
       .connect(deployer)
-      .migrateAuthorizationSource(frostAllowlist.address, providers, "0x")
+      .migrateAuthorizationSource(
+        frostAllowlist.address,
+        false,
+        ethers.constants.AddressZero,
+        providers.slice(0, -1),
+        "0x"
+      )
+    expect(await migrationSource.detachCalls()).to.equal(1)
     for (const provider of providers) {
       expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(weight)
+      expect(await frostWalletRegistry.isOperatorInPool(provider)).to.be.true
     }
   })
 
@@ -307,6 +350,8 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         .connect(deployer)
         .migrateAuthorizationSource(
           migrationSource.address,
+          true,
+          ethers.constants.AddressZero,
           [wallets[0].address],
           "0x"
         )

@@ -27,24 +27,31 @@ interface ISlashingModule {
     ///         provider the module calls the vault's `applySlash` (which
     ///         caps at available balance) so the haircut lands atomically at
     ///         report time, then enqueues a pending slash whose seized funds
-    ///         become movable after the movement delay. This function MUST
-    ///         NOT revert — it is on the registry's malicious-behavior
-    ///         reporting path, which the Bridge lifecycle depends on.
-    /// @dev Callable only by the seat allocator. The provider list is
-    ///      bounded by the maximum wallet size, and no reverting external
-    ///      calls are made.
+    ///         become movable after the movement delay. The seat allocator
+    ///         invokes this through a best-effort call and durably queues any
+    ///         failure, keeping the registry lifecycle path non-reverting.
+    /// @dev Callable only by the seat allocator. If
+    ///      `requireEconomicSlashing` is true, a disabled gate must revert so
+    ///      a previously enforceable queued report cannot be discarded.
     /// @param stakingProviders Providers to slash, one entry per offending
     ///        seat (duplicates allowed and aggregated).
     /// @param perSeatAmount Slash amount per seat.
     /// @param rewardMultiplier Notifier reward percentage of the seized
     ///        amount, in the range [0, 100].
     /// @param notifier Address entitled to the notifier reward at execution.
+    /// @param requireEconomicSlashing Whether recording without a haircut is
+    ///        forbidden for this report.
     function report(
         address[] calldata stakingProviders,
         uint96 perSeatAmount,
         uint256 rewardMultiplier,
-        address notifier
+        address notifier,
+        bool requireEconomicSlashing
     ) external;
+
+    /// @notice True while reports apply economic haircuts rather than being
+    ///         recorded for observability only.
+    function economicSlashingEnabled() external view returns (bool);
 
     /// @notice Returns the number of booked-but-not-yet-executed slashes for
     ///         the given staking provider. While this is non-zero the vault

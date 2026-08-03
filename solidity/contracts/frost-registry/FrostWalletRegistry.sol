@@ -515,29 +515,39 @@ contract FrostWalletRegistry is
     ///         production cutover can be delivered through upgradeAndCall.
     ///         The roster must enumerate the entire active pool; omissions and
     ///         duplicates are rejected by the linked migration library. A
-    ///         stateful target additionally requires the complete live-wallet
+    ///         stateful target additionally wires the exposure ledger during
+    ///         the same upgrade call and requires the complete live-wallet
     ///         roster and event-audited pre-upgrade wallet lifecycle totals.
     /// @param _authorizationSource New authorization source.
-    /// @param stakingProviders Complete active sortition-pool provider roster.
+    /// @param statefulTarget True only for a source implementing the migration
+    ///        preparation/detachment hooks (SeatAllocator). The explicit flag
+    ///        avoids inferring capability from ambiguous empty revert data.
+    /// @param _walletExposureLedger Exposure ledger to wire atomically for the
+    ///        first stateful cutover. May be zero after it has been wired.
+    /// @param stakingProviders Complete current sortition-pool provider roster.
     /// @param liveWalletProof ABI encoding of `(bytes32[] liveWalletIDs,
     ///        uint256 historicalWalletsCreated,
     ///        uint256 historicalWalletsClosed)`. Required for a stateful
     ///        target; ignored when rolling back to the Phase-0 allowlist.
     function migrateAuthorizationSource(
         IFrostAuthorizationSource _authorizationSource,
+        bool statefulTarget,
+        address _walletExposureLedger,
         address[] calldata stakingProviders,
         bytes calldata liveWalletProof
     ) external {
-        authorizationSource = _authorizationSource;
         WalletExposure.migrateAuthorizationSource(
             walletExposureData,
             authorization,
             sortitionPool,
             wallets,
-            authorizationSource,
+            _authorizationSource,
+            statefulTarget,
+            _walletExposureLedger,
             stakingProviders,
             liveWalletProof
         );
+        authorizationSource = _authorizationSource;
     }
 
     /// @notice Withdraws application rewards for the given staking provider.
