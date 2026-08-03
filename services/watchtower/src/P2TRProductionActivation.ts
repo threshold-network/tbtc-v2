@@ -1504,11 +1504,10 @@ export class P2TRProductionActivationGate {
           )
         ) {
           // No COMMIT was issued, so replaying the complete database-only
-          // transaction is safe. If the bounded budget is exhausted, retain
-          // the armed guard for restart recovery rather than terminalizing a
-          // confirmed transport abort as an application failure.
+          // transaction is safe. If the bounded budget is exhausted, fall
+          // through to the append-only failure disposition below so the armed
+          // guard retains a durable explanation instead of wedging recovery.
           if (attemptCount < maxAttemptCount) continue
-          throw error
         }
         const lastSQLState =
           this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(

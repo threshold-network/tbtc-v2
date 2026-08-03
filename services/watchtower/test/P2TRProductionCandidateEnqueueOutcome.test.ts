@@ -471,7 +471,7 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.nonRetryableFailures.length, 0)
   })
 
-  it("leaves the guard unresolved when pre-COMMIT transport retries exhaust", async () => {
+  it("durably disposes the guard when pre-COMMIT transport retries exhaust", async () => {
     const coordinator = new RollbackAwareCoordinator()
     coordinator.failNextTransactionWithPreCommitTransportAbort(
       new Error("first connection loss before COMMIT")
@@ -505,15 +505,22 @@ describe("production candidate enqueue outcomes", () => {
     assert.equal(journal.guards.length, 1)
     assert.equal(journal.resolutions.length, 0)
     assert.equal(journal.exhaustionAlerts.length, 0)
-    assert.equal(journal.nonRetryableFailures.length, 0)
-    assert.throws(
-      () =>
-        assertP2TRProductionRuntimeAlertHealth(
-          healthFor(journal),
-          MANIFEST_HASH
-        ),
-      /activation-blocking candidate enqueue alerts/
+    assert.equal(journal.nonRetryableFailures.length, 1)
+    assert.equal(journal.nonRetryableFailures[0].tokenID, TOKEN_ID)
+    assert.equal(journal.nonRetryableFailures[0].manifestHash, MANIFEST_HASH)
+    assert.equal(
+      journal.nonRetryableFailures[0].candidateDigest,
+      journal.guards[0].candidateDigest
     )
+    assert.match(
+      journal.nonRetryableFailures[0].failureDigest,
+      /^0x[0-9a-f]{64}$/
+    )
+    assert.doesNotThrow(() =>
+      assertP2TRProductionRuntimeAlertHealth(healthFor(journal), MANIFEST_HASH)
+    )
+    assert.equal(coordinator.commits, 2)
+    assert.equal(coordinator.rollbacks, 2)
   })
 
   it("keeps an unresolved guard and durable alert after retry exhaustion", async () => {
