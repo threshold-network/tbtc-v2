@@ -224,6 +224,7 @@ export async function performFrostDkg(
   options: {
     misbehavedMembersIndices?: number[]
     submitterIndex?: number
+    approveGasLimit?: BigNumberish
   } = {}
 ): Promise<{
   submitDkgResultTx: ContractTransaction
@@ -271,9 +272,12 @@ export async function performFrostDkg(
     `0x${blocksToMine.toString(16)}`,
   ])
 
-  const approveDkgResultTx = await frostWalletRegistry
-    .connect(submitter)
-    .approveDkgResult(dkgResult)
+  const submittingRegistry = frostWalletRegistry.connect(submitter)
+  const approveDkgResultTx = options.approveGasLimit
+    ? await submittingRegistry.approveDkgResult(dkgResult, {
+        gasLimit: options.approveGasLimit,
+      })
+    : await submittingRegistry.approveDkgResult(dkgResult)
 
   // Reference unused param to suppress linter; `ethers` import
   // is kept for callers that need it via the function signature.

@@ -431,6 +431,15 @@ contract SeatAllocator is
         emit RewardsDistributorSet(_rewardsDistributor);
     }
 
+    function isStatefulAuthorizationSource()
+        external
+        pure
+        override
+        returns (bool)
+    {
+        return true;
+    }
+
     /// @notice Begins the equal seat weight update process.
     /// @param _newEqualSeatWeight New uniform seat weight assigned to every
     ///        eligible active operator.
@@ -482,6 +491,11 @@ contract SeatAllocator is
             revert EqualSeatWeightBelowRegistryMinimum();
         }
         equalSeatWeight = newEqualSeatWeight;
+
+        // Invalidate snapshots for providers that cached authorization before
+        // joining the pool and are therefore absent from the complete current
+        // roster below.
+        authorizationGeneration += 1;
 
         // Synchronize the allocator snapshot first, then have the registry
         // rewrite every current pool leaf in the same transaction. Any roster,
@@ -821,6 +835,11 @@ contract SeatAllocator is
         onlyStakeVault
     {
         if (!authorizationAttached) revert AuthorizationSourceNotAttached();
+
+        // A global eligibility change applies to providers outside the current
+        // pool as well. Invalidate their pre-join snapshots before recaching
+        // the complete current roster.
+        authorizationGeneration += 1;
 
         for (uint256 i = 0; i < stakingProviders.length; i++) {
             address stakingProvider = stakingProviders[i];

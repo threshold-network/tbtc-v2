@@ -8,6 +8,10 @@ pragma solidity 0.8.17;
 ///         model so future permissionless or bonded sources can be introduced
 ///         without reviving legacy staking coupling.
 interface IFrostAuthorizationSource {
+    /// @notice Reports whether the source requires the registry's stateful
+    ///         migration hooks and wallet-exposure invariants.
+    function isStatefulAuthorizationSource() external pure returns (bool);
+
     function authorizedWeight(address operatorProvider, address operator)
         external
         view

@@ -19,14 +19,24 @@ import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.
 import "@keep-network/random-beacon/contracts/libraries/BytesLib.sol";
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 
+import "../../GovernanceUtils.sol";
 import "../api/IFrostAuthorizationSource.sol";
 import "../FrostDkgValidator.sol";
 import "./FrostDkg.sol";
 import "./FrostRegistryWallets.sol";
 
+interface IFrostRegistryGovernance {
+    function governance() external view returns (address);
+}
+
 library FrostInactivity {
     using BytesLib for bytes;
     using ECDSAUpgradeable for bytes32;
+
+    struct DkgValidatorUpdate {
+        FrostDkgValidator pendingValidator;
+        uint256 initiatedAt;
+    }
 
     struct Claim {
         // ID of the wallet whose signing group is raising the inactivity claim.
@@ -74,19 +84,21 @@ library FrostInactivity {
         address notifier
     );
     event DkgValidatorUpdated(address indexed dkgValidator);
+    event DkgValidatorUpdateStarted(
+        address indexed dkgValidator,
+        uint256 timestamp
+    );
     event AuthorizationSourceCallbackFailed(bytes4 indexed selector);
 
-    /// @notice Replaces the registry's DKG validator while no DKG is active.
-    function setDkgValidator(
+    /// @notice Begins the delayed replacement of the registry's DKG validator.
+    function beginDkgValidatorUpdate(
         FrostDkg.Data storage dkg,
-        FrostDkgValidator newDkgValidator,
-        address governance,
-        address caller
+        DkgValidatorUpdate storage update,
+        FrostDkgValidator newDkgValidator
     ) external {
-        require(caller == governance, "Caller is not the governance");
         require(
-            FrostDkg.currentState(dkg) == FrostDkg.State.IDLE,
-            "Current state is not IDLE"
+            msg.sender == IFrostRegistryGovernance(address(this)).governance(),
+            "Caller is not the governance"
         );
         require(
             address(newDkgValidator) != address(0),
@@ -97,8 +109,39 @@ library FrostInactivity {
                 address(dkg.sortitionPool),
             "Sortition Pool mismatch"
         );
-        dkg.dkgValidator = newDkgValidator;
-        emit DkgValidatorUpdated(address(newDkgValidator));
+        update.pendingValidator = newDkgValidator;
+        /* solhint-disable not-rely-on-time */
+        update.initiatedAt = block.timestamp;
+        emit DkgValidatorUpdateStarted(
+            address(newDkgValidator),
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the replacement after the fixed 48-hour delay.
+    function finalizeDkgValidatorUpdate(
+        FrostDkg.Data storage dkg,
+        DkgValidatorUpdate storage update
+    ) external {
+        require(
+            msg.sender == IFrostRegistryGovernance(address(this)).governance(),
+            "Caller is not the governance"
+        );
+        GovernanceUtils.onlyAfterGovernanceDelay(update.initiatedAt, 2 days);
+        require(
+            FrostDkg.currentState(dkg) == FrostDkg.State.IDLE,
+            "Current state is not IDLE"
+        );
+        require(
+            address(update.pendingValidator.sortitionPool()) ==
+                address(dkg.sortitionPool),
+            "Sortition Pool mismatch"
+        );
+        dkg.dkgValidator = update.pendingValidator;
+        emit DkgValidatorUpdated(address(update.pendingValidator));
+        update.pendingValidator = FrostDkgValidator(address(0));
+        update.initiatedAt = 0;
     }
 
     /// @notice Verifies the inactivity claim according to the rules defined in

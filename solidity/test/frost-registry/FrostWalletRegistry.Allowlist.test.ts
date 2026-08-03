@@ -298,8 +298,9 @@ describe("FrostWalletRegistry allowlist authorization", () => {
       )
     }
 
-    // A stateful source may reduce a provider to zero and remove it from the
-    // pool. Rollback must use the preserved Phase-0 roster to reinsert it.
+    // A stateful source may terminally reduce a provider to zero and remove it
+    // from the pool. The dormant Phase-0 allowlist still carries its old
+    // positive weight.
     const removedProvider = providers[providers.length - 1]
     await migrationSource.setWeight(removedProvider, 0)
     await frostWalletRegistry.updateOperatorStatus(removedProvider)
@@ -319,10 +320,25 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         "0x"
       )
     expect(await migrationSource.detachCalls()).to.equal(1)
-    for (const provider of providers) {
+    for (const provider of providers.slice(0, -1)) {
       expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(weight)
       expect(await frostWalletRegistry.isOperatorInPool(provider)).to.be.true
     }
+    expect(await frostWalletRegistry.eligibleStake(removedProvider)).to.equal(0)
+    expect(await frostWalletRegistry.isOperatorInPool(removedProvider)).to.be
+      .false
+    expect(
+      await frostWalletRegistry.pendingAuthorizationDecrease(removedProvider)
+    ).to.equal(weight)
+
+    // The rollback hold also blocks a later self-join against the allowlist's
+    // stale positive cache; governance can now align that active source via its
+    // normal decrease flow.
+    await expect(
+      frostWalletRegistry
+        .connect(wallets[wallets.length - 1])
+        .joinSortitionPool()
+    ).to.be.revertedWith("Authorization below the minimum")
   })
 
   it("rejects an incomplete active migration roster", async () => {
@@ -365,9 +381,8 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     const [wallet] = await deriveFundedOperatorWallets(hre, 1)
     await frostWalletRegistry.connect(wallet).registerOperator(wallet.address)
 
-    await expect(
-      frostWalletRegistry.connect(wallet).joinSortitionPool()
-    ).to.be.revertedWith("Authorization source is not initialized")
+    await expect(frostWalletRegistry.connect(wallet).joinSortitionPool()).to.be
+      .reverted
   })
 
   it("rejects allowlist initialization by non-governance", async () => {
@@ -376,6 +391,25 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         .connect(thirdParty)
         .initializeV2(frostAllowlist.address)
     ).to.be.revertedWith("Caller is not the governance")
+  })
+
+  it("rejects a stateful source in the legacy initializer", async () => {
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const statefulSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+
+    await expectCustomError(
+      frostWalletRegistry
+        .connect(deployer)
+        .initializeV2(statefulSource.address),
+      "StatefulAuthorizationSourceRequiresMigration"
+    )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      ethers.constants.AddressZero
+    )
   })
 
   it("rejects direct malicious-behavior reports from non-registry callers", async () => {

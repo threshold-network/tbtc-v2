@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import hre, { ethers } from "hardhat"
+import hre, { ethers, helpers } from "hardhat"
 import { smock } from "@defi-wonderland/smock"
 import chai, { expect } from "chai"
 
@@ -173,10 +173,15 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
     await expect(
       registry
         .connect(operatorSigners[0])
-        .updateDkgValidator(cappedValidator.address)
+        .beginDkgValidatorUpdate(cappedValidator.address)
     ).to.be.revertedWith("Caller is not the governance")
     pool.isLocked.returns(false)
-    await registry.updateDkgValidator(cappedValidator.address)
+    await registry.beginDkgValidatorUpdate(cappedValidator.address)
+    await expect(registry.finalizeDkgValidatorUpdate()).to.be.revertedWith(
+      "Governance delay has not elapsed"
+    )
+    await helpers.time.increaseTime(2 * 24 * 60 * 60)
+    await registry.finalizeDkgValidatorUpdate()
 
     // Start another DKG and verify the registry now delegates validation to
     // the replacement, cap-enabled validator.

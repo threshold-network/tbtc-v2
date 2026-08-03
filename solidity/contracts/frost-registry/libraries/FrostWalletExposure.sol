@@ -55,6 +55,12 @@ interface IFrostRegistryAuthorizationState {
 library FrostWalletExposure {
     using Authorization for Authorization.Data;
 
+    /// @dev Exceeds the EIP-150 retained-gas fraction for the ledger's bounded
+    ///      100-provider registration workload. If that call exhausts its
+    ///      forwarded gas, approval reverts instead of accepting an untracked
+    ///      wallet; ordinary quick reverts remain repairable via reconciliation.
+    uint256 internal constant WALLET_EXPOSURE_CALLBACK_GAS_RESERVE = 500_000;
+
     struct Data {
         // Wallet exposure ledger notified about wallet registrations and
         // closures. Zero address while unset — notifications are skipped.
@@ -137,7 +143,10 @@ library FrostWalletExposure {
     ///         calls revert OUTSIDE the try/catch, bricking DKG result
     ///         approval and wallet closure.
     error WalletExposureLedgerNotContract();
+    error WalletExposureLedgerRegistryMismatch();
+    error InsufficientWalletExposureCallbackGas();
     error AuthorizationSourceAddressZero();
+    error StatefulAuthorizationSourceRequiresMigration();
     error AuthorizationSourceNotContract();
     error CallerNotGovernanceOrProxyAdmin();
     error AuthorizationMigrationPreparationFailed(bytes reason);
@@ -150,6 +159,14 @@ library FrostWalletExposure {
     error LiveWalletRosterWalletNotRegistered();
     error LiveWalletRosterLedgerMismatch();
     error ExitGateAuthorizationSourceUnavailable();
+
+    /// @notice Ensures the legacy V2 initializer cannot partially install a
+    ///         stateful source whose migration invariants live in this library.
+    function requireStatelessAuthorizationSource(address source) external pure {
+        if (source == address(0)) revert AuthorizationSourceAddressZero();
+        if (IFrostAuthorizationSource(source).isStatefulAuthorizationSource())
+            revert StatefulAuthorizationSourceRequiresMigration();
+    }
 
     /// @notice Validates and rewrites every active sortition-pool leaf for an
     ///         authorization-source migration. Kept in this linked library so
@@ -216,6 +233,19 @@ library FrostWalletExposure {
             sortitionPool,
             stakingProviders
         );
+
+        if (self.statefulAuthorizationSource && !statefulTarget) {
+            _validateTargetAuthorizationRoster(
+                authorization,
+                self.rollbackStakingProviders
+            );
+            _excludeIneligibleRollbackProviders(
+                authorization,
+                currentAuthorizationSource,
+                authorizationSource,
+                self.rollbackStakingProviders
+            );
+        }
 
         _detachCurrentStatefulSource(self, stakingProviders);
 
@@ -312,10 +342,6 @@ library FrostWalletExposure {
         address[] calldata stakingProviders
     ) private {
         if (self.statefulAuthorizationSource && !statefulTarget) {
-            _validateTargetAuthorizationRoster(
-                authorization,
-                self.rollbackStakingProviders
-            );
             _rewriteRollbackRoster(
                 authorization,
                 sortitionPool,
@@ -363,6 +389,44 @@ library FrostWalletExposure {
                 require(
                     stakingProviders[j] != stakingProvider,
                     "Duplicate authorization roster provider"
+                );
+            }
+        }
+    }
+
+    /// @dev Carries the stateful source's terminal zero-weight decision into
+    ///      the registry before switching back to a stale legacy allowlist.
+    ///      The synthetic full decrease makes the provider ineligible both
+    ///      during rollback and on a later join attempt. Once the allowlist is
+    ///      active, its owner can request the matching decrease normally and
+    ///      overwrite this registry-side hold.
+    function _excludeIneligibleRollbackProviders(
+        Authorization.Data storage authorization,
+        IFrostAuthorizationSource currentAuthorizationSource,
+        IFrostAuthorizationSource targetAuthorizationSource,
+        address[] storage rollbackStakingProviders
+    ) private {
+        for (uint256 i = 0; i < rollbackStakingProviders.length; i++) {
+            address stakingProvider = rollbackStakingProviders[i];
+            address operator = authorization.stakingProviderToOperator[
+                stakingProvider
+            ];
+            if (
+                currentAuthorizationSource.authorizedWeight(
+                    stakingProvider,
+                    operator
+                ) != 0
+            ) continue;
+
+            uint96 targetWeight = targetAuthorizationSource.authorizedWeight(
+                stakingProvider,
+                operator
+            );
+            if (targetWeight != 0) {
+                authorization.authorizationDecreaseRequested(
+                    stakingProvider,
+                    targetWeight,
+                    0
                 );
             }
         }
@@ -538,7 +602,15 @@ library FrostWalletExposure {
         if (_ledger.code.length == 0) {
             revert WalletExposureLedgerNotContract();
         }
-        self.ledger = IWalletExposureLedger(_ledger);
+        IWalletExposureLedger ledger = IWalletExposureLedger(_ledger);
+        try ledger.frostWalletRegistry() returns (address registry) {
+            if (registry != address(this)) {
+                revert WalletExposureLedgerRegistryMismatch();
+            }
+        } catch {
+            revert WalletExposureLedgerRegistryMismatch();
+        }
+        self.ledger = ledger;
         emit WalletExposureLedgerSet(_ledger);
     }
 
@@ -600,6 +672,14 @@ library FrostWalletExposure {
 
         } catch {
             emit WalletExposureLedgerCallFailed(walletID);
+        }
+
+        // Mirror the DKG challenge path's post-call reserve check. Without it,
+        // a submitter can tune the transaction gas so EIP-150 preserves just
+        // enough gas to finish approval after the storage-heavy ledger call
+        // runs out of gas inside try/catch.
+        if (gasleft() < WALLET_EXPOSURE_CALLBACK_GAS_RESERVE) {
+            revert InsufficientWalletExposureCallbackGas();
         }
     }
 

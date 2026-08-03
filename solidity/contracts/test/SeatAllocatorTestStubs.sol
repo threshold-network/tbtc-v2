@@ -33,6 +33,15 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
     uint256 public operatorInactivityCalls;
     address[] public reconciledProviders;
 
+    function isStatefulAuthorizationSource()
+        external
+        pure
+        override
+        returns (bool)
+    {
+        return true;
+    }
+
     function setWeight(address stakingProvider, uint96 weight) external {
         weights[stakingProvider] = weight;
     }
@@ -128,6 +137,10 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
 ///      inactivity, exposure-reconcile, and migration-hook selectors.
 contract LegacyMigrationAuthorizationSource {
     mapping(address => uint96) public weights;
+
+    function isStatefulAuthorizationSource() external pure returns (bool) {
+        return false;
+    }
 
     function setWeight(address stakingProvider, uint96 weight) external {
         weights[stakingProvider] = weight;
@@ -250,6 +263,11 @@ contract StakingMockWalletRegistry {
         address[] calldata stakingProviders,
         bytes calldata
     ) external {
+        // solhint-disable-next-line reason-string, custom-errors
+        require(
+            !revertOnAuthorizationCalls,
+            "StakingMockWalletRegistry: forced revert"
+        );
         synchronizedRoster = stakingProviders;
     }
 
@@ -729,6 +747,15 @@ contract StakingMockRewardsDistributor is IRewardsDistributor {
 
     function notifyReward(uint256) external override {
         // no-op
+    }
+
+    function recoverUndistributedRewards(address)
+        external
+        pure
+        override
+        returns (uint256)
+    {
+        return 0;
     }
 
     function settleOperator(address) external override {}

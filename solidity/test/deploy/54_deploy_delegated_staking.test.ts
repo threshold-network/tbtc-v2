@@ -23,7 +23,10 @@ describe("54_deploy_delegated_staking", () => {
       names.map(async (name) => (await deployments.get(name)).address)
     )
 
-    await deployDelegatedStaking(hre)
+    // Exercise the exported tag through hardhat-deploy's dependency resolver.
+    // Its prerequisite validation must not rerun the non-idempotent Bridge /
+    // FrostWalletRegistry proxy deployment tags.
+    await deployments.run("DelegatedStaking", { resetMemory: false })
 
     const addressesAfter = await Promise.all(
       names.map(async (name) => (await deployments.get(name)).address)
@@ -46,6 +49,26 @@ describe("54_deploy_delegated_staking", () => {
     expect(await signerRegistry.seatAllocator()).to.equal(seatAllocator.address)
     expect(await feeRouter.rewardsDistributor()).to.equal(
       rewardsDistributor.address
+    )
+
+    const slashingModule = await ethers.getContractAt(
+      "SlashingModule",
+      addressesAfter[2]
+    )
+    const { governance } = await hre.getNamedAccounts()
+    const governanceSigner = await ethers.getSigner(governance)
+    const signers = await ethers.getSigners()
+    await slashingModule
+      .connect(governanceSigner)
+      .setGuardian(signers[8].address)
+    await slashingModule
+      .connect(governanceSigner)
+      .setRestitutionReserve(signers[9].address)
+
+    await deployments.run("DelegatedStaking", { resetMemory: false })
+    expect(await slashingModule.guardian()).to.equal(signers[8].address)
+    expect(await slashingModule.restitutionReserve()).to.equal(
+      signers[9].address
     )
   })
 

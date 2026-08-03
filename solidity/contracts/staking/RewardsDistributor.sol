@@ -46,6 +46,7 @@ contract RewardsDistributor is
     error ZeroAddress();
     error CallerNotSeatAllocator();
     error CallerNotFeeRouter();
+    error CallerNotFeeRouterOrOwner();
     error CallerNotBeneficiary();
     error NothingToClaim();
     error AlreadySet();
@@ -137,6 +138,10 @@ contract RewardsDistributor is
     );
     event SeatAllocatorSet(address seatAllocator);
     event FeeRouterSet(address feeRouter);
+    event UndistributedRewardsRecovered(
+        address indexed recipient,
+        uint256 amount
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -218,6 +223,24 @@ contract RewardsDistributor is
         undistributedRewards = 0;
         _recordAccumulatorCheckpoint();
         emit RewardNotified(tbtcAmount, folded);
+    }
+
+    /// @notice See {IRewardsDistributor-recoverUndistributedRewards}.
+    function recoverUndistributedRewards(address recipient)
+        external
+        override
+        returns (uint256 amount)
+    {
+        if (msg.sender != feeRouter && msg.sender != owner()) {
+            revert CallerNotFeeRouterOrOwner();
+        }
+        if (recipient == address(0)) revert ZeroAddress();
+        amount = undistributedRewards;
+        undistributedRewards = 0;
+        if (amount > 0) {
+            tbtcToken.safeTransfer(recipient, amount);
+        }
+        emit UndistributedRewardsRecovered(recipient, amount);
     }
 
     /// @notice See {IRewardsDistributor-onWeightChanged}. Settles the

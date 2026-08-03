@@ -15,6 +15,15 @@ contract MockRewardsDistributor is IRewardsDistributor {
     address public settlementVault;
     mapping(address => uint256) public pendingSettlement;
 
+    function recoverUndistributedRewards(address)
+        external
+        pure
+        override
+        returns (uint256)
+    {
+        return 0;
+    }
+
     function onWeightChanged(address stakingProvider, uint96 newWeight)
         external
         override

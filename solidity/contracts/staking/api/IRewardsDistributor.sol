@@ -41,6 +41,13 @@ interface IRewardsDistributor {
     ///        distributor.
     function notifyReward(uint256 tbtcAmount) external;
 
+    /// @notice Returns rewards parked while total weight was zero to the given
+    ///         recipient when the fee router disables reward distribution.
+    /// @dev Callable only by the fee router or distributor governance.
+    function recoverUndistributedRewards(address recipient)
+        external
+        returns (uint256);
+
     /// @notice Settles all reward accrual currently attributable to the given
     ///         provider into the stake vault. Permissionless; a no-op when
     ///         nothing has accrued.

@@ -614,6 +614,41 @@ describe("StakeVault", () => {
         await vault.claimableRewardsOf(operator.address, delegator1.address)
       ).to.equal(reward.mul(2))
     })
+
+    it("resets before a deposit amplifies a just-above-threshold residual", async () => {
+      const amount = to1e18(40000)
+      const residual = ethers.BigNumber.from(40001)
+
+      await vault.connect(delegator1).delegate(operator2.address, amount)
+
+      // This residual is one wei above the slash-time reset boundary:
+      // residual * 1e18 > 40,000e18 shares.
+      await reportSlash(operator2.address, amount.sub(residual))
+      expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
+        residual
+      )
+      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
+
+      // The incoming 40,000 T consumes that one-wei precision headroom. The
+      // vault resets the dust-backed generation before minting instead of
+      // creating roughly 4e40 shares.
+      await vault.connect(delegator2).delegate(operator2.address, amount)
+      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
+      expect(
+        await vault.sharesOf(operator2.address, delegator1.address)
+      ).to.equal(0)
+      expect(
+        await vault.sharesOf(operator2.address, delegator2.address)
+      ).to.equal(amount)
+
+      // A later ordinary slash cannot wipe the replacement shares while
+      // retaining the material deposit for a future one-wei shareholder.
+      await reportSlash(operator2.address, to1e18(500))
+      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
+      expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
+        to1e18(39500).add(residual)
+      )
+    })
   })
 
   describe("requestUndelegate", () => {

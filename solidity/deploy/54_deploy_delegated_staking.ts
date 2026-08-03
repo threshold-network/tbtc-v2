@@ -16,6 +16,33 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const TBTCVault = await deployments.get("TBTCVault")
   const FrostWalletRegistry = await deployments.get("FrostWalletRegistry")
 
+  // This exported tag is intentionally recovery-only: prerequisite deployment
+  // tags contain non-idempotent proxy helpers and must not be traversed again.
+  // Validate that the complete Phase-0 registry handoff already happened
+  // before writing any delegated-staking deployment record.
+  const frostWalletRegistry = await ethers.getContractAt(
+    "FrostWalletRegistry",
+    FrostWalletRegistry.address,
+    signer
+  )
+  const [authorizationSource, lifecycleOwner, registryGovernance] =
+    await Promise.all([
+      frostWalletRegistry.authorizationSource(),
+      frostWalletRegistry.lifecycleOwner(),
+      frostWalletRegistry.governance(),
+    ])
+  if (authorizationSource === ethers.constants.AddressZero) {
+    throw new Error("FrostWalletRegistry authorization source is not ready")
+  }
+  if (lifecycleOwner === ethers.constants.AddressZero) {
+    throw new Error("FrostWalletRegistry lifecycle owner is not ready")
+  }
+  if (registryGovernance.toLowerCase() !== governance.toLowerCase()) {
+    throw new Error(
+      `FrostWalletRegistry governance is ${registryGovernance}; expected ${governance}`
+    )
+  }
+
   const governanceDelay = hre.network.name === "sepolia" ? 3600 : 172800
 
   const attachOrDeployProxy = async (
@@ -77,6 +104,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     governanceDelay,
   ])
 
+  const existingSlashingModule = await deployments.getOrNull("SlashingModule")
   const slashingModule = await attachOrDeployProxy(
     "SlashingModule",
     "SlashingModule",
@@ -167,13 +195,40 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     "setSeatAllocator",
     seatAllocator.address
   )
-  await setIfDifferent(slashingModule, "guardian", "setGuardian", governance)
-  await setIfDifferent(
-    slashingModule,
-    "restitutionReserve",
-    "setRestitutionReserve",
-    treasury
-  )
+  const slashingOwner: string = await slashingModule.owner()
+  const ownerIsDeployer = slashingOwner.toLowerCase() === deployer.toLowerCase()
+  const ownerIsGovernance =
+    slashingOwner.toLowerCase() === governance.toLowerCase()
+  if (!ownerIsDeployer && !ownerIsGovernance) {
+    throw new Error(
+      `SlashingModule owner is ${slashingOwner}; expected ${deployer} or ${governance}`
+    )
+  }
+
+  const guardian: string = await slashingModule.guardian()
+  const restitutionReserve: string = await slashingModule.restitutionReserve()
+  const sameDeploymentAndGovernanceActor =
+    deployer.toLowerCase() === governance.toLowerCase()
+  const initializeSlashingDefaults =
+    !existingSlashingModule ||
+    (ownerIsDeployer && !sameDeploymentAndGovernanceActor) ||
+    guardian === ethers.constants.AddressZero ||
+    restitutionReserve === ethers.constants.AddressZero
+
+  if (initializeSlashingDefaults) {
+    if (!ownerIsDeployer) {
+      throw new Error(
+        "SlashingModule defaults are unset after governance ownership handoff"
+      )
+    }
+    await setIfDifferent(slashingModule, "guardian", "setGuardian", governance)
+    await setIfDifferent(
+      slashingModule,
+      "restitutionReserve",
+      "setRestitutionReserve",
+      treasury
+    )
+  }
   await setOnce(
     seatAllocator,
     "rewardsDistributor",
@@ -215,4 +270,3 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 export default func
 
 func.tags = ["DelegatedStaking"]
-func.dependencies = ["FrostWalletRegistry", "TBTCVault"]

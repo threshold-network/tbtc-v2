@@ -558,6 +558,23 @@ describe("FeeRouter", () => {
         ).to.be.revertedWith("Change not initiated")
       })
 
+      it("should resolve zero-weight reward carry when disabling rewards", async () => {
+        await createSnapshot()
+        try {
+          await feeRouter.connect(deployer).beginRewardShareBpsUpdate(0)
+          await increaseTime(GOVERNANCE_DELAY)
+          await feeRouter.connect(deployer).finalizeRewardShareBpsUpdate()
+
+          expect(await feeRouter.rewardShareBps()).to.equal(0)
+          expect(await rewardsDistributor.recoveryCount()).to.equal(1)
+          expect(await rewardsDistributor.lastRecoveryRecipient()).to.equal(
+            daoTreasury.address
+          )
+        } finally {
+          await restoreSnapshot()
+        }
+      })
+
       context("with a pending update", () => {
         before(async () => {
           await createSnapshot()

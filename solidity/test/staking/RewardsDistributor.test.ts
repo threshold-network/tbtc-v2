@@ -166,6 +166,14 @@ describe("RewardsDistributor", () => {
       ).to.be.revertedWith("CallerNotFeeRouter")
     })
 
+    it("should revert carry recovery from a caller other than the fee router", async () => {
+      await expect(
+        rewardsDistributor
+          .connect(thirdParty)
+          .recoverUndistributedRewards(thirdParty.address)
+      ).to.be.revertedWith("CallerNotFeeRouterOrOwner")
+    })
+
     it("should revert onWeightChanged from a caller other than the seat allocator", async () => {
       await expect(
         rewardsDistributor
@@ -252,6 +260,33 @@ describe("RewardsDistributor", () => {
           await rewardsDistributor.pendingRewardOf(provider2.address)
         ).to.equal(to1e18(300))
       })
+    })
+  })
+
+  describe("recoverUndistributedRewards", () => {
+    before(async () => {
+      await createSnapshot()
+      await tbtc.mint(rewardsDistributor.address, to1e18(100))
+      await rewardsDistributor.connect(feeRouter).notifyReward(to1e18(100))
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("returns a zero-weight carry to the fee router's recipient", async () => {
+      const recipientBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+      const tx = await rewardsDistributor
+        .connect(feeRouter)
+        .recoverUndistributedRewards(thirdParty.address)
+
+      await expect(tx)
+        .to.emit(rewardsDistributor, "UndistributedRewardsRecovered")
+        .withArgs(thirdParty.address, to1e18(100))
+      expect(await rewardsDistributor.undistributedRewards()).to.equal(0)
+      expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+        recipientBalanceBefore.add(to1e18(100))
+      )
     })
   })
 

@@ -1,17 +1,11 @@
 /* eslint-disable no-await-in-loop */
 import { randomBytes } from "crypto"
-import hre, { deployments, ethers, helpers, waffle } from "hardhat"
+import hre, { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
 import { expect } from "chai"
 import type { BigNumber } from "ethers"
-import bridgeFixture from "../fixtures/bridge"
-import type {
-  Bridge,
-  BridgeStub,
-  IRandomBeacon,
-  ReimbursementPool,
-} from "../../typechain"
+import type { IRandomBeacon, ReimbursementPool } from "../../typechain"
 import {
   FROST_GROUP_SIZE,
   deriveFundedOperatorWallets,
@@ -55,7 +49,7 @@ const deploymentId = randomBytes(8).toString("hex")
 describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + FrostWalletRegistry)", () => {
   let deployer: SignerWithAddress
   let notifier: SignerWithAddress
-  let bridge: Bridge & BridgeStub
+  let bridge: any
   let frostWalletRegistry: any
   let frostSortitionPool: any
   let randomBeacon: any
@@ -87,12 +81,19 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
     // 100 sequential operator registrations + staking-side wiring.
     this.timeout(600_000)
 
+    // Build this suite entirely from direct deployments. Mixing the shared
+    // hardhat-deploy fixture with proxies created by earlier staking suites
+    // leaves OpenZeppelin's process-wide ProxyAdmin manifest pointing at chain
+    // state that the fixture snapshot has reset.
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;[, , , notifier] = await ethers.getSigners()
+    ;[deployer, , , notifier] = await ethers.getSigners()
 
-    const t = await deployments.get("T")
+    bridge = await smock.fake("IFrostWalletOwner")
+    bridge.__frostWalletCreatedCallback.returns()
+
+    const TokenFactory = await ethers.getContractFactory("TestERC20")
+    const t = await TokenFactory.connect(deployer).deploy()
+    await t.deployed()
 
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
     const reimbursementPoolFake = await smock.fake<ReimbursementPool>(
@@ -158,8 +159,6 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
     frostWalletRegistry = registry
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
-    await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
-    await bridge.resetLifecycleRouterForTest(deployer.address)
     await frostWalletRegistry
       .connect(deployer)
       .updateLifecycleOwner(deployer.address)
@@ -233,14 +232,20 @@ describe("Delegated staking integration (SeatAllocator + WalletExposureLedger + 
     )
     seatAllocator = allocatorInstance
 
-    // The allocator becomes the registry's authorization source and the
-    // ledger is wired through the registry's set-once hook.
+    // The allocator becomes the registry's stateful authorization source and
+    // the ledger/exit-gate invariants are established atomically.
     await frostWalletRegistry
       .connect(deployer)
-      .initializeV2(seatAllocator.address)
-    await frostWalletRegistry
-      .connect(deployer)
-      .setWalletExposureLedger(exposureLedger.address)
+      .migrateAuthorizationSource(
+        seatAllocator.address,
+        true,
+        exposureLedger.address,
+        [],
+        ethers.utils.defaultAbiCoder.encode(
+          ["bytes32[]", "uint256", "uint256"],
+          [[], 0, 0]
+        )
+      )
 
     // 100 operators: Active in the signer registry, self-bonded in the
     // vault, weight synced to the FROST registry via the permissionless

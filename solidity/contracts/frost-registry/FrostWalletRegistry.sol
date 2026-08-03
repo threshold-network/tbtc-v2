@@ -185,6 +185,10 @@ contract FrostWalletRegistry is
     ///      the setter's custom errors.
     WalletExposure.Data internal walletExposureData;
 
+    /// @dev Appended delayed-validator state. The struct occupies the same two
+    ///      slots as its pending-validator and timestamp fields.
+    Inactivity.DkgValidatorUpdate internal dkgValidatorUpdate;
+
     // Events
     event DkgStarted(uint256 indexed seed);
 
@@ -266,6 +270,10 @@ contract FrostWalletRegistry is
     event LifecycleOwnerUpdated(address lifecycleOwner);
 
     event AuthorizationSourceUpdated(address authorizationSource);
+    event DkgValidatorUpdateStarted(
+        address indexed dkgValidator,
+        uint256 timestamp
+    );
 
     /// @notice Raised when `requestNewWallet` or `approveDkgResult`
     ///         is called while `lifecycleOwner` is the zero
@@ -276,7 +284,6 @@ contract FrostWalletRegistry is
     ///         Custom error (not require string) so it survives
     ///         all JSON-RPC node decoding paths.
     error LifecycleOwnerNotSet();
-    error AuthorizationSourceAddressZero();
 
     event OperatorRegistered(
         address indexed stakingProvider,
@@ -502,9 +509,9 @@ contract FrostWalletRegistry is
         reinitializer(2)
     {
         require(governance == msg.sender, "Caller is not the governance");
-        if (_authorizationSource == address(0)) {
-            revert AuthorizationSourceAddressZero();
-        }
+        WalletExposure.requireStatelessAuthorizationSource(
+            _authorizationSource
+        );
         authorizationSource = IFrostAuthorizationSource(_authorizationSource);
         emit AuthorizationSourceUpdated(_authorizationSource);
     }
@@ -786,12 +793,20 @@ contract FrostWalletRegistry is
         WalletExposure.setLedger(walletExposureData, _walletExposureLedger);
     }
 
-    /// @notice Replaces the DKG validator through registry governance. The
-    ///         governance contract supplies the protocol delay; replacement is
-    ///         allowed only while the DKG state machine is idle and only with a
-    ///         validator bound to this registry's sortition pool.
-    function updateDkgValidator(DKGValidator _dkgValidator) external {
-        Inactivity.setDkgValidator(dkg, _dkgValidator, governance, msg.sender);
+    /// @notice Begins the delayed replacement of the DKG validator.
+    function beginDkgValidatorUpdate(DKGValidator _dkgValidator) external {
+        Inactivity.beginDkgValidatorUpdate(
+            dkg,
+            dkgValidatorUpdate,
+            _dkgValidator
+        );
+    }
+
+    /// @notice Finalizes a DKG validator replacement after the fixed 48-hour
+    ///         delay. The DKG must still be idle and the candidate must remain
+    ///         bound to this registry's sortition pool.
+    function finalizeDkgValidatorUpdate() external {
+        Inactivity.finalizeDkgValidatorUpdate(dkg, dkgValidatorUpdate);
     }
 
     /// @notice Returns the wallet exposure ledger address; the zero address
@@ -1560,10 +1575,14 @@ contract FrostWalletRegistry is
         view
         returns (IFrostAuthorizationSource)
     {
-        require(
-            address(authorizationSource) != address(0),
-            "Authorization source is not initialized"
-        );
+        if (address(authorizationSource) == address(0)) {
+            // Fail closed without embedding another revert payload; this
+            // registry is deliberately kept below the EIP-170 size limit.
+            // solhint-disable-next-line no-inline-assembly
+            assembly {
+                revert(0, 0)
+            }
+        }
         return authorizationSource;
     }
 

@@ -83,6 +83,15 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         walletRegistry = IFrostAllowlistWalletRegistry(_walletRegistry);
     }
 
+    function isStatefulAuthorizationSource()
+        external
+        pure
+        override
+        returns (bool)
+    {
+        return false;
+    }
+
     /// @notice Adds a new staking provider with the given authorization weight.
     ///         The word "staking" is retained for registry compatibility; no T
     ///         tokens are staked or locked.

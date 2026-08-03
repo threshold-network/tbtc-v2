@@ -86,7 +86,9 @@ describe("SeatAllocator", () => {
   async function setEqualSeatWeight(newValue: BigNumber): Promise<void> {
     await allocator.connect(governance).beginEqualSeatWeightUpdate(newValue)
     await increaseTime(GOVERNANCE_DELAY)
-    await allocator.connect(governance).finalizeEqualSeatWeightUpdate([])
+    await allocator
+      .connect(governance)
+      .finalizeEqualSeatWeightUpdate([provider])
   }
 
   beforeEach(async () => {
@@ -338,6 +340,23 @@ describe("SeatAllocator", () => {
       expect(await mockRegistry.synchronizedRosterLength()).to.equal(2)
       expect(await mockRegistry.synchronizedRoster(0)).to.equal(provider)
       expect(await mockRegistry.synchronizedRoster(1)).to.equal(provider2)
+    })
+
+    it("invalidates a pre-join cache omitted from a global floor update", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await mockRegistry.setOperatorInPool(provider, false)
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
+      )
+
+      await stakeVault.setMinSelfBond(to18(50_000))
+      await stakeVault.synchronizeAuthorizationRoster(allocator.address, [])
+
+      expect(await allocator.authorizationGeneration()).to.equal(1)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
+      expect(await allocator.currentWeight(provider)).to.equal(0)
     })
   })
 
@@ -765,19 +784,17 @@ describe("SeatAllocator", () => {
       expect(await rewardsDistributor.onWeightChangedCallCount()).to.equal(2)
     })
 
-    it("files a subsequent increase when the equal seat weight is raised by governance", async () => {
+    it("synchronizes a seat-weight increase during global finalization", async () => {
       await allocator.refreshAuthorization(provider) // synced 40k
-      // Raising the uniform seat weight lifts every eligible operator's
-      // authorization; the next refresh files the increase.
+      // Raising the uniform seat weight rewrites the complete current roster
+      // atomically, so no later per-provider increase is needed.
       await setEqualSeatWeight(to18(80_000))
-
-      await expect(allocator.refreshAuthorization(provider))
-        .to.emit(allocator, "WeightIncreased")
-        .withArgs(provider, EQUAL_SEAT_WEIGHT, to18(80_000))
 
       expect(await allocator.authorizedWeight(provider, provider)).to.equal(
         to18(80_000)
       )
+      await allocator.refreshAuthorization(provider)
+      expect(await mockRegistry.increaseCallsCount()).to.equal(1)
     })
 
     describe("decrease sequencing", () => {
@@ -819,28 +836,15 @@ describe("SeatAllocator", () => {
         expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(1)
       })
 
-      it("re-points a pending decrease to a new lower target", async () => {
-        // Model a deployment whose FROST registry floor is 10k, so re-pointing
-        // the uniform seat weight down to an intermediate 20k stays above the
-        // registry minimum (a config that could exist in production).
-        await mockRegistry.setMinimumAuthorization(to18(10_000))
-        // Lower the uniform seat weight to an intermediate value so the first
-        // decrease targets 20k (not 0).
-        await setEqualSeatWeight(to18(20_000))
-        await allocator.refreshAuthorization(provider) // decrease 40k -> 20k
-        expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(1)
-        expect(await allocator.pendingDecreaseTarget(provider)).to.equal(
-          to18(20_000)
-        )
-
-        // Deactivation drops the live weight to zero — the pending decrease is
-        // re-pointed to the new lower target.
+      it("keeps a pending zero decrease when the operator recovers", async () => {
         await signerRegistry.setOperatorStatus(provider, STATUS_DEACTIVATING)
         await allocator.refreshAuthorization(provider)
-        expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(2)
-        const call = await mockRegistry.decreaseRequestCalls(1)
-        expect(call.fromAmount).to.equal(EQUAL_SEAT_WEIGHT)
-        expect(call.toAmount).to.equal(0)
+        expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(1)
+        expect(await allocator.pendingDecreaseTarget(provider)).to.equal(0)
+
+        await activate(provider)
+        await allocator.refreshAuthorization(provider)
+        expect(await mockRegistry.decreaseRequestCallsCount()).to.equal(1)
         expect(await allocator.pendingDecreaseTarget(provider)).to.equal(0)
       })
 
@@ -849,11 +853,10 @@ describe("SeatAllocator", () => {
         await allocator.refreshAuthorization(provider) // decrease to 0 pending
         expect(await allocator.decreasePending(provider)).to.be.true
 
-        // The operator recovers ABOVE the synced weight while the decrease is
-        // pending (reactivated AND the uniform weight raised) — the allocator
-        // must wait for registry approval, not file an increase.
+        // The operator recovers to the synced weight while the decrease is
+        // pending. The allocator must wait for registry approval rather than
+        // treating recovery to the synchronized weight as a fresh increase.
         await activate(provider)
-        await setEqualSeatWeight(to18(80_000))
 
         await allocator.refreshAuthorization(provider)
         // unchanged (only the initial 40k sync)
@@ -966,31 +969,30 @@ describe("SeatAllocator", () => {
       expect(await allocator.weightDirty(provider)).to.be.false
     })
 
-    it("makes re-pointing a reward-weight decrease atomic", async () => {
-      // Model a deployment whose FROST registry floor is 10k, so the
-      // intermediate 20k target stays above the registry minimum.
+    it("makes global seat-weight synchronization atomic", async () => {
       await mockRegistry.setMinimumAuthorization(to18(10_000))
-      // 40k synced, then a decrease to an intermediate 20k goes pending.
       await allocator.refreshAuthorization(provider)
-      await setEqualSeatWeight(to18(20_000))
-      await allocator.refreshAuthorization(provider) // target 20k pending
-
-      // The weight drops to zero, but the registry is down — the re-point
-      // is deferred and the pending target stays at 20k.
-      await signerRegistry.setOperatorStatus(provider, STATUS_DEACTIVATING)
+      await allocator
+        .connect(governance)
+        .beginEqualSeatWeightUpdate(to18(20_000))
+      await increaseTime(GOVERNANCE_DELAY)
       await mockRegistry.setRevertOnAuthorizationCalls(true)
-      await expect(allocator.refreshAuthorization(provider))
-        .to.emit(allocator, "AuthorizationSyncFailed")
-        .withArgs(provider)
-      expect(await allocator.pendingDecreaseTarget(provider)).to.equal(
-        to18(20_000)
+      await expect(
+        allocator.connect(governance).finalizeEqualSeatWeightUpdate([provider])
+      ).to.be.revertedWith("StakingMockWalletRegistry: forced revert")
+      expect(await allocator.equalSeatWeight()).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        EQUAL_SEAT_WEIGHT
       )
-      expect(await allocator.weightDirty(provider)).to.be.true
 
       await mockRegistry.setRevertOnAuthorizationCalls(false)
-      await allocator.refreshAuthorization(provider)
-      expect(await allocator.pendingDecreaseTarget(provider)).to.equal(0)
-      expect(await allocator.weightDirty(provider)).to.be.false
+      await allocator
+        .connect(governance)
+        .finalizeEqualSeatWeightUpdate([provider])
+      expect(await allocator.equalSeatWeight()).to.equal(to18(20_000))
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        to18(20_000)
+      )
     })
 
     it("survives a reverting rewards distributor and retries it on a later refresh", async () => {
@@ -1608,6 +1610,27 @@ describe("SeatAllocator", () => {
       expect(await mockRegistry.synchronizedRosterLength()).to.equal(2)
       expect(await mockRegistry.synchronizedRoster(0)).to.equal(provider)
       expect(await mockRegistry.synchronizedRoster(1)).to.equal(provider2)
+    })
+
+    it("invalidates a pre-join cache omitted from a seat-weight update", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await mockRegistry.setOperatorInPool(provider, false)
+      await allocator.refreshAuthorization(provider)
+
+      await allocator
+        .connect(governance)
+        .beginEqualSeatWeightUpdate(to18(80_000))
+      await increaseTime(GOVERNANCE_DELAY)
+      await allocator.connect(governance).finalizeEqualSeatWeightUpdate([])
+
+      expect(await allocator.authorizationGeneration()).to.equal(1)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(0)
+
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.authorizedWeight(provider, provider)).to.equal(
+        to18(80_000)
+      )
     })
 
     it("rejects a zero equal seat weight", async () => {

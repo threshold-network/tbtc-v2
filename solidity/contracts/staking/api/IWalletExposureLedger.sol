@@ -22,6 +22,9 @@ pragma solidity 0.8.17;
 ///         to ensure a provider has no live wallet registered at or before
 ///         the epoch recorded when the exit was requested.
 interface IWalletExposureLedger {
+    /// @notice Registry address authorized to invoke lifecycle hooks.
+    function frostWalletRegistry() external view returns (address);
+
     /// @notice Records live exposure for every unique staking provider that
     ///         holds seats in the newly registered wallet. For each provider
     ///         the ledger assigns the next epoch (`++epochCounter`), marks it
@@ -109,4 +112,11 @@ interface IWalletExposureLedger {
             uint32[] memory seatCounts,
             bool live
         );
+
+    /// @notice Permissionlessly advances a provider's oldest-live pointer by a
+    ///         bounded amount. May be called repeatedly after a closure leaves
+    ///         a long dead epoch range.
+    function advanceOldestLiveEpoch(address stakingProvider)
+        external
+        returns (uint64);
 }

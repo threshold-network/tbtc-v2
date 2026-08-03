@@ -249,12 +249,17 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
     )
 
     ledgerFake = await smock.fake("IWalletExposureLedger")
+    ledgerFake.frostWalletRegistry.returns(frostWalletRegistry.address)
   })
 
   /// Drives one full DKG round (request → seed → submit →
   /// approve) for the given wallet key and returns the approve
   /// receipt plus the group used.
-  async function runDkgRound(xOnlyOutputKey: string, seedLabel: string) {
+  async function runDkgRound(
+    xOnlyOutputKey: string,
+    seedLabel: string,
+    approveGasLimit?: number
+  ) {
     await ethers.provider.send("hardhat_impersonateAccount", [bridge.address])
     const bridgeImpersonated = await ethers.getSigner(bridge.address)
     await hre.network.provider.send("hardhat_setBalance", [
@@ -289,7 +294,8 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
       bridge.address,
       seed,
       xOnlyOutputKey,
-      groupMembers
+      groupMembers,
+      { approveGasLimit }
     )
 
     const approveReceipt = await approveDkgResultTx.wait()
@@ -323,6 +329,7 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
     "0xabcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01"
   const walletKeyB =
     "0xbeadfeed12345678beadfeed12345678beadfeed12345678beadfeed12345678"
+  const gasFailureWallet = ethers.utils.id("gas-reserve-wallet")
 
   describe("setWalletExposureLedger wiring", () => {
     it("rejects non-governance callers", async () => {
@@ -352,6 +359,52 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
           .setWalletExposureLedger(thirdParty.address),
         "WalletExposureLedgerNotContract"
       )
+    })
+
+    it("rejects a ledger initialized for another registry", async () => {
+      const mismatchedLedger = await smock.fake("IWalletExposureLedger")
+      mismatchedLedger.frostWalletRegistry.returns(thirdParty.address)
+
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .setWalletExposureLedger(mismatchedLedger.address),
+        "WalletExposureLedgerRegistryMismatch"
+      )
+      expect(await frostWalletRegistry.walletExposureLedger()).to.equal(
+        ethers.constants.AddressZero
+      )
+    })
+
+    it("reverts approval when a ledger registration exhausts forwarded gas", async function gasReserve() {
+      this.timeout(240_000)
+      const snapshot = await ethers.provider.send("evm_snapshot", [])
+      try {
+        const GasBurner = await ethers.getContractFactory(
+          "GasBurningWalletExposureLedger"
+        )
+        const gasBurner = await GasBurner.connect(deployer).deploy(
+          frostWalletRegistry.address
+        )
+        await gasBurner.deployed()
+        await frostWalletRegistry
+          .connect(deployer)
+          .setWalletExposureLedger(gasBurner.address)
+
+        await expectCustomError(
+          runDkgRound(
+            gasFailureWallet,
+            "frost-exposure-ledger-gas-reserve",
+            12_000_000
+          ),
+          "InsufficientWalletExposureCallbackGas"
+        )
+        expect(
+          await frostWalletRegistry.isWalletRegistered(gasFailureWallet)
+        ).to.equal(false)
+      } finally {
+        await ethers.provider.send("evm_revert", [snapshot])
+      }
     })
 
     it("sets the ledger and emits WalletExposureLedgerSet", async () => {

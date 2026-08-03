@@ -99,6 +99,8 @@ contract StakingFeeMockRewardsDistributor is IRewardsDistributor {
     uint256 public notifyCount;
     uint256 public lastNotifiedAmount;
     uint256 public totalNotified;
+    uint256 public recoveryCount;
+    address public lastRecoveryRecipient;
 
     function onWeightChanged(address, uint96) external override {}
 
@@ -106,6 +108,16 @@ contract StakingFeeMockRewardsDistributor is IRewardsDistributor {
         notifyCount += 1;
         lastNotifiedAmount = tbtcAmount;
         totalNotified += tbtcAmount;
+    }
+
+    function recoverUndistributedRewards(address recipient)
+        external
+        override
+        returns (uint256)
+    {
+        recoveryCount += 1;
+        lastRecoveryRecipient = recipient;
+        return 0;
     }
 
     function settleOperator(address) external override {}

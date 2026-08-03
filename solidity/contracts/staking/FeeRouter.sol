@@ -243,6 +243,12 @@ contract FeeRouter is Initializable, OwnableUpgradeable {
             rewardShareBpsChangeInitiated,
             governanceDelay
         );
+        if (newRewardShareBps == 0) {
+            // A zero-weight reward tranche is not an accrued provider claim.
+            // Resolve it explicitly to the DAO before disabling the only path
+            // that could otherwise fold it into a later tranche.
+            rewardsDistributor.recoverUndistributedRewards(daoTreasury);
+        }
         rewardShareBps = newRewardShareBps;
         emit RewardShareBpsUpdated(newRewardShareBps);
         rewardShareBpsChangeInitiated = 0;

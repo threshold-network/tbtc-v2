@@ -47,6 +47,12 @@ contract FrostWalletExposureHarness {
 ///      EIP-6780 only removes code when selfdestruct runs in the same
 ///      transaction as contract creation.
 contract SelfDestructingLedgerStub {
+    address public immutable frostWalletRegistry;
+
+    constructor(address registry) {
+        frostWalletRegistry = registry;
+    }
+
     function destroy() external {
         selfdestruct(payable(msg.sender));
     }
@@ -59,7 +65,9 @@ contract EphemeralLedgerInstaller {
     address public lastLedger;
 
     function wireAndDestroy(FrostWalletExposureHarness harness) external {
-        SelfDestructingLedgerStub ledger = new SelfDestructingLedgerStub();
+        SelfDestructingLedgerStub ledger = new SelfDestructingLedgerStub(
+            address(harness)
+        );
         lastLedger = address(ledger);
         harness.setLedger(address(ledger));
         ledger.destroy();

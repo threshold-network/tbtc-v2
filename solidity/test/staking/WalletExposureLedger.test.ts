@@ -373,5 +373,47 @@ describe("WalletExposureLedger", () => {
       expect(await ledger.hasLiveExposureAtOrBefore(providerA, 602)).to.be.false
       expect(await ledger.hasLiveExposureAtOrBefore(providerA, 603)).to.be.true
     })
+
+    it("shares the closure walk budget across the roster and resumes per provider", async function resumableRosterWalk() {
+      this.timeout(120_000)
+
+      await register(wallet1, [providerA, providerB, providerC]) // epoch 1
+
+      const providers = [providerA, providerB, providerC]
+      for (let p = 0; p < providers.length; p += 1) {
+        for (let batch = 0; batch < 3; batch += 1) {
+          const walletID = ethers.utils.id(`dead-${p}-${batch}`)
+          const repeated = new Array(86).fill(providers[p])
+          await register(walletID, repeated, new Array(86).fill(1))
+          // Epoch 1 is still live, so closing these newer epochs does not move
+          // the provider's oldest pointer.
+          await close(walletID)
+        }
+      }
+
+      const liveWallet = ethers.utils.id("live-after-dead-ranges")
+      await register(liveWallet, providers) // epoch 260 for each provider
+
+      await close(wallet1)
+
+      // The one 256-step budget was consumed by provider A; it was not
+      // multiplied by the three-provider roster.
+      expect(await ledger.oldestLiveEpoch(providerA)).to.equal(257)
+      expect(await ledger.oldestLiveEpoch(providerB)).to.equal(1)
+      expect(await ledger.oldestLiveEpoch(providerC)).to.equal(1)
+
+      await ledger.advanceOldestLiveEpoch(providerA)
+      await ledger.advanceOldestLiveEpoch(providerB)
+      await ledger.advanceOldestLiveEpoch(providerB)
+      await ledger.advanceOldestLiveEpoch(providerC)
+      await ledger.advanceOldestLiveEpoch(providerC)
+
+      for (const provider of providers) {
+        expect(await ledger.oldestLiveEpoch(provider)).to.equal(260)
+        expect(await ledger.hasLiveExposureAtOrBefore(provider, 259)).to.be
+          .false
+        expect(await ledger.hasLiveExposureAtOrBefore(provider, 260)).to.be.true
+      }
+    })
   })
 })

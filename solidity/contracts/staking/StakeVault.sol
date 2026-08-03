@@ -592,7 +592,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
 
         Pool storage pool = pools[stakingProvider];
 
-        if (_requiresGenerationReset(pool)) {
+        if (_requiresGenerationReset(pool, amount)) {
             // `_settleRewards` deliberately leaves reward debt untouched.
             // Anchor it before finalizing the old generation so the second
             // settlement only clears stale shares instead of crediting the
@@ -812,7 +812,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             : pool.delegatedAssets;
         if (fromDelegated > 0) {
             pool.delegatedAssets -= fromDelegated;
-            if (_requiresGenerationReset(pool)) {
+            if (_requiresGenerationReset(pool, 0)) {
                 _resetWipedPool(stakingProvider, pool);
             }
         }
@@ -1200,15 +1200,24 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     ///      at the slash boundary caps share amplification before a later
     ///      deposit can mint an enormous supply against dust and permanently
     ///      round ordinary rewards to zero.
-    function _requiresGenerationReset(Pool storage pool)
+    function _requiresGenerationReset(Pool storage pool, uint96 incomingAssets)
         internal
         view
         returns (bool)
     {
-        return
-            pool.totalShares > 0 &&
-            uint256(pool.delegatedAssets) * REWARD_PRECISION <=
-            pool.totalShares;
+        if (pool.totalShares == 0) return false;
+
+        uint256 scaledAssets = uint256(pool.delegatedAssets) * REWARD_PRECISION;
+        if (scaledAssets <= pool.totalShares) return true;
+
+        // A deposit preserves the existing share price, so a pool sitting just
+        // above the reset boundary can otherwise mint an enormous share supply
+        // and let a later ordinary slash reset that amplified supply while
+        // material assets remain. Reset before minting when the incoming
+        // deposit would consume the remaining precision headroom. Since the
+        // margin is denominated in shares, even the maximum uint96 deposit can
+        // only abandon sub-token dust from the old generation.
+        return incomingAssets >= scaledAssets - pool.totalShares;
     }
 
     /// @dev Syncs the provider's authorization weight to the registry via

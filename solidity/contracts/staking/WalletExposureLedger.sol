@@ -63,7 +63,7 @@ contract WalletExposureLedger is
 
     /// @notice Address of the FROST wallet registry — the only caller of
     ///         the two lifecycle hooks.
-    address public frostWalletRegistry;
+    address public override frostWalletRegistry;
 
     /// @notice Latest exposure epoch assigned per staking provider.
     mapping(address => uint64) internal epochCounter;
@@ -198,6 +198,8 @@ contract WalletExposureLedger is
         }
         record.live = false;
 
+        uint256 remainingWalkSteps = OLDEST_EPOCH_WALK_LIMIT;
+
         for (uint256 i = 0; i < record.stakingProviders.length; i++) {
             address stakingProvider = record.stakingProviders[i];
             uint64 epoch = record.epochs[i];
@@ -207,25 +209,53 @@ contract WalletExposureLedger is
                 liveWalletCount[stakingProvider]--;
             }
 
-            // Advance the oldest-live-epoch pointer over dead epochs. The
-            // walk is bounded per call; any remainder is picked up by
-            // subsequent closures, registrations (when no live exposure
-            // remains), or absorbed by the bounded view-side walk.
-            uint64 oldest = oldestLiveEpoch[stakingProvider];
-            uint64 latest = epochCounter[stakingProvider];
-            uint256 steps = 0;
-            while (
-                oldest <= latest &&
-                steps < OLDEST_EPOCH_WALK_LIMIT &&
-                !liveEpochs[stakingProvider][oldest]
-            ) {
-                oldest++;
-                steps++;
+            // Share one bounded walk budget across the entire wallet roster.
+            // A large group can therefore never multiply the 256-step bound
+            // by its provider count. Any remainder is permissionlessly
+            // resumable through `advanceOldestLiveEpoch`.
+            if (liveWalletCount[stakingProvider] != 0) {
+                remainingWalkSteps = _advanceOldestLiveEpoch(
+                    stakingProvider,
+                    remainingWalkSteps
+                );
             }
-            oldestLiveEpoch[stakingProvider] = oldest;
         }
 
         emit WalletExposureClosed(walletID);
+    }
+
+    /// @notice See {IWalletExposureLedger-advanceOldestLiveEpoch}.
+    function advanceOldestLiveEpoch(address stakingProvider)
+        external
+        override
+        returns (uint64)
+    {
+        if (liveWalletCount[stakingProvider] == 0) {
+            return oldestLiveEpoch[stakingProvider];
+        }
+        _advanceOldestLiveEpoch(stakingProvider, OLDEST_EPOCH_WALK_LIMIT);
+        return oldestLiveEpoch[stakingProvider];
+    }
+
+    /// @dev Advances a provider pointer by at most `stepBudget` and returns the
+    ///      unused portion so a caller can share one budget across a roster.
+    function _advanceOldestLiveEpoch(
+        address stakingProvider,
+        uint256 stepBudget
+    ) internal returns (uint256 remainingSteps) {
+        uint64 oldest = oldestLiveEpoch[stakingProvider];
+        uint64 latest = epochCounter[stakingProvider];
+        remainingSteps = stepBudget;
+
+        while (
+            oldest <= latest &&
+            remainingSteps > 0 &&
+            !liveEpochs[stakingProvider][oldest]
+        ) {
+            oldest++;
+            remainingSteps--;
+        }
+        oldestLiveEpoch[stakingProvider] = oldest;
     }
 
     /// @notice See {IWalletExposureLedger-currentEpoch}.
