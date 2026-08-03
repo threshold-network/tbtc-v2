@@ -138,29 +138,34 @@ library FrostInactivity {
         SortitionPool sortitionPool,
         mapping(address => address) storage operatorToStakingProvider,
         IFrostAuthorizationSource authorizationSource,
+        bool statefulAuthorizationSource,
         mapping(bytes32 => uint256) storage inactivityClaimNonce,
         Claim calldata claim,
         uint256 nonce,
         uint32[] calldata groupMembers,
         uint256 banDuration
     ) external {
-        bytes32 walletID = claim.walletID;
-        require(nonce == inactivityClaimNonce[walletID], "Invalid nonce");
+        require(nonce == inactivityClaimNonce[claim.walletID], "Invalid nonce");
         require(
-            FrostRegistryWallets.getWalletMembersIdsHash(wallets, walletID) ==
-                keccak256(abi.encode(groupMembers)),
+            FrostRegistryWallets.getWalletMembersIdsHash(
+                wallets,
+                claim.walletID
+            ) == keccak256(abi.encode(groupMembers)),
             "Invalid group members"
         );
 
         uint32[] memory inactiveMembers = _verifyClaim(
             sortitionPool,
             claim,
-            FrostRegistryWallets.getWalletXOnlyOutputKey(wallets, walletID),
+            FrostRegistryWallets.getWalletXOnlyOutputKey(
+                wallets,
+                claim.walletID
+            ),
             nonce,
             groupMembers
         );
-        inactivityClaimNonce[walletID]++;
-        emit InactivityClaimed(walletID, nonce, msg.sender);
+        inactivityClaimNonce[claim.walletID]++;
+        emit InactivityClaimed(claim.walletID, nonce, msg.sender);
 
         /* solhint-disable-next-line not-rely-on-time */
         uint64 ineligibleUntil = uint64(block.timestamp + banDuration);
@@ -172,7 +177,16 @@ library FrostInactivity {
             address operator = sortitionPool.getIDOperator(inactiveMembers[i]);
             inactiveProviders[i] = operatorToStakingProvider[operator];
         }
-        if (address(authorizationSource).code.length != 0) {
+        if (statefulAuthorizationSource) {
+            // The nonce and sortition-pool ban are one-shot state changes.
+            // Once the stateful source is active, its economic reward ban must
+            // land in the same transaction so an accepted claim can never be
+            // consumed without enforcing the corresponding reward penalty.
+            authorizationSource.onOperatorInactivity(
+                inactiveProviders,
+                ineligibleUntil
+            );
+        } else if (address(authorizationSource).code.length != 0) {
             try
                 authorizationSource.onOperatorInactivity(
                     inactiveProviders,

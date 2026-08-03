@@ -39,10 +39,11 @@ import {
 //      wiring (selfdestruct) cannot brick `approveDkgResult` or
 //      `closeWallet` via the compiler-inserted extcodesize check
 //      that sits outside the library's try/catch. Driven through a
-//      harness linked against the same library deployment, wired
-//      to a real self-destructing stub (smock fakes keep their
-//      code, so the codeless state cannot be simulated on the
-//      registry's wired fake).
+//      harness linked against the same library deployment. An
+//      installer creates, wires, and self-destructs the stub in one
+//      transaction so code is removed under EIP-6780 (smock fakes
+//      keep their code, so the codeless state cannot be simulated
+//      on the registry's wired fake).
 //
 // Reuses the HappyPath fixture shape (100 registered operators,
 // impersonated Bridge + beacon, compressed challenge period) and
@@ -523,7 +524,7 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
 
   describe("codeless ledger guard (selfdestruct after wiring)", () => {
     let harness: any
-    let destructibleLedger: any
+    let installer: any
 
     before(async () => {
       // The harness links against the SAME library deployment the
@@ -538,11 +539,11 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
       harness = await HarnessFactory.deploy()
       await harness.deployed()
 
-      const StubFactory = await ethers.getContractFactory(
-        "SelfDestructingLedgerStub"
+      const InstallerFactory = await ethers.getContractFactory(
+        "EphemeralLedgerInstaller"
       )
-      destructibleLedger = await StubFactory.connect(deployer).deploy()
-      await destructibleLedger.deployed()
+      installer = await InstallerFactory.connect(deployer).deploy()
+      await installer.deployed()
     })
 
     it("rejects wiring an address with no code at the library level", async () => {
@@ -553,18 +554,17 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
     })
 
     it("treats a ledger that lost its code as a failed notification instead of reverting", async () => {
-      // Wiring succeeds while the stub still has code...
-      await harness.setLedger(destructibleLedger.address)
-      expect(await harness.ledger()).to.equal(destructibleLedger.address)
+      // The installer creates the stub, wires it while it has code, and then
+      // destroys it in the same transaction so EIP-6780 removes its code.
+      await installer.wireAndDestroy(harness.address)
+      const destructibleLedger = await installer.lastLedger()
+      expect(await harness.ledger()).to.equal(destructibleLedger)
 
-      // ... then the ledger self-destructs. Without the library's
+      // Without the library's
       // code-length guard the compiler-inserted extcodesize check on
       // the notification calls would revert OUTSIDE the try/catch,
       // bricking approveDkgResult / closeWallet.
-      await destructibleLedger.destroy()
-      expect(
-        await ethers.provider.getCode(destructibleLedger.address)
-      ).to.equal("0x")
+      expect(await ethers.provider.getCode(destructibleLedger)).to.equal("0x")
 
       const walletID = ethers.utils.id("codeless-ledger-wallet")
 

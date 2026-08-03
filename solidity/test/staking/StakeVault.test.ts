@@ -549,6 +549,45 @@ describe("StakeVault", () => {
     })
   })
 
+  describe("near-total slash precision", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("starts a new share generation before dust backing destroys reward precision", async () => {
+      const amount = to1e18(40000)
+      const reward = to1e18(50)
+
+      await vault.connect(delegator1).delegate(operator.address, amount)
+      await creditReward(operator.address, reward)
+
+      // Leave one wei behind. Retaining the original shares would make the
+      // next 40,000 T delegation mint roughly 1.6e45 shares and round an
+      // ordinary 50 TBTC reward down to zero forever.
+      await reportSlash(operator.address, amount.sub(1))
+      expect(await vault.delegatedAssetsOf(operator.address)).to.equal(1)
+      expect(await vault.totalSharesOf(operator.address)).to.equal(0)
+      expect(
+        await vault.sharesOf(operator.address, delegator1.address)
+      ).to.equal(0)
+
+      await vault.connect(delegator1).delegate(operator.address, amount)
+      expect(await vault.totalSharesOf(operator.address)).to.equal(amount)
+      expect(
+        await vault.claimableRewardsOf(operator.address, delegator1.address)
+      ).to.equal(reward)
+
+      await creditReward(operator.address, reward)
+      expect(
+        await vault.claimableRewardsOf(operator.address, delegator1.address)
+      ).to.equal(reward.mul(2))
+    })
+  })
+
   describe("requestUndelegate", () => {
     before(async () => {
       await createSnapshot()

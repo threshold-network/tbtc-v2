@@ -43,10 +43,25 @@ contract FrostWalletExposureHarness {
     }
 }
 
-/// @dev Minimal contract that can remove its own code, simulating a wallet
-///      exposure ledger that self-destructed after being wired.
+/// @dev Minimal contract used by `EphemeralLedgerInstaller`. Cancun's
+///      EIP-6780 only removes code when selfdestruct runs in the same
+///      transaction as contract creation.
 contract SelfDestructingLedgerStub {
     function destroy() external {
         selfdestruct(payable(msg.sender));
+    }
+}
+
+/// @dev Creates, wires, and destroys a ledger stub in one transaction. This
+///      produces a genuinely codeless wired address on both pre- and
+///      post-Cancun EVMs without changing the production hardfork setting.
+contract EphemeralLedgerInstaller {
+    address public lastLedger;
+
+    function wireAndDestroy(FrostWalletExposureHarness harness) external {
+        SelfDestructingLedgerStub ledger = new SelfDestructingLedgerStub();
+        lastLedger = address(ledger);
+        harness.setLedger(address(ledger));
+        ledger.destroy();
     }
 }

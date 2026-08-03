@@ -289,7 +289,12 @@ library FrostWalletExposure {
         {} catch (bytes memory reason) {
             revert AuthorizationMigrationPreparationFailed(reason);
         }
-        _verifyLiveWalletRoster(self, wallets, liveWalletProof);
+        _verifyLiveWalletRoster(
+            self,
+            wallets,
+            authorizationSource,
+            liveWalletProof
+        );
     }
 
     function _rewriteMigrationRoster(
@@ -426,6 +431,7 @@ library FrostWalletExposure {
     function _verifyLiveWalletRoster(
         Data storage self,
         FrostRegistryWallets.Data storage wallets,
+        IFrostAuthorizationSource authorizationSource,
         bytes calldata liveWalletProof
     ) private {
         (
@@ -495,6 +501,14 @@ library FrostWalletExposure {
             ) {
                 revert LiveWalletRosterLedgerMismatch();
             }
+
+            // The proof can include wallets reconciled while the legacy
+            // authorization source was active. Their freshly assigned epochs
+            // postdate any withdrawal request made while the ledger was
+            // blind, so seed the stateful source's exit-gate floor as part of
+            // the same atomic migration. A failure rolls the entire source
+            // migration back and can be retried safely.
+            authorizationSource.onWalletExposureReconciled(providers);
         }
     }
 
@@ -745,7 +759,14 @@ library FrostWalletExposure {
                 uniqueProviders,
                 uniqueSeatCounts
             );
-            if (address(authorizationSource).code.length != 0) {
+            if (self.statefulAuthorizationSource) {
+                // Reconciliation is an off-lifecycle maintenance path. Once
+                // the stateful source is active, recording the missing wallet
+                // without advancing its exit-gate floor would leave a
+                // one-shot, unsafe partial repair. Require both writes to
+                // succeed or revert them atomically.
+                authorizationSource.onWalletExposureReconciled(uniqueProviders);
+            } else if (address(authorizationSource).code.length != 0) {
                 try
                     authorizationSource.onWalletExposureReconciled(
                         uniqueProviders

@@ -88,10 +88,11 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         uint256 pendingShares;
         // TBTC rewards per share, scaled by 1e18.
         uint256 rewardPerShareAccumulator;
-        // Generation increments when slashing wipes all delegated assets.
-        // Outstanding shares from an older generation remain redeemable only
-        // for rewards accrued before the wipe; they can never capture a later
-        // deposit.
+        // Generation increments when slashing wipes all delegated assets or
+        // leaves too little backing relative to the 1e18 reward-accumulator
+        // scale. Outstanding shares from an older generation remain
+        // redeemable only for rewards accrued before the wipe; they can never
+        // capture a later deposit.
         uint64 generation;
     }
 
@@ -581,7 +582,12 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
 
         Pool storage pool = pools[stakingProvider];
 
-        if (pool.totalShares > 0 && pool.delegatedAssets == 0) {
+        if (_requiresGenerationReset(pool)) {
+            // `_settleRewards` deliberately leaves reward debt untouched.
+            // Anchor it before finalizing the old generation so the second
+            // settlement only clears stale shares instead of crediting the
+            // same accrual twice.
+            _updateRewardDebt(stakingProvider, msg.sender);
             _resetWipedPool(stakingProvider, pool);
             _settleRewards(stakingProvider, msg.sender);
         }
@@ -796,7 +802,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             : pool.delegatedAssets;
         if (fromDelegated > 0) {
             pool.delegatedAssets -= fromDelegated;
-            if (pool.delegatedAssets == 0 && pool.totalShares > 0) {
+            if (_requiresGenerationReset(pool)) {
                 _resetWipedPool(stakingProvider, pool);
             }
         }
@@ -1177,6 +1183,22 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         pool.pendingShares = 0;
         pool.generation += 1;
         emit PoolWiped(stakingProvider, pool.generation);
+    }
+
+    /// @dev Treats a delegated tranche as economically wiped once its
+    ///      share-to-asset ratio reaches the 1e18 accumulator scale. Resetting
+    ///      at the slash boundary caps share amplification before a later
+    ///      deposit can mint an enormous supply against dust and permanently
+    ///      round ordinary rewards to zero.
+    function _requiresGenerationReset(Pool storage pool)
+        internal
+        view
+        returns (bool)
+    {
+        return
+            pool.totalShares > 0 &&
+            uint256(pool.delegatedAssets) * REWARD_PRECISION <=
+            pool.totalShares;
     }
 
     /// @dev Syncs the provider's authorization weight to the registry via

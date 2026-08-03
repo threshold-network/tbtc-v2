@@ -116,6 +116,8 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
 
   const walletKeyA =
     "0xabcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01abcdef01"
+  const walletKeyB =
+    "0xbcdefa02bcdefa02bcdefa02bcdefa02bcdefa02bcdefa02bcdefa02bcdefa02"
 
   before(async function setupFixture() {
     // 100 sequential operator registrations + one DKG flow.
@@ -680,6 +682,145 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       expect(await frostWalletRegistry.authorizationSource()).to.equal(
         migrationSource.address
       )
+      expect(await migrationSource.reconciledProvidersLength()).to.equal(
+        expectedProviders.length
+      )
+      for (let i = 0; i < expectedProviders.length; i++) {
+        expect(
+          (await migrationSource.reconciledProviders(i)).toLowerCase()
+        ).to.equal(expectedProviders[i])
+      }
+    })
+
+    it("rolls migration back when live-wallet floor seeding fails", async () => {
+      await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          frostAllowlist.address,
+          false,
+          ethers.constants.AddressZero,
+          providers,
+          "0x"
+        )
+      await migrationSource.setRevertExposureReconciliation(true)
+
+      await expect(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            true,
+            ethers.constants.AddressZero,
+            providers,
+            encodeLiveWalletProof([walletKeyA], 0, 0)
+          )
+      ).to.be.revertedWith("exposure reconciliation reverted")
+      expect(await frostWalletRegistry.authorizationSource()).to.equal(
+        frostAllowlist.address
+      )
+
+      await migrationSource.setRevertExposureReconciliation(false)
+      await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          true,
+          ethers.constants.AddressZero,
+          providers,
+          encodeLiveWalletProof([walletKeyA], 0, 0)
+        )
+    })
+
+    it("reverts a stateful inactivity claim atomically when its callback fails", async () => {
+      const nonce = (
+        await frostWalletRegistry.inactivityClaimNonce(walletKeyA)
+      ).toNumber()
+      const network = await ethers.provider.getNetwork()
+      const inactiveMembersIndices = [1]
+      const messageHash = ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256", "uint256", "bytes32", "uint256[]", "bool"],
+          [network.chainId, nonce, walletKeyA, inactiveMembersIndices, false]
+        )
+      )
+      const signatures = await Promise.all(
+        selectedGroupMembers
+          .slice(0, 51)
+          .map((member) =>
+            member.signer.signMessage(ethers.utils.arrayify(messageHash))
+          )
+      )
+      const claim = {
+        walletID: walletKeyA,
+        inactiveMembersIndices,
+        heartbeatFailed: false,
+        signatures: ethers.utils.hexConcat(signatures),
+        signingMembersIndices: Array.from({ length: 51 }, (_, i) => i + 1),
+      }
+
+      await migrationSource.setRevertOperatorInactivity(true)
+      await expect(
+        frostWalletRegistry
+          .connect(selectedGroupMembers[0].signer)
+          .notifyOperatorInactivity(claim, nonce, members)
+      ).to.be.revertedWith("operator inactivity reverted")
+      expect(
+        await frostWalletRegistry.inactivityClaimNonce(walletKeyA)
+      ).to.equal(nonce)
+
+      await migrationSource.setRevertOperatorInactivity(false)
+      await frostWalletRegistry
+        .connect(selectedGroupMembers[0].signer)
+        .notifyOperatorInactivity(claim, nonce, members)
+      expect(
+        await frostWalletRegistry.inactivityClaimNonce(walletKeyA)
+      ).to.equal(nonce + 1)
+      expect(await migrationSource.operatorInactivityCalls()).to.equal(1)
+    })
+
+    it("rolls a stateful exposure repair back when floor advancement fails", async function rollsBackExposureRepair() {
+      this.timeout(300_000)
+      const ledgerRuntimeCode = await ethers.provider.getCode(ledger.address)
+
+      // Make the lifecycle hook fail without reverting DKG approval, then
+      // restore the real ledger code so the maintenance repair can run.
+      await hre.network.provider.send("hardhat_setCode", [ledger.address, "0x"])
+      let walletBMembers: number[] = []
+      try {
+        const { dkgResult } = await runDkgRound(
+          walletKeyB,
+          "frost-reconcile-seed-B"
+        )
+        walletBMembers = dkgResult.members
+      } finally {
+        await hre.network.provider.send("hardhat_setCode", [
+          ledger.address,
+          ledgerRuntimeCode,
+        ])
+      }
+
+      await migrationSource.setRevertExposureReconciliation(true)
+      await expect(
+        frostWalletRegistry
+          .connect(thirdParty)
+          .reconcileWalletExposure(walletKeyB, walletBMembers)
+      ).to.be.revertedWith("exposure reconciliation reverted")
+      expect(
+        (await ledger.getWalletExposure(walletKeyB)).epochs
+      ).to.have.lengthOf(0)
+
+      await migrationSource.setRevertExposureReconciliation(false)
+      await frostWalletRegistry
+        .connect(thirdParty)
+        .reconcileWalletExposure(walletKeyB, walletBMembers)
+      expect(await ledger.getWalletExposure(walletKeyB)).to.have.property(
+        "live",
+        true
+      )
+
+      // Restore the original one-live-wallet roster for the remaining
+      // migration-count assertions.
+      await frostWalletRegistry.connect(deployer).closeWallet(walletKeyB)
     })
 
     it("keeps the audited historical counts immutable across rollback", async () => {

@@ -51,6 +51,11 @@ interface ISeatAllocatorWalletRegistry {
 
     function walletExposureLedger() external view returns (address);
 
+    function stakingProviderToOperator(address stakingProvider)
+        external
+        view
+        returns (address);
+
     function migrateAuthorizationSource(
         IFrostAuthorizationSource authorizationSource,
         bool statefulTarget,
@@ -310,6 +315,7 @@ contract SeatAllocator is
     error NotSlashingModule();
     error RewardsDistributorAlreadySet();
     error WalletExposureLedgerMismatch();
+    error NodeOperatorMismatch();
     error SlashProviderAlreadyRetried();
     error SlashProviderNotInReport();
 
@@ -769,9 +775,10 @@ contract SeatAllocator is
     ///         authorization-source migration. Called by the wallet registry
     ///         from its governed source-migration transaction before it
     ///         rewrites sortition-pool leaves.
-    /// @dev This hook deliberately performs no registry callback: the registry
-    ///      is executing the surrounding atomic source selection and owns the
-    ///      roster synchronization.
+    /// @dev This hook deliberately performs no registry authorization
+    ///      mutation: the registry is executing the surrounding atomic source
+    ///      selection and owns the roster synchronization. It only reads the
+    ///      registry's immutable legacy operator bindings for validation.
     function prepareAuthorizationMigration(address[] calldata stakingProviders)
         external
         onlyWalletRegistry
@@ -781,6 +788,23 @@ contract SeatAllocator is
             frostWalletRegistry.walletExposureLedger() !=
             address(walletExposureLedger)
         ) revert WalletExposureLedgerMismatch();
+
+        // The registry rewrites each legacy leaf using its immutable
+        // staking-provider -> operator binding, while authorizedWeight checks
+        // the signer registry's immutable node operator. Reject a mismatched
+        // configuration before seeding either authorization or reward state;
+        // otherwise the rewrite would remove the provider and a later refresh
+        // could mistake the seeded weight for an already-synchronized value.
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            address stakingProvider = stakingProviders[i];
+            if (
+                frostWalletRegistry.stakingProviderToOperator(
+                    stakingProvider
+                ) != signerRegistry.nodeOperatorOf(stakingProvider)
+            ) {
+                revert NodeOperatorMismatch();
+            }
+        }
 
         authorizationAttached = true;
 

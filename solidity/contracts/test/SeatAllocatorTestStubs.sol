@@ -28,6 +28,10 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
     uint256 public prepareCalls;
     uint256 public detachCalls;
     bool public revertPreparationWithoutData;
+    bool public revertOperatorInactivity;
+    bool public revertExposureReconciliation;
+    uint256 public operatorInactivityCalls;
+    address[] public reconciledProviders;
 
     function setWeight(address stakingProvider, uint96 weight) external {
         weights[stakingProvider] = weight;
@@ -49,6 +53,18 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
 
     function setRevertPreparationWithoutData(bool value) external {
         revertPreparationWithoutData = value;
+    }
+
+    function setRevertOperatorInactivity(bool value) external {
+        revertOperatorInactivity = value;
+    }
+
+    function setRevertExposureReconciliation(bool value) external {
+        revertExposureReconciliation = value;
+    }
+
+    function reconciledProvidersLength() external view returns (uint256) {
+        return reconciledProviders.length;
     }
 
     function authorizedWeight(address stakingProvider, address)
@@ -89,17 +105,23 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
         address[] memory
     ) external pure override {}
 
-    function onOperatorInactivity(address[] memory, uint64)
-        external
-        pure
-        override
-    {}
+    function onOperatorInactivity(address[] memory, uint64) external override {
+        require(!revertOperatorInactivity, "operator inactivity reverted");
+        operatorInactivityCalls += 1;
+    }
 
-    function onWalletExposureReconciled(address[] memory)
+    function onWalletExposureReconciled(address[] memory stakingProviders)
         external
-        pure
         override
-    {}
+    {
+        require(
+            !revertExposureReconciliation,
+            "exposure reconciliation reverted"
+        );
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            reconciledProviders.push(stakingProviders[i]);
+        }
+    }
 }
 
 /// @dev Phase-0-shaped source deliberately omitting the post-Phase-0
@@ -174,6 +196,7 @@ contract StakingMockWalletRegistry {
     bool public revertOnAuthorizationCalls;
     mapping(address => bool) internal poolMembershipConfigured;
     mapping(address => bool) internal poolMembership;
+    mapping(address => address) internal registryOperator;
     address[] public synchronizedRoster;
 
     /// @dev Mirrors the real FROST registry's pool-eligibility floor
@@ -198,6 +221,22 @@ contract StakingMockWalletRegistry {
     function setOperatorInPool(address operator, bool inPool) external {
         poolMembershipConfigured[operator] = true;
         poolMembership[operator] = inPool;
+    }
+
+    function setStakingProviderOperator(
+        address stakingProvider,
+        address operator
+    ) external {
+        registryOperator[stakingProvider] = operator;
+    }
+
+    function stakingProviderToOperator(address stakingProvider)
+        external
+        view
+        returns (address)
+    {
+        address operator = registryOperator[stakingProvider];
+        return operator == address(0) ? stakingProvider : operator;
     }
 
     function isOperatorInPool(address operator) external view returns (bool) {
@@ -297,6 +336,13 @@ contract StakingMockWalletRegistry {
     ) external {
         authorizationSource.onWalletExposureReconciled(stakingProviders);
     }
+
+    function callPrepareAuthorizationMigration(
+        SeatAllocator allocator,
+        address[] calldata stakingProviders
+    ) external {
+        allocator.prepareAuthorizationMigration(stakingProviders);
+    }
 }
 
 /// @notice Settable operator status / beneficiary source implementing
@@ -305,6 +351,8 @@ contract StakingMockSignerRegistry is ISignerRegistry {
     mapping(address => OperatorStatus) internal statuses;
     mapping(address => address payable) internal beneficiaries;
     mapping(address => uint16) internal commissions;
+    mapping(address => address) internal nodeOperators;
+    mapping(address => address) internal providers;
 
     function setOperatorStatus(address stakingProvider, OperatorStatus status)
         external
@@ -323,6 +371,13 @@ contract StakingMockSignerRegistry is ISignerRegistry {
         external
     {
         commissions[stakingProvider] = commissionBps;
+    }
+
+    function setNodeOperator(address stakingProvider, address nodeOperator)
+        external
+    {
+        nodeOperators[stakingProvider] = nodeOperator;
+        providers[nodeOperator] = stakingProvider;
     }
 
     function operatorStatus(address stakingProvider)
@@ -345,20 +400,22 @@ contract StakingMockSignerRegistry is ISignerRegistry {
 
     function nodeOperatorOf(address stakingProvider)
         external
-        pure
+        view
         override
         returns (address)
     {
-        return stakingProvider;
+        address nodeOperator = nodeOperators[stakingProvider];
+        return nodeOperator == address(0) ? stakingProvider : nodeOperator;
     }
 
     function stakingProviderOf(address nodeOperator)
         external
-        pure
+        view
         override
         returns (address)
     {
-        return nodeOperator;
+        address stakingProvider = providers[nodeOperator];
+        return stakingProvider == address(0) ? nodeOperator : stakingProvider;
     }
 
     function beneficiaryOf(address stakingProvider)

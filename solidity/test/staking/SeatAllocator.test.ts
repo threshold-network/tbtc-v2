@@ -259,6 +259,25 @@ describe("SeatAllocator", () => {
     })
   })
 
+  describe("authorization migration preparation", () => {
+    it("rejects a legacy/operator binding mismatch before seeding state", async () => {
+      await activate(provider)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await signerRegistry.setNodeOperator(provider, thirdParty.address)
+
+      await expectCustomError(
+        mockRegistry.callPrepareAuthorizationMigration(allocator.address, [
+          provider,
+        ]),
+        "NodeOperatorMismatch"
+      )
+
+      expect(await allocator.lastSyncedWeight(provider)).to.equal(0)
+      expect(await allocator.lastSyncedRewardWeight(provider)).to.equal(0)
+      expect(await rewardsDistributor.onWeightChangedCallCount()).to.equal(0)
+    })
+  })
+
   // Option B — flat seat weight. Signing power is uniform by DAO curation:
   // every eligible active operator gets exactly `equalSeatWeight`, and
   // delegation (or its withdrawal) never moves it.

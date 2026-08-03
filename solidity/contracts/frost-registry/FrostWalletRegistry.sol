@@ -1247,6 +1247,7 @@ contract FrostWalletRegistry is
             sortitionPool,
             authorization.operatorToStakingProvider,
             _currentAuthorizationSource(),
+            walletExposureData.statefulAuthorizationSource,
             inactivityClaimNonce,
             claim,
             nonce,
