@@ -115,10 +115,15 @@ contract RewardsDistributor is
     ///         exactly at a noticed commission effective timestamp.
     AccumulatorCheckpoint[] internal accumulatorCheckpoints;
 
+    /// @notice True while a complete roster is being rewritten in bounded
+    ///         batches. Reward notifications are carried instead of allocated
+    ///         against a temporarily mixed old/new weight distribution.
+    bool public rosterSyncInProgress;
+
     // Reserved storage space in case we need to add more variables.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[43] private __gap;
+    uint256[42] private __gap;
 
     event RewardNotified(uint256 amount, uint256 undistributedFolded);
     event WeightChanged(
@@ -142,6 +147,8 @@ contract RewardsDistributor is
         address indexed recipient,
         uint256 amount
     );
+    event RosterSyncStarted();
+    event RosterSyncCompleted();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -210,7 +217,7 @@ contract RewardsDistributor is
     ///      the dust (less than `totalWeight` wei per tranche) stays in the
     ///      distributor's TBTC balance.
     function notifyReward(uint256 tbtcAmount) external override onlyFeeRouter {
-        if (totalWeight == 0) {
+        if (rosterSyncInProgress || totalWeight == 0) {
             undistributedRewards += tbtcAmount;
             emit RewardNotified(tbtcAmount, 0);
             return;
@@ -223,6 +230,20 @@ contract RewardsDistributor is
         undistributedRewards = 0;
         _recordAccumulatorCheckpoint();
         emit RewardNotified(tbtcAmount, folded);
+    }
+
+    function beginRosterSync() external override onlySeatAllocator {
+        if (!rosterSyncInProgress) {
+            rosterSyncInProgress = true;
+            emit RosterSyncStarted();
+        }
+    }
+
+    function endRosterSync() external override onlySeatAllocator {
+        if (rosterSyncInProgress) {
+            rosterSyncInProgress = false;
+            emit RosterSyncCompleted();
+        }
     }
 
     /// @notice See {IRewardsDistributor-recoverUndistributedRewards}.

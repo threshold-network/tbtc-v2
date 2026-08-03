@@ -402,7 +402,7 @@ describe("StakeVault", () => {
         await seatAllocator.setRevertOnRosterSync(false)
       })
 
-      it("should atomically synchronize the complete roster when raising the floor", async () => {
+      it("should synchronize the roster when raising the floor", async () => {
         const raisedFloor = to1e18(50_000)
         await vault.connect(deployer).beginMinSelfBondUpdate(raisedFloor)
         await increaseTime(GOVERNANCE_DELAY)
@@ -429,6 +429,28 @@ describe("StakeVault", () => {
         expect(await seatAllocator.synchronizedRoster(1)).to.equal(
           operator2.address
         )
+      })
+
+      it("should keep the old floor active until every roster batch lands", async () => {
+        const raisedFloor = to1e18(60_000)
+        const previousFloor = await vault.minSelfBond()
+        await seatAllocator.setRosterBatchesRequired(2)
+        await vault.connect(deployer).beginMinSelfBondUpdate(raisedFloor)
+        await increaseTime(GOVERNANCE_DELAY)
+
+        await vault
+          .connect(deployer)
+          .finalizeMinSelfBondUpdate([operator.address])
+        expect(await vault.minSelfBond()).to.equal(previousFloor)
+        expect(await vault.newMinSelfBond()).to.equal(raisedFloor)
+        expect(await seatAllocator.synchronizedRosterLength()).to.equal(1)
+
+        await vault
+          .connect(deployer)
+          .finalizeMinSelfBondUpdate([operator2.address])
+        expect(await vault.minSelfBond()).to.equal(raisedFloor)
+        expect(await vault.newMinSelfBond()).to.equal(0)
+        expect(await seatAllocator.synchronizedRosterLength()).to.equal(2)
       })
     })
 
@@ -607,7 +629,7 @@ describe("StakeVault", () => {
       await restoreSnapshot()
     })
 
-    it("starts a new share generation before dust backing destroys reward precision", async () => {
+    it("preserves dust-backed shares and blocks precision-destroying deposits", async () => {
       const amount = to1e18(40000)
       const reward = to1e18(50)
 
@@ -619,24 +641,21 @@ describe("StakeVault", () => {
       // ordinary 50 TBTC reward down to zero forever.
       await reportSlash(operator.address, amount.sub(1))
       expect(await vault.delegatedAssetsOf(operator.address)).to.equal(1)
-      expect(await vault.totalSharesOf(operator.address)).to.equal(0)
-      expect(
-        await vault.sharesOf(operator.address, delegator1.address)
-      ).to.equal(0)
-
-      await vault.connect(delegator1).delegate(operator.address, amount)
       expect(await vault.totalSharesOf(operator.address)).to.equal(amount)
       expect(
-        await vault.claimableRewardsOf(operator.address, delegator1.address)
-      ).to.equal(reward)
+        await vault.sharesOf(operator.address, delegator1.address)
+      ).to.equal(amount)
 
-      await creditReward(operator.address, reward)
+      await expect(
+        vault.connect(delegator2).delegate(operator.address, amount)
+      ).to.be.revertedWith("DelegationSharePrecisionExhausted")
+      expect(await vault.delegatedAssetsOf(operator.address)).to.equal(1)
       expect(
-        await vault.claimableRewardsOf(operator.address, delegator1.address)
-      ).to.equal(reward.mul(2))
+        await vault.sharesOf(operator.address, delegator1.address)
+      ).to.equal(amount)
     })
 
-    it("resets before a deposit amplifies a just-above-threshold residual", async () => {
+    it("preserves ownership when a deposit amplifies a just-above-threshold residual", async () => {
       const amount = to1e18(40000)
       const residual = ethers.BigNumber.from(40001)
 
@@ -650,56 +669,67 @@ describe("StakeVault", () => {
       )
       expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
 
-      // The incoming 40,000 T consumes that one-wei precision headroom. The
-      // vault resets the dust-backed generation before minting instead of
-      // creating roughly 4e40 shares.
+      // The incoming delegation preserves the same share price. It must never
+      // void the original delegator's residual-backed shares.
       await vault.connect(delegator2).delegate(operator2.address, amount)
-      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
       expect(
         await vault.sharesOf(operator2.address, delegator1.address)
-      ).to.equal(0)
+      ).to.equal(amount)
       expect(
         await vault.sharesOf(operator2.address, delegator2.address)
-      ).to.equal(amount)
+      ).to.be.gt(amount)
 
       // A later ordinary slash cannot wipe the replacement shares while
       // retaining the material deposit for a future one-wei shareholder.
       await reportSlash(operator2.address, to1e18(500))
-      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
+      expect(await vault.totalSharesOf(operator2.address)).to.be.gt(amount)
       expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
         to1e18(39500).add(residual)
       )
     })
 
-    it("counts split deposits against the same post-slash reset margin", async () => {
+    it("does not confiscate a healthy pool through split deposits", async () => {
+      const amount = to1e18(40000)
+      const seed = ethers.BigNumber.from(40000)
+      const firstDeposit = to1e18(20000)
+
+      await vault.connect(delegator1).delegate(operator2.address, seed)
+
+      await vault.connect(delegator2).delegate(operator2.address, firstDeposit)
+      await vault
+        .connect(delegator2)
+        .delegate(operator2.address, amount.sub(firstDeposit))
+
+      expect(
+        await vault.sharesOf(operator2.address, delegator1.address)
+      ).to.equal(seed)
+      expect(await vault.totalSharesOf(operator2.address)).to.equal(
+        amount.add(seed)
+      )
+      expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
+        amount.add(seed)
+      )
+    })
+
+    it("keeps residual ownership across an intervening slash", async () => {
       const amount = to1e18(40000)
       const residual = ethers.BigNumber.from(40001)
-      const firstDeposit = to1e18(1).sub(1)
 
       await vault.connect(delegator1).delegate(operator2.address, amount)
       await reportSlash(operator2.address, amount.sub(residual))
+      await vault.connect(delegator2).delegate(operator2.address, to1e18(1))
 
-      // The first deposit sits one wei below the original per-call margin.
-      // It must consume that margin rather than enlarging it for the next call.
-      await vault.connect(delegator2).delegate(operator2.address, firstDeposit)
-      expect(
-        await vault.sharesOf(operator2.address, delegator1.address)
-      ).to.not.equal(0)
-
-      await vault.connect(delegator2).delegate(operator2.address, amount)
-
-      // The cumulative deposits cross the original margin, so the large second
-      // deposit starts a clean generation. An ordinary later slash must not wipe
-      // those replacement shares while retaining almost the entire deposit.
-      expect(
-        await vault.sharesOf(operator2.address, delegator1.address)
-      ).to.equal(0)
-      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
-      await reportSlash(operator2.address, to1e18(500))
-      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
-      expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
-        to1e18(39500).add(firstDeposit).add(residual)
+      const originalShares = await vault.sharesOf(
+        operator2.address,
+        delegator1.address
       )
+      await reportSlash(operator2.address, to1e18(1))
+
+      expect(
+        await vault.sharesOf(operator2.address, delegator1.address)
+      ).to.equal(originalShares)
+      expect(await vault.totalSharesOf(operator2.address)).to.be.gt(0)
+      expect(await vault.delegatedAssetsOf(operator2.address)).to.be.gt(0)
     })
   })
 

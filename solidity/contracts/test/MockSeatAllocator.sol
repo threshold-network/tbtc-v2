@@ -16,6 +16,8 @@ contract MockSeatAllocator is ISeatAllocator {
     bool public revertOnRefresh;
     bool public revertOnRosterSync;
     address[] public synchronizedRoster;
+    uint256 public rosterBatchesRequired = 1;
+    uint256 public rosterBatchesProcessed;
 
     mapping(address => uint96) public weights;
     mapping(address => uint256) public override queuedSlashCount;
@@ -32,6 +34,13 @@ contract MockSeatAllocator is ISeatAllocator {
 
     function setRevertOnRosterSync(bool _revertOnRosterSync) external {
         revertOnRosterSync = _revertOnRosterSync;
+    }
+
+    function setRosterBatchesRequired(uint256 requiredBatches) external {
+        require(requiredBatches != 0, "MockSeatAllocator: zero batches");
+        rosterBatchesRequired = requiredBatches;
+        rosterBatchesProcessed = 0;
+        delete synchronizedRoster;
     }
 
     function setAuthorizationAttached(bool attached) external {
@@ -108,10 +117,17 @@ contract MockSeatAllocator is ISeatAllocator {
     function synchronizeAuthorizationRoster(address[] calldata stakingProviders)
         external
         override
+        returns (bool)
     {
         require(!revertOnRosterSync, "MockSeatAllocator: roster sync reverted");
-        synchronizedRoster = stakingProviders;
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            synchronizedRoster.push(stakingProviders[i]);
+        }
+        rosterBatchesProcessed++;
+        return rosterBatchesProcessed >= rosterBatchesRequired;
     }
+
+    function completeAuthorizationRosterSynchronization() external override {}
 
     function synchronizedRosterLength() external view returns (uint256) {
         return synchronizedRoster.length;

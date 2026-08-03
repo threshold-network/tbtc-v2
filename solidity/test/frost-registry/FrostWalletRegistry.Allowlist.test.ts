@@ -173,7 +173,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     expect(await frostSortitionPool.operatorsInPool()).to.equal(OPERATOR_COUNT)
   })
 
-  it("atomically migrates and rolls back the complete active authorization roster", async () => {
+  it("migrates and rolls back the complete active authorization roster", async () => {
     await frostWalletRegistry
       .connect(deployer)
       .initializeV2(frostAllowlist.address)
@@ -319,6 +319,20 @@ describe("FrostWalletRegistry allowlist authorization", () => {
         providers.slice(0, -1),
         "0x"
       )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      migrationSource.address
+    )
+    // The current pool is complete, but rollback must also process the
+    // preserved provider that the stateful source had removed.
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        frostAllowlist.address,
+        false,
+        ethers.constants.AddressZero,
+        [],
+        "0x"
+      )
     expect(await migrationSource.detachCalls()).to.equal(1)
     for (const provider of providers.slice(0, -1)) {
       expect(await frostWalletRegistry.eligibleStake(provider)).to.equal(weight)
@@ -341,7 +355,7 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     ).to.be.revertedWith("Authorization below the minimum")
   })
 
-  it("rejects an incomplete active migration roster", async () => {
+  it("keeps an incomplete active migration staged", async () => {
     await frostWalletRegistry
       .connect(deployer)
       .initializeV2(frostAllowlist.address)
@@ -361,19 +375,76 @@ describe("FrostWalletRegistry allowlist authorization", () => {
     const migrationSource = await MigrationSourceFactory.connect(
       deployer
     ).deploy()
-    await expect(
-      frostWalletRegistry
-        .connect(deployer)
-        .migrateAuthorizationSource(
-          migrationSource.address,
-          true,
-          ethers.constants.AddressZero,
-          [wallets[0].address],
-          "0x"
-        )
-    ).to.be.revertedWith("Authorization roster length mismatch")
+    for (const wallet of wallets) {
+      await migrationSource.setWeight(wallet.address, weight)
+    }
+    const [walletExposureLedger] = await helpers.upgrades.deployProxy(
+      `WalletExposureLedgerPartialMigrationTest${testDeploymentCounter}`,
+      {
+        contractName: "WalletExposureLedger",
+        initializerArgs: [frostWalletRegistry.address],
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        migrationSource.address,
+        true,
+        walletExposureLedger.address,
+        [wallets[0].address],
+        encodeLiveWalletProof([], 0, 0)
+      )
     expect(await frostWalletRegistry.authorizationSource()).to.equal(
       frostAllowlist.address
+    )
+
+    await frostWalletRegistry.connect(deployer).migrateAuthorizationSource(
+      migrationSource.address,
+      true,
+      ethers.constants.AddressZero,
+      wallets.slice(1).map((wallet) => wallet.address),
+      "0x"
+    )
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      migrationSource.address
+    )
+  })
+
+  it("runs stateful source hooks for an empty active roster", async () => {
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
+    const MigrationSourceFactory = await ethers.getContractFactory(
+      "StakingMigrationAuthorizationSource"
+    )
+    const migrationSource = await MigrationSourceFactory.connect(
+      deployer
+    ).deploy()
+    const [walletExposureLedger] = await helpers.upgrades.deployProxy(
+      `WalletExposureLedgerEmptyMigrationTest${testDeploymentCounter}`,
+      {
+        contractName: "WalletExposureLedger",
+        initializerArgs: [frostWalletRegistry.address],
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .migrateAuthorizationSource(
+        migrationSource.address,
+        true,
+        walletExposureLedger.address,
+        [],
+        encodeLiveWalletProof([], 0, 0)
+      )
+
+    expect(await migrationSource.prepareCalls()).to.equal(1)
+    expect(await frostWalletRegistry.authorizationSource()).to.equal(
+      migrationSource.address
     )
   })
 

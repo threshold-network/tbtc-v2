@@ -320,12 +320,17 @@ describe("Delegated staking production-contract integration", () => {
       [provider.address],
       "0x"
     )
-    expect(await seatAllocator.authorizationAttached()).to.be.false
+    expect(
+      await seatAllocator.authorizationAttached(),
+      "allocator should detach after rollback"
+    ).to.be.false
     expect(await frostWalletRegistry.eligibleStake(provider.address)).to.equal(
       0
     )
-    expect(await frostWalletRegistry.isOperatorInPool(provider.address)).to.be
-      .false
+    expect(
+      await frostWalletRegistry.isOperatorInPool(provider.address),
+      "ineligible provider should remain outside the pool"
+    ).to.be.false
     expect(
       await frostWalletRegistry.pendingAuthorizationDecrease(provider.address)
     ).to.equal(to18(40_000))

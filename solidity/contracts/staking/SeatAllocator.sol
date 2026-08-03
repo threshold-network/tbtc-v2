@@ -62,7 +62,7 @@ interface ISeatAllocatorWalletRegistry {
         address walletExposureLedger,
         address[] calldata stakingProviders,
         bytes calldata liveWalletProof
-    ) external;
+    ) external returns (bool complete);
 
     function isOperatorInPool(address operator) external view returns (bool);
 }
@@ -78,6 +78,8 @@ interface ISeatAllocatorStakeVault is IStakeVault {
         returns (uint96);
 
     function minSelfBond() external view returns (uint96);
+
+    function newMinSelfBond() external view returns (uint96);
 }
 
 /// @title SeatAllocator
@@ -252,6 +254,12 @@ contract SeatAllocator is
     ///         last synchronized.
     mapping(address => uint256) public lastSyncedGeneration;
 
+    /// @notice True while a governed parameter update is being synchronized
+    ///         across the registry roster in bounded transactions.
+    bool public equalSeatWeightRosterSyncActive;
+    bool public minSelfBondRosterSyncActive;
+    bool public authorizationMigrationRosterSyncActive;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots. Removing the delegation-factor and
@@ -259,7 +267,7 @@ contract SeatAllocator is
     // slots, so the gap is widened to keep the reserve at 50 slots.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[26] private __gap;
+    uint256[23] private __gap;
 
     event WeightIncreased(
         address indexed stakingProvider,
@@ -330,6 +338,7 @@ contract SeatAllocator is
     error SlashProviderNotInReport();
     error NotStakeVault();
     error AuthorizationSourceNotAttached();
+    error AuthorizationRosterSyncInProgress();
 
     modifier onlyWalletRegistry() {
         if (msg.sender != address(frostWalletRegistry)) {
@@ -464,6 +473,9 @@ contract SeatAllocator is
         external
         onlyOwner
     {
+        if (equalSeatWeightRosterSyncActive) {
+            revert AuthorizationRosterSyncInProgress();
+        }
         if (_newEqualSeatWeight == 0) {
             revert ZeroEqualSeatWeight();
         }
@@ -480,8 +492,7 @@ contract SeatAllocator is
     /// @notice Finalizes the equal seat weight update process. While this
     ///         allocator is detached after rollback, records the new value
     ///         without calling the registry; the next migration reseeds it.
-    /// @param stakingProviders Complete current sortition-pool roster, in any
-    ///        order. The registry validates completeness and uniqueness.
+    /// @param stakingProviders Next non-overlapping current-roster batch.
     /// @dev Can be called only after the governance delay elapsed. Re-checks
     ///      the registry-minimum invariant here — this is the binding
     ///      enforcement point — because the FROST registry's own
@@ -489,9 +500,9 @@ contract SeatAllocator is
     ///      pending target that cleared the floor at begin time but now sits
     ///      below it is rejected (`EqualSeatWeightBelowRegistryMinimum`) so a
     ///      finalize can never push every eligible operator under the
-    ///      registry floor and brick wallet formation. If attached, the complete
-    ///      roster is rewritten atomically; if detached, synchronization is
-    ///      deferred until {prepareAuthorizationMigration}.
+    ///      registry floor and brick wallet formation. If attached, the new
+    ///      value remains staged until all roster batches land; if detached,
+    ///      synchronization is deferred until {prepareAuthorizationMigration}.
     function finalizeEqualSeatWeightUpdate(address[] calldata stakingProviders)
         external
         onlyOwner
@@ -500,31 +511,41 @@ contract SeatAllocator is
         if (newEqualSeatWeight < frostWalletRegistry.minimumAuthorization()) {
             revert EqualSeatWeightBelowRegistryMinimum();
         }
-        equalSeatWeight = newEqualSeatWeight;
-
         if (authorizationAttached) {
             // Invalidate snapshots for providers that cached authorization
             // before joining the pool and are therefore absent from the
             // complete current roster below.
-            authorizationGeneration += 1;
+            if (!equalSeatWeightRosterSyncActive) {
+                equalSeatWeightRosterSyncActive = true;
+                authorizationGeneration += 1;
+                rewardsDistributor.beginRosterSync();
+            }
 
-            // Synchronize the allocator snapshot first, then have the registry
-            // rewrite every current pool leaf in the same transaction.
+            // Synchronize this allocator snapshot batch first, then have the
+            // registry rewrite the matching pool leaves.
             for (uint256 i = 0; i < stakingProviders.length; i++) {
                 _cacheAuthorizationWeight(
                     stakingProviders[i],
-                    currentWeight(stakingProviders[i])
+                    _currentWeight(
+                        stakingProviders[i],
+                        newEqualSeatWeight,
+                        stakeVault.minSelfBond()
+                    )
                 );
             }
-            frostWalletRegistry.migrateAuthorizationSource(
+            bool complete = frostWalletRegistry.migrateAuthorizationSource(
                 IFrostAuthorizationSource(address(this)),
                 true,
                 address(0),
                 stakingProviders,
                 ""
             );
+            if (!complete) return;
         }
 
+        equalSeatWeight = newEqualSeatWeight;
+        equalSeatWeightRosterSyncActive = false;
+        rewardsDistributor.endRosterSync();
         emit EqualSeatWeightUpdated(newEqualSeatWeight);
         equalSeatWeightChangeInitiated = 0;
         newEqualSeatWeight = 0;
@@ -555,6 +576,19 @@ contract SeatAllocator is
         override
         returns (uint96)
     {
+        return
+            _currentWeight(
+                stakingProvider,
+                equalSeatWeight,
+                stakeVault.minSelfBond()
+            );
+    }
+
+    function _currentWeight(
+        address stakingProvider,
+        uint96 seatWeight,
+        uint96 minimumSelfBond
+    ) internal view returns (uint96) {
         if (!signerRegistry.isActive(stakingProvider)) {
             return 0;
         }
@@ -566,11 +600,11 @@ contract SeatAllocator is
             ? selfBondTotal - pendingSelfBondWithdrawal
             : 0;
 
-        if (selfBond < stakeVault.minSelfBond()) {
+        if (selfBond < minimumSelfBond) {
             return 0;
         }
 
-        return equalSeatWeight;
+        return seatWeight;
     }
 
     function _cacheAuthorizationWeight(address stakingProvider, uint96 weight)
@@ -642,6 +676,14 @@ contract SeatAllocator is
         view
         returns (uint96)
     {
+        return _rewardWeight(stakingProvider, stakeVault.minSelfBond());
+    }
+
+    function _rewardWeight(address stakingProvider, uint96 minimumSelfBond)
+        internal
+        view
+        returns (uint96)
+    {
         if (
             !authorizationAttached ||
             /* solhint-disable-next-line not-rely-on-time */
@@ -650,7 +692,8 @@ contract SeatAllocator is
             return 0;
         }
         if (
-            currentWeight(stakingProvider) == 0 ||
+            _currentWeight(stakingProvider, equalSeatWeight, minimumSelfBond) ==
+            0 ||
             _cachedAuthorizationWeight(stakingProvider) == 0 ||
             decreasePending[stakingProvider] ||
             !frostWalletRegistry.isOperatorInPool(
@@ -844,22 +887,36 @@ contract SeatAllocator is
         external
         override
         onlyStakeVault
+        returns (bool complete)
     {
         if (!authorizationAttached) revert AuthorizationSourceNotAttached();
 
         // A global eligibility change applies to providers outside the current
         // pool as well. Invalidate their pre-join snapshots before recaching
-        // the complete current roster.
-        authorizationGeneration += 1;
+        // the first current-roster batch.
+        if (!minSelfBondRosterSyncActive) {
+            minSelfBondRosterSyncActive = true;
+            authorizationGeneration += 1;
+            rewardsDistributor.beginRosterSync();
+        }
+
+        uint96 targetMinSelfBond = stakeVault.newMinSelfBond();
 
         for (uint256 i = 0; i < stakingProviders.length; i++) {
             address stakingProvider = stakingProviders[i];
             _cacheAuthorizationWeight(
                 stakingProvider,
-                currentWeight(stakingProvider)
+                _currentWeight(
+                    stakingProvider,
+                    equalSeatWeight,
+                    targetMinSelfBond
+                )
             );
 
-            uint96 newRewardWeight = rewardWeight(stakingProvider);
+            uint96 newRewardWeight = _rewardWeight(
+                stakingProvider,
+                targetMinSelfBond
+            );
             rewardsDistributor.onWeightChanged(
                 stakingProvider,
                 newRewardWeight
@@ -868,7 +925,7 @@ contract SeatAllocator is
             weightDirty[stakingProvider] = false;
         }
 
-        frostWalletRegistry.migrateAuthorizationSource(
+        complete = frostWalletRegistry.migrateAuthorizationSource(
             IFrostAuthorizationSource(address(this)),
             true,
             address(0),
@@ -877,13 +934,19 @@ contract SeatAllocator is
         );
     }
 
-    /// @notice Atomically prepares the active registry roster for an
-    ///         authorization-source migration. Called by the wallet registry
-    ///         from its governed source-migration transaction before it
-    ///         rewrites sortition-pool leaves.
+    function completeAuthorizationRosterSynchronization()
+        external
+        onlyStakeVault
+    {
+        minSelfBondRosterSyncActive = false;
+        rewardsDistributor.endRosterSync();
+    }
+
+    /// @notice Prepares one active-registry roster batch for an authorization-
+    ///         source migration before the registry rewrites matching leaves.
     /// @dev This hook deliberately performs no registry authorization
-    ///      mutation: the registry is executing the surrounding atomic source
-    ///      selection and owns the roster synchronization. It only reads the
+    ///      mutation: the registry owns the bounded roster synchronization and
+    ///      delayed source activation. This hook only reads the
     ///      registry's immutable legacy operator bindings for validation.
     function prepareAuthorizationMigration(address[] calldata stakingProviders)
         external
@@ -915,6 +978,10 @@ contract SeatAllocator is
             }
         }
 
+        if (!authorizationMigrationRosterSyncActive) {
+            authorizationMigrationRosterSyncActive = true;
+            rewardsDistributor.beginRosterSync();
+        }
         authorizationAttached = true;
 
         for (uint256 i = 0; i < stakingProviders.length; i++) {
@@ -940,8 +1007,8 @@ contract SeatAllocator is
         }
     }
 
-    /// @notice Detaches the allocator during an atomic rollback to the legacy
-    ///         allowlist. Clears every current provider's allocator-side
+    /// @notice Detaches one allocator batch during rollback to the legacy
+    ///         allowlist. Clears each supplied provider's allocator-side
     ///         authorization and reward snapshot so later signer lifecycle
     ///         actions do not call a registry that no longer recognizes this
     ///         contract as its source.
@@ -949,8 +1016,14 @@ contract SeatAllocator is
         external
         onlyWalletRegistry
     {
-        authorizationAttached = false;
-        authorizationGeneration += 1;
+        if (!authorizationMigrationRosterSyncActive) {
+            authorizationMigrationRosterSyncActive = true;
+            rewardsDistributor.beginRosterSync();
+        }
+        if (authorizationAttached) {
+            authorizationAttached = false;
+            authorizationGeneration += 1;
+        }
         for (uint256 i = 0; i < stakingProviders.length; i++) {
             address stakingProvider = stakingProviders[i];
             _cacheAuthorizationWeight(stakingProvider, 0);
@@ -963,6 +1036,13 @@ contract SeatAllocator is
             weightDirty[stakingProvider] = false;
         }
         emit AuthorizationSourceDetached();
+    }
+
+    function completeAuthorizationMigration() external onlyWalletRegistry {
+        if (authorizationMigrationRosterSyncActive) {
+            authorizationMigrationRosterSyncActive = false;
+            rewardsDistributor.endRosterSync();
+        }
     }
 
     /// @notice Returns the authorization weight the registry currently
@@ -1370,7 +1450,7 @@ contract SeatAllocator is
         address stakingProvider,
         uint64 epochAtRequest
     ) external view override returns (bool) {
-        if (decreasePending[stakingProvider]) {
+        if (decreasePending[stakingProvider] || weightDirty[stakingProvider]) {
             return false;
         }
 

@@ -20,6 +20,15 @@ pragma solidity 0.8.17;
 ///         accrual between operator commission and the stake vault's
 ///         self-bond/delegated pool reward.
 interface IRewardsDistributor {
+    /// @notice Pauses accumulator advancement while a global roster is being
+    ///         rewritten in bounded batches. Incoming rewards are carried as
+    ///         undistributed until synchronization completes.
+    function beginRosterSync() external;
+
+    /// @notice Resumes reward distribution after every roster weight has been
+    ///         synchronized and the staged parameter/source is active.
+    function endRosterSync() external;
+
     /// @notice Checkpoints the given staking provider's reward accrual at
     ///         its previous weight and records the new weight, updating the
     ///         distributor's total weight. Called on every authorization

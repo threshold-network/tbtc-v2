@@ -163,7 +163,7 @@ contract FrostWalletRegistry is
     /// @notice Contract providing FROST operator authorization weights. The
     ///         current production source is `FrostAllowlist`, but the registry
     ///         only depends on this neutral interface. This implementation
-    ///         adds an atomic governed source/active-roster migration and a
+    ///         adds a governed, bounded source/active-roster migration and a
     ///         repeatable governed path for rollback.
     IFrostAuthorizationSource public authorizationSource;
 
@@ -270,6 +270,25 @@ contract FrostWalletRegistry is
     event LifecycleOwnerUpdated(address lifecycleOwner);
 
     event AuthorizationSourceUpdated(address authorizationSource);
+    event WalletExposureLedgerCallFailed(bytes32 indexed walletID);
+    event WalletExposureLedgerSet(address walletExposureLedger);
+    event WalletExposureReconciledRegistered(bytes32 indexed walletID);
+    event WalletExposureReconciledClosed(bytes32 indexed walletID);
+    event HistoricalWalletCountSet(
+        uint256 walletsCreated,
+        uint256 walletsClosed
+    );
+    event AuthorizationSourceCallbackFailed(bytes4 indexed selector);
+    event DkgValidatorUpdated(address indexed dkgValidator);
+    event AuthorizationRosterSyncStarted(
+        address indexed authorizationSource,
+        uint256 expectedProviders
+    );
+    event AuthorizationRosterSyncProgress(
+        uint256 processedProviders,
+        uint256 expectedProviders
+    );
+    event AuthorizationRosterSyncCompleted(address indexed authorizationSource);
     event DkgValidatorUpdateStarted(
         address indexed dkgValidator,
         uint256 timestamp
@@ -333,6 +352,16 @@ contract FrostWalletRegistry is
     modifier onlyAuthorizationSource() {
         _checkAuthorizationSource();
         _;
+    }
+
+    modifier onlyWhenAuthorizationRosterStable() {
+        _requireAuthorizationRosterStable();
+        _;
+    }
+
+    function _requireAuthorizationRosterStable() internal view {
+        // solhint-disable-next-line reason-string
+        require(!walletExposureData.rosterSyncActive);
     }
 
     /// @dev `_currentAuthorizationSource()` reverts with
@@ -516,22 +545,20 @@ contract FrostWalletRegistry is
         emit AuthorizationSourceUpdated(_authorizationSource);
     }
 
-    /// @notice Atomically migrates the authorization source and every active
-    ///         sortition-pool leaf. Callable by registry governance for normal
-    ///         migrations/rollback and by the EIP-1967 proxy admin so the first
-    ///         production cutover can be delivered through upgradeAndCall.
-    ///         The roster must enumerate the entire active pool; omissions and
-    ///         duplicates are rejected by the linked migration library. A
-    ///         stateful target additionally wires the exposure ledger during
-    ///         the same upgrade call and requires the complete live-wallet
-    ///         roster and event-audited pre-upgrade wallet lifecycle totals.
+    /// @notice Stages a bounded authorization-roster batch. The source changes
+    ///         only after every member of the snapshotted active roster has
+    ///         been processed exactly once. Callable by registry governance
+    ///         for migrations/rollback and by the EIP-1967 proxy admin for the
+    ///         first production cutover. A stateful target wires the exposure
+    ///         ledger and validates the complete live-wallet proof when the
+    ///         first batch starts.
     /// @param _authorizationSource New authorization source.
     /// @param statefulTarget True only for a source implementing the migration
     ///        preparation/detachment hooks (SeatAllocator). The explicit flag
     ///        avoids inferring capability from ambiguous empty revert data.
-    /// @param _walletExposureLedger Exposure ledger to wire atomically for the
-    ///        first stateful cutover. May be zero after it has been wired.
-    /// @param stakingProviders Complete current sortition-pool provider roster.
+    /// @param _walletExposureLedger Exposure ledger to wire when the first
+    ///        stateful cutover batch starts. May be zero once wired.
+    /// @param stakingProviders Next non-overlapping current-roster batch.
     /// @param liveWalletProof ABI encoding of `(bytes32[] liveWalletIDs,
     ///        uint256 historicalWalletsCreated,
     ///        uint256 historicalWalletsClosed)`. Required for a stateful
@@ -542,8 +569,8 @@ contract FrostWalletRegistry is
         address _walletExposureLedger,
         address[] calldata stakingProviders,
         bytes calldata liveWalletProof
-    ) external {
-        WalletExposure.migrateAuthorizationSource(
+    ) external returns (bool complete) {
+        complete = WalletExposure.migrateAuthorizationSource(
             walletExposureData,
             authorization,
             sortitionPool,
@@ -554,7 +581,7 @@ contract FrostWalletRegistry is
             stakingProviders,
             liveWalletProof
         );
-        authorizationSource = _authorizationSource;
+        if (complete) authorizationSource = _authorizationSource;
     }
 
     /// @notice Withdraws application rewards for the given staking provider.
@@ -604,7 +631,7 @@ contract FrostWalletRegistry is
     ///         or if the operator is not known. If there was an
     ///         authorization decrease requested, it is activated by starting
     ///         the authorization decrease delay.
-    function joinSortitionPool() external {
+    function joinSortitionPool() external onlyWhenAuthorizationRosterStable {
         authorization.joinSortitionPool(
             _currentAuthorizationSource(),
             sortitionPool
@@ -615,7 +642,10 @@ contract FrostWalletRegistry is
     ///         was an authorization decrease requested, it is activated by
     ///         starting the authorization decrease delay.
     ///         Function reverts if the operator is not known.
-    function updateOperatorStatus(address operator) external {
+    function updateOperatorStatus(address operator)
+        external
+        onlyWhenAuthorizationRosterStable
+    {
         authorization.updateOperatorStatus(
             _currentAuthorizationSource(),
             sortitionPool,
@@ -638,7 +668,7 @@ contract FrostWalletRegistry is
         address stakingProvider,
         uint96 fromAmount,
         uint96 toAmount
-    ) external onlyAuthorizationSource {
+    ) external onlyAuthorizationSource onlyWhenAuthorizationRosterStable {
         authorization.authorizationIncreased(
             stakingProvider,
             fromAmount,
@@ -673,7 +703,7 @@ contract FrostWalletRegistry is
         address stakingProvider,
         uint96 fromAmount,
         uint96 toAmount
-    ) external onlyAuthorizationSource {
+    ) external onlyAuthorizationSource onlyWhenAuthorizationRosterStable {
         authorization.authorizationDecreaseRequested(
             stakingProvider,
             fromAmount,
@@ -685,7 +715,10 @@ contract FrostWalletRegistry is
     ///         request. Reverts if authorization decrease delay has not passed
     ///         yet or if the authorization decrease was not requested for the
     ///         given staking provider.
-    function approveAuthorizationDecrease(address stakingProvider) external {
+    function approveAuthorizationDecrease(address stakingProvider)
+        external
+        onlyWhenAuthorizationRosterStable
+    {
         authorization.approveAuthorizationDecrease(
             _currentAuthorizationSource(),
             stakingProvider
@@ -710,7 +743,7 @@ contract FrostWalletRegistry is
         address stakingProvider,
         uint96 fromAmount,
         uint96 toAmount
-    ) external onlyAuthorizationSource {
+    ) external onlyAuthorizationSource onlyWhenAuthorizationRosterStable {
         authorization.involuntaryAuthorizationDecrease(
             _currentAuthorizationSource(),
             sortitionPool,
@@ -968,7 +1001,11 @@ contract FrostWalletRegistry is
     ///      fast here forces the activation sequence to wire
     ///      lifecycle ownership BEFORE any FROST wallets exist.
     ///      (Per PR #441 follow-up review.)
-    function requestNewWallet() external onlyWalletOwner {
+    function requestNewWallet()
+        external
+        onlyWalletOwner
+        onlyWhenAuthorizationRosterStable
+    {
         if (lifecycleOwner == address(0)) {
             revert LifecycleOwnerNotSet();
         }

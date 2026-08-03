@@ -786,8 +786,8 @@ describe("SeatAllocator", () => {
 
     it("synchronizes a seat-weight increase during global finalization", async () => {
       await allocator.refreshAuthorization(provider) // synced 40k
-      // Raising the uniform seat weight rewrites the complete current roster
-      // atomically, so no later per-provider increase is needed.
+      // This one-provider roster completes in one bounded batch, so no later
+      // per-provider increase is needed.
       await setEqualSeatWeight(to18(80_000))
 
       expect(await allocator.authorizedWeight(provider, provider)).to.equal(
@@ -1384,6 +1384,23 @@ describe("SeatAllocator", () => {
       expect(await allocator.canFinalizeUndelegate(provider, 5)).to.be.true
     })
 
+    it("blocks finalization until post-slash authorization is refreshed", async () => {
+      await mockRegistry.callReportMaliciousBehavior(
+        allocator.address,
+        1,
+        0,
+        notifier.address,
+        [provider]
+      )
+
+      expect(await allocator.weightDirty(provider)).to.be.true
+      expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.false
+
+      await allocator.refreshAuthorization(provider)
+      expect(await allocator.weightDirty(provider)).to.be.false
+      expect(await allocator.canFinalizeUndelegate(provider, 0)).to.be.true
+    })
+
     it("gates finalization on live wallet exposure at or before the epoch", async () => {
       const walletID = ethers.utils.id("allocator-wallet-1")
       await exposureLedger
@@ -1610,6 +1627,37 @@ describe("SeatAllocator", () => {
       expect(await mockRegistry.synchronizedRosterLength()).to.equal(2)
       expect(await mockRegistry.synchronizedRoster(0)).to.equal(provider)
       expect(await mockRegistry.synchronizedRoster(1)).to.equal(provider2)
+    })
+
+    it("stages bounded roster batches before activating the new weight", async () => {
+      await activate(provider)
+      await activate(provider2)
+      await stakeVault.setSelfBond(provider, MIN_SELF_BOND)
+      await stakeVault.setSelfBond(provider2, MIN_SELF_BOND)
+      await allocator.refreshAuthorization(provider)
+      await allocator.refreshAuthorization(provider2)
+      await mockRegistry.setRosterBatchesRequired(2)
+
+      await allocator
+        .connect(governance)
+        .beginEqualSeatWeightUpdate(to18(80_000))
+      await increaseTime(GOVERNANCE_DELAY)
+
+      await allocator
+        .connect(governance)
+        .finalizeEqualSeatWeightUpdate([provider])
+      expect(await allocator.equalSeatWeight()).to.equal(EQUAL_SEAT_WEIGHT)
+      expect(await allocator.equalSeatWeightRosterSyncActive()).to.be.true
+      expect(await rewardsDistributor.rosterSyncInProgress()).to.be.true
+
+      await allocator
+        .connect(governance)
+        .finalizeEqualSeatWeightUpdate([provider2])
+      expect(await allocator.equalSeatWeight()).to.equal(to18(80_000))
+      expect(await allocator.equalSeatWeightRosterSyncActive()).to.be.false
+      expect(await rewardsDistributor.rosterSyncInProgress()).to.be.false
+      expect(await allocator.authorizationGeneration()).to.equal(1)
+      expect(await mockRegistry.synchronizedRosterLength()).to.equal(2)
     })
 
     it("invalidates a pre-join cache omitted from a seat-weight update", async () => {

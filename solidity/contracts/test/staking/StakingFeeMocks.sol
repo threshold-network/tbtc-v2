@@ -102,6 +102,10 @@ contract StakingFeeMockRewardsDistributor is IRewardsDistributor {
     uint256 public recoveryCount;
     address public lastRecoveryRecipient;
 
+    function beginRosterSync() external override {}
+
+    function endRosterSync() external override {}
+
     function onWeightChanged(address, uint96) external override {}
 
     function notifyReward(uint256 tbtcAmount) external override {

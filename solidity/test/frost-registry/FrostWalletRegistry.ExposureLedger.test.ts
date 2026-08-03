@@ -51,11 +51,9 @@ import {
 // (resilience) and once against a well-behaved fake (payload
 // correctness).
 
-// The `WalletExposureLedgerSet` / `WalletExposureLedgerCallFailed`
-// events are declared in the externally linked
-// `FrostWalletExposure` library and emitted via delegatecall, so
-// they surface with the registry's address but are absent from
-// the registry's own ABI — match them by topic hash.
+// The exposure library emits via delegatecall, so logs surface with the
+// registry's address. The registry re-declares those events in its ABI; topic
+// matching below additionally verifies the actual delegatecall emitter.
 const LEDGER_SET_TOPIC = ethers.utils.id("WalletExposureLedgerSet(address)")
 const CALL_FAILED_TOPIC = ethers.utils.id(
   "WalletExposureLedgerCallFailed(bytes32)"
@@ -332,6 +330,22 @@ describe("FrostWalletRegistry wallet exposure ledger hooks", () => {
   const gasFailureWallet = ethers.utils.id("gas-reserve-wallet")
 
   describe("setWalletExposureLedger wiring", () => {
+    it("publishes linked-library events in the registry ABI", () => {
+      for (const eventName of [
+        "WalletExposureLedgerCallFailed",
+        "WalletExposureLedgerSet",
+        "WalletExposureReconciledRegistered",
+        "WalletExposureReconciledClosed",
+        "HistoricalWalletCountSet",
+        "AuthorizationSourceCallbackFailed",
+        "DkgValidatorUpdated",
+      ]) {
+        expect(() =>
+          frostWalletRegistry.interface.getEvent(eventName)
+        ).not.to.throw()
+      }
+    })
+
     it("rejects non-governance callers", async () => {
       await expect(
         frostWalletRegistry

@@ -72,6 +72,8 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
         detachCalls += 1;
     }
 
+    function completeAuthorizationMigration() external {}
+
     function setRevertPreparationWithoutData(bool value) external {
         revertPreparationWithoutData = value;
     }
@@ -223,6 +225,8 @@ contract StakingMockWalletRegistry {
     mapping(address => bool) internal poolMembership;
     mapping(address => address) internal registryOperator;
     address[] public synchronizedRoster;
+    uint256 public rosterBatchesRequired = 1;
+    uint256 public rosterBatchesProcessed;
 
     /// @dev Mirrors the real FROST registry's pool-eligibility floor
     ///      (`minimumAuthorization()`). Defaults to the genesis 40,000e18 so
@@ -246,6 +250,12 @@ contract StakingMockWalletRegistry {
     function setOperatorInPool(address operator, bool inPool) external {
         poolMembershipConfigured[operator] = true;
         poolMembership[operator] = inPool;
+    }
+
+    function setRosterBatchesRequired(uint256 batches) external {
+        rosterBatchesRequired = batches;
+        rosterBatchesProcessed = 0;
+        delete synchronizedRoster;
     }
 
     function setStakingProviderOperator(
@@ -274,13 +284,21 @@ contract StakingMockWalletRegistry {
         address,
         address[] calldata stakingProviders,
         bytes calldata
-    ) external {
+    ) external returns (bool) {
         // solhint-disable-next-line reason-string, custom-errors
         require(
             !revertOnAuthorizationCalls,
             "StakingMockWalletRegistry: forced revert"
         );
-        synchronizedRoster = stakingProviders;
+        if (rosterBatchesRequired == 1) {
+            synchronizedRoster = stakingProviders;
+            return true;
+        }
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            synchronizedRoster.push(stakingProviders[i]);
+        }
+        rosterBatchesProcessed += 1;
+        return rosterBatchesProcessed == rosterBatchesRequired;
     }
 
     function synchronizedRosterLength() external view returns (uint256) {
@@ -582,6 +600,10 @@ contract StakingMockStakeVault is ISeatAllocatorStakeVault {
         return minSelfBondValue;
     }
 
+    function newMinSelfBond() external view override returns (uint96) {
+        return minSelfBondValue;
+    }
+
     function sharesOf(address, address)
         external
         pure
@@ -738,6 +760,15 @@ contract StakingMockRewardsDistributor is IRewardsDistributor {
     uint96 public lastWeight;
 
     bool public revertOnWeightChanged;
+    bool public rosterSyncInProgress;
+
+    function beginRosterSync() external override {
+        rosterSyncInProgress = true;
+    }
+
+    function endRosterSync() external override {
+        rosterSyncInProgress = false;
+    }
 
     function setRevertOnWeightChanged(bool _revert) external {
         revertOnWeightChanged = _revert;

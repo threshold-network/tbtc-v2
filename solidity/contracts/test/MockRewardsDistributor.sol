@@ -15,6 +15,10 @@ contract MockRewardsDistributor is IRewardsDistributor {
     address public settlementVault;
     mapping(address => uint256) public pendingSettlement;
 
+    function beginRosterSync() external override {}
+
+    function endRosterSync() external override {}
+
     function recoverUndistributedRewards(address)
         external
         pure

@@ -88,16 +88,15 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         uint256 pendingShares;
         // TBTC rewards per share, scaled by 1e18.
         uint256 rewardPerShareAccumulator;
-        // Generation increments when slashing wipes all delegated assets or
-        // leaves too little backing relative to the 1e18 reward-accumulator
-        // scale. Outstanding shares from an older generation remain
+        // Generation increments only when slashing wipes all delegated assets.
+        // Outstanding shares from an older generation remain
         // redeemable only for rewards accrued before the wipe; they can never
         // capture a later deposit.
         uint64 generation;
-        // Remaining cumulative deposit margin established at the last slash
-        // (or first post-upgrade deposit). Deposits consume this fixed margin
-        // instead of recomputing a larger one from their own amplified shares.
-        uint256 generationResetDepositHeadroom;
+        // Deprecated round-5 reset-headroom slot, retained to preserve the
+        // upgradeable mapping value layout. It is deliberately never read:
+        // non-zero residual principal can no longer be generation-reset.
+        uint256 deprecatedGenerationResetDepositHeadroom;
     }
 
     struct UndelegationRequest {
@@ -280,6 +279,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     error UndelegationDelayTooShort();
     error UndelegationDelayTooLong();
     error MinSelfBondTooLow();
+    error DelegationSharePrecisionExhausted();
 
     modifier onlySlashingModule() {
         if (msg.sender != slashingModule) revert CallerNotSlashingModule();
@@ -410,16 +410,15 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         emit MinSelfBondUpdateStarted(_newMinSelfBond, timestamp);
     }
 
-    /// @notice Finalizes the minimum self-bond update process. While the seat
-    ///         allocator is active, atomically synchronizes every current
-    ///         sortition-pool provider against the new eligibility floor.
-    /// @param stakingProviders Complete current sortition-pool roster. The
-    ///        wallet registry validates completeness and uniqueness.
+    /// @notice Advances the minimum self-bond update process. While the seat
+    ///         allocator is active, the new floor remains staged until every
+    ///         bounded sortition-pool roster batch has synchronized.
+    /// @param stakingProviders Next non-overlapping current-roster batch.
     /// @dev Can be called only after the governance delay elapsed. Any active
     ///      authorization, reward-weight, roster, or pool-leaf sync failure
-    ///      reverts the global floor update too. While the allocator is detached
-    ///      after rollback, the parameter lands without a roster push; the next
-    ///      stateful migration validates and seeds the new floor.
+    ///      reverts that batch. While the allocator is detached after rollback,
+    ///      the parameter lands without a roster push; the next stateful
+    ///      migration validates and seeds the new floor.
     function finalizeMinSelfBondUpdate(address[] calldata stakingProviders)
         external
         onlyOwner
@@ -429,9 +428,15 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             governanceDelay
         );
         _validateMinSelfBond(newMinSelfBond);
+        if (seatAllocator.authorizationAttached()) {
+            bool complete = seatAllocator.synchronizeAuthorizationRoster(
+                stakingProviders
+            );
+            if (!complete) return;
+        }
         minSelfBond = newMinSelfBond;
         if (seatAllocator.authorizationAttached()) {
-            seatAllocator.synchronizeAuthorizationRoster(stakingProviders);
+            seatAllocator.completeAuthorizationRosterSynchronization();
         }
         emit MinSelfBondUpdated(minSelfBond);
         minSelfBondChangeInitiated = 0;
@@ -767,14 +772,6 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         pool.totalShares -= request.shares;
         pool.pendingShares -= request.shares;
         pool.delegatedAssets -= uint96(assets);
-        if (pool.totalShares == 0) {
-            pool.generationResetDepositHeadroom = 0;
-        } else if (pool.generationResetDepositHeadroom != 0) {
-            // Asset outflows restore the same fixed post-slash margin consumed
-            // by inflows, so deposit/withdraw cycles cannot force a stale reset
-            // while net new backing remains below the boundary.
-            pool.generationResetDepositHeadroom += assets;
-        }
         poolShares[stakingProvider][msg.sender] -= request.shares;
         delegatorQueuedShares[stakingProvider][msg.sender] -= request.shares;
 
@@ -1218,39 +1215,29 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         ] = pool.rewardPerShareAccumulator;
         pool.totalShares = 0;
         pool.pendingShares = 0;
-        pool.generationResetDepositHeadroom = 0;
         pool.generation += 1;
         emit PoolWiped(stakingProvider, pool.generation);
     }
 
-    /// @dev Treats a delegated tranche as economically wiped once its
-    ///      share-to-asset ratio reaches the 1e18 accumulator scale. Resetting
-    ///      at the slash boundary caps share amplification before a later
-    ///      deposit can mint an enormous supply against dust and permanently
-    ///      round ordinary rewards to zero.
+    /// @dev Starts a new generation only after slashing has removed every
+    ///      delegated asset. A non-zero residual always remains owned by the
+    ///      existing shareholders: once its share-to-asset ratio reaches the
+    ///      reward accumulator's precision limit, new delegation is rejected
+    ///      until the old generation exits instead of voiding its shares and
+    ///      transferring the residual to a new depositor.
     function _requiresGenerationReset(Pool storage pool, uint96 incomingAssets)
         internal
+        view
         returns (bool)
     {
         if (pool.totalShares == 0) return false;
 
-        uint256 scaledAssets = uint256(pool.delegatedAssets) * REWARD_PRECISION;
-        if (scaledAssets <= pool.totalShares) return true;
+        if (pool.delegatedAssets == 0) return true;
+        if (
+            incomingAssets != 0 &&
+            uint256(pool.delegatedAssets) * REWARD_PRECISION <= pool.totalShares
+        ) revert DelegationSharePrecisionExhausted();
 
-        // A deposit preserves the existing share price but amplifies both the
-        // share supply and a freshly recomputed absolute margin. Pin the margin
-        // at the slash boundary and consume it cumulatively, otherwise an
-        // attacker can split one unsafe deposit into calls that each enlarge
-        // the margin for the next call. A zero incoming amount is the slash path
-        // and always re-anchors the margin after the haircut. A zero stored value
-        // also initializes pre-upgrade/new pools on their first relevant call.
-        uint256 headroom = pool.generationResetDepositHeadroom;
-        if (incomingAssets == 0 || headroom == 0) {
-            headroom = scaledAssets - pool.totalShares;
-        }
-        if (incomingAssets >= headroom) return true;
-
-        pool.generationResetDepositHeadroom = headroom - incomingAssets;
         return false;
     }
 

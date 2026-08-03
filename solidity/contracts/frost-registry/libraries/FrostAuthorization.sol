@@ -525,8 +525,9 @@ library FrostAuthorization {
     ///         the pool. This is required by rollback: a stateful source may
     ///         have removed an operator whose legacy allowlist weight is still
     ///         positive.
-    /// @dev The migration caller validates the complete current roster and the
-    ///      target roster before invoking this helper while the DKG is IDLE.
+    /// @dev The migration caller validates each non-overlapping roster batch
+    ///      while the DKG is IDLE and delays source activation until all
+    ///      snapshotted providers have been processed.
     function migrateOperatorStatus(
         Data storage self,
         IFrostAuthorizationSource authorizationSource,

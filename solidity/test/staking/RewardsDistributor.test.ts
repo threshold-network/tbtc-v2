@@ -263,6 +263,55 @@ describe("RewardsDistributor", () => {
     })
   })
 
+  describe("roster synchronization", () => {
+    before(async () => {
+      await createSnapshot()
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider1.address, to1e18(100))
+      await rewardsDistributor
+        .connect(seatAllocator)
+        .onWeightChanged(provider2.address, to1e18(300))
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("parks rewards until every staged weight has been synchronized", async () => {
+      await rewardsDistributor.connect(seatAllocator).beginRosterSync()
+      await notify(400)
+
+      expect(await rewardsDistributor.accRewardPerWeight()).to.equal(0)
+      expect(await rewardsDistributor.undistributedRewards()).to.equal(
+        to1e18(400)
+      )
+
+      await rewardsDistributor.connect(seatAllocator).endRosterSync()
+      await notify(400)
+
+      // The post-sync tranche folds in the parked tranche and is distributed
+      // against one internally consistent roster snapshot.
+      expect(await rewardsDistributor.undistributedRewards()).to.equal(0)
+      expect(await rewardsDistributor.accRewardPerWeight()).to.equal(to1e18(2))
+      expect(
+        await rewardsDistributor.pendingRewardOf(provider1.address)
+      ).to.equal(to1e18(200))
+      expect(
+        await rewardsDistributor.pendingRewardOf(provider2.address)
+      ).to.equal(to1e18(600))
+    })
+
+    it("restricts the synchronization gate to the seat allocator", async () => {
+      await expect(
+        rewardsDistributor.connect(thirdParty).beginRosterSync()
+      ).to.be.revertedWith("CallerNotSeatAllocator")
+      await expect(
+        rewardsDistributor.connect(thirdParty).endRosterSync()
+      ).to.be.revertedWith("CallerNotSeatAllocator")
+    })
+  })
+
   describe("recoverUndistributedRewards", () => {
     before(async () => {
       await createSnapshot()

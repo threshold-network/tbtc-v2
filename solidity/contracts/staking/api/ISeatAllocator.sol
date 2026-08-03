@@ -50,15 +50,18 @@ interface ISeatAllocator {
     ///         weight behind.
     function syncRewardWeightAfterSlash(address stakingProvider) external;
 
-    /// @notice Atomically synchronizes authorization and reward weights for
-    ///         the complete current sortition-pool roster after the vault
-    ///         changes a global eligibility parameter.
-    /// @dev Callable only by the stake vault. The wallet registry validates
-    ///      roster completeness and rewrites every pool leaf in the same
-    ///      transaction.
-    /// @param stakingProviders Complete current sortition-pool roster.
+    /// @notice Synchronizes one bounded authorization and reward-weight batch
+    ///         after the vault stages a global eligibility parameter.
+    /// @dev Callable only by the stake vault. Returns true after the wallet
+    ///      registry has received the complete snapshotted roster.
+    /// @param stakingProviders Next non-overlapping current-roster batch.
     function synchronizeAuthorizationRoster(address[] calldata stakingProviders)
-        external;
+        external
+        returns (bool complete);
+
+    /// @notice Clears the allocator-side synchronization marker after the
+    ///         stake vault activates the staged global eligibility parameter.
+    function completeAuthorizationRosterSynchronization() external;
 
     /// @notice Number of failed slash reports queued against the provider.
     ///         The stake vault treats any non-zero value as an exit hold until

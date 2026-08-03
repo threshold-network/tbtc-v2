@@ -626,6 +626,24 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       }
     })
 
+    it("rejects a target whose declared migration mode mismatches its capability", async () => {
+      await expectCustomError(
+        frostWalletRegistry
+          .connect(deployer)
+          .migrateAuthorizationSource(
+            migrationSource.address,
+            false,
+            ethers.constants.AddressZero,
+            providers,
+            "0x"
+          ),
+        "AuthorizationSourceModeMismatch"
+      )
+      expect(await frostWalletRegistry.authorizationSource()).to.equal(
+        frostAllowlist.address
+      )
+    })
+
     it("rejects an incomplete live-wallet roster", async () => {
       await expectCustomError(
         frostWalletRegistry
@@ -671,19 +689,42 @@ describe("FrostWalletRegistry wallet exposure reconcile", () => {
       )
     })
 
-    it("migrates only after every live wallet is registered in the ledger", async () => {
+    it("migrates in bounded batches and activates only after the full roster", async () => {
+      const midpoint = Math.floor(providers.length / 2)
       await frostWalletRegistry
         .connect(deployer)
         .migrateAuthorizationSource(
           migrationSource.address,
           true,
           ethers.constants.AddressZero,
-          providers,
+          providers.slice(0, midpoint),
           encodeLiveWalletProof([walletKeyA], 0, 0)
+        )
+
+      // The target cache and pool leaves are being staged, but wallet
+      // selection remains locked and the active source has not changed.
+      expect(await frostWalletRegistry.authorizationSource()).to.equal(
+        frostAllowlist.address
+      )
+      await expect(
+        frostWalletRegistry
+          .connect(thirdParty)
+          .updateOperatorStatus(operators[0].operator)
+      ).to.be.reverted
+
+      await frostWalletRegistry
+        .connect(deployer)
+        .migrateAuthorizationSource(
+          migrationSource.address,
+          true,
+          ethers.constants.AddressZero,
+          providers.slice(midpoint),
+          "0x"
         )
       expect(await frostWalletRegistry.authorizationSource()).to.equal(
         migrationSource.address
       )
+      expect(await migrationSource.prepareCalls()).to.equal(2)
       expect(await migrationSource.reconciledProvidersLength()).to.equal(
         expectedProviders.length
       )
