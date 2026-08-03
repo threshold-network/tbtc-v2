@@ -10,6 +10,7 @@ import "../staking/api/ISlashingModule.sol";
 ///      reports to a slashing module (which accepts calls only from its
 ///      wired seat allocator).
 contract MockSeatAllocator is ISeatAllocator {
+    bool public override authorizationAttached = true;
     mapping(address => uint256) public refreshCount;
     address public lastRefreshedProvider;
     bool public revertOnRefresh;
@@ -31,6 +32,10 @@ contract MockSeatAllocator is ISeatAllocator {
 
     function setRevertOnRosterSync(bool _revertOnRosterSync) external {
         revertOnRosterSync = _revertOnRosterSync;
+    }
+
+    function setAuthorizationAttached(bool attached) external {
+        authorizationAttached = attached;
     }
 
     function setWeight(address stakingProvider, uint96 weight) external {

@@ -42,8 +42,20 @@ contract StakingMigrationAuthorizationSource is IFrostAuthorizationSource {
         return true;
     }
 
+    function authorizationCeiling() external pure override returns (uint96) {
+        return type(uint96).max;
+    }
+
     function setWeight(address stakingProvider, uint96 weight) external {
         weights[stakingProvider] = weight;
+    }
+
+    function currentWeight(address stakingProvider)
+        external
+        view
+        returns (uint96)
+    {
+        return weights[stakingProvider];
     }
 
     function prepareAuthorizationMigration(address[] calldata) external {

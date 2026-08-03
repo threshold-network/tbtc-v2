@@ -821,8 +821,8 @@ contract FrostWalletRegistry is
 
     /// @notice Updates the values of authorization parameters.
     /// @dev Can be called only by the contract guvnor, which should be the
-    ///      wallet registry governance contract. The caller is responsible for
-    ///      validating parameters.
+    ///      wallet registry governance contract. When a stateful source is
+    ///      active, rejects a minimum above that source's authorization ceiling.
     /// @param _minimumAuthorization New minimum authorization amount.
     /// @param _authorizationDecreaseDelay New authorization decrease delay in
     ///        seconds.
@@ -833,15 +833,9 @@ contract FrostWalletRegistry is
         uint64 _authorizationDecreaseDelay,
         uint64 _authorizationDecreaseChangePeriod
     ) external onlyGovernance {
-        authorization.setMinimumAuthorization(_minimumAuthorization);
-        authorization.setAuthorizationDecreaseDelay(
-            _authorizationDecreaseDelay
-        );
-        authorization.setAuthorizationDecreaseChangePeriod(
-            _authorizationDecreaseChangePeriod
-        );
-
-        emit AuthorizationParametersUpdated(
+        WalletExposure.updateAuthorizationParameters(
+            authorization,
+            authorizationSource,
             _minimumAuthorization,
             _authorizationDecreaseDelay,
             _authorizationDecreaseChangePeriod

@@ -28,6 +28,11 @@ interface IFrostAuthorizationMigration {
 
     function detachAuthorizationSource(address[] calldata stakingProviders)
         external;
+
+    function currentWeight(address stakingProvider)
+        external
+        view
+        returns (uint96);
 }
 
 interface IFrostRegistryGovernance {
@@ -90,6 +95,11 @@ library FrostWalletExposure {
     ///      `FrostWalletRegistry` address.
     event WalletExposureLedgerSet(address walletExposureLedger);
     event AuthorizationSourceUpdated(address authorizationSource);
+    event AuthorizationParametersUpdated(
+        uint96 minimumAuthorization,
+        uint64 authorizationDecreaseDelay,
+        uint64 authorizationDecreaseChangePeriod
+    );
 
     /// @notice Emitted when a notification call to the wallet exposure
     ///         ledger reverted. The failure is swallowed on purpose —
@@ -159,6 +169,35 @@ library FrostWalletExposure {
     error LiveWalletRosterWalletNotRegistered();
     error LiveWalletRosterLedgerMismatch();
     error ExitGateAuthorizationSourceUnavailable();
+    error MinimumAuthorizationExceedsSourceCeiling();
+
+    /// @notice Applies registry authorization parameters after checking the
+    ///         active stateful source's weight ceiling. Kept in the linked
+    ///         library because the registry itself sits at the bytecode limit.
+    function updateAuthorizationParameters(
+        Authorization.Data storage authorization,
+        IFrostAuthorizationSource authorizationSource,
+        uint96 minimumAuthorization,
+        uint64 authorizationDecreaseDelay,
+        uint64 authorizationDecreaseChangePeriod
+    ) external {
+        if (
+            address(authorizationSource) != address(0) &&
+            authorizationSource.isStatefulAuthorizationSource() &&
+            minimumAuthorization > authorizationSource.authorizationCeiling()
+        ) revert MinimumAuthorizationExceedsSourceCeiling();
+
+        authorization.setMinimumAuthorization(minimumAuthorization);
+        authorization.setAuthorizationDecreaseDelay(authorizationDecreaseDelay);
+        authorization.setAuthorizationDecreaseChangePeriod(
+            authorizationDecreaseChangePeriod
+        );
+        emit AuthorizationParametersUpdated(
+            minimumAuthorization,
+            authorizationDecreaseDelay,
+            authorizationDecreaseChangePeriod
+        );
+    }
 
     /// @notice Ensures the legacy V2 initializer cannot partially install a
     ///         stateful source whose migration invariants live in this library.
@@ -398,8 +437,9 @@ library FrostWalletExposure {
     ///      the registry before switching back to a stale legacy allowlist.
     ///      The synthetic full decrease makes the provider ineligible both
     ///      during rollback and on a later join attempt. Once the allowlist is
-    ///      active, its owner can request the matching decrease normally and
-    ///      overwrite this registry-side hold.
+    ///      active, the registry can approve this synthetic hold after the
+    ///      normal delay; the allowlist derives and records the matching target
+    ///      from the registry-side pending amount.
     function _excludeIneligibleRollbackProviders(
         Authorization.Data storage authorization,
         IFrostAuthorizationSource currentAuthorizationSource,
@@ -411,11 +451,14 @@ library FrostWalletExposure {
             address operator = authorization.stakingProviderToOperator[
                 stakingProvider
             ];
+            // The stateful source's registry-facing weight is deliberately a
+            // synchronized cache and may remain non-zero immediately after a
+            // slash. Rollback eligibility must use the live computation before
+            // detachment invalidates it.
             if (
-                currentAuthorizationSource.authorizedWeight(
-                    stakingProvider,
-                    operator
-                ) != 0
+                IFrostAuthorizationMigration(
+                    address(currentAuthorizationSource)
+                ).currentWeight(stakingProvider) != 0
             ) continue;
 
             uint96 targetWeight = targetAuthorizationSource.authorizedWeight(

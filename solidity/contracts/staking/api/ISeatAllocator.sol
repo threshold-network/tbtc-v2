@@ -22,6 +22,12 @@ pragma solidity 0.8.17;
 ///         them to the FROST wallet registry, and gates exit finalization on
 ///         wallet exposure.
 interface ISeatAllocator {
+    /// @notice True while this allocator is the wallet registry's active
+    ///         authorization source. Governed parameter updates may still land
+    ///         while detached; their roster synchronization is deferred until
+    ///         the next authorization-source migration.
+    function authorizationAttached() external view returns (bool);
+
     /// @notice Permissionlessly synchronizes the given staking provider's
     ///         authorization weight to the FROST wallet registry. Computes
     ///         the current seat weight; on an increase it notifies the

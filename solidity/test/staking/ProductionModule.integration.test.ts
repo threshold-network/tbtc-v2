@@ -241,6 +241,19 @@ describe("Delegated staking production-contract integration", () => {
       to18(80_000)
     )
 
+    // Registry governance cannot raise its eligibility floor above the active
+    // allocator's uniform seat weight and permissionlessly drain the pool.
+    await expect(
+      frostWalletRegistry.updateAuthorizationParameters(
+        to18(80_000).add(1),
+        1,
+        1
+      )
+    ).to.be.revertedWith("MinimumAuthorizationExceedsSourceCeiling")
+    expect(await frostWalletRegistry.minimumAuthorization()).to.equal(
+      to18(40_000)
+    )
+
     await stakeVault.beginDelegationUpdate(true)
     await slashingModule.beginEconomicSlashingUpdate(true)
     await helpers.time.increaseTime(2)
@@ -308,6 +321,24 @@ describe("Delegated staking production-contract integration", () => {
       "0x"
     )
     expect(await seatAllocator.authorizationAttached()).to.be.false
+    expect(await frostWalletRegistry.eligibleStake(provider.address)).to.equal(
+      0
+    )
+    expect(await frostWalletRegistry.isOperatorInPool(provider.address)).to.be
+      .false
+    expect(
+      await frostWalletRegistry.pendingAuthorizationDecrease(provider.address)
+    ).to.equal(to18(40_000))
+
+    // Detached governance updates land without trying to call back through the
+    // now-inactive authorization source. A later migration will reseed state.
+    await seatAllocator.beginEqualSeatWeightUpdate(to18(100_000))
+    await stakeVault.beginMinSelfBondUpdate(to18(1_000))
+    await helpers.time.increaseTime(2)
+    await seatAllocator.finalizeEqualSeatWeightUpdate([])
+    await stakeVault.finalizeMinSelfBondUpdate([])
+    expect(await seatAllocator.equalSeatWeight()).to.equal(to18(100_000))
+    expect(await stakeVault.minSelfBond()).to.equal(to18(1_000))
 
     const shares = await stakeVault.sharesOf(
       provider.address,
@@ -317,6 +348,16 @@ describe("Delegated staking production-contract integration", () => {
       .connect(delegator)
       .requestUndelegate(provider.address, shares)
     await helpers.time.increaseTime(45 * 86400 + 1)
+    await frostWalletRegistry.approveAuthorizationDecrease(provider.address)
+    expect(
+      await frostWalletRegistry.pendingAuthorizationDecrease(provider.address)
+    ).to.equal(0)
+    expect(
+      await frostAllowlist.authorizedWeight(
+        provider.address,
+        ethers.constants.AddressZero
+      )
+    ).to.equal(0)
     await slashingModule.matureSlash(0)
     await stakeVault.connect(delegator).finalizeUndelegate(0)
     expect(await tToken.balanceOf(delegator.address)).to.equal(to18(40_000))

@@ -382,18 +382,39 @@ describe("StakeVault", () => {
         expect(await vault.minSelfBond()).to.equal(to1e18(1000))
       })
 
+      it("should reject a zero minimum self-bond", async () => {
+        await expect(
+          vault.connect(deployer).beginMinSelfBondUpdate(0)
+        ).to.be.revertedWith("MinSelfBondTooLow")
+      })
+
+      it("should finalize without a roster push while the allocator is detached", async () => {
+        await seatAllocator.setAuthorizationAttached(false)
+        await seatAllocator.setRevertOnRosterSync(true)
+        await vault.connect(deployer).beginMinSelfBondUpdate(to1e18(2000))
+        await increaseTime(GOVERNANCE_DELAY)
+
+        await expect(vault.connect(deployer).finalizeMinSelfBondUpdate([]))
+          .to.emit(vault, "MinSelfBondUpdated")
+          .withArgs(to1e18(2000))
+        expect(await vault.minSelfBond()).to.equal(to1e18(2000))
+        await seatAllocator.setAuthorizationAttached(true)
+        await seatAllocator.setRevertOnRosterSync(false)
+      })
+
       it("should atomically synchronize the complete roster when raising the floor", async () => {
         const raisedFloor = to1e18(50_000)
         await vault.connect(deployer).beginMinSelfBondUpdate(raisedFloor)
         await increaseTime(GOVERNANCE_DELAY)
 
         await seatAllocator.setRevertOnRosterSync(true)
+        const previousFloor = await vault.minSelfBond()
         await expect(
           vault
             .connect(deployer)
             .finalizeMinSelfBondUpdate([operator.address, operator2.address])
         ).to.be.revertedWith("MockSeatAllocator: roster sync reverted")
-        expect(await vault.minSelfBond()).to.equal(to1e18(1000))
+        expect(await vault.minSelfBond()).to.equal(previousFloor)
 
         await seatAllocator.setRevertOnRosterSync(false)
         await vault
@@ -578,11 +599,11 @@ describe("StakeVault", () => {
   })
 
   describe("near-total slash precision", () => {
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
     })
 
-    after(async () => {
+    afterEach(async () => {
       await restoreSnapshot()
     })
 
@@ -647,6 +668,37 @@ describe("StakeVault", () => {
       expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
       expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
         to1e18(39500).add(residual)
+      )
+    })
+
+    it("counts split deposits against the same post-slash reset margin", async () => {
+      const amount = to1e18(40000)
+      const residual = ethers.BigNumber.from(40001)
+      const firstDeposit = to1e18(1).sub(1)
+
+      await vault.connect(delegator1).delegate(operator2.address, amount)
+      await reportSlash(operator2.address, amount.sub(residual))
+
+      // The first deposit sits one wei below the original per-call margin.
+      // It must consume that margin rather than enlarging it for the next call.
+      await vault.connect(delegator2).delegate(operator2.address, firstDeposit)
+      expect(
+        await vault.sharesOf(operator2.address, delegator1.address)
+      ).to.not.equal(0)
+
+      await vault.connect(delegator2).delegate(operator2.address, amount)
+
+      // The cumulative deposits cross the original margin, so the large second
+      // deposit starts a clean generation. An ordinary later slash must not wipe
+      // those replacement shares while retaining almost the entire deposit.
+      expect(
+        await vault.sharesOf(operator2.address, delegator1.address)
+      ).to.equal(0)
+      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
+      await reportSlash(operator2.address, to1e18(500))
+      expect(await vault.totalSharesOf(operator2.address)).to.equal(amount)
+      expect(await vault.delegatedAssetsOf(operator2.address)).to.equal(
+        to1e18(39500).add(firstDeposit).add(residual)
       )
     })
   })

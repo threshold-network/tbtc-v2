@@ -12,6 +12,12 @@ interface IFrostAuthorizationSource {
     ///         migration hooks and wallet-exposure invariants.
     function isStatefulAuthorizationSource() external pure returns (bool);
 
+    /// @notice Highest authorization weight this source can assign to an
+    ///         eligible provider. Registry governance must not set its minimum
+    ///         authorization above this ceiling or every provider becomes
+    ///         ineligible. Sources without a uniform ceiling return uint96 max.
+    function authorizationCeiling() external view returns (uint96);
+
     function authorizedWeight(address operatorProvider, address operator)
         external
         view

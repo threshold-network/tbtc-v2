@@ -94,6 +94,10 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         // redeemable only for rewards accrued before the wipe; they can never
         // capture a later deposit.
         uint64 generation;
+        // Remaining cumulative deposit margin established at the last slash
+        // (or first post-upgrade deposit). Deposits consume this fixed margin
+        // instead of recomputing a larger one from their own amplified shares.
+        uint256 generationResetDepositHeadroom;
     }
 
     struct UndelegationRequest {
@@ -114,6 +118,10 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     }
 
     uint256 internal constant REWARD_PRECISION = 1e18;
+
+    /// @notice Governance may choose the economic floor, but it may never
+    ///         remove the self-bond eligibility gate entirely.
+    uint96 public constant MIN_SELF_BOND = 1;
 
     /// @notice Governance bounds for the disclosed fixed exit cooldown.
     uint64 public constant MIN_UNDELEGATION_DELAY = 14 days;
@@ -271,6 +279,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     error NothingToClaim();
     error UndelegationDelayTooShort();
     error UndelegationDelayTooLong();
+    error MinSelfBondTooLow();
 
     modifier onlySlashingModule() {
         if (msg.sender != slashingModule) revert CallerNotSlashingModule();
@@ -393,6 +402,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     /// @notice Begins the minimum self-bond update process.
     /// @param _newMinSelfBond New minimum self-bond amount.
     function beginMinSelfBondUpdate(uint96 _newMinSelfBond) external onlyOwner {
+        _validateMinSelfBond(_newMinSelfBond);
         /* solhint-disable-next-line not-rely-on-time */
         uint256 timestamp = block.timestamp;
         newMinSelfBond = _newMinSelfBond;
@@ -400,14 +410,16 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         emit MinSelfBondUpdateStarted(_newMinSelfBond, timestamp);
     }
 
-    /// @notice Finalizes the minimum self-bond update process and atomically
-    ///         synchronizes every current sortition-pool provider against the
-    ///         new eligibility floor.
+    /// @notice Finalizes the minimum self-bond update process. While the seat
+    ///         allocator is active, atomically synchronizes every current
+    ///         sortition-pool provider against the new eligibility floor.
     /// @param stakingProviders Complete current sortition-pool roster. The
     ///        wallet registry validates completeness and uniqueness.
-    /// @dev Can be called only after the governance delay elapsed. Any
+    /// @dev Can be called only after the governance delay elapsed. Any active
     ///      authorization, reward-weight, roster, or pool-leaf sync failure
-    ///      reverts the global floor update too.
+    ///      reverts the global floor update too. While the allocator is detached
+    ///      after rollback, the parameter lands without a roster push; the next
+    ///      stateful migration validates and seeds the new floor.
     function finalizeMinSelfBondUpdate(address[] calldata stakingProviders)
         external
         onlyOwner
@@ -416,8 +428,11 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
             minSelfBondChangeInitiated,
             governanceDelay
         );
+        _validateMinSelfBond(newMinSelfBond);
         minSelfBond = newMinSelfBond;
-        seatAllocator.synchronizeAuthorizationRoster(stakingProviders);
+        if (seatAllocator.authorizationAttached()) {
+            seatAllocator.synchronizeAuthorizationRoster(stakingProviders);
+        }
         emit MinSelfBondUpdated(minSelfBond);
         minSelfBondChangeInitiated = 0;
         newMinSelfBond = 0;
@@ -752,6 +767,14 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         pool.totalShares -= request.shares;
         pool.pendingShares -= request.shares;
         pool.delegatedAssets -= uint96(assets);
+        if (pool.totalShares == 0) {
+            pool.generationResetDepositHeadroom = 0;
+        } else if (pool.generationResetDepositHeadroom != 0) {
+            // Asset outflows restore the same fixed post-slash margin consumed
+            // by inflows, so deposit/withdraw cycles cannot force a stale reset
+            // while net new backing remains below the boundary.
+            pool.generationResetDepositHeadroom += assets;
+        }
         poolShares[stakingProvider][msg.sender] -= request.shares;
         delegatorQueuedShares[stakingProvider][msg.sender] -= request.shares;
 
@@ -1140,6 +1163,10 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         }
     }
 
+    function _validateMinSelfBond(uint96 minSelfBond_) internal pure {
+        if (minSelfBond_ < MIN_SELF_BOND) revert MinSelfBondTooLow();
+    }
+
     /// @dev Settles the delegator's rewards accrued since the last
     ///      settlement into `claimableRewards`. Callers mutating shares must
     ///      call `_updateRewardDebt` after the mutation.
@@ -1191,6 +1218,7 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         ] = pool.rewardPerShareAccumulator;
         pool.totalShares = 0;
         pool.pendingShares = 0;
+        pool.generationResetDepositHeadroom = 0;
         pool.generation += 1;
         emit PoolWiped(stakingProvider, pool.generation);
     }
@@ -1202,7 +1230,6 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
     ///      round ordinary rewards to zero.
     function _requiresGenerationReset(Pool storage pool, uint96 incomingAssets)
         internal
-        view
         returns (bool)
     {
         if (pool.totalShares == 0) return false;
@@ -1210,14 +1237,21 @@ contract StakeVault is IStakeVault, Initializable, OwnableUpgradeable {
         uint256 scaledAssets = uint256(pool.delegatedAssets) * REWARD_PRECISION;
         if (scaledAssets <= pool.totalShares) return true;
 
-        // A deposit preserves the existing share price, so a pool sitting just
-        // above the reset boundary can otherwise mint an enormous share supply
-        // and let a later ordinary slash reset that amplified supply while
-        // material assets remain. Reset before minting when the incoming
-        // deposit would consume the remaining precision headroom. Since the
-        // margin is denominated in shares, even the maximum uint96 deposit can
-        // only abandon sub-token dust from the old generation.
-        return incomingAssets >= scaledAssets - pool.totalShares;
+        // A deposit preserves the existing share price but amplifies both the
+        // share supply and a freshly recomputed absolute margin. Pin the margin
+        // at the slash boundary and consume it cumulatively, otherwise an
+        // attacker can split one unsafe deposit into calls that each enlarge
+        // the margin for the next call. A zero incoming amount is the slash path
+        // and always re-anchors the margin after the haircut. A zero stored value
+        // also initializes pre-upgrade/new pools on their first relevant call.
+        uint256 headroom = pool.generationResetDepositHeadroom;
+        if (incomingAssets == 0 || headroom == 0) {
+            headroom = scaledAssets - pool.totalShares;
+        }
+        if (incomingAssets >= headroom) return true;
+
+        pool.generationResetDepositHeadroom = headroom - incomingAssets;
+        return false;
     }
 
     /// @dev Syncs the provider's authorization weight to the registry via

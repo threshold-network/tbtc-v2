@@ -226,7 +226,7 @@ contract SeatAllocator is
     /// @notice False after an authorization rollback detaches this allocator
     ///         from the FROST registry. Detached lifecycle refreshes never call
     ///         registry authorization callbacks.
-    bool public authorizationAttached;
+    bool public override authorizationAttached;
 
     /// @notice Whether a queued report observed economic slashing enabled when
     ///         it was first submitted. Such a report cannot be cleared by a
@@ -440,6 +440,12 @@ contract SeatAllocator is
         return true;
     }
 
+    /// @notice The allocator assigns exactly this uniform weight to every
+    ///         eligible provider, so it is also the source-wide ceiling.
+    function authorizationCeiling() external view override returns (uint96) {
+        return equalSeatWeight;
+    }
+
     /// @notice Begins the equal seat weight update process.
     /// @param _newEqualSeatWeight New uniform seat weight assigned to every
     ///        eligible active operator.
@@ -471,7 +477,9 @@ contract SeatAllocator is
         /* solhint-enable not-rely-on-time */
     }
 
-    /// @notice Finalizes the equal seat weight update process.
+    /// @notice Finalizes the equal seat weight update process. While this
+    ///         allocator is detached after rollback, records the new value
+    ///         without calling the registry; the next migration reseeds it.
     /// @param stakingProviders Complete current sortition-pool roster, in any
     ///        order. The registry validates completeness and uniqueness.
     /// @dev Can be called only after the governance delay elapsed. Re-checks
@@ -481,7 +489,9 @@ contract SeatAllocator is
     ///      pending target that cleared the floor at begin time but now sits
     ///      below it is rejected (`EqualSeatWeightBelowRegistryMinimum`) so a
     ///      finalize can never push every eligible operator under the
-    ///      registry floor and brick wallet formation.
+    ///      registry floor and brick wallet formation. If attached, the complete
+    ///      roster is rewritten atomically; if detached, synchronization is
+    ///      deferred until {prepareAuthorizationMigration}.
     function finalizeEqualSeatWeightUpdate(address[] calldata stakingProviders)
         external
         onlyOwner
@@ -492,27 +502,28 @@ contract SeatAllocator is
         }
         equalSeatWeight = newEqualSeatWeight;
 
-        // Invalidate snapshots for providers that cached authorization before
-        // joining the pool and are therefore absent from the complete current
-        // roster below.
-        authorizationGeneration += 1;
+        if (authorizationAttached) {
+            // Invalidate snapshots for providers that cached authorization
+            // before joining the pool and are therefore absent from the
+            // complete current roster below.
+            authorizationGeneration += 1;
 
-        // Synchronize the allocator snapshot first, then have the registry
-        // rewrite every current pool leaf in the same transaction. Any roster,
-        // pending-decrease, or DKG-state failure reverts the global value too.
-        for (uint256 i = 0; i < stakingProviders.length; i++) {
-            _cacheAuthorizationWeight(
-                stakingProviders[i],
-                currentWeight(stakingProviders[i])
+            // Synchronize the allocator snapshot first, then have the registry
+            // rewrite every current pool leaf in the same transaction.
+            for (uint256 i = 0; i < stakingProviders.length; i++) {
+                _cacheAuthorizationWeight(
+                    stakingProviders[i],
+                    currentWeight(stakingProviders[i])
+                );
+            }
+            frostWalletRegistry.migrateAuthorizationSource(
+                IFrostAuthorizationSource(address(this)),
+                true,
+                address(0),
+                stakingProviders,
+                ""
             );
         }
-        frostWalletRegistry.migrateAuthorizationSource(
-            IFrostAuthorizationSource(address(this)),
-            true,
-            address(0),
-            stakingProviders,
-            ""
-        );
 
         emit EqualSeatWeightUpdated(newEqualSeatWeight);
         equalSeatWeightChangeInitiated = 0;
@@ -878,6 +889,9 @@ contract SeatAllocator is
         external
         onlyWalletRegistry
     {
+        if (equalSeatWeight < frostWalletRegistry.minimumAuthorization()) {
+            revert EqualSeatWeightBelowRegistryMinimum();
+        }
         if (address(rewardsDistributor) == address(0)) revert ZeroAddress();
         if (
             frostWalletRegistry.walletExposureLedger() !=
