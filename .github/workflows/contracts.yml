@@ -196,7 +196,9 @@ jobs:
         env:
           CHAIN_API_URL: ${{ secrets.SEPOLIA_ETH_HOSTNAME_HTTP }}
           ACCOUNTS_PRIVATE_KEYS: ${{ secrets.TESTNET_ETH_CONTRACT_OWNER_PRIVATE_KEY }}
-        run: yarn deploy --network ${{ github.event.inputs.environment }}
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: yarn deploy --network "$ENVIRONMENT"
 
       - name: Bump up package version
         id: npm-version-bump
@@ -210,7 +212,9 @@ jobs:
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access=public --tag ${{ github.event.inputs.environment }} --network=${{ github.event.inputs.environment }}
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: npm publish --access=public --tag "$ENVIRONMENT" --network="$ENVIRONMENT"
 
       - name: Notify CI about completion of the workflow
         uses: keep-network/ci/actions/notify-workflow-completed@v2
@@ -281,7 +285,9 @@ jobs:
         env:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           CHAIN_API_URL: ${{ secrets.SEPOLIA_ETH_HOSTNAME_HTTP }}
-        run: yarn run hardhat --network ${{ github.event.inputs.environment }} etherscan-verify
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: yarn run hardhat --network "$ENVIRONMENT" etherscan-verify
 
   # This job is responsible for publishing packackes with slightly modified
   # contracts. The modifications are there to help with the process of testing
@@ -343,7 +349,9 @@ jobs:
         env:
           CHAIN_API_URL: ${{ secrets.SEPOLIA_ETH_HOSTNAME_HTTP }}
           ACCOUNTS_PRIVATE_KEYS: ${{ secrets.DAPP_DEV_TESTNET_ETH_CONTRACT_OWNER_PRIVATE_KEY }}
-        run: yarn deploy --network ${{ github.event.inputs.environment }}
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: yarn deploy --network "$ENVIRONMENT"
 
       - name: Bump up package version
         id: npm-version-bump
@@ -357,7 +365,9 @@ jobs:
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access=public --tag dapp-development-${{ github.event.inputs.environment }} --network=${{ github.event.inputs.environment }}
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: npm publish --access=public --tag "dapp-development-${ENVIRONMENT}" --network="$ENVIRONMENT"
 
   contracts-format:
     needs: contracts-detect-changes
