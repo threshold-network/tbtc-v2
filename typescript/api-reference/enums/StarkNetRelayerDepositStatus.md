@@ -1,4 +1,4 @@
-# Enumeration: RelayerDepositStatus
+# Enumeration: StarkNetRelayerDepositStatus
 
 Status of a deposit as reported by the relayer's deposit-status endpoint.
 
@@ -16,9 +16,9 @@ fail-closed validation in [StarkNetBitcoinDepositor.handleDepositConflict](../cl
 
 ### Enumeration Members
 
-- [FINALIZED](RelayerDepositStatus.md#finalized)
-- [INITIALIZED](RelayerDepositStatus.md#initialized)
-- [QUEUED](RelayerDepositStatus.md#queued)
+- [FINALIZED](StarkNetRelayerDepositStatus.md#finalized)
+- [INITIALIZED](StarkNetRelayerDepositStatus.md#initialized)
+- [QUEUED](StarkNetRelayerDepositStatus.md#queued)
 
 ## Enumeration Members
 

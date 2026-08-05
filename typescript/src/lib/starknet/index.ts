@@ -38,17 +38,25 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
  * @param walletAddress The StarkNet wallet address to use as deposit owner
  * @param provider Optional StarkNet provider for blockchain interactions
  * @param chainId Optional chain ID (defaults to Sepolia)
+ * @param relayerStatusUrl Optional override for the relayer's deposit-status
+ *        endpoint, used to verify 409 conflicts. Falls back to
+ *        `STARKNET_RELAYER_STATUS_URL` when not supplied. Without either,
+ *        conflict-status verification is enabled only when `relayerUrl` is
+ *        also left unset (see `StarkNetBitcoinDepositor`'s constructor).
  * @returns Handle to the contracts
  */
 export async function loadStarkNetCrossChainInterfaces(
   walletAddress: string,
   provider?: StarkNetProvider,
-  chainId: string = Chains.StarkNet.Sepolia
+  chainId: string = Chains.StarkNet.Sepolia,
+  relayerStatusUrl?: string
 ): Promise<DestinationChainInterfaces> {
   // Build depositor configuration with environment variable support
   const depositorConfig: StarkNetBitcoinDepositorConfig = {
     chainId,
     relayerUrl: process.env.STARKNET_RELAYER_URL, // Optional override
+    relayerStatusUrl:
+      relayerStatusUrl || process.env.STARKNET_RELAYER_STATUS_URL, // Optional override
     defaultVault: process.env.STARKNET_TBTC_VAULT, // Optional override
   }
 

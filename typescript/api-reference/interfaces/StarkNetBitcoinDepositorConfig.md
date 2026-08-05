@@ -29,7 +29,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L140)
+[src/lib/starknet/starknet-depositor.ts:147](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L147)
 
 ___
 
@@ -37,9 +37,15 @@ ___
 
 • `Optional` **relayerStatusUrl**: `string`
 
+Base path for the relayer's deposit-status endpoint. Must be a path
+prefix (e.g. "https://relayer.example/api/Chain/deposit") - the SDK
+appends "/<depositId>" to it. Trailing slashes are stripped
+automatically; do not supply a templated URL containing "{depositId}"
+or similar placeholders.
+
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L139)
+[src/lib/starknet/starknet-depositor.ts:146](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L146)
 
 ___
 

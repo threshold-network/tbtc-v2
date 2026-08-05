@@ -1,4 +1,4 @@
-# Class: RelayerDepositConflictError
+# Class: StarkNetRelayerDepositConflictError
 
 Thrown when the relayer reports that a deposit reveal already exists
 (HTTP 409) instead of confirming a new, successful initialization.
@@ -12,34 +12,34 @@ the relayer so the caller can poll the relayer or otherwise recover.
 
 - `Error`
 
-  ↳ **`RelayerDepositConflictError`**
+  ↳ **`StarkNetRelayerDepositConflictError`**
 
 ## Table of contents
 
 ### Constructors
 
-- [constructor](RelayerDepositConflictError.md#constructor)
+- [constructor](StarkNetRelayerDepositConflictError.md#constructor)
 
 ### Properties
 
-- [depositId](RelayerDepositConflictError.md#depositid)
-- [message](RelayerDepositConflictError.md#message)
-- [name](RelayerDepositConflictError.md#name)
-- [stack](RelayerDepositConflictError.md#stack)
-- [status](RelayerDepositConflictError.md#status)
-- [statusVerified](RelayerDepositConflictError.md#statusverified)
-- [stackTraceLimit](RelayerDepositConflictError.md#stacktracelimit)
+- [depositId](StarkNetRelayerDepositConflictError.md#depositid)
+- [message](StarkNetRelayerDepositConflictError.md#message)
+- [name](StarkNetRelayerDepositConflictError.md#name)
+- [stack](StarkNetRelayerDepositConflictError.md#stack)
+- [status](StarkNetRelayerDepositConflictError.md#status)
+- [statusVerified](StarkNetRelayerDepositConflictError.md#statusverified)
+- [stackTraceLimit](StarkNetRelayerDepositConflictError.md#stacktracelimit)
 
 ### Methods
 
-- [captureStackTrace](RelayerDepositConflictError.md#capturestacktrace)
-- [prepareStackTrace](RelayerDepositConflictError.md#preparestacktrace)
+- [captureStackTrace](StarkNetRelayerDepositConflictError.md#capturestacktrace)
+- [prepareStackTrace](StarkNetRelayerDepositConflictError.md#preparestacktrace)
 
 ## Constructors
 
 ### constructor
 
-• **new RelayerDepositConflictError**(`message`, `depositId`, `status`, `statusVerified`): [`RelayerDepositConflictError`](RelayerDepositConflictError.md)
+• **new StarkNetRelayerDepositConflictError**(`message`, `depositId`, `status`, `statusVerified`): [`StarkNetRelayerDepositConflictError`](StarkNetRelayerDepositConflictError.md)
 
 #### Parameters
 
@@ -47,12 +47,12 @@ the relayer so the caller can poll the relayer or otherwise recover.
 | :------ | :------ |
 | `message` | `string` |
 | `depositId` | `undefined` \| `string` |
-| `status` | `undefined` \| [`RelayerDepositStatus`](../enums/RelayerDepositStatus.md) |
+| `status` | `undefined` \| [`StarkNetRelayerDepositStatus`](../enums/StarkNetRelayerDepositStatus.md) |
 | `statusVerified` | `boolean` |
 
 #### Returns
 
-[`RelayerDepositConflictError`](RelayerDepositConflictError.md)
+[`StarkNetRelayerDepositConflictError`](StarkNetRelayerDepositConflictError.md)
 
 #### Overrides
 
@@ -118,7 +118,7 @@ ___
 
 ### status
 
-• `Readonly` **status**: `undefined` \| [`RelayerDepositStatus`](../enums/RelayerDepositStatus.md)
+• `Readonly` **status**: `undefined` \| [`StarkNetRelayerDepositStatus`](../enums/StarkNetRelayerDepositStatus.md)
 
 #### Defined in
 

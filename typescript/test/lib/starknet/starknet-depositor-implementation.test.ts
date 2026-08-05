@@ -4,8 +4,8 @@ import {
   StarkNetDepositor,
   StarkNetDepositorConfig,
   StarkNetBitcoinDepositor,
-  RelayerDepositConflictError,
-  RelayerDepositStatus,
+  StarkNetRelayerDepositConflictError,
+  StarkNetRelayerDepositStatus,
 } from "../../../src/lib/starknet/starknet-depositor"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 import {
@@ -283,25 +283,28 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
     async function expectConflictError(
       act: Promise<Hex | TransactionReceipt>
-    ): Promise<RelayerDepositConflictError> {
+    ): Promise<StarkNetRelayerDepositConflictError> {
       try {
         await act
-        expect.fail("Should have thrown RelayerDepositConflictError")
       } catch (err) {
-        expect(err).to.be.instanceOf(RelayerDepositConflictError)
-        return err as RelayerDepositConflictError
+        expect(err).to.be.instanceOf(StarkNetRelayerDepositConflictError)
+        return err as StarkNetRelayerDepositConflictError
       }
-      // Unreachable: expect.fail always throws. Satisfies the return type.
+      // Only reached if `act` resolved instead of throwing - the exact
+      // regression this helper exists to catch. Failing outside the
+      // try/catch above keeps the diagnostic accurate instead of being
+      // re-caught and reported as an unrelated instanceOf mismatch.
+      expect.fail("Should have thrown StarkNetRelayerDepositConflictError")
       throw new Error("unreachable")
     }
 
-    it("should reject a direct 409 with a verified QUEUED status as unverified and recoverable", async () => {
+    it("should surface a verified QUEUED status as a recoverable conflict that never resolves to success", async () => {
       axios.post = sinon.stub().rejects(build409Error("123456789"))
       axios.get = sinon.stub().resolves({
         data: {
           success: true,
           depositId: "123456789",
-          status: RelayerDepositStatus.QUEUED,
+          status: StarkNetRelayerDepositStatus.QUEUED,
         },
       })
 
@@ -310,7 +313,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       expect(conflict.depositId).to.equal("123456789")
-      expect(conflict.status).to.equal(RelayerDepositStatus.QUEUED)
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.QUEUED)
       expect(conflict.statusVerified).to.be.true
       expect((axios.post as sinon.SinonStub).callCount).to.equal(1)
       expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
@@ -322,18 +325,18 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
     })
 
-    it("should propagate RelayerDepositConflictError through CrossChainDepositor.revealDeposit", async () => {
+    it("should propagate StarkNetRelayerDepositConflictError through CrossChainDepositor.revealDeposit", async () => {
       // The typed conflict must survive the SDK-facing consumer boundary: an
       // L2Transaction CrossChainDepositor delegates straight to this
       // StarkNetBitcoinDepositor, so a 409 must reject with the same
-      // RelayerDepositConflictError (metadata intact) rather than being caught,
+      // StarkNetRelayerDepositConflictError (metadata intact) rather than being caught,
       // wrapped, swallowed, or converted into a fabricated Hex success.
       axios.post = sinon.stub().rejects(build409Error("123456789"))
       axios.get = sinon.stub().resolves({
         data: {
           success: true,
           depositId: "123456789",
-          status: RelayerDepositStatus.INITIALIZED,
+          status: StarkNetRelayerDepositStatus.INITIALIZED,
         },
       })
 
@@ -349,20 +352,20 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       let caught: unknown
       try {
         await crossChainDepositor.revealDeposit(mockDepositTx, 0, mockReceipt)
-        expect.fail("Should have thrown RelayerDepositConflictError")
+        expect.fail("Should have thrown StarkNetRelayerDepositConflictError")
       } catch (err) {
         caught = err
       }
 
-      expect(caught).to.be.instanceOf(RelayerDepositConflictError)
-      const conflict = caught as RelayerDepositConflictError
-      expect(conflict.name).to.equal("RelayerDepositConflictError")
+      expect(caught).to.be.instanceOf(StarkNetRelayerDepositConflictError)
+      const conflict = caught as StarkNetRelayerDepositConflictError
+      expect(conflict.name).to.equal("StarkNetRelayerDepositConflictError")
       expect(conflict.depositId).to.equal("123456789")
-      expect(conflict.status).to.equal(RelayerDepositStatus.INITIALIZED)
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
       expect(conflict.statusVerified).to.be.true
     })
 
-    it("should reject a 500-then-409 sequence with verified QUEUED status as unverified and recoverable", async () => {
+    it("should surface a verified QUEUED status as a recoverable conflict after a 500-then-409 retry sequence, never resolving to success", async () => {
       const setTimeoutStub = sinon
         .stub(global, "setTimeout")
         .callsFake((fn: any) => {
@@ -370,37 +373,42 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
           return {} as any
         })
 
-      let callCount = 0
-      axios.post = sinon.stub().callsFake(() => {
-        callCount++
-        if (callCount === 1) {
-          const error: any = new Error("Internal Server Error")
-          error.isAxiosError = true
-          error.response = { status: 500, data: { error: "boom" } }
-          return Promise.reject(error)
-        }
-        return Promise.reject(build409Error("42"))
-      })
-      axios.get = sinon.stub().resolves({
-        data: {
-          success: true,
-          depositId: "42",
-          status: RelayerDepositStatus.QUEUED,
-        },
-      })
+      try {
+        let callCount = 0
+        axios.post = sinon.stub().callsFake(() => {
+          callCount++
+          if (callCount === 1) {
+            const error: any = new Error("Internal Server Error")
+            error.isAxiosError = true
+            error.response = { status: 500, data: { error: "boom" } }
+            return Promise.reject(error)
+          }
+          return Promise.reject(build409Error("42"))
+        })
+        axios.get = sinon.stub().resolves({
+          data: {
+            success: true,
+            depositId: "42",
+            status: StarkNetRelayerDepositStatus.QUEUED,
+          },
+        })
 
-      const conflict = await expectConflictError(
-        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
-      )
+        const conflict = await expectConflictError(
+          depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+        )
 
-      expect(conflict.depositId).to.equal("42")
-      expect(conflict.status).to.equal(RelayerDepositStatus.QUEUED)
-      expect(conflict.statusVerified).to.be.true
-      // One 500 attempt, one 409 attempt - the conflict short-circuits
-      // further retries.
-      expect(callCount).to.equal(2)
-
-      setTimeoutStub.restore()
+        expect(conflict.depositId).to.equal("42")
+        expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.QUEUED)
+        expect(conflict.statusVerified).to.be.true
+        // One 500 attempt, one 409 attempt - the conflict short-circuits
+        // further retries.
+        expect(callCount).to.equal(2)
+      } finally {
+        // Always restore the faked global timer, even if an assertion above
+        // throws - an unrestored stub would fire synchronously for every
+        // subsequent test in the run, including Mocha's own timeout machinery.
+        setTimeoutStub.restore()
+      }
     })
 
     it("should treat a malformed (non-string) deposit ID as unverifiable without crashing", async () => {
@@ -468,7 +476,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
           data: {
             success: successValue,
             depositId: "654",
-            status: RelayerDepositStatus.FINALIZED,
+            status: StarkNetRelayerDepositStatus.FINALIZED,
           },
         })
 
@@ -488,10 +496,12 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
     it("should treat an unrecognized numeric status as unverifiable", async () => {
       // The status enum models only the three on-chain states the endpoint can
-      // report (QUEUED=0, INITIALIZED=1, FINALIZED=2). The relayer's internal
-      // lifecycle values AWAITING_WORMHOLE_VAA=3 and BRIDGED=4 are never
-      // surfaced by the Starknet status endpoint and must be rejected, as must
-      // any other out-of-range value such as 99.
+      // report (QUEUED=0, INITIALIZED=1, FINALIZED=2). The relayer also has
+      // an internal cross-chain lifecycle enum with additional values (this
+      // repo has not independently confirmed their exact numbers); whatever
+      // those values are, they are never surfaced by the Starknet status
+      // endpoint and must be rejected here, as must any other out-of-range
+      // value such as 99.
       const unrecognizedStatuses = [3, 4, 99]
 
       for (const status of unrecognizedStatuses) {
@@ -516,13 +526,13 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       }
     })
 
-    it("should reject a verified INITIALIZED status without receipt data as an unverified conflict", async () => {
+    it("should surface a verified INITIALIZED status as a conflict rather than a fabricated success, even without receipt data", async () => {
       axios.post = sinon.stub().rejects(build409Error("77"))
       axios.get = sinon.stub().resolves({
         data: {
           success: true,
           depositId: "77",
-          status: RelayerDepositStatus.INITIALIZED,
+          status: StarkNetRelayerDepositStatus.INITIALIZED,
         },
       })
 
@@ -530,17 +540,17 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
       )
 
-      expect(conflict.status).to.equal(RelayerDepositStatus.INITIALIZED)
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
       expect(conflict.statusVerified).to.be.true
     })
 
-    it("should reject a verified FINALIZED status without receipt data as an unverified conflict", async () => {
+    it("should surface a verified FINALIZED status as a conflict rather than a fabricated success, even without receipt data", async () => {
       axios.post = sinon.stub().rejects(build409Error("88"))
       axios.get = sinon.stub().resolves({
         data: {
           success: true,
           depositId: "88",
-          status: RelayerDepositStatus.FINALIZED,
+          status: StarkNetRelayerDepositStatus.FINALIZED,
         },
       })
 
@@ -548,7 +558,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
       )
 
-      expect(conflict.status).to.equal(RelayerDepositStatus.FINALIZED)
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.FINALIZED)
       expect(conflict.statusVerified).to.be.true
     })
 
@@ -562,7 +572,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         data: {
           success: true,
           depositId: "55",
-          status: RelayerDepositStatus.INITIALIZED,
+          status: StarkNetRelayerDepositStatus.INITIALIZED,
           receipt: { transactionHash: "0xverified123" },
         },
       })
@@ -572,7 +582,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       expect(conflict.depositId).to.equal("55")
-      expect(conflict.status).to.equal(RelayerDepositStatus.INITIALIZED)
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
       expect(conflict.statusVerified).to.be.true
     })
 
@@ -641,7 +651,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         data: {
           success: true,
           depositId: maxUint256,
-          status: RelayerDepositStatus.FINALIZED,
+          status: StarkNetRelayerDepositStatus.FINALIZED,
         },
       })
 
@@ -650,7 +660,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       expect(conflict.depositId).to.equal(maxUint256)
-      expect(conflict.status).to.equal(RelayerDepositStatus.FINALIZED)
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.FINALIZED)
       expect(conflict.statusVerified).to.be.true
       expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
       expect((axios.get as sinon.SinonStub).getCall(0).args[0]).to.equal(
@@ -664,7 +674,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         data: {
           success: true,
           depositId: "999999",
-          status: RelayerDepositStatus.FINALIZED,
+          status: StarkNetRelayerDepositStatus.FINALIZED,
         },
       })
 
@@ -802,6 +812,54 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect((axios.get as sinon.SinonStub).called).to.be.false
     })
 
+    it("should preserve an explicitly supplied relayerStatusUrl for a recognized chain ID with no relayerUrl override", async () => {
+      // Regression guard for the "recognized chainId + explicit
+      // relayerStatusUrl + no relayerUrl" defaulting combo: the reveal URL
+      // must still default normally (recognized chain), while the
+      // caller-supplied status URL must be preserved rather than
+      // overwritten by the default - the constructor's
+      // "!enhancedConfig.relayerStatusUrl" guard is what makes this so.
+      const customStatusOnlyDepositor = new StarkNetDepositor(
+        {
+          chainId: "0x534e5f4d41494e",
+          relayerStatusUrl: "http://custom-status.example/api/deposit",
+        },
+        "StarkNet",
+        createMockProvider()
+      )
+      customStatusOnlyDepositor.setDepositOwner(
+        StarkNetAddress.from("0x123456")
+      )
+
+      axios.post = sinon.stub().rejects(build409Error("123456789"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "123456789",
+          status: StarkNetRelayerDepositStatus.QUEUED,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        customStatusOnlyDepositor.initializeDeposit(
+          mockDepositTx,
+          0,
+          mockReceipt
+        )
+      )
+
+      expect(conflict.statusVerified).to.be.true
+      // Reveal URL still defaults from the recognized chain ID.
+      expect((axios.post as sinon.SinonStub).getCall(0).args[0]).to.equal(
+        "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/StarknetMainnet/reveal"
+      )
+      // Status GET goes to the caller's custom relayerStatusUrl, never the
+      // default.
+      expect((axios.get as sinon.SinonStub).getCall(0).args[0]).to.equal(
+        "http://custom-status.example/api/deposit/123456789"
+      )
+    })
+
     it("should query the default chain-matched status endpoint when no URLs are configured", async () => {
       // With neither URL supplied, the SDK controls both endpoints, so status
       // verification uses the environment- and chain-matched default status
@@ -818,7 +876,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         data: {
           success: true,
           depositId: "123456789",
-          status: RelayerDepositStatus.QUEUED,
+          status: StarkNetRelayerDepositStatus.QUEUED,
         },
       })
 
@@ -860,7 +918,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
           data: {
             success: true,
             depositId: "123456789",
-            status: RelayerDepositStatus.QUEUED,
+            status: StarkNetRelayerDepositStatus.QUEUED,
           },
         })
 
@@ -1202,6 +1260,63 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       })
 
       expect(url).to.equal("http://custom.local/api")
+    })
+
+    it("should use the local status URL for a localhost origin when a 409 is verified", async () => {
+      // Sibling of the reveal-URL local-origin tests above: the default
+      // STATUS url (getDefaultStarkNetRelayerStatusUrl) must independently
+      // respect isLocalhostBrowserOrigin() too, not just the reveal URL.
+      // Neither relayerUrl nor relayerStatusUrl is overridden, so both
+      // default from the same local origin.
+      ;(global as any).window = { location: { hostname: "localhost" } }
+
+      const mockProvider = createMockProvider()
+      const depositor = new StarkNetDepositor(
+        { chainId: "0x534e5f4d41494e" },
+        "StarkNet",
+        mockProvider
+      )
+      depositor.setDepositOwner(StarkNetAddress.from("0x123"))
+
+      const mockDepositTx = createMockDepositTx()
+      const mockReceipt = createMockDeposit()
+
+      const conflictError: any = new Error(
+        "Request failed with status code 409"
+      )
+      conflictError.isAxiosError = true
+      conflictError.response = {
+        status: 409,
+        data: {
+          success: false,
+          error: "Deposit already exists",
+          depositId: "123456789",
+        },
+      }
+      axios.post = sinon.stub().rejects(conflictError)
+
+      let capturedStatusUrl = ""
+      axios.get = sinon.stub().callsFake((url: string) => {
+        capturedStatusUrl = url
+        return Promise.resolve({
+          data: {
+            success: true,
+            depositId: "123456789",
+            status: StarkNetRelayerDepositStatus.QUEUED,
+          },
+        })
+      })
+
+      try {
+        await depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+        expect.fail("Should have thrown StarkNetRelayerDepositConflictError")
+      } catch (err) {
+        expect(err).to.be.instanceOf(StarkNetRelayerDepositConflictError)
+      }
+
+      expect(capturedStatusUrl).to.equal(
+        "http://localhost:3001/api/StarknetMainnet/deposit/123456789"
+      )
     })
   })
 })

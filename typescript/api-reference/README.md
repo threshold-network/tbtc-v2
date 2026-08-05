@@ -14,7 +14,7 @@
 - [ApiUrl](enums/ApiUrl.md)
 - [BitcoinNetwork](enums/BitcoinNetwork-1.md)
 - [DepositState](enums/DepositState.md)
-- [RelayerDepositStatus](enums/RelayerDepositStatus.md)
+- [StarkNetRelayerDepositStatus](enums/StarkNetRelayerDepositStatus.md)
 - [WalletState](enums/WalletState-1.md)
 - [endpointUrl](enums/endpointUrl.md)
 
@@ -47,13 +47,13 @@
 - [MaintenanceService](classes/MaintenanceService.md)
 - [OptimisticMinting](classes/OptimisticMinting.md)
 - [RedemptionsService](classes/RedemptionsService.md)
-- [RelayerDepositConflictError](classes/RelayerDepositConflictError.md)
 - [SolanaAddress](classes/SolanaAddress.md)
 - [SolanaExtraDataEncoder](classes/SolanaExtraDataEncoder.md)
 - [Spv](classes/Spv.md)
 - [StarkNetAddress](classes/StarkNetAddress.md)
 - [StarkNetBitcoinDepositor](classes/StarkNetBitcoinDepositor.md)
 - [StarkNetExtraDataEncoder](classes/StarkNetExtraDataEncoder.md)
+- [StarkNetRelayerDepositConflictError](classes/StarkNetRelayerDepositConflictError.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
 - [TBTCCore](classes/TBTCCore.md)
@@ -665,7 +665,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:146](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L146)
+[src/lib/starknet/starknet-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L153)
 
 ___
 
@@ -1017,7 +1017,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:973](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L973)
+[src/lib/starknet/starknet-depositor.ts:1031](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1031)
 
 ___
 
@@ -1618,7 +1618,7 @@ ___
 
 ### loadStarkNetCrossChainContracts
 
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 #### Parameters
 
@@ -1627,6 +1627,7 @@ ___
 | `walletAddress` | `string` | `undefined` |
 | `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` |
+| `relayerStatusUrl?` | `string` | `undefined` |
 
 #### Returns
 
@@ -1638,13 +1639,13 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/starknet/index.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L109)
+[src/lib/starknet/index.ts:117](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L117)
 
 ___
 
 ### loadStarkNetCrossChainInterfaces
 
-▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
 Now supports balance queries with deployed tBTC contracts and enhanced configuration.
@@ -1656,6 +1657,7 @@ Now supports balance queries with deployed tBTC contracts and enhanced configura
 | `walletAddress` | `string` | `undefined` | The StarkNet wallet address to use as deposit owner |
 | `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for blockchain interactions |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` | Optional chain ID (defaults to Sepolia) |
+| `relayerStatusUrl?` | `string` | `undefined` | Optional override for the relayer's deposit-status endpoint, used to verify 409 conflicts. Falls back to `STARKNET_RELAYER_STATUS_URL` when not supplied. Without either, conflict-status verification is enabled only when `relayerUrl` is also left unset (see `StarkNetBitcoinDepositor`'s constructor). |
 
 #### Returns
 
@@ -1665,7 +1667,7 @@ Handle to the contracts
 
 #### Defined in
 
-[src/lib/starknet/index.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L43)
+[src/lib/starknet/index.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L48)
 
 ___
 
