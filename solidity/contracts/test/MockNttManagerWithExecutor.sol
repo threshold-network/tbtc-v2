@@ -46,10 +46,10 @@ contract MockNttManagerWithExecutor {
     constructor() {
         // Set up supported chains for testing
         supportedChains[2] = true; // Ethereum
-        supportedChains[32] = true; // Sei
+        supportedChains[32] = true; // Sample destination
         supportedChains[30] = true; // Base
         supportedChains[23] = true; // Arbitrum
-        supportedChains[40] = true; // Sei EVM (alternative)
+        supportedChains[40] = true; // Sample EVM destination
     }
 
     /// @notice Mock implementation of transfer matching real NttManagerWithExecutor
@@ -110,8 +110,8 @@ contract MockNttManagerWithExecutor {
 
         // Add chain-specific costs
         if (recipientChain == 32 || recipientChain == 40) {
-            // Sei chains
-            baseCost += 2000000000000000; // +0.002 ETH for Sei
+            // Sample destination chains
+            baseCost += 2000000000000000; // +0.002 ETH
         }
 
         // Add executor value
