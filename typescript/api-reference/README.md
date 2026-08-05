@@ -14,7 +14,6 @@
 - [ApiUrl](enums/ApiUrl.md)
 - [BitcoinNetwork](enums/BitcoinNetwork-1.md)
 - [DepositState](enums/DepositState.md)
-- [StarkNetRelayerDepositStatus](enums/StarkNetRelayerDepositStatus.md)
 - [WalletState](enums/WalletState-1.md)
 - [endpointUrl](enums/endpointUrl.md)
 
@@ -53,7 +52,6 @@
 - [StarkNetAddress](classes/StarkNetAddress.md)
 - [StarkNetBitcoinDepositor](classes/StarkNetBitcoinDepositor.md)
 - [StarkNetExtraDataEncoder](classes/StarkNetExtraDataEncoder.md)
-- [StarkNetRelayerDepositConflictError](classes/StarkNetRelayerDepositConflictError.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
 - [TBTCCore](classes/TBTCCore.md)
@@ -197,7 +195,7 @@ Data about a Bitcoin transaction input.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L63)
+[lib/bitcoin/tx.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L63)
 
 ___
 
@@ -209,7 +207,7 @@ Data about a Bitcoin unspent transaction output.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L93)
+[lib/bitcoin/tx.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L93)
 
 ___
 
@@ -232,7 +230,7 @@ Type representing a mapping between specific L1 and L2 chains.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
+[lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
 
 ___
 
@@ -246,7 +244,7 @@ Use CrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L252)
+[lib/contracts/cross-chain.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L252)
 
 ___
 
@@ -263,7 +261,7 @@ Mode of operation for the cross-chain depositor proxy:
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L21)
+[services/deposits/cross-chain.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L21)
 
 ___
 
@@ -277,7 +275,7 @@ Use ExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L272)
+[lib/contracts/cross-chain.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L272)
 
 ___
 
@@ -290,7 +288,7 @@ between TBTC L1 ledger chain and a specific supported destination chain.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L13)
+[lib/contracts/cross-chain.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L13)
 
 ___
 
@@ -302,7 +300,7 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:307](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L307)
+[lib/contracts/bridge.ts:307](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L307)
 
 ___
 
@@ -322,7 +320,7 @@ Aggregates destination chain-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L19)
+[lib/contracts/cross-chain.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L19)
 
 ___
 
@@ -335,7 +333,7 @@ These are chains other than the main Ethereum L1 chain.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
+[lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
 
 ___
 
@@ -348,7 +346,7 @@ wallet registry.
 
 #### Defined in
 
-[src/lib/contracts/wallet-registry.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L64)
+[lib/contracts/wallet-registry.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L73)
 
 ___
 
@@ -361,7 +359,7 @@ wallet registry.
 
 #### Defined in
 
-[src/lib/contracts/wallet-registry.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L79)
+[lib/contracts/wallet-registry.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L88)
 
 ___
 
@@ -374,7 +372,7 @@ wallet registry.
 
 #### Defined in
 
-[src/lib/contracts/wallet-registry.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L45)
+[lib/contracts/wallet-registry.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L54)
 
 ___
 
@@ -386,7 +384,7 @@ Additional options used by the Electrum server.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L54)
+[lib/electrum/client.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L54)
 
 ___
 
@@ -410,7 +408,7 @@ ___
 
 #### Defined in
 
-[src/lib/utils/backoff.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L42)
+[lib/utils/backoff.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L42)
 
 ___
 
@@ -424,7 +422,7 @@ or a Provider that works only in the read-only mode.
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
+[lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
 
 ___
 
@@ -450,7 +448,7 @@ A function that is called with execution status messages.
 
 #### Defined in
 
-[src/lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
+[lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
 
 ___
 
@@ -463,7 +461,7 @@ specific to the given L2 chain, deployed on the L1 chain.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L163)
+[lib/contracts/cross-chain.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L163)
 
 ___
 
@@ -482,7 +480,7 @@ Aggregates L1-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L28)
+[lib/contracts/cross-chain.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L28)
 
 ___
 
@@ -496,7 +494,7 @@ Use BitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L267)
+[lib/contracts/cross-chain.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L267)
 
 ___
 
@@ -510,7 +508,7 @@ Use DestinationChainName instead
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
+[lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
 
 ___
 
@@ -524,7 +522,7 @@ Use DestinationChainInterfaces instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L257)
+[lib/contracts/cross-chain.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L257)
 
 ___
 
@@ -538,7 +536,7 @@ Use DestinationChainTBTCToken instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L262)
+[lib/contracts/cross-chain.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L262)
 
 ___
 
@@ -550,7 +548,7 @@ Represents an event emitted when new wallet is registered on the on-chain bridge
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:471](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L471)
+[lib/contracts/bridge.ts:471](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L471)
 
 ___
 
@@ -563,7 +561,7 @@ is cancelled on chain.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-vault.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L170)
+[lib/contracts/tbtc-vault.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L170)
 
 ___
 
@@ -576,7 +574,7 @@ is finalized on chain.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-vault.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L186)
+[lib/contracts/tbtc-vault.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L186)
 
 ___
 
@@ -596,7 +594,7 @@ Bridge.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-vault.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L120)
+[lib/contracts/tbtc-vault.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L120)
 
 ___
 
@@ -609,7 +607,7 @@ on chain.
 
 #### Defined in
 
-[src/lib/contracts/tbtc-vault.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L136)
+[lib/contracts/tbtc-vault.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L136)
 
 ___
 
@@ -621,7 +619,7 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L358)
+[lib/contracts/bridge.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L358)
 
 ___
 
@@ -651,7 +649,7 @@ ___
 
 #### Defined in
 
-[src/lib/utils/backoff.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L51)
+[lib/utils/backoff.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L51)
 
 ___
 
@@ -665,7 +663,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L153)
+[lib/starknet/starknet-depositor.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L67)
 
 ___
 
@@ -681,7 +679,7 @@ This follows the pattern similar to Solana's Connection type.
 
 #### Defined in
 
-[src/lib/starknet/types.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/types.ts#L10)
+[lib/starknet/types.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/types.ts#L10)
 
 ___
 
@@ -702,7 +700,7 @@ Convenience type aggregating all TBTC core contracts.
 
 #### Defined in
 
-[src/lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
+[lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
 
 ## Variables
 
@@ -716,7 +714,7 @@ Use ArbitrumExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/arbitrum/l2-bitcoin-depositor.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L159)
+[lib/arbitrum/l2-bitcoin-depositor.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L159)
 
 ___
 
@@ -730,7 +728,7 @@ Use ArbitrumBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/arbitrum/l2-bitcoin-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L154)
+[lib/arbitrum/l2-bitcoin-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L154)
 
 ___
 
@@ -744,7 +742,7 @@ Use ArbitrumTBTCToken instead
 
 #### Defined in
 
-[src/lib/arbitrum/l2-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L63)
+[lib/arbitrum/l2-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L63)
 
 ___
 
@@ -758,7 +756,7 @@ Use BaseBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L124)
+[lib/base/l2-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L124)
 
 ___
 
@@ -772,7 +770,7 @@ Use BaseTBTCToken instead
 
 #### Defined in
 
-[src/lib/base/l2-tbtc-token.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L64)
+[lib/base/l2-tbtc-token.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L64)
 
 ___
 
@@ -794,7 +792,7 @@ Utility functions allowing to perform Bitcoin address conversions.
 
 #### Defined in
 
-[src/lib/bitcoin/address.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/address.ts#L112)
+[lib/bitcoin/address.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/address.ts#L112)
 
 ___
 
@@ -812,7 +810,7 @@ Utility functions allowing to deal with Bitcoin compact size uints.
 
 #### Defined in
 
-[src/lib/bitcoin/csuint.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/csuint.ts#L50)
+[lib/bitcoin/csuint.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/csuint.ts#L50)
 
 ___
 
@@ -833,7 +831,7 @@ Utility functions allowing to deal with Bitcoin hashes.
 
 #### Defined in
 
-[src/lib/bitcoin/hash.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/hash.ts#L52)
+[lib/bitcoin/hash.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/hash.ts#L52)
 
 ___
 
@@ -853,7 +851,7 @@ Utility functions allowing to serialize and deserialize Bitcoin block headers.
 
 #### Defined in
 
-[src/lib/bitcoin/header.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L109)
+[lib/bitcoin/header.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L109)
 
 ___
 
@@ -872,7 +870,7 @@ Utility functions allowing to deal with Bitcoin locktime.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L234)
+[lib/bitcoin/tx.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L234)
 
 ___
 
@@ -890,7 +888,7 @@ Utility functions allowing to perform operations on Bitcoin ECDSA private keys.
 
 #### Defined in
 
-[src/lib/bitcoin/ecdsa-key.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L77)
+[lib/bitcoin/ecdsa-key.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L77)
 
 ___
 
@@ -909,7 +907,7 @@ Utility functions allowing to perform operations on Bitcoin ECDSA public keys.
 
 #### Defined in
 
-[src/lib/bitcoin/ecdsa-key.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L51)
+[lib/bitcoin/ecdsa-key.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L51)
 
 ___
 
@@ -930,7 +928,7 @@ Utility functions allowing to deal with Bitcoin scripts.
 
 #### Defined in
 
-[src/lib/bitcoin/script.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/script.ts#L63)
+[lib/bitcoin/script.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/script.ts#L63)
 
 ___
 
@@ -949,7 +947,7 @@ Utility functions allowing to perform Bitcoin target conversions.
 
 #### Defined in
 
-[src/lib/bitcoin/header.ts:268](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L268)
+[lib/bitcoin/header.ts:268](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L268)
 
 ___
 
@@ -961,7 +959,7 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
+[lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
 
 ___
 
@@ -975,7 +973,7 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L215)
+[lib/ethereum/l1-bitcoin-depositor.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L215)
 
 ___
 
@@ -989,7 +987,7 @@ Use SolanaExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/solana/extra-data-encoder.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L60)
+[lib/solana/extra-data-encoder.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L60)
 
 ___
 
@@ -1003,7 +1001,7 @@ Use StarkNetExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/starknet/extra-data-encoder.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L67)
+[lib/starknet/extra-data-encoder.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L67)
 
 ___
 
@@ -1017,7 +1015,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1031](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1031)
+[lib/starknet/starknet-depositor.ts:527](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L527)
 
 ___
 
@@ -1049,7 +1047,7 @@ const encoded = encodeDestinationReceiver(
 
 #### Defined in
 
-[src/lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
+[lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
 
 ___
 
@@ -1062,7 +1060,7 @@ Includes standard ERC20 functions needed for tBTC operations
 
 #### Defined in
 
-[src/lib/starknet/abi.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/abi.ts#L26)
+[lib/starknet/abi.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/abi.ts#L26)
 
 ## Functions
 
@@ -1086,7 +1084,7 @@ The amount in Satoshi precision.
 
 #### Defined in
 
-[src/lib/utils/bitcoin.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/bitcoin.ts#L8)
+[lib/utils/bitcoin.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/bitcoin.ts#L8)
 
 ___
 
@@ -1113,7 +1111,7 @@ Bitcoin transaction along with the inclusion proof.
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L75)
+[lib/bitcoin/spv.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L75)
 
 ___
 
@@ -1163,7 +1161,7 @@ A function that can retry any function.
 
 #### Defined in
 
-[src/lib/utils/backoff.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L89)
+[lib/utils/backoff.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L89)
 
 ___
 
@@ -1187,7 +1185,7 @@ Chain ID as a string.
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
+[lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
 
 ___
 
@@ -1212,7 +1210,7 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
+[lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
 
 ___
 
@@ -1248,7 +1246,7 @@ const { chainId, recipient } = decodeDestinationReceiver("0x27120000000000000000
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L59)
+[lib/utils/ntt.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L59)
 
 ___
 
@@ -1280,7 +1278,7 @@ const encoded = encodeDestinationReceiver(10002, "0x1234567890123456789012345678
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
+[lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
 
 ___
 
@@ -1310,7 +1308,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
+[lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
 
 ___
 
@@ -1343,7 +1341,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[src/lib/ethereum/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/cross-chain.ts#L29)
+[lib/ethereum/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/cross-chain.ts#L29)
 
 ___
 
@@ -1368,7 +1366,7 @@ Transaction data with fields represented as un-prefixed hex strings.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L133)
+[lib/bitcoin/tx.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L133)
 
 ___
 
@@ -1392,7 +1390,7 @@ The chain ID
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L133)
+[lib/utils/ntt.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L133)
 
 ___
 
@@ -1416,7 +1414,7 @@ The recipient address
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L159)
+[lib/utils/ntt.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L159)
 
 ___
 
@@ -1440,7 +1438,7 @@ True if the format is valid, false otherwise
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L100)
+[lib/utils/ntt.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L100)
 
 ___
 
@@ -1465,7 +1463,7 @@ Use loadArbitrumCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/arbitrum/index.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L62)
+[lib/arbitrum/index.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L62)
 
 ___
 
@@ -1496,7 +1494,7 @@ Throws an error if the signer's Arbitrum chain ID is other than
 
 #### Defined in
 
-[src/lib/arbitrum/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L23)
+[lib/arbitrum/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L23)
 
 ___
 
@@ -1521,7 +1519,7 @@ Use loadBaseCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/base/index.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L63)
+[lib/base/index.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L63)
 
 ___
 
@@ -1552,7 +1550,7 @@ Throws an error if the signer's Base chain ID is other than
 
 #### Defined in
 
-[src/lib/base/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L23)
+[lib/base/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L23)
 
 ___
 
@@ -1583,7 +1581,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
+[lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
 
 ___
 
@@ -1612,13 +1610,13 @@ If the connection's genesis hash does not match the expected `genesisHash`.
 
 #### Defined in
 
-[src/lib/solana/index.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L20)
+[lib/solana/index.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L20)
 
 ___
 
 ### loadStarkNetCrossChainContracts
 
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 #### Parameters
 
@@ -1627,7 +1625,6 @@ ___
 | `walletAddress` | `string` | `undefined` |
 | `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` |
-| `relayerStatusUrl?` | `string` | `undefined` |
 
 #### Returns
 
@@ -1639,13 +1636,13 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/starknet/index.ts:117](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L117)
+[lib/starknet/index.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L109)
 
 ___
 
 ### loadStarkNetCrossChainInterfaces
 
-▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
 Now supports balance queries with deployed tBTC contracts and enhanced configuration.
@@ -1657,7 +1654,6 @@ Now supports balance queries with deployed tBTC contracts and enhanced configura
 | `walletAddress` | `string` | `undefined` | The StarkNet wallet address to use as deposit owner |
 | `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for blockchain interactions |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` | Optional chain ID (defaults to Sepolia) |
-| `relayerStatusUrl?` | `string` | `undefined` | Optional override for the relayer's deposit-status endpoint, used to verify 409 conflicts. Falls back to `STARKNET_RELAYER_STATUS_URL` when not supplied. Without either, conflict-status verification is enabled only when `relayerUrl` is also left unset (see `StarkNetBitcoinDepositor`'s constructor). |
 
 #### Returns
 
@@ -1667,7 +1663,7 @@ Handle to the contracts
 
 #### Defined in
 
-[src/lib/starknet/index.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L48)
+[lib/starknet/index.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L43)
 
 ___
 
@@ -1711,7 +1707,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:714](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L714)
+[lib/ethereum/bridge.ts:719](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L719)
 
 ___
 
@@ -1736,7 +1732,7 @@ Always returns true.
 
 #### Defined in
 
-[src/lib/utils/backoff.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L9)
+[lib/utils/backoff.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L9)
 
 ___
 
@@ -1762,7 +1758,7 @@ Matcher function that returns false if error matches one of the patterns.
 
 #### Defined in
 
-[src/lib/utils/backoff.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L20)
+[lib/utils/backoff.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L20)
 
 ___
 
@@ -1791,7 +1787,7 @@ An error if the network is not supported by `bitcoinjs-lib`.
 
 #### Defined in
 
-[src/lib/bitcoin/network.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L62)
+[lib/bitcoin/network.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L62)
 
 ___
 
@@ -1832,7 +1828,7 @@ If any of the block headers are invalid, or if the block
 
 #### Defined in
 
-[src/lib/bitcoin/header.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L132)
+[lib/bitcoin/header.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L132)
 
 ___
 
@@ -1872,7 +1868,7 @@ The function should be used within a try-catch block.
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:180](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L180)
+[lib/bitcoin/spv.ts:180](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L180)
 
 ___
 
@@ -1899,4 +1895,4 @@ This function does not validate the depositor's identifier as its
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:247](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L247)
+[lib/contracts/bridge.ts:247](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L247)
