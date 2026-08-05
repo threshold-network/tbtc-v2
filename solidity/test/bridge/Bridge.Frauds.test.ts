@@ -30,6 +30,19 @@ const { keccak256, sha256 } = ethers.utils
 const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
   fraudWallet
 
+/** For `changeEtherBalance`: plain addresses have no `provider`; a v5 `Contract`
+ *  may not match waffle's `instanceof Contract` (duplicate ethers), breaking `getAddressOf`.
+ */
+function etherBalanceAccount(
+  address: string,
+  provider: ethers.providers.Provider
+) {
+  return {
+    provider,
+    getAddress: async () => address,
+  }
+}
+
 describe("Bridge - Fraud", () => {
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
@@ -103,7 +116,7 @@ describe("Bridge - Fraud", () => {
                   fraudChallengeDepositAmount.mul(-1)
                 )
                 await expect(tx).to.changeEtherBalance(
-                  bridge,
+                  etherBalanceAccount(bridge.address, ethers.provider),
                   fraudChallengeDepositAmount
                 )
               })
@@ -627,7 +640,7 @@ describe("Bridge - Fraud", () => {
 
           it("should send the ether deposited by the challenger to the treasury", async () => {
             await expect(tx).to.changeEtherBalance(
-              bridge,
+              etherBalanceAccount(bridge.address, ethers.provider),
               fraudChallengeDepositAmount.mul(-1)
             )
             await expect(tx).to.changeEtherBalance(
@@ -893,7 +906,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1031,7 +1044,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1171,7 +1184,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1309,7 +1322,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1715,7 +1728,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should return the deposited ether to the challenger", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1827,7 +1840,7 @@ describe("Bridge - Fraud", () => {
 
             it("should return the deposited ether to the challenger", async () => {
               await expect(tx).to.changeEtherBalance(
-                bridge,
+                etherBalanceAccount(bridge.address, ethers.provider),
                 fraudChallengeDepositAmount.mul(-1)
               )
               await expect(tx).to.changeEtherBalance(

@@ -150,7 +150,7 @@ to the [`api-reference`](./api-reference) directory.
 
 ## NTT Utilities
 
-The SDK includes utility functions for NTT (Native Token Transfer) bridges, particularly useful for SEI and other cross-chain operations:
+The SDK includes utility functions for NTT (Native Token Transfer) bridges:
 
 ```typescript
 import {
@@ -160,7 +160,7 @@ import {
 
 // Encode destination chain and recipient
 const encoded = encodeDestinationReceiver(
-  40,
+  10002,
   "0x1234567890123456789012345678901234567890"
 )
 
