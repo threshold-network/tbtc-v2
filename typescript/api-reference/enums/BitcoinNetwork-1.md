@@ -8,6 +8,7 @@ Bitcoin networks.
 
 - [Mainnet](BitcoinNetwork-1.md#mainnet)
 - [Testnet](BitcoinNetwork-1.md#testnet)
+- [Testnet4](BitcoinNetwork-1.md#testnet4)
 - [Unknown](BitcoinNetwork-1.md#unknown)
 
 ## Enumeration Members
@@ -20,7 +21,7 @@ Bitcoin Mainnet.
 
 #### Defined in
 
-[lib/bitcoin/network.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L20)
+[lib/bitcoin/network.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L24)
 
 ___
 
@@ -28,11 +29,23 @@ ___
 
 • **Testnet** = ``"testnet"``
 
-Bitcoin Testnet.
+Bitcoin Testnet (testnet3).
 
 #### Defined in
 
 [lib/bitcoin/network.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L16)
+
+___
+
+### Testnet4
+
+• **Testnet4** = ``"testnet4"``
+
+Bitcoin Testnet4.
+
+#### Defined in
+
+[lib/bitcoin/network.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L20)
 
 ___
 

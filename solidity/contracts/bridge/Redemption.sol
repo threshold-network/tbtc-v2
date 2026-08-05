@@ -252,6 +252,39 @@ library Redemption {
         bytes redeemerOutputScript
     );
 
+    /// @notice Returns true if the decoded `redeemer` is authorized to be
+    ///         credited with rebate accounting against the given Bank
+    ///         `balanceOwner`. Direct redemptions (`balanceOwner == redeemer`)
+    ///         are always authorized. Callback redemptions where
+    ///         `balanceOwner != redeemer` are authorized only when the
+    ///         redeemer has explicitly authorized `balanceOwner` via
+    ///         `RebateStaking.setRebateAuthorization`.
+    /// @dev When `self.rebateStaking == address(0)`, only direct redemptions
+    ///      are authorized. Soft-fail by design: callers consume this view
+    ///      to decide whether to apply a rebate; failing the check does not
+    ///      revert the redemption.
+    /// @param balanceOwner The address of the Bank balance owner whose balance
+    ///        is getting redeemed.
+    /// @param redeemer The Ethereum address of the redeemer named as the
+    ///        target of rebate accounting if a rebate applies.
+    function isRebateAuthorizedForRedemption(
+        BridgeState.Storage storage self,
+        address balanceOwner,
+        address redeemer
+    ) internal view returns (bool) {
+        if (balanceOwner == redeemer) {
+            return true;
+        }
+        if (self.rebateStaking == address(0)) {
+            return false;
+        }
+        return
+            RebateStaking(self.rebateStaking).isRebateAuthorized(
+                redeemer,
+                balanceOwner
+            );
+    }
+
     /// @notice Requests redemption of the given amount from the specified
     ///         wallet to the redeemer Bitcoin output script.
     ///         This function handles the simplest case, where balance owner is
@@ -361,6 +394,12 @@ library Redemption {
     ///      - Wallet must have enough Bitcoin balance to proceed the request,
     ///      - Balance owner must make an allowance in the Bank that the Bridge
     ///        contract can spend the given `amount`.
+    ///      Rebate accounting note: when the decoded `redeemer` differs from
+    ///      `balanceOwner`, a rebate is applied only if the `redeemer` has
+    ///      explicitly authorized `balanceOwner` via
+    ///      `RebateStaking.setRebateAuthorization`. Unauthorized mismatches
+    ///      proceed with the full treasury fee and no rebate, without
+    ///      reverting.
     function requestRedemption(
         BridgeState.Storage storage self,
         address balanceOwner,
@@ -435,6 +474,13 @@ library Redemption {
     ///      - Wallet must have enough Bitcoin balance to proceed the request,
     ///      - Balance owner must make an allowance in the Bank that the Bridge
     ///        contract can spend the given `amount`.
+    ///      Rebate accounting note: when `balanceOwner != redeemer`, the
+    ///      rebate application is gated on `RebateStaking.isRebateAuthorized`.
+    ///      If unauthorized, the redemption proceeds with the full treasury
+    ///      fee and no rebate is applied. Apply/cancel symmetry on
+    ///      `request.redeemer` is preserved: when no rebate is applied,
+    ///      `RebateStaking.cancelRebate` is a no-op for the corresponding
+    ///      timeout.
     function requestRedemption(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -538,7 +584,19 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
-        if (treasuryFee > 0 && self.rebateStaking != address(0)) {
+        // Apply rebate only when the redeemer is authorized for this
+        // balance owner. Direct redemptions (`balanceOwner == redeemer`)
+        // are always authorized; callback redemptions where
+        // `balanceOwner != redeemer` require the redeemer to have opted in
+        // via `RebateStaking.setRebateAuthorization`. Unauthorized callback
+        // redemptions proceed with the full treasury fee and no rebate
+        // accounting (soft-fail), which closes the spoof primitive without
+        // breaking canonical vault user flows.
+        if (
+            treasuryFee > 0 &&
+            self.rebateStaking != address(0) &&
+            isRebateAuthorizedForRedemption(self, balanceOwner, redeemer)
+        ) {
             treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                 redeemer,
                 treasuryFee,
@@ -1181,7 +1239,7 @@ library Redemption {
             walletPubKeyHash,
             redeemerOutputScript
         );
-        Redemption.RedemptionRequest storage redemption = self
+        Redemption.RedemptionRequest memory redemption = self
             .pendingRedemptions[redemptionKey];
 
         // Should never happen, but just in case.
@@ -1209,6 +1267,18 @@ library Redemption {
         // mapping. This is important to avoid this redemption request
         // to be processed by the wallet or reported as timed out.
         delete self.pendingRedemptions[redemptionKey];
+
+        // Mirror the apply/cancel symmetry maintained by
+        // `notifyRedemptionTimeout`: if a rebate was applied at request time,
+        // release the corresponding rolling-window cap entry. When no rebate
+        // was applied (unauthorized callback, or rebate staking unset), the
+        // call is a safe no-op.
+        if (self.rebateStaking != address(0)) {
+            RebateStaking(self.rebateStaking).cancelRebate(
+                redemption.redeemer,
+                redemption.requestedAt
+            );
+        }
 
         self.bank.transferBalance(self.redemptionWatchtower, detainedAmount);
     }

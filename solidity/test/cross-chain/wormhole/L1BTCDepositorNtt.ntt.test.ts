@@ -18,7 +18,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole chain IDs
 const WORMHOLE_CHAIN_ETH = 2
-const WORMHOLE_CHAIN_SEI = 26
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 // Mock NTT Manager interface
@@ -150,7 +150,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
           await expect(
             l1BtcDepositorNtt
               .connect(relayer)
-              .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+              .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
           ).to.be.revertedWith("Ownable: caller is not the owner")
         })
       })
@@ -159,19 +159,21 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
         it("should set supported chain", async () => {
           await l1BtcDepositorNtt
             .connect(governance)
-            .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+            .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
-          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to
-            .be.true
+          expect(
+            await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_DESTINATION)
+          ).to.be.true
         })
 
         it("should remove supported chain", async () => {
           await l1BtcDepositorNtt
             .connect(governance)
-            .setSupportedChain(WORMHOLE_CHAIN_SEI, false)
+            .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, false)
 
-          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to
-            .be.false
+          expect(
+            await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_DESTINATION)
+          ).to.be.false
         })
       })
     })
@@ -202,7 +204,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
           await expect(
             l1BtcDepositorNtt
               .connect(relayer)
-              .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+              .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
           ).to.be.revertedWith("Ownable: caller is not the owner")
         })
       })
@@ -211,21 +213,21 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
         before(async () => {
           await l1BtcDepositorNtt
             .connect(governance)
-            .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+            .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
         })
 
         it("should set default supported chain successfully", async () => {
           const tx = await l1BtcDepositorNtt
             .connect(governance)
-            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
           expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
-            WORMHOLE_CHAIN_SEI
+            WORMHOLE_CHAIN_DESTINATION
           )
 
           await expect(tx)
             .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
-            .withArgs(WORMHOLE_CHAIN_SEI)
+            .withArgs(WORMHOLE_CHAIN_DESTINATION)
         })
 
         it("should revert when setting unsupported chain as default", async () => {

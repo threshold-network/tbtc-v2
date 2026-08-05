@@ -3,7 +3,7 @@ import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { BigNumber, BigNumberish, ContractTransaction } from "ethers"
 import {
   IBridge,
   IWormholeGateway,
@@ -28,6 +28,23 @@ const { lastBlockTime } = helpers.time
 // Just arbitrary values.
 const l1ChainId = 10
 const l2ChainId = 20
+
+/** `sendVaasToEvm` passes `VaaTransfer[]`; deep `eql` fails on mixed BigNumber impls. */
+function assertVaaTransferBatchArg(
+  arg: unknown,
+  expected: {
+    emitterChainId: number
+    emitterAddress: string
+    sequence: BigNumberish
+  }
+) {
+  const batch = arg as unknown[]
+  expect(batch.length).to.equal(1)
+  const v = batch[0] as [unknown, unknown, unknown]
+  expect(Number(v[0])).to.equal(expected.emitterChainId)
+  expect(v[1]).to.equal(expected.emitterAddress)
+  expect(BigNumber.from(v[2]).eq(expected.sequence)).to.be.true
+}
 
 describe("L1BTCDepositorWormhole", () => {
   const contractsFixture = async () => {
@@ -604,11 +621,11 @@ describe("L1BTCDepositorWormhole", () => {
             })
 
             it("should not store the deferred gas reimbursement", async () => {
-              expect(
-                await l1BtcDepositor.gasReimbursements(
-                  initializeDepositFixture.depositKey
-                )
-              ).to.eql([ethers.constants.AddressZero, BigNumber.from(0)])
+              const gr = await l1BtcDepositor.gasReimbursements(
+                initializeDepositFixture.depositKey
+              )
+              expect(gr.receiver).to.equal(ethers.constants.AddressZero)
+              expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
             })
           })
 
@@ -811,11 +828,11 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should not store the deferred gas reimbursement", async () => {
-                expect(
-                  await l1BtcDepositor.gasReimbursements(
-                    initializeDepositFixture.depositKey
-                  )
-                ).to.eql([ethers.constants.AddressZero, BigNumber.from(0)])
+                const gr = await l1BtcDepositor.gasReimbursements(
+                  initializeDepositFixture.depositKey
+                )
+                expect(gr.receiver).to.equal(ethers.constants.AddressZero)
+                expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
               })
             }
           )
@@ -1269,15 +1286,13 @@ describe("L1BTCDepositorWormhole", () => {
                 expect(call.args[4]).to.equal(
                   await l1BtcDepositor.l2FinalizeDepositGasLimit()
                 )
-                expect(call.args[5]).to.eql([
-                  [
-                    l1ChainId,
-                    toWormholeAddress(
-                      wormholeTokenBridge.address.toLowerCase()
-                    ),
-                    BigNumber.from(transferSequence),
-                  ],
-                ])
+                assertVaaTransferBatchArg(call.args[5], {
+                  emitterChainId: l1ChainId,
+                  emitterAddress: toWormholeAddress(
+                    wormholeTokenBridge.address.toLowerCase()
+                  ),
+                  sequence: transferSequence,
+                })
                 expect(call.args[6]).to.equal(await l1BtcDepositor.l2ChainId())
                 expect(call.args[7]).to.equal(relayer.address)
               })
@@ -1477,15 +1492,13 @@ describe("L1BTCDepositorWormhole", () => {
                   expect(call.args[4]).to.equal(
                     await l1BtcDepositor.l2FinalizeDepositGasLimit()
                   )
-                  expect(call.args[5]).to.eql([
-                    [
-                      l1ChainId,
-                      toWormholeAddress(
-                        wormholeTokenBridge.address.toLowerCase()
-                      ),
-                      BigNumber.from(transferSequence),
-                    ],
-                  ])
+                  assertVaaTransferBatchArg(call.args[5], {
+                    emitterChainId: l1ChainId,
+                    emitterAddress: toWormholeAddress(
+                      wormholeTokenBridge.address.toLowerCase()
+                    ),
+                    sequence: transferSequence,
+                  })
                   expect(call.args[6]).to.equal(
                     await l1BtcDepositor.l2ChainId()
                   )
@@ -1720,15 +1733,13 @@ describe("L1BTCDepositorWormhole", () => {
                   expect(call.args[4]).to.equal(
                     await l1BtcDepositor.l2FinalizeDepositGasLimit()
                   )
-                  expect(call.args[5]).to.eql([
-                    [
-                      l1ChainId,
-                      toWormholeAddress(
-                        wormholeTokenBridge.address.toLowerCase()
-                      ),
-                      BigNumber.from(transferSequence),
-                    ],
-                  ])
+                  assertVaaTransferBatchArg(call.args[5], {
+                    emitterChainId: l1ChainId,
+                    emitterAddress: toWormholeAddress(
+                      wormholeTokenBridge.address.toLowerCase()
+                    ),
+                    sequence: transferSequence,
+                  })
                   expect(call.args[6]).to.equal(
                     await l1BtcDepositor.l2ChainId()
                   )
@@ -1803,9 +1814,10 @@ describe("L1BTCDepositorWormhole", () => {
     //
     // The standard _calculateTbtcAmount would do: 99500e10 -4975e10 -1000e10=93525e10
     // Because we reimburse depositTxMaxFee, we add 1000e10 back => 94525e10
+    const expectedTbtcAmountBase = to1ePrecision(93525, 10)
     const expectedTbtcAmountReimbursed = to1ePrecision(94525, 10)
 
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
 
       // Turn the feature flag on
@@ -1821,7 +1833,17 @@ describe("L1BTCDepositorWormhole", () => {
       }
     })
 
-    after(async () => {
+    afterEach(async () => {
+      bridge.depositParameters.reset()
+      tbtcVault.optimisticMintingFeeDivisor.reset()
+      bridge.revealDepositWithExtraData.reset()
+      bridge.deposits.reset()
+      tbtcVault.optimisticMintingRequests.reset()
+      wormhole.messageFee.reset()
+      wormholeRelayer.quoteEVMDeliveryPrice.reset()
+      wormholeTokenBridge.transferTokensWithPayload.reset()
+      wormholeRelayer.sendVaasToEvm.reset()
+
       await restoreSnapshot()
     })
 
@@ -1874,14 +1896,17 @@ describe("L1BTCDepositorWormhole", () => {
       wormholeTokenBridge.transferTokensWithPayload.returns(555)
       wormholeRelayer.sendVaasToEvm.returns(999)
 
-      // 7) Now finalize with enough payment
+      // 7) Mint enough tBTC to cover the reimbursed amount.
+      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountReimbursed)
+
+      // 8) Now finalize with enough payment
       const tx = await l1BtcDepositor
         .connect(relayer)
         .finalizeDeposit(initializeDepositFixture.depositKey, {
           value: messageFee + deliveryCost,
         })
 
-      // 8) The final minted TBTC should be 94525e10
+      // 9) The final minted TBTC should be 94525e10
       await expect(tx)
         .to.emit(l1BtcDepositor, "DepositFinalized")
         .withArgs(
@@ -1890,6 +1915,86 @@ describe("L1BTCDepositorWormhole", () => {
           relayer.address,
           depositAmount.mul(satoshiMultiplier),
           expectedTbtcAmountReimbursed
+        )
+    })
+
+    it("should skip depositTxMaxFee reimbursement when contract balance cannot cover it", async () => {
+      // 1) Initialize deposit
+      await l1BtcDepositor
+        .connect(relayer)
+        .initializeDeposit(
+          initializeDepositFixture.fundingTx,
+          initializeDepositFixture.reveal,
+          initializeDepositFixture.destinationChainDepositOwner
+        )
+
+      // 2) Setup Bridge deposit parameters
+      bridge.depositParameters.returns({
+        depositDustThreshold: 0,
+        depositTreasuryFeeDivisor: 0,
+        depositTxMaxFee,
+        depositRevealAheadPeriod: 0,
+      })
+      // 3) Setup vault fees
+      tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+
+      // 4) Prepare deposit finalization
+      const revealedAt = (await lastBlockTime()) - 7200
+      const finalizedAt = await lastBlockTime()
+      bridge.deposits
+        .whenCalledWith(initializeDepositFixture.depositKey)
+        .returns({
+          depositor: l1BtcDepositor.address,
+          amount: depositAmount,
+          revealedAt,
+          vault: initializeDepositFixture.reveal.vault,
+          treasuryFee,
+          sweptAt: finalizedAt,
+          extraData: initializeDepositFixture.destinationChainDepositOwner,
+        })
+      tbtcVault.optimisticMintingRequests
+        .whenCalledWith(initializeDepositFixture.depositKey)
+        .returns([revealedAt, finalizedAt])
+
+      // 5) Setup Wormhole cost
+      wormhole.messageFee.returns(messageFee)
+      wormholeRelayer.quoteEVMDeliveryPrice.returns({
+        nativePriceQuote: BigNumber.from(deliveryCost),
+        targetChainRefundPerGasUnused: BigNumber.from(0),
+      })
+
+      // 6) The bridging calls
+      wormholeTokenBridge.transferTokensWithPayload.returns(555)
+      wormholeRelayer.sendVaasToEvm.returns(999)
+
+      // 7) Mint only the base tBTC amount, simulating a contract balance that
+      // cannot cover the extra depositTxMaxFee reimbursement.
+      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountBase)
+
+      // 8) Now finalize with enough payment
+      const tx = await l1BtcDepositor
+        .connect(relayer)
+        .finalizeDeposit(initializeDepositFixture.depositKey, {
+          value: messageFee + deliveryCost,
+        })
+
+      const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+      await expect(tx)
+        .to.emit(l1BtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
+        .withArgs(
+          initializeDepositFixture.depositKey,
+          txMaxFee,
+          expectedTbtcAmountBase
+        )
+
+      await expect(tx)
+        .to.emit(l1BtcDepositor, "DepositFinalized")
+        .withArgs(
+          initializeDepositFixture.depositKey,
+          initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
+          relayer.address,
+          depositAmount.mul(satoshiMultiplier),
+          expectedTbtcAmountBase
         )
     })
   })
