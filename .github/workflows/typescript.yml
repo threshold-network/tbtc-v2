@@ -53,7 +53,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -90,7 +90,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -124,7 +124,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: typescript/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
