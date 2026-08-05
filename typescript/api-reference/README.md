@@ -346,7 +346,7 @@ wallet registry.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L64)
+[lib/contracts/wallet-registry.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L73)
 
 ___
 
@@ -359,7 +359,7 @@ wallet registry.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L79)
+[lib/contracts/wallet-registry.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L88)
 
 ___
 
@@ -372,7 +372,7 @@ wallet registry.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L45)
+[lib/contracts/wallet-registry.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L54)
 
 ___
 
@@ -1707,7 +1707,7 @@ Packed parameters.
 
 #### Defined in
 
-[lib/ethereum/bridge.ts:714](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L714)
+[lib/ethereum/bridge.ts:719](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L719)
 
 ___
 
