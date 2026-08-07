@@ -1571,4 +1571,78 @@ library BridgeGovernanceParameters {
         self.newTreasury = address(0);
         self.treasuryChangeInitiated = 0;
     }
+
+    struct ReservationData {
+        address newReservationVault;
+        uint64 newReservationMinAmount;
+        uint64 newReservationTxMaxFee;
+        uint32 newReservationTermSeconds;
+        uint32 newReservationGracePeriod;
+        uint64 newReservationMaxTotalAmount;
+        uint32 newMaxReservationsPerWallet;
+        uint256 reservationParametersChangeInitiated;
+    }
+
+    event ReservationParametersUpdateStarted(
+        address newReservationVault,
+        uint64 newReservationMinAmount,
+        uint64 newReservationTxMaxFee,
+        uint32 newReservationTermSeconds,
+        uint32 newReservationGracePeriod,
+        uint64 newReservationMaxTotalAmount,
+        uint32 newMaxReservationsPerWallet,
+        uint256 timestamp
+    );
+
+    /// @notice Begins the reservation parameters update process. All
+    ///         reservation parameters are staged together since they are
+    ///         applied atomically via a single Bridge call.
+    function beginReservationParametersUpdate(
+        ReservationData storage self,
+        address _newReservationVault,
+        uint64 _newReservationMinAmount,
+        uint64 _newReservationTxMaxFee,
+        uint32 _newReservationTermSeconds,
+        uint32 _newReservationGracePeriod,
+        uint64 _newReservationMaxTotalAmount,
+        uint32 _newMaxReservationsPerWallet
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        self.newReservationVault = _newReservationVault;
+        self.newReservationMinAmount = _newReservationMinAmount;
+        self.newReservationTxMaxFee = _newReservationTxMaxFee;
+        self.newReservationTermSeconds = _newReservationTermSeconds;
+        self.newReservationGracePeriod = _newReservationGracePeriod;
+        self.newReservationMaxTotalAmount = _newReservationMaxTotalAmount;
+        self.newMaxReservationsPerWallet = _newMaxReservationsPerWallet;
+        self.reservationParametersChangeInitiated = block.timestamp;
+        emit ReservationParametersUpdateStarted(
+            _newReservationVault,
+            _newReservationMinAmount,
+            _newReservationTxMaxFee,
+            _newReservationTermSeconds,
+            _newReservationGracePeriod,
+            _newReservationMaxTotalAmount,
+            _newMaxReservationsPerWallet,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the reservation parameters update process.
+    /// @dev The staged values are read by the caller before this call; this
+    ///      function only enforces the governance delay and clears the
+    ///      staged change.
+    function finalizeReservationParametersUpdate(
+        ReservationData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.reservationParametersChangeInitiated,
+            governanceDelay
+        )
+    {
+        self.reservationParametersChangeInitiated = 0;
+    }
 }
