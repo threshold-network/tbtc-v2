@@ -906,9 +906,10 @@ describe("Bridge - Reservation", () => {
         )
         for (let i = 0; i < guardianSigners.length; i++) {
           // eslint-disable-next-line no-await-in-loop
-          if (
-            !(await redemptionWatchtower.isGuardian(guardianSigners[i].address))
-          ) {
+          const alreadyGuardian = await redemptionWatchtower.isGuardian(
+            guardianSigners[i].address
+          )
+          if (!alreadyGuardian) {
             // eslint-disable-next-line no-await-in-loop
             await redemptionWatchtower
               .connect(manager)
