@@ -654,9 +654,8 @@ describe("Bridge - Reservation", () => {
         ).to.be.revertedWith("Caller is not the reservation owner")
       })
 
-      it("should surrender gross TBTC and register the redemption", async () => {
-        // Redemption is free by default; the exit leg is exit-neutral.
-        const fee = BigNumber.from(0)
+      it("should surrender gross TBTC, charge the redemption fee, and register the redemption", async () => {
+        const fee = grossTbtc.mul(20).div(10000)
         const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
 
         await tbtc
@@ -804,12 +803,11 @@ describe("Bridge - Reservation", () => {
       await restoreSnapshot()
     })
 
-    it("retries the redemption from Bank balance", async () => {
-      const fee = BigNumber.from(0)
+    it("retries the redemption from Bank balance without re-charging the fee", async () => {
       await bank
         .connect(thirdParty)
         .approveBalance(reservationVault.address, amountSat)
-      await tbtc.connect(thirdParty).approve(reservationVault.address, fee)
+      const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
 
       const tx = await reservationVault
         .connect(thirdParty)
@@ -818,6 +816,10 @@ describe("Bridge - Reservation", () => {
       await expect(tx).to.emit(bridge, "ReservedRedemptionRequested")
       expect((await bridge.reservations(reservationKey)).state).to.equal(2) // RedemptionRequested
       expect(await bank.balanceOf(bridge.address)).to.equal(amountSat)
+      // The redemption fee is not re-charged on retry.
+      expect(await tbtc.balanceOf(treasury.address)).to.equal(
+        treasuryBalanceBefore
+      )
     })
   })
 
@@ -1400,7 +1402,7 @@ describe("Bridge - Reservation", () => {
       // balance held by the Bridge.
       const supplyBefore = await tbtc.totalSupply()
 
-      const redemptionFee = BigNumber.from(0)
+      const redemptionFee = grossTbtc.mul(20).div(10000)
       await tbtc
         .connect(thirdParty)
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))

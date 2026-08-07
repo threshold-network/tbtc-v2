@@ -59,8 +59,9 @@ interface IReservationBridge {
 ///         - initiation: charged when the acceptance credit is processed;
 ///           covers the mint leg and the first custody term,
 ///         - extension: charged per custody term extension,
-///         - redemption: free by default; the parameter is retained for
-///           governance.
+///         - redemption: charged when the in-kind redemption is requested;
+///           priced at parity with the pooled redemption fee. Not re-charged
+///           on retries after wallet-fault timeouts.
 ///
 ///         Wiring requirements: governance must mark this vault as trusted
 ///         in the Bridge (`setVaultStatus`) so deposits can be revealed with
@@ -94,9 +95,9 @@ contract ReservationVault is IVault, Ownable {
     ///         per custody term extension.
     uint16 public extensionFeeBps;
     /// @notice Redemption fee in basis points of the gross amount, charged
-    ///         when the in-kind redemption is requested. Zero by default:
-    ///         redemption is exit-neutral, custody is paid for via the
-    ///         initiation and extension fees.
+    ///         when the in-kind redemption is requested. Priced at parity
+    ///         with the pooled redemption fee; not re-charged on retries
+    ///         after wallet-fault timeouts.
     uint16 public redemptionFeeBps;
 
     event ReservationCreditProcessed(
@@ -152,17 +153,18 @@ contract ReservationVault is IVault, Ownable {
         tbtcToken = _tbtcVault.tbtcToken();
         bridge = _bridge;
 
-        // Draft fee schedule from the UTXO reservation design:
-        // 40 bps all-in at initiation (20 bps mint leg + first-year
-        // custody), 20 bps per extension year, free redemption --
-        // custody-style pay-to-hold pricing that is never cheaper than the
-        // pooled path's 20 bps + 20 bps round trip (parity at a one-year
-        // hold, premium beyond). The minimum reservation size, not this
-        // schedule, is the governance dial that keeps the carry fee
-        // covering per-position lifecycle costs.
+        // Fee schedule (see the UTXO reservation design): the endpoints
+        // are priced at parity with the pooled path -- a 20 bps mint leg
+        // inside the 40 bps initiation fee and a 20 bps redemption fee --
+        // so the only premium being purchased is the 20 bps/yr custody fee
+        // (the remainder of the initiation fee prepays the first year). An
+        // N-year holding pays 40 + 20N bps against the pooled 40 bps round
+        // trip: strictly premium at every horizon. The minimum reservation
+        // size, not this schedule, is the governance dial that keeps the
+        // carry fee covering per-position lifecycle costs.
         initiationFeeBps = 40;
         extensionFeeBps = 20;
-        redemptionFeeBps = 0;
+        redemptionFeeBps = 20;
     }
 
     /// @notice Called by the Bank when the Bridge proves a reservation's
@@ -320,9 +322,12 @@ contract ReservationVault is IVault, Ownable {
     /// @dev Requirements:
     ///      - The caller must be the reservation owner,
     ///      - The caller must have approved this vault in the Bank for the
-    ///        gross minted amount (`Bank.approveBalance`),
-    ///      - The caller must have approved this vault for the redemption
-    ///        fee in TBTC.
+    ///        gross minted amount (`Bank.approveBalance`).
+    ///
+    ///      The redemption fee is not re-charged: it was collected by the
+    ///      original `redeemReservation` call and the retry only exists
+    ///      because the previous request timed out through the wallet's
+    ///      fault.
     function retryRedeemReservation(
         uint256 reservationKey,
         bytes calldata redeemerOutputScript
@@ -337,14 +342,11 @@ contract ReservationVault is IVault, Ownable {
 
         uint256 grossTbtc = uint256(reservation.mintedAmount) *
             SATOSHI_MULTIPLIER;
-        uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
-        if (fee > 0) {
-            IERC20(tbtcToken).safeTransferFrom(
-                msg.sender,
-                bridge.treasury(),
-                fee
-            );
-        }
+
+        // The redemption fee was already collected by the original
+        // redeemReservation call; a retry only exists because the previous
+        // request timed out through the wallet's fault, so it is not
+        // re-charged.
 
         bank.transferBalanceFrom(
             msg.sender,
@@ -358,7 +360,7 @@ contract ReservationVault is IVault, Ownable {
             reservationKey,
             msg.sender,
             grossTbtc,
-            fee
+            0
         );
 
         bridge.requestReservedRedemption(
