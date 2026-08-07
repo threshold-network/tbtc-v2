@@ -6,9 +6,29 @@ import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/RebateStaking.sol";
+import "../bridge/Reservation.sol";
 import "../bridge/Wallets.sol";
 
 contract BridgeStub is Bridge {
+    function setReservation(
+        uint256 reservationKey,
+        Reservation.ReservationRequest calldata reservation
+    ) external {
+        self.reservations[reservationKey] = reservation;
+        self.walletReservationsCount[reservation.walletPubKeyHash] += 1;
+        self.reservationTotalAmount += reservation.anchorAmount;
+        self.reservationsByAnchorUtxo[
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        reservation.anchorTxHash,
+                        reservation.anchorTxOutputIndex
+                    )
+                )
+            )
+        ] = reservationKey;
+    }
+
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(
