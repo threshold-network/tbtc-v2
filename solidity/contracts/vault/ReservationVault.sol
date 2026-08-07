@@ -1,0 +1,333 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+// ██████████████     ▐████▌     ██████████████
+// ██████████████     ▐████▌     ██████████████
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+// ██████████████     ▐████▌     ██████████████
+// ██████████████     ▐████▌     ██████████████
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+//               ▐████▌    ▐████▌
+
+pragma solidity 0.8.17;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "./IVault.sol";
+import "./TBTCVault.sol";
+import "../bank/Bank.sol";
+import "../bridge/Reservation.sol";
+import "../token/TBTC.sol";
+
+/// @notice Minimal interface of the Bridge functions the reservation vault
+///         interacts with.
+interface IReservationBridge {
+    function reservations(uint256 reservationKey)
+        external
+        view
+        returns (Reservation.ReservationRequest memory);
+
+    function requestReservedRedemption(
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript
+    ) external;
+
+    function extendReservation(uint256 reservationKey) external;
+
+    function treasury() external view returns (address);
+}
+
+/// @title Reservation vault
+/// @notice The reservation vault is the liability-side companion of the
+///         Bridge's `Reservation` library. Deposits revealed with this vault
+///         address are treated as UTXO reservations: instead of being swept
+///         into the pooled supply, they are anchored by the wallet and
+///         redeemable in-kind. When the Bridge proves a reservation's anchor
+///         transaction, it credits the gross anchored amount to this vault,
+///         which mints TBTC gross to the reservation owner and collects all
+///         protocol fees as explicit TBTC transfers -- reservation claims
+///         are never netted, so the claim surrendered at redemption always
+///         equals the sats earmarked on-chain.
+///
+///         Fee schedule (basis points of the gross amount, all governable):
+///         - initiation: charged when the acceptance credit is processed;
+///           covers the mint leg and the first custody term,
+///         - extension: charged per custody term extension,
+///         - redemption: charged when the in-kind redemption is requested.
+///
+///         Wiring requirements: governance must mark this vault as trusted
+///         in the Bridge (`setVaultStatus`) so deposits can be revealed with
+///         it, and must set it as the Bridge's reservation vault via
+///         `updateReservationParameters`.
+/// @dev The vault deliberately keeps no claim registry of its own -- the
+///      Bridge's reservation records are the single source of truth and are
+///      consulted for ownership checks.
+contract ReservationVault is IVault, Ownable {
+    using SafeERC20 for IERC20;
+
+    /// @notice Multiplier to convert satoshi to TBTC token units.
+    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
+
+    /// @notice Basis points divisor for fee computations.
+    uint256 public constant BASIS_POINTS = 10000;
+
+    /// @notice Upper sanity bound for each fee parameter, in basis points.
+    uint256 public constant MAX_FEE_BASIS_POINTS = 500;
+
+    Bank public immutable bank;
+    TBTCVault public immutable tbtcVault;
+    TBTC public immutable tbtcToken;
+    IReservationBridge public immutable bridge;
+
+    /// @notice Initiation fee in basis points of the gross anchored amount,
+    ///         charged when the acceptance credit is processed. Covers the
+    ///         mint leg and the first custody term.
+    uint16 public initiationFeeBps;
+    /// @notice Extension fee in basis points of the gross amount, charged
+    ///         per custody term extension.
+    uint16 public extensionFeeBps;
+    /// @notice Redemption fee in basis points of the gross amount, charged
+    ///         when the in-kind redemption is requested.
+    uint16 public redemptionFeeBps;
+
+    event ReservationCreditProcessed(
+        address indexed owner,
+        uint256 satAmount,
+        uint256 feeTbtc
+    );
+
+    event CustodyExtended(
+        uint256 indexed reservationKey,
+        address indexed owner,
+        uint256 feeTbtc
+    );
+
+    event ReservedRedemptionInitiated(
+        uint256 indexed reservationKey,
+        address indexed owner,
+        uint256 grossTbtc,
+        uint256 feeTbtc
+    );
+
+    event FeesUpdated(
+        uint16 initiationFeeBps,
+        uint16 extensionFeeBps,
+        uint16 redemptionFeeBps
+    );
+
+    modifier onlyBank() {
+        require(msg.sender == address(bank), "Caller is not the Bank");
+        _;
+    }
+
+    constructor(
+        Bank _bank,
+        TBTCVault _tbtcVault,
+        IReservationBridge _bridge
+    ) {
+        require(
+            address(_bank) != address(0),
+            "Bank can not be the zero address"
+        );
+        require(
+            address(_tbtcVault) != address(0),
+            "TBTCVault can not be the zero address"
+        );
+        require(
+            address(_bridge) != address(0),
+            "Bridge can not be the zero address"
+        );
+
+        bank = _bank;
+        tbtcVault = _tbtcVault;
+        tbtcToken = _tbtcVault.tbtcToken();
+        bridge = _bridge;
+
+        // Draft fee schedule from the UTXO reservation design:
+        // 40 bps all-in at initiation (20 bps mint leg + first-year
+        // custody), 20 bps per extension year, 20 bps at redemption. The
+        // reserved lane thereby strictly dominates the pooled path's
+        // 20 bps + 20 bps round trip at every holding horizon.
+        initiationFeeBps = 40;
+        extensionFeeBps = 20;
+        redemptionFeeBps = 20;
+    }
+
+    /// @notice Called by the Bank when the Bridge proves a reservation's
+    ///         anchor transaction and credits the gross anchored amount to
+    ///         this vault. Mints TBTC gross and forwards it to the
+    ///         reservation owner minus the initiation fee, which is
+    ///         transferred to the Bridge treasury.
+    /// @dev The gross amount is always minted so the total TBTC supply
+    ///      created against the reservation equals the sats earmarked
+    ///      on-chain; the fee is an explicit transfer, never a netted
+    ///      credit.
+    function receiveBalanceIncrease(
+        address[] calldata depositors,
+        uint256[] calldata depositedAmounts
+    ) external override onlyBank {
+        require(depositors.length != 0, "No depositors specified");
+
+        address treasury = bridge.treasury();
+
+        for (uint256 i = 0; i < depositors.length; i++) {
+            uint256 satAmount = depositedAmounts[i];
+            uint256 grossTbtc = satAmount * SATOSHI_MULTIPLIER;
+
+            // Convert the Bank balance credited by the Bridge into TBTC
+            // minted to this vault.
+            bank.approveBalance(address(tbtcVault), satAmount);
+            tbtcVault.mint(grossTbtc);
+
+            uint256 fee = (grossTbtc * initiationFeeBps) / BASIS_POINTS;
+            if (fee > 0) {
+                IERC20(tbtcToken).safeTransfer(treasury, fee);
+            }
+            IERC20(tbtcToken).safeTransfer(depositors[i], grossTbtc - fee);
+
+            // slither-disable-next-line reentrancy-events
+            emit ReservationCreditProcessed(depositors[i], satAmount, fee);
+        }
+    }
+
+    /// @notice Requests an in-kind redemption of the caller's reservation.
+    ///         The caller surrenders the gross minted TBTC amount plus the
+    ///         redemption fee; the vault unmints the gross amount and asks
+    ///         the Bridge to have the wallet spend exactly the reservation's
+    ///         anchor outpoint to the given redeemer script.
+    /// @param reservationKey The key of the reservation to redeem.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @dev Requirements:
+    ///      - The caller must be the reservation owner,
+    ///      - The caller must have approved this vault for
+    ///        `mintedAmount * SATOSHI_MULTIPLIER * (1 + redemptionFeeBps/10000)`
+    ///        TBTC.
+    ///
+    ///      Should the redemption time out, the Bridge returns the
+    ///      surrendered gross amount to the caller as Bank balance; the
+    ///      caller can re-mint TBTC via the TBTC vault and request the
+    ///      redemption again.
+    function redeemReservation(
+        uint256 reservationKey,
+        bytes calldata redeemerOutputScript
+    ) external {
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            reservationKey
+        );
+        require(
+            reservation.owner == msg.sender,
+            "Caller is not the reservation owner"
+        );
+
+        uint256 grossTbtc = uint256(reservation.mintedAmount) *
+            SATOSHI_MULTIPLIER;
+        uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
+
+        IERC20(tbtcToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            grossTbtc + fee
+        );
+        if (fee > 0) {
+            IERC20(tbtcToken).safeTransfer(bridge.treasury(), fee);
+        }
+
+        // Unmint the gross TBTC back into Bank balance and let the Bridge
+        // take it when registering the reserved redemption request.
+        IERC20(tbtcToken).safeIncreaseAllowance(address(tbtcVault), grossTbtc);
+        tbtcVault.unmint(grossTbtc);
+        bank.approveBalance(address(bridge), reservation.mintedAmount);
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservedRedemptionInitiated(
+            reservationKey,
+            msg.sender,
+            grossTbtc,
+            fee
+        );
+
+        bridge.requestReservedRedemption(
+            reservationKey,
+            msg.sender,
+            redeemerOutputScript
+        );
+    }
+
+    /// @notice Extends the custody term of the caller's reservation by one
+    ///         term length, charging the extension fee in TBTC.
+    /// @param reservationKey The key of the reservation to extend.
+    /// @dev Requirements:
+    ///      - The caller must be the reservation owner,
+    ///      - The caller must have approved this vault for the extension
+    ///        fee in TBTC.
+    function extendCustody(uint256 reservationKey) external {
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            reservationKey
+        );
+        require(
+            reservation.owner == msg.sender,
+            "Caller is not the reservation owner"
+        );
+
+        uint256 fee = (uint256(reservation.mintedAmount) *
+            SATOSHI_MULTIPLIER *
+            extensionFeeBps) / BASIS_POINTS;
+        if (fee > 0) {
+            IERC20(tbtcToken).safeTransferFrom(
+                msg.sender,
+                bridge.treasury(),
+                fee
+            );
+        }
+
+        // slither-disable-next-line reentrancy-events
+        emit CustodyExtended(reservationKey, msg.sender, fee);
+
+        bridge.extendReservation(reservationKey);
+    }
+
+    /// @notice Updates the vault fee parameters.
+    /// @dev Requirements:
+    ///      - The caller must be the vault owner (governance),
+    ///      - Each fee must not exceed `MAX_FEE_BASIS_POINTS`.
+    function updateFees(
+        uint16 _initiationFeeBps,
+        uint16 _extensionFeeBps,
+        uint16 _redemptionFeeBps
+    ) external onlyOwner {
+        require(
+            _initiationFeeBps <= MAX_FEE_BASIS_POINTS &&
+                _extensionFeeBps <= MAX_FEE_BASIS_POINTS &&
+                _redemptionFeeBps <= MAX_FEE_BASIS_POINTS,
+            "Fee exceeds the maximum"
+        );
+
+        initiationFeeBps = _initiationFeeBps;
+        extensionFeeBps = _extensionFeeBps;
+        redemptionFeeBps = _redemptionFeeBps;
+
+        emit FeesUpdated(
+            _initiationFeeBps,
+            _extensionFeeBps,
+            _redemptionFeeBps
+        );
+    }
+
+    /// @notice The reservation vault does not support the balance approval
+    ///         flow; reserved redemptions are initiated via
+    ///         `redeemReservation`.
+    function receiveBalanceApproval(
+        address,
+        uint256,
+        bytes calldata
+    ) external pure override {
+        revert("Balance approvals not supported");
+    }
+}
