@@ -57,6 +57,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Wallets = await get("Wallets")
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
+  const Reservation = await get("Reservation")
 
   log("Using existing libraries:")
   log(`  Deposit: ${Deposit.address}`)
@@ -85,6 +86,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
+          Reservation: Reservation.address,
         },
       },
       proxyOpts: {

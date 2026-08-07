@@ -73,6 +73,20 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      // Reduce the number of optimizer runs to preserve the Bridge's
+      // EIP-170 deployment margin after adding the reservation entry
+      // points. DRAFT NOTE: this trades runtime gas for code size; the
+      // alternative is a router-style refactor moving entry points out of
+      // the Bridge (as done on the P2TR activation track).
+      "contracts/bridge/Bridge.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 100,
+          },
+        },
+      },
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {

@@ -21,6 +21,7 @@ import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 import "./IRelay.sol";
 import "./Deposit.sol";
 import "./Redemption.sol";
+import "./Reservation.sol";
 import "./Fraud.sol";
 import "./Wallets.sol";
 import "./MovingFunds.sol";
@@ -325,6 +326,46 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // The minimal anchor output amount in satoshi accepted for a
+        // reservation. Deposits revealed with `reservationVault` as their
+        // vault are treated as UTXO reservations: they are anchored by the
+        // wallet in a 1-input-1-output spend instead of being swept, and
+        // are redeemable in-kind. See the `Reservation` library for details.
+        uint64 reservationMinAmount;
+        // The custody term length in seconds applied to new and extended
+        // reservations. The term is a contract-layer fact only; anchor
+        // outputs carry no timelock.
+        uint32 reservationTermSeconds;
+        // Address of the reservation vault. Deposits revealed with this
+        // vault address are treated as UTXO reservations.
+        address reservationVault;
+        // Maximum amount of BTC transaction fee in satoshi that can be
+        // incurred by a single reservation lifecycle transaction (anchor,
+        // re-anchor, reserved redemption, dissolution).
+        uint64 reservationTxMaxFee;
+        // The grace period in seconds after a reservation's custody term
+        // expires during which the reservation can still be extended or
+        // redeemed but not yet dissolved.
+        uint32 reservationGracePeriod;
+        // Maximum total amount in satoshi that can be locked under active
+        // reservations at the same time.
+        uint64 reservationMaxTotalAmount;
+        // Current total amount in satoshi locked under active reservations
+        // (sum of current anchor output values).
+        uint64 reservationTotalAmount;
+        // Maximum number of active reservations a single wallet can custody.
+        uint32 maxReservationsPerWallet;
+        // Collection of all reservations indexed by the deposit key of the
+        // underlying reserved deposit, i.e.
+        // `keccak256(fundingTxHash | fundingOutputIndex)`.
+        mapping(uint256 => Reservation.ReservationRequest) reservations;
+        // Maps the UTXO key of a reservation's current anchor outpoint,
+        // built as `keccak256(anchorTxHash | anchorTxOutputIndex)`, to the
+        // reservation key.
+        mapping(uint256 => uint256) reservationsByAnchorUtxo;
+        // The number of active reservations custodied by the given wallet,
+        // identified by its 20-byte wallet public key hash.
+        mapping(bytes20 => uint32) walletReservationsCount;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +373,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[43] __gap;
     }
 
     event DepositParametersUpdated(

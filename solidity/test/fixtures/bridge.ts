@@ -135,6 +135,8 @@ export default async function bridgeFixture(): Promise<{
           Fraud: (await helpers.contracts.getContract("Fraud")).address,
           MovingFunds: (await helpers.contracts.getContract("MovingFunds"))
             .address,
+          Reservation: (await helpers.contracts.getContract("Reservation"))
+            .address,
         },
       },
       proxyOpts: {
