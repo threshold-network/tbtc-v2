@@ -2289,4 +2289,29 @@ contract Bridge is
     {
         return self.reservations[reservationKey];
     }
+
+    /// @notice Returns the current values of Bridge reservation parameters.
+    function reservationParameters()
+        external
+        view
+        returns (
+            address reservationVault,
+            uint64 reservationMinAmount,
+            uint64 reservationTxMaxFee,
+            uint32 reservationTermSeconds,
+            uint32 reservationGracePeriod,
+            uint64 reservationMaxTotalAmount,
+            uint64 reservationTotalAmount,
+            uint32 maxReservationsPerWallet
+        )
+    {
+        reservationVault = self.reservationVault;
+        reservationMinAmount = self.reservationMinAmount;
+        reservationTxMaxFee = self.reservationTxMaxFee;
+        reservationTermSeconds = self.reservationTermSeconds;
+        reservationGracePeriod = self.reservationGracePeriod;
+        reservationMaxTotalAmount = self.reservationMaxTotalAmount;
+        reservationTotalAmount = self.reservationTotalAmount;
+        maxReservationsPerWallet = self.maxReservationsPerWallet;
+    }
 }

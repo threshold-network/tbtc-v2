@@ -22,6 +22,7 @@ import "./BitcoinTx.sol";
 import "./Bridge.sol";
 import "./Deposit.sol";
 import "./Redemption.sol";
+import "./Reservation.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
 
@@ -268,6 +269,9 @@ contract WalletProposalValidator {
 
         address proposalVault = address(0);
 
+        (address reservationVault, , , , , , , ) = bridge
+            .reservationParameters();
+
         uint256[] memory processedDepositKeys = new uint256[](
             proposal.depositsKeys.length
         );
@@ -299,6 +303,14 @@ contract WalletProposalValidator {
             );
 
             require(depositRequest.sweptAt == 0, "Deposit already swept");
+
+            // Deposits routed to the reservation vault are anchored via the
+            // reservation flow and must never be swept.
+            require(
+                reservationVault == address(0) ||
+                    depositRequest.vault != reservationVault,
+                "Reserved deposits must not be swept"
+            );
 
             validateDepositExtraInfo(
                 depositKey,
@@ -896,5 +908,347 @@ contract WalletProposalValidator {
         );
 
         return true;
+    }
+
+    /// @notice Helper structure representing a reservation anchor proposal.
+    struct ReservationAnchorProposal {
+        // 20-byte public key hash of the wallet performing the anchor.
+        bytes20 walletPubKeyHash;
+        // Key of the reserved deposit to anchor.
+        DepositKey depositKey;
+        // Proposed BTC fee for the anchor transaction.
+        uint256 anchorTxFee;
+    }
+
+    /// @notice Helper structure representing a reserved redemption proposal.
+    struct ReservedRedemptionProposal {
+        // 20-byte public key hash of the wallet custodying the reservation.
+        bytes20 walletPubKeyHash;
+        // Key of the reservation with the pending reserved redemption.
+        uint256 reservationKey;
+        // Proposed BTC fee for the reserved redemption transaction.
+        uint256 redemptionTxFee;
+    }
+
+    /// @notice Helper structure representing a reservation re-anchor
+    ///         proposal.
+    struct ReservationReanchorProposal {
+        // 20-byte public key hash of the wallet custodying the reservation.
+        bytes20 sourceWalletPubKeyHash;
+        // Key of the reservation to re-anchor.
+        uint256 reservationKey;
+        // 20-byte public key hash of the wallet receiving the anchor.
+        bytes20 targetWalletPubKeyHash;
+        // Proposed BTC fee for the re-anchor transaction.
+        uint256 reanchorTxFee;
+    }
+
+    /// @notice Helper structure representing a reservation dissolution
+    ///         proposal.
+    struct ReservationDissolutionProposal {
+        // 20-byte public key hash of the wallet custodying the reservation.
+        bytes20 walletPubKeyHash;
+        // Key of the reservation to dissolve.
+        uint256 reservationKey;
+        // Proposed BTC fee for the dissolution transaction.
+        uint256 dissolutionTxFee;
+    }
+
+    /// @notice View function encapsulating the main rules of a valid
+    ///         reservation anchor proposal.
+    /// @param proposal The anchor proposal to validate.
+    /// @param depositExtraInfo Deposit extra info required to perform the
+    ///        validation.
+    /// @return True if the proposal is valid. Reverts otherwise.
+    /// @dev Requirements:
+    ///      - Reservations must be enabled (reservation vault set),
+    ///      - The wallet must be in the Live or MovingFunds state,
+    ///      - The deposit must be revealed, old enough, not swept, and
+    ///        routed to the reservation vault,
+    ///      - The proposed fee must be positive, within the reservation
+    ///        transaction max fee, and must leave an anchor amount above
+    ///        the reservation minimum,
+    ///      - The deposit extra info must be valid and preserve the refund
+    ///        safety margin,
+    ///      - The deposit must be controlled by the proposal wallet.
+    function validateReservationAnchorProposal(
+        ReservationAnchorProposal calldata proposal,
+        DepositExtraInfo calldata depositExtraInfo
+    ) external view returns (bool) {
+        (
+            address reservationVault,
+            uint64 reservationMinAmount,
+            uint64 reservationTxMaxFee,
+            ,
+            ,
+            ,
+            ,
+
+        ) = bridge.reservationParameters();
+
+        require(reservationVault != address(0), "Reservations are disabled");
+
+        requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
+
+        uint256 depositKeyUint = uint256(
+            keccak256(
+                abi.encodePacked(
+                    proposal.depositKey.fundingTxHash,
+                    proposal.depositKey.fundingOutputIndex
+                )
+            )
+        );
+
+        Deposit.DepositRequest memory depositRequest = bridge.deposits(
+            depositKeyUint
+        );
+
+        require(depositRequest.revealedAt != 0, "Deposit not revealed");
+
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp > depositRequest.revealedAt + DEPOSIT_MIN_AGE,
+            "Deposit min age not achieved yet"
+        );
+
+        require(depositRequest.sweptAt == 0, "Deposit already swept");
+
+        require(
+            depositRequest.vault == reservationVault,
+            "Deposit not routed to the reservation vault"
+        );
+
+        require(
+            proposal.anchorTxFee > 0,
+            "Proposed transaction fee cannot be zero"
+        );
+        require(
+            proposal.anchorTxFee <= reservationTxMaxFee,
+            "Proposed transaction fee is too high"
+        );
+        require(
+            depositRequest.amount - proposal.anchorTxFee >=
+                reservationMinAmount,
+            "Anchor amount below the reservation minimum"
+        );
+
+        validateDepositExtraInfo(
+            proposal.depositKey,
+            depositRequest.depositor,
+            depositRequest.extraData,
+            depositExtraInfo
+        );
+
+        uint32 depositRefundableTimestamp = BTCUtils.reverseUint32(
+            uint32(depositExtraInfo.refundLocktime)
+        );
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                depositRefundableTimestamp - DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Deposit refund safety margin is not preserved"
+        );
+
+        require(
+            depositExtraInfo.walletPubKeyHash == proposal.walletPubKeyHash,
+            "Deposit controlled by different wallet"
+        );
+
+        return true;
+    }
+
+    /// @notice View function encapsulating the main rules of a valid
+    ///         reserved redemption proposal.
+    /// @param proposal The reserved redemption proposal to validate.
+    /// @return True if the proposal is valid. Reverts otherwise.
+    /// @dev Requirements:
+    ///      - The wallet must be in the Live or MovingFunds state,
+    ///      - The reservation must have a pending reserved redemption and
+    ///        must be custodied by the proposal wallet,
+    ///      - The request must be old enough, i.e. at least
+    ///        `REDEMPTION_REQUEST_MIN_AGE` or the watchtower veto delay
+    ///        (whichever is greater) elapsed since request time,
+    ///      - The request must have the timeout safety margin preserved,
+    ///      - The proposed fee must be positive and within the max fee
+    ///        snapshotted by the request.
+    function validateReservedRedemptionProposal(
+        ReservedRedemptionProposal calldata proposal
+    ) external view returns (bool) {
+        requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
+
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            proposal.reservationKey
+        );
+
+        require(
+            reservation.state ==
+                Reservation.ReservationState.RedemptionRequested,
+            "No pending reserved redemption"
+        );
+        require(
+            reservation.walletPubKeyHash == proposal.walletPubKeyHash,
+            "Reservation custodied by different wallet"
+        );
+
+        uint32 requestMinAge = REDEMPTION_REQUEST_MIN_AGE;
+        address watchtower = bridge.getRedemptionWatchtower();
+        if (watchtower != address(0)) {
+            uint32 delay = IRedemptionWatchtower(watchtower)
+                .getReservedRedemptionDelay(proposal.reservationKey);
+            if (delay > requestMinAge) {
+                requestMinAge = delay;
+            }
+        }
+
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp > reservation.redemptionRequestedAt + requestMinAge,
+            "Reserved redemption min age not achieved yet"
+        );
+
+        (, , , , uint32 redemptionTimeout, , ) = bridge.redemptionParameters();
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                reservation.redemptionRequestedAt +
+                    redemptionTimeout -
+                    REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Redemption request timeout safety margin is not preserved"
+        );
+
+        require(
+            proposal.redemptionTxFee > 0,
+            "Proposed transaction fee cannot be zero"
+        );
+        require(
+            proposal.redemptionTxFee <= reservation.redemptionTxMaxFee,
+            "Proposed transaction fee is too high"
+        );
+
+        return true;
+    }
+
+    /// @notice View function encapsulating the main rules of a valid
+    ///         reservation re-anchor proposal.
+    /// @param proposal The re-anchor proposal to validate.
+    /// @return True if the proposal is valid. Reverts otherwise.
+    /// @dev Requirements:
+    ///      - The reservation must be Active and custodied by the source
+    ///        wallet,
+    ///      - The target wallet must be in the Live state,
+    ///      - The proposed fee must be positive and within the reservation
+    ///        transaction max fee.
+    ///
+    ///      The source wallet state is deliberately not restricted, mirroring
+    ///      `Reservation.submitReservationReanchorProof`: moving reservations
+    ///      out must remain possible for wallets in any lifecycle state.
+    function validateReservationReanchorProposal(
+        ReservationReanchorProposal calldata proposal
+    ) external view returns (bool) {
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            proposal.reservationKey
+        );
+
+        require(
+            reservation.state == Reservation.ReservationState.Active,
+            "Reservation is not active"
+        );
+        require(
+            reservation.walletPubKeyHash == proposal.sourceWalletPubKeyHash,
+            "Reservation custodied by different wallet"
+        );
+
+        require(
+            bridge.wallets(proposal.targetWalletPubKeyHash).state ==
+                Wallets.WalletState.Live,
+            "Target wallet must be in Live state"
+        );
+
+        (, , uint64 reservationTxMaxFee, , , , , ) = bridge
+            .reservationParameters();
+        require(
+            proposal.reanchorTxFee > 0,
+            "Proposed transaction fee cannot be zero"
+        );
+        require(
+            proposal.reanchorTxFee <= reservationTxMaxFee,
+            "Proposed transaction fee is too high"
+        );
+
+        return true;
+    }
+
+    /// @notice View function encapsulating the main rules of a valid
+    ///         reservation dissolution proposal.
+    /// @param proposal The dissolution proposal to validate.
+    /// @return True if the proposal is valid. Reverts otherwise.
+    /// @dev Requirements:
+    ///      - The wallet must be in the Live or MovingFunds state,
+    ///      - The reservation must be Active, custodied by the proposal
+    ///        wallet, and past its custody term plus grace period,
+    ///      - The proposed fee must be positive and within the reservation
+    ///        transaction max fee.
+    function validateReservationDissolutionProposal(
+        ReservationDissolutionProposal calldata proposal
+    ) external view returns (bool) {
+        requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
+
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            proposal.reservationKey
+        );
+
+        require(
+            reservation.state == Reservation.ReservationState.Active,
+            "Reservation is not active"
+        );
+        require(
+            reservation.walletPubKeyHash == proposal.walletPubKeyHash,
+            "Reservation custodied by different wallet"
+        );
+
+        (
+            ,
+            ,
+            uint64 reservationTxMaxFee,
+            ,
+            uint32 reservationGracePeriod,
+            ,
+            ,
+
+        ) = bridge.reservationParameters();
+
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp >
+                uint256(reservation.expiresAt) + reservationGracePeriod,
+            "Reservation term or grace period not elapsed"
+        );
+
+        require(
+            proposal.dissolutionTxFee > 0,
+            "Proposed transaction fee cannot be zero"
+        );
+        require(
+            proposal.dissolutionTxFee <= reservationTxMaxFee,
+            "Proposed transaction fee is too high"
+        );
+
+        return true;
+    }
+
+    /// @notice Reverts unless the given wallet is in the Live or MovingFunds
+    ///         state.
+    function requireWalletLiveOrMovingFunds(bytes20 walletPubKeyHash)
+        internal
+        view
+    {
+        Wallets.WalletState walletState = bridge
+            .wallets(walletPubKeyHash)
+            .state;
+        require(
+            walletState == Wallets.WalletState.Live ||
+                walletState == Wallets.WalletState.MovingFunds,
+            "Wallet is not in Live or MovingFunds state"
+        );
     }
 }
