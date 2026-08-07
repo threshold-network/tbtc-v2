@@ -654,8 +654,9 @@ describe("Bridge - Reservation", () => {
         ).to.be.revertedWith("Caller is not the reservation owner")
       })
 
-      it("should surrender gross TBTC, charge the fee, and register the redemption", async () => {
-        const fee = grossTbtc.mul(20).div(10000)
+      it("should surrender gross TBTC and register the redemption", async () => {
+        // Redemption is free by default; the exit leg is exit-neutral.
+        const fee = BigNumber.from(0)
         const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
 
         await tbtc
@@ -804,7 +805,7 @@ describe("Bridge - Reservation", () => {
     })
 
     it("retries the redemption from Bank balance", async () => {
-      const fee = grossTbtc.mul(20).div(10000)
+      const fee = BigNumber.from(0)
       await bank
         .connect(thirdParty)
         .approveBalance(reservationVault.address, amountSat)
@@ -1399,7 +1400,7 @@ describe("Bridge - Reservation", () => {
       // balance held by the Bridge.
       const supplyBefore = await tbtc.totalSupply()
 
-      const redemptionFee = grossTbtc.mul(20).div(10000)
+      const redemptionFee = BigNumber.from(0)
       await tbtc
         .connect(thirdParty)
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))

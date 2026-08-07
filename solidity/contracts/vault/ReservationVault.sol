@@ -59,7 +59,8 @@ interface IReservationBridge {
 ///         - initiation: charged when the acceptance credit is processed;
 ///           covers the mint leg and the first custody term,
 ///         - extension: charged per custody term extension,
-///         - redemption: charged when the in-kind redemption is requested.
+///         - redemption: free by default; the parameter is retained for
+///           governance.
 ///
 ///         Wiring requirements: governance must mark this vault as trusted
 ///         in the Bridge (`setVaultStatus`) so deposits can be revealed with
@@ -93,7 +94,9 @@ contract ReservationVault is IVault, Ownable {
     ///         per custody term extension.
     uint16 public extensionFeeBps;
     /// @notice Redemption fee in basis points of the gross amount, charged
-    ///         when the in-kind redemption is requested.
+    ///         when the in-kind redemption is requested. Zero by default:
+    ///         redemption is exit-neutral, custody is paid for via the
+    ///         initiation and extension fees.
     uint16 public redemptionFeeBps;
 
     event ReservationCreditProcessed(
@@ -151,12 +154,15 @@ contract ReservationVault is IVault, Ownable {
 
         // Draft fee schedule from the UTXO reservation design:
         // 40 bps all-in at initiation (20 bps mint leg + first-year
-        // custody), 20 bps per extension year, 20 bps at redemption. The
-        // reserved lane thereby strictly dominates the pooled path's
-        // 20 bps + 20 bps round trip at every holding horizon.
+        // custody), 20 bps per extension year, free redemption --
+        // custody-style pay-to-hold pricing that is never cheaper than the
+        // pooled path's 20 bps + 20 bps round trip (parity at a one-year
+        // hold, premium beyond). The minimum reservation size, not this
+        // schedule, is the governance dial that keeps the carry fee
+        // covering per-position lifecycle costs.
         initiationFeeBps = 40;
         extensionFeeBps = 20;
-        redemptionFeeBps = 20;
+        redemptionFeeBps = 0;
     }
 
     /// @notice Called by the Bank when the Bridge proves a reservation's
