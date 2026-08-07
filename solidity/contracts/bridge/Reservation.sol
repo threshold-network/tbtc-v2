@@ -171,6 +171,8 @@ library Reservation {
         bytes20 indexed walletPubKeyHash
     );
 
+    event ReservedRedemptionVetoed(uint256 indexed reservationKey);
+
     event ReservationReanchored(
         uint256 indexed reservationKey,
         bytes20 indexed newWalletPubKeyHash,
@@ -705,6 +707,49 @@ library Reservation {
 
         // Return the surrendered balance to the redeemer as Bank balance.
         self.bank.transferBalance(redeemer, refundAmount);
+    }
+
+    /// @notice Notifies that a pending reserved redemption was vetoed in the
+    ///         redemption watchtower. Mirrors
+    ///         `Redemption.notifyRedemptionVeto`: the surrendered balance is
+    ///         detained and passed to the watchtower (as Bank balance) for
+    ///         further processing, the pending request is cleared, and the
+    ///         reservation returns to the Active state -- the anchor
+    ///         outpoint was not spent, so the in-kind claim survives.
+    /// @param reservationKey The key of the reservation with the vetoed
+    ///        redemption.
+    /// @dev Requirements:
+    ///      - The caller must be the redemption watchtower,
+    ///      - The reservation must have a pending reserved redemption.
+    function notifyReservedRedemptionVeto(
+        BridgeState.Storage storage self,
+        uint256 reservationKey
+    ) external {
+        require(
+            msg.sender == self.redemptionWatchtower,
+            "Caller is not the redemption watchtower"
+        );
+
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        require(
+            reservation.state == ReservationState.RedemptionRequested,
+            "No pending reserved redemption"
+        );
+
+        uint64 detainedAmount = reservation.mintedAmount;
+
+        reservation.state = ReservationState.Active;
+        reservation.redeemer = address(0);
+        reservation.redeemerOutputScriptHash = bytes32(0);
+        reservation.redemptionRequestedAt = 0;
+        reservation.redemptionTxMaxFee = 0;
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservedRedemptionVetoed(reservationKey);
+
+        self.bank.transferBalance(self.redemptionWatchtower, detainedAmount);
     }
 
     /// @notice Used by the wallet to prove a re-anchor transaction moving a

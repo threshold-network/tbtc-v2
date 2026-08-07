@@ -140,6 +140,8 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash
     );
 
+    event ReservedRedemptionVetoed(uint256 indexed reservationKey);
+
     event ReservationReanchored(
         uint256 indexed reservationKey,
         bytes20 indexed newWalletPubKeyHash,
@@ -904,6 +906,17 @@ contract Bridge is
         uint32[] calldata walletMembersIDs
     ) external {
         self.notifyReservedRedemptionTimeout(reservationKey, walletMembersIDs);
+    }
+
+    /// @notice Notifies that a pending reserved redemption was vetoed in the
+    ///         redemption watchtower. Detains the surrendered balance to the
+    ///         watchtower and returns the reservation to the Active state.
+    ///         See `Reservation.notifyReservedRedemptionVeto`.
+    /// @param reservationKey The key of the reservation with the vetoed
+    ///        redemption.
+    function notifyReservedRedemptionVeto(uint256 reservationKey) external {
+        // The caller is checked in the library function.
+        self.notifyReservedRedemptionVeto(reservationKey);
     }
 
     /// @notice Submits the moving funds target wallets commitment.
