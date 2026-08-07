@@ -174,25 +174,35 @@ contract ReservationVault is IVault, Ownable {
     ) external override onlyBank {
         require(depositors.length != 0, "No depositors specified");
 
-        address treasury = bridge.treasury();
+        uint256 totalSat = 0;
+        for (uint256 i = 0; i < depositedAmounts.length; i++) {
+            totalSat += depositedAmounts[i];
+        }
+
+        // Convert the whole Bank balance credited by the Bridge into TBTC
+        // minted to this vault in a single mint, then distribute it.
+        bank.approveBalance(address(tbtcVault), totalSat);
+        tbtcVault.mint(totalSat * SATOSHI_MULTIPLIER);
+
+        uint256 totalFee = 0;
 
         for (uint256 i = 0; i < depositors.length; i++) {
-            uint256 satAmount = depositedAmounts[i];
-            uint256 grossTbtc = satAmount * SATOSHI_MULTIPLIER;
-
-            // Convert the Bank balance credited by the Bridge into TBTC
-            // minted to this vault.
-            bank.approveBalance(address(tbtcVault), satAmount);
-            tbtcVault.mint(grossTbtc);
-
+            uint256 grossTbtc = depositedAmounts[i] * SATOSHI_MULTIPLIER;
             uint256 fee = (grossTbtc * initiationFeeBps) / BASIS_POINTS;
-            if (fee > 0) {
-                IERC20(tbtcToken).safeTransfer(treasury, fee);
-            }
+            totalFee += fee;
+
             IERC20(tbtcToken).safeTransfer(depositors[i], grossTbtc - fee);
 
             // slither-disable-next-line reentrancy-events
-            emit ReservationCreditProcessed(depositors[i], satAmount, fee);
+            emit ReservationCreditProcessed(
+                depositors[i],
+                depositedAmounts[i],
+                fee
+            );
+        }
+
+        if (totalFee > 0) {
+            IERC20(tbtcToken).safeTransfer(bridge.treasury(), totalFee);
         }
     }
 
@@ -291,6 +301,65 @@ contract ReservationVault is IVault, Ownable {
         emit CustodyExtended(reservationKey, msg.sender, fee);
 
         bridge.extendReservation(reservationKey);
+    }
+
+    /// @notice Re-requests an in-kind redemption using the caller's Bank
+    ///         balance -- the state a timed-out reserved redemption leaves
+    ///         the owner in (the Bridge refunds the surrendered amount as
+    ///         Bank balance). The caller surrenders the gross minted amount
+    ///         as Bank balance and pays the redemption fee in TBTC.
+    /// @param reservationKey The key of the reservation to redeem.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @dev Requirements:
+    ///      - The caller must be the reservation owner,
+    ///      - The caller must have approved this vault in the Bank for the
+    ///        gross minted amount (`Bank.approveBalance`),
+    ///      - The caller must have approved this vault for the redemption
+    ///        fee in TBTC.
+    function retryRedeemReservation(
+        uint256 reservationKey,
+        bytes calldata redeemerOutputScript
+    ) external {
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            reservationKey
+        );
+        require(
+            reservation.owner == msg.sender,
+            "Caller is not the reservation owner"
+        );
+
+        uint256 grossTbtc = uint256(reservation.mintedAmount) *
+            SATOSHI_MULTIPLIER;
+        uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
+        if (fee > 0) {
+            IERC20(tbtcToken).safeTransferFrom(
+                msg.sender,
+                bridge.treasury(),
+                fee
+            );
+        }
+
+        bank.transferBalanceFrom(
+            msg.sender,
+            address(this),
+            reservation.mintedAmount
+        );
+        bank.approveBalance(address(bridge), reservation.mintedAmount);
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservedRedemptionInitiated(
+            reservationKey,
+            msg.sender,
+            grossTbtc,
+            fee
+        );
+
+        bridge.requestReservedRedemption(
+            reservationKey,
+            msg.sender,
+            redeemerOutputScript
+        );
     }
 
     /// @notice Updates the vault fee parameters.
