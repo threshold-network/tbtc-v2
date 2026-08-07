@@ -62,6 +62,15 @@ interface IRedemptionWatchtower {
         external
         view
         returns (uint32);
+
+    /// @notice Returns the applicable veto delay for a pending reserved
+    ///         redemption identified by the given reservation key.
+    /// @param reservationKey The key of the reservation.
+    /// @return Reserved redemption veto delay.
+    function getReservedRedemptionDelay(uint256 reservationKey)
+        external
+        view
+        returns (uint32);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof
