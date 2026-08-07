@@ -46,8 +46,7 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
       Wallets: (await helpers.contracts.getContract("Wallets")).address,
       Fraud: (await helpers.contracts.getContract("Fraud")).address,
       MovingFunds: (await helpers.contracts.getContract("MovingFunds")).address,
-      Reservation: (await helpers.contracts.getContract("Reservation"))
-        .address,
+      Reservation: (await helpers.contracts.getContract("Reservation")).address,
     }
 
     const bridgeFactory = await ethers.getContractFactory("BridgeStub", {
