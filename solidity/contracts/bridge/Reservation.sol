@@ -818,15 +818,20 @@ library Reservation {
             "Transaction fee is too high"
         );
 
-        // Floor the anchor at the reservation minimum so that repeated,
-        // network-scheduled re-anchor hops cannot grind the anchored amount
-        // down toward the miner fee. Because `reservationMinAmount` is
-        // required to exceed `reservationTxMaxFee`, this also keeps the
-        // anchor safely above the redemption fee bound, preserving
-        // redemption liveness across migrations.
+        // Dust floor: the re-anchored amount must stay strictly above the
+        // per-transaction fee bound, keeping the anchor clear of dust and
+        // preserving positive redemption value. This is deliberately a dust
+        // floor rather than `reservationMinAmount`: a minimum-sized
+        // reservation must remain migratable (a `reservationMinAmount` floor
+        // combined with the proposal validator's positive-fee requirement
+        // would leave no compliant re-anchor for an exactly-minimum anchor,
+        // pinning a retiring wallet). Bounding cumulative Byzantine
+        // re-anchor grinding is deferred to the authorized-action model (an
+        // explicit migration request with nonce, owner/target authorization,
+        // and a cumulative fee budget), tracked as a follow-up.
         require(
-            newAnchorAmount >= self.reservationMinAmount,
-            "Re-anchor amount below the reservation minimum"
+            newAnchorAmount > self.reservationTxMaxFee,
+            "Re-anchor amount below the dust floor"
         );
 
         bytes20 oldWalletPubKeyHash = reservation.walletPubKeyHash;

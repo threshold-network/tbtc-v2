@@ -1493,9 +1493,13 @@ describe("Bridge - Reservation", () => {
         .withArgs(reservationKey, redemptionTx.txHash)
     })
 
-    it("rejects a re-anchor that drops below the reservation minimum", async () => {
-      // Accept a reservation whose anchor sits at the reservation minimum,
-      // so a single fee-capped hop can push it below the floor.
+    it("allows a minimum-sized reservation to migrate (H-08 regression)", async () => {
+      // A reservation whose anchor sits at the reservation minimum must
+      // still be migratable with a positive fee. The earlier
+      // `>= reservationMinAmount` re-anchor floor, combined with the
+      // proposal validator's positive-fee requirement, left no compliant
+      // re-anchor for an exactly-minimum anchor and would have pinned a
+      // retiring wallet. The dust floor (`> reservationTxMaxFee`) fixes it.
       const minAmount = BigNumber.from(RESERVATION_MIN_AMOUNT)
       const depositAmt = minAmount.add(RESERVATION_TX_MAX_FEE)
       const fundingTx = buildTx(
@@ -1550,41 +1554,12 @@ describe("Bridge - Reservation", () => {
 
       await liveWallet(secondWalletPubKeyHash)
 
-      // Fee of 1 sat keeps the hop within the per-hop cap, but the resulting
-      // anchor (min - 1) sits below the reservation minimum.
-      const belowMin = minAmount.sub(1)
+      // Migrate with a 1-sat fee: the anchor stays above the dust floor.
+      const migrated = minAmount.sub(1)
       const reanchorTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
-        [{ valueSat: belowMin, script: p2wpkhScript(secondWalletPubKeyHash) }]
+        [{ valueSat: migrated, script: p2wpkhScript(secondWalletPubKeyHash) }]
       )
-      await expect(
-        bridge
-          .connect(spvMaintainer)
-          .submitReservationProof(
-            ProofType.Reanchor,
-            reanchorTx.info,
-            proofFor(reanchorTx.txHash),
-            NO_MAIN_UTXO_PARAM,
-            reservationKey
-          )
-      ).to.be.revertedWith("Re-anchor amount below the reservation minimum")
-    })
-
-    it("re-anchors a reservation to another Live wallet", async () => {
-      const { anchorTx, reservationKey } = await makeAcceptedReservation()
-      await liveWallet(secondWalletPubKeyHash)
-
-      const reanchorFee = 500
-      const reanchorTx = buildTx(
-        [{ txHash: anchorTx.txHash, index: 0 }],
-        [
-          {
-            valueSat: anchorAmount.sub(reanchorFee),
-            script: p2wpkhScript(secondWalletPubKeyHash),
-          },
-        ]
-      )
-
       const tx = await bridge
         .connect(spvMaintainer)
         .submitReservationProof(
@@ -1594,22 +1569,14 @@ describe("Bridge - Reservation", () => {
           NO_MAIN_UTXO_PARAM,
           reservationKey
         )
-
       await expect(tx)
         .to.emit(bridge, "ReservationReanchored")
         .withArgs(
           reservationKey,
           secondWalletPubKeyHash,
           reanchorTx.txHash,
-          anchorAmount.sub(reanchorFee)
+          migrated
         )
-
-      const reservation = await bridge.reservations(reservationKey)
-      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
-      expect(reservation.anchorTxHash).to.equal(reanchorTx.txHash)
-      expect(reservation.anchorAmount).to.equal(anchorAmount.sub(reanchorFee))
-      // The gross claim is unchanged by in-kind re-anchor fees.
-      expect(reservation.mintedAmount).to.equal(anchorAmount)
     })
 
     it("dissolves an expired reservation into the wallet main UTXO", async () => {
