@@ -66,6 +66,13 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1000,
           },
+          // Storage layouts are asserted by tests guarding the
+          // Bridge / ReservationRouter delegatecall storage parity.
+          outputSelection: {
+            "*": {
+              "*": ["storageLayout"],
+            },
+          },
         },
       },
     ],
@@ -73,19 +80,19 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-      // Reduce the number of optimizer runs to preserve the Bridge's
-      // EIP-170 deployment margin after adding the reservation entry
-      // points. Progressively reduced (100 -> 90 -> 1) as correctness
-      // fixes (settlement-overwrite guard, Terminated-wallet dissolution,
-      // one-free-retry accounting, dust-value validation) added real new
-      // logic; runs=1 is the floor. The runtime-gas cost is effectively
-      // nil: the Bridge is a thin dispatch shell over linked libraries
-      // (Deposit, DepositSweep, Redemption) that stay at runs=1000, so a
-      // measured runs=1000-vs-100 diff over the deposit/redemption hot
-      // paths was 0-8 gas (noise); runs=1 is smaller still. The durable
-      // alternative remains a router-style refactor moving entry points
-      // out of the Bridge (as done on the P2TR activation track) -- once
-      // runs=1 stops being enough, there is no lower lever left to pull.
+// The UTXO-reservation surface lives in the ReservationRouter
+      // delegatecall extension; the Bridge only keeps the router wiring
+      // (`setReservationRouter`/`initializeV6_*`) and the fallback hop, so
+      // it stays under EIP-170 even as the reservation model grows. The
+      // runs=100 setting keeps this headroom; the runtime-gas cost of the
+      // lower runs value is expected to be small from a committed gas-diff
+      // standpooint -- the Bridge is a thin dispatch shell over linked
+      // libraries (Deposit, DepositSweep, Redemption, Reservation) that
+      // stay at runs=1000, so a runs=1000-vs-100 diff over the
+      // deposit/redemption hot paths is small (noise-to-single-digits,
+      // not backed by a committed gas-diff test). New reservation code
+      // goes into the ReservationRouter, which has its own EIP-170
+      // budget.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {
@@ -112,6 +119,11 @@ const config: HardhatUserConfig = {
           optimizer: {
             enabled: true,
             runs: 1,
+          },
+          outputSelection: {
+            "*": {
+              "*": ["storageLayout"],
+            },
           },
         },
       },

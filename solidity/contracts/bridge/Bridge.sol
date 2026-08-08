@@ -27,7 +27,6 @@ import "./BridgeState.sol";
 import "./Deposit.sol";
 import "./DepositSweep.sol";
 import "./Redemption.sol";
-import "./Reservation.sol";
 import "./BitcoinTx.sol";
 import "./EcdsaLib.sol";
 import "./Wallets.sol";
@@ -68,7 +67,6 @@ contract Bridge is
     using Deposit for BridgeState.Storage;
     using DepositSweep for BridgeState.Storage;
     using Redemption for BridgeState.Storage;
-    using Reservation for BridgeState.Storage;
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
     using Fraud for BridgeState.Storage;
@@ -108,80 +106,7 @@ contract Bridge is
         bytes redeemerOutputScript
     );
 
-    event ReservationAccepted(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash,
-        address indexed owner,
-        bytes32 anchorTxHash,
-        uint64 anchorAmount,
-        uint32 expiresAt
-    );
-
-    event ReservationExtended(
-        uint256 indexed reservationKey,
-        uint32 newExpiresAt
-    );
-
-    event ReservedRedemptionRequested(
-        uint256 indexed reservationKey,
-        address indexed redeemer,
-        bytes redeemerOutputScript,
-        uint64 mintedAmount,
-        uint64 txMaxFee
-    );
-
-    event ReservedRedemptionCompleted(
-        uint256 indexed reservationKey,
-        bytes32 redemptionTxHash
-    );
-
-    event ReservedRedemptionTimedOut(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash
-    );
-
-    event ReservedRedemptionSettled(
-        uint256 indexed reservationKey,
-        bytes32 redemptionTxHash
-    );
-
-    event ReservedRedemptionTimeoutSlashingSkipped(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash
-    );
-
-    event ReservedRedemptionVetoed(uint256 indexed reservationKey);
-
-    event ReservationReanchored(
-        uint256 indexed reservationKey,
-        bytes20 indexed newWalletPubKeyHash,
-        bytes32 newAnchorTxHash,
-        uint64 newAnchorAmount
-    );
-
-    event ReservationDissolved(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash,
-        uint64 mintedAmount,
-        uint64 anchorAmount,
-        uint64 dissolutionFee
-    );
-
-    event ReservationParametersUpdated(
-        uint64 reservationMinAmount,
-        uint64 reservationTxMaxFee,
-        uint64 reservationDissolutionTxMaxFee,
-        uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
-        uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet,
-        uint64 maxCumulativeReanchorFee
-    );
-
-    event ReservationVaultUpdated(address reservationVault);
-
-    event WalletMovingFunds(
+event WalletMovingFunds(
         bytes32 indexed ecdsaWalletID,
         bytes20 indexed walletPubKeyHash
     );
@@ -839,104 +764,6 @@ contract Bridge is
             walletMembersIDs,
             redeemerOutputScript
         );
-    }
-
-    /// @notice Single entry point for all reservation lifecycle SPV proofs:
-    ///         anchor acceptance, in-kind reserved redemption, re-anchoring
-    ///         and dissolution. Consolidated into one external function to
-    ///         preserve the Bridge's EIP-170 deployment size margin. See
-    ///         `Reservation.submitReservationProof` and the individual
-    ///         handlers in the `Reservation` library for detailed
-    ///         requirements.
-    /// @param proofType The type of the submitted proof, see
-    ///        `Reservation.ProofType`.
-    /// @param txInfo Bitcoin transaction data.
-    /// @param proof Bitcoin proof data.
-    /// @param mainUtxo Data of the wallet's main UTXO; only used for
-    ///        `Dissolution` proofs and ignored otherwise.
-    /// @param reservationKey The key of the target reservation; ignored for
-    ///        `Acceptance` proofs where the key is derived from the spent
-    ///        deposit outpoint.
-    function submitReservationProof(
-        uint8 proofType,
-        BitcoinTx.Info calldata txInfo,
-        BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
-        uint256 reservationKey
-    ) external onlySpvMaintainer {
-        self.submitReservationProof(
-            proofType,
-            txInfo,
-            proof,
-            mainUtxo,
-            reservationKey
-        );
-    }
-
-    /// @notice Extends the custody term of a reservation by the current
-    ///         reservation term length. Can only be called by the
-    ///         reservation vault, which collects the custody fee for the
-    ///         extension. See `Reservation.extendReservation`.
-    /// @param reservationKey The key of the reservation to extend.
-    function extendReservation(uint256 reservationKey) external {
-        // The caller is checked in the library function.
-        self.extendReservation(reservationKey);
-    }
-
-    /// @notice Requests an in-kind redemption of a reservation: the wallet
-    ///         is expected to spend exactly the reservation's current anchor
-    ///         outpoint to the redeemer output script in a 1-input-1-output
-    ///         transaction. Can only be called by the reservation vault,
-    ///         which must have approved the Bridge in the Bank for the gross
-    ///         minted amount. See `Reservation.requestReservedRedemption`.
-    /// @param reservationKey The key of the reservation to redeem.
-    /// @param redeemer The address able to claim the surrendered balance
-    ///        back if the redemption times out.
-    /// @param redeemerOutputScript The redeemer's length-prefixed output
-    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
-    /// @param isRetry True for a fee-free retry via
-    ///        `ReservationVault.retryRedeemReservation`; false for a fresh
-    ///        `redeemReservation` call.
-    function requestReservedRedemption(
-        uint256 reservationKey,
-        address redeemer,
-        bytes calldata redeemerOutputScript,
-        bool isRetry
-    ) external {
-        // The caller is checked in the library function.
-        self.requestReservedRedemption(
-            reservationKey,
-            redeemer,
-            redeemerOutputScript,
-            isRetry
-        );
-    }
-
-    /// @notice Notifies that a pending reserved redemption has timed out.
-    ///         Returns the surrendered balance to the redeemer, slashes the
-    ///         wallet operators like a regular redemption timeout, and
-    ///         returns the reservation to the Active state. See
-    ///         `Reservation.notifyReservedRedemptionTimeout`.
-    /// @param reservationKey The key of the reservation with the timed out
-    ///        redemption.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members.
-    function notifyReservedRedemptionTimeout(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservedRedemptionTimeout(reservationKey, walletMembersIDs);
-    }
-
-    /// @notice Notifies that a pending reserved redemption was vetoed in the
-    ///         redemption watchtower. Detains the surrendered balance to the
-    ///         watchtower and returns the reservation to the Active state.
-    ///         See `Reservation.notifyReservedRedemptionVeto`.
-    /// @param reservationKey The key of the reservation with the vetoed
-    ///        redemption.
-    function notifyReservedRedemptionVeto(uint256 reservationKey) external {
-        // The caller is checked in the library function.
-        self.notifyReservedRedemptionVeto(reservationKey);
     }
 
     /// @notice Submits the moving funds target wallets commitment.
@@ -2264,100 +2091,74 @@ contract Bridge is
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
     }
 
-    /// @notice Updates parameters of reservations, including the
-    ///         reservation vault address. Deposits revealed with the
-    ///         reservation vault address are treated as UTXO reservations.
-    /// @param reservationVault Address of the reservation vault. Can only be
-    ///        changed while there are no active reservations.
-    /// @param reservationMinAmount New value of the reservation minimum
-    ///        amount in satoshis. It is the minimal anchor output amount
-    ///        accepted for a reservation.
-    /// @param reservationTxMaxFee New value of the reservation transaction
-    ///        max fee in satoshis. It is the maximum amount of BTC
-    ///        transaction fee that can be incurred by a single reservation
-    ///        lifecycle transaction.
-    /// @param reservationDissolutionTxMaxFee New value of the dedicated
-    ///        cap on the BTC transaction fee for the dissolution shape
-    ///        (usually 2-in-1-out; 1-in-1-out when the wallet has no
-    ///        main UTXO yet); distinct from `reservationTxMaxFee` which
-    ///        caps the always-1-in-1-out anchor / re-anchor / redemption
-    ///        shapes.
-    /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length in seconds.
-    /// @param reservationGracePeriod New value of the reservation grace
-    ///        period in seconds.
-    /// @param reservationMaxTotalAmount New cap on the total amount in
-    ///        satoshi locked under active reservations.
-    /// @param maxReservationsPerWallet New cap on the number of active
-    ///        reservations a single wallet can custody.
-    /// @param maxCumulativeReanchorFee New cap on the total satoshi a
-    ///        single reservation may lose across all re-anchor hops.
+/// @notice Sets the reservation router: the contract holding the
+    ///         Bridge's UTXO-reservation external surface, reached through
+    ///         the fallback function below via `delegatecall`. See
+    ///         `ReservationRouter` for the architecture and its security
+    ///         invariants.
+    /// @param _reservationRouter Address of the reservation router.
     /// @dev Requirements:
     ///      - The caller must be the governance,
-    ///      - See `Reservation.updateReservationParameters` for parameter
-    ///        requirements.
-    function updateReservationParameters(
-        address reservationVault,
-        uint64 reservationMinAmount,
-        uint64 reservationTxMaxFee,
-        uint64 reservationDissolutionTxMaxFee,
-        uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
-        uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet,
-        uint64 maxCumulativeReanchorFee
-    ) external onlyGovernance {
-        self.updateReservationParameters(
-            reservationVault,
-            reservationMinAmount,
-            reservationTxMaxFee,
-            reservationDissolutionTxMaxFee,
-            reservationTermSeconds,
-            reservationGracePeriod,
-            reservationMaxTotalAmount,
-            maxReservationsPerWallet,
-            maxCumulativeReanchorFee
-        );
+    ///      - The reservation router must not be already set,
+    ///      - The reservation router address must not be 0x0.
+    ///
+    ///      This function supports a one-time initialization of the router.
+    ///      Since the router executes via `delegatecall` on the Bridge
+    ///      storage, pointing it at new code is equivalent to a Bridge
+    ///      implementation change — replacing the router therefore
+    ///      deliberately requires a Bridge implementation upgrade (the
+    ///      proxy-admin ceremony), not a governance parameter update.
+    function setReservationRouter(address _reservationRouter)
+        external
+        onlyGovernance
+    {
+        self.setReservationRouter(_reservationRouter);
     }
 
-    /// @notice Collection of all reservations indexed by the deposit key of
-    ///         the underlying reserved deposit, i.e.
-    ///         `keccak256(fundingTxHash | fundingOutputIndex)`.
-    /// @param reservationKey The key of the reservation.
-    function reservations(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory)
-    {
-        return self.reservations[reservationKey];
-    }
+    /// @notice Routes calls with unmatched function selectors to the
+    ///         reservation router via `delegatecall`, executing them on the
+    ///         Bridge storage at the Bridge address. This is how the
+    ///         UTXO-reservation surface (see `ReservationRouter`) is exposed
+    ///         without growing the Bridge implementation past the EIP-170
+    ///         size limit.
+    /// @dev The router address can only be set once, by the governance, via
+    ///      `setReservationRouter`; replacing it requires a Bridge
+    ///      implementation upgrade. Calls made before the router is set
+    ///      revert. The function is deliberately not payable — the Bridge
+    ///      never accepts ETH.
+    // The fallback is intentionally a delegatecall dispatcher (the whole
+    // point of the router architecture) and intentionally not payable.
+    /* solhint-disable payable-fallback, no-complex-fallback */
+    fallback() external {
+        address reservationRouter = self.reservationRouter;
+        require(reservationRouter != address(0), "Unknown function");
 
-    /// @notice Returns the current values of Bridge reservation parameters.
-    function reservationParameters()
-        external
-        view
-        returns (
-            address reservationVault,
-            uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee,
-            uint64 reservationDissolutionTxMaxFee,
-            uint32 reservationTermSeconds,
-            uint32 reservationGracePeriod,
-            uint64 reservationMaxTotalAmount,
-            uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet,
-            uint64 maxCumulativeReanchorFee
-        )
-    {
-        reservationVault = self.reservationVault;
-        reservationMinAmount = self.reservationMinAmount;
-        reservationTxMaxFee = self.reservationTxMaxFee;
-        reservationDissolutionTxMaxFee = self.reservationDissolutionTxMaxFee;
-        reservationTermSeconds = self.reservationTermSeconds;
-        reservationGracePeriod = self.reservationGracePeriod;
-        reservationMaxTotalAmount = self.reservationMaxTotalAmount;
-        reservationTotalAmount = self.reservationTotalAmount;
-        maxReservationsPerWallet = self.maxReservationsPerWallet;
-        maxCumulativeReanchorFee = self.maxCumulativeReanchorFee;
+// slither-disable-next-line assembly
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            // The router address is written exactly once by the governance
+            // via `setReservationRouter` and afterwards changeable only
+            // through a Bridge implementation upgrade, so this delegatecall
+            // target is as trusted as the Bridge implementation itself.
+            // slither-disable-next-line controlled-delegatecall
+            let result := delegatecall(
+                gas(),
+                reservationRouter,
+                0,
+                calldatasize(),
+                0,
+                0
+            )
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 {
+                revert(0, returndatasize())
+            }
+            default {
+                return(0, returndatasize())
+            }
+        }
     }
+    /* solhint-enable payable-fallback, no-complex-fallback */
 }

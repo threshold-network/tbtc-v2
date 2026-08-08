@@ -75,10 +75,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "MovingFunds",
       bridgeArtifact.libraries?.MovingFunds
     ),
-    Reservation: await resolveAddress(
-      "Reservation",
-      bridgeArtifact.libraries?.Reservation
-    ),
   }
 
   const currentBridge = await ethers.getContractAt("Bridge", bridgeAddress)

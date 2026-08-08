@@ -422,7 +422,7 @@ library BridgeState {
         // The number of active reservations custodied by the given wallet,
         // identified by its 20-byte wallet public key hash.
         mapping(bytes20 => uint32) walletReservationsCount;
-        // Reveal-time facts for deposits routed to the reservation vault.
+// Reveal-time facts for deposits routed to the reservation vault.
         // The permanent classification prevents later reservation-vault
         // updates from changing an ordinary deposit into a reservation or
         // making a reserved deposit eligible for an ordinary sweep.
@@ -431,6 +431,14 @@ library BridgeState {
         // request timed out or was vetoed before their Bitcoin transaction
         // could be proven, keyed by reservation key.
         mapping(uint256 => ReservedRedemptionSettlement) reservedRedemptionSettlements;
+        // Address of the reservation router: the delegatecall extension of
+        // the Bridge holding the UTXO-reservation external surface. The
+        // Bridge's fallback function routes calls with unmatched selectors
+        // to this address. Set exactly once via governance; changing it
+        // afterwards requires a Bridge implementation upgrade, as pointing
+        // the fallback delegatecall at new code is equivalent to a Bridge
+        // implementation change.
+        address reservationRouter;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -438,7 +446,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[41] __gap;
+uint256[40] __gap;
     }
 
     event DepositParametersUpdated(
@@ -492,6 +500,8 @@ library BridgeState {
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    event ReservationRouterSet(address reservationRouter);
 
     // Event emitted when the rebate staking address is initialized. Declared
     // in this library as the event is emitted from within `BridgeState` and
@@ -973,6 +983,35 @@ library BridgeState {
 
         self.redemptionWatchtower = _redemptionWatchtower;
         emit RedemptionWatchtowerSet(_redemptionWatchtower);
+    }
+
+    /// @notice Sets the reservation router address.
+    /// @param _reservationRouter Address of the reservation router.
+    /// @dev Requirements:
+    ///      - Reservation router address must not be already set,
+    ///      - Reservation router address must not be 0x0.
+    ///
+    ///      This function is designed to support a one-time initialization
+    ///      of the reservation router. The router is a `delegatecall`
+    ///      extension of the Bridge, so changing it after it is set is
+    ///      equivalent to changing the Bridge implementation and requires
+    ///      a dedicated upgrade path.
+    function setReservationRouter(
+        Storage storage self,
+        address _reservationRouter
+    ) internal {
+        require(
+            self.reservationRouter == address(0),
+            "Reservation router already set"
+        );
+
+        require(
+            _reservationRouter != address(0),
+            "Reservation router address must not be 0x0"
+        );
+
+        self.reservationRouter = _reservationRouter;
+        emit ReservationRouterSet(_reservationRouter);
     }
 
     /// @notice Sets the rebate staking address.
