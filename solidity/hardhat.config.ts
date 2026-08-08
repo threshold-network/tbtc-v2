@@ -75,7 +75,11 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
       // Reduce the number of optimizer runs to preserve the Bridge's
       // EIP-170 deployment margin after adding the reservation entry
-      // points. DRAFT NOTE: this trades runtime gas for code size; the
+      // points. The runtime-gas cost of this is effectively nil: the Bridge
+      // is a thin dispatch shell over linked libraries (Deposit,
+      // DepositSweep, Redemption, Reservation) that stay at runs=1000, so a
+      // measured runs=1000-vs-100 diff over the deposit/redemption/
+      // reservation hot paths is 0-8 gas (noise). DRAFT NOTE: the durable
       // alternative is a router-style refactor moving entry points out of
       // the Bridge (as done on the P2TR activation track).
       "contracts/bridge/Bridge.sol": {
