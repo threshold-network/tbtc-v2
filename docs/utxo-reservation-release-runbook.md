@@ -13,15 +13,15 @@ duties the feature adds. It assumes the stacked PRs
 
 ## 1. Component and upgradeability map
 
-| Contract | Kind | Change in this feature |
-| --- | --- | --- |
-| `Bridge` | Transparent proxy (impl upgrade) | New storage, `setReservationRouter`, fallback delegatecall, library link map drops `Reservation` (moves to router). |
-| `ReservationRouter` | Plain contract, delegatecall target | New. Holds the reservation ABI surface; executes on Bridge storage. |
-| `Reservation`, `ReservationProofs` | Libraries linked by the router | New / reworked. |
-| `ReservationVault` | Plain `Ownable` contract | New. Liability-side vault + renewal policy + fee reserve/financing. |
-| `RedemptionWatchtower` | Transparent proxy (impl upgrade) | Reserved-objection surface reworked to per-generation keys; imports the reservation types. |
-| `WalletProposalValidator` | Plain contract (non-upgradeable) | New reservation proposal validators; redeploy + repoint. |
-| `BridgeGovernance` | Plain `Ownable` contract (non-upgradeable) | New grouped begin/finalize for reservation params + caps. |
+| Contract                           | Kind                                       | Change in this feature                                                                                              |
+| ---------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `Bridge`                           | Transparent proxy (impl upgrade)           | New storage, `setReservationRouter`, fallback delegatecall, library link map drops `Reservation` (moves to router). |
+| `ReservationRouter`                | Plain contract, delegatecall target        | New. Holds the reservation ABI surface; executes on Bridge storage.                                                 |
+| `Reservation`, `ReservationProofs` | Libraries linked by the router             | New / reworked.                                                                                                     |
+| `ReservationVault`                 | Plain `Ownable` contract                   | New. Liability-side vault + renewal policy + fee reserve/financing.                                                 |
+| `RedemptionWatchtower`             | Transparent proxy (impl upgrade)           | Reserved-objection surface reworked to per-generation keys; imports the reservation types.                          |
+| `WalletProposalValidator`          | Plain contract (non-upgradeable)           | New reservation proposal validators; redeploy + repoint.                                                            |
+| `BridgeGovernance`                 | Plain `Ownable` contract (non-upgradeable) | New grouped begin/finalize for reservation params + caps.                                                           |
 
 The Bridge and the watchtower are the only upgradeable pieces. Everything
 else is a fresh deploy or a redeploy-and-repoint.
@@ -89,7 +89,7 @@ Standard transparent-proxy upgrade via `BridgeGovernance` /
   `@openzeppelin/upgrades-core` fix for foreign link-reference splices
   crashing proxy validation. Keep it until the plugin is upgraded past
   1.20.0; removing it early reintroduces the `"Bytecode is not a valid hex
-  string"` failure on unrelated proxy deploys.
+string"` failure on unrelated proxy deploys.
 - **Post-upgrade**: `setReservationRouter` is idempotent-guarded (reverts
   if already set). Re-pointing the router to new code is itself a Bridge
   implementation change and follows this same procedure — there is no
