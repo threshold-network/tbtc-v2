@@ -337,6 +337,30 @@ library ReservationProofs {
         action.state = Reservation.ActionState.Settled;
 
         if (late) {
+            // A newer acceptance generation may have been authorized after
+            // this one timed out: the position stayed Unknown, so
+            // re-authorization was possible. Only the position's current
+            // generation is ever reachable by notifyReservationActionTimeout
+            // and this deposit is now consumed, so a still-pending newer
+            // generation's reserved capacity would leak permanently. Unwind
+            // it. (A newer generation that already timed out released its
+            // own capacity — nothing to unwind there.)
+            Reservation.ReservationRequest storage pending = self.reservations[
+                reservationKey
+            ];
+            if (pending.requestNonce != requestNonce) {
+                Reservation.ReservationAction storage newer = self
+                    .reservationActions[
+                        Reservation.actionKey(
+                            reservationKey,
+                            pending.requestNonce
+                        )
+                    ];
+                if (newer.state == Reservation.ActionState.Pending) {
+                    unwindPendingAction(self, pending, reservationKey);
+                }
+            }
+
             // The timeout released the capacity reserved at request time;
             // re-take it for the actual anchor value. Deliberately no cap
             // check: caps are request-time throttles and the anchor is
@@ -412,16 +436,21 @@ library ReservationProofs {
             expiresAt
         );
 
-        // Credit the gross anchored amount through the reservation vault.
-        // The per-deposit treasury fee computed at reveal time is
-        // deliberately ignored: reservation claims are minted gross and all
-        // protocol fees are charged as explicit transfers by the vault.
+        // Credit the gross anchored amount through the vault the deposit
+        // was revealed to. Using the deposit's immutable `vault` (verified
+        // to equal the reservation vault when the acceptance was requested)
+        // rather than the live `reservationVault` keeps a late settlement
+        // routing to the depositor's chosen vault even if governance
+        // re-pointed or disabled the reservation vault in the interim. The
+        // per-deposit treasury fee computed at reveal time is deliberately
+        // ignored: reservation claims are minted gross and all protocol
+        // fees are charged as explicit transfers by the vault.
         address[] memory depositors = new address[](1);
         depositors[0] = depositor;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = anchorAmount;
         self.bank.increaseBalanceAndCall(
-            self.reservationVault,
+            self.deposits[reservationKey].vault,
             depositors,
             amounts
         );
@@ -1017,6 +1046,18 @@ library ReservationProofs {
                     reservation.walletPubKeyHash
                 ];
             }
+        } else if (
+            pendingAction.actionType == Reservation.ActionType.Acceptance
+        ) {
+            // A superseded acceptance authorization releases the capacity it
+            // reserved against its target wallet at request time.
+            self.reservationTotalAmount -= pendingAction.amount;
+            self.walletReservationsCount[
+                pendingAction.targetWalletPubKeyHash
+            ] -= 1;
+            self.walletReservationsAmount[
+                pendingAction.targetWalletPubKeyHash
+            ] -= pendingAction.amount;
         }
 
         // The Bank is a trusted protocol contract; the refund above cannot
