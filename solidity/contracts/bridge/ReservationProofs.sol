@@ -362,6 +362,14 @@ library ReservationProofs {
 
         address depositor = self.deposits[reservationKey].depositor;
 
+        // The deposit stops being pending: clear its designated-wallet
+        // marker (unless a stale notification already did) so the
+        // reservation-vault migration guard sees it settled.
+        if (self.reservedDepositWallet[reservationKey] != bytes20(0)) {
+            delete self.reservedDepositWallet[reservationKey];
+            self.pendingReservedDeposits -= 1;
+        }
+
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
@@ -387,6 +395,11 @@ library ReservationProofs {
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(anchorTxHash, uint32(0))))
         ] = reservationKey;
+        Reservation.addWalletReservationKey(
+            self,
+            action.targetWalletPubKeyHash,
+            reservationKey
+        );
 
         // slither-disable-next-line reentrancy-events
         emit ReservationAccepted(
@@ -532,7 +545,7 @@ library ReservationProofs {
         }
 
         action.state = Reservation.ActionState.Settled;
-        self.closeReservation(reservation);
+        self.closeReservation(reservation, reservationKey);
 
         // slither-disable-next-line reentrancy-events
         emit ReservedRedemptionCompleted(
@@ -659,6 +672,17 @@ library ReservationProofs {
 
         // The miner fee reduces the on-chain earmarked amount.
         self.reservationTotalAmount -= minerFee;
+
+        Reservation.removeWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
+        Reservation.addWalletReservationKey(
+            self,
+            newWalletPubKeyHash,
+            reservationKey
+        );
 
         reservation.walletPubKeyHash = newWalletPubKeyHash;
         reservation.anchorAmount = newAnchorAmount;
@@ -895,7 +919,7 @@ library ReservationProofs {
         }
 
         action.state = Reservation.ActionState.Settled;
-        self.closeReservation(reservation);
+        self.closeReservation(reservation, reservationKey);
 
         // slither-disable-next-line reentrancy-events
         emit ReservationDissolved(

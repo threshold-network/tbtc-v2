@@ -282,6 +282,15 @@ library Reservation {
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
 
+    event ReservedDepositMarkedStale(uint256 indexed depositKey);
+
+    event ReservationStranded(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash,
+        address indexed owner,
+        uint64 anchorAmount
+    );
+
     event ReservationParametersUpdated(
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
@@ -402,6 +411,16 @@ library Reservation {
             getAction(self, reservationKey, reservation.requestNonce).state !=
                 ActionState.Pending,
             "Acceptance already pending"
+        );
+
+        // The anchor must be bound to the wallet the deposit was revealed
+        // for: only that wallet's key can spend the deposit, and only it
+        // may become the custodian. The mapping doubles as the pending
+        // marker — a deposit marked stale (or already accepted) cannot be
+        // re-authorized.
+        require(
+            self.reservedDepositWallet[reservationKey] == walletPubKeyHash,
+            "Wallet is not the deposit's designated wallet"
         );
 
         require(
@@ -1133,6 +1152,10 @@ library Reservation {
                 self.reservationTotalAmount == 0,
                 "Active reservations exist"
             );
+            require(
+                self.pendingReservedDeposits == 0,
+                "Pending reserved deposits exist"
+            );
             self.reservationVault = reservationVault;
             emit ReservationVaultUpdated(reservationVault);
         }
@@ -1158,6 +1181,126 @@ library Reservation {
         );
     }
 
+    /// @notice Marks a revealed reserved deposit as stale: it can no
+    ///         longer be authorized for acceptance and stops counting
+    ///         against the pending-reserved-deposit guard. Intended for
+    ///         deposits whose acceptance never happened — after the
+    ///         guaranteed refund-locktime margin the depositor is expected
+    ///         to reclaim the funds through the Bitcoin refund path.
+    /// @param depositKey The deposit key of the reserved deposit.
+    /// @dev Requirements:
+    ///      - The deposit must be a pending reserved deposit (revealed to
+    ///        the reservation vault, not accepted, not already stale),
+    ///      - No acceptance authorization may be pending for it,
+    ///      - The deposit's guaranteed refund-locktime margin
+    ///        (`revealedAt + depositRevealAheadPeriod`) must have elapsed.
+    ///        With the reveal-ahead validation disabled the deposit can be
+    ///        marked stale immediately, matching the disabled protection.
+    function notifyStaleReservedDeposit(
+        BridgeState.Storage storage self,
+        uint256 depositKey
+    ) external {
+        require(
+            self.reservedDepositWallet[depositKey] != bytes20(0),
+            "Not a pending reserved deposit"
+        );
+
+        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
+        require(deposit.sweptAt == 0, "Deposit already swept");
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp >
+                uint256(deposit.revealedAt) + self.depositRevealAheadPeriod,
+            "Deposit refund margin has not elapsed"
+        );
+
+        ReservationRequest storage reservation = self.reservations[depositKey];
+        require(
+            getAction(self, depositKey, reservation.requestNonce).state !=
+                ActionState.Pending,
+            "Acceptance authorization pending"
+        );
+
+        delete self.reservedDepositWallet[depositKey];
+        self.pendingReservedDeposits -= 1;
+
+        emit ReservedDepositMarkedStale(depositKey);
+    }
+
+    /// @notice Marks a reservation custodied by a terminated wallet as
+    ///         stranded. A terminated wallet's operators are already
+    ///         slashed and can sign the anchor away unchallengeably, so
+    ///         the registry stops tracking the anchor: the position closes
+    ///         as Stranded, reserved capacity is released, and any pending
+    ///         action is unwound (a pending redemption's escrow returns to
+    ///         its redeemer). The owner's minted balance simply remains an
+    ///         ordinary pooled claim — the backing shortfall is socialized
+    ///         exactly like a terminated wallet's main UTXO. A governance
+    ///         compensation path can consume the emitted evidence.
+    /// @param reservationKey The key of the stranded reservation.
+    /// @dev Requirements:
+    ///      - The custodying wallet must be in the Terminated state,
+    ///      - The reservation must be Active or have a pending action.
+    function notifyReservationStranded(
+        BridgeState.Storage storage self,
+        uint256 reservationKey
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        require(
+            reservation.state == ReservationState.Active ||
+                reservation.state == ReservationState.ActionPending,
+            "Reservation is not active"
+        );
+        require(
+            self.registeredWallets[reservation.walletPubKeyHash].state ==
+                Wallets.WalletState.Terminated,
+            "Wallet is not terminated"
+        );
+
+        if (reservation.state == ReservationState.ActionPending) {
+            ReservationProofs.unwindPendingAction(
+                self,
+                reservation,
+                reservationKey
+            );
+        }
+
+        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] -= reservation.anchorAmount;
+        self.reservationTotalAmount -= reservation.anchorAmount;
+        removeWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
+        reservation.state = ReservationState.Stranded;
+
+        // The anchor is deliberately NOT marked as honestly spent: a
+        // spend by the terminated wallet remains recognizable as such.
+        delete self.reservationsByAnchorUtxo[
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        reservation.anchorTxHash,
+                        reservation.anchorTxOutputIndex
+                    )
+                )
+            )
+        ];
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservationStranded(
+            reservationKey,
+            reservation.walletPubKeyHash,
+            reservation.owner,
+            reservation.anchorAmount
+        );
+    }
+
     /// @notice Updates the amount-denominated reservation caps. Checked
     ///         and reserved at request/authorization time, never at proof
     ///         time; a zero value disables the respective cap.
@@ -1179,18 +1322,58 @@ library Reservation {
         );
     }
 
+    /// @notice Appends a reservation key to a wallet's enumeration list.
+    function addWalletReservationKey(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint256 reservationKey
+    ) internal {
+        self.walletReservationKeys[walletPubKeyHash].push(reservationKey);
+        self.walletReservationKeyIndex[reservationKey] = self
+            .walletReservationKeys[walletPubKeyHash]
+            .length;
+    }
+
+    /// @notice Swap-removes a reservation key from a wallet's enumeration
+    ///         list.
+    function removeWalletReservationKey(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint256 reservationKey
+    ) internal {
+        uint256 indexPlusOne = self.walletReservationKeyIndex[reservationKey];
+        if (indexPlusOne == 0) {
+            return;
+        }
+        uint256[] storage keys = self.walletReservationKeys[walletPubKeyHash];
+        uint256 lastIndex = keys.length - 1;
+        if (indexPlusOne - 1 != lastIndex) {
+            uint256 movedKey = keys[lastIndex];
+            keys[indexPlusOne - 1] = movedKey;
+            self.walletReservationKeyIndex[movedKey] = indexPlusOne;
+        }
+        keys.pop();
+        delete self.walletReservationKeyIndex[reservationKey];
+    }
+
     /// @notice Closes a reservation: adjusts the wallet reservation count
-    ///         and the total reserved amount, and marks the reservation as
-    ///         Closed.
+    ///         and the total reserved amount, removes the key from the
+    ///         wallet's enumeration and marks the reservation as Closed.
     function closeReservation(
         BridgeState.Storage storage self,
-        ReservationRequest storage reservation
+        ReservationRequest storage reservation,
+        uint256 reservationKey
     ) internal {
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
         self.walletReservationsAmount[
             reservation.walletPubKeyHash
         ] -= reservation.anchorAmount;
         self.reservationTotalAmount -= reservation.anchorAmount;
+        removeWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
         reservation.state = ReservationState.Closed;
     }
 }

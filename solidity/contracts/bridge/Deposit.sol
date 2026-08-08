@@ -317,13 +317,12 @@ library Deposit {
             )
             .hash256View();
 
-        DepositRequest storage deposit = self.deposits[
-            uint256(
-                keccak256(
-                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
-                )
+        uint256 depositKey = uint256(
+            keccak256(
+                abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
             )
-        ];
+        );
+        DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.revealedAt == 0, "Deposit already revealed");
 
         uint64 fundingOutputAmount = fundingOutput.extractValue();
@@ -350,6 +349,18 @@ library Deposit {
                     deposit.treasuryFee,
                     RebateStaking.TreasuryFeeType.Deposit
                 );
+        }
+
+        if (
+            reveal.vault != address(0) && reveal.vault == self.reservationVault
+        ) {
+            // A deposit routed to the reservation vault is a reserved
+            // deposit: record its designated wallet — proven by the
+            // reveal's script commitment — so the acceptance authorization
+            // binds the anchor to it, and track the deposit as pending for
+            // the reservation-vault migration guard.
+            self.reservedDepositWallet[depositKey] = reveal.walletPubKeyHash;
+            self.pendingReservedDeposits += 1;
         }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);

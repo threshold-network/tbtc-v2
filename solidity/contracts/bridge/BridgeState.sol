@@ -414,6 +414,26 @@ library BridgeState {
         // Maximum satoshi amount of a single reservation. Zero disables
         // the cap.
         uint64 reservationMaxSingleAmount;
+        // Maps the deposit key of a revealed reserved deposit (routed to
+        // the reservation vault) to the 20-byte public key hash of its
+        // designated wallet, proven by the reveal's script commitment.
+        // The acceptance authorization must name this wallet. Cleared when
+        // the deposit is accepted or marked stale.
+        mapping(uint256 => bytes20) reservedDepositWallet;
+        // Number of revealed reserved deposits that were neither accepted
+        // nor marked stale yet. The reservation vault cannot be changed
+        // while this is non-zero: revealed-but-unanchored deposits routed
+        // to the old vault would otherwise become pool-sweepable while
+        // still minting through the old vault's callback.
+        uint64 pendingReservedDeposits;
+        // Per-wallet enumeration of custodied reservation keys, maintained
+        // for monitoring and audit evidence. Entries are appended on
+        // acceptance, moved on re-anchor and swap-removed on close and
+        // stranding.
+        mapping(bytes20 => uint256[]) walletReservationKeys;
+        // Index-plus-one of each reservation key inside its wallet's
+        // `walletReservationKeys` array (zero means absent).
+        mapping(uint256 => uint256) walletReservationKeyIndex;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -421,7 +441,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[36] __gap;
+        uint256[32] __gap;
     }
 
     event DepositParametersUpdated(
