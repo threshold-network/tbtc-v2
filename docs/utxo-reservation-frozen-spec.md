@@ -94,6 +94,24 @@ Flag this as an explicit accepted limitation for the audit.
   penalize. (The earlier "grace penalty default 0" item is resolved by the
   redesign, not merely defaulted.)
 
+## 4a. Governance operating invariants (from the re-review)
+
+The adversarial re-review surfaced two governance-set relationships that
+the contracts do not enforce but that governance must respect:
+
+- **`reservedRedemptionVetoDelay < redemptionTimeout`.** If the watchtower
+  veto delay for a reserved redemption exceeded `redemptionTimeout`, a
+  redemption generation could time out before its veto window closed,
+  letting a would-be-vetoed redemption settle late. Safe under the default
+  delays (hours) vs `redemptionTimeout` (days); keep the delay strictly
+  below the timeout when tuning either.
+- **Reservation-vault re-pointing.** Re-pointing `reservationVault` while
+  positions or pending deposits exist is already blocked on-chain; the
+  re-review additionally hardened late acceptance settlement to credit the
+  deposit's immutable revealed vault, so a governance re-point cannot
+  misroute a late credit. Still, avoid re-pointing the vault while any
+  reserved deposit could still settle late.
+
 ## 5. Sign-off ledger
 
 | Item                                                      | Owner                      | Status    |
