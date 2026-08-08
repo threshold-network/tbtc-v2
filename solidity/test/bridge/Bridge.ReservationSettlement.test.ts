@@ -39,6 +39,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = BigNumber.from("2100000000000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
+const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
 
 const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 
@@ -136,7 +137,8 @@ describe("Bridge - Reservation settlement", () => {
         RESERVATION_GRACE,
         RESERVATION_MAX_TOTAL,
         MAX_RESERVATIONS_PER_WALLET,
-        RESERVATION_ACTION_TIMEOUT
+        RESERVATION_ACTION_TIMEOUT,
+        RESERVATION_RENEWAL_WINDOW
       )
 
     relay.getCurrentEpochDifficulty.returns(0)
@@ -952,7 +954,8 @@ describe("Bridge - Reservation settlement", () => {
         RESERVATION_GRACE,
         params.reservationTotalAmount, // no room beyond what is reserved
         MAX_RESERVATIONS_PER_WALLET,
-        RESERVATION_ACTION_TIMEOUT
+        RESERVATION_ACTION_TIMEOUT,
+        RESERVATION_RENEWAL_WINDOW
       )
 
       // A new authorization cannot be created any more...
@@ -1121,11 +1124,13 @@ describe("Bridge - Reservation settlement", () => {
       await restoreSnapshot()
     })
 
-    it("rejects requests after the grace period (stranding bound)", async () => {
+    it("rejects requests at and after expiry (stranding bound)", async () => {
       const { reservationKey } = await makeAcceptedReservation()
       await makeAcceptedReservation()
 
-      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      // Strictly pre-expiry: at/after expiry no new redemption generation
+      // can be created; the dissolution delay is not an owner window.
+      await increaseTime(RESERVATION_TERM + 1)
 
       const redemptionFee = grossTbtc.mul(20).div(10000)
       await tbtc
@@ -1135,7 +1140,7 @@ describe("Bridge - Reservation settlement", () => {
         reservationVault
           .connect(thirdParty)
           .redeemReservation(reservationKey, randomRedeemerScript())
-      ).to.be.revertedWith("Reservation past grace period")
+      ).to.be.revertedWith("Reservation expired")
     })
 
     it("rejects requests while the wallet is not Live or MovingFunds", async () => {

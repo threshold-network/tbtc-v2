@@ -343,10 +343,13 @@ library BridgeState {
         // incurred by a single reservation lifecycle transaction (anchor,
         // re-anchor, reserved redemption, dissolution).
         uint64 reservationTxMaxFee;
-        // The grace period in seconds after a reservation's custody term
-        // expires during which the reservation can still be extended or
-        // redeemed but not yet dissolved.
-        uint32 reservationGracePeriod;
+        // The dissolution delay in seconds after a reservation's custody
+        // term expires and before the reservation becomes dissolvable. The
+        // delay exists for orderly settlement and dissolution coordination;
+        // it is NOT an owner-action window — renewal and new redemptions
+        // stop strictly at expiry. Snapshotted per position as
+        // `dissolutionEligibleAt` when a term is granted.
+        uint32 reservationDissolutionDelay;
         // Maximum total amount in satoshi that can be locked under active
         // reservations at the same time.
         uint64 reservationMaxTotalAmount;
@@ -379,6 +382,12 @@ library BridgeState {
         // timed out. Reserved redemptions use `redemptionTimeout` instead.
         // Snapshotted into each action record at request time.
         uint32 reservationActionTimeout;
+        // Length in seconds of the renewal window: a reservation owner may
+        // renew (extend by exactly one current term) only while
+        // `expiresAt - window <= now < expiresAt`. Must be strictly
+        // shorter than the term so a fresh renewal is immediately outside
+        // its next window — renewals can never be stacked.
+        uint32 reservationRenewalWindowSeconds;
         // Collection of all reservation action generation records indexed
         // by `keccak256(reservationKey | requestNonce)`. Each record
         // snapshots every proof- and settlement-critical parameter of one
@@ -401,7 +410,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[38] __gap;
     }
 
     event DepositParametersUpdated(

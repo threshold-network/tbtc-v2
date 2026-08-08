@@ -270,17 +270,44 @@ at most one dissolution per wallet may be in flight, which (with the
 snapshot of the expected main-UTXO hash) removes the concurrent-dissolution
 race entirely. Snapshots the fee bound and expected main UTXO.
 
-=== Precedence and the stranding bound
+=== Renewal, expiry and the stranding bound
 
-Reserved redemption requests are accepted only while
-`now <= expiresAt + gracePeriod` (and the position is Active, the wallet is
-Live or MovingFunds, and the owner passes the reservation-scoped watchtower
-safety check). After grace, only dissolution may be requested — so an owner
-cannot cycle request/timeout to hold a wallet hostage past the custody
-term: *term + grace + one action timeout* is a hard stranding bound. One
-carve-out: a timeout-minted retry entitlement may be used after grace until
-a dissolution is requested; requesting dissolution voids outstanding
-entitlements (the claim simply remains pooled TBTC).
+The custody term is renewable under a *permissionless, default-allow,
+bounded-lookahead* model:
+
+* A renewal adds exactly one current term and is possible only inside the
+  *renewal window* immediately before expiry
+  (`expiresAt - window <= now < expiresAt`, with `0 < window < term`
+  enforced atomically at every parameter change and at execution). Because
+  the window is shorter than the term, a fresh renewal is immediately
+  outside its next window — terms can never be stacked, and the owner's
+  maximum lookahead is one term plus the window.
+* The renewal call is intent-bound: it commits to the observed expiry and
+  to the expected new expiry, so stale transactions and mid-flight term
+  changes revert instead of silently buying a different duration. The
+  vault-side owner call additionally carries a fee bound (`maxFeeTbtc`).
+* The vault enforces an exception-only policy layer: a global renewals
+  pause and per-reservation blocks, applicable immediately by a renewal
+  guardian or governance (restrictive actions are monotonic — they never
+  shorten a purchased term and never touch funds); only governance can
+  unpause, unblock, or replace the guardian. A fresh vault starts paused.
+* Reserved redemption requests are accepted strictly *before expiry*
+  (`now < expiresAt`), for the fee-free retry path as well — no owner
+  action beginning at or after expiry can delay dissolution. The
+  post-expiry *dissolution delay* (the renamed grace period) exists for
+  orderly settlement only; each granted term snapshots
+  `dissolutionEligibleAt = expiresAt + currentDissolutionDelay`, and
+  dissolution becomes requestable at that snapshot. Later parameter
+  changes never move the eligibility of a term already granted.
+
+A pre-expiry pending redemption may still settle after expiry (its
+generation record governs); if it times out or is vetoed at/after expiry
+the position returns to a state where every owner path is expiry-gated —
+dissolution-bound in behavior. The hard stranding bound after the final
+expiry is the dissolution delay plus one action timeout (plus, for a
+governance intervention, one final front-run term: detection-to-block
+latency + window + term + max(delay, redemption timeout) + settlement
+latency).
 
 === Watchtower integration (per-generation)
 
@@ -353,18 +380,21 @@ checked and reserved at request/authorization time, never at proof time.
 Mechanics implemented now; *parameter values are explicit governance
 decisions* surfaced for sign-off:
 
-* term bounds: minimum 3 months, maximum 2 years *(default, flagged)*;
-* extension fee prorated to the extension length (20 bps/yr base);
-* renewal horizon cap: `expiresAt <= now + 2 × term` *(default, flagged)*
-  — prepaid extensions cannot push expiry out indefinitely;
-* grace-period penalty: none *(default 0, flagged — decision pending)*;
+* term bounds: minimum 90 days, maximum 730 days, enforced as protocol
+  constants *(baseline per the renewal design; flagged)*;
+* renewal window: 30 days *(default, flagged)* — the bounded-lookahead
+  window replaces both proration (a renewal is always exactly one term)
+  and any renewal-horizon cap (stacking is impossible by construction);
+* dissolution delay: 30 days *(default, flagged)*; there is no grace
+  penalty — the delay is not an owner window at all;
 * pricing of the embedded senior-liquidity option: financial-modeling task,
   out of scope for the contracts, tracked as an open economics item;
-* `ReservationVault` ownership transferred to governance/timelock at
-  deploy; `updateFees` behind the protocol governance delay; per-position
-  fee terms snapshotted at acceptance; user-supplied fee-slippage bound on
-  mint/redeem paths. Fee schedule stays 40 bps initiation / 20 bps/yr
-  extension / 20 bps redemption.
+* `ReservationVault` ownership transferred to governance at deploy, with
+  renewals paused until governance activates them; the renewal call
+  carries a user fee bound (`maxFeeTbtc`). Fee schedule stays 40 bps
+  initiation / 20 bps/yr renewal / 20 bps redemption. A governance-delay
+  posture for `updateFees` and an initiation-fee snapshot remain open
+  items tracked for the policy PR.
 
 == Storage layout policy
 

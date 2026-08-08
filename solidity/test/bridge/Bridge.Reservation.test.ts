@@ -37,6 +37,7 @@ const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = BigNumber.from("2100000000000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
+const RESERVATION_RENEWAL_WINDOW = 2592000 // 30 days
 
 const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 
@@ -140,7 +141,8 @@ describe("Bridge - Reservation", () => {
         RESERVATION_GRACE,
         RESERVATION_MAX_TOTAL,
         MAX_RESERVATIONS_PER_WALLET,
-        RESERVATION_ACTION_TIMEOUT
+        RESERVATION_ACTION_TIMEOUT,
+        RESERVATION_RENEWAL_WINDOW
       )
   }
 
@@ -151,20 +153,20 @@ describe("Bridge - Reservation", () => {
     walletPubKeyHash: string,
     amountSat: BigNumber
   ) {
+    const expiresAt = (await lastBlockTime()) + RESERVATION_TERM
     return {
       owner,
       mintedAmount: amountSat,
       acceptedAt: await lastBlockTime(),
       walletPubKeyHash,
       anchorAmount: amountSat,
-      expiresAt: (await lastBlockTime()) + RESERVATION_TERM,
+      expiresAt,
       anchorTxHash: ethers.utils.randomBytes(32),
       anchorTxOutputIndex: 0,
       state: ReservationState.Active,
       requestNonce: 0,
       retryCredit: false,
-      termSeconds: RESERVATION_TERM,
-      gracePeriod: RESERVATION_GRACE,
+      dissolutionEligibleAt: expiresAt + RESERVATION_GRACE,
     }
   }
 
@@ -333,7 +335,8 @@ describe("Bridge - Reservation", () => {
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
               MAX_RESERVATIONS_PER_WALLET,
-              RESERVATION_ACTION_TIMEOUT
+              RESERVATION_ACTION_TIMEOUT,
+              RESERVATION_RENEWAL_WINDOW
             )
         ).to.be.revertedWith("Caller is not the governance")
       })
@@ -351,7 +354,8 @@ describe("Bridge - Reservation", () => {
             RESERVATION_GRACE,
             RESERVATION_MAX_TOTAL,
             MAX_RESERVATIONS_PER_WALLET,
-            RESERVATION_ACTION_TIMEOUT
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_RENEWAL_WINDOW
           )
 
         await expect(tx)
@@ -366,7 +370,8 @@ describe("Bridge - Reservation", () => {
             RESERVATION_GRACE,
             RESERVATION_MAX_TOTAL,
             MAX_RESERVATIONS_PER_WALLET,
-            RESERVATION_ACTION_TIMEOUT
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_RENEWAL_WINDOW
           )
       })
 
@@ -382,11 +387,74 @@ describe("Bridge - Reservation", () => {
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
               MAX_RESERVATIONS_PER_WALLET,
-              RESERVATION_ACTION_TIMEOUT
+              RESERVATION_ACTION_TIMEOUT,
+              RESERVATION_RENEWAL_WINDOW
             )
         ).to.be.revertedWith(
           "Reservation transaction max fee must be greater than zero"
         )
+      })
+
+      it("should revert for a term outside the protocol bounds", async () => {
+        await expect(
+          bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+            reservationVault.address,
+            RESERVATION_MIN_AMOUNT,
+            RESERVATION_TX_MAX_FEE,
+            89 * 24 * 3600, // below the 90-day minimum
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_RENEWAL_WINDOW
+          )
+        ).to.be.revertedWith("Reservation term out of protocol bounds")
+
+        await expect(
+          bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+            reservationVault.address,
+            RESERVATION_MIN_AMOUNT,
+            RESERVATION_TX_MAX_FEE,
+            731 * 24 * 3600, // above the 730-day maximum
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_RENEWAL_WINDOW
+          )
+        ).to.be.revertedWith("Reservation term out of protocol bounds")
+      })
+
+      it("should enforce the renewal window strictly shorter than the term", async () => {
+        await expect(
+          bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+            reservationVault.address,
+            RESERVATION_MIN_AMOUNT,
+            RESERVATION_TX_MAX_FEE,
+            RESERVATION_TERM,
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            RESERVATION_ACTION_TIMEOUT,
+            RESERVATION_TERM // window == term reopens stacking
+          )
+        ).to.be.revertedWith("Renewal window must be shorter than the term")
+
+        await expect(
+          bridge
+            .connect(bridgeGovernanceSigner)
+            .updateReservationParameters(
+              reservationVault.address,
+              RESERVATION_MIN_AMOUNT,
+              RESERVATION_TX_MAX_FEE,
+              RESERVATION_TERM,
+              RESERVATION_GRACE,
+              RESERVATION_MAX_TOTAL,
+              MAX_RESERVATIONS_PER_WALLET,
+              RESERVATION_ACTION_TIMEOUT,
+              0
+            )
+        ).to.be.revertedWith("Renewal window must be shorter than the term")
       })
 
       it("should revert for a zero action timeout", async () => {
@@ -401,7 +469,8 @@ describe("Bridge - Reservation", () => {
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
               MAX_RESERVATIONS_PER_WALLET,
-              0
+              0,
+              RESERVATION_RENEWAL_WINDOW
             )
         ).to.be.revertedWith(
           "Reservation action timeout must be greater than zero"
@@ -430,7 +499,8 @@ describe("Bridge - Reservation", () => {
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
               MAX_RESERVATIONS_PER_WALLET,
-              RESERVATION_ACTION_TIMEOUT
+              RESERVATION_ACTION_TIMEOUT,
+              RESERVATION_RENEWAL_WINDOW
             )
         ).to.be.revertedWith("Active reservations exist")
       })
@@ -494,64 +564,298 @@ describe("Bridge - Reservation", () => {
     })
   })
 
-  describe("extendReservation", () => {
+  describe("reservation renewal", () => {
     const reservationKey = 777
     const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+    const amountSat = BigNumber.from(100000000)
+    const grossTbtc = amountSat.mul(SATOSHI_MULTIPLIER)
+    const extensionFee = grossTbtc.mul(20).div(10000)
+    let expiresAt: number
 
-    before(async () => {
+    // Renews through the impersonated vault, defaulting the intent values
+    // to the currently correct ones.
+    async function renewViaBridge(
+      overrides: { expected?: number; expectedNew?: number } = {}
+    ) {
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      return bridge
+        .connect(vaultSigner)
+        .extendReservation(
+          reservationKey,
+          overrides.expected ?? expiresAt,
+          overrides.expectedNew ?? expiresAt + RESERVATION_TERM
+        )
+    }
+
+    beforeEach(async () => {
       await createSnapshot()
       await wireReservations()
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
       await bridge.setReservation(
         reservationKey,
-        await activeReservation(
-          thirdParty.address,
-          walletPubKeyHash,
-          BigNumber.from(100000000)
-        )
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
       )
+      expiresAt = (await bridge.reservations(reservationKey)).expiresAt
     })
 
-    after(async () => {
+    afterEach(async () => {
       await restoreSnapshot()
     })
 
-    context("when called by a third party", () => {
-      it("should revert", async () => {
-        await expect(
-          bridge.connect(thirdParty).extendReservation(reservationKey)
-        ).to.be.revertedWith("Caller is not the reservation vault")
-      })
+    it("should revert when called by a third party", async () => {
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .extendReservation(reservationKey, expiresAt, expiresAt + 1)
+      ).to.be.revertedWith("Caller is not the reservation vault")
     })
 
-    context("when called by the reservation vault", () => {
-      it("should extend the reservation term by the snapshotted length", async () => {
-        const before_ = await bridge.reservations(reservationKey)
+    it("should revert before the renewal window opens", async () => {
+      // Just before the window: E - W - a small margin.
+      await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW - 3600)
+      await expect(renewViaBridge()).to.be.revertedWith(
+        "Outside the renewal window"
+      )
+    })
 
-        // Change the live term parameter: the extension must use the
-        // position's snapshot, not the live value.
-        await bridge
-          .connect(bridgeGovernanceSigner)
-          .updateReservationParameters(
+    it("should renew inside the window and close at expiry", async () => {
+      await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW + 60)
+
+      const tx = await renewViaBridge()
+      const newExpiresAt = expiresAt + RESERVATION_TERM
+      await expect(tx)
+        .to.emit(bridge, "ReservationExtended")
+        .withArgs(
+          reservationKey,
+          expiresAt,
+          newExpiresAt,
+          newExpiresAt + RESERVATION_GRACE
+        )
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.expiresAt).to.equal(newExpiresAt)
+      // The dissolution eligibility is re-snapshotted for the new term.
+      expect(reservation.dissolutionEligibleAt).to.equal(
+        newExpiresAt + RESERVATION_GRACE
+      )
+    })
+
+    it("should not stack renewals", async () => {
+      await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW + 60)
+      await renewViaBridge()
+
+      // Immediately after a renewal the position is outside its next
+      // window (the window is shorter than the term), so a second renewal
+      // cannot be stacked.
+      const newExpiresAt = expiresAt + RESERVATION_TERM
+      await expect(
+        renewViaBridge({
+          expected: newExpiresAt,
+          expectedNew: newExpiresAt + RESERVATION_TERM,
+        })
+      ).to.be.revertedWith("Outside the renewal window")
+    })
+
+    it("should reject renewal at and after expiry", async () => {
+      await increaseTime(RESERVATION_TERM + 1)
+      await expect(renewViaBridge()).to.be.revertedWith(
+        "Outside the renewal window"
+      )
+    })
+
+    it("should reject stale expiry intent", async () => {
+      await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW + 60)
+      await expect(
+        renewViaBridge({ expected: expiresAt - 1 })
+      ).to.be.revertedWith("Stale renewal: unexpected current expiry")
+    })
+
+    it("should reject a term change between construction and execution", async () => {
+      await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW + 60)
+
+      // Governance doubles the term after the owner constructed their
+      // renewal transaction committing to one old term.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM * 2,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      await expect(
+        renewViaBridge({ expectedNew: expiresAt + RESERVATION_TERM })
+      ).to.be.revertedWith("Stale renewal: unexpected new expiry")
+    })
+
+    it("should not renew a position with a pending action", async () => {
+      await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW + 60)
+      await requestRedemptionViaVault(
+        reservationKey,
+        amountSat,
+        thirdParty.address,
+        "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
+      )
+      await expect(renewViaBridge()).to.be.revertedWith(
+        "Reservation is not active"
+      )
+    })
+
+    describe("vault renewal policy", () => {
+      let governanceOwner: SignerWithAddress
+      let guardian: SignerWithAddress
+
+      beforeEach(async () => {
+        // Deploy scripts hand the vault to the governance account and the
+        // vault starts with renewals paused.
+        governanceOwner = governance
+        ;[guardian] = (await ethers.getSigners()).slice(15, 16)
+        await reservationVault
+          .connect(governanceOwner)
+          .setRenewalGuardian(guardian.address)
+        await reservationVault.connect(governanceOwner).unpauseRenewals()
+
+        // Fund the owner with TBTC for the renewal fee.
+        const tbtcOwnerSigner = await impersonateContract(await tbtc.owner())
+        if ((await tbtc.owner()) !== tbtcVault.address) {
+          await tbtc
+            .connect(tbtcOwnerSigner)
+            .transferOwnership(tbtcVault.address)
+        }
+        const bridgeSigner = await impersonateContract(bridge.address)
+        await bank
+          .connect(bridgeSigner)
+          .increaseBalanceAndCall(
             reservationVault.address,
-            RESERVATION_MIN_AMOUNT,
-            RESERVATION_TX_MAX_FEE,
-            RESERVATION_TERM * 2,
-            RESERVATION_GRACE,
-            RESERVATION_MAX_TOTAL,
-            MAX_RESERVATIONS_PER_WALLET,
-            RESERVATION_ACTION_TIMEOUT
+            [thirdParty.address],
+            [amountSat]
           )
 
-        const vaultSigner = await impersonateContract(reservationVault.address)
-        const tx = await bridge
-          .connect(vaultSigner)
-          .extendReservation(reservationKey)
+        await increaseTime(RESERVATION_TERM - RESERVATION_RENEWAL_WINDOW + 60)
+        await tbtc
+          .connect(thirdParty)
+          .approve(reservationVault.address, extensionFee)
+      })
 
-        const after_ = await bridge.reservations(reservationKey)
-        expect(after_.expiresAt).to.equal(before_.expiresAt + RESERVATION_TERM)
+      it("renews for the owner with a fee bound", async () => {
+        const treasuryBefore = await tbtc.balanceOf(treasury.address)
+        const tx = await reservationVault
+          .connect(thirdParty)
+          .extendCustody(
+            reservationKey,
+            expiresAt,
+            expiresAt + RESERVATION_TERM,
+            extensionFee
+          )
         await expect(tx)
-          .to.emit(bridge, "ReservationExtended")
-          .withArgs(reservationKey, after_.expiresAt)
+          .to.emit(reservationVault, "CustodyExtended")
+          .withArgs(reservationKey, thirdParty.address, extensionFee)
+        expect(await tbtc.balanceOf(treasury.address)).to.equal(
+          treasuryBefore.add(extensionFee)
+        )
+      })
+
+      it("rejects a fee above the caller's bound", async () => {
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .extendCustody(
+              reservationKey,
+              expiresAt,
+              expiresAt + RESERVATION_TERM,
+              extensionFee.sub(1)
+            )
+        ).to.be.revertedWith("Fee exceeds the caller's bound")
+      })
+
+      it("lets the guardian pause but not unpause", async () => {
+        await reservationVault.connect(guardian).pauseRenewals()
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .extendCustody(
+              reservationKey,
+              expiresAt,
+              expiresAt + RESERVATION_TERM,
+              extensionFee
+            )
+        ).to.be.revertedWith("Renewals are paused")
+
+        await expect(
+          reservationVault.connect(guardian).unpauseRenewals()
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+
+        // Pausing never blocks a redemption.
+        await requestRedemptionViaVault(
+          reservationKey,
+          amountSat,
+          thirdParty.address,
+          "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
+        )
+        expect((await bridge.reservations(reservationKey)).state).to.equal(
+          ReservationState.ActionPending
+        )
+      })
+
+      it("lets the guardian block a single reservation but not unblock it", async () => {
+        await reservationVault.connect(guardian).blockRenewal(reservationKey)
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .extendCustody(
+              reservationKey,
+              expiresAt,
+              expiresAt + RESERVATION_TERM,
+              extensionFee
+            )
+        ).to.be.revertedWith("Reservation renewal blocked")
+
+        await expect(
+          reservationVault.connect(guardian).unblockRenewal(reservationKey)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+
+        await reservationVault
+          .connect(governanceOwner)
+          .unblockRenewal(reservationKey)
+        const tx = await reservationVault
+          .connect(thirdParty)
+          .extendCustody(
+            reservationKey,
+            expiresAt,
+            expiresAt + RESERVATION_TERM,
+            extensionFee
+          )
+        await expect(tx).to.emit(reservationVault, "CustodyExtended")
+      })
+
+      it("keeps policy actions away from third parties", async () => {
+        await expect(
+          reservationVault.connect(thirdParty).pauseRenewals()
+        ).to.be.revertedWith("Caller is not the renewal guardian or owner")
+        await expect(
+          reservationVault.connect(thirdParty).blockRenewal(reservationKey)
+        ).to.be.revertedWith("Caller is not the renewal guardian or owner")
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .setRenewalGuardian(guardian.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
   })
@@ -1020,7 +1324,8 @@ describe("Bridge - Reservation", () => {
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET,
-          RESERVATION_ACTION_TIMEOUT
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
         )
 
       await expect(
@@ -1049,7 +1354,8 @@ describe("Bridge - Reservation", () => {
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET,
-          RESERVATION_ACTION_TIMEOUT
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
         )
     })
   })
@@ -1697,8 +2003,11 @@ describe("Bridge - Reservation", () => {
       expect(reservation.anchorAmount).to.equal(anchorAmount)
       expect(reservation.anchorTxHash).to.equal(anchorTx.txHash)
       expect(reservation.state).to.equal(ReservationState.Active)
-      expect(reservation.termSeconds).to.equal(RESERVATION_TERM)
-      expect(reservation.gracePeriod).to.equal(RESERVATION_GRACE)
+      // The dissolution eligibility is snapshotted from the current
+      // dissolution delay at the moment the term is granted.
+      expect(reservation.dissolutionEligibleAt).to.equal(
+        reservation.expiresAt + RESERVATION_GRACE
+      )
 
       // The capacity reserved at authorization released the miner-fee
       // delta at settlement: the total tracks the anchor value.
@@ -1877,7 +2186,8 @@ describe("Bridge - Reservation", () => {
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET,
-          RESERVATION_ACTION_TIMEOUT
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
         )
 
       const redeemerScript = `0x16${p2wpkhScript(
@@ -2054,10 +2364,10 @@ describe("Bridge - Reservation", () => {
     it("dissolves an expired reservation into the wallet main UTXO", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
 
-      // Not requestable before term + grace.
+      // Not requestable before the dissolution eligibility snapshot.
       await expect(
         bridge.connect(thirdParty).requestReservationDissolution(reservationKey)
-      ).to.be.revertedWith("Reservation term or grace period not elapsed")
+      ).to.be.revertedWith("Reservation not dissolution-eligible yet")
 
       await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
 

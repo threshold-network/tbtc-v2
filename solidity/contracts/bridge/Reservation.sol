@@ -67,6 +67,13 @@ library Reservation {
     using BTCUtils for bytes;
     using BytesLib for bytes;
 
+    /// @notice Hard protocol bounds on the custody term length. The
+    ///         governable term must stay within them; they bound the
+    ///         maximum owner lookahead (one term plus the renewal window)
+    ///         and keep the carry economics of a term meaningful.
+    uint32 internal constant MIN_RESERVATION_TERM = 90 days;
+    uint32 internal constant MAX_RESERVATION_TERM = 730 days;
+
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -165,16 +172,15 @@ library Reservation {
         // True when the owner holds a single-use, fee-free redemption
         // retry entitlement, minted when a fee-paid redemption request
         // times out through the wallet's fault. Consumed by the next
-        // retry request; voided by a dissolution request.
+        // (strictly pre-expiry) retry request.
         bool retryCredit;
-        // Custody term length in seconds, snapshotted at acceptance.
-        // Extensions extend by this value; later governance changes apply
-        // to new reservations only.
-        uint32 termSeconds;
-        // Grace period in seconds, snapshotted at acceptance. After
-        // `expiresAt + gracePeriod` the reservation becomes dissolvable
-        // and can no longer be redeemed in-kind.
-        uint32 gracePeriod;
+        // UNIX timestamp the reservation becomes dissolvable at. Set to
+        // `expiresAt + reservationDissolutionDelay` whenever a term is
+        // granted (acceptance and each renewal), using the delay value
+        // current at that moment — later governance changes never move
+        // the eligibility time of a term already granted.
+        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
+        uint32 dissolutionEligibleAt;
         // This struct doesn't contain `__gap` property as the structure is
         // stored in a mapping, mappings store values in different slots and
         // they are not contiguous with other values.
@@ -232,7 +238,9 @@ library Reservation {
 
     event ReservationExtended(
         uint256 indexed reservationKey,
-        uint32 newExpiresAt
+        uint32 oldExpiresAt,
+        uint32 newExpiresAt,
+        uint32 dissolutionEligibleAt
     );
 
     event ReservedRedemptionRequested(
@@ -278,10 +286,11 @@ library Reservation {
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
         uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
+        uint32 reservationDissolutionDelay,
         uint64 reservationMaxTotalAmount,
         uint32 maxReservationsPerWallet,
-        uint32 reservationActionTimeout
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
     );
 
     event ReservationVaultUpdated(address reservationVault);
@@ -531,16 +540,19 @@ library Reservation {
             );
         }
 
+        // New redemption generations stop strictly at expiry — for the
+        // retry path as well. The post-expiry dissolution delay exists for
+        // orderly settlement, not as a late owner-action window, so no
+        // owner action beginning at/after expiry can delay dissolution.
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp < reservation.expiresAt,
+            "Reservation expired"
+        );
+
         if (useRetryCredit) {
             require(reservation.retryCredit, "No retry entitlement");
             reservation.retryCredit = false;
-        } else {
-            require(
-                /* solhint-disable-next-line not-rely-on-time */
-                block.timestamp <=
-                    uint256(reservation.expiresAt) + reservation.gracePeriod,
-                "Reservation past grace period"
-            );
         }
 
         if (self.redemptionWatchtower != address(0)) {
@@ -738,9 +750,8 @@ library Reservation {
         );
         require(
             /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp >
-                uint256(reservation.expiresAt) + reservation.gracePeriod,
-            "Reservation term or grace period not elapsed"
+            block.timestamp >= reservation.dissolutionEligibleAt,
+            "Reservation not dissolution-eligible yet"
         );
 
         bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
@@ -762,7 +773,6 @@ library Reservation {
         );
         self.walletPendingDissolution[walletPubKeyHash] = reservationKey;
 
-        reservation.retryCredit = false;
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
 
@@ -937,19 +947,41 @@ library Reservation {
         self.bank.transferBalance(self.redemptionWatchtower, action.amount);
     }
 
-    /// @notice Extends the custody term of a reservation by its snapshotted
-    ///         term length. The custody fee for the extension is collected
-    ///         by the reservation vault before this call.
-    /// @param reservationKey The key of the reservation to extend.
+    /// @notice Renews the custody term of a reservation: adds exactly one
+    ///         current term to the expiry. Renewal is permissionless for
+    ///         the owner (through the reservation vault, which collects
+    ///         the fee and enforces the exceptional pause/block policy)
+    ///         but strictly bounded: it is possible only inside the
+    ///         renewal window immediately before expiry, and since the
+    ///         window is shorter than the term, a fresh renewal is
+    ///         immediately outside its next window — terms can never be
+    ///         stacked. The maximum owner lookahead is one term plus the
+    ///         window.
+    /// @param reservationKey The key of the reservation to renew.
+    /// @param expectedExpiresAt The expiry the caller observed; rejects
+    ///        stale renewal transactions.
+    /// @param expectedNewExpiresAt The new expiry the caller is paying
+    ///        for; rejects renewals whose term parameter changed between
+    ///        transaction construction and execution.
     /// @dev Requirements:
     ///      - The caller must be the reservation vault,
-    ///      - The reservation must be Active, or awaiting the settlement
-    ///        of a pending redemption,
-    ///      - The reservation must not be past its (snapshotted) grace
-    ///        period.
+    ///      - The reservation must be Active (a pending action blocks
+    ///        renewal),
+    ///      - The stored expiry must equal `expectedExpiresAt`,
+    ///      - The current parameters must satisfy `0 < window < term`,
+    ///      - The execution time must lie in `[expiry - window, expiry)`
+    ///        — at expiry, renewal is closed,
+    ///      - `expiry + term` must equal `expectedNewExpiresAt`.
+    ///
+    ///      On success the expiry advances by exactly one current term and
+    ///      the dissolution eligibility is re-snapshotted for the newly
+    ///      purchased term using the current dissolution delay. No other
+    ///      field changes.
     function extendReservation(
         BridgeState.Storage storage self,
-        uint256 reservationKey
+        uint256 reservationKey,
+        uint32 expectedExpiresAt,
+        uint32 expectedNewExpiresAt
     ) external {
         require(
             msg.sender == self.reservationVault,
@@ -960,29 +992,49 @@ library Reservation {
             reservationKey
         ];
         require(
-            reservation.state == ReservationState.Active ||
-                (reservation.state == ReservationState.ActionPending &&
-                    getAction(self, reservationKey, reservation.requestNonce)
-                        .actionType ==
-                    ActionType.Redemption),
+            reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
+
+        uint32 expiresAt = reservation.expiresAt;
         require(
-            /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp <=
-                uint256(reservation.expiresAt) + reservation.gracePeriod,
-            "Reservation past grace period"
+            expiresAt == expectedExpiresAt,
+            "Stale renewal: unexpected current expiry"
         );
 
-        uint32 base = reservation.expiresAt;
-        /* solhint-disable-next-line not-rely-on-time */
-        if (base < block.timestamp) {
-            /* solhint-disable-next-line not-rely-on-time */
-            base = uint32(block.timestamp);
-        }
-        reservation.expiresAt = base + reservation.termSeconds;
+        uint32 window = self.reservationRenewalWindowSeconds;
+        uint32 term = self.reservationTermSeconds;
+        require(
+            window > 0 && window < term,
+            "Renewal window must be shorter than the term"
+        );
 
-        emit ReservationExtended(reservationKey, reservation.expiresAt);
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp >= expiresAt - window &&
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp < expiresAt,
+            "Outside the renewal window"
+        );
+
+        uint32 newExpiresAt = expiresAt + term;
+        require(
+            newExpiresAt == expectedNewExpiresAt,
+            "Stale renewal: unexpected new expiry"
+        );
+
+        uint32 dissolutionEligibleAt = newExpiresAt +
+            self.reservationDissolutionDelay;
+
+        reservation.expiresAt = newExpiresAt;
+        reservation.dissolutionEligibleAt = dissolutionEligibleAt;
+
+        emit ReservationExtended(
+            reservationKey,
+            expiresAt,
+            newExpiresAt,
+            dissolutionEligibleAt
+        );
     }
 
     /// @notice Updates the reservation parameters, including the
@@ -992,24 +1044,30 @@ library Reservation {
     ///      - Reservation transaction max fee must be greater than zero,
     ///      - Reservation minimum amount must be greater than the
     ///        reservation transaction max fee,
-    ///      - Reservation term must be greater than zero,
+    ///      - Reservation term must be within the protocol bounds
+    ///        [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM],
+    ///      - The renewal window must be non-zero and strictly shorter
+    ///        than the term (checked atomically here and re-checked at
+    ///        renewal execution, so neither parameter change can reopen
+    ///        term stacking),
     ///      - Reservation action timeout must be greater than zero,
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero).
     ///
-    ///      Term, grace period and fee bounds are snapshotted into
-    ///      positions and action records when they are created; updates
-    ///      apply prospectively only.
+    ///      Term, dissolution delay and fee bounds are snapshotted into
+    ///      positions and action records when terms are granted or actions
+    ///      requested; updates apply prospectively only.
     function updateReservationParameters(
         BridgeState.Storage storage self,
         address reservationVault,
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
         uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
+        uint32 reservationDissolutionDelay,
         uint64 reservationMaxTotalAmount,
         uint32 maxReservationsPerWallet,
-        uint32 reservationActionTimeout
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
     ) external {
         require(
             reservationTxMaxFee > 0,
@@ -1020,8 +1078,14 @@ library Reservation {
             "Reservation minimum amount must be greater than the reservation TX max fee"
         );
         require(
-            reservationTermSeconds > 0,
-            "Reservation term must be greater than zero"
+            reservationTermSeconds >= MIN_RESERVATION_TERM &&
+                reservationTermSeconds <= MAX_RESERVATION_TERM,
+            "Reservation term out of protocol bounds"
+        );
+        require(
+            reservationRenewalWindowSeconds > 0 &&
+                reservationRenewalWindowSeconds < reservationTermSeconds,
+            "Renewal window must be shorter than the term"
         );
         require(
             reservationActionTimeout > 0,
@@ -1040,19 +1104,21 @@ library Reservation {
         self.reservationMinAmount = reservationMinAmount;
         self.reservationTxMaxFee = reservationTxMaxFee;
         self.reservationTermSeconds = reservationTermSeconds;
-        self.reservationGracePeriod = reservationGracePeriod;
+        self.reservationDissolutionDelay = reservationDissolutionDelay;
         self.reservationMaxTotalAmount = reservationMaxTotalAmount;
         self.maxReservationsPerWallet = maxReservationsPerWallet;
         self.reservationActionTimeout = reservationActionTimeout;
+        self.reservationRenewalWindowSeconds = reservationRenewalWindowSeconds;
 
         emit ReservationParametersUpdated(
             reservationMinAmount,
             reservationTxMaxFee,
             reservationTermSeconds,
-            reservationGracePeriod,
+            reservationDissolutionDelay,
             reservationMaxTotalAmount,
             maxReservationsPerWallet,
-            reservationActionTimeout
+            reservationActionTimeout,
+            reservationRenewalWindowSeconds
         );
     }
 

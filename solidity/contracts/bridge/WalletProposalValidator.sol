@@ -270,7 +270,7 @@ contract WalletProposalValidator {
 
         address proposalVault = address(0);
 
-        (address reservationVault, , , , , , , , ) = IReservationBridge(
+        (address reservationVault, , , , , , , , , ) = IReservationBridge(
             address(bridge)
         ).reservationParameters();
 

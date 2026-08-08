@@ -54,7 +54,11 @@ interface IReservationBridge {
     ) external;
 
     /// @notice See `ReservationRouter.extendReservation`.
-    function extendReservation(uint256 reservationKey) external;
+    function extendReservation(
+        uint256 reservationKey,
+        uint32 expectedExpiresAt,
+        uint32 expectedNewExpiresAt
+    ) external;
 
     /// @notice See `ReservationRouter.notifyReservedRedemptionVeto`.
     function notifyReservedRedemptionVeto(
@@ -68,10 +72,11 @@ interface IReservationBridge {
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
         uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
+        uint32 reservationDissolutionDelay,
         uint64 reservationMaxTotalAmount,
         uint32 maxReservationsPerWallet,
-        uint32 reservationActionTimeout
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
     ) external;
 
     /// @notice Bridge treasury address. Declared by the Bridge contract
@@ -101,10 +106,11 @@ interface IReservationBridge {
             uint64 reservationMinAmount,
             uint64 reservationTxMaxFee,
             uint32 reservationTermSeconds,
-            uint32 reservationGracePeriod,
+            uint32 reservationDissolutionDelay,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
             uint32 maxReservationsPerWallet,
-            uint32 reservationActionTimeout
+            uint32 reservationActionTimeout,
+            uint32 reservationRenewalWindowSeconds
         );
 }

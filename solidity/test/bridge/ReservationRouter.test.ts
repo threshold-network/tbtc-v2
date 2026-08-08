@@ -342,12 +342,13 @@ describe("ReservationRouter", () => {
             2592000,
             100000000000,
             10,
-            172800
+            172800,
+            2592000
           )
       ).to.be.revertedWith("Caller is not the governance")
 
       await expect(
-        standaloneRouter.connect(thirdParty).extendReservation(1)
+        standaloneRouter.connect(thirdParty).extendReservation(1, 0, 0)
       ).to.be.revertedWith("Caller is not the reservation vault")
 
       await expect(

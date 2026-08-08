@@ -112,7 +112,9 @@ contract ReservationRouter is Governable, Initializable {
 
     event ReservationExtended(
         uint256 indexed reservationKey,
-        uint32 newExpiresAt
+        uint32 oldExpiresAt,
+        uint32 newExpiresAt,
+        uint32 dissolutionEligibleAt
     );
 
     event ReservedRedemptionRequested(
@@ -190,10 +192,11 @@ contract ReservationRouter is Governable, Initializable {
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
         uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
+        uint32 reservationDissolutionDelay,
         uint64 reservationMaxTotalAmount,
         uint32 maxReservationsPerWallet,
-        uint32 reservationActionTimeout
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
     );
 
     event ReservationVaultUpdated(address reservationVault);
@@ -354,14 +357,25 @@ contract ReservationRouter is Governable, Initializable {
         self.notifyReservedRedemptionVeto(reservationKey, requestNonce);
     }
 
-    /// @notice Extends the custody term of a reservation by its snapshotted
-    ///         term length. Can only be called by the reservation vault,
-    ///         which collects the custody fee for the extension. See
-    ///         `Reservation.extendReservation`.
-    /// @param reservationKey The key of the reservation to extend.
-    function extendReservation(uint256 reservationKey) external {
+    /// @notice Renews the custody term of a reservation by exactly one
+    ///         current term, inside the renewal window immediately before
+    ///         expiry. Can only be called by the reservation vault, which
+    ///         collects the custody fee and enforces the exceptional
+    ///         pause/block policy. See `Reservation.extendReservation`.
+    /// @param reservationKey The key of the reservation to renew.
+    /// @param expectedExpiresAt The expiry the caller observed.
+    /// @param expectedNewExpiresAt The new expiry the caller is paying for.
+    function extendReservation(
+        uint256 reservationKey,
+        uint32 expectedExpiresAt,
+        uint32 expectedNewExpiresAt
+    ) external {
         // The caller is checked in the library function.
-        self.extendReservation(reservationKey);
+        self.extendReservation(
+            reservationKey,
+            expectedExpiresAt,
+            expectedNewExpiresAt
+        );
     }
 
     /// @notice Updates parameters of reservations, including the
@@ -374,15 +388,18 @@ contract ReservationRouter is Governable, Initializable {
     /// @param reservationTxMaxFee New value of the reservation transaction
     ///        max fee in satoshis.
     /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length in seconds. Snapshotted into new positions.
-    /// @param reservationGracePeriod New value of the reservation grace
-    ///        period in seconds. Snapshotted into new positions.
+    ///        term length in seconds, within the protocol bounds. Applies
+    ///        to future term grants; never alters an existing expiry.
+    /// @param reservationDissolutionDelay New value of the post-expiry
+    ///        dissolution delay in seconds. Snapshotted per granted term.
     /// @param reservationMaxTotalAmount New cap on the total amount in
     ///        satoshi locked under active reservations.
     /// @param maxReservationsPerWallet New cap on the number of active
     ///        reservations a single wallet can custody.
     /// @param reservationActionTimeout New value of the reservation action
     ///        timeout in seconds.
+    /// @param reservationRenewalWindowSeconds New length of the renewal
+    ///        window; must stay strictly shorter than the term.
     /// @dev Requirements:
     ///      - The caller must be the governance,
     ///      - See `Reservation.updateReservationParameters` for parameter
@@ -392,20 +409,22 @@ contract ReservationRouter is Governable, Initializable {
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
         uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
+        uint32 reservationDissolutionDelay,
         uint64 reservationMaxTotalAmount,
         uint32 maxReservationsPerWallet,
-        uint32 reservationActionTimeout
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
     ) external onlyGovernance {
         self.updateReservationParameters(
             reservationVault,
             reservationMinAmount,
             reservationTxMaxFee,
             reservationTermSeconds,
-            reservationGracePeriod,
+            reservationDissolutionDelay,
             reservationMaxTotalAmount,
             maxReservationsPerWallet,
-            reservationActionTimeout
+            reservationActionTimeout,
+            reservationRenewalWindowSeconds
         );
     }
 
@@ -457,22 +476,24 @@ contract ReservationRouter is Governable, Initializable {
             uint64 reservationMinAmount,
             uint64 reservationTxMaxFee,
             uint32 reservationTermSeconds,
-            uint32 reservationGracePeriod,
+            uint32 reservationDissolutionDelay,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
             uint32 maxReservationsPerWallet,
-            uint32 reservationActionTimeout
+            uint32 reservationActionTimeout,
+            uint32 reservationRenewalWindowSeconds
         )
     {
         reservationVault = self.reservationVault;
         reservationMinAmount = self.reservationMinAmount;
         reservationTxMaxFee = self.reservationTxMaxFee;
         reservationTermSeconds = self.reservationTermSeconds;
-        reservationGracePeriod = self.reservationGracePeriod;
+        reservationDissolutionDelay = self.reservationDissolutionDelay;
         reservationMaxTotalAmount = self.reservationMaxTotalAmount;
         reservationTotalAmount = self.reservationTotalAmount;
         maxReservationsPerWallet = self.maxReservationsPerWallet;
         reservationActionTimeout = self.reservationActionTimeout;
+        reservationRenewalWindowSeconds = self.reservationRenewalWindowSeconds;
     }
 
     /// @notice Returns the address of the reservation router the Bridge
