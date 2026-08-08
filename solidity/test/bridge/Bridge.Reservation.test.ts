@@ -1439,6 +1439,137 @@ describe("Bridge - Reservation", () => {
       expect(await tbtc.totalSupply()).to.equal(supplyBefore.sub(grossTbtc))
     })
 
+    it("keeps redemption provable when txMaxFee exceeds the anchor (underflow guard)", async () => {
+      // Regression: redemptionTxMaxFee is a governable parameter, not a
+      // tx-derived value, so a governance increase can push it above an
+      // existing anchorAmount. The redemption range check must not underflow
+      // in that case. Fund the owner with two acceptances, then raise the
+      // fee/min parameters above the anchor and prove an in-kind redemption.
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation() // funds the owner with extra TBTC
+
+      // Raise the reservation tx max fee above the anchor amount (and the
+      // minimum above the fee, preserving the invariant).
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          anchorAmount.add(2),
+          anchorAmount.add(1),
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET
+        )
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      const redemptionFee = grossTbtc.mul(20).div(10000)
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, grossTbtc.add(redemptionFee))
+      await reservationVault
+        .connect(thirdParty)
+        .redeemReservation(reservationKey, redeemerScript)
+
+      // Pay the full anchor value out (zero miner fee). The old lower bound
+      // `anchorAmount - redemptionTxMaxFee` would revert on underflow here.
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [{ valueSat: anchorAmount, script: redeemerScript.slice(4) }]
+      )
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Redemption,
+          redemptionTx.info,
+          proofFor(redemptionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+      await expect(tx)
+        .to.emit(bridge, "ReservedRedemptionCompleted")
+        .withArgs(reservationKey, redemptionTx.txHash)
+    })
+
+    it("rejects a re-anchor that drops below the reservation minimum", async () => {
+      // Accept a reservation whose anchor sits at the reservation minimum,
+      // so a single fee-capped hop can push it below the floor.
+      const minAmount = BigNumber.from(RESERVATION_MIN_AMOUNT)
+      const depositAmt = minAmount.add(RESERVATION_TX_MAX_FEE)
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: depositAmt,
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                refundLocktime
+              )
+            ),
+          },
+        ]
+      )
+      await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor,
+        walletPubKeyHash,
+        refundPubKeyHash,
+        refundLocktime,
+        vault: reservationVault.address,
+      })
+      const anchorTx = buildTx(
+        [{ txHash: fundingTx.txHash, index: 0 }],
+        [{ valueSat: minAmount, script: p2wpkhScript(walletPubKeyHash) }]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Acceptance,
+          anchorTx.info,
+          proofFor(anchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          0
+        )
+      const reservationKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [fundingTx.txHash, 0]
+        )
+      )
+
+      await liveWallet(secondWalletPubKeyHash)
+
+      // Fee of 1 sat keeps the hop within the per-hop cap, but the resulting
+      // anchor (min - 1) sits below the reservation minimum.
+      const belowMin = minAmount.sub(1)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [{ valueSat: belowMin, script: p2wpkhScript(secondWalletPubKeyHash) }]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            reanchorTx.info,
+            proofFor(reanchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Re-anchor amount below the reservation minimum")
+    })
+
     it("re-anchors a reservation to another Live wallet", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
       await liveWallet(secondWalletPubKeyHash)

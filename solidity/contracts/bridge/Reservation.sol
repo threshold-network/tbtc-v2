@@ -638,10 +638,19 @@ library Reservation {
             );
         }
 
+        // Underflow-safe range check. `redemptionTxMaxFee` is a governable
+        // parameter, not a value derived from the proven transaction, so it
+        // may exceed `anchorAmount` after re-anchor hops shrink the anchor
+        // or after a governance fee increase. The equivalent formulation
+        // below avoids the `anchorAmount - redemptionTxMaxFee` subtraction
+        // that would otherwise revert and permanently strand the
+        // reservation. `outputValue <= anchorAmount` is guaranteed by
+        // Bitcoin consensus (an output cannot exceed its input) but is
+        // asserted defensively.
         require(
-            reservation.anchorAmount - reservation.redemptionTxMaxFee <=
-                outputValue &&
-                outputValue <= reservation.anchorAmount,
+            outputValue <= reservation.anchorAmount &&
+                reservation.anchorAmount - outputValue <=
+                reservation.redemptionTxMaxFee,
             "Output value is not within the acceptable range"
         );
 
@@ -801,10 +810,23 @@ library Reservation {
             "Target wallet must be in Live state"
         );
 
+        // `newAnchorAmount <= anchorAmount` is guaranteed by Bitcoin
+        // consensus (the re-anchor output cannot exceed its input).
         require(
             reservation.anchorAmount - newAnchorAmount <=
                 self.reservationTxMaxFee,
             "Transaction fee is too high"
+        );
+
+        // Floor the anchor at the reservation minimum so that repeated,
+        // network-scheduled re-anchor hops cannot grind the anchored amount
+        // down toward the miner fee. Because `reservationMinAmount` is
+        // required to exceed `reservationTxMaxFee`, this also keeps the
+        // anchor safely above the redemption fee bound, preserving
+        // redemption liveness across migrations.
+        require(
+            newAnchorAmount >= self.reservationMinAmount,
+            "Re-anchor amount below the reservation minimum"
         );
 
         bytes20 oldWalletPubKeyHash = reservation.walletPubKeyHash;
