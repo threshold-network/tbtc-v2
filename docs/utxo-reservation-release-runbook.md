@@ -88,8 +88,7 @@ Standard transparent-proxy upgrade via `BridgeGovernance` /
 - **The delegatecall shim**: `hardhat.config.ts` carries a backport of the
   `@openzeppelin/upgrades-core` fix for foreign link-reference splices
   crashing proxy validation. Keep it until the plugin is upgraded past
-  1.20.0; removing it early reintroduces the `"Bytecode is not a valid hex
-string"` failure on unrelated proxy deploys.
+  1.20.0; removing it early reintroduces the `"Bytecode is not a valid hex string"` failure on unrelated proxy deploys.
 - **Post-upgrade**: `setReservationRouter` is idempotent-guarded (reverts
   if already set). Re-pointing the router to new code is itself a Bridge
   implementation change and follows this same procedure — there is no
