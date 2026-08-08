@@ -214,8 +214,10 @@ library Reservation {
         // redemption generation time out. Zero for other action types.
         address redeemer;
         // Amount in satoshi associated with the generation: the escrowed
-        // gross claim for redemptions, the capacity-reserved deposit value
-        // for acceptances, the anchor value at request time otherwise.
+        // gross claim for redemptions (the full claim for a whole
+        // redemption, the redeemed portion for a partial), the
+        // capacity-reserved deposit value for acceptances, the anchor
+        // value at request time otherwise.
         uint64 amount;
         // keccak256 hash of the length-prefixed redeemer output script a
         // redemption generation must pay to. Zero for other action types.
@@ -225,6 +227,14 @@ library Reservation {
         // Zero for other action types, and for dissolutions of wallets
         // with no main UTXO.
         bytes32 expectedMainUtxoHash;
+        // True when a redemption generation is partial: it redeems only
+        // `amount` of the reservation's claim in a 1-input-2-output spend
+        // (redeemer output + re-anchored remainder) and leaves the
+        // reservation open with a reduced anchor. False for a whole
+        // redemption (1-input-1-output, closes the reservation) and for
+        // every non-redemption action. Appended to the end of the struct so
+        // the existing field layout is unchanged.
+        bool isPartial;
     }
 
     event ReservationAcceptanceRequested(
@@ -551,6 +561,94 @@ library Reservation {
         bool feePaid,
         bool useRetryCredit
     ) external {
+        // A whole redemption redeems the full minted claim (1-in-1-out,
+        // closes the reservation). Passing the full `mintedAmount` marks
+        // the generation non-partial.
+        _requestReservedRedemption(
+            self,
+            reservationKey,
+            redeemer,
+            redeemerOutputScript,
+            self.reservations[reservationKey].mintedAmount,
+            false,
+            feePaid,
+            useRetryCredit
+        );
+    }
+
+    /// @notice Requests a partial in-kind redemption of a reservation: the
+    ///         wallet is expected to spend the anchor in a 1-input-2-output
+    ///         transaction paying `redeemAmount` (less the miner fee) to
+    ///         the redeemer and re-anchoring the remainder back to the
+    ///         custodying wallet. The reservation stays open with its claim
+    ///         and anchor both reduced by `redeemAmount`.
+    /// @param reservationKey The key of the reservation to partially redeem.
+    /// @param redeemer The address able to claim the escrowed portion back
+    ///        if the redemption times out.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @param feePaid True when the vault collected the (proportional)
+    ///        redemption fee for this request.
+    /// @param useRetryCredit True when the request consumes the fee-free
+    ///        retry entitlement instead of paying the fee.
+    /// @dev Requirements (in addition to the shared redemption
+    ///      requirements):
+    ///      - `redeemAmount` must exceed the per-transaction fee bound (so
+    ///        the redeemer output is positive after the miner fee),
+    ///      - `redeemAmount` must be strictly less than the minted claim
+    ///        (a full-claim redemption uses the whole-redemption path),
+    ///      - the remainder (`mintedAmount - redeemAmount`) must stay above
+    ///        the dust floor so the surviving reservation is still
+    ///        redeemable and dissolvable.
+    function requestPartialReservedRedemption(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool feePaid,
+        bool useRetryCredit
+    ) external {
+        uint64 mintedAmount = self.reservations[reservationKey].mintedAmount;
+        require(
+            redeemAmount > self.reservationTxMaxFee,
+            "Redeemed amount below the dust floor"
+        );
+        require(
+            redeemAmount < mintedAmount,
+            "Use the whole redemption path for a full claim"
+        );
+        require(
+            mintedAmount - redeemAmount > self.reservationTxMaxFee,
+            "Remainder below the dust floor"
+        );
+
+        _requestReservedRedemption(
+            self,
+            reservationKey,
+            redeemer,
+            redeemerOutputScript,
+            redeemAmount,
+            true,
+            feePaid,
+            useRetryCredit
+        );
+    }
+
+    /// @notice Shared body for whole and partial reserved redemption
+    ///         requests. Escrows `redeemAmount` gross from the reservation
+    ///         vault's Bank balance and records a redemption generation.
+    function _requestReservedRedemption(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool isPartial,
+        bool feePaid,
+        bool useRetryCredit
+    ) internal {
         require(
             msg.sender == self.reservationVault,
             "Caller is not the reservation vault"
@@ -629,6 +727,7 @@ library Reservation {
         );
         action.actionType = ActionType.Redemption;
         action.state = ActionState.Pending;
+        action.isPartial = isPartial;
         /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
         /* solhint-disable-next-line not-rely-on-time */
@@ -636,7 +735,7 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.feePaid = feePaid;
         action.redeemer = redeemer;
-        action.amount = reservation.mintedAmount;
+        action.amount = redeemAmount;
         action.redeemerOutputScriptHash = keccak256(redeemerOutputScriptMem);
 
         // slither-disable-next-line reentrancy-events
@@ -645,16 +744,12 @@ library Reservation {
             requestNonce,
             redeemer,
             redeemerOutputScript,
-            reservation.mintedAmount,
+            redeemAmount,
             action.txMaxFee,
             feePaid
         );
 
-        self.bank.transferBalanceFrom(
-            msg.sender,
-            address(this),
-            reservation.mintedAmount
-        );
+        self.bank.transferBalanceFrom(msg.sender, address(this), redeemAmount);
     }
 
     /// @notice Requests the re-anchoring of a reservation to another

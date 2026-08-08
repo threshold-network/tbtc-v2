@@ -133,6 +133,14 @@ contract ReservationRouter is Governable, Initializable {
         bytes32 redemptionTxHash
     );
 
+    event ReservationPartiallyRedeemed(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes32 redemptionTxHash,
+        uint64 redeemedAmount,
+        uint64 newAnchorAmount
+    );
+
     event ReservationReanchorRequested(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -271,6 +279,42 @@ contract ReservationRouter is Governable, Initializable {
             reservationKey,
             redeemer,
             redeemerOutputScript,
+            feePaid,
+            useRetryCredit
+        );
+    }
+
+    /// @notice Requests a partial in-kind redemption of a reservation: the
+    ///         wallet spends the anchor in a 1-input-2-output transaction
+    ///         paying `redeemAmount` (less the miner fee) to the redeemer
+    ///         and re-anchoring the remainder, leaving the reservation open
+    ///         with a reduced claim and anchor. Can only be called by the
+    ///         reservation vault. See
+    ///         `Reservation.requestPartialReservedRedemption`.
+    /// @param reservationKey The key of the reservation to partially redeem.
+    /// @param redeemer The address able to claim the escrowed portion back
+    ///        if the redemption times out.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @param feePaid True when the vault collected the redemption fee for
+    ///        this request.
+    /// @param useRetryCredit True when the request consumes the fee-free
+    ///        retry entitlement instead of paying the fee.
+    function requestPartialReservedRedemption(
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool feePaid,
+        bool useRetryCredit
+    ) external {
+        // The caller is checked in the library function.
+        self.requestPartialReservedRedemption(
+            reservationKey,
+            redeemer,
+            redeemerOutputScript,
+            redeemAmount,
             feePaid,
             useRetryCredit
         );

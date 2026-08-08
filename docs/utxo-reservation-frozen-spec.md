@@ -15,7 +15,7 @@ numbers are proposals. Companion: `docs/rfc/rfc-13.adoc`,
 | --------------------------------- | ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
 | `reservationVault`                | Liability-side vault; deposits revealed to it are reserved | deployed vault          | Changeable only with zero active reservations **and** zero pending reserved deposits |
 | `reservationMinAmount`            | Minimum anchor amount (sat)                                | 10 BTC _(sign-off)_     | Must exceed `reservationTxMaxFee`; the count/size dial for pre-FROST ceremony cost   |
-| `reservationTxMaxFee`             | Per-transaction Bitcoin miner-fee cap (sat)                | governance _(sign-off)_ | > 0                                                                                  |
+| `reservationTxMaxFee`             | Per-transaction Bitcoin miner-fee cap (sat)                | governance _(sign-off)_ | > 0; a partial redemption's redeemed portion and remainder must each exceed it       |
 | `reservationTermSeconds`          | Custody term granted per acceptance/renewal                | 365 days _(sign-off)_   | Hard bounds **90–730 days** (protocol constants)                                     |
 | `reservationDissolutionDelay`     | Post-expiry delay before dissolvable (renamed grace)       | 30 days _(sign-off)_    | Snapshotted per granted term; not an owner-action window                             |
 | `reservationMaxTotalAmount`       | Global reserved-anchor cap (sat)                           | 500 BTC _(sign-off)_    | The absolute lever; the reserved-fraction target is enforced through it (§3)         |
@@ -32,21 +32,23 @@ numbers are proposals. Companion: `docs/rfc/rfc-13.adoc`,
 
 ### ReservationVault fees and reserve
 
-| Parameter              | Meaning                             | Value                   | Notes                                                 |
-| ---------------------- | ----------------------------------- | ----------------------- | ----------------------------------------------------- |
-| `initiationFeeBps`     | Acceptance fee (bps of gross)       | 40                      | 20 bps mint-leg parity + 20 bps first-year custody    |
-| `extensionFeeBps`      | Renewal fee (bps of gross)          | 20                      | Per renewed term                                      |
-| `redemptionFeeBps`     | Redemption fee (bps of gross)       | 20                      | Pooled parity; not re-charged on wallet-fault retries |
-| `MAX_FEE_BASIS_POINTS` | Per-fee hard cap                    | 500 (constant)          |                                                       |
-| `feeReserveTarget`     | Retained in-kind fee reserve (TBTC) | governance _(sign-off)_ | Seed before unpausing; excess sweeps to treasury      |
+| Parameter              | Meaning                             | Value                   | Notes                                                                                               |
+| ---------------------- | ----------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `initiationFeeBps`     | Acceptance fee (bps of gross)       | 40                      | 20 bps mint-leg parity + 20 bps first-year custody                                                  |
+| `extensionFeeBps`      | Renewal fee (bps of gross)          | 20                      | Per renewed term                                                                                    |
+| `redemptionFeeBps`     | Redemption fee (bps of gross)       | 20                      | Pooled parity; not re-charged on wallet-fault retries; a partial charges it on the redeemed portion |
+| `MAX_FEE_BASIS_POINTS` | Per-fee hard cap                    | 500 (constant)          |                                                                                                     |
+| `feeReserveTarget`     | Retained in-kind fee reserve (TBTC) | governance _(sign-off)_ | Seed before unpausing; excess sweeps to treasury                                                    |
 
 ## 2. Economic model (frozen mechanics)
 
 - **Claim ≡ anchor, always.** `mintedAmount` tracks `anchorAmount` at every
-  instant. Acceptance mints the gross anchor value; redemption burns it;
-  re-anchor and dissolution write it down to the new anchor and finance the
-  miner fee from the vault reserve. There is no netting and no per-position
-  accumulating leakage.
+  instant. Acceptance mints the gross anchor value; a whole redemption burns
+  it, and a partial burns the redeemed portion while re-anchoring the
+  remainder to the wallet (claim and anchor drop by the redeemed amount in
+  lockstep); re-anchor and dissolution write it down to the new anchor and
+  finance the miner fee from the vault reserve. There is no netting and no
+  per-position accumulating leakage.
 - **Fee schedule 40 / 20 / 20**, all-in initiation 40 bps (endpoints at
   pooled parity, so the purchased premium is exactly the 20 bps/yr custody
   fee). N-year holding pays `40 + 20N` bps vs pooled 40 — strictly premium

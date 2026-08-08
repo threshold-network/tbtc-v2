@@ -107,9 +107,14 @@ Every Bitcoin action of a reservation's life is one of four *action types*:
 |1-in (revealed reserved deposit) → 1-out (wallet P2(W)PKH anchor)
 |Position created; gross anchor value credited via vault (mint)
 
-|Redemption
+|Redemption (whole)
 |1-in (anchor) → 1-out (redeemer script)
 |Claim burned; position closed
+
+|Redemption (partial)
+|1-in (anchor) → 2-out (redeemer script; wallet P2(W)PKH remainder)
+|Redeemed portion burned; remainder re-anchored to the wallet; position stays
+`Active`
 
 |Re-anchor
 |1-in (anchor) → 1-out (target wallet P2(W)PKH)
@@ -119,6 +124,21 @@ Every Bitcoin action of a reservation's life is one of four *action types*:
 |1-in (anchor) [+ 2nd in: wallet main UTXO] → 1-out (wallet P2(W)PKH)
 |Anchor merged into pooled main UTXO; position closed; miner fee financed
 |===
+
+Whole and partial redemption share one action type (`Redemption`,
+distinguished by an `isPartial` flag on the generation), so there are still
+four action types. A partial redemption redeems an owner-chosen amount
+strictly between the fee floor and the whole claim: its transaction pays the
+redeemer script on output 0 — which *bears the entire miner fee*, so its value
+is `redeemAmount − fee` — and re-anchors the remainder to the custodying
+wallet on output 1, whose value must equal `anchor − redeemAmount` to the
+satoshi. Claim-equals-anchor therefore holds across the split and no foreign
+sats enter (the remainder is the wallet's own change). On settlement the
+redeemed portion is burned and the position's claim, anchor value, and
+reserved capacity each drop by `redeemAmount` while the position stays
+`Active` on the new remainder outpoint; a timeout instead returns the *full*
+anchor and refunds the escrow. Partials chain — each spends the prior
+remainder — and a whole redemption closes whatever remains.
 
 Each action goes through the same *two-phase* lifecycle:
 

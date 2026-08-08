@@ -84,6 +84,14 @@ library ReservationProofs {
         bytes32 redemptionTxHash
     );
 
+    event ReservationPartiallyRedeemed(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes32 redemptionTxHash,
+        uint64 redeemedAmount,
+        uint64 newAnchorAmount
+    );
+
     event ReservationReanchored(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -533,7 +541,45 @@ library ReservationProofs {
 
         consumeAnchor(self, reservation, redemptionTx.inputVector);
 
-        bytes memory output = parseSingleOutput(redemptionTx.outputVector);
+        if (action.isPartial) {
+            settlePartialRedemption(
+                self,
+                reservation,
+                reservationKey,
+                requestNonce,
+                action,
+                late,
+                redemptionTxHash,
+                redemptionTx.outputVector
+            );
+        } else {
+            settleWholeRedemption(
+                self,
+                reservation,
+                reservationKey,
+                requestNonce,
+                action,
+                late,
+                redemptionTxHash,
+                redemptionTx.outputVector
+            );
+        }
+    }
+
+    /// @notice Settles a whole reserved redemption: a 1-input-1-output
+    ///         spend that pays the full claim to the redeemer and closes
+    ///         the reservation.
+    function settleWholeRedemption(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ReservationAction storage action,
+        bool late,
+        bytes32 redemptionTxHash,
+        bytes memory outputVector
+    ) internal {
+        bytes memory output = parseSingleOutput(outputVector);
         uint64 outputValue = output.extractValue();
 
         {
@@ -555,12 +601,13 @@ library ReservationProofs {
         );
 
         if (late) {
-            resolveLateRedemptionAgainstPending(
+            resolveLateAgainstPending(
                 self,
                 reservation,
                 reservationKey,
                 action,
-                outputValue
+                outputValue,
+                reservation.anchorAmount
             );
 
             emit ReservationLateSettled(
@@ -588,6 +635,139 @@ library ReservationProofs {
             // redemption request.
             self.bank.decreaseBalance(action.amount);
         }
+    }
+
+    /// @notice Settles a partial reserved redemption: a 1-input-2-output
+    ///         spend that pays `action.amount` (less the miner fee) to the
+    ///         redeemer and re-anchors the remainder back to the custodying
+    ///         wallet. The reservation stays open with its claim and anchor
+    ///         reduced by the redeemed portion — claim always equals the new
+    ///         anchor — and the remainder output becomes the new anchor
+    ///         (output index 1).
+    function settlePartialRedemption(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ReservationAction storage action,
+        bool late,
+        bytes32 redemptionTxHash,
+        bytes memory outputVector
+    ) internal {
+        (uint64 redeemerValue, uint64 remainderValue) = validatePartialOutputs(
+            self,
+            reservation,
+            action,
+            outputVector
+        );
+
+        if (late) {
+            resolveLateAgainstPending(
+                self,
+                reservation,
+                reservationKey,
+                action,
+                redeemerValue,
+                action.amount
+            );
+
+            emit ReservationLateSettled(
+                reservationKey,
+                requestNonce,
+                Reservation.ActionType.Redemption
+            );
+            // No Bank movement: the timeout already refunded the escrowed
+            // portion and slashed the wallet.
+        }
+
+        action.state = Reservation.ActionState.Settled;
+
+        // Reduce the reservation to the remainder anchor; it stays Active.
+        // Because the claim equals the anchor, the redeemed portion drops
+        // out of both the claim and the reserved capacity in lockstep.
+        self.reservationTotalAmount -= action.amount;
+        self.walletReservationsAmount[reservation.walletPubKeyHash] -= action
+            .amount;
+
+        reservation.mintedAmount -= action.amount;
+        reservation.anchorAmount = remainderValue;
+        reservation.anchorTxHash = redemptionTxHash;
+        reservation.anchorTxOutputIndex = 1;
+        reservation.state = Reservation.ReservationState.Active;
+
+        self.reservationsByAnchorUtxo[
+            uint256(keccak256(abi.encodePacked(redemptionTxHash, uint32(1))))
+        ] = reservationKey;
+
+        emit ReservationPartiallyRedeemed(
+            reservationKey,
+            requestNonce,
+            redemptionTxHash,
+            action.amount,
+            remainderValue
+        );
+
+        if (!late) {
+            // Burn the redeemed portion held by the Bridge since the
+            // request.
+            self.bank.decreaseBalance(action.amount);
+        }
+    }
+
+    /// @notice Validates the two outputs of a partial redemption
+    ///         transaction and returns their values.
+    /// @return redeemerValue Value of the redeemer output (output 0).
+    /// @return remainderValue Value of the re-anchored remainder (output 1).
+    function validatePartialOutputs(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        Reservation.ReservationAction storage action,
+        bytes memory outputVector
+    ) internal view returns (uint64 redeemerValue, uint64 remainderValue) {
+        (, uint256 outputsCount) = outputVector.parseVarInt();
+        require(
+            outputsCount == 2,
+            "Partial redemption must have exactly two outputs"
+        );
+
+        bytes memory redeemerOutput = outputVector.extractOutputAtIndex(0);
+        bytes memory remainderOutput = outputVector.extractOutputAtIndex(1);
+
+        redeemerValue = redeemerOutput.extractValue();
+        remainderValue = remainderOutput.extractValue();
+
+        // Output 0 pays the requested redeemer script; its value is the
+        // redeemed portion less the miner fee, which the redeemer bears.
+        {
+            bytes memory redeemerScript = redeemerOutput.slice(
+                8,
+                redeemerOutput.length - 8
+            );
+            require(
+                keccak256(redeemerScript) == action.redeemerOutputScriptHash,
+                "First output does not pay the requested redeemer script"
+            );
+        }
+        require(
+            redeemerValue <= action.amount &&
+                action.amount - redeemerValue <= action.txMaxFee,
+            "Redeemer output value is not within the acceptable range"
+        );
+
+        // Output 1 re-anchors to the custodying wallet; its value must equal
+        // the anchor minus the redeemed portion, so the surviving claim
+        // still equals the surviving anchor to the satoshi. The whole miner
+        // fee is therefore borne by the redeemer output, never the
+        // remainder.
+        require(
+            self.extractPubKeyHash(remainderOutput) ==
+                reservation.walletPubKeyHash,
+            "Second output must re-anchor to the custodying wallet"
+        );
+        require(
+            remainderValue == reservation.anchorAmount - action.amount,
+            "Remainder value must equal the anchor minus the redeemed amount"
+        );
     }
 
     /// @notice Used by the wallet to prove a re-anchor transaction moving a
@@ -967,12 +1147,13 @@ library ReservationProofs {
     ///         generations can claim the transaction); otherwise the
     ///         pending generation's anchor is provably gone and it is
     ///         unwound.
-    function resolveLateRedemptionAgainstPending(
+    function resolveLateAgainstPending(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
         uint256 reservationKey,
         Reservation.ReservationAction storage action,
-        uint64 outputValue
+        uint64 redeemerValue,
+        uint64 effectiveRedeemAmount
     ) internal {
         if (reservation.state != Reservation.ReservationState.ActionPending) {
             return;
@@ -982,11 +1163,23 @@ library ReservationProofs {
             .reservationActions[
                 Reservation.actionKey(reservationKey, reservation.requestNonce)
             ];
+        // The pending generation is satisfied by this same transaction only
+        // if it is a redemption of the same shape (whole vs partial), the
+        // same redeemer script, the same redeemed amount, and the redeemer
+        // output falls within its snapshotted fee bound. `redeemerValue` is
+        // the redeemer's output value and `effectiveRedeemAmount` is the
+        // value it is measured against (the anchor for a whole redemption,
+        // the redeemed portion for a partial). When it matches, settling the
+        // timed-out generation (no burn) while unwinding the pending one
+        // (refund) would lose the burn, so the proof must settle the pending
+        // generation instead.
         if (
             pendingAction.actionType == Reservation.ActionType.Redemption &&
+            pendingAction.isPartial == action.isPartial &&
             pendingAction.redeemerOutputScriptHash ==
             action.redeemerOutputScriptHash &&
-            reservation.anchorAmount - outputValue <= pendingAction.txMaxFee
+            pendingAction.amount == action.amount &&
+            effectiveRedeemAmount - redeemerValue <= pendingAction.txMaxFee
         ) {
             revert("Must settle the pending generation");
         }

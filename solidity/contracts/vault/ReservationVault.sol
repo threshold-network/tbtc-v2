@@ -334,6 +334,114 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         );
     }
 
+    /// @notice Requests a partial in-kind redemption of the caller's
+    ///         reservation: surrenders `redeemAmount` of the minted claim
+    ///         (plus the proportional redemption fee) and asks the Bridge to
+    ///         have the wallet pay that portion to the redeemer script while
+    ///         re-anchoring the remainder. The reservation stays open with a
+    ///         reduced claim.
+    /// @param reservationKey The key of the reservation to partially redeem.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @dev Requirements:
+    ///      - The caller must be the reservation owner,
+    ///      - The caller must have approved this vault for
+    ///        `redeemAmount * SATOSHI_MULTIPLIER * (1 + redemptionFeeBps/10000)`
+    ///        TBTC,
+    ///      - See `Reservation.requestPartialReservedRedemption` for the
+    ///        amount bounds.
+    function redeemReservationPartial(
+        uint256 reservationKey,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount
+    ) external {
+        require(
+            bridge.reservations(reservationKey).owner == msg.sender,
+            "Caller is not the reservation owner"
+        );
+
+        uint256 grossTbtc = uint256(redeemAmount) * SATOSHI_MULTIPLIER;
+        uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
+
+        // The redemption fee stays in the vault as part of the in-kind fee
+        // reserve; see `feeReserveTarget`.
+        IERC20(tbtcToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            grossTbtc + fee
+        );
+
+        // Unmint the redeemed portion back into Bank balance and let the
+        // Bridge take it when registering the partial redemption request.
+        IERC20(tbtcToken).safeIncreaseAllowance(address(tbtcVault), grossTbtc);
+        tbtcVault.unmint(grossTbtc);
+        bank.approveBalance(address(bridge), redeemAmount);
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservedRedemptionInitiated(
+            reservationKey,
+            msg.sender,
+            grossTbtc,
+            fee
+        );
+
+        bridge.requestPartialReservedRedemption(
+            reservationKey,
+            msg.sender,
+            redeemerOutputScript,
+            redeemAmount,
+            true, // The redemption fee was collected above.
+            false
+        );
+    }
+
+    /// @notice Re-requests a partial in-kind redemption using the caller's
+    ///         Bank balance — the state a timed-out partial redemption
+    ///         leaves the owner in — consuming the fee-free retry
+    ///         entitlement instead of paying the fee.
+    /// @param reservationKey The key of the reservation to partially redeem.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @dev Requirements:
+    ///      - The caller must be the reservation owner,
+    ///      - The caller must have approved this vault in the Bank for
+    ///        `redeemAmount`,
+    ///      - The reservation must hold the retry entitlement.
+    function retryRedeemReservationPartial(
+        uint256 reservationKey,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount
+    ) external {
+        require(
+            bridge.reservations(reservationKey).owner == msg.sender,
+            "Caller is not the reservation owner"
+        );
+
+        uint256 grossTbtc = uint256(redeemAmount) * SATOSHI_MULTIPLIER;
+
+        bank.transferBalanceFrom(msg.sender, address(this), redeemAmount);
+        bank.approveBalance(address(bridge), redeemAmount);
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservedRedemptionInitiated(
+            reservationKey,
+            msg.sender,
+            grossTbtc,
+            0
+        );
+
+        bridge.requestPartialReservedRedemption(
+            reservationKey,
+            msg.sender,
+            redeemerOutputScript,
+            redeemAmount,
+            false,
+            true // Consume the retry entitlement instead of paying the fee.
+        );
+    }
+
     /// @notice Renews the custody term of the caller's reservation by
     ///         exactly one current term, charging the extension fee in
     ///         TBTC. Renewal is possible only inside the renewal window
