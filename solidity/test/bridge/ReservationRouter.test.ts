@@ -51,7 +51,7 @@ async function getStorageLayout(
   if (!layout) {
     throw new Error(
       `No storage layout for ${sourceName}:${contractName}; ` +
-        `is the storageLayout output selection enabled?`
+        "is the storageLayout output selection enabled?"
     )
   }
   return layout

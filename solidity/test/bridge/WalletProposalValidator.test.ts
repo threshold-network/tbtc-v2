@@ -1,5 +1,5 @@
 import crypto from "crypto"
-import { ethers, helpers } from "hardhat"
+import { artifacts, ethers, helpers } from "hardhat"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
 import { BigNumber, BigNumberish, BytesLike } from "ethers"
@@ -41,7 +41,27 @@ describe("WalletProposalValidator", () => {
   before(async () => {
     const { deployer } = await helpers.signers.getNamedSigners()
 
-    bridge = await smock.fake<Bridge>("Bridge")
+    // The validator consults the UTXO-reservation surface, which lives in
+    // the ReservationRouter and is reached through the Bridge's fallback at
+    // the Bridge address. Build the fake from the merged ABI so those calls
+    // return zeroed defaults (reservations disabled) instead of reverting.
+    const bridgeAbi = (await artifacts.readArtifact("Bridge")).abi
+    const routerAbi = (await artifacts.readArtifact("ReservationRouter")).abi
+    const bridgeInterface = new ethers.utils.Interface(bridgeAbi)
+    const bridgeSignatures = new Set(
+      bridgeInterface.fragments
+        .filter((f) => f.type === "function" || f.type === "event")
+        .map((f) => f.format())
+    )
+    const routerExtras = new ethers.utils.Interface(routerAbi).fragments.filter(
+      (f) =>
+        (f.type === "function" || f.type === "event") &&
+        !bridgeSignatures.has(f.format())
+    )
+    bridge = await smock.fake<Bridge>([
+      ...bridgeInterface.fragments,
+      ...routerExtras,
+    ])
 
     const WalletProposalValidator = await ethers.getContractFactory(
       "WalletProposalValidator"
