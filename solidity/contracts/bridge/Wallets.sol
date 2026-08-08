@@ -593,11 +593,20 @@ library Wallets {
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
-        if (wallet.mainUtxoHash == bytes32(0)) {
-            // If the wallet has no main UTXO, that means its BTC balance
-            // is zero and the wallet closing should begin immediately.
+        if (
+            wallet.mainUtxoHash == bytes32(0) &&
+            self.walletReservationsCount[walletPubKeyHash] == 0
+        ) {
+            // If the wallet has no main UTXO and no reservation anchors,
+            // its BTC balance is zero and the wallet closing should begin
+            // immediately.
             beginWalletClosing(self, walletPubKeyHash);
         } else {
+            // The wallet holds funds: a main UTXO, reservation anchors, or
+            // both. A wallet with anchors but no main UTXO still enters
+            // the moving funds process — its reservations must be
+            // re-anchored to other wallets (or redeemed/dissolved) before
+            // it can begin closing via the below-dust notification.
             // Otherwise, initialize the moving funds process.
             wallet.state = WalletState.MovingFunds;
             /* solhint-disable-next-line not-rely-on-time */
@@ -626,6 +635,17 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        // A wallet that still custodies reservation anchors (or reserved
+        // capacity of pending reservation actions) has not finished moving
+        // its funds: reservations must first be redeemed, re-anchored to
+        // other wallets or dissolved into the main UTXO. Entering the
+        // Closing state would strand them — reservation actions require a
+        // Live or MovingFunds wallet.
+        require(
+            self.walletReservationsCount[walletPubKeyHash] == 0,
+            "Wallet still custodies reservations"
+        );
+
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         // Initialize the closing period.
         wallet.state = WalletState.Closing;

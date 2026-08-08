@@ -63,14 +63,31 @@ interface IRedemptionWatchtower {
         view
         returns (uint32);
 
-    /// @notice Returns the applicable veto delay for a pending reserved
-    ///         redemption identified by the given reservation key.
+    /// @notice Returns the applicable veto delay for the given pending
+    ///         reserved redemption generation. Zero when the watchtower is
+    ///         not enabled (no guardians can object) or was permanently
+    ///         disabled.
     /// @param reservationKey The key of the reservation.
+    /// @param requestNonce The redemption generation.
     /// @return Reserved redemption veto delay.
-    function getReservedRedemptionDelay(uint256 reservationKey)
+    function getReservedRedemptionDelay(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (uint32);
+
+    /// @notice Determines whether a reserved redemption request is
+    ///         considered safe: neither the reservation owner nor the
+    ///         redeemer may be banned. Objection state is per generation,
+    ///         so — unlike the pooled `isSafeRedemption` — no historical
+    ///         objection count is consulted: a fresh generation always
+    ///         starts with a clean count.
+    /// @param owner The reservation owner.
+    /// @param redeemer The address requesting the redemption.
+    /// @return True if the reserved redemption request is safe.
+    function isSafeReservedRedemption(address owner, address redeemer)
         external
         view
-        returns (uint32);
+        returns (bool);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof

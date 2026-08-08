@@ -374,6 +374,26 @@ library BridgeState {
         // the fallback delegatecall at new code is equivalent to a Bridge
         // implementation change.
         address reservationRouter;
+        // Time in seconds after which a requested reservation action
+        // (acceptance anchor, re-anchor, dissolution) can be reported
+        // timed out. Reserved redemptions use `redemptionTimeout` instead.
+        // Snapshotted into each action record at request time.
+        uint32 reservationActionTimeout;
+        // Collection of all reservation action generation records indexed
+        // by `keccak256(reservationKey | requestNonce)`. Each record
+        // snapshots every proof- and settlement-critical parameter of one
+        // requested action generation. Terminal records (TimedOut, Vetoed,
+        // Superseded, Settled) are never deleted: timed-out generations
+        // must keep accepting late proofs of their confirmed Bitcoin
+        // transactions.
+        mapping(uint256 => Reservation.ReservationAction) reservationActions;
+        // Per-wallet main-UTXO action lock: maps the 20-byte wallet public
+        // key hash to the reservation key of the wallet's in-flight
+        // dissolution, or zero when none is pending. At most one
+        // dissolution per wallet may be in flight — concurrent
+        // dissolutions of a no-main-UTXO wallet could all confirm on
+        // Bitcoin with only the first being provable.
+        mapping(bytes20 => uint256) walletPendingDissolution;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -381,7 +401,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[42] __gap;
+        uint256[39] __gap;
     }
 
     event DepositParametersUpdated(

@@ -1823,7 +1823,8 @@ contract BridgeGovernance is Ownable {
         uint32 _newReservationTermSeconds,
         uint32 _newReservationGracePeriod,
         uint64 _newReservationMaxTotalAmount,
-        uint32 _newMaxReservationsPerWallet
+        uint32 _newMaxReservationsPerWallet,
+        uint32 _newReservationActionTimeout
     ) external onlyOwner {
         reservationData.beginReservationParametersUpdate(
             _newReservationVault,
@@ -1832,7 +1833,8 @@ contract BridgeGovernance is Ownable {
             _newReservationTermSeconds,
             _newReservationGracePeriod,
             _newReservationMaxTotalAmount,
-            _newMaxReservationsPerWallet
+            _newMaxReservationsPerWallet,
+            _newReservationActionTimeout
         );
     }
 
@@ -1850,7 +1852,8 @@ contract BridgeGovernance is Ownable {
             staged.newReservationTermSeconds,
             staged.newReservationGracePeriod,
             staged.newReservationMaxTotalAmount,
-            staged.newMaxReservationsPerWallet
+            staged.newMaxReservationsPerWallet,
+            staged.newReservationActionTimeout
         );
     }
 }

@@ -39,12 +39,20 @@ const func: DeployFunction = async function deployBridge(
   })
   const Fraud = await deploy("Fraud", deployOptions)
   const MovingFunds = await deploy("MovingFunds", deployOptions)
-  const Reservation = await deploy("Reservation", deployOptions)
+  const ReservationProofs = await deploy("ReservationProofs", deployOptions)
+  const Reservation = await deploy("Reservation", {
+    ...deployOptions,
+    libraries: {
+      ReservationProofs: ReservationProofs.address,
+    },
+  })
 
   // The reservation router holds the Bridge's UTXO-reservation external
   // surface and is reached through the Bridge's fallback via delegatecall.
   // It is stateless code (all storage lives in the Bridge), so a single
-  // instance can serve any number of Bridge deployments.
+  // instance can serve any number of Bridge deployments. The router links
+  // exactly one library (Reservation), which in turn links the settlement
+  // library (ReservationProofs).
   const ReservationRouter = await deploy("ReservationRouter", {
     ...deployOptions,
     libraries: {
@@ -103,6 +111,7 @@ const func: DeployFunction = async function deployBridge(
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
     await helpers.etherscan.verify(Reservation)
+    await helpers.etherscan.verify(ReservationProofs)
     await helpers.etherscan.verify(ReservationRouter)
 
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
