@@ -1113,6 +1113,107 @@ describe("Bridge - Reservation settlement", () => {
         ReservationState.Active
       )
     })
+
+    it("unwinds a re-authorized acceptance when the first anchor settles late (no capacity leak)", async () => {
+      // Re-review regression: acceptance gen 1 times out, gen 2 is
+      // re-authorized (re-reserving capacity), then gen 1's anchor confirms
+      // and settles late. Gen 2's reserved capacity must be released, not
+      // leaked — a leak would permanently inflate the wallet caps and the
+      // reserved total (which blocks vault migration).
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: depositAmount,
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                refundLocktime
+              )
+            ),
+          },
+        ]
+      )
+      await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor,
+        walletPubKeyHash,
+        refundPubKeyHash,
+        refundLocktime,
+        vault: reservationVault.address,
+      })
+      const reservationKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [fundingTx.txHash, 0]
+        )
+      )
+
+      const totalBaseline = (await bridge.reservationParameters())
+        .reservationTotalAmount
+      const walletAmountBaseline = await bridge.walletReservationsAmount(
+        walletPubKeyHash
+      )
+
+      // Generation 1: request, time out (releases capacity).
+      await bridge
+        .connect(thirdParty)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      // Generation 2: re-authorize (re-reserves capacity) and leave pending.
+      await bridge
+        .connect(thirdParty)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(totalBaseline.add(depositAmount))
+
+      // Generation 1's anchor confirms and settles late.
+      const anchorTx = buildTx(
+        [{ txHash: fundingTx.txHash, index: 0 }],
+        [{ valueSat: anchorAmount, script: p2wpkhScript(walletPubKeyHash) }]
+      )
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Acceptance,
+          anchorTx.info,
+          proofFor(anchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          1
+        )
+      await expect(tx)
+        .to.emit(bridge, "ReservationActionSuperseded")
+        .withArgs(reservationKey, 2)
+
+      // Generation 2 is terminally Superseded; its capacity was released and
+      // only generation 1's actual anchor value remains reserved. No leak.
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Superseded)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(totalBaseline.add(anchorAmount))
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        walletAmountBaseline.add(anchorAmount)
+      )
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Active
+      )
+    })
   })
 
   describe("reserved redemption gating", () => {
