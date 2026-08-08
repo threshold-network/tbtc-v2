@@ -55,6 +55,16 @@ numbers are proposals. Companion: `docs/rfc/rfc-13.adoc`,
   at every horizon. Stable across the FROST transition by design; the
   minimum reservation size, not a fee change, keeps carry ≥ per-position
   lifecycle cost.
+- **Custody is prepaid and non-refundable.** The 20 bps/yr custody fee is
+  charged up front on the full position for the full term (first year in the
+  40 bps initiation, each further year via the 20 bps extension). Redemption —
+  whole or partial — never rebates unexpired custody on the exited amount; a
+  partial additionally pays the 20 bps redeem-leg fee on the redeemed portion.
+  This is deliberate: no per-position custody accrual, and no refund outflow
+  path. Renewal after a partial is charged on the reduced remainder
+  (`extendCustody` reads the live `mintedAmount`), so the surviving position is
+  never over-charged going forward — only the redeemed slice forfeits its
+  unexpired prepayment, once, at the moment of the partial.
 - **Renewal is exactly one term.** Proration is moot (a renewal never adds
   a partial term) and a renewal-horizon cap is unnecessary (the window <
   term makes stacking impossible). Maximum owner lookahead = one term +
