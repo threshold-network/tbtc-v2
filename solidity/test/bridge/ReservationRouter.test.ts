@@ -341,7 +341,8 @@ describe("ReservationRouter", () => {
             31536000,
             2592000,
             100000000000,
-            10
+            10,
+            172800
           )
       ).to.be.revertedWith("Caller is not the governance")
 
@@ -352,12 +353,27 @@ describe("ReservationRouter", () => {
       await expect(
         standaloneRouter
           .connect(thirdParty)
-          .requestReservedRedemption(1, thirdParty.address, "0x1600144b47c798")
+          .requestReservedRedemption(
+            1,
+            thirdParty.address,
+            "0x1600144b47c798",
+            true,
+            false
+          )
       ).to.be.revertedWith("Caller is not the reservation vault")
 
       await expect(
-        standaloneRouter.connect(thirdParty).notifyReservedRedemptionVeto(1)
+        standaloneRouter.connect(thirdParty).notifyReservedRedemptionVeto(1, 1)
       ).to.be.revertedWith("Caller is not the redemption watchtower")
+
+      await expect(
+        standaloneRouter
+          .connect(thirdParty)
+          .requestReservationAcceptance(
+            1,
+            "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+          )
+      ).to.be.revertedWith("Reservations are disabled")
     })
   })
 })
