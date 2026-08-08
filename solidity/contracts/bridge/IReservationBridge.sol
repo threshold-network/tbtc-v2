@@ -79,6 +79,21 @@ interface IReservationBridge {
         uint32 reservationRenewalWindowSeconds
     ) external;
 
+    /// @notice See `ReservationRouter.updateReservationCaps`.
+    function updateReservationCaps(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount
+    ) external;
+
+    /// @notice See `ReservationRouter.reservationCaps`.
+    function reservationCaps()
+        external
+        view
+        returns (
+            uint64 maxReservationsAmountPerWallet,
+            uint64 reservationMaxSingleAmount
+        );
+
     /// @notice Bridge treasury address. Declared by the Bridge contract
     ///         itself (not the router); included here so reservation
     ///         consumers can use a single interface against the Bridge

@@ -27,6 +27,7 @@ import "./Reservation.sol";
 import "./Wallets.sol";
 
 import "../bank/Bank.sol";
+import "../vault/IReservationFeeFinancer.sol";
 
 /// @title Bridge UTXO reservations — settlement
 /// @notice SPV settlement side of the two-phase reservation model (see
@@ -342,6 +343,9 @@ library ReservationProofs {
             // already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
             self.walletReservationsCount[action.targetWalletPubKeyHash] += 1;
+            self.walletReservationsAmount[
+                action.targetWalletPubKeyHash
+            ] += anchorAmount;
             emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
@@ -351,6 +355,9 @@ library ReservationProofs {
             // Release the difference between the reserved upper bound
             // (deposit value) and the actual anchor value (miner fee).
             self.reservationTotalAmount -= (action.amount - anchorAmount);
+            self.walletReservationsAmount[
+                action.targetWalletPubKeyHash
+            ] -= (action.amount - anchorAmount);
         }
 
         address depositor = self.deposits[reservationKey].depositor;
@@ -614,9 +621,12 @@ library ReservationProofs {
         );
 
         if (late) {
-            // The timeout released the target wallet's reserved count;
-            // re-take it. Deliberately no cap check (see acceptance).
+            // The timeout released the target wallet's reserved count and
+            // amount; re-take them. Deliberately no cap check (see
+            // acceptance).
             self.walletReservationsCount[newWalletPubKeyHash] += 1;
+            self.walletReservationsAmount[newWalletPubKeyHash] += reservation
+                .anchorAmount;
 
             // A newer pending generation references an anchor this
             // transaction just consumed; unwind it.
@@ -634,19 +644,41 @@ library ReservationProofs {
             );
         }
 
-        // The source wallet's count is released now; the target wallet's
-        // count was reserved at request time (or re-taken above).
+        // The source wallet's count and amount are released now; the
+        // target wallet's were reserved at request time (or re-taken
+        // above). The target reserved the pre-hop anchor value; release
+        // the miner-fee delta.
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] -= reservation.anchorAmount;
+        self.walletReservationsAmount[newWalletPubKeyHash] -= (reservation
+            .anchorAmount - newAnchorAmount);
+
+        uint64 minerFee = reservation.anchorAmount - newAnchorAmount;
 
         // The miner fee reduces the on-chain earmarked amount.
-        self.reservationTotalAmount -= (reservation.anchorAmount -
-            newAnchorAmount);
+        self.reservationTotalAmount -= minerFee;
 
         reservation.walletPubKeyHash = newWalletPubKeyHash;
         reservation.anchorAmount = newAnchorAmount;
+        // The claim always equals the anchor: the miner fee is financed
+        // from the vault's custody-fee reserve (which burns supply in
+        // lockstep with the backing loss), and the claim is written down
+        // to the new anchor value. The owner's redemption surrender
+        // shrinks accordingly — rotation costs are borne by the custody
+        // fee that was priced for them, not by the owner and not by the
+        // peg.
+        reservation.mintedAmount = newAnchorAmount;
         reservation.anchorTxHash = reanchorTxHash;
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
+
+        if (minerFee > 0) {
+            IReservationFeeFinancer(self.reservationVault).financeInKindFee(
+                minerFee
+            );
+        }
 
         action.state = Reservation.ActionState.Settled;
 
@@ -746,6 +778,18 @@ library ReservationProofs {
             dissolutionTxHash,
             outputValue
         );
+
+        // The dissolution miner fee is a backing loss no party surrenders
+        // TBTC for (the owner keeps their minted balance as an ordinary
+        // pooled claim): finance it from the vault's custody-fee reserve
+        // so total supply reconciles with the net backing added,
+        // atomically with the settlement.
+        uint64 dissolutionFee = inputsTotalValue - outputValue;
+        if (dissolutionFee > 0) {
+            IReservationFeeFinancer(self.reservationVault).financeInKindFee(
+                dissolutionFee
+            );
+        }
     }
 
     /// @notice Parses the dissolution transaction's single output, validates
@@ -935,6 +979,9 @@ library ReservationProofs {
             self.walletReservationsCount[
                 pendingAction.targetWalletPubKeyHash
             ] -= 1;
+            self.walletReservationsAmount[
+                pendingAction.targetWalletPubKeyHash
+            ] -= pendingAction.amount;
         } else if (
             pendingAction.actionType == Reservation.ActionType.Dissolution
         ) {

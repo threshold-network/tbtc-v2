@@ -17,7 +17,9 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import "./IReservationFeeFinancer.sol";
 import "./IVault.sol";
 import "./TBTCVault.sol";
 import "../bank/Bank.sol";
@@ -52,7 +54,7 @@ import "../token/TBTC.sol";
 /// @dev The vault deliberately keeps no claim registry of its own -- the
 ///      Bridge's reservation records are the single source of truth and are
 ///      consulted for ownership checks.
-contract ReservationVault is IVault, Ownable {
+contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     using SafeERC20 for IERC20;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
@@ -103,6 +105,22 @@ contract ReservationVault is IVault, Ownable {
     ///         unpause, unblock, or replace the guardian.
     address public renewalGuardian;
 
+    /// @notice TBTC amount (18 decimals) of custody-fee revenue the vault
+    ///         retains as the in-kind fee reserve. All protocol fees
+    ///         accumulate in the vault; `sweepFees` can move only the
+    ///         balance exceeding this target to the treasury. The reserve
+    ///         finances the Bitcoin miner fees of re-anchor and dissolution
+    ///         transactions — the settlements where no party surrenders
+    ///         TBTC — keeping total supply matched to the Bitcoin backing.
+    uint256 public feeReserveTarget;
+
+    /// @notice Outstanding in-kind fee debt in satoshi: miner fees of
+    ///         already-settled re-anchor/dissolution transactions the fee
+    ///         reserve could not cover at settlement time. While non-zero,
+    ///         total TBTC supply exceeds the Bitcoin backing by this
+    ///         amount; `repayInKindFeeDebt` burns it down.
+    uint64 public inKindFeeDebtSat;
+
     event ReservationCreditProcessed(
         address indexed owner,
         uint256 satAmount,
@@ -140,6 +158,14 @@ contract ReservationVault is IVault, Ownable {
         address indexed oldGuardian,
         address indexed newGuardian
     );
+
+    event InKindFeeFinanced(uint64 feeSat, uint64 shortfallSat);
+
+    event InKindFeeDebtRepaid(address indexed payer, uint64 amountSat);
+
+    event FeeReserveTargetUpdated(uint256 feeReserveTarget);
+
+    event FeesSwept(address indexed recipient, uint256 amountTbtc);
 
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
@@ -238,9 +264,9 @@ contract ReservationVault is IVault, Ownable {
             );
         }
 
-        if (totalFee > 0) {
-            IERC20(tbtcToken).safeTransfer(bridge.treasury(), totalFee);
-        }
+        // The initiation fee stays in the vault: all custody-fee revenue
+        // accumulates here as the in-kind fee reserve, and only the excess
+        // over `feeReserveTarget` can be swept to the treasury.
     }
 
     /// @notice Requests an in-kind redemption of the caller's reservation.
@@ -277,14 +303,13 @@ contract ReservationVault is IVault, Ownable {
             SATOSHI_MULTIPLIER;
         uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
 
+        // The redemption fee stays in the vault as part of the in-kind
+        // fee reserve; see `feeReserveTarget`.
         IERC20(tbtcToken).safeTransferFrom(
             msg.sender,
             address(this),
             grossTbtc + fee
         );
-        if (fee > 0) {
-            IERC20(tbtcToken).safeTransfer(bridge.treasury(), fee);
-        }
 
         // Unmint the gross TBTC back into Bank balance and let the Bridge
         // take it when registering the reserved redemption request.
@@ -363,11 +388,9 @@ contract ReservationVault is IVault, Ownable {
         );
 
         if (fee > 0) {
-            IERC20(tbtcToken).safeTransferFrom(
-                msg.sender,
-                bridge.treasury(),
-                fee
-            );
+            // The renewal fee stays in the vault as part of the in-kind
+            // fee reserve; see `feeReserveTarget`.
+            IERC20(tbtcToken).safeTransferFrom(msg.sender, address(this), fee);
         }
 
         // slither-disable-next-line reentrancy-events
@@ -480,6 +503,118 @@ contract ReservationVault is IVault, Ownable {
             false,
             true // Consume the retry entitlement instead of paying the fee.
         );
+    }
+
+    /// @notice Finances an in-kind Bitcoin miner fee of a settled
+    ///         re-anchor or dissolution transaction: burns TBTC equal to
+    ///         the fee from the vault's fee reserve together with the
+    ///         corresponding Bank balance, so total supply shrinks in
+    ///         lockstep with the Bitcoin backing. Called by the Bridge
+    ///         during settlement.
+    /// @param feeSat The in-kind fee in satoshi.
+    /// @dev Requirements:
+    ///      - The caller must be the Bridge.
+    ///
+    ///      If the reserve cannot cover the full amount, the shortfall is
+    ///      recorded as `inKindFeeDebtSat` and the call still succeeds: a
+    ///      confirmed Bitcoin spend must never fail to settle because of
+    ///      the reserve level. While the debt is non-zero the system is
+    ///      over-supplied by exactly that amount, publicly visible and
+    ///      repayable by anyone via `repayInKindFeeDebt`.
+    function financeInKindFee(uint64 feeSat) external override {
+        require(msg.sender == address(bridge), "Caller is not the Bridge");
+
+        if (feeSat == 0) {
+            return;
+        }
+
+        uint256 reserveTbtc = tbtcToken.balanceOf(address(this));
+        uint64 coverableSat = uint64(
+            Math.min(uint256(feeSat), reserveTbtc / SATOSHI_MULTIPLIER)
+        );
+
+        if (coverableSat > 0) {
+            uint256 burnTbtc = uint256(coverableSat) * SATOSHI_MULTIPLIER;
+            IERC20(tbtcToken).safeIncreaseAllowance(
+                address(tbtcVault),
+                burnTbtc
+            );
+            tbtcVault.unmint(burnTbtc);
+            bank.decreaseBalance(coverableSat);
+        }
+
+        uint64 shortfallSat = feeSat - coverableSat;
+        if (shortfallSat > 0) {
+            // The external calls above touch only trusted protocol
+            // contracts (TBTC token, TBTC vault, Bank).
+            // slither-disable-next-line reentrancy-benign
+            inKindFeeDebtSat += shortfallSat;
+        }
+
+        // slither-disable-next-line reentrancy-events
+        emit InKindFeeFinanced(feeSat, shortfallSat);
+    }
+
+    /// @notice Repays outstanding in-kind fee debt: pulls TBTC from the
+    ///         caller, burns it together with the corresponding Bank
+    ///         balance and reduces the recorded debt. Callable by anyone.
+    /// @param amountSat The debt amount in satoshi to repay; capped at the
+    ///        outstanding debt.
+    function repayInKindFeeDebt(uint64 amountSat) external {
+        uint64 repaySat = uint64(
+            Math.min(uint256(amountSat), uint256(inKindFeeDebtSat))
+        );
+        require(repaySat > 0, "No debt to repay");
+
+        uint256 repayTbtc = uint256(repaySat) * SATOSHI_MULTIPLIER;
+        IERC20(tbtcToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            repayTbtc
+        );
+        IERC20(tbtcToken).safeIncreaseAllowance(address(tbtcVault), repayTbtc);
+        tbtcVault.unmint(repayTbtc);
+        bank.decreaseBalance(repaySat);
+
+        // The external calls above touch only trusted protocol contracts
+        // (TBTC token, TBTC vault, Bank).
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign
+        inKindFeeDebtSat -= repaySat;
+
+        // slither-disable-next-line reentrancy-events
+        emit InKindFeeDebtRepaid(msg.sender, repaySat);
+    }
+
+    /// @notice Updates the TBTC amount of fee revenue the vault retains as
+    ///         the in-kind fee reserve.
+    /// @param _feeReserveTarget The new reserve target, in TBTC (18
+    ///        decimals).
+    /// @dev Requirements:
+    ///      - The caller must be the vault owner (governance).
+    function updateFeeReserveTarget(uint256 _feeReserveTarget)
+        external
+        onlyOwner
+    {
+        feeReserveTarget = _feeReserveTarget;
+        emit FeeReserveTargetUpdated(_feeReserveTarget);
+    }
+
+    /// @notice Sweeps fee revenue exceeding the reserve target to the
+    ///         given recipient (normally the Bridge treasury).
+    /// @param recipient The recipient of the swept fees.
+    /// @dev Requirements:
+    ///      - The caller must be the vault owner (governance),
+    ///      - The vault TBTC balance must exceed the reserve target.
+    function sweepFees(address recipient) external onlyOwner {
+        require(recipient != address(0), "Recipient must not be zero");
+        uint256 balance = tbtcToken.balanceOf(address(this));
+        require(balance > feeReserveTarget, "Nothing above the reserve target");
+
+        uint256 amount = balance - feeReserveTarget;
+        IERC20(tbtcToken).safeTransfer(recipient, amount);
+        // The TBTC token is a trusted protocol contract.
+        // slither-disable-next-line reentrancy-events
+        emit FeesSwept(recipient, amount);
     }
 
     /// @notice Updates the vault fee parameters.

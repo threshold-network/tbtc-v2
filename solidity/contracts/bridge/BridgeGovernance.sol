@@ -34,6 +34,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationCapsData;
 
     BridgeGovernanceParameters.DepositData internal depositData;
     BridgeGovernanceParameters.RedemptionData internal redemptionData;
@@ -42,6 +43,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
     BridgeGovernanceParameters.ReservationData internal reservationData;
+    BridgeGovernanceParameters.ReservationCapsData internal reservationCapsData;
 
     Bridge internal bridge;
 
@@ -1837,6 +1839,33 @@ contract BridgeGovernance is Ownable {
             _newMaxReservationsPerWallet,
             _newReservationActionTimeout,
             _newReservationRenewalWindowSeconds
+        );
+    }
+
+    /// @notice Begins the reservation caps update process. Both
+    ///         amount-denominated caps are staged together since they are
+    ///         applied atomically via a single Bridge call.
+    /// @dev Can be called only by the contract owner.
+    function beginReservationCapsUpdate(
+        uint64 _newMaxReservationsAmountPerWallet,
+        uint64 _newReservationMaxSingleAmount
+    ) external onlyOwner {
+        reservationCapsData.beginReservationCapsUpdate(
+            _newMaxReservationsAmountPerWallet,
+            _newReservationMaxSingleAmount
+        );
+    }
+
+    /// @notice Finalizes the reservation caps update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses.
+    function finalizeReservationCapsUpdate() external onlyOwner {
+        BridgeGovernanceParameters.ReservationCapsData
+            memory staged = reservationCapsData;
+        reservationCapsData.finalizeReservationCapsUpdate(governanceDelay());
+        IReservationBridge(address(bridge)).updateReservationCaps(
+            staged.newMaxReservationsAmountPerWallet,
+            staged.newReservationMaxSingleAmount
         );
     }
 
