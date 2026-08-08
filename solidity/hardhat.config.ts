@@ -47,29 +47,33 @@ loadEnv({ path: path.join(__dirname, "..", ".env") })
     // eslint-disable-next-line no-param-reassign, @typescript-eslint/no-explicit-any
     queryModule.getUnlinkedBytecode = (data: any, bytecode: string) => {
       const dataV3 = normalizeValidationData(data)
-      for (const validation of dataV3.log) {
-        const linkableContracts = Object.keys(validation).filter(
-          (name) => validation[name].linkReferences.length > 0
-        )
-        for (const name of linkableContracts) {
-          try {
-            const unlinkedBytecode = unlinkBytecode(
-              bytecode,
-              validation[name].linkReferences
-            )
-            const version = getVersion(unlinkedBytecode)
-            if (
-              validation[name].version?.withMetadata === version.withMetadata
-            ) {
-              return unlinkedBytecode
+      let result = bytecode
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataV3.log.some((validation: any) =>
+        Object.keys(validation)
+          .filter((name) => validation[name].linkReferences.length > 0)
+          .some((name) => {
+            try {
+              const unlinkedBytecode = unlinkBytecode(
+                bytecode,
+                validation[name].linkReferences
+              )
+              const version = getVersion(unlinkedBytecode)
+              if (
+                validation[name].version?.withMetadata === version.withMetadata
+              ) {
+                result = unlinkedBytecode
+                return true
+              }
+            } catch {
+              // A foreign contract's link references mangled this bytecode;
+              // it cannot be the contract being deployed — skip the
+              // candidate.
             }
-          } catch {
-            // A foreign contract's link references mangled this bytecode;
-            // it cannot be the contract being deployed — skip the candidate.
-          }
-        }
-      }
-      return bytecode
+            return false
+          })
+      )
+      return result
     }
   }
 

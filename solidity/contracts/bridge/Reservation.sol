@@ -230,16 +230,6 @@ library Reservation {
         uint32 timeoutAt
     );
 
-    event ReservationAccepted(
-        uint256 indexed reservationKey,
-        uint64 requestNonce,
-        bytes20 indexed walletPubKeyHash,
-        address indexed owner,
-        bytes32 anchorTxHash,
-        uint64 anchorAmount,
-        uint32 expiresAt
-    );
-
     event ReservationExtended(
         uint256 indexed reservationKey,
         uint32 newExpiresAt
@@ -255,12 +245,6 @@ library Reservation {
         bool feePaid
     );
 
-    event ReservedRedemptionCompleted(
-        uint256 indexed reservationKey,
-        uint64 requestNonce,
-        bytes32 redemptionTxHash
-    );
-
     event ReservationReanchorRequested(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -269,27 +253,12 @@ library Reservation {
         uint64 txMaxFee
     );
 
-    event ReservationReanchored(
-        uint256 indexed reservationKey,
-        uint64 requestNonce,
-        bytes20 indexed newWalletPubKeyHash,
-        bytes32 newAnchorTxHash,
-        uint64 newAnchorAmount
-    );
-
     event ReservationDissolutionRequested(
         uint256 indexed reservationKey,
         uint64 requestNonce,
         bytes20 indexed walletPubKeyHash,
         uint64 txMaxFee,
         bytes32 expectedMainUtxoHash
-    );
-
-    event ReservationDissolved(
-        uint256 indexed reservationKey,
-        uint64 requestNonce,
-        bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash
     );
 
     event ReservationActionTimedOut(
@@ -301,17 +270,6 @@ library Reservation {
     event ReservedRedemptionVetoed(
         uint256 indexed reservationKey,
         uint64 requestNonce
-    );
-
-    event ReservationActionSuperseded(
-        uint256 indexed reservationKey,
-        uint64 requestNonce
-    );
-
-    event ReservationLateSettled(
-        uint256 indexed reservationKey,
-        uint64 requestNonce,
-        ActionType actionType
     );
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);

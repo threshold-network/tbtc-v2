@@ -529,6 +529,7 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         uint256 reservationKey,
         uint64 requestNonce
     ) external view returns (uint32) {
+        // slither-disable-next-line incorrect-equality
         if (watchtowerEnabledAt == 0) {
             return 0;
         }

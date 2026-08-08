@@ -67,6 +67,48 @@ library ReservationProofs {
     using BTCUtils for bytes;
     using BytesLib for bytes;
 
+    event ReservationAccepted(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes20 indexed walletPubKeyHash,
+        address indexed owner,
+        bytes32 anchorTxHash,
+        uint64 anchorAmount,
+        uint32 expiresAt
+    );
+
+    event ReservedRedemptionCompleted(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes32 redemptionTxHash
+    );
+
+    event ReservationReanchored(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes20 indexed newWalletPubKeyHash,
+        bytes32 newAnchorTxHash,
+        uint64 newAnchorAmount
+    );
+
+    event ReservationDissolved(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes20 indexed walletPubKeyHash,
+        bytes32 dissolutionTxHash
+    );
+
+    event ReservationActionSuperseded(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
+    );
+
+    event ReservationLateSettled(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        Reservation.ActionType actionType
+    );
+
     /// @notice Represents the type of a reservation lifecycle SPV proof.
     ///         Numbering matches `Reservation.ActionType` minus `None`.
     enum ProofType {
@@ -300,7 +342,7 @@ library ReservationProofs {
             // already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
             self.walletReservationsCount[action.targetWalletPubKeyHash] += 1;
-            emit Reservation.ReservationLateSettled(
+            emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
                 Reservation.ActionType.Acceptance
@@ -339,7 +381,7 @@ library ReservationProofs {
         ] = reservationKey;
 
         // slither-disable-next-line reentrancy-events
-        emit Reservation.ReservationAccepted(
+        emit ReservationAccepted(
             reservationKey,
             requestNonce,
             action.targetWalletPubKeyHash,
@@ -471,7 +513,7 @@ library ReservationProofs {
                 outputValue
             );
 
-            emit Reservation.ReservationLateSettled(
+            emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
                 Reservation.ActionType.Redemption
@@ -485,7 +527,7 @@ library ReservationProofs {
         self.closeReservation(reservation);
 
         // slither-disable-next-line reentrancy-events
-        emit Reservation.ReservedRedemptionCompleted(
+        emit ReservedRedemptionCompleted(
             reservationKey,
             requestNonce,
             redemptionTxHash
@@ -583,7 +625,8 @@ library ReservationProofs {
                 unwindPendingAction(self, reservation, reservationKey);
             }
 
-            emit Reservation.ReservationLateSettled(
+            // slither-disable-next-line reentrancy-events
+            emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
                 Reservation.ActionType.Reanchor
@@ -610,7 +653,8 @@ library ReservationProofs {
             uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))
         ] = reservationKey;
 
-        emit Reservation.ReservationReanchored(
+        // slither-disable-next-line reentrancy-events
+        emit ReservationReanchored(
             reservationKey,
             requestNonce,
             newWalletPubKeyHash,
@@ -787,7 +831,8 @@ library ReservationProofs {
             ) {
                 unwindPendingAction(self, reservation, reservationKey);
             }
-            emit Reservation.ReservationLateSettled(
+            // slither-disable-next-line reentrancy-events
+            emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
                 Reservation.ActionType.Dissolution
@@ -807,7 +852,8 @@ library ReservationProofs {
         action.state = Reservation.ActionState.Settled;
         self.closeReservation(reservation);
 
-        emit Reservation.ReservationDissolved(
+        // slither-disable-next-line reentrancy-events
+        emit ReservationDissolved(
             reservationKey,
             requestNonce,
             walletPubKeyHash,
@@ -901,10 +947,10 @@ library ReservationProofs {
             }
         }
 
-        emit Reservation.ReservationActionSuperseded(
-            reservationKey,
-            pendingNonce
-        );
+        // The Bank is a trusted protocol contract; the refund above cannot
+        // reenter in a way that makes this event misleading.
+        // slither-disable-next-line reentrancy-events
+        emit ReservationActionSuperseded(reservationKey, pendingNonce);
     }
 
     /// @notice Parses the given output vector and returns its single output.
