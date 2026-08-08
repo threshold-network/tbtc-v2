@@ -260,7 +260,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(directBridgeCall).to.be.undefined
       })
 
-      it("should define all 7 required libraries for Bridge implementation deployment", async () => {
+      it("should define all 6 required libraries for Bridge implementation deployment", async () => {
         await func(mockHre)
 
         const bridgeCall = deployCalls.find(
@@ -278,10 +278,9 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           "Wallets",
           "Fraud",
           "MovingFunds",
-          "Reservation",
         ]
         const actualKeys = Object.keys(libraries)
-        expect(actualKeys).to.have.lengthOf(7)
+        expect(actualKeys).to.have.lengthOf(6)
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
@@ -295,7 +294,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(libraries.Wallets).to.equal(WALLETS_ADDRESS)
         expect(libraries.Fraud).to.equal(FRAUD_ADDRESS)
         expect(libraries.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
-        expect(libraries.Reservation).to.equal(RESERVATION_ADDRESS)
       })
 
       it("should deploy RebateStaking implementation with distinct artifact name", async () => {
@@ -777,11 +775,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    it("should have libraries with all 7 entries", () => {
+    it("should have libraries with all 6 entries", () => {
       expect(summary).to.not.be.null
       const libs = summary.libraries
 
-      expect(Object.keys(libs)).to.have.lengthOf(7)
+      expect(Object.keys(libs)).to.have.lengthOf(6)
 
       const requiredKeys = [
         "Deposit",
@@ -790,7 +788,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         "Wallets",
         "Fraud",
         "MovingFunds",
-        "Reservation",
       ]
 
       requiredKeys.forEach((key) => {
