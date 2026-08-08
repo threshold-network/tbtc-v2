@@ -22,6 +22,7 @@ import "./BitcoinTx.sol";
 import "./Bridge.sol";
 import "./Deposit.sol";
 import "./Redemption.sol";
+import "./IReservationBridge.sol";
 import "./Reservation.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
@@ -269,8 +270,9 @@ contract WalletProposalValidator {
 
         address proposalVault = address(0);
 
-        (address reservationVault, , , , , , , ) = bridge
-            .reservationParameters();
+        (address reservationVault, , , , , , , ) = IReservationBridge(
+            address(bridge)
+        ).reservationParameters();
 
         uint256[] memory processedDepositKeys = new uint256[](
             proposal.depositsKeys.length
@@ -984,7 +986,7 @@ contract WalletProposalValidator {
             ,
             ,
 
-        ) = bridge.reservationParameters();
+        ) = IReservationBridge(address(bridge)).reservationParameters();
 
         require(reservationVault != address(0), "Reservations are disabled");
 
@@ -1076,9 +1078,9 @@ contract WalletProposalValidator {
     ) external view returns (bool) {
         requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
 
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            proposal.reservationKey
-        );
+        Reservation.ReservationRequest memory reservation = IReservationBridge(
+            address(bridge)
+        ).reservations(proposal.reservationKey);
 
         require(
             reservation.state ==
@@ -1145,9 +1147,9 @@ contract WalletProposalValidator {
     function validateReservationReanchorProposal(
         ReservationReanchorProposal calldata proposal
     ) external view returns (bool) {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            proposal.reservationKey
-        );
+        Reservation.ReservationRequest memory reservation = IReservationBridge(
+            address(bridge)
+        ).reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,
@@ -1164,8 +1166,9 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-        (, , uint64 reservationTxMaxFee, , , , , ) = bridge
-            .reservationParameters();
+        (, , uint64 reservationTxMaxFee, , , , , ) = IReservationBridge(
+            address(bridge)
+        ).reservationParameters();
         require(
             proposal.reanchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
@@ -1193,9 +1196,9 @@ contract WalletProposalValidator {
     ) external view returns (bool) {
         requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
 
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            proposal.reservationKey
-        );
+        Reservation.ReservationRequest memory reservation = IReservationBridge(
+            address(bridge)
+        ).reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,
@@ -1215,7 +1218,7 @@ contract WalletProposalValidator {
             ,
             ,
 
-        ) = bridge.reservationParameters();
+        ) = IReservationBridge(address(bridge)).reservationParameters();
 
         require(
             /* solhint-disable-next-line not-rely-on-time */

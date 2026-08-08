@@ -66,6 +66,13 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1000,
           },
+          // Storage layouts are asserted by tests guarding the
+          // Bridge / ReservationRouter delegatecall storage parity.
+          outputSelection: {
+            "*": {
+              "*": ["storageLayout"],
+            },
+          },
         },
       },
     ],
@@ -73,21 +80,28 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-      // Reduce the number of optimizer runs to preserve the Bridge's
-      // EIP-170 deployment margin after adding the reservation entry
-      // points. The runtime-gas cost of this is effectively nil: the Bridge
-      // is a thin dispatch shell over linked libraries (Deposit,
-      // DepositSweep, Redemption, Reservation) that stay at runs=1000, so a
-      // measured runs=1000-vs-100 diff over the deposit/redemption/
-      // reservation hot paths is 0-8 gas (noise). DRAFT NOTE: the durable
-      // alternative is a router-style refactor moving entry points out of
-      // the Bridge (as done on the P2TR activation track).
+      // Preserve the Bridge's EIP-170 deployment margin. Even with the
+      // UTXO-reservation surface moved out to the delegatecall
+      // ReservationRouter, the monolithic Bridge sits ~71 bytes over the
+      // limit at runs=1000 (24,647 B measured); runs=100 leaves a ~2.1 kB
+      // margin (22,403 B measured). The runtime-gas cost of the lower runs
+      // value is effectively nil: the Bridge is a thin dispatch shell over
+      // linked libraries (Deposit, DepositSweep, Redemption, ...) that stay
+      // at runs=1000, so a measured runs=1000-vs-100 diff over the
+      // deposit/redemption hot paths is 0-8 gas (noise). New reservation
+      // code goes into the ReservationRouter, which has its own EIP-170
+      // budget.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
             runs: 100,
+          },
+          outputSelection: {
+            "*": {
+              "*": ["storageLayout"],
+            },
           },
         },
       },

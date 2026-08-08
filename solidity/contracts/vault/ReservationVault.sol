@@ -21,27 +21,9 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./IVault.sol";
 import "./TBTCVault.sol";
 import "../bank/Bank.sol";
+import "../bridge/IReservationBridge.sol";
 import "../bridge/Reservation.sol";
 import "../token/TBTC.sol";
-
-/// @notice Minimal interface of the Bridge functions the reservation vault
-///         interacts with.
-interface IReservationBridge {
-    function reservations(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory);
-
-    function requestReservedRedemption(
-        uint256 reservationKey,
-        address redeemer,
-        bytes calldata redeemerOutputScript
-    ) external;
-
-    function extendReservation(uint256 reservationKey) external;
-
-    function treasury() external view returns (address);
-}
 
 /// @title Reservation vault
 /// @notice The reservation vault is the liability-side companion of the
