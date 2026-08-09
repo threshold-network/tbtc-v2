@@ -399,7 +399,8 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @notice Re-requests a partial in-kind redemption using the caller's
     ///         Bank balance — the state a timed-out partial redemption
     ///         leaves the owner in — consuming the fee-free retry
-    ///         entitlement instead of paying the fee.
+    ///         entitlement for that same partial amount instead of paying
+    ///         the fee.
     /// @param reservationKey The key of the reservation to partially redeem.
     /// @param redeemerOutputScript The redeemer's length-prefixed output
     ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
@@ -408,7 +409,8 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      - The caller must be the reservation owner,
     ///      - The caller must have approved this vault in the Bank for
     ///        `redeemAmount`,
-    ///      - The reservation must hold the retry entitlement.
+    ///      - The reservation must hold a retry entitlement sourced from a
+    ///        timed-out partial redemption of exactly `redeemAmount`.
     function retryRedeemReservationPartial(
         uint256 reservationKey,
         bytes calldata redeemerOutputScript,
@@ -552,7 +554,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         balance -- the state a timed-out reserved redemption leaves
     ///         the owner in (the Bridge refunds the surrendered amount as
     ///         Bank balance). The caller surrenders the gross minted amount
-    ///         as Bank balance and pays the redemption fee in TBTC.
+    ///         as Bank balance without paying the redemption fee again.
     /// @param reservationKey The key of the reservation to redeem.
     /// @param redeemerOutputScript The redeemer's length-prefixed output
     ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
@@ -560,10 +562,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      - The caller must be the reservation owner,
     ///      - The caller must have approved this vault in the Bank for the
     ///        gross minted amount (`Bank.approveBalance`),
-    ///      - The reservation must hold the single-use retry entitlement
-    ///        the Bridge mints when a fee-paid redemption request times
-    ///        out through the wallet's fault (enforced by the Bridge and
-    ///        consumed by this call).
+    ///      - The reservation must hold a single-use retry entitlement
+    ///        sourced from a fee-paid whole redemption of the same amount
+    ///        that timed out through the wallet's fault (enforced by the
+    ///        Bridge and consumed by this call).
     ///
     ///      The redemption fee is not re-charged: it was collected by the
     ///      original `redeemReservation` call and the retry only exists

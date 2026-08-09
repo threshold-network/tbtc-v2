@@ -455,7 +455,12 @@ contract ReservationRouter is Governable, Initializable {
     /// @param maxReservationsPerWallet New cap on the number of active
     ///        reservations a single wallet can custody.
     /// @param reservationActionTimeout New value of the reservation action
-    ///        timeout in seconds.
+    ///        timeout in seconds. Must strictly exceed the two-hour proposal
+    ///        safety margin. For acceptance, an immediate post-reveal request
+    ///        needs more than four hours so the two-hour deposit minimum age
+    ///        elapses before that margin; with a shorter valid timeout, the
+    ///        requester must wait for the deposit to age. The authorization
+    ///        must also fit within the remaining guaranteed reveal-ahead window.
     /// @param reservationRenewalWindowSeconds New length of the renewal
     ///        window; must stay strictly shorter than the term.
     /// @dev Requirements:

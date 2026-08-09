@@ -3,7 +3,12 @@ import { expect } from "chai"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 
 import bridgeFixture from "../fixtures/bridge"
-import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
+import type {
+  Bridge,
+  BridgeGovernance,
+  BridgeStub,
+  ReservationRouter,
+} from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -212,6 +217,53 @@ describe("ReservationRouter", () => {
   })
 
   describe("setReservationRouter", () => {
+    context("when the bridge is governed by BridgeGovernance", () => {
+      let freshBridge: Bridge & BridgeStub & ReservationRouter
+      let localBridgeGovernance: BridgeGovernance
+
+      before(async () => {
+        await createSnapshot()
+        ;[freshBridge] = await deployBridge(1, false)
+
+        const paramsLib = await helpers.contracts.getContract(
+          "BridgeGovernanceParameters"
+        )
+        const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+          libraries: {
+            BridgeGovernanceParameters: paramsLib.address,
+          },
+        })
+        localBridgeGovernance = (await govFactory
+          .connect(governance)
+          .deploy(freshBridge.address, 0)) as BridgeGovernance
+        await localBridgeGovernance.deployed()
+
+        await freshBridge
+          .connect(deployer)
+          .transferGovernance(localBridgeGovernance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reject a non-owner forwarding the router wiring", async () => {
+        await expect(
+          localBridgeGovernance
+            .connect(thirdParty)
+            .setReservationRouter(routerAddress)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should let the owner wire the router through governance", async () => {
+        await localBridgeGovernance
+          .connect(governance)
+          .setReservationRouter(routerAddress)
+
+        expect(await freshBridge.reservationRouter()).to.equal(routerAddress)
+      })
+    })
+
     context("when called on a bridge with the router already set", () => {
       it("should revert", async () => {
         // A fresh bridge is governed by the deployer (the main bridge's

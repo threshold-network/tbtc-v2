@@ -799,6 +799,148 @@ describe("Bridge - Reservation partial redemption", () => {
     })
   })
 
+  describe("partial redemption retry credit", () => {
+    const failedAmount = 100000
+    const largerAmount = 200000
+
+    let anchorTx: { txHash: string }
+    let reservationKey: BigNumber
+    let redeemerScript: string
+
+    beforeEach(async () => {
+      await createSnapshot()
+      ;({ anchorTx, reservationKey } = await makeAcceptedReservation())
+      redeemerScript = randomRedeemerScript()
+
+      await requestPartial(reservationKey, redeemerScript, failedAmount)
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("allows one fee-free retry of the timed-out partial amount", async () => {
+      await retryPartial(reservationKey, redeemerScript, failedAmount)
+
+      const action = await bridge.reservationActions(reservationKey, 3)
+      expect(action.state).to.equal(ActionState.Pending)
+      expect(action.isPartial).to.be.true
+      expect(action.amount).to.equal(failedAmount)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+    })
+
+    it("rejects using a small partial timeout credit for a larger partial", async () => {
+      // Combine the timeout refund with TBTC from the remaining claim, which
+      // is the funding shape that made the unbound boolean exploitable.
+      const additionalAmount = largerAmount - failedAmount
+      const additionalGross = grossFor(additionalAmount)
+      await tbtc.connect(thirdParty).approve(tbtcVault.address, additionalGross)
+      await tbtcVault.connect(thirdParty).unmint(additionalGross)
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, largerAmount)
+
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .retryRedeemReservationPartial(
+            reservationKey,
+            redeemerScript,
+            largerAmount
+          )
+      ).to.be.revertedWith("Retry entitlement does not match redemption")
+
+      // The failed attempt is atomic and leaves the valid credit available.
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(largerAmount)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+    })
+
+    it("rejects using a partial timeout credit for a whole redemption", async () => {
+      // BankStub supplies the balance independently of the authorization
+      // check, modeling an owner who acquired enough TBTC/Bank balance to
+      // fund the larger request.
+      await bank.setBalance(thirdParty.address, anchorAmount)
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, anchorAmount)
+
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .retryRedeemReservation(reservationKey, redeemerScript)
+      ).to.be.revertedWith("Retry entitlement does not match redemption")
+
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+    })
+
+    it("retires the credit when its original partial settles late", async () => {
+      const partialTx = buildPartialTx(
+        anchorTx.txHash,
+        0,
+        redeemerScript,
+        failedAmount - 800,
+        anchorAmount.sub(failedAmount)
+      )
+
+      await proveRedemption(partialTx, reservationKey, 2)
+
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, failedAmount)
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .retryRedeemReservationPartial(
+            reservationKey,
+            redeemerScript,
+            failedAmount
+          )
+      ).to.be.revertedWith("No retry entitlement")
+    })
+
+    it("preserves a newer generation's credit when an older partial settles late", async () => {
+      const oldPartialTx = buildPartialTx(
+        anchorTx.txHash,
+        0,
+        redeemerScript,
+        failedAmount - 800,
+        anchorAmount.sub(failedAmount)
+      )
+
+      // Pay for another request of the same amount and shape without using
+      // the older credit. Its timeout replaces the outstanding entitlement
+      // with one sourced from generation 3.
+      const newerScript = randomRedeemerScript()
+      await requestPartial(reservationKey, newerScript, failedAmount)
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      await proveRedemption(oldPartialTx, reservationKey, 2)
+
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+
+      // Late settlement of generation 2 must not erase generation 3's
+      // independently fee-paid retry entitlement.
+      await retryPartial(reservationKey, newerScript, failedAmount)
+      const retryAction = await bridge.reservationActions(reservationKey, 4)
+      expect(retryAction.state).to.equal(ActionState.Pending)
+      expect(retryAction.amount).to.equal(failedAmount)
+    })
+  })
+
   describe("late partial settlement matrix", () => {
     const redeemAmount = 1000000
     const redeemerValue = redeemAmount - 800 // 999200

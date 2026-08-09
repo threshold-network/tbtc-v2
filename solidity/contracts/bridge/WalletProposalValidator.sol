@@ -192,7 +192,8 @@ contract WalletProposalValidator {
     ///         For example, if a request times out after 8 pm and
     ///         REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN is 2 hours, the
     ///         request is valid for processing only before 6 pm.
-    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN = 2 hours;
+    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN =
+        Reservation.RESERVATION_ACTION_TIMEOUT_SAFETY_MARGIN;
 
     /// @notice The maximum count of redemption requests that can be processed
     ///         within a single redemption.

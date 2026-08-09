@@ -30,8 +30,17 @@ here is final until governance sign-off. Companion: `docs/rfc/rfc-13.adoc`,
 | `reservationDissolutionDelay`     | Post-expiry delay before dissolvable (renamed grace)       | 7 days _(prov. 2026-08-09)_                       | Snapshotted per granted term; not an owner-action window                             |
 | `reservationMaxTotalAmount`       | Global reserved-anchor cap (sat)                           | 100 BTC (10,000,000,000 sat) _(prov. 2026-08-09)_ | The absolute lever; the reserved-fraction target is enforced through it (§3)         |
 | `maxReservationsPerWallet`        | Per-wallet reservation count cap                           | 10 _(prov. 2026-08-09)_                           | Bounds re-anchor ceremonies in a rotation window                                     |
-| `reservationActionTimeout`        | Timeout for acceptance/re-anchor/dissolution actions       | 48 hours _(prov. 2026-08-09)_                     | > 0; redemptions use `redemptionTimeout`                                             |
+| `reservationActionTimeout`        | Timeout for acceptance/re-anchor/dissolution actions       | 48 hours _(prov. 2026-08-09)_                     | Must be **> 2 h**; see the timing note below                                         |
 | `reservationRenewalWindowSeconds` | Renewal window before expiry                               | 30 days _(prov. 2026-08-09)_                      | `0 < window < term`, enforced atomically                                             |
+
+Acceptance has an additional timing constraint: its proposal validator requires
+the deposit to be older than 2 hours, as well as preserving the final 2-hour
+action-timeout safety margin. An acceptance requested immediately after reveal
+therefore needs `reservationActionTimeout > 4 hours` to have any valid proposal
+window. A shorter timeout that still satisfies the hard `> 2 hours` bound is
+usable only if the requester waits for the deposit to age before requesting.
+In either case, the entire authorization must also fit within the deposit's
+remaining guaranteed reveal-ahead window.
 
 ### Bridge reservation caps (`updateReservationCaps`)
 
@@ -142,9 +151,9 @@ the contracts do not enforce but that governance must respect:
 | --------------------------------------------------------- | -------------------------- | --------- |
 | Term bounds 90–730 d, default 365 d                       | governance                 | ☐         |
 | Renewal window 30 d                                       | governance                 | ☐         |
-| Dissolution delay 30 d                                    | governance                 | ☐         |
+| Dissolution delay 7 d                                     | governance                 | ☐         |
 | Min reservation 10 BTC                                    | governance                 | ☐         |
-| Global cap 500 BTC / 10 % fraction                        | governance                 | ☐         |
+| Global cap 100 BTC / 10 % fraction                        | governance                 | ☐         |
 | Per-wallet count ~10, amount cap                          | governance                 | ☐         |
 | Action timeout 48 h                                       | governance                 | ☐         |
 | Fee schedule 40 / 20 / 20                                 | governance (settled prior) | ☐ confirm |

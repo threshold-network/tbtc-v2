@@ -211,6 +211,35 @@ library ReservationProofs {
         late = action.state == Reservation.ActionState.TimedOut;
     }
 
+    /// @notice Converts a late settlement into the existing stranded-position
+    ///         accounting when its target wallet retired after timeout
+    ///         released the target's reserved capacity.
+    /// @dev Live and MovingFunds wallets can still manage the newly settled
+    ///      anchor. Terminated wallets retain the existing permissionless
+    ///      `notifyReservationStranded` cleanup path. Closing and Closed
+    ///      wallets accept no reservation action, so retaining the anchor as
+    ///      Active would permanently pin both the position and wallet.
+    function strandLateSettlementIfTargetWalletClosed(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        bool late
+    ) internal {
+        if (!late) {
+            return;
+        }
+
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        if (
+            walletState == Wallets.WalletState.Closing ||
+            walletState == Wallets.WalletState.Closed
+        ) {
+            self.strandReservation(reservation, reservationKey);
+        }
+    }
+
     /// @notice Used by the wallet to prove the BTC anchor transaction of an
     ///         authorized reserved deposit acceptance and to credit the
     ///         owner's balance accordingly.
@@ -462,6 +491,13 @@ library ReservationProofs {
             depositors,
             amounts
         );
+
+        strandLateSettlementIfTargetWalletClosed(
+            self,
+            reservation,
+            reservationKey,
+            late
+        );
     }
 
     /// @notice Used by the wallet to prove the BTC reserved redemption
@@ -563,6 +599,33 @@ library ReservationProofs {
                 redemptionTxHash,
                 redemptionTx.outputVector
             );
+        }
+
+        if (late) {
+            retireRetryCreditForGeneration(
+                self,
+                reservation,
+                reservationKey,
+                requestNonce
+            );
+        }
+    }
+
+    /// @notice Retires a retry credit only when the generation that minted
+    ///         it has now settled late. A credit minted by a newer timed-out
+    ///         generation remains valid.
+    function retireRetryCreditForGeneration(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) internal {
+        if (
+            self.reservationRetryCreditActionNonce[reservationKey] ==
+            requestNonce
+        ) {
+            reservation.retryCredit = false;
+            delete self.reservationRetryCreditActionNonce[reservationKey];
         }
     }
 
@@ -927,6 +990,13 @@ library ReservationProofs {
             reanchorTxHash,
             newAnchorAmount
         );
+
+        strandLateSettlementIfTargetWalletClosed(
+            self,
+            reservation,
+            reservationKey,
+            late
+        );
     }
 
     /// @notice Used by the wallet to prove a dissolution transaction
@@ -1101,6 +1171,7 @@ library ReservationProofs {
             sweepRequest.state = MovingFunds
                 .MovedFundsSweepRequestState
                 .Pending;
+            wallet.pendingMovedFundsSweepRequestsCount++;
         }
 
         if (late) {

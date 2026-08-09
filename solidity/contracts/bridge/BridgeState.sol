@@ -380,7 +380,8 @@ library BridgeState {
         // Time in seconds after which a requested reservation action
         // (acceptance anchor, re-anchor, dissolution) can be reported
         // timed out. Reserved redemptions use `redemptionTimeout` instead.
-        // Snapshotted into each action record at request time.
+        // Must strictly exceed the wallet proposal validator's timeout
+        // safety margin. Snapshotted into each action record at request time.
         uint32 reservationActionTimeout;
         // Length in seconds of the renewal window: a reservation owner may
         // renew (extend by exactly one current term) only while
@@ -434,6 +435,11 @@ library BridgeState {
         // Index-plus-one of each reservation key inside its wallet's
         // `walletReservationKeys` array (zero means absent).
         mapping(uint256 => uint256) walletReservationKeyIndex;
+        // Generation that minted a reservation's outstanding retry credit.
+        // The terminal action record supplies the exact redemption amount
+        // and whole/partial shape the fee-free retry must preserve. Zero
+        // means there is no bound source generation.
+        mapping(uint256 => uint64) reservationRetryCreditActionNonce;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -441,7 +447,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[32] __gap;
+        uint256[31] __gap;
     }
 
     event DepositParametersUpdated(

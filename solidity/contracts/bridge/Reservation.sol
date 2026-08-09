@@ -74,6 +74,15 @@ library Reservation {
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
 
+    /// @notice Time reserved between the latest valid wallet proposal and
+    ///         the point at which its reservation action can be reported
+    ///         timed out. The action timeout must strictly exceed this
+    ///         margin so the validator's subtraction cannot underflow or
+    ///         collapse the latest valid instant to the request timestamp.
+    ///         Acceptance also has the deposit-age timing constraint described
+    ///         on `requestReservationAcceptance`.
+    uint32 internal constant RESERVATION_ACTION_TIMEOUT_SAFETY_MARGIN = 2 hours;
+
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -171,8 +180,9 @@ library Reservation {
         uint64 requestNonce;
         // True when the owner holds a single-use, fee-free redemption
         // retry entitlement, minted when a fee-paid redemption request
-        // times out through the wallet's fault. Consumed by the next
-        // (strictly pre-expiry) retry request.
+        // times out through the wallet's fault. The source generation is
+        // stored separately and binds the retry to its amount and
+        // whole/partial shape.
         bool retryCredit;
         // UNIX timestamp the reservation becomes dissolvable at. Set to
         // `expiresAt + reservationDissolutionDelay` whenever a term is
@@ -385,6 +395,12 @@ library Reservation {
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
+    ///      - The deposit must reach the proposal validator's minimum age
+    ///        before the action's final valid signing time. An acceptance
+    ///        requested immediately after reveal therefore needs an action
+    ///        timeout longer than the minimum age plus the timeout safety
+    ///        margin; otherwise the requester must wait for the deposit to
+    ///        age before requesting,
     ///      - The authorization window (now + action timeout) must end
     ///        before the deposit's guaranteed refund-locktime margin
     ///        (`revealedAt + depositRevealAheadPeriod`), so an authorized
@@ -542,13 +558,11 @@ library Reservation {
     ///        approved the Bridge in the Bank for the gross minted amount,
     ///      - The reservation must be Active and custodied by a Live or
     ///        MovingFunds wallet,
-    ///      - The custody term plus (snapshotted) grace period must not
-    ///        have elapsed — after grace only dissolution is possible, so
-    ///        request/timeout cycling cannot defeat the stranding bound.
-    ///        A retry-entitled request is exempt until a dissolution is
-    ///        requested (which voids the entitlement),
-    ///      - When `useRetryCredit` is set, the position must hold the
-    ///        retry entitlement (consumed by this call),
+    ///      - The custody term must not have expired; paid requests and
+    ///        retries both stop strictly before expiry,
+    ///      - When `useRetryCredit` is set, the position must hold an
+    ///        entitlement for the same amount and whole/partial shape
+    ///        (consumed by this call),
     ///      - If the redemption watchtower is set, neither the owner nor
     ///        the redeemer may be banned,
     ///      - `redeemerOutputScript` must be a standard type and must not
@@ -688,8 +702,13 @@ library Reservation {
         );
 
         if (useRetryCredit) {
-            require(reservation.retryCredit, "No retry entitlement");
-            reservation.retryCredit = false;
+            consumeRetryCredit(
+                self,
+                reservation,
+                reservationKey,
+                redeemAmount,
+                isPartial
+            );
         }
 
         if (self.redemptionWatchtower != address(0)) {
@@ -750,6 +769,42 @@ library Reservation {
         );
 
         self.bank.transferBalanceFrom(msg.sender, address(this), redeemAmount);
+    }
+
+    /// @notice Consumes the retry credit minted by a timed-out, fee-paid
+    ///         redemption generation after verifying the new request keeps
+    ///         that generation's amount and whole/partial shape.
+    /// @dev The source action is terminal and immutable, so binding the
+    ///      credit to its nonce also binds all retry-critical fields without
+    ///      duplicating them in reservation storage.
+    function consumeRetryCredit(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 redeemAmount,
+        bool isPartial
+    ) internal {
+        require(reservation.retryCredit, "No retry entitlement");
+
+        uint64 sourceNonce = self.reservationRetryCreditActionNonce[
+            reservationKey
+        ];
+        ReservationAction storage sourceAction = getAction(
+            self,
+            reservationKey,
+            sourceNonce
+        );
+        require(
+            sourceAction.actionType == ActionType.Redemption &&
+                sourceAction.state == ActionState.TimedOut &&
+                sourceAction.feePaid &&
+                sourceAction.amount == redeemAmount &&
+                sourceAction.isPartial == isPartial,
+            "Retry entitlement does not match redemption"
+        );
+
+        reservation.retryCredit = false;
+        delete self.reservationRetryCreditActionNonce[reservationKey];
     }
 
     /// @notice Requests the re-anchoring of a reservation to another
@@ -878,9 +933,9 @@ library Reservation {
     ///        of a no-main-UTXO wallet could otherwise all confirm on
     ///        Bitcoin with only the first being provable.
     ///
-    ///      Requesting a dissolution voids the position's redemption retry
-    ///      entitlement: dissolution is the terminal cleanup and the
-    ///      stranding bound takes precedence.
+    ///      Any outstanding redemption retry entitlement is already unusable
+    ///      here: paid requests and retries stop strictly at expiry, while
+    ///      dissolution starts no earlier than `dissolutionEligibleAt`.
     function requestReservationDissolution(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1004,6 +1059,9 @@ library Reservation {
 
             if (action.feePaid) {
                 reservation.retryCredit = true;
+                self.reservationRetryCreditActionNonce[
+                    reservationKey
+                ] = requestNonce;
                 emit ReservationRetryCreditMinted(reservationKey);
             }
 
@@ -1200,7 +1258,8 @@ library Reservation {
     ///        than the term (checked atomically here and re-checked at
     ///        renewal execution, so neither parameter change can reopen
     ///        term stacking),
-    ///      - Reservation action timeout must be greater than zero,
+    ///      - Reservation action timeout must strictly exceed the wallet
+    ///        proposal validator's timeout safety margin,
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero).
     ///
@@ -1238,8 +1297,8 @@ library Reservation {
             "Renewal window must be shorter than the term"
         );
         require(
-            reservationActionTimeout > 0,
-            "Reservation action timeout must be greater than zero"
+            reservationActionTimeout > RESERVATION_ACTION_TIMEOUT_SAFETY_MARGIN,
+            "Reservation action timeout must exceed the safety margin"
         );
 
         if (reservationVault != self.reservationVault) {
@@ -1362,38 +1421,7 @@ library Reservation {
             );
         }
 
-        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
-        self.reservationTotalAmount -= reservation.anchorAmount;
-        removeWalletReservationKey(
-            self,
-            reservation.walletPubKeyHash,
-            reservationKey
-        );
-        reservation.state = ReservationState.Stranded;
-
-        // The anchor is deliberately NOT marked as honestly spent: a
-        // spend by the terminated wallet remains recognizable as such.
-        delete self.reservationsByAnchorUtxo[
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                )
-            )
-        ];
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservationStranded(
-            reservationKey,
-            reservation.walletPubKeyHash,
-            reservation.owner,
-            reservation.anchorAmount
-        );
+        strandReservation(self, reservation, reservationKey);
     }
 
     /// @notice Updates the amount-denominated reservation caps. Checked
@@ -1449,6 +1477,51 @@ library Reservation {
         }
         keys.pop();
         delete self.walletReservationKeyIndex[reservationKey];
+    }
+
+    /// @notice Stops tracking an anchor that its custodying wallet can no
+    ///         longer manage through the reservation lifecycle. The owner's
+    ///         minted balance remains an ordinary pooled claim.
+    /// @dev The caller must first unwind any pending generation and ensure
+    ///      the reservation and its capacity are registered against the
+    ///      current custodying wallet.
+    function strandReservation(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation,
+        uint256 reservationKey
+    ) internal {
+        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] -= reservation.anchorAmount;
+        self.reservationTotalAmount -= reservation.anchorAmount;
+        removeWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
+        reservation.state = ReservationState.Stranded;
+
+        // The unmanageable anchor is deliberately NOT marked as honestly
+        // spent: a later spend by the wallet remains recognizable as such.
+        delete self.reservationsByAnchorUtxo[
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        reservation.anchorTxHash,
+                        reservation.anchorTxOutputIndex
+                    )
+                )
+            )
+        ];
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservationStranded(
+            reservationKey,
+            reservation.walletPubKeyHash,
+            reservation.owner,
+            reservation.anchorAmount
+        );
     }
 
     /// @notice Closes a reservation: adjusts the wallet reservation count

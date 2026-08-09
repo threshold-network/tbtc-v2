@@ -21,7 +21,7 @@ duties the feature adds. It assumes the stacked PRs
 | `ReservationVault`                 | Plain `Ownable` contract                   | New. Liability-side vault + renewal policy + fee reserve/financing.                                                 |
 | `RedemptionWatchtower`             | Transparent proxy (impl upgrade)           | Reserved-objection surface reworked to per-generation keys; imports the reservation types.                          |
 | `WalletProposalValidator`          | Plain contract (non-upgradeable)           | New reservation proposal validators; redeploy + repoint.                                                            |
-| `BridgeGovernance`                 | Plain `Ownable` contract (non-upgradeable) | New grouped begin/finalize for reservation params + caps.                                                           |
+| `BridgeGovernance`                 | Plain `Ownable` contract (non-upgradeable) | Immediate router/re-anchor forwarders + grouped delayed reservation params/caps.                                    |
 
 The Bridge and the watchtower are the only upgradeable pieces. Everything
 else is a fresh deploy or a redeploy-and-repoint.
@@ -40,10 +40,16 @@ Deploy inert, then activate last.
    candidate implementation before submitting.
 2. **Deploy the libraries** (`Reservation` linking `ReservationProofs`) and
    the **`ReservationRouter`** (linking `Reservation`). One router instance
-   serves the Bridge; it is stateless code.
-3. **Wire the router**: `Bridge.setReservationRouter(router)` — one-time,
-   governance-gated. Until this is set, every reservation selector reverts
-   with `"Unknown function"`; the pooled Bridge is unaffected.
+   serves the Bridge; it is stateless code. Before continuing to step 3,
+   complete the **`BridgeGovernance` replacement** in §6 and verify the new
+   instance is the Bridge's active governance. The incumbent does not expose
+   the router forwarder needed by the next step.
+3. **Wire the router**:
+   `BridgeGovernance.setReservationRouter(router)` — the owner-gated forwarder
+   invokes the Bridge's one-time governance setter. Until this is set, every
+   reservation selector reverts with `"Unknown function"`; the pooled Bridge
+   is unaffected. Do not trust the future reservation vault during this step;
+   it must remain untrusted through all configuration below.
 4. **Watchtower implementation upgrade** (per-generation reserved
    objections). Independent of vault activation; can precede it.
 5. **Deploy `ReservationVault`** (`95_deploy_reservation_vault.ts`). It
@@ -51,9 +57,10 @@ Deploy inert, then activate last.
    the governance account. Do not skip the ownership transfer.
 6. **Redeploy `WalletProposalValidator`** against the upgraded Bridge and
    repoint the coordinator/maintainer configuration at the new address.
-7. **Activation (governance, last):**
-   1. `Bridge.setVaultStatus(vault, true)` — trust the vault so deposits
-      can be revealed to it.
+7. **Configuration and activation (governance, last):**
+   1. Confirm `Bridge.isVaultTrusted(vault) == false`. A fresh vault is
+      untrusted by default; stop if this precondition does not hold, and keep
+      it untrusted through step 7.6.
    2. `BridgeGovernance.beginReservationParametersUpdate(...)` →
       `finalizeReservationParametersUpdate()` after the governance delay,
       setting `reservationVault` to the deployed vault plus the launch
@@ -64,13 +71,18 @@ Deploy inert, then activate last.
       fee reserve target (see §5).
    5. `ReservationVault.setRenewalGuardian(guardian)` — optional; appoint
       the renewal guardian.
-   6. `ReservationVault.unpauseRenewals()` — the final switch; renewals
-      (and, since the vault is now the reservation vault, the whole
-      reservation lane) go live.
+   6. `ReservationVault.unpauseRenewals()` if renewals should be available at
+      launch. This changes only the `extendCustody` policy; it does not enable
+      deposit reveals, acceptance, or any other reservation action.
+   7. `BridgeGovernance.setVaultStatus(vault, true)` — **the final activation
+      transaction**. Trusting the fully configured vault permits deposit
+      reveals to it and opens the reservation lane.
 
-Between steps 5 and 7.2 the vault exists but is not the Bridge's
-reservation vault, so no deposit can route to it and no reservation state
-can be created — the inert window the review requires.
+From deployment through step 7.6 the vault is untrusted, so any deposit
+reveal naming it fails the Bridge trust check and no reserved deposit or
+acceptance can begin. This remains true after the Bridge's `reservationVault`
+parameter is configured. Step 7.7 is therefore the sole final activation
+gate; do not use the renewal pause as a global reservation pause.
 
 ## 3. Bridge proxy upgrade procedure
 
@@ -118,7 +130,7 @@ Standard transparent-proxy upgrade via `BridgeGovernance` /
   total TBTC matched to the Bitcoin backing. Governance sets
   `feeReserveTarget` (TBTC, 18 decimals); `sweepFees(recipient)` moves only
   the balance **above** the target to the treasury. Seed the target before
-  unpausing so the first settlements are covered.
+  the final vault-trust activation so the first settlements are covered.
 - **In-kind fee debt**: if the reserve is ever short at a settlement, the
   settlement still proceeds and the shortfall becomes public
   `inKindFeeDebtSat`. Monitor it; `repayInKindFeeDebt(amountSat)` (anyone)
@@ -137,22 +149,36 @@ Standard transparent-proxy upgrade via `BridgeGovernance` /
 ## 6. BridgeGovernance replacement plan
 
 `BridgeGovernance` is **non-upgradeable**. The reservation feature adds two
-grouped begin/finalize flows (`...ReservationParametersUpdate`,
+immediate, owner-gated forwarding calls (`setReservationRouter` and the
+governance-approved `requestReservationReanchor` path for Live wallets), plus
+two grouped delayed begin/finalize flows (`...ReservationParametersUpdate`,
 `...ReservationCapsUpdate`). Adopting them requires **deploying a new
-`BridgeGovernance` instance** and transferring Bridge governance to it:
+`BridgeGovernance` instance** and transferring Bridge governance to it. This
+replacement is a mandatory prerequisite to the router wiring in deployment
+step 3:
 
-1. Deploy the new `BridgeGovernance` with the same `governanceDelays`
-   configuration as the incumbent.
-2. From the incumbent governance, `Bridge.transferGovernance(newGov)` (via
-   the incumbent's own transfer path).
-3. Re-point any owner-of-owner (the Threshold Council / timelock) at the
-   new instance.
-4. Verify every pre-existing parameter surface still finalizes through the
-   new instance (run the governance suite against it) before decommissioning
-   the old one.
+1. Deploy `newGov` with the intended governance delay.
+2. Immediately have the deployer call
+   `newGov.transferOwnership(councilOrTimelock)`, then verify
+   `newGov.owner() == councilOrTimelock`. Complete this ownership handoff
+   before proposing `newGov` as Bridge governance.
+3. Have the incumbent governance owner call
+   `incumbent.beginBridgeGovernanceTransfer(address(newGov))`.
+4. Wait at least the incumbent governance delay reported by
+   `incumbent.governanceDelays(0)`.
+5. Have the incumbent governance owner call
+   `incumbent.finalizeBridgeGovernanceTransfer()`.
+6. Verify both `Bridge.governance() == address(newGov)` and
+   `newGov.owner() == councilOrTimelock`.
+7. Verify every pre-existing parameter surface still finalizes through the
+   new instance and that the new immediate and delayed reservation surfaces
+   pass the governance suite before decommissioning the old one. Do not invoke
+   the one-time router setter until deployment step 3.
 
-Because governance transfer is a single Bridge call, there is no window
-where the Bridge is ungoverned; the swap is atomic from the Bridge's view.
+The Bridge remains under the incumbent during the delay and switches to
+`newGov` atomically when step 5 finalizes. Never finalize while the deployer
+still owns `newGov`; the ownership prerequisite prevents temporary deployer
+control of the live Bridge.
 
 ## 7. keep-core follow-up (gated on ABI publish)
 
@@ -186,7 +212,8 @@ published npm artifacts), same as the SDK work.
       margin; router/libraries each under EIP-170.
 - [ ] Storage-layout diff append-only and expected (parity test green).
 - [ ] Deployment dry-run on a fork exercises the full activation sequence
-      and leaves the vault inert until the final governance steps.
+      and leaves the vault untrusted and inert until the final
+      `setVaultStatus(vault, true)` transaction.
 - [ ] `docs/utxo-reservation-frozen-spec.md` parameter values signed off by
       governance (launch values provisionally set 2026-08-09; the two
       `_(pending)_` items — `reservationTxMaxFee`, `feeReserveTarget` — and

@@ -342,7 +342,17 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
-        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+        bool isReservedDeposit = reveal.vault != address(0) &&
+            reveal.vault == self.reservationVault;
+
+        // Reserved deposits pay their initiation fee to the reservation
+        // vault, so applying a pooled deposit rebate here would consume the
+        // depositor's rebate allowance without discounting that fee.
+        if (
+            deposit.treasuryFee > 0 &&
+            self.rebateStaking != address(0) &&
+            !isReservedDeposit
+        ) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
                     deposit.depositor,
@@ -351,9 +361,7 @@ library Deposit {
                 );
         }
 
-        if (
-            reveal.vault != address(0) && reveal.vault == self.reservationVault
-        ) {
+        if (isReservedDeposit) {
             // A deposit routed to the reservation vault is a reserved
             // deposit: record its designated wallet — proven by the
             // reveal's script commitment — so the acceptance authorization
