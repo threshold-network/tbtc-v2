@@ -188,7 +188,9 @@ published npm artifacts), same as the SDK work.
 - [ ] Deployment dry-run on a fork exercises the full activation sequence
       and leaves the vault inert until the final governance steps.
 - [ ] `docs/utxo-reservation-frozen-spec.md` parameter values signed off by
-      governance.
+      governance (launch values provisionally set 2026-08-09; the two
+      `_(pending)_` items — `reservationTxMaxFee`, `feeReserveTarget` — and
+      final governance sign-off still outstanding).
 - [ ] keep-core executor updated for the two-phase ABI (or explicitly
       out-of-scope for the audit with the feature deployed disabled).
 - [ ] Codex (or equivalent) re-review confirms the settlement class from
