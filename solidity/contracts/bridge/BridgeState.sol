@@ -29,6 +29,13 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice Reveal-time facts for a deposit routed to the reservation
+    ///         vault. The fields are packed into one storage slot.
+    struct PendingReservedDeposit {
+        bytes20 walletPubKeyHash;
+        uint32 refundDeadline;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -415,11 +422,12 @@ library BridgeState {
         // the cap.
         uint64 reservationMaxSingleAmount;
         // Maps the deposit key of a revealed reserved deposit (routed to
-        // the reservation vault) to the 20-byte public key hash of its
-        // designated wallet, proven by the reveal's script commitment.
-        // The acceptance authorization must name this wallet. Cleared when
-        // the deposit is accepted or marked stale.
-        mapping(uint256 => bytes20) reservedDepositWallet;
+        // the reservation vault) to its immutable reveal-time facts. The
+        // acceptance authorization must name the designated wallet. The
+        // refund deadline is the exact Bitcoin locktime validated at reveal
+        // and does not move with later parameter updates. Cleared when the
+        // deposit is accepted or marked stale.
+        mapping(uint256 => PendingReservedDeposit) reservedDepositWallet;
         // Number of revealed reserved deposits that were neither accepted
         // nor marked stale yet. The reservation vault cannot be changed
         // while this is non-zero: revealed-but-unanchored deposits routed

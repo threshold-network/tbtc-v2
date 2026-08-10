@@ -389,7 +389,10 @@ library ReservationProofs {
         // The deposit stops being pending: clear its designated-wallet
         // marker (unless a stale notification already did) so the
         // reservation-vault migration guard sees it settled.
-        if (self.reservedDepositWallet[reservationKey] != bytes20(0)) {
+        if (
+            self.reservedDepositWallet[reservationKey].walletPubKeyHash !=
+            bytes20(0)
+        ) {
             delete self.reservedDepositWallet[reservationKey];
             self.pendingReservedDeposits -= 1;
         }

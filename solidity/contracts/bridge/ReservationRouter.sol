@@ -556,7 +556,7 @@ contract ReservationRouter is Governable, Initializable {
         view
         returns (bytes20)
     {
-        return self.reservedDepositWallet[depositKey];
+        return self.reservedDepositWallet[depositKey].walletPubKeyHash;
     }
 
     /// @notice Returns the number of revealed reserved deposits that were

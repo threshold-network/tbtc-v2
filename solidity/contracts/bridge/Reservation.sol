@@ -419,7 +419,8 @@ library Reservation {
         // marker — a deposit marked stale (or already accepted) cannot be
         // re-authorized.
         require(
-            self.reservedDepositWallet[reservationKey] == walletPubKeyHash,
+            self.reservedDepositWallet[reservationKey].walletPubKeyHash ==
+                walletPubKeyHash,
             "Wallet is not the deposit's designated wallet"
         );
 
@@ -1185,34 +1186,37 @@ library Reservation {
     ///         longer be authorized for acceptance and stops counting
     ///         against the pending-reserved-deposit guard. Intended for
     ///         deposits whose acceptance never happened — after the
-    ///         guaranteed refund-locktime margin the depositor is expected
-    ///         to reclaim the funds through the Bitcoin refund path.
+    ///         reveal-time refund deadline the depositor is expected to
+    ///         reclaim the funds through the Bitcoin refund path.
     /// @param depositKey The deposit key of the reserved deposit.
     /// @dev Requirements:
     ///      - The deposit must be a pending reserved deposit (revealed to
     ///        the reservation vault, not accepted, not already stale),
     ///      - No acceptance authorization may be pending for it,
-    ///      - The deposit's guaranteed refund-locktime margin
-    ///        (`revealedAt + depositRevealAheadPeriod`) must have elapsed.
-    ///        With the reveal-ahead validation disabled the deposit can be
-    ///        marked stale immediately, matching the disabled protection.
+    ///      - The exact Bitcoin refund deadline snapshotted at reveal must
+    ///        have elapsed. With the reveal-ahead validation disabled at
+    ///        reveal, the deposit can be marked stale immediately, matching
+    ///        the disabled protection.
     function notifyStaleReservedDeposit(
         BridgeState.Storage storage self,
         uint256 depositKey
     ) external {
+        BridgeState.PendingReservedDeposit storage pendingDeposit = self
+            .reservedDepositWallet[depositKey];
         require(
-            self.reservedDepositWallet[depositKey] != bytes20(0),
+            pendingDeposit.walletPubKeyHash != bytes20(0),
             "Not a pending reserved deposit"
         );
 
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.sweptAt == 0, "Deposit already swept");
-        require(
-            /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp >
-                uint256(deposit.revealedAt) + self.depositRevealAheadPeriod,
-            "Deposit refund margin has not elapsed"
-        );
+        if (pendingDeposit.refundDeadline != 0) {
+            require(
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp > pendingDeposit.refundDeadline,
+                "Deposit refund deadline has not elapsed"
+            );
+        }
 
         ReservationRequest storage reservation = self.reservations[depositKey];
         require(
