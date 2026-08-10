@@ -232,6 +232,17 @@ library Reservation {
         // single-use retry entitlement. Needed to return the entitlement if
         // a late re-anchor makes the generation impossible to settle.
         bool usedRetryCredit;
+        // Reserved-redemption veto delay with no guardian objections,
+        // snapshotted from the watchtower policy at request time. Zero when
+        // the watchtower is absent, not enabled, disabled, or the amount is
+        // waived.
+        uint32 watchtowerDefaultDelay;
+        // Reserved-redemption veto delay after one guardian objection,
+        // snapshotted from the watchtower policy at request time.
+        uint32 watchtowerLevelOneDelay;
+        // Reserved-redemption veto delay after two guardian objections,
+        // snapshotted from the watchtower policy at request time.
+        uint32 watchtowerLevelTwoDelay;
     }
 
     event ReservationAcceptanceRequested(
@@ -651,6 +662,15 @@ library Reservation {
         action.redeemer = redeemer;
         action.amount = reservation.mintedAmount;
         action.redeemerOutputScriptHash = keccak256(redeemerOutputScriptMem);
+
+        if (self.redemptionWatchtower != address(0)) {
+            (
+                action.watchtowerDefaultDelay,
+                action.watchtowerLevelOneDelay,
+                action.watchtowerLevelTwoDelay
+            ) = IRedemptionWatchtower(self.redemptionWatchtower)
+                .getReservedRedemptionDelaySchedule(reservation.mintedAmount);
+        }
 
         // slither-disable-next-line reentrancy-events
         emit ReservedRedemptionRequested(
