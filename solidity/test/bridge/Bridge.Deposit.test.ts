@@ -4268,17 +4268,19 @@ describe("Bridge - Deposit", () => {
         await restoreSnapshot()
       })
 
-      it("should succeed", async () => {
-        await expect(
-          bridge
-            .connect(spvMaintainer)
-            .submitDepositSweepProof(
-              data.sweepTx,
-              data.sweepProof,
-              data.mainUtxo,
-              ethers.constants.AddressZero
-            )
-        ).not.to.be.reverted
+      it("should succeed and rearm a completed moving-funds timeout", async () => {
+        await bridge
+          .connect(spvMaintainer)
+          .submitDepositSweepProof(
+            data.sweepTx,
+            data.sweepProof,
+            data.mainUtxo,
+            ethers.constants.AddressZero
+          )
+
+        const wallet = await bridge.wallets(reveal.walletPubKeyHash)
+        expect(wallet.state).to.equal(walletState.MovingFunds)
+        expect(wallet.movingFundsRequestedAt).to.equal(await lastBlockTime())
       })
     })
 

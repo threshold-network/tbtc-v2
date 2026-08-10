@@ -29,6 +29,17 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice Reveal-time facts for a deposit routed to the reservation
+    ///         vault. Both fields fit in one storage word.
+    struct PendingReservedDeposit {
+        // Wallet committed by the deposit script and therefore the only
+        // wallet that can be authorized to anchor the deposit.
+        bytes20 walletPubKeyHash;
+        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
+        // sentinel used when the reveal-ahead validation was disabled.
+        uint32 refundDeadline;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -403,6 +414,10 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
+        // Reveal-time facts for deposits routed to the reservation vault.
+        // The exact refund deadline is immutable even when governance later
+        // changes `depositRevealAheadPeriod`.
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Total satoshi amount of reservation anchors (and reserved
         // capacity of pending reservation actions) custodied by the given
         // wallet. Because the claim always equals the anchor, this is both
@@ -421,7 +436,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[36] __gap;
+        uint256[37] __gap;
     }
 
     event DepositParametersUpdated(
