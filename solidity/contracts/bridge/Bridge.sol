@@ -979,7 +979,9 @@ contract Bridge is
     ///      - `mainUtxo` components must point to the recent main UTXO
     ///        of the sweeping wallet, as currently known on the Ethereum chain.
     ///        If there is no main UTXO, this parameter is ignored,
-    ///      - The sweeping wallet must be in the Live or MovingFunds state,
+    ///      - The sweeping wallet must be in the Live, MovingFunds, or Closing
+    ///        state. A Closing wallet is returned to MovingFunds without being
+    ///        counted as Live again,
     ///      - The total Bitcoin transaction fee must be lesser or equal
     ///        to `movedFundsSweepTxMaxTotalFee` governable parameter.
     function submitMovedFundsSweepProof(
