@@ -207,7 +207,7 @@ library Deposit {
             "Vault is not trusted"
         );
 
-        uint32 refundDeadline;
+        uint32 refundDeadline = 0;
         if (self.depositRevealAheadPeriod > 0) {
             refundDeadline = validateDepositRefundLocktime(
                 self,
