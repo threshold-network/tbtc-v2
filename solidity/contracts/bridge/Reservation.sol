@@ -252,6 +252,11 @@ library Reservation {
         // every non-redemption action. Appended to the end of the struct so
         // the existing field layout is unchanged.
         bool isPartial;
+        // Fee-paid redemption generation that originated the retry credit
+        // consumed by this action. Zero when `usedRetryCredit` is false.
+        // Kept on the action so a late re-anchor can restore the exact
+        // amount/shape binding after superseding the retry.
+        uint64 retryCreditSourceNonce;
     }
 
     event ReservationAcceptanceRequested(
@@ -707,8 +712,9 @@ library Reservation {
             "Reservation expired"
         );
 
+        uint64 retryCreditSourceNonce;
         if (useRetryCredit) {
-            consumeRetryCredit(
+            retryCreditSourceNonce = consumeRetryCredit(
                 self,
                 reservation,
                 reservationKey,
@@ -760,6 +766,7 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.feePaid = feePaid;
         action.usedRetryCredit = useRetryCredit;
+        action.retryCreditSourceNonce = retryCreditSourceNonce;
         action.redeemer = redeemer;
         action.amount = redeemAmount;
         action.redeemerOutputScriptHash = keccak256(redeemerOutputScriptMem);
@@ -790,12 +797,10 @@ library Reservation {
         uint256 reservationKey,
         uint64 redeemAmount,
         bool isPartial
-    ) internal {
+    ) internal returns (uint64 sourceNonce) {
         require(reservation.retryCredit, "No retry entitlement");
 
-        uint64 sourceNonce = self.reservationRetryCreditActionNonce[
-            reservationKey
-        ];
+        sourceNonce = self.reservationRetryCreditActionNonce[reservationKey];
         ReservationAction storage sourceAction = getAction(
             self,
             reservationKey,

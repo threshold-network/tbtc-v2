@@ -1377,6 +1377,9 @@ library ReservationProofs {
         if (pendingAction.actionType == Reservation.ActionType.Redemption) {
             if (restoreRetryCredit && pendingAction.usedRetryCredit) {
                 reservation.retryCredit = true;
+                self.reservationRetryCreditActionNonce[
+                    reservationKey
+                ] = pendingAction.retryCreditSourceNonce;
                 emit ReservationRetryCreditMinted(reservationKey);
             }
 

@@ -837,6 +837,124 @@ describe("Bridge - Reservation partial redemption", () => {
         .false
     })
 
+    it("restores the exact partial retry source after a late re-anchor", async () => {
+      // The failed partial at generation 2 moved the source wallet into
+      // MovingFunds and minted a retry credit bound to `failedAmount`.
+      await liveWallet(secondWalletPubKeyHash)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const minerFee = 800
+      const writtenDownAmount = anchorAmount.sub(minerFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: writtenDownAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      // Let generation 3 time out, then consume generation 2's credit in
+      // an exact partial retry against the still-current old anchor.
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      await retryPartial(reservationKey, redeemerScript, failedAmount)
+
+      const firstRetry = await bridge.reservationActions(reservationKey, 4)
+      expect(firstRetry.usedRetryCredit).to.be.true
+      expect(firstRetry.isPartial).to.be.true
+      expect(firstRetry.amount).to.equal(failedAmount)
+      expect(firstRetry.retryCreditSourceNonce).to.equal(2)
+
+      // The late generation-3 proof consumes the anchor expected by the
+      // retry. Supersession must restore the original source binding and
+      // refund the retry escrow exactly once.
+      const lateReanchor = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          3
+        )
+      await expect(lateReanchor)
+        .to.emit(bridge, "ReservationActionSuperseded")
+        .withArgs(reservationKey, 4)
+      await expect(lateReanchor)
+        .to.emit(bridge, "ReservationRetryCreditMinted")
+        .withArgs(reservationKey)
+
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(failedAmount)
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            reanchorTx.info,
+            proofFor(reanchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            3
+          )
+      ).to.be.revertedWith("Action is not settleable")
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(failedAmount)
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+
+      // The restored source remains partial and exact: a whole request and
+      // either adjacent partial amount must fail atomically.
+      await bank.setBalance(thirdParty.address, writtenDownAmount)
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, writtenDownAmount)
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .retryRedeemReservation(reservationKey, redeemerScript)
+      ).to.be.revertedWith("Retry entitlement does not match redemption")
+      await bank.connect(thirdParty).approveBalance(reservationVault.address, 0)
+
+      const expectWrongPartialRejected = async (wrongAmount: number) => {
+        await bank
+          .connect(thirdParty)
+          .approveBalance(reservationVault.address, wrongAmount)
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .retryRedeemReservationPartial(
+              reservationKey,
+              redeemerScript,
+              wrongAmount
+            )
+        ).to.be.revertedWith("Retry entitlement does not match redemption")
+        await bank
+          .connect(thirdParty)
+          .approveBalance(reservationVault.address, 0)
+      }
+      await expectWrongPartialRejected(failedAmount - 1)
+      await expectWrongPartialRejected(failedAmount + 1)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+
+      await retryPartial(reservationKey, redeemerScript, failedAmount)
+      const secondRetry = await bridge.reservationActions(reservationKey, 5)
+      expect(secondRetry.state).to.equal(ActionState.Pending)
+      expect(secondRetry.usedRetryCredit).to.be.true
+      expect(secondRetry.isPartial).to.be.true
+      expect(secondRetry.amount).to.equal(failedAmount)
+      expect(secondRetry.retryCreditSourceNonce).to.equal(2)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+    })
+
     it("rejects using a small partial timeout credit for a larger partial", async () => {
       // Combine the timeout refund with TBTC from the remaining claim, which
       // is the funding shape that made the unbound boolean exploitable.
@@ -1005,6 +1123,9 @@ describe("Bridge - Reservation partial redemption", () => {
         .retryRedeemReservation(reservationKey, redeemerScript)
       expect((await bridge.reservations(reservationKey)).retryCredit).to.be
         .false
+      const firstRetry = await bridge.reservationActions(reservationKey, 4)
+      expect(firstRetry.usedRetryCredit).to.be.true
+      expect(firstRetry.retryCreditSourceNonce).to.equal(2)
       expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
 
       // The already-confirmed generation-3 transaction consumes the anchor
@@ -1022,6 +1143,9 @@ describe("Bridge - Reservation partial redemption", () => {
       await expect(lateReanchor)
         .to.emit(bridge, "ReservationActionSuperseded")
         .withArgs(reservationKey, 4)
+      await expect(lateReanchor)
+        .to.emit(bridge, "ReservationRetryCreditMinted")
+        .withArgs(reservationKey)
 
       expect(
         (await bridge.reservationActions(reservationKey, 4)).state
@@ -1049,6 +1173,7 @@ describe("Bridge - Reservation partial redemption", () => {
           )
       ).to.be.revertedWith("Retry entitlement does not match redemption")
       expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+      await bank.connect(thirdParty).approveBalance(reservationVault.address, 0)
 
       // The current written-down whole claim can consume the restored credit.
       await bank
@@ -1062,6 +1187,8 @@ describe("Bridge - Reservation partial redemption", () => {
       expect(secondRetry.state).to.equal(ActionState.Pending)
       expect(secondRetry.amount).to.equal(writtenDownAmount)
       expect(secondRetry.isPartial).to.be.false
+      expect(secondRetry.usedRetryCredit).to.be.true
+      expect(secondRetry.retryCreditSourceNonce).to.equal(2)
       expect((await bridge.reservations(reservationKey)).retryCredit).to.be
         .false
       expect(await bank.balanceOf(thirdParty.address)).to.equal(minerFee)
