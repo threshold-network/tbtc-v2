@@ -830,8 +830,90 @@ describe("Bridge - Reservation settlement", () => {
         .withArgs(second.reservationKey, 2, walletPubKeyHash, secondTx.txHash)
     })
 
+    it("supersedes a cross-reservation lock when a late dissolution consumes its main UTXO", async () => {
+      const first = await makeAcceptedReservation()
+      const second = await makeAcceptedReservation()
+      const mainUtxo = {
+        txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+        txOutputIndex: 0,
+        txOutputValue: 7000000,
+      }
+      await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(first.reservationKey)
+
+      // Generation A times out and releases the wallet lock, but its
+      // confirmed Bitcoin transaction remains late-settleable.
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(first.reservationKey, [])
+
+      // Generation B acquires the lock against the same registry main UTXO.
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(second.reservationKey)
+      expect(await bridge.walletPendingDissolution(walletPubKeyHash)).to.equal(
+        second.reservationKey
+      )
+
+      const dissolutionFee = 500
+      const firstTx = buildTx(
+        [
+          { txHash: first.anchorTx.txHash, index: 0 },
+          { txHash: mainUtxo.txHash, index: mainUtxo.txOutputIndex },
+        ],
+        [
+          {
+            valueSat: anchorAmount
+              .add(mainUtxo.txOutputValue)
+              .sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          firstTx.info,
+          proofFor(firstTx.txHash),
+          mainUtxo,
+          first.reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationActionSuperseded")
+        .withArgs(second.reservationKey, 2)
+      expect(
+        (await bridge.reservationActions(second.reservationKey, 2)).state
+      ).to.equal(ActionState.Superseded)
+      expect((await bridge.reservations(second.reservationKey)).state).to.equal(
+        ReservationState.Active
+      )
+      expect(await bridge.walletPendingDissolution(walletPubKeyHash)).to.equal(
+        0
+      )
+    })
+
     it("re-registers a drifted dissolution output for the sweep machinery", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
 
       await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
       await bridge
@@ -854,7 +936,7 @@ describe("Bridge - Reservation settlement", () => {
       const sweepUtxo = {
         txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
         txOutputIndex: 0,
-        txOutputValue: 7777777,
+        txOutputValue: 1,
       }
       await bridge.setWalletMainUtxo(walletPubKeyHash, sweepUtxo)
       const driftedMainUtxoHash = (await bridge.wallets(walletPubKeyHash))
@@ -887,6 +969,60 @@ describe("Bridge - Reservation settlement", () => {
       )
       expect(sweepRequest.walletPubKeyHash).to.equal(walletPubKeyHash)
       expect(sweepRequest.value).to.equal(anchorAmount.sub(dissolutionFee))
+      expect(
+        (await bridge.wallets(walletPubKeyHash))
+          .pendingMovedFundsSweepRequestsCount
+      ).to.equal(1)
+
+      // The drifted output remains a tracked obligation after the last
+      // reservation closes, so even the below-dust path cannot put the
+      // wallet in Closing and strand the sweep.
+      await expect(
+        bridge.notifyMovingFundsBelowDust(walletPubKeyHash, sweepUtxo)
+      ).to.be.revertedWith("Wallet has pending moved funds sweep requests")
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.MovingFunds
+      )
+
+      // The normal sweep proof path remains available and balances the
+      // counter created by the dissolution settlement.
+      await bridge.setMovedFundsSweepTxMaxTotalFee(2000)
+      const movedFundsSweepTx = buildTx(
+        [
+          { txHash: dissolutionTx.txHash, index: 0 },
+          { txHash: sweepUtxo.txHash, index: sweepUtxo.txOutputIndex },
+        ],
+        [
+          {
+            valueSat: anchorAmount.sub(dissolutionFee).sub(500).add(1),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitMovedFundsSweepProof(
+          movedFundsSweepTx.info,
+          proofFor(movedFundsSweepTx.txHash),
+          sweepUtxo
+        )
+
+      expect(
+        (await bridge.wallets(walletPubKeyHash))
+          .pendingMovedFundsSweepRequestsCount
+      ).to.equal(0)
+      expect(
+        (
+          await bridge.movedFundsSweepRequests(
+            BigNumber.from(
+              ethers.utils.solidityKeccak256(
+                ["bytes32", "uint32"],
+                [dissolutionTx.txHash, 0]
+              )
+            )
+          )
+        ).state
+      ).to.equal(2) // Processed
     })
   })
 
@@ -1193,6 +1329,74 @@ describe("Bridge - Reservation settlement", () => {
       expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
         walletState.MovingFunds
       )
+    })
+
+    it("records a confirmed main-UTXO move while reservation obligations remain", async () => {
+      await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      const mainUtxo = {
+        txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+        txOutputIndex: 0,
+        txOutputValue: 7000000,
+      }
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash: ethers.utils.solidityKeccak256(
+          ["bytes20[]"],
+          [[secondWalletPubKeyHash]]
+        ),
+      })
+      await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
+
+      const movingFundsTx = buildTx(
+        [{ txHash: mainUtxo.txHash, index: mainUtxo.txOutputIndex }],
+        [
+          {
+            valueSat: BigNumber.from(mainUtxo.txOutputValue).sub(500),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitMovingFundsProof(
+            movingFundsTx.info,
+            proofFor(movingFundsTx.txHash),
+            mainUtxo,
+            walletPubKeyHash
+          )
+      )
+        .to.emit(bridge, "MovingFundsCompleted")
+        .withArgs(walletPubKeyHash, movingFundsTx.txHash)
+
+      const sourceWallet = await bridge.wallets(walletPubKeyHash)
+      expect(sourceWallet.mainUtxoHash).to.equal(ZERO_BYTES32)
+      expect(sourceWallet.state).to.equal(walletState.MovingFunds)
+
+      const targetRequest = await bridge.movedFundsSweepRequests(
+        BigNumber.from(
+          ethers.utils.solidityKeccak256(
+            ["bytes32", "uint32"],
+            [movingFundsTx.txHash, 0]
+          )
+        )
+      )
+      expect(targetRequest.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(targetRequest.state).to.equal(1) // Pending
+      expect(
+        (await bridge.wallets(secondWalletPubKeyHash))
+          .pendingMovedFundsSweepRequestsCount
+      ).to.equal(1)
     })
   })
 })

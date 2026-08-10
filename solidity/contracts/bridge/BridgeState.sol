@@ -29,6 +29,17 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice Reveal-time facts for a deposit routed to the reservation
+    ///         vault. Both fields fit in one storage word.
+    struct ReservedDepositInfo {
+        // Wallet committed by the deposit script and therefore the only
+        // wallet that can be authorized to anchor the deposit.
+        bytes20 walletPubKeyHash;
+        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
+        // sentinel used when the reveal-ahead validation was disabled.
+        uint32 refundDeadline;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -394,6 +405,10 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
+        // Reveal-time facts for deposits routed to the reservation vault.
+        // The exact refund deadline is immutable even when governance later
+        // changes `depositRevealAheadPeriod`.
+        mapping(uint256 => ReservedDepositInfo) reservedDeposits;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are

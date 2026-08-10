@@ -298,6 +298,7 @@ library ReservationProofs {
 
         /* solhint-disable-next-line not-rely-on-time */
         deposit.sweptAt = uint32(block.timestamp);
+        delete self.reservedDeposits[reservationKey];
     }
 
     /// @notice Parses the anchor transaction's single output, validates it
@@ -793,6 +794,18 @@ library ReservationProofs {
         ];
 
         if (wallet.mainUtxoHash == action.expectedMainUtxoHash) {
+            // A timed-out dissolution may settle after a different
+            // reservation acquired the wallet lock against the same main
+            // UTXO. This proof consumes that shared snapshot, so the newer
+            // generation can no longer confirm and must be superseded now.
+            if (late && action.expectedMainUtxoHash != bytes32(0)) {
+                supersedeConflictingDissolution(
+                    self,
+                    walletPubKeyHash,
+                    reservationKey
+                );
+            }
+
             // The dissolution output becomes the wallet's new main UTXO:
             // the reserved backing rejoins the pooled supply.
             wallet.mainUtxoHash = keccak256(
@@ -823,6 +836,7 @@ library ReservationProofs {
             sweepRequest.state = MovingFunds
                 .MovedFundsSweepRequestState
                 .Pending;
+            wallet.pendingMovedFundsSweepRequestsCount++;
         }
 
         if (late) {
@@ -859,6 +873,45 @@ library ReservationProofs {
             walletPubKeyHash,
             dissolutionTxHash
         );
+    }
+
+    /// @notice Supersedes another reservation's pending dissolution when a
+    ///         late proof consumes the wallet main UTXO it snapshotted.
+    function supersedeConflictingDissolution(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint256 settledReservationKey
+    ) internal {
+        uint256 pendingReservationKey = self.walletPendingDissolution[
+            walletPubKeyHash
+        ];
+        if (
+            pendingReservationKey == 0 ||
+            pendingReservationKey == settledReservationKey
+        ) {
+            return;
+        }
+
+        Reservation.ReservationRequest storage pendingReservation = self
+            .reservations[pendingReservationKey];
+        Reservation.ReservationAction storage pendingAction = self
+            .reservationActions[
+                Reservation.actionKey(
+                    pendingReservationKey,
+                    pendingReservation.requestNonce
+                )
+            ];
+        require(
+            pendingReservation.state ==
+                Reservation.ReservationState.ActionPending &&
+                pendingAction.actionType ==
+                Reservation.ActionType.Dissolution &&
+                pendingAction.state == Reservation.ActionState.Pending,
+            "Invalid wallet dissolution lock"
+        );
+
+        unwindPendingAction(self, pendingReservation, pendingReservationKey);
+        pendingReservation.state = Reservation.ReservationState.Active;
     }
 
     /// @notice Resolves a late redemption settlement against the position's

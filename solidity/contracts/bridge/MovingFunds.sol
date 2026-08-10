@@ -595,6 +595,8 @@ library MovingFunds {
     ///        on the Ethereum chain.
     /// @dev Requirements:
     ///      - The wallet must be in the MovingFunds state,
+    ///      - The wallet must not custody reservation anchors or have pending
+    ///        moved-funds sweep requests,
     ///      - The `mainUtxo` components must point to the recent main UTXO
     ///        of the given wallet, as currently known on the Ethereum chain.
     ///        If the wallet has no main UTXO, this parameter can be empty as it

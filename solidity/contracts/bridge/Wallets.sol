@@ -432,10 +432,15 @@ library Wallets {
             "Target wallets don't correspond to the commitment"
         );
 
-        // If funds were moved, the wallet has no longer a main UTXO.
+        // If funds were moved, the wallet no longer has a main UTXO.
         delete wallet.mainUtxoHash;
 
-        beginWalletClosing(self, walletPubKeyHash);
+        if (
+            self.walletReservationsCount[walletPubKeyHash] == 0 &&
+            wallet.pendingMovedFundsSweepRequestsCount == 0
+        ) {
+            beginWalletClosing(self, walletPubKeyHash);
+        }
     }
 
     /// @notice Called when a MovingFunds wallet has a balance below the dust
@@ -595,11 +600,11 @@ library Wallets {
 
         if (
             wallet.mainUtxoHash == bytes32(0) &&
-            self.walletReservationsCount[walletPubKeyHash] == 0
+            self.walletReservationsCount[walletPubKeyHash] == 0 &&
+            wallet.pendingMovedFundsSweepRequestsCount == 0
         ) {
-            // If the wallet has no main UTXO and no reservation anchors,
-            // its BTC balance is zero and the wallet closing should begin
-            // immediately.
+            // If the wallet has no tracked BTC obligations, its BTC balance
+            // is zero and the wallet closing should begin immediately.
             beginWalletClosing(self, walletPubKeyHash);
         } else {
             // The wallet holds funds: a main UTXO, reservation anchors, or
@@ -635,18 +640,21 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
-        // A wallet that still custodies reservation anchors (or reserved
-        // capacity of pending reservation actions) has not finished moving
-        // its funds: reservations must first be redeemed, re-anchored to
-        // other wallets or dissolved into the main UTXO. Entering the
-        // Closing state would strand them — reservation actions require a
-        // Live or MovingFunds wallet.
+        // A wallet that still custodies reservation anchors, reserved
+        // capacity, or pending moved-funds sweep requests has not finished
+        // moving its funds. Entering Closing would make those obligations
+        // unprocessable because their proof and timeout paths require a Live
+        // or MovingFunds wallet.
+        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         require(
             self.walletReservationsCount[walletPubKeyHash] == 0,
             "Wallet still custodies reservations"
         );
+        require(
+            wallet.pendingMovedFundsSweepRequestsCount == 0,
+            "Wallet has pending moved funds sweep requests"
+        );
 
-        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         // Initialize the closing period.
         wallet.state = WalletState.Closing;
         /* solhint-disable-next-line not-rely-on-time */

@@ -353,9 +353,8 @@ library Reservation {
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
     ///      - The authorization window (now + action timeout) must end
-    ///        before the deposit's guaranteed refund-locktime margin
-    ///        (`revealedAt + depositRevealAheadPeriod`), so an authorized
-    ///        anchor can never race the depositor's refund,
+    ///        before the deposit's exact reveal-time refund deadline, so an
+    ///        authorized anchor can never race the depositor's refund,
     ///      - Reservation capacity (total amount, per-wallet count) must
     ///        allow the deposit; both are reserved by this call and
     ///        released if the authorization times out.
@@ -375,6 +374,13 @@ library Reservation {
         require(
             deposit.vault == self.reservationVault,
             "Deposit not routed to the reservation vault"
+        );
+
+        BridgeState.ReservedDepositInfo storage reservedDeposit = self
+            .reservedDeposits[reservationKey];
+        require(
+            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
+            "Wallet is not the deposit's designated wallet"
         );
 
         ReservationRequest storage reservation = self.reservations[
@@ -406,14 +412,13 @@ library Reservation {
         uint32 timeoutAt = uint32(block.timestamp) +
             self.reservationActionTimeout;
 
-        // The reveal-ahead validation guarantees the deposit refund
-        // locktime is at least `depositRevealAheadPeriod` after the reveal.
-        // The authorization window must fit inside that guaranteed margin:
-        // the wallet must never hold an authorization that is still valid
-        // when the depositor's refund path may open.
-        if (self.depositRevealAheadPeriod > 0) {
+        // Use the exact refund locktime captured at reveal. A later
+        // governance update of `depositRevealAheadPeriod` must neither
+        // extend nor shorten this deposit's authorization window. Zero
+        // means the reveal-ahead validation was disabled at reveal time.
+        if (reservedDeposit.refundDeadline != 0) {
             require(
-                timeoutAt <= deposit.revealedAt + self.depositRevealAheadPeriod,
+                timeoutAt <= reservedDeposit.refundDeadline,
                 "Authorization window would overlap the deposit refund window"
             );
         }
@@ -619,6 +624,7 @@ library Reservation {
     ///        away from Live wallets.
     /// @dev Requirements:
     ///      - The reservation must be Active,
+    ///      - The reservation must not yet be eligible for dissolution,
     ///      - The source wallet must be in the MovingFunds state (anyone
     ///        may then request — migration is the system's duty), or Live
     ///        with the governance as the caller (approved rotation),
@@ -638,6 +644,12 @@ library Reservation {
         require(
             reservation.state == ReservationState.Active,
             "Reservation is not active"
+        );
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <=
+                uint256(reservation.expiresAt) + reservation.gracePeriod,
+            "Reservation past grace period"
         );
 
         {
