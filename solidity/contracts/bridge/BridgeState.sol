@@ -29,6 +29,17 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice Reveal-time facts for a deposit routed to the reservation
+    ///         vault. Both fields fit in one storage word.
+    struct PendingReservedDeposit {
+        // Wallet committed by the deposit script and therefore the only
+        // wallet that can be authorized to anchor the deposit.
+        bytes20 walletPubKeyHash;
+        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
+        // sentinel used when the reveal-ahead validation was disabled.
+        uint32 refundDeadline;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -404,6 +415,13 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
+        // Maps the deposit key of a revealed reserved deposit (routed to
+        // the reservation vault) to its immutable reveal-time facts. The
+        // acceptance authorization must name the designated wallet. The
+        // refund deadline is the exact Bitcoin locktime validated at reveal
+        // and does not move with later parameter updates. Cleared when the
+        // deposit is accepted or marked stale.
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Total satoshi amount of reservation anchors (and reserved
         // capacity of pending reservation actions) custodied by the given
         // wallet. Because the claim always equals the anchor, this is both
@@ -415,18 +433,6 @@ library BridgeState {
         // Maximum satoshi amount of a single reservation. Zero disables
         // the cap.
         uint64 reservationMaxSingleAmount;
-        // Maps the deposit key of a revealed reserved deposit (routed to
-        // the reservation vault) to the 20-byte public key hash of its
-        // designated wallet, proven by the reveal's script commitment.
-        // The acceptance authorization must name this wallet. Cleared when
-        // the deposit is accepted or marked stale.
-        mapping(uint256 => bytes20) reservedDepositWallet;
-        // Number of revealed reserved deposits that were neither accepted
-        // nor marked stale yet. The reservation vault cannot be changed
-        // while this is non-zero: revealed-but-unanchored deposits routed
-        // to the old vault would otherwise become pool-sweepable while
-        // still minting through the old vault's callback.
-        uint64 pendingReservedDeposits;
         // Per-wallet enumeration of custodied reservation keys, maintained
         // for monitoring and audit evidence. Entries are appended on
         // acceptance, moved on re-anchor and swap-removed on close and
@@ -435,6 +441,12 @@ library BridgeState {
         // Index-plus-one of each reservation key inside its wallet's
         // `walletReservationKeys` array (zero means absent).
         mapping(uint256 => uint256) walletReservationKeyIndex;
+        // Number of revealed reserved deposits that were neither accepted
+        // nor marked stale yet. The reservation vault cannot be changed
+        // while this is non-zero: revealed-but-unanchored deposits routed
+        // to the old vault would otherwise become pool-sweepable while
+        // still minting through the old vault's callback.
+        uint64 pendingReservedDeposits;
         // Generation that minted a reservation's outstanding retry credit.
         // The terminal action record supplies the exact redemption amount
         // and whole/partial shape the fee-free retry must preserve. Zero
@@ -447,7 +459,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[31] __gap;
+        uint256[33] __gap;
     }
 
     event DepositParametersUpdated(

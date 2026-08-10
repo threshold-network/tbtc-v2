@@ -76,7 +76,8 @@ library Wallets {
         // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
         uint32 createdAt;
         // UNIX timestamp indicating the moment the wallet was requested to
-        // move their funds.
+        // move their funds. Zero marks a successfully proven generation whose
+        // remaining reservation or sweep obligations kept it in MovingFunds.
         // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
         uint32 movingFundsRequestedAt;
         // UNIX timestamp indicating the moment the wallet's closing period
@@ -375,21 +376,14 @@ library Wallets {
             "Closing period has not elapsed yet"
         );
 
-        // A wallet still custodying reservation anchors must not close
-        // ultimately; its reservations must first be re-anchored to other
-        // wallets or dissolved into the main UTXO.
-        require(
-            self.walletReservationsCount[walletPubKeyHash] == 0,
-            "Wallet still custodies reservations"
-        );
-
         finalizeWalletClosing(self, walletPubKeyHash);
     }
 
     /// @notice Notifies that the wallet completed the moving funds process
     ///         successfully. Checks if the funds were moved to the expected
-    ///         target wallets. Closes the source wallet if everything went
-    ///         good and reverts otherwise.
+    ///         target wallets. Closes the source wallet when no tracked
+    ///         obligations remain; otherwise disarms the completed generation's
+    ///         timeout and retains MovingFunds until those obligations clear.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @param targetWalletsHash 32-byte keccak256 hash over the list of
     ///        20-byte public key hashes of the target wallets actually used
@@ -432,10 +426,41 @@ library Wallets {
             "Target wallets don't correspond to the commitment"
         );
 
-        // If funds were moved, the wallet has no longer a main UTXO.
+        // If funds were moved, the wallet no longer has a main UTXO.
         delete wallet.mainUtxoHash;
+        // A proof records successful completion even when reservation or
+        // incoming-sweep obligations prevent the state from entering Closing.
+        // Zero is the completion sentinel and cannot be reported as a timeout.
+        delete wallet.movingFundsRequestedAt;
+        delete wallet.movingFundsTargetWalletsCommitmentHash;
 
-        beginWalletClosing(self, walletPubKeyHash);
+        if (
+            self.walletReservationsCount[walletPubKeyHash] == 0 &&
+            wallet.pendingMovedFundsSweepRequestsCount == 0
+        ) {
+            beginWalletClosing(self, walletPubKeyHash);
+        }
+    }
+
+    /// @notice Starts a fresh moving-funds deadline when a completed wallet
+    ///         later gains a new main UTXO. An already-running deadline is
+    ///         deliberately not extended.
+    function rearmMovingFundsTimeout(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash
+    ) internal {
+        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+        if (
+            wallet.state == WalletState.MovingFunds &&
+            wallet.movingFundsRequestedAt == 0
+        ) {
+            /* solhint-disable-next-line not-rely-on-time */
+            wallet.movingFundsRequestedAt = uint32(block.timestamp);
+
+            // Reuse the lifecycle event so monitoring sees that the wallet has
+            // acquired a fresh balance and a new timeout is now running.
+            emit WalletMovingFunds(wallet.ecdsaWalletID, walletPubKeyHash);
+        }
     }
 
     /// @notice Called when a MovingFunds wallet has a balance below the dust
@@ -497,8 +522,8 @@ library Wallets {
     ///        supposed to sweep funds.
     /// @param walletMembersIDs Identifiers of the wallet signing group members.
     /// @dev Requirements:
-    ///      - The wallet must be in the `Live`, `MovingFunds`,
-    ///        or `Terminated` state.
+    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`,
+    ///        `Closed`, or `Terminated` state.
     function notifyWalletMovedFundsSweepTimeout(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -510,8 +535,10 @@ library Wallets {
         require(
             walletState == WalletState.Live ||
                 walletState == WalletState.MovingFunds ||
+                walletState == WalletState.Closing ||
+                walletState == WalletState.Closed ||
                 walletState == WalletState.Terminated,
-            "Wallet must be in Live or MovingFunds or Terminated state"
+            "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
         );
 
         if (
@@ -528,6 +555,9 @@ library Wallets {
 
             terminateWallet(self, walletPubKeyHash);
         }
+        // Closing, Closed, and Terminated wallets may receive a sweep request
+        // from a source proof submitted after their state transition. Resolve
+        // those requests without another slash or registry state transition.
     }
 
     /// @notice Called when a wallet which was challenged for a fraud did not
@@ -595,11 +625,11 @@ library Wallets {
 
         if (
             wallet.mainUtxoHash == bytes32(0) &&
-            self.walletReservationsCount[walletPubKeyHash] == 0
+            self.walletReservationsCount[walletPubKeyHash] == 0 &&
+            wallet.pendingMovedFundsSweepRequestsCount == 0
         ) {
-            // If the wallet has no main UTXO and no reservation anchors,
-            // its BTC balance is zero and the wallet closing should begin
-            // immediately.
+            // If the wallet has no tracked BTC obligations, its BTC balance
+            // is zero and the wallet closing should begin immediately.
             beginWalletClosing(self, walletPubKeyHash);
         } else {
             // The wallet holds funds: a main UTXO, reservation anchors, or
@@ -635,18 +665,21 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
-        // A wallet that still custodies reservation anchors (or reserved
-        // capacity of pending reservation actions) has not finished moving
-        // its funds: reservations must first be redeemed, re-anchored to
-        // other wallets or dissolved into the main UTXO. Entering the
-        // Closing state would strand them — reservation actions require a
-        // Live or MovingFunds wallet.
+        // A wallet that still custodies reservation anchors, reserved
+        // capacity, or pending moved-funds sweep requests has not finished
+        // moving its funds. Entering Closing would make those obligations
+        // unprocessable because their proof and timeout paths require a Live
+        // or MovingFunds wallet.
+        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         require(
             self.walletReservationsCount[walletPubKeyHash] == 0,
             "Wallet still custodies reservations"
         );
+        require(
+            wallet.pendingMovedFundsSweepRequestsCount == 0,
+            "Wallet has pending moved funds sweep requests"
+        );
 
-        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         // Initialize the closing period.
         wallet.state = WalletState.Closing;
         /* solhint-disable-next-line not-rely-on-time */
@@ -666,6 +699,18 @@ library Wallets {
         bytes20 walletPubKeyHash
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+
+        // A wallet still custodying reservation anchors or targeted by pending
+        // moved-funds sweeps must not close ultimately. A late source-wallet
+        // proof can register a new sweep after this wallet entered Closing.
+        require(
+            self.walletReservationsCount[walletPubKeyHash] == 0,
+            "Wallet still custodies reservations"
+        );
+        require(
+            wallet.pendingMovedFundsSweepRequestsCount == 0,
+            "Wallet has pending moved funds sweep requests"
+        );
 
         wallet.state = WalletState.Closed;
 

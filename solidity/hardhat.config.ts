@@ -172,6 +172,21 @@ const config: HardhatUserConfig = {
           },
         },
       },
+      // ReservationProofs combines whole and partial settlement with the
+      // late-wallet lifecycle recovery paths. At the default runs=1000 its
+      // deployed runtime is 24,687 bytes, 111 bytes above EIP-170. Using
+      // runs=500 keeps every Solidity invariant unchanged while reducing the
+      // integrated runtime to 24,161 bytes and leaving 415 bytes of deployment
+      // margin.
+      "contracts/bridge/ReservationProofs.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 500,
+          },
+        },
+      },
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {
