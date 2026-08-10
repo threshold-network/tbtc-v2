@@ -344,8 +344,11 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @param redeemerOutputScript The redeemer's length-prefixed output
     ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
     /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @param maxFeeTbtc Upper bound on the TBTC fee the caller accepts;
+    ///        an unexpected fee update reverts instead of overcharging.
     /// @dev Requirements:
     ///      - The caller must be the reservation owner,
+    ///      - The fee must not exceed `maxFeeTbtc`,
     ///      - The caller must have approved this vault for
     ///        `redeemAmount * SATOSHI_MULTIPLIER * (1 + redemptionFeeBps/10000)`
     ///        TBTC,
@@ -354,7 +357,8 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     function redeemReservationPartial(
         uint256 reservationKey,
         bytes calldata redeemerOutputScript,
-        uint64 redeemAmount
+        uint64 redeemAmount,
+        uint256 maxFeeTbtc
     ) external {
         require(
             bridge.reservations(reservationKey).owner == msg.sender,
@@ -363,6 +367,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
         uint256 grossTbtc = uint256(redeemAmount) * SATOSHI_MULTIPLIER;
         uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
+        require(fee <= maxFeeTbtc, "Fee exceeds the caller's bound");
 
         // The redemption fee stays in the vault as part of the in-kind fee
         // reserve; see `feeReserveTarget`.

@@ -77,6 +77,7 @@ const ProofType = {
 }
 
 describe("Bridge - Reservation partial redemption", () => {
+  let governance: SignerWithAddress
   let spvMaintainer: SignerWithAddress
   let thirdParty: SignerWithAddress
 
@@ -105,8 +106,16 @@ describe("Bridge - Reservation partial redemption", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ spvMaintainer, thirdParty, bank, relay, bridge, tbtc, tbtcVault } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({
+      governance,
+      spvMaintainer,
+      thirdParty,
+      bank,
+      relay,
+      bridge,
+      tbtc,
+      tbtcVault,
+    } = await waffle.loadFixture(bridgeFixture))
 
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(
@@ -361,7 +370,12 @@ describe("Bridge - Reservation partial redemption", () => {
       .approve(reservationVault.address, gross.add(feeFor(gross)))
     await reservationVault
       .connect(thirdParty)
-      .redeemReservationPartial(reservationKey, redeemerScript, redeemAmount)
+      .redeemReservationPartial(
+        reservationKey,
+        redeemerScript,
+        redeemAmount,
+        feeFor(gross)
+      )
   }
 
   // Retries a partial redemption via the Bank-balance path after a timeout
@@ -476,6 +490,94 @@ describe("Bridge - Reservation partial redemption", () => {
       await expect(
         requestPartial(reservationKey, randomRedeemerScript(), redeemAmount)
       ).to.be.revertedWith("Remainder below the dust floor")
+    })
+  })
+
+  describe("partial redemption fee slippage", () => {
+    const redeemAmount = 1000000
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("rejects a fee update above the owner's quoted bound before transferring TBTC", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      const redeemerScript = randomRedeemerScript()
+      const gross = grossFor(redeemAmount)
+      const quotedFee = feeFor(gross)
+
+      // A broad allowance must not turn a governance fee update into an
+      // authorization to charge more than the owner quoted.
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, ethers.constants.MaxUint256)
+      const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+      const reserveBefore = await tbtc.balanceOf(reservationVault.address)
+
+      await reservationVault.connect(governance).updateFees(40, 20, 500)
+
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .redeemReservationPartial(
+            reservationKey,
+            redeemerScript,
+            redeemAmount,
+            quotedFee
+          )
+      ).to.be.revertedWith("Fee exceeds the caller's bound")
+
+      expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+        ownerBalanceBefore
+      )
+      expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+        reserveBefore
+      )
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Active
+      )
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+    })
+
+    it("accepts the current fee exactly at the owner's bound", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      const redeemerScript = randomRedeemerScript()
+      const gross = grossFor(redeemAmount)
+
+      await reservationVault.connect(governance).updateFees(40, 20, 500)
+      const currentFee = gross.mul(500).div(10000)
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, ethers.constants.MaxUint256)
+
+      const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+      const reserveBefore = await tbtc.balanceOf(reservationVault.address)
+      const tx = await reservationVault
+        .connect(thirdParty)
+        .redeemReservationPartial(
+          reservationKey,
+          redeemerScript,
+          redeemAmount,
+          currentFee
+        )
+
+      await expect(tx)
+        .to.emit(reservationVault, "ReservedRedemptionInitiated")
+        .withArgs(reservationKey, thirdParty.address, gross, currentFee)
+      expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+        ownerBalanceBefore.sub(gross).sub(currentFee)
+      )
+      expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+        reserveBefore.add(currentFee)
+      )
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.ActionPending
+      )
+      expect(await bank.balanceOf(bridge.address)).to.equal(redeemAmount)
     })
   })
 

@@ -140,6 +140,12 @@ reserved capacity each drop by `redeemAmount` while the position stays
 anchor and refunds the escrow. Partials chain — each spends the prior
 remainder — and a whole redemption closes whatever remains.
 
+The owner-facing partial-redemption entry point carries `maxFeeTbtc`, an
+upper bound on the proportional TBTC redemption fee. The vault checks the
+live governed fee against that bound before transferring any TBTC, so a fee
+update cannot turn a broad token allowance into authorization to exceed the
+owner's quote.
+
 Each action goes through the same *two-phase* lifecycle:
 
 ----
