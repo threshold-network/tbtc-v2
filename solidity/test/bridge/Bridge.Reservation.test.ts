@@ -1144,7 +1144,7 @@ describe("Bridge - Reservation", () => {
         const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
         const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
 
-        await reservationVault.connect(deployer).updateFees(40, 20, 500)
+        await reservationVault.connect(governance).updateFees(40, 20, 500)
 
         await expect(
           reservationVault
@@ -1189,7 +1189,7 @@ describe("Bridge - Reservation", () => {
           (await bridge.reservations(exposedReservationKey)).state
         ).to.equal(2)
 
-        await reservationVault.connect(deployer).updateFees(40, 20, 20)
+        await reservationVault.connect(governance).updateFees(40, 20, 20)
       })
     })
   })
