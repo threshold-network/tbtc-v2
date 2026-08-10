@@ -1149,7 +1149,7 @@ describe("Bridge - Reservation", () => {
           .approve(reservationVault.address, ethers.constants.MaxUint256)
 
         const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
-        const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
+        const reserveBefore = await tbtc.balanceOf(reservationVault.address)
 
         await reservationVault.connect(governance).updateFees(40, 20, 500)
 
@@ -1166,8 +1166,8 @@ describe("Bridge - Reservation", () => {
         expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
           ownerBalanceBefore
         )
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(
-          treasuryBalanceBefore
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore
         )
         expect(
           (await bridge.reservations(exposedReservationKey)).state
@@ -1189,8 +1189,8 @@ describe("Bridge - Reservation", () => {
             grossTbtc,
             updatedFee
           )
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(
-          treasuryBalanceBefore.add(updatedFee)
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore.add(updatedFee)
         )
         expect(
           (await bridge.reservations(exposedReservationKey)).state
