@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
+import fs from "fs"
+import path from "path"
 
 import { equal } from "@keep-network/hardhat-helpers/dist/address"
 import { transferOwnership } from "@keep-network/hardhat-helpers/dist/ownable"
@@ -99,6 +101,38 @@ describe("Deploy Script 95: ReservationVault", () => {
 
   it("does not recursively execute the Bridge deployment", () => {
     expect(func.dependencies).to.deep.equal(["Bank", "TBTCVault"])
+  })
+
+  it("documents the complete safe activation order", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../../deploy/95_deploy_reservation_vault.ts"),
+      "utf8"
+    )
+    const orderedActions = [
+      "BridgeGovernance.beginReservationParametersUpdate(...)",
+      "BridgeGovernance.finalizeReservationParametersUpdate()",
+      "BridgeGovernance.beginReservationCapsUpdate(...)",
+      "BridgeGovernance.finalizeReservationCapsUpdate()",
+      "ReservationVault.updateFeeReserveTarget(...)",
+      "ReservationVault.setRenewalGuardian",
+      "ReservationVault.unpauseRenewals",
+      "BridgeGovernance.setVaultStatus(vault, true)",
+    ]
+
+    let previousActionIndex = -1
+    orderedActions.forEach((action) => {
+      const actionIndex = source.indexOf(action)
+      expect(actionIndex, `${action} is missing`).to.be.greaterThan(-1)
+      expect(actionIndex, `${action} is out of order`).to.be.greaterThan(
+        previousActionIndex
+      )
+      previousActionIndex = actionIndex
+    })
+
+    expect(source).to.include(
+      "Required steps 1-3 must be completed while the vault is untrusted"
+    )
+    expect(source).to.include("As the final activation step")
   })
 
   it("reads the existing Bridge address for the vault constructor", async () => {
