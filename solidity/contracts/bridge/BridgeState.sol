@@ -30,9 +30,13 @@ import "../bank/Bank.sol";
 
 library BridgeState {
     /// @notice Reveal-time facts for a deposit routed to the reservation
-    ///         vault. The fields are packed into one storage slot.
+    ///         vault. Both fields fit in one storage word.
     struct PendingReservedDeposit {
+        // Wallet committed by the deposit script and therefore the only
+        // wallet that can be authorized to anchor the deposit.
         bytes20 walletPubKeyHash;
+        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
+        // sentinel used when the reveal-ahead validation was disabled.
         uint32 refundDeadline;
     }
 
@@ -410,6 +414,13 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
+        // Maps the deposit key of a revealed reserved deposit (routed to
+        // the reservation vault) to its immutable reveal-time facts. The
+        // acceptance authorization must name the designated wallet. The
+        // refund deadline is the exact Bitcoin locktime validated at reveal
+        // and does not move with later parameter updates. Cleared when the
+        // deposit is accepted or marked stale.
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Total satoshi amount of reservation anchors (and reserved
         // capacity of pending reservation actions) custodied by the given
         // wallet. Because the claim always equals the anchor, this is both
@@ -421,19 +432,6 @@ library BridgeState {
         // Maximum satoshi amount of a single reservation. Zero disables
         // the cap.
         uint64 reservationMaxSingleAmount;
-        // Maps the deposit key of a revealed reserved deposit (routed to
-        // the reservation vault) to its immutable reveal-time facts. The
-        // acceptance authorization must name the designated wallet. The
-        // refund deadline is the exact Bitcoin locktime validated at reveal
-        // and does not move with later parameter updates. Cleared when the
-        // deposit is accepted or marked stale.
-        mapping(uint256 => PendingReservedDeposit) reservedDepositWallet;
-        // Number of revealed reserved deposits that were neither accepted
-        // nor marked stale yet. The reservation vault cannot be changed
-        // while this is non-zero: revealed-but-unanchored deposits routed
-        // to the old vault would otherwise become pool-sweepable while
-        // still minting through the old vault's callback.
-        uint64 pendingReservedDeposits;
         // Per-wallet enumeration of custodied reservation keys, maintained
         // for monitoring and audit evidence. Entries are appended on
         // acceptance, moved on re-anchor and swap-removed on close and
@@ -442,6 +440,12 @@ library BridgeState {
         // Index-plus-one of each reservation key inside its wallet's
         // `walletReservationKeys` array (zero means absent).
         mapping(uint256 => uint256) walletReservationKeyIndex;
+        // Number of revealed reserved deposits that were neither accepted
+        // nor marked stale yet. The reservation vault cannot be changed
+        // while this is non-zero: revealed-but-unanchored deposits routed
+        // to the old vault would otherwise become pool-sweepable while
+        // still minting through the old vault's callback.
+        uint64 pendingReservedDeposits;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -449,7 +453,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[32] __gap;
+        uint256[34] __gap;
     }
 
     event DepositParametersUpdated(

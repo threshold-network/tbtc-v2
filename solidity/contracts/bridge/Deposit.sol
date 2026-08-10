@@ -363,7 +363,7 @@ library Deposit {
             // script commitment — and exact refund deadline, and track the
             // deposit as pending for the reservation-vault migration guard.
             // A zero deadline preserves the disabled reveal-ahead behavior.
-            self.reservedDepositWallet[depositKey] = BridgeState
+            self.pendingReservedDeposit[depositKey] = BridgeState
                 .PendingReservedDeposit(
                     reveal.walletPubKeyHash,
                     refundDeadline
