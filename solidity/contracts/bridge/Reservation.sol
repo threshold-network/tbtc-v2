@@ -376,9 +376,8 @@ library Reservation {
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
     ///      - The authorization window (now + action timeout) must end
-    ///        before the deposit's guaranteed refund-locktime margin
-    ///        (`revealedAt + depositRevealAheadPeriod`), so an authorized
-    ///        anchor can never race the depositor's refund,
+    ///        before the deposit's exact reveal-time refund deadline, so an
+    ///        authorized anchor can never race the depositor's refund,
     ///      - Reservation capacity (total amount, per-wallet count) must
     ///        allow the deposit; both are reserved by this call and
     ///        released if the authorization times out.
@@ -400,6 +399,13 @@ library Reservation {
             "Deposit not routed to the reservation vault"
         );
 
+        BridgeState.PendingReservedDeposit storage reservedDeposit = self
+            .pendingReservedDeposit[reservationKey];
+        require(
+            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
+            "Wallet is not the deposit's designated wallet"
+        );
+
         ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
@@ -419,7 +425,7 @@ library Reservation {
         // marker — a deposit marked stale (or already accepted) cannot be
         // re-authorized.
         require(
-            self.reservedDepositWallet[reservationKey] == walletPubKeyHash,
+            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
             "Wallet is not the deposit's designated wallet"
         );
 
@@ -439,14 +445,13 @@ library Reservation {
         uint32 timeoutAt = uint32(block.timestamp) +
             self.reservationActionTimeout;
 
-        // The reveal-ahead validation guarantees the deposit refund
-        // locktime is at least `depositRevealAheadPeriod` after the reveal.
-        // The authorization window must fit inside that guaranteed margin:
-        // the wallet must never hold an authorization that is still valid
-        // when the depositor's refund path may open.
-        if (self.depositRevealAheadPeriod > 0) {
+        // Use the exact refund locktime captured at reveal. A later
+        // governance update of `depositRevealAheadPeriod` must neither
+        // extend nor shorten this deposit's authorization window. Zero
+        // means the reveal-ahead validation was disabled at reveal time.
+        if (reservedDeposit.refundDeadline != 0) {
             require(
-                timeoutAt <= deposit.revealedAt + self.depositRevealAheadPeriod,
+                timeoutAt <= reservedDeposit.refundDeadline,
                 "Authorization window would overlap the deposit refund window"
             );
         }
@@ -670,6 +675,7 @@ library Reservation {
     ///        away from Live wallets.
     /// @dev Requirements:
     ///      - The reservation must be Active,
+    ///      - The reservation must not yet be dissolution-eligible,
     ///      - The source wallet must be in the MovingFunds state (anyone
     ///        may then request — migration is the system's duty), or Live
     ///        with the governance as the caller (approved rotation),
@@ -690,6 +696,12 @@ library Reservation {
             reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp < reservation.dissolutionEligibleAt,
+            "Reservation is dissolution-eligible"
+        );
+        /* solhint-enable not-rely-on-time */
 
         {
             Wallets.WalletState sourceState = self
@@ -1185,34 +1197,37 @@ library Reservation {
     ///         longer be authorized for acceptance and stops counting
     ///         against the pending-reserved-deposit guard. Intended for
     ///         deposits whose acceptance never happened — after the
-    ///         guaranteed refund-locktime margin the depositor is expected
-    ///         to reclaim the funds through the Bitcoin refund path.
+    ///         reveal-time refund deadline the depositor is expected to
+    ///         reclaim the funds through the Bitcoin refund path.
     /// @param depositKey The deposit key of the reserved deposit.
     /// @dev Requirements:
     ///      - The deposit must be a pending reserved deposit (revealed to
     ///        the reservation vault, not accepted, not already stale),
     ///      - No acceptance authorization may be pending for it,
-    ///      - The deposit's guaranteed refund-locktime margin
-    ///        (`revealedAt + depositRevealAheadPeriod`) must have elapsed.
-    ///        With the reveal-ahead validation disabled the deposit can be
-    ///        marked stale immediately, matching the disabled protection.
+    ///      - The exact Bitcoin refund deadline snapshotted at reveal must
+    ///        have elapsed. With the reveal-ahead validation disabled at
+    ///        reveal, the deposit can be marked stale immediately, matching
+    ///        the disabled protection.
     function notifyStaleReservedDeposit(
         BridgeState.Storage storage self,
         uint256 depositKey
     ) external {
+        BridgeState.PendingReservedDeposit storage pendingDeposit = self
+            .pendingReservedDeposit[depositKey];
         require(
-            self.reservedDepositWallet[depositKey] != bytes20(0),
+            pendingDeposit.walletPubKeyHash != bytes20(0),
             "Not a pending reserved deposit"
         );
 
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.sweptAt == 0, "Deposit already swept");
-        require(
-            /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp >
-                uint256(deposit.revealedAt) + self.depositRevealAheadPeriod,
-            "Deposit refund margin has not elapsed"
-        );
+        if (pendingDeposit.refundDeadline != 0) {
+            require(
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp > pendingDeposit.refundDeadline,
+                "Deposit refund deadline has not elapsed"
+            );
+        }
 
         ReservationRequest storage reservation = self.reservations[depositKey];
         require(
@@ -1221,7 +1236,7 @@ library Reservation {
             "Acceptance authorization pending"
         );
 
-        delete self.reservedDepositWallet[depositKey];
+        delete self.pendingReservedDeposit[depositKey];
         self.pendingReservedDeposits -= 1;
 
         emit ReservedDepositMarkedStale(depositKey);
@@ -1267,38 +1282,7 @@ library Reservation {
             );
         }
 
-        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
-        self.reservationTotalAmount -= reservation.anchorAmount;
-        removeWalletReservationKey(
-            self,
-            reservation.walletPubKeyHash,
-            reservationKey
-        );
-        reservation.state = ReservationState.Stranded;
-
-        // The anchor is deliberately NOT marked as honestly spent: a
-        // spend by the terminated wallet remains recognizable as such.
-        delete self.reservationsByAnchorUtxo[
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                )
-            )
-        ];
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservationStranded(
-            reservationKey,
-            reservation.walletPubKeyHash,
-            reservation.owner,
-            reservation.anchorAmount
-        );
+        strandReservation(self, reservation, reservationKey);
     }
 
     /// @notice Updates the amount-denominated reservation caps. Checked
@@ -1354,6 +1338,47 @@ library Reservation {
         }
         keys.pop();
         delete self.walletReservationKeyIndex[reservationKey];
+    }
+
+    /// @notice Strands a reservation: releases its tracked capacity, removes
+    ///         it from wallet enumeration and emits the canonical recovery
+    ///         evidence. The caller decides whether the anchor was honestly
+    ///         spent before invoking this accounting transition.
+    function strandReservation(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation,
+        uint256 reservationKey
+    ) internal {
+        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] -= reservation.anchorAmount;
+        self.reservationTotalAmount -= reservation.anchorAmount;
+        removeWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
+        reservation.state = ReservationState.Stranded;
+
+        delete self.reservationsByAnchorUtxo[
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        reservation.anchorTxHash,
+                        reservation.anchorTxOutputIndex
+                    )
+                )
+            )
+        ];
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservationStranded(
+            reservationKey,
+            reservation.walletPubKeyHash,
+            reservation.owner,
+            reservation.anchorAmount
+        );
     }
 
     /// @notice Closes a reservation: adjusts the wallet reservation count

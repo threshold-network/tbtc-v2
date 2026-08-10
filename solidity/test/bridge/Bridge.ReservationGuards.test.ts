@@ -289,7 +289,10 @@ describe("Bridge - Reservation guards", () => {
   const randomRedeemerScript = (): string =>
     `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
 
-  async function revealReservedDeposit(custodian = walletPubKeyHash) {
+  async function revealReservedDeposit(
+    custodian = walletPubKeyHash,
+    depositRefundLocktime = refundLocktime
+  ) {
     const fundingTx = buildTx(
       [
         {
@@ -306,7 +309,7 @@ describe("Bridge - Reservation guards", () => {
               blindingFactor,
               custodian,
               refundPubKeyHash,
-              refundLocktime
+              depositRefundLocktime
             )
           ),
         },
@@ -318,7 +321,7 @@ describe("Bridge - Reservation guards", () => {
       blindingFactor,
       walletPubKeyHash: custodian,
       refundPubKeyHash,
-      refundLocktime,
+      refundLocktime: depositRefundLocktime,
       vault: reservationVault.address,
     })
 
@@ -514,6 +517,57 @@ describe("Bridge - Reservation guards", () => {
       await expect(
         bridge.connect(thirdParty).notifyStaleReservedDeposit(reservationKey)
       ).to.be.revertedWith("Not a pending reserved deposit")
+    })
+
+    it("does not mark a deposit stale early when the reveal-ahead period is lowered", async () => {
+      const refundDeadline =
+        (await lastBlockTime()) + 3 * DEPOSIT_REVEAL_AHEAD_PERIOD
+      const depositRefundLocktime = `0x${toLE(refundDeadline, 4)}`
+      const { reservationKey } = await revealReservedDeposit(
+        walletPubKeyHash,
+        depositRefundLocktime
+      )
+
+      // A governance update after reveal must not move this deposit's
+      // Bitcoin refund deadline. With the mutable-period calculation this
+      // would make the deposit stale immediately.
+      await bridge.setDepositRevealAheadPeriod(0)
+      await expect(
+        bridge.connect(thirdParty).notifyStaleReservedDeposit(reservationKey)
+      ).to.be.revertedWith("Deposit refund deadline has not elapsed")
+
+      expect(await bridge.pendingReservedDeposits()).to.equal(1)
+      expect(await bridge.reservedDepositWallet(reservationKey)).to.equal(
+        walletPubKeyHash
+      )
+    })
+
+    it("marks a deposit stale at its reveal-time deadline when the period is raised", async () => {
+      const refundDeadline =
+        (await lastBlockTime()) + 3 * DEPOSIT_REVEAL_AHEAD_PERIOD
+      const depositRefundLocktime = `0x${toLE(refundDeadline, 4)}`
+      const { reservationKey } = await revealReservedDeposit(
+        walletPubKeyHash,
+        depositRefundLocktime
+      )
+
+      // A larger live parameter must not postpone the stale transition for
+      // a deposit whose exact Bitcoin refund deadline was fixed at reveal.
+      await bridge.setDepositRevealAheadPeriod(6 * DEPOSIT_REVEAL_AHEAD_PERIOD)
+      await ethers.provider.send("evm_setNextBlockTimestamp", [
+        refundDeadline + 1,
+      ])
+
+      await expect(
+        bridge.connect(thirdParty).notifyStaleReservedDeposit(reservationKey)
+      )
+        .to.emit(bridge, "ReservedDepositMarkedStale")
+        .withArgs(reservationKey)
+
+      expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.reservedDepositWallet(reservationKey)).to.equal(
+        `0x${"00".repeat(20)}`
+      )
     })
 
     it("refuses the stale notification while an authorization is pending", async () => {

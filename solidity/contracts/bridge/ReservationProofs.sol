@@ -299,6 +299,16 @@ library ReservationProofs {
 
         /* solhint-disable-next-line not-rely-on-time */
         deposit.sweptAt = uint32(block.timestamp);
+        // Stale notification may already have released this pending marker
+        // before a late acceptance proof arrives. Consume the marker and its
+        // counter exactly once, while always recording the proven sweep.
+        if (
+            self.pendingReservedDeposit[reservationKey].walletPubKeyHash !=
+            bytes20(0)
+        ) {
+            delete self.pendingReservedDeposit[reservationKey];
+            self.pendingReservedDeposits -= 1;
+        }
     }
 
     /// @notice Parses the anchor transaction's single output, validates it
@@ -385,14 +395,6 @@ library ReservationProofs {
         }
 
         address depositor = self.deposits[reservationKey].depositor;
-
-        // The deposit stops being pending: clear its designated-wallet
-        // marker (unless a stale notification already did) so the
-        // reservation-vault migration guard sees it settled.
-        if (self.reservedDepositWallet[reservationKey] != bytes20(0)) {
-            delete self.reservedDepositWallet[reservationKey];
-            self.pendingReservedDeposits -= 1;
-        }
 
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
@@ -869,9 +871,12 @@ library ReservationProofs {
 
     /// @notice Finalizes a dissolution settlement: registers the output as
     ///         the wallet's new main UTXO (or as a moved-funds sweep
-    ///         request when the registry drifted), releases the per-wallet
-    ///         main-UTXO action lock, unwinds a superseded pending
-    ///         generation on late settlements and closes the position.
+    ///         request when the registry drifted), unless the wallet was
+    ///         terminated after authorization. In that case, settles the
+    ///         confirmed spend as stranded recovery evidence instead.
+    ///         Releases the per-wallet main-UTXO action lock, unwinds a
+    ///         superseded pending generation on late settlements and closes
+    ///         or strands the position.
     function settleDissolution(
         BridgeState.Storage storage self,
         uint256 reservationKey,
@@ -889,38 +894,67 @@ library ReservationProofs {
         Wallets.Wallet storage wallet = self.registeredWallets[
             walletPubKeyHash
         ];
+        bool walletTerminated = wallet.state == Wallets.WalletState.Terminated;
 
         if (wallet.mainUtxoHash == action.expectedMainUtxoHash) {
-            // The dissolution output becomes the wallet's new main UTXO:
-            // the reserved backing rejoins the pooled supply.
-            wallet.mainUtxoHash = keccak256(
-                abi.encodePacked(dissolutionTxHash, uint32(0), outputValue)
-            );
+            // A timed-out dissolution may settle after a different
+            // reservation acquired the wallet lock against the same main
+            // UTXO. This proof consumes that shared snapshot, so the newer
+            // generation can no longer confirm and must be superseded now.
+            if (late && action.expectedMainUtxoHash != bytes32(0)) {
+                supersedeConflictingDissolution(
+                    self,
+                    walletPubKeyHash,
+                    reservationKey
+                );
+            }
+
+            if (walletTerminated) {
+                // A nonzero snapshot was consumed by the proven transaction.
+                // Do not leave the terminated wallet pointing at that spent
+                // UTXO. The dissolution output is deliberately not installed
+                // as a replacement: Bridge spending paths reject Terminated
+                // wallets and their registry group is already closed.
+                if (action.expectedMainUtxoHash != bytes32(0)) {
+                    delete wallet.mainUtxoHash;
+                }
+            } else {
+                // The dissolution output becomes the wallet's new main UTXO:
+                // the reserved backing rejoins the pooled supply.
+                wallet.mainUtxoHash = keccak256(
+                    abi.encodePacked(dissolutionTxHash, uint32(0), outputValue)
+                );
+                Wallets.rearmMovingFundsTimeout(self, walletPubKeyHash);
+            }
         } else {
-            // Registry drift: another transaction (e.g. a deposit sweep)
-            // registered a main UTXO after this no-main-UTXO dissolution
-            // was authorized. The confirmed dissolution output is a
-            // wallet-held UTXO the registry must keep tracking; register
-            // it for the moved-funds sweep machinery to consolidate.
             require(
                 action.expectedMainUtxoHash == bytes32(0),
                 "Recorded main UTXO can no longer be spent"
             );
-            MovingFunds.MovedFundsSweepRequest storage sweepRequest = self
-                .movedFundsSweepRequests[
-                    uint256(
-                        keccak256(
-                            abi.encodePacked(dissolutionTxHash, uint32(0))
+
+            if (!walletTerminated) {
+                // Registry drift: another transaction (e.g. a deposit sweep)
+                // registered a main UTXO after this no-main-UTXO dissolution
+                // was authorized. The confirmed dissolution output is a
+                // wallet-held UTXO the registry must keep tracking; register
+                // it for the moved-funds sweep machinery to consolidate.
+                MovingFunds.MovedFundsSweepRequest storage sweepRequest = self
+                    .movedFundsSweepRequests[
+                        uint256(
+                            keccak256(
+                                abi.encodePacked(dissolutionTxHash, uint32(0))
+                            )
                         )
-                    )
-                ];
-            sweepRequest.walletPubKeyHash = walletPubKeyHash;
-            sweepRequest.value = outputValue;
-            /* solhint-disable-next-line not-rely-on-time */
-            sweepRequest.createdAt = uint32(block.timestamp);
-            sweepRequest.state = MovingFunds
-                .MovedFundsSweepRequestState
-                .Pending;
+                    ];
+                sweepRequest.walletPubKeyHash = walletPubKeyHash;
+                sweepRequest.value = outputValue;
+                /* solhint-disable-next-line not-rely-on-time */
+                sweepRequest.createdAt = uint32(block.timestamp);
+                sweepRequest.state = MovingFunds
+                    .MovedFundsSweepRequestState
+                    .Pending;
+                wallet.pendingMovedFundsSweepRequestsCount++;
+            }
         }
 
         if (late) {
@@ -948,7 +982,15 @@ library ReservationProofs {
         }
 
         action.state = Reservation.ActionState.Settled;
-        self.closeReservation(reservation, reservationKey);
+        if (walletTerminated) {
+            // Use the same accounting and evidence transition as direct
+            // Terminated-wallet stranding. The dissolution proof has already
+            // marked the consumed anchor honestly spent; the owner's minted
+            // balance remains an ordinary pooled claim.
+            self.strandReservation(reservation, reservationKey);
+        } else {
+            self.closeReservation(reservation, reservationKey);
+        }
 
         // slither-disable-next-line reentrancy-events
         emit ReservationDissolved(
@@ -957,6 +999,45 @@ library ReservationProofs {
             walletPubKeyHash,
             dissolutionTxHash
         );
+    }
+
+    /// @notice Supersedes another reservation's pending dissolution when a
+    ///         late proof consumes the wallet main UTXO it snapshotted.
+    function supersedeConflictingDissolution(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint256 settledReservationKey
+    ) internal {
+        uint256 pendingReservationKey = self.walletPendingDissolution[
+            walletPubKeyHash
+        ];
+        if (
+            pendingReservationKey == 0 ||
+            pendingReservationKey == settledReservationKey
+        ) {
+            return;
+        }
+
+        Reservation.ReservationRequest storage pendingReservation = self
+            .reservations[pendingReservationKey];
+        Reservation.ReservationAction storage pendingAction = self
+            .reservationActions[
+                Reservation.actionKey(
+                    pendingReservationKey,
+                    pendingReservation.requestNonce
+                )
+            ];
+        require(
+            pendingReservation.state ==
+                Reservation.ReservationState.ActionPending &&
+                pendingAction.actionType ==
+                Reservation.ActionType.Dissolution &&
+                pendingAction.state == Reservation.ActionState.Pending,
+            "Invalid wallet dissolution lock"
+        );
+
+        unwindPendingAction(self, pendingReservation, pendingReservationKey);
+        pendingReservation.state = Reservation.ReservationState.Active;
     }
 
     /// @notice Resolves a late redemption settlement against the position's

@@ -648,6 +648,43 @@ describe("Bridge - Wallets", () => {
         })
 
         context("when wallet balance is zero", () => {
+          context("when a moved-funds sweep request is pending", () => {
+            const movedFundsUtxo = {
+              txHash:
+                "0x8a5d799af0f9872f435eb49750c953b4257c37df69502b7f38f6367db62034cb",
+              txOutputIndex: 0,
+              txOutputValue: 100000,
+            }
+
+            before(async () => {
+              await createSnapshot()
+              await bridge.setPendingMovedFundsSweepRequest(
+                ecdsaWalletTestData.pubKeyHash160,
+                movedFundsUtxo
+              )
+
+              await bridge
+                .connect(walletRegistry.wallet)
+                .__ecdsaWalletHeartbeatFailedCallback(
+                  ecdsaWalletTestData.walletID,
+                  ecdsaWalletTestData.publicKeyX,
+                  ecdsaWalletTestData.publicKeyY
+                )
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should retain MovingFunds until the sweep is handled", async () => {
+              const wallet = await bridge.wallets(
+                ecdsaWalletTestData.pubKeyHash160
+              )
+              expect(wallet.state).to.equal(walletState.MovingFunds)
+              expect(wallet.pendingMovedFundsSweepRequestsCount).to.equal(1)
+            })
+          })
+
           context("when wallet is the active one", () => {
             let tx: ContractTransaction
 
@@ -1460,6 +1497,7 @@ describe("Bridge - Wallets", () => {
 
         before(async () => {
           await createSnapshot()
+          walletRegistry.closeWallet.reset()
 
           await increaseTime(
             (
