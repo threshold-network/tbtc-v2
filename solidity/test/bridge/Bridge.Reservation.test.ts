@@ -833,7 +833,7 @@ describe("Bridge - Reservation", () => {
     })
 
     it("stages the parameters and applies them after the governance delay", async () => {
-      await bridgeGovernance
+      const beginTx = await bridgeGovernance
         .connect(governance)
         .beginReservationParametersUpdate(
           reservationVault.address,
@@ -843,6 +843,24 @@ describe("Bridge - Reservation", () => {
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET
+        )
+
+      const beginReceipt = await beginTx.wait()
+      const beginBlock = await ethers.provider.getBlock(
+        beginReceipt.blockNumber
+      )
+
+      await expect(beginTx)
+        .to.emit(bridgeGovernance, "ReservationParametersUpdateStarted")
+        .withArgs(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          beginBlock.timestamp
         )
 
       await expect(
