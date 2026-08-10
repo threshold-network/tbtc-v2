@@ -650,7 +650,7 @@ describe("Bridge - Reservation", () => {
         await expect(
           reservationVault
             .connect(governance)
-            .redeemReservation(reservationKey, redeemerOutputScript)
+            .redeemReservation(reservationKey, redeemerOutputScript, 0)
         ).to.be.revertedWith("Caller is not the reservation owner")
       })
 
@@ -664,7 +664,7 @@ describe("Bridge - Reservation", () => {
 
         const tx = await reservationVault
           .connect(thirdParty)
-          .redeemReservation(reservationKey, redeemerOutputScript)
+          .redeemReservation(reservationKey, redeemerOutputScript, fee)
 
         await expect(tx)
           .to.emit(reservationVault, "ReservedRedemptionInitiated")
@@ -676,6 +676,83 @@ describe("Bridge - Reservation", () => {
         )
         expect((await bridge.reservations(reservationKey)).state).to.equal(2)
         expect(await bank.balanceOf(bridge.address)).to.equal(amountSat)
+      })
+
+      it("should reject a stale fee quote after governance update and accept the exact bound", async () => {
+        const exposedReservationKey = 998
+        const quotedFee = grossTbtc.mul(20).div(10000)
+        const updatedFee = grossTbtc.mul(500).div(10000)
+
+        await bridge.setReservation(
+          exposedReservationKey,
+          await activeReservation(
+            thirdParty.address,
+            walletPubKeyHash,
+            amountSat
+          )
+        )
+
+        const bridgeSigner = await impersonateContract(bridge.address)
+        await bank
+          .connect(bridgeSigner)
+          .increaseBalanceAndCall(
+            reservationVault.address,
+            [thirdParty.address],
+            [amountSat.mul(2)]
+          )
+        await tbtc
+          .connect(thirdParty)
+          .approve(reservationVault.address, ethers.constants.MaxUint256)
+
+        const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+        const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
+
+        await reservationVault.connect(deployer).updateFees(40, 20, 500)
+
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .redeemReservation(
+              exposedReservationKey,
+              redeemerOutputScript,
+              quotedFee
+            )
+        ).to.be.revertedWith("Fee exceeds the caller's bound")
+
+        expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+          ownerBalanceBefore
+        )
+        expect(await tbtc.balanceOf(treasury.address)).to.equal(
+          treasuryBalanceBefore
+        )
+        expect(
+          (await bridge.reservations(exposedReservationKey)).state
+        ).to.equal(1)
+
+        const tx = await reservationVault
+          .connect(thirdParty)
+          .redeemReservation(
+            exposedReservationKey,
+            redeemerOutputScript,
+            updatedFee
+          )
+
+        await expect(tx)
+          .to.emit(reservationVault, "ReservedRedemptionInitiated")
+          .withArgs(
+            exposedReservationKey,
+            thirdParty.address,
+            grossTbtc,
+            updatedFee
+          )
+        expect(await tbtc.balanceOf(treasury.address)).to.equal(
+          treasuryBalanceBefore.add(updatedFee)
+        )
+        expect(
+          (await bridge.reservations(exposedReservationKey)).state
+        ).to.equal(2)
+
+        await reservationVault.connect(deployer).updateFees(40, 20, 20)
       })
     })
   })
@@ -1426,7 +1503,7 @@ describe("Bridge - Reservation", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, redeemerScript)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
       const redemptionTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
@@ -1489,7 +1566,7 @@ describe("Bridge - Reservation", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, redeemerScript)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
 
       // Pay the full anchor value out (zero miner fee). The old lower bound
       // `anchorAmount - redemptionTxMaxFee` would revert on underflow here.
