@@ -15,10 +15,12 @@ describe("Deploy Script 95: ReservationVault", () => {
   const bridge = "0x5000000000000000000000000000000000000005"
   const reservationVault = "0x6000000000000000000000000000000000000006"
 
-  function createMockHre({ failVerification = false } = {}) {
+  function createMockHre({ failVerification = false, etherscan = true } = {}) {
     let currentOwner = deployer
     let verificationShouldFail = failVerification
 
+    const getCalls: string[] = []
+    const deployCalls: Array<{ name: string; options: any }> = []
     const executeCalls: Array<{
       name: string
       methodName: string
@@ -34,11 +36,14 @@ describe("Deploy Script 95: ReservationVault", () => {
 
     const mockHre: any = {
       deployments: {
-        get: async (name: string) => deploymentsByName[name],
-        deploy: async () => ({
-          address: reservationVault,
-          newlyDeployed: false,
-        }),
+        get: async (name: string) => {
+          getCalls.push(name)
+          return deploymentsByName[name]
+        },
+        deploy: async (name: string, options: any) => {
+          deployCalls.push({ name, options })
+          return { address: reservationVault, newlyDeployed: false }
+        },
         read: async () => currentOwner,
         execute: async (
           name: string,
@@ -68,7 +73,7 @@ describe("Deploy Script 95: ReservationVault", () => {
           },
         },
       },
-      network: { tags: { etherscan: true } },
+      network: { tags: { etherscan } },
     }
 
     mockHre.helpers.ownable = {
@@ -81,6 +86,8 @@ describe("Deploy Script 95: ReservationVault", () => {
 
     return {
       mockHre,
+      getCalls,
+      deployCalls,
       executeCalls,
       verifyCalls,
       owner: () => currentOwner,
@@ -89,6 +96,28 @@ describe("Deploy Script 95: ReservationVault", () => {
       },
     }
   }
+
+  it("does not recursively execute the Bridge deployment", () => {
+    expect(func.dependencies).to.deep.equal(["Bank", "TBTCVault"])
+  })
+
+  it("reads the existing Bridge address for the vault constructor", async () => {
+    const harness = createMockHre({ etherscan: false })
+
+    await func(harness.mockHre)
+
+    expect(harness.getCalls).to.deep.equal(["Bank", "TBTCVault", "Bridge"])
+    expect(harness.deployCalls).to.have.lengthOf(1)
+    expect(harness.deployCalls[0]).to.deep.equal({
+      name: "ReservationVault",
+      options: {
+        from: deployer,
+        args: [bank, tbtcVault, bridge],
+        log: true,
+        waitConfirmations: 1,
+      },
+    })
+  })
 
   it("resumes after ownership transfer when verification failed", async () => {
     const harness = createMockHre({ failVerification: true })

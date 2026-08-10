@@ -1328,6 +1328,11 @@ describe("Bridge - Reservation", () => {
           RESERVATION_RENEWAL_WINDOW
         )
 
+      const beginReceipt = await beginTx.wait()
+      const beginTimestamp = (
+        await ethers.provider.getBlock(beginReceipt.blockNumber)
+      ).timestamp
+
       await expect(beginTx)
         .to.emit(bridgeGovernance, "ReservationParametersUpdateStarted")
         .withArgs(
@@ -1340,7 +1345,7 @@ describe("Bridge - Reservation", () => {
           MAX_RESERVATIONS_PER_WALLET,
           RESERVATION_ACTION_TIMEOUT,
           RESERVATION_RENEWAL_WINDOW,
-          await lastBlockTime()
+          beginTimestamp
         )
 
       await expect(
@@ -2008,6 +2013,102 @@ describe("Bridge - Reservation", () => {
       ).to.be.revertedWith("Action type mismatch")
     })
 
+    it("uses the exact reveal-time refund deadline after parameter updates", async () => {
+      const revealAhead = 3 * 24 * 60 * 60
+      const refundDeadline = (await lastBlockTime()) + 5 * 24 * 60 * 60
+      const exactRefundLocktime = `0x${toLE(refundDeadline, 4)}`
+      await bridge.setDepositRevealAheadPeriod(revealAhead)
+
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: depositAmount,
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                exactRefundLocktime
+              )
+            ),
+          },
+        ]
+      )
+      await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor,
+        walletPubKeyHash,
+        refundPubKeyHash,
+        refundLocktime: exactRefundLocktime,
+        vault: reservationVault.address,
+      })
+      const reservationKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [fundingTx.txHash, 0]
+        )
+      )
+
+      await liveWallet(secondWalletPubKeyHash)
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Wallet is not the deposit's designated wallet")
+
+      // Raising the live reveal-ahead period must not manufacture a later
+      // deadline for this already-revealed deposit. A six-day authorization
+      // overlaps its exact five-day Bitcoin refund locktime.
+      await bridge.setDepositRevealAheadPeriod(30 * 24 * 60 * 60)
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          6 * 24 * 60 * 60
+        )
+
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith(
+        "Authorization window would overlap the deposit refund window"
+      )
+
+      // A window that still fits the immutable Bitcoin deadline remains
+      // valid even though the live ahead period is now much larger.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          4 * 24 * 60 * 60
+        )
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.emit(bridge, "ReservationAcceptanceRequested")
+    })
+
     it("accepts a proven anchor and credits the gross amount", async () => {
       const { anchorTx, acceptTx, reservationKey } =
         await makeAcceptedReservation()
@@ -2414,6 +2515,12 @@ describe("Bridge - Reservation", () => {
       const unchanged = await bridge.reservations(reservationKey)
       expect(unchanged.state).to.equal(ReservationState.Active)
       expect(unchanged.requestNonce).to.equal(1)
+
+      // The terminal cleanup path is available instead of another
+      // non-slashing re-anchor generation.
+      await expect(
+        bridge.connect(thirdParty).requestReservationDissolution(reservationKey)
+      ).to.emit(bridge, "ReservationDissolutionRequested")
     })
 
     it("rejects a re-anchor paying a wallet other than the authorized target", async () => {

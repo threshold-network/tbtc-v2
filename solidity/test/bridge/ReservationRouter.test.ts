@@ -1,6 +1,13 @@
 import { artifacts, ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import * as fs from "fs"
+import * as path from "path"
+import { getStorageUpgradeErrors } from "@openzeppelin/upgrades-core"
+import { normalizeValidationData } from "@openzeppelin/upgrades-core/dist/validate/data"
+import type { ValidationData } from "@openzeppelin/upgrades-core/dist/validate/data"
+import { unfoldStorageLayout } from "@openzeppelin/upgrades-core/dist/validate/query"
+import type { StorageLayout as OZStorageLayout } from "@openzeppelin/upgrades-core/dist/storage/layout"
 
 import bridgeFixture from "../fixtures/bridge"
 import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
@@ -135,7 +142,7 @@ describe("ReservationRouter", () => {
   })
 
   describe("storage layout parity", () => {
-    it("should consume exactly eight slots from the deployed Bridge gap", async () => {
+    it("should consume exactly nine slots from the deployed Bridge gap", async () => {
       const bridgeLayout = await getStorageLayout(
         "contracts/bridge/Bridge.sol",
         "Bridge"
@@ -153,14 +160,103 @@ describe("ReservationRouter", () => {
         throw new Error("No BridgeState.Storage.__gap entry in Bridge layout")
       }
 
-      // The deployed layout reserves slots 81..128. Reservation state uses
-      // exactly eight of them, so the remaining gap starts at 89, contains
-      // 40 slots, and still ends at the original slot boundary.
+      // The deployed layout reserves slots 81..128. Combined reservation and
+      // reveal-time state uses exactly nine of them, so the remaining gap
+      // starts at 90, contains 39 slots, and keeps the original endpoint.
       const gapType = bridgeLayout.types[gap.type]
       const absoluteGapSlot = Number(self.slot) + Number(gap.slot)
-      expect(absoluteGapSlot).to.equal(89)
-      expect(gapType.numberOfBytes).to.equal((40 * 32).toString())
+      expect(absoluteGapSlot).to.equal(90)
+      expect(gapType.numberOfBytes).to.equal((39 * 32).toString())
       expect(absoluteGapSlot + Number(gapType.numberOfBytes) / 32).to.equal(129)
+    })
+
+    it("should pass the OpenZeppelin upgrade check from the deployed Bridge gap", () => {
+      const validations = normalizeValidationData(
+        JSON.parse(
+          fs.readFileSync(
+            path.resolve(__dirname, "../../cache/validations.json"),
+            "utf8"
+          )
+        ) as ValidationData
+      )
+
+      const currentLayout = validations.log.reduce<OZStorageLayout | undefined>(
+        (matchingLayout, run) => {
+          if (!run.Bridge) return matchingLayout
+
+          const candidate = unfoldStorageLayout(run, "Bridge")
+          const selfEntry = candidate.storage.find(
+            (entry) => entry.label === "self"
+          )
+          if (!selfEntry) return matchingLayout
+
+          const members = candidate.types[selfEntry.type].members as
+            | StorageEntry[]
+            | undefined
+          return members?.some(
+            (member) => member.label === "pendingReservedDeposit"
+          )
+            ? candidate
+            : matchingLayout
+        },
+        undefined
+      )
+
+      expect(currentLayout, "compiled Bridge validation layout").not.to.be
+        .undefined
+
+      const selfEntry = currentLayout!.storage.find(
+        (entry) => entry.label === "self"
+      )!
+      const members = currentLayout!.types[selfEntry.type]
+        .members as StorageEntry[]
+      const rebateStakingIndex = members.findIndex(
+        (member) => member.label === "rebateStaking"
+      )
+      expect(rebateStakingIndex).to.be.greaterThan(-1)
+
+      const currentGap = members.find((member) => member.label === "__gap")!
+      expect(currentGap.slot).to.equal("39")
+      expect(currentLayout!.types[currentGap.type].label).to.equal(
+        "uint256[39]"
+      )
+
+      const asStorageItem = (entry: StorageEntry) => ({
+        ...entry,
+        contract: "Bridge",
+        src: "compiled-layout",
+      })
+      const legacyGap = {
+        label: "__gap",
+        slot: "30",
+        offset: 0,
+        type: "t_array(t_uint256)48_storage",
+        contract: "Bridge",
+        src: "deployed-layout",
+      }
+      const legacyTypes = {
+        ...currentLayout!.types,
+        [legacyGap.type]: {
+          label: "uint256[48]",
+          numberOfBytes: "1536",
+        },
+      }
+
+      const errors = getStorageUpgradeErrors(
+        {
+          storage: [
+            ...members.slice(0, rebateStakingIndex + 1).map(asStorageItem),
+            legacyGap,
+          ],
+          types: legacyTypes,
+        },
+        {
+          storage: members.map(asStorageItem),
+          types: currentLayout!.types,
+        }
+      )
+
+      expect(errors).to.deep.equal([])
     })
 
     it("should give the router the exact storage layout of the Bridge", async () => {

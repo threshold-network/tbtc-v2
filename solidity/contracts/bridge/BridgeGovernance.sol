@@ -291,9 +291,10 @@ contract BridgeGovernance is Ownable {
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
 
-    // Emitted by BridgeGovernanceParameters via delegatecall. It must also be
-    // declared here so governance tooling can decode logs at this contract's
-    // address using the BridgeGovernance ABI.
+    // Emitted by the linked BridgeGovernanceParameters library through
+    // delegatecall, hence its address is this BridgeGovernance contract.
+    // Redeclare the exact signature so governance tooling can decode it
+    // from the BridgeGovernance ABI.
     event ReservationParametersUpdateStarted(
         address newReservationVault,
         uint64 newReservationMinAmount,
