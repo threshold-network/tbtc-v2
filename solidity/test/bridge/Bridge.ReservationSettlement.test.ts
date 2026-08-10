@@ -822,8 +822,13 @@ describe("Bridge - Reservation settlement", () => {
       expect(
         (await bridge.reservationActions(reservationKey, 5)).usedRetryCredit
       ).to.be.true
-      expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
-      expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
+      // The backing branch writes the claim down by the re-anchor miner fee.
+      // The restored credit therefore re-escrows the current claim, leaving
+      // the financed 500-satoshi write-down in the redeemer's Bank balance.
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(500)
+      expect(await bank.balanceOf(bridge.address)).to.equal(
+        anchorAmount.sub(500)
+      )
     })
 
     it("does not mint credit when the superseded redemption paid a fee", async () => {
