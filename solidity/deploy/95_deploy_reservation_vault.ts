@@ -17,9 +17,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   })
 
   // NOTE: To activate reservations, governance must additionally:
-  // 1. Mark the vault as trusted: `Bridge.setVaultStatus(vault, true)`,
-  // 2. Wire it as the reservation vault and set the parameters:
-  //    `Bridge.updateReservationParameters(vault, ...)`.
+  // 1. While the vault remains untrusted, stage and finalize the reservation
+  //    vault and parameters through `BridgeGovernance`,
+  // 2. As the final activation step, mark the vault as trusted through
+  //    `BridgeGovernance.setVaultStatus(vault, true)`.
   // Neither action is performed by this script.
 
   if (hre.network.tags.etherscan) {
@@ -30,4 +31,4 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 export default func
 
 func.tags = ["ReservationVault"]
-func.dependencies = ["Bank", "TBTCVault", "Bridge"]
+func.dependencies = ["Bank", "TBTCVault"]
