@@ -112,6 +112,8 @@ library ReservationProofs {
         uint64 requestNonce
     );
 
+    event ReservationRetryCreditMinted(uint256 indexed reservationKey);
+
     event ReservationLateSettled(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -404,7 +406,7 @@ library ReservationProofs {
                         )
                     ];
                 if (newer.state == Reservation.ActionState.Pending) {
-                    unwindPendingAction(self, pending, reservationKey);
+                    unwindPendingAction(self, pending, reservationKey, false);
                 }
             }
 
@@ -920,7 +922,7 @@ library ReservationProofs {
             if (
                 reservation.state == Reservation.ReservationState.ActionPending
             ) {
-                unwindPendingAction(self, reservation, reservationKey);
+                unwindPendingAction(self, reservation, reservationKey, true);
             }
 
             // slither-disable-next-line reentrancy-events
@@ -1211,7 +1213,7 @@ library ReservationProofs {
             if (
                 reservation.state == Reservation.ReservationState.ActionPending
             ) {
-                unwindPendingAction(self, reservation, reservationKey);
+                unwindPendingAction(self, reservation, reservationKey, false);
             }
             // slither-disable-next-line reentrancy-events
             emit ReservationLateSettled(
@@ -1286,7 +1288,12 @@ library ReservationProofs {
             "Invalid wallet dissolution lock"
         );
 
-        unwindPendingAction(self, pendingReservation, pendingReservationKey);
+        unwindPendingAction(
+            self,
+            pendingReservation,
+            pendingReservationKey,
+            false
+        );
         pendingReservation.state = Reservation.ReservationState.Active;
     }
 
@@ -1337,7 +1344,7 @@ library ReservationProofs {
 
         // The pending generation cannot claim the transaction; its anchor
         // is gone, so unwind it.
-        unwindPendingAction(self, reservation, reservationKey);
+        unwindPendingAction(self, reservation, reservationKey, false);
     }
 
     /// @notice Unwinds the position's current pending generation during a
@@ -1345,11 +1352,15 @@ library ReservationProofs {
     ///         pending generation was authorized to spend has provably been
     ///         consumed, so the generation can never settle. Its escrow is
     ///         refunded (redemptions), its reserved capacity and locks are
-    ///         released, and it is terminally marked `Superseded`.
+    ///         released, and it is terminally marked `Superseded`. Retry
+    ///         credit restoration is enabled only by the late-reanchor call
+    ///         site, whose successful settlement leaves the reservation
+    ///         Active on a replacement anchor.
     function unwindPendingAction(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
-        uint256 reservationKey
+        uint256 reservationKey,
+        bool restoreRetryCredit
     ) internal {
         uint64 pendingNonce = reservation.requestNonce;
         Reservation.ReservationAction storage pendingAction = self
@@ -1364,6 +1375,11 @@ library ReservationProofs {
         pendingAction.state = Reservation.ActionState.Superseded;
 
         if (pendingAction.actionType == Reservation.ActionType.Redemption) {
+            if (restoreRetryCredit && pendingAction.usedRetryCredit) {
+                reservation.retryCredit = true;
+                emit ReservationRetryCreditMinted(reservationKey);
+            }
+
             // Return the escrowed balance: the redeemer surrendered it for
             // an anchor that no longer exists.
             self.bank.transferBalance(

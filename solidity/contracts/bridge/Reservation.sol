@@ -182,7 +182,10 @@ library Reservation {
         // retry entitlement, minted when a fee-paid redemption request
         // times out through the wallet's fault. The source generation is
         // stored separately and binds partial retries to its exact amount
-        // and whole retries to no more than its original full claim.
+        // and whole retries to no more than its original full claim. It is
+        // returned if a late re-anchor supersedes the retry that consumed it.
+        // Consumed by the next strictly pre-expiry retry request; voided by a
+        // dissolution request.
         bool retryCredit;
         // UNIX timestamp the reservation becomes dissolvable at. Set to
         // `expiresAt + reservationDissolutionDelay` whenever a term is
@@ -237,6 +240,10 @@ library Reservation {
         // Zero for other action types, and for dissolutions of wallets
         // with no main UTXO.
         bytes32 expectedMainUtxoHash;
+        // True when this redemption generation consumed the reservation's
+        // single-use retry entitlement. Needed to return the entitlement if
+        // a late re-anchor makes the generation impossible to settle.
+        bool usedRetryCredit;
         // True when a redemption generation is partial: it redeems only
         // `amount` of the reservation's claim in a 1-input-2-output spend
         // (redeemer output + re-anchored remainder) and leaves the
@@ -752,6 +759,7 @@ library Reservation {
         action.timeoutAt = uint32(block.timestamp) + self.redemptionTimeout;
         action.txMaxFee = self.reservationTxMaxFee;
         action.feePaid = feePaid;
+        action.usedRetryCredit = useRetryCredit;
         action.redeemer = redeemer;
         action.amount = redeemAmount;
         action.redeemerOutputScriptHash = keccak256(redeemerOutputScriptMem);
@@ -1101,6 +1109,10 @@ library Reservation {
             reservation.state = ReservationState.Active;
             delete self.walletPendingDissolution[reservation.walletPubKeyHash];
 
+            bool walletWasMovingFunds = self
+                .registeredWallets[reservation.walletPubKeyHash]
+                .state == Wallets.WalletState.MovingFunds;
+
             // A wallet failing its dissolution duty is slashed like a
             // wallet failing a redemption: dissolution is the mechanism
             // that makes term + grace a hard stranding bound.
@@ -1108,6 +1120,14 @@ library Reservation {
                 reservation.walletPubKeyHash,
                 walletMembersIDs
             );
+
+            // A Live wallet enters MovingFunds on its first failure and keeps
+            // the ordinary moving-funds deadline. A wallet already in
+            // MovingFunds has now also refused the terminal cleanup of its
+            // residual anchor, so terminate it at the dissolution bound.
+            if (walletWasMovingFunds) {
+                self.terminateWallet(reservation.walletPubKeyHash);
+            }
         }
 
         // slither-disable-next-line reentrancy-events
@@ -1435,7 +1455,8 @@ library Reservation {
             ReservationProofs.unwindPendingAction(
                 self,
                 reservation,
-                reservationKey
+                reservationKey,
+                false
             );
         }
 
