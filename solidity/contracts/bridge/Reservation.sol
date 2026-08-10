@@ -880,6 +880,10 @@ library Reservation {
             reservation.state = ReservationState.Active;
             delete self.walletPendingDissolution[reservation.walletPubKeyHash];
 
+            bool walletWasMovingFunds = self
+                .registeredWallets[reservation.walletPubKeyHash]
+                .state == Wallets.WalletState.MovingFunds;
+
             // A wallet failing its dissolution duty is slashed like a
             // wallet failing a redemption: dissolution is the mechanism
             // that makes term + grace a hard stranding bound.
@@ -887,6 +891,14 @@ library Reservation {
                 reservation.walletPubKeyHash,
                 walletMembersIDs
             );
+
+            // A Live wallet enters MovingFunds on its first failure and keeps
+            // the ordinary moving-funds deadline. A wallet already in
+            // MovingFunds has now also refused the terminal cleanup of its
+            // residual anchor, so terminate it at the dissolution bound.
+            if (walletWasMovingFunds) {
+                self.terminateWallet(reservation.walletPubKeyHash);
+            }
         }
 
         // slither-disable-next-line reentrancy-events

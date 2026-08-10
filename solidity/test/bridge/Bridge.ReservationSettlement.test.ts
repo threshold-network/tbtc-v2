@@ -16,6 +16,7 @@ import type {
   BankStub,
   Bridge,
   BridgeStub,
+  IWalletRegistry,
   IRelay,
   ReservationRouter,
   ReservationVault,
@@ -82,6 +83,7 @@ describe("Bridge - Reservation settlement", () => {
 
   let bank: Bank & BankStub
   let relay: FakeContract<IRelay>
+  let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub & ReservationRouter
   let tbtc: TBTC & Contract
   let tbtcVault: TBTCVault & Contract
@@ -113,6 +115,7 @@ describe("Bridge - Reservation settlement", () => {
       thirdParty,
       bank,
       relay,
+      walletRegistry,
       bridge,
       tbtc,
       tbtcVault,
@@ -175,6 +178,21 @@ describe("Bridge - Reservation settlement", () => {
       state: walletState.Live,
       movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
     })
+  }
+
+  async function expectWalletSeized(ecdsaWalletID: string) {
+    const {
+      redemptionTimeoutSlashingAmount,
+      redemptionTimeoutNotifierRewardMultiplier,
+    } = await bridge.redemptionParameters()
+
+    expect(walletRegistry.seize).to.have.been.calledWith(
+      redemptionTimeoutSlashingAmount,
+      redemptionTimeoutNotifierRewardMultiplier,
+      await thirdParty.getAddress(),
+      ecdsaWalletID,
+      []
+    )
   }
 
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
@@ -346,6 +364,52 @@ describe("Bridge - Reservation settlement", () => {
       )
 
     return { fundingTx, anchorTx, reservationKey }
+  }
+
+  async function completeMovingFundsWhileReservationsRemain() {
+    await liveWallet(secondWalletPubKeyHash)
+
+    const mainUtxo = {
+      txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+      txOutputIndex: 0,
+      txOutputValue: 7000000,
+    }
+    const ecdsaWalletID = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+    await bridge.setWallet(walletPubKeyHash, {
+      ecdsaWalletID,
+      mainUtxoHash: ZERO_BYTES32,
+      pendingRedemptionsValue: 0,
+      createdAt: await lastBlockTime(),
+      movingFundsRequestedAt: await lastBlockTime(),
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.MovingFunds,
+      movingFundsTargetWalletsCommitmentHash: ethers.utils.solidityKeccak256(
+        ["bytes20[]"],
+        [[secondWalletPubKeyHash]]
+      ),
+    })
+    await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
+
+    const movingFundsTx = buildTx(
+      [{ txHash: mainUtxo.txHash, index: mainUtxo.txOutputIndex }],
+      [
+        {
+          valueSat: BigNumber.from(mainUtxo.txOutputValue).sub(500),
+          script: p2wpkhScript(secondWalletPubKeyHash),
+        },
+      ]
+    )
+    const tx = await bridge
+      .connect(spvMaintainer)
+      .submitMovingFundsProof(
+        movingFundsTx.info,
+        proofFor(movingFundsTx.txHash),
+        mainUtxo,
+        walletPubKeyHash
+      )
+
+    return { ecdsaWalletID, movingFundsTx, tx }
   }
 
   // Requests an in-kind redemption of the given accepted reservation via
@@ -1534,49 +1598,10 @@ describe("Bridge - Reservation settlement", () => {
 
     it("records a confirmed main-UTXO move while reservation obligations remain", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
-      await liveWallet(secondWalletPubKeyHash)
+      const { movingFundsTx, tx } =
+        await completeMovingFundsWhileReservationsRemain()
 
-      const mainUtxo = {
-        txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
-        txOutputIndex: 0,
-        txOutputValue: 7000000,
-      }
-      await bridge.setWallet(walletPubKeyHash, {
-        ecdsaWalletID: ethers.utils.randomBytes(32),
-        mainUtxoHash: ZERO_BYTES32,
-        pendingRedemptionsValue: 0,
-        createdAt: await lastBlockTime(),
-        movingFundsRequestedAt: await lastBlockTime(),
-        closingStartedAt: 0,
-        pendingMovedFundsSweepRequestsCount: 0,
-        state: walletState.MovingFunds,
-        movingFundsTargetWalletsCommitmentHash: ethers.utils.solidityKeccak256(
-          ["bytes20[]"],
-          [[secondWalletPubKeyHash]]
-        ),
-      })
-      await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
-
-      const movingFundsTx = buildTx(
-        [{ txHash: mainUtxo.txHash, index: mainUtxo.txOutputIndex }],
-        [
-          {
-            valueSat: BigNumber.from(mainUtxo.txOutputValue).sub(500),
-            script: p2wpkhScript(secondWalletPubKeyHash),
-          },
-        ]
-      )
-
-      await expect(
-        bridge
-          .connect(spvMaintainer)
-          .submitMovingFundsProof(
-            movingFundsTx.info,
-            proofFor(movingFundsTx.txHash),
-            mainUtxo,
-            walletPubKeyHash
-          )
-      )
+      await expect(tx)
         .to.emit(bridge, "MovingFundsCompleted")
         .withArgs(walletPubKeyHash, movingFundsTx.txHash)
 
@@ -1638,6 +1663,148 @@ describe("Bridge - Reservation settlement", () => {
       expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
         walletState.MovingFunds
       )
+    })
+
+    it("terminates a completed MovingFunds wallet that refuses residual reservation dissolution", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const { ecdsaWalletID } =
+        await completeMovingFundsWhileReservationsRemain()
+
+      const completedWallet = await bridge.wallets(walletPubKeyHash)
+      expect(completedWallet.state).to.equal(walletState.MovingFunds)
+      expect(completedWallet.movingFundsRequestedAt).to.equal(0)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(500),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await walletRegistry.closeWallet.reset()
+      await walletRegistry.seize.reset()
+      const timeoutTx = await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      await expect(timeoutTx)
+        .to.emit(bridge, "WalletTerminated")
+        .withArgs(ecdsaWalletID, walletPubKeyHash)
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.Terminated
+      )
+      await expectWalletSeized(ecdsaWalletID)
+      expect(walletRegistry.closeWallet).to.have.been.calledWith(ecdsaWalletID)
+
+      // A dissolution transaction that was already confirmed remains
+      // late-settleable and supplies the evidence to strand the position.
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          dissolutionTx.info,
+          proofFor(dissolutionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Stranded
+      )
+    })
+
+    it("keeps the existing moving-funds path for a Live wallet after dissolution timeout", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+
+      await walletRegistry.closeWallet.reset()
+      await walletRegistry.seize.reset()
+      const tx = await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      await expect(tx).to.emit(bridge, "WalletMovingFunds")
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.state).to.equal(walletState.MovingFunds)
+      expect(wallet.movingFundsRequestedAt).to.equal(await lastBlockTime())
+      await expectWalletSeized(wallet.ecdsaWalletID)
+      expect(walletRegistry.closeWallet).not.to.have.been.called
+    })
+
+    it("terminates an active MovingFunds wallet despite a reset deadline", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      const movingFundsRequestedAt = await lastBlockTime()
+      await bridge.setWallet(walletPubKeyHash, {
+        ...(await bridge.wallets(walletPubKeyHash)),
+        state: walletState.MovingFunds,
+        movingFundsRequestedAt,
+      })
+      await bridge.setLiveWalletsCount(0)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge.resetMovingFundsTimeout(walletPubKeyHash)
+      const resetRequestedAt = (await bridge.wallets(walletPubKeyHash))
+        .movingFundsRequestedAt
+      expect(resetRequestedAt).to.be.greaterThan(movingFundsRequestedAt)
+
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+
+      await walletRegistry.closeWallet.reset()
+      await walletRegistry.seize.reset()
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.state).to.equal(walletState.Terminated)
+      expect(wallet.movingFundsRequestedAt).to.equal(resetRequestedAt)
+      await expectWalletSeized(wallet.ecdsaWalletID)
+      expect(walletRegistry.closeWallet).to.have.been.calledWith(
+        wallet.ecdsaWalletID
+      )
+    })
+
+    it("does not slash or terminate an already-Terminated wallet again", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+      await bridge.setWallet(walletPubKeyHash, {
+        ...(await bridge.wallets(walletPubKeyHash)),
+        state: walletState.Terminated,
+      })
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+
+      await walletRegistry.closeWallet.reset()
+      await walletRegistry.seize.reset()
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.Terminated
+      )
+      expect(walletRegistry.seize).not.to.have.been.called
+      expect(walletRegistry.closeWallet).not.to.have.been.called
     })
   })
 })
