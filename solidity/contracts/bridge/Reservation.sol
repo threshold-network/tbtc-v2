@@ -94,7 +94,8 @@ library Reservation {
         Closed,
         /// @dev The custodying wallet was terminated while the anchor was
         ///      outstanding. The owner's minted balance remains an ordinary
-        ///      pooled claim; the anchor is no longer tracked.
+        ///      pooled claim; the anchor is no longer tracked unless a
+        ///      previously timed-out generation later settles against it.
         Stranded
     }
 
@@ -1265,16 +1266,17 @@ library Reservation {
     ///         stranded. A terminated wallet's operators are already
     ///         slashed and can sign the anchor away unchallengeably, so
     ///         the registry stops tracking the anchor: the position closes
-    ///         as Stranded, reserved capacity is released, and any pending
-    ///         action is unwound (a pending redemption's escrow returns to
-    ///         its redeemer). The owner's minted balance simply remains an
-    ///         ordinary pooled claim — the backing shortfall is socialized
-    ///         exactly like a terminated wallet's main UTXO. A governance
-    ///         compensation path can consume the emitted evidence.
+    ///         as Stranded and reserved capacity is released. A pending
+    ///         action cannot be stranded: its Bitcoin transaction may already
+    ///         be confirmed and must remain provable. The owner's minted
+    ///         balance simply remains an ordinary pooled claim — the backing
+    ///         shortfall is socialized exactly like a terminated wallet's main
+    ///         UTXO. A governance compensation path can consume the emitted
+    ///         evidence.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated state,
-    ///      - The reservation must be Active or have a pending action.
+    ///      - The reservation must be Active.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1283,8 +1285,7 @@ library Reservation {
             reservationKey
         ];
         require(
-            reservation.state == ReservationState.Active ||
-                reservation.state == ReservationState.ActionPending,
+            reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
         require(
@@ -1292,15 +1293,6 @@ library Reservation {
                 Wallets.WalletState.Terminated,
             "Wallet is not terminated"
         );
-
-        if (reservation.state == ReservationState.ActionPending) {
-            ReservationProofs.unwindPendingAction(
-                self,
-                reservation,
-                reservationKey,
-                false
-            );
-        }
 
         strandReservation(self, reservation, reservationKey);
     }
@@ -1369,6 +1361,9 @@ library Reservation {
         ReservationRequest storage reservation,
         uint256 reservationKey
     ) internal {
+        bool evidenceAlreadyEmitted = reservation.state ==
+            ReservationState.Stranded;
+
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
         self.walletReservationsAmount[
             reservation.walletPubKeyHash
@@ -1392,13 +1387,18 @@ library Reservation {
             )
         ];
 
-        // slither-disable-next-line reentrancy-events
-        emit ReservationStranded(
-            reservationKey,
-            reservation.walletPubKeyHash,
-            reservation.owner,
-            reservation.anchorAmount
-        );
+        // A late dissolution proof can reconstruct and then release the
+        // accounting of an already-stranded position. Preserve the original
+        // recovery evidence instead of emitting a second compensation claim.
+        if (!evidenceAlreadyEmitted) {
+            // slither-disable-next-line reentrancy-events
+            emit ReservationStranded(
+                reservationKey,
+                reservation.walletPubKeyHash,
+                reservation.owner,
+                reservation.anchorAmount
+            );
+        }
     }
 
     /// @notice Closes a reservation: adjusts the wallet reservation count
