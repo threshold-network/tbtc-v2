@@ -164,8 +164,9 @@ library Reservation {
         uint64 requestNonce;
         // True when the owner holds a single-use, fee-free redemption
         // retry entitlement, minted when a fee-paid redemption request
-        // times out through the wallet's fault. Consumed by the next
-        // retry request; voided by a dissolution request.
+        // times out through the wallet's fault. It is returned if a late
+        // re-anchor supersedes the retry that consumed it. Consumed by the
+        // next retry request; voided by a dissolution request.
         bool retryCredit;
         // Custody term length in seconds, snapshotted at acceptance.
         // Extensions extend by this value; later governance changes apply
@@ -219,6 +220,10 @@ library Reservation {
         // Zero for other action types, and for dissolutions of wallets
         // with no main UTXO.
         bytes32 expectedMainUtxoHash;
+        // True when this redemption generation consumed the reservation's
+        // single-use retry entitlement. Needed to return the entitlement if
+        // a late re-anchor makes the generation impossible to settle.
+        bool usedRetryCredit;
     }
 
     event ReservationAcceptanceRequested(
@@ -589,6 +594,7 @@ library Reservation {
         action.timeoutAt = uint32(block.timestamp) + self.redemptionTimeout;
         action.txMaxFee = self.reservationTxMaxFee;
         action.feePaid = feePaid;
+        action.usedRetryCredit = useRetryCredit;
         action.redeemer = redeemer;
         action.amount = reservation.mintedAmount;
         action.redeemerOutputScriptHash = keccak256(redeemerOutputScriptMem);

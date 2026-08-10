@@ -440,6 +440,33 @@ describe("Bridge - Reservation settlement", () => {
       .retryRedeemReservation(reservationKey, redeemerScript)
   }
 
+  async function requestAndTimeoutReanchor(
+    reservationKey: BigNumber,
+    anchorTxHash: string
+  ) {
+    await liveWallet(secondWalletPubKeyHash)
+    await bridge
+      .connect(thirdParty)
+      .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+    const reanchorTx = buildTx(
+      [{ txHash: anchorTxHash, index: 0 }],
+      [
+        {
+          valueSat: anchorAmount.sub(500),
+          script: p2wpkhScript(secondWalletPubKeyHash),
+        },
+      ]
+    )
+
+    await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+    await bridge
+      .connect(thirdParty)
+      .notifyReservationActionTimeout(reservationKey, [])
+
+    return reanchorTx
+  }
+
   describe("claim double-spend regression (timeout racing a confirmed redemption)", () => {
     before(async () => {
       await createSnapshot()
@@ -665,6 +692,11 @@ describe("Bridge - Reservation settlement", () => {
       expect(
         (await bridge.reservationActions(reservationKey, 3)).state
       ).to.equal(ActionState.Superseded)
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).usedRetryCredit
+      ).to.be.true
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
       // Generation 3's escrow returned to its redeemer. (The generation 2
       // timeout refund was re-spent on the retry, so the redeemer's net
       // Bank balance is exactly the unwound escrow.)
@@ -673,6 +705,183 @@ describe("Bridge - Reservation settlement", () => {
       expect((await bridge.reservations(reservationKey)).state).to.equal(
         ReservationState.Closed
       )
+    })
+  })
+
+  describe("retry-credit restoration after a late re-anchor", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("restores a retry credit when the late re-anchor supersedes the retry", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation()
+
+      // Generation 2 is fee-paid. Its timeout refunds the escrow, mints the
+      // one-shot retry credit, and naturally moves the custody wallet into
+      // MovingFunds so anyone can request the migration below.
+      await requestRedemption(reservationKey, randomRedeemerScript())
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+
+      // Generation 3 re-anchors the original reservation output but its
+      // proof is delayed until after the authorization times out.
+      const reanchorTx = await requestAndTimeoutReanchor(
+        reservationKey,
+        anchorTx.txHash
+      )
+
+      // Generation 4 consumes the one-shot credit and escrows the timeout
+      // refund for a fee-free retry against the still-current old anchor.
+      const retryScript = randomRedeemerScript()
+      await retryRedemption(reservationKey, retryScript)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
+      expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
+
+      const retryTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: retryScript.slice(4),
+          },
+        ]
+      )
+
+      // The already-confirmed generation 3 transaction consumes the old
+      // anchor. Generation 4 can never settle, so it is superseded and its
+      // escrow is refunded. The consumed retry entitlement must return to
+      // the now-Active position.
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          3
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationActionSuperseded")
+        .withArgs(reservationKey, 4)
+      await expect(tx)
+        .to.emit(bridge, "ReservationRetryCreditMinted")
+        .withArgs(reservationKey)
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.retryCredit).to.be.true
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(
+        (await bridge.reservationActions(reservationKey, 4)).state
+      ).to.equal(ActionState.Superseded)
+      expect(
+        (await bridge.reservationActions(reservationKey, 4)).usedRetryCredit
+      ).to.be.true
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(anchorAmount)
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+
+      // Supersession is terminal and the escrow was refunded exactly once.
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            retryTx.info,
+            proofFor(retryTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            4
+          )
+      ).to.be.revertedWith("Action is not settleable")
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(anchorAmount)
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+
+      // The restored entitlement is usable again and is consumed exactly
+      // once by a new fee-free retry against the re-anchored position.
+      await retryRedemption(reservationKey, randomRedeemerScript())
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.ActionPending
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 5)).usedRetryCredit
+      ).to.be.true
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
+      expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
+    })
+
+    it("does not mint credit when the superseded redemption paid a fee", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation()
+
+      // Put the source wallet on its ordinary migration path without first
+      // creating a retry entitlement.
+      await bridge.setWallet(walletPubKeyHash, {
+        ...(await bridge.wallets(walletPubKeyHash)),
+        state: walletState.MovingFunds,
+        movingFundsRequestedAt: await lastBlockTime(),
+      })
+
+      const reanchorTx = await requestAndTimeoutReanchor(
+        reservationKey,
+        anchorTx.txHash
+      )
+
+      // Generation 3 is a fresh fee-paid redemption, not a retry.
+      const redeemerScript = randomRedeemerScript()
+      await requestRedemption(reservationKey, redeemerScript)
+      expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationActionSuperseded")
+        .withArgs(reservationKey, 3)
+      await expect(tx).not.to.emit(bridge, "ReservationRetryCreditMinted")
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.retryCredit).to.be.false
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.Superseded)
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).usedRetryCredit
+      ).to.be.false
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(anchorAmount)
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, anchorAmount)
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .retryRedeemReservation(reservationKey, randomRedeemerScript())
+      ).to.be.revertedWith("No retry entitlement")
     })
   })
 
