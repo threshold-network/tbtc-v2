@@ -825,7 +825,8 @@ contract WalletProposalValidator {
     /// @param proposal The moved funds sweep proposal to validate.
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
-    ///      - The source wallet must be in the Live or MovingFunds state,
+    ///      - The sweeping wallet must be in the Live, MovingFunds, or Closing
+    ///        state,
     ///      - The moved funds sweep request identified by the proposed
     ///        transaction hash and output index must be in the Pending state,
     ///      - The transaction hash and output index from the proposal must
@@ -843,11 +844,12 @@ contract WalletProposalValidator {
             proposal.walletPubKeyHash
         );
 
-        // Make sure the wallet is in Live or MovingFunds state.
+        // Make sure the wallet is in Live, MovingFunds, or Closing state.
         require(
             wallet.state == Wallets.WalletState.Live ||
-                wallet.state == Wallets.WalletState.MovingFunds,
-            "Source wallet is not in Live or MovingFunds state"
+                wallet.state == Wallets.WalletState.MovingFunds ||
+                wallet.state == Wallets.WalletState.Closing,
+            "Sweeping wallet is not in Live or MovingFunds or Closing state"
         );
 
         // Make sure the moved funds sweep request is valid.
