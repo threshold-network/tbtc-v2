@@ -369,7 +369,7 @@ library ReservationProofs {
                         )
                     ];
                 if (newer.state == Reservation.ActionState.Pending) {
-                    unwindPendingAction(self, pending, reservationKey);
+                    unwindPendingAction(self, pending, reservationKey, false);
                 }
             }
 

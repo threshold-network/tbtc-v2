@@ -1297,7 +1297,8 @@ library Reservation {
             ReservationProofs.unwindPendingAction(
                 self,
                 reservation,
-                reservationKey
+                reservationKey,
+                false
             );
         }
 
