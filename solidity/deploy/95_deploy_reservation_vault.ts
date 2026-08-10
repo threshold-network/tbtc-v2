@@ -20,21 +20,24 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // pause/block policy; that authority must not remain with the deployer.
   // The vault deploys with renewals paused, so the activation ceremony is
   // entirely in governance hands from here.
-  await deployments.execute(
+  await helpers.ownable.transferOwnership(
     "ReservationVault",
-    { from: deployer, log: true, waitConfirmations: 1 },
-    "transferOwnership",
-    governance
+    governance,
+    deployer
   )
 
   // NOTE: To activate reservations, governance must additionally:
-  // 1. Mark the vault as trusted: `Bridge.setVaultStatus(vault, true)`,
-  // 2. Wire it as the reservation vault and set the parameters:
-  //    `Bridge.updateReservationParameters(vault, ...)`,
-  // 3. Optionally appoint a renewal guardian
+  // 1. Stage and finalize the vault and reservation parameters through
+  //    `BridgeGovernance.beginReservationParametersUpdate(...)` and
+  //    `BridgeGovernance.finalizeReservationParametersUpdate()`,
+  // 2. Optionally appoint a renewal guardian
   //    (`ReservationVault.setRenewalGuardian`),
-  // 4. Unpause renewals (`ReservationVault.unpauseRenewals`) — the vault
-  //    deploys with renewals paused.
+  // 3. If renewals should start enabled, unpause them
+  //    (`ReservationVault.unpauseRenewals`) — the vault deploys paused,
+  // 4. As the final activation step, mark the fully configured vault as
+  //    trusted: `BridgeGovernance.setVaultStatus(vault, true)`.
+  // `unpauseRenewals` gates `extendCustody` only; it is not a global pause for
+  // reserved deposit reveals. Vault trust is the safe activation boundary.
   // None of these actions are performed by this script.
 
   if (hre.network.tags.etherscan) {

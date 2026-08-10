@@ -291,6 +291,22 @@ contract BridgeGovernance is Ownable {
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
 
+    // Emitted by BridgeGovernanceParameters via delegatecall. It must also be
+    // declared here so governance tooling can decode logs at this contract's
+    // address using the BridgeGovernance ABI.
+    event ReservationParametersUpdateStarted(
+        address newReservationVault,
+        uint64 newReservationMinAmount,
+        uint64 newReservationTxMaxFee,
+        uint32 newReservationTermSeconds,
+        uint32 newReservationDissolutionDelay,
+        uint64 newReservationMaxTotalAmount,
+        uint32 newMaxReservationsPerWallet,
+        uint32 newReservationActionTimeout,
+        uint32 newReservationRenewalWindowSeconds,
+        uint256 timestamp
+    );
+
     constructor(Bridge _bridge, uint256 _governanceDelay) {
         bridge = _bridge;
         governanceDelays[0] = _governanceDelay;

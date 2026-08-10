@@ -631,6 +631,7 @@ library Reservation {
     ///        away from Live wallets.
     /// @dev Requirements:
     ///      - The reservation must be Active,
+    ///      - The reservation must not yet be dissolution-eligible,
     ///      - The source wallet must be in the MovingFunds state (anyone
     ///        may then request — migration is the system's duty), or Live
     ///        with the governance as the caller (approved rotation),
@@ -651,6 +652,12 @@ library Reservation {
             reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp < reservation.dissolutionEligibleAt,
+            "Reservation is dissolution-eligible"
+        );
+        /* solhint-enable not-rely-on-time */
 
         {
             Wallets.WalletState sourceState = self

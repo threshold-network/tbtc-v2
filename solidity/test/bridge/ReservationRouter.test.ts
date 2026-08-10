@@ -135,6 +135,34 @@ describe("ReservationRouter", () => {
   })
 
   describe("storage layout parity", () => {
+    it("should consume exactly eight slots from the deployed Bridge gap", async () => {
+      const bridgeLayout = await getStorageLayout(
+        "contracts/bridge/Bridge.sol",
+        "Bridge"
+      )
+      const self = bridgeLayout.storage.find((entry) => entry.label === "self")
+      if (!self) {
+        throw new Error("No BridgeState.Storage entry in Bridge layout")
+      }
+
+      const storageType = bridgeLayout.types[self.type]
+      const gap = storageType.members?.find(
+        (member) => member.label === "__gap"
+      )
+      if (!gap) {
+        throw new Error("No BridgeState.Storage.__gap entry in Bridge layout")
+      }
+
+      // The deployed layout reserves slots 81..128. Reservation state uses
+      // exactly eight of them, so the remaining gap starts at 89, contains
+      // 40 slots, and still ends at the original slot boundary.
+      const gapType = bridgeLayout.types[gap.type]
+      const absoluteGapSlot = Number(self.slot) + Number(gap.slot)
+      expect(absoluteGapSlot).to.equal(89)
+      expect(gapType.numberOfBytes).to.equal((40 * 32).toString())
+      expect(absoluteGapSlot + Number(gapType.numberOfBytes) / 32).to.equal(129)
+    })
+
     it("should give the router the exact storage layout of the Bridge", async () => {
       const bridgeLayout = await getStorageLayout(
         "contracts/bridge/Bridge.sol",

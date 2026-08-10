@@ -410,7 +410,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[38] __gap;
+        uint256[40] __gap;
     }
 
     event DepositParametersUpdated(

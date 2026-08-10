@@ -1314,7 +1314,7 @@ describe("Bridge - Reservation", () => {
     })
 
     it("stages the parameters and applies them after the governance delay", async () => {
-      await bridgeGovernance
+      const beginTx = await bridgeGovernance
         .connect(governance)
         .beginReservationParametersUpdate(
           reservationVault.address,
@@ -1326,6 +1326,21 @@ describe("Bridge - Reservation", () => {
           MAX_RESERVATIONS_PER_WALLET,
           RESERVATION_ACTION_TIMEOUT,
           RESERVATION_RENEWAL_WINDOW
+        )
+
+      await expect(beginTx)
+        .to.emit(bridgeGovernance, "ReservationParametersUpdateStarted")
+        .withArgs(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW,
+          await lastBlockTime()
         )
 
       await expect(
@@ -1821,6 +1836,20 @@ describe("Bridge - Reservation", () => {
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
         state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+    }
+
+    async function movingFundsWallet(pkh: string) {
+      await bridge.setWallet(pkh, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.MovingFunds,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
     }
@@ -2327,6 +2356,64 @@ describe("Bridge - Reservation", () => {
       const reservation = await bridge.reservations(reservationKey)
       expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
       expect(reservation.state).to.equal(ReservationState.Active)
+    })
+
+    it("allows a permissionless migration re-anchor before dissolution is due", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await movingFundsWallet(walletPubKeyHash)
+      await liveWallet(secondWalletPubKeyHash)
+
+      const tx = await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationReanchorRequested")
+        .withArgs(
+          reservationKey,
+          2,
+          walletPubKeyHash,
+          secondWalletPubKeyHash,
+          RESERVATION_TX_MAX_FEE
+        )
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.ActionPending
+      )
+    })
+
+    it("rejects migration re-anchors at and after dissolution eligibility", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await movingFundsWallet(walletPubKeyHash)
+      await liveWallet(secondWalletPubKeyHash)
+
+      const reservation = await bridge.reservations(reservationKey)
+      await ethers.provider.send("evm_setNextBlockTimestamp", [
+        Number(reservation.dissolutionEligibleAt),
+      ])
+      await ethers.provider.send("evm_mine", [])
+
+      // callStatic evaluates at the exact boundary; the transaction below
+      // evaluates after it. Neither can replace dissolution with a fresh
+      // permissionless re-anchor generation.
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .callStatic.requestReservationReanchor(
+            reservationKey,
+            secondWalletPubKeyHash
+          )
+      ).to.be.revertedWith("Reservation is dissolution-eligible")
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Reservation is dissolution-eligible")
+
+      const unchanged = await bridge.reservations(reservationKey)
+      expect(unchanged.state).to.equal(ReservationState.Active)
+      expect(unchanged.requestNonce).to.equal(1)
     })
 
     it("rejects a re-anchor paying a wallet other than the authorized target", async () => {
