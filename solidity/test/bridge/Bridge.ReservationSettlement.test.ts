@@ -712,6 +712,9 @@ describe("Bridge - Reservation settlement", () => {
       await expect(tx)
         .to.emit(bridge, "ReservationLateSettled")
         .withArgs(reservationKey, 2, ActionType.Redemption)
+      // A whole late redemption closes the position, so its superseded
+      // retry is refunded but does not restore an unusable entitlement.
+      await expect(tx).not.to.emit(bridge, "ReservationRetryCreditMinted")
 
       expect(
         (await bridge.reservationActions(reservationKey, 3)).state

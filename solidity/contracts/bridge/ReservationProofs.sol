@@ -1343,8 +1343,16 @@ library ReservationProofs {
         }
 
         // The pending generation cannot claim the transaction; its anchor
-        // is gone, so unwind it.
-        unwindPendingAction(self, reservation, reservationKey, false);
+        // is gone, so unwind it. A late partial leaves the reservation open,
+        // so preserve any retry provenance consumed by the superseded
+        // generation. The post-settlement source-nonce check retires it when
+        // this is the source generation itself and preserves it otherwise.
+        unwindPendingAction(
+            self,
+            reservation,
+            reservationKey,
+            action.isPartial
+        );
     }
 
     /// @notice Unwinds the position's current pending generation during a
@@ -1353,9 +1361,11 @@ library ReservationProofs {
     ///         consumed, so the generation can never settle. Its escrow is
     ///         refunded (redemptions), its reserved capacity and locks are
     ///         released, and it is terminally marked `Superseded`. Retry
-    ///         credit restoration is enabled only by the late-reanchor call
-    ///         site, whose successful settlement leaves the reservation
-    ///         Active on a replacement anchor.
+    ///         credit restoration is enabled only by late re-anchor and late
+    ///         partial-redemption call sites, whose successful settlements
+    ///         leave the reservation Active on a replacement anchor. A late
+    ///         partial's source-nonce retirement then removes the credit when
+    ///         its own source settled and preserves a newer source.
     function unwindPendingAction(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,

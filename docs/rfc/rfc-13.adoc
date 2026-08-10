@@ -233,7 +233,13 @@ preconditions; no watchtower window applies).
 * if a newer pending generation exists but does *not* match the
   transaction (different redeemer script), late settlement additionally
   unwinds the pending generation: its escrow is refunded, because its
-  anchor no longer exists.
+  anchor no longer exists. If the superseded generation consumed a retry
+  entitlement and the late settlement leaves the position open (re-anchor
+  or partial redemption), that entitlement's source binding is restored.
+  A partial settlement of the source generation itself retires the restored
+  entitlement; settlement of an older generation preserves a newer source.
+  A whole redemption closes the position and never restores an unusable
+  entitlement.
 * a proof against a `Vetoed` generation is rejected forever: only a wallet
   that signed before authorization can be in this position.
 

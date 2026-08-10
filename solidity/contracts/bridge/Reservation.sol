@@ -183,9 +183,11 @@ library Reservation {
         // times out through the wallet's fault. The source generation is
         // stored separately and binds partial retries to its exact amount
         // and whole retries to no more than its original full claim. It is
-        // returned if a late re-anchor supersedes the retry that consumed it.
-        // Consumed by the next strictly pre-expiry retry request; voided by a
-        // dissolution request.
+        // returned if a late re-anchor or partial redemption supersedes the
+        // retry that consumed it while leaving the reservation open. A late
+        // partial settlement retires the entitlement when it settles that
+        // entitlement's source generation. Consumed by the next strictly
+        // pre-expiry retry request; voided by a dissolution request.
         bool retryCredit;
         // UNIX timestamp the reservation becomes dissolvable at. Set to
         // `expiresAt + reservationDissolutionDelay` whenever a term is
@@ -242,7 +244,8 @@ library Reservation {
         bytes32 expectedMainUtxoHash;
         // True when this redemption generation consumed the reservation's
         // single-use retry entitlement. Needed to return the entitlement if
-        // a late re-anchor makes the generation impossible to settle.
+        // a late action consumes the expected anchor while leaving the
+        // reservation open and makes this generation impossible to settle.
         bool usedRetryCredit;
         // True when a redemption generation is partial: it redeems only
         // `amount` of the reservation's claim in a 1-input-2-output spend
@@ -254,8 +257,8 @@ library Reservation {
         bool isPartial;
         // Fee-paid redemption generation that originated the retry credit
         // consumed by this action. Zero when `usedRetryCredit` is false.
-        // Kept on the action so a late re-anchor can restore the exact
-        // amount/shape binding after superseding the retry.
+        // Kept on the action so a late re-anchor or partial redemption can
+        // restore the exact amount/shape binding after superseding the retry.
         uint64 retryCreditSourceNonce;
     }
 

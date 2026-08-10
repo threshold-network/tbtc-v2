@@ -1058,6 +1058,85 @@ describe("Bridge - Reservation partial redemption", () => {
       expect(retryAction.state).to.equal(ActionState.Pending)
       expect(retryAction.amount).to.equal(failedAmount)
     })
+
+    it("restores a newer generation's consumed credit when an older partial supersedes its retry", async () => {
+      const oldPartialTx = buildPartialTx(
+        anchorTx.txHash,
+        0,
+        redeemerScript,
+        failedAmount - 800,
+        anchorAmount.sub(failedAmount)
+      )
+
+      // Generation 3 pays independently for a different partial and times
+      // out, replacing generation 2's entitlement with one bound to the
+      // newer generation and its larger amount.
+      const newerScript = randomRedeemerScript()
+      await requestPartial(reservationKey, newerScript, largerAmount)
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      // Generation 4 consumes generation 3's credit while both Bitcoin
+      // transactions still target the original anchor.
+      await retryPartial(reservationKey, newerScript, largerAmount)
+      const pendingRetry = await bridge.reservationActions(reservationKey, 4)
+      expect(pendingRetry.usedRetryCredit).to.be.true
+      expect(pendingRetry.retryCreditSourceNonce).to.equal(3)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+
+      const pendingRetryTx = buildPartialTx(
+        anchorTx.txHash,
+        0,
+        newerScript,
+        largerAmount - 800,
+        anchorAmount.sub(largerAmount)
+      )
+      const ownerBalanceBefore = await bank.balanceOf(thirdParty.address)
+
+      // The older transaction lands first. It makes generation 4
+      // impossible, so that retry is superseded and refunded. Its consumed
+      // source is generation 3, not the generation 2 settling below, and
+      // therefore must remain available.
+      const tx = await proveRedemption(oldPartialTx, reservationKey, 2)
+      await expect(tx)
+        .to.emit(bridge, "ReservationActionSuperseded")
+        .withArgs(reservationKey, 4)
+      await expect(tx)
+        .to.emit(bridge, "ReservationRetryCreditMinted")
+        .withArgs(reservationKey)
+
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        ownerBalanceBefore.add(largerAmount)
+      )
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+
+      // Supersession is terminal: replay cannot refund the escrow twice or
+      // consume the restored entitlement.
+      const ownerBalanceAfter = await bank.balanceOf(thirdParty.address)
+      await expect(
+        proveRedemption(pendingRetryTx, reservationKey, 4)
+      ).to.be.revertedWith("Action is not settleable")
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        ownerBalanceAfter
+      )
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+
+      // The restored entitlement retains generation 3's exact amount and
+      // provenance and remains single-use.
+      await retryPartial(reservationKey, newerScript, largerAmount)
+      const nextRetry = await bridge.reservationActions(reservationKey, 5)
+      expect(nextRetry.usedRetryCredit).to.be.true
+      expect(nextRetry.amount).to.equal(largerAmount)
+      expect(nextRetry.retryCreditSourceNonce).to.equal(3)
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+    })
   })
 
   describe("whole redemption retry credit", () => {
@@ -1417,6 +1496,13 @@ describe("Bridge - Reservation partial redemption", () => {
       const otherScript = randomRedeemerScript()
       await retryPartial(reservationKey, otherScript, redeemAmount)
       expect(await bank.balanceOf(bridge.address)).to.equal(redeemAmount)
+      const retryTx = buildPartialTx(
+        anchorTx.txHash,
+        0,
+        otherScript,
+        redeemerValue,
+        remainderValue
+      )
 
       // The late proof of generation 2 settles; generation 3 can never
       // settle (its anchor is gone), so it is unwound and its escrow
@@ -1429,6 +1515,9 @@ describe("Bridge - Reservation partial redemption", () => {
       await expect(tx)
         .to.emit(bridge, "ReservationLateSettled")
         .withArgs(reservationKey, 2, ActionType.Redemption)
+      await expect(tx)
+        .to.emit(bridge, "ReservationRetryCreditMinted")
+        .withArgs(reservationKey)
 
       expect(
         (await bridge.reservationActions(reservationKey, 3)).state
@@ -1441,6 +1530,19 @@ describe("Bridge - Reservation partial redemption", () => {
       const reservation = await bridge.reservations(reservationKey)
       expect(reservation.state).to.equal(ReservationState.Active)
       expect(reservation.mintedAmount).to.equal(remainderValue)
+      // The superseded retry temporarily restores generation 2's source,
+      // then settlement of that same source retires it.
+      expect(reservation.retryCredit).to.be.false
+
+      // Supersession is terminal and its escrow refund cannot be replayed.
+      const ownerBalanceAfter = await bank.balanceOf(thirdParty.address)
+      await expect(
+        proveRedemption(retryTx, reservationKey, 3)
+      ).to.be.revertedWith("Action is not settleable")
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        ownerBalanceAfter
+      )
+      expect(await bank.balanceOf(bridge.address)).to.equal(0)
     })
   })
 })
