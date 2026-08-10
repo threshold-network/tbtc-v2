@@ -2077,7 +2077,8 @@ describe("Bridge - Reservation", () => {
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET,
-          6 * 24 * 60 * 60
+          6 * 24 * 60 * 60,
+          RESERVATION_RENEWAL_WINDOW
         )
 
       await expect(
@@ -2100,7 +2101,8 @@ describe("Bridge - Reservation", () => {
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET,
-          4 * 24 * 60 * 60
+          4 * 24 * 60 * 60,
+          RESERVATION_RENEWAL_WINDOW
         )
       await expect(
         bridge
