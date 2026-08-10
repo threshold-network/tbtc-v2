@@ -89,6 +89,7 @@ describe("Bridge - Reservation partial redemption", () => {
   let bridgeGovernanceSigner: SignerWithAddress
 
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+  const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
   const blindingFactor = "0xf9f0c90d00039523"
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   const refundLocktime = "0x60bcea61"
@@ -938,6 +939,97 @@ describe("Bridge - Reservation partial redemption", () => {
       const retryAction = await bridge.reservationActions(reservationKey, 4)
       expect(retryAction.state).to.equal(ActionState.Pending)
       expect(retryAction.amount).to.equal(failedAmount)
+    })
+  })
+
+  describe("whole redemption retry credit", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("preserves the fee-free whole retry after a re-anchor write-down", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      // Fund the owner with enough TBTC to cover the whole redemption fee.
+      await makeAcceptedReservation()
+
+      const redeemerScript = randomRedeemerScript()
+      await requestWholeRedemption(reservationKey, redeemerScript)
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.MovingFunds
+      )
+
+      // MovingFunds re-anchors are permissionless. Settle one with a miner
+      // fee so both the anchor and the full minted claim are written down.
+      await liveWallet(secondWalletPubKeyHash)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const minerFee = 800
+      const writtenDownAmount = anchorAmount.sub(minerFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: writtenDownAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          3
+        )
+
+      const writtenDown = await bridge.reservations(reservationKey)
+      expect(writtenDown.mintedAmount).to.equal(writtenDownAmount)
+      expect(writtenDown.retryCredit).to.be.true
+
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, writtenDownAmount)
+      const retryTx = await reservationVault
+        .connect(thirdParty)
+        .retryRedeemReservation(reservationKey, redeemerScript)
+
+      await expect(retryTx)
+        .to.emit(bridge, "ReservedRedemptionRequested")
+        .withArgs(
+          reservationKey,
+          4,
+          thirdParty.address,
+          redeemerScript,
+          writtenDownAmount,
+          RESERVATION_TX_MAX_FEE,
+          false
+        )
+
+      const retryAction = await bridge.reservationActions(reservationKey, 4)
+      expect(retryAction.amount).to.equal(writtenDownAmount)
+      expect(retryAction.isPartial).to.be.false
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be
+        .false
+      // The timeout refunded the old full claim. Only the current, smaller
+      // claim is escrowed by the retry.
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(minerFee)
     })
   })
 

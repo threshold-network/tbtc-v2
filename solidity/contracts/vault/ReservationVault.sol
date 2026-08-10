@@ -563,8 +563,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      - The caller must have approved this vault in the Bank for the
     ///        gross minted amount (`Bank.approveBalance`),
     ///      - The reservation must hold a single-use retry entitlement
-    ///        sourced from a fee-paid whole redemption of the same amount
-    ///        that timed out through the wallet's fault (enforced by the
+    ///        sourced from a fee-paid whole redemption that timed out
+    ///        through the wallet's fault. A later anchor write-down may
+    ///        reduce the current full-claim retry amount (enforced by the
     ///        Bridge and consumed by this call).
     ///
     ///      The redemption fee is not re-charged: it was collected by the

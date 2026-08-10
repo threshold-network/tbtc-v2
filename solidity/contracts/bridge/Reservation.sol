@@ -181,8 +181,8 @@ library Reservation {
         // True when the owner holds a single-use, fee-free redemption
         // retry entitlement, minted when a fee-paid redemption request
         // times out through the wallet's fault. The source generation is
-        // stored separately and binds the retry to its amount and
-        // whole/partial shape.
+        // stored separately and binds partial retries to its exact amount
+        // and whole retries to no more than its original full claim.
         bool retryCredit;
         // UNIX timestamp the reservation becomes dissolvable at. Set to
         // `expiresAt + reservationDissolutionDelay` whenever a term is
@@ -560,9 +560,9 @@ library Reservation {
     ///        MovingFunds wallet,
     ///      - The custody term must not have expired; paid requests and
     ///        retries both stop strictly before expiry,
-    ///      - When `useRetryCredit` is set, the position must hold an
-    ///        entitlement for the same amount and whole/partial shape
-    ///        (consumed by this call),
+    ///      - When `useRetryCredit` is set, the position must hold a
+    ///        matching partial entitlement or a whole entitlement covering
+    ///        the current full claim (consumed by this call),
     ///      - If the redemption watchtower is set, neither the owner nor
     ///        the redeemer may be banned,
     ///      - `redeemerOutputScript` must be a standard type and must not
@@ -773,7 +773,7 @@ library Reservation {
 
     /// @notice Consumes the retry credit minted by a timed-out, fee-paid
     ///         redemption generation after verifying the new request keeps
-    ///         that generation's amount and whole/partial shape.
+    ///         that generation's shape and does not exceed its paid amount.
     /// @dev The source action is terminal and immutable, so binding the
     ///      credit to its nonce also binds all retry-critical fields without
     ///      duplicating them in reservation storage.
@@ -794,12 +794,21 @@ library Reservation {
             reservationKey,
             sourceNonce
         );
+
+        // A partial retry must preserve the exact paid amount. A whole
+        // redemption paid for the source generation's entire claim, so a
+        // later re-anchor write-down may retry the current full claim as
+        // long as it did not grow beyond that paid amount.
+        bool retryMatches = isPartial
+            ? sourceAction.isPartial && sourceAction.amount == redeemAmount
+            : !sourceAction.isPartial &&
+                redeemAmount == reservation.mintedAmount &&
+                redeemAmount <= sourceAction.amount;
         require(
             sourceAction.actionType == ActionType.Redemption &&
                 sourceAction.state == ActionState.TimedOut &&
                 sourceAction.feePaid &&
-                sourceAction.amount == redeemAmount &&
-                sourceAction.isPartial == isPartial,
+                retryMatches,
             "Retry entitlement does not match redemption"
         );
 
