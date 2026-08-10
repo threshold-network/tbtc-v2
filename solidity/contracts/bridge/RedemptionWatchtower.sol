@@ -441,8 +441,9 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     ///      - The generation must not have been vetoed already,
     ///      - The guardian must not have already objected to it,
     ///      - The generation must be the reservation's pending redemption,
-    ///      - The generation must be within its veto delay period, unless
-    ///        it was requested before the watchtower was enabled.
+    ///      - The generation must be within the veto delay snapshotted for
+    ///        its current objection level; a permanently disabled watchtower
+    ///        makes the effective delay zero.
     function raiseReservedObjection(uint256 reservationKey, uint64 requestNonce)
         external
         onlyGuardian
@@ -470,17 +471,13 @@ contract RedemptionWatchtower is OwnableUpgradeable {
             "Reserved redemption does not exist"
         );
 
-        if (action.requestedAt >= watchtowerEnabledAt) {
-            require(
-                /* solhint-disable-next-line not-rely-on-time */
-                block.timestamp <
-                    action.requestedAt +
-                        _redemptionDelay(veto.objectionsCount, action.amount),
-                "Redemption veto delay period expired"
-            );
-        } else {
-            emit VetoPeriodCheckOmitted(vetoKey);
-        }
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                uint256(action.requestedAt) +
+                    _reservedRedemptionDelay(action, veto.objectionsCount),
+            "Redemption veto delay period expired"
+        );
 
         objections[objectionKey] = true;
         veto.redeemer = action.redeemer;
@@ -522,13 +519,15 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     /// @param reservationKey The key of the reservation.
     /// @param requestNonce The redemption generation.
     /// @return Reserved redemption veto delay.
-    /// @dev The delay is zero when the watchtower has not been enabled
-    ///      (no guardians exist, so a delay would protect nothing) or has
-    ///      been permanently disabled.
+    /// @dev The returned level is selected from the immutable schedule the
+    ///      Bridge captured when the generation was requested. A permanently
+    ///      disabled watchtower overrides every captured schedule with zero.
     function getReservedRedemptionDelay(
         uint256 reservationKey,
         uint64 requestNonce
     ) external view returns (uint32) {
+        // Preserve the pre-enable API behavior: no guardians exist, so no
+        // reservation lookup is needed to establish that the delay is zero.
         // slither-disable-next-line incorrect-equality
         if (watchtowerEnabledAt == 0) {
             return 0;
@@ -544,11 +543,73 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         );
 
         return
-            _redemptionDelay(
+            _reservedRedemptionDelay(
+                action,
                 vetoProposals[reservedVetoKey(reservationKey, requestNonce)]
-                    .objectionsCount,
-                action.amount
+                    .objectionsCount
             );
+    }
+
+    /// @notice Returns the current three-level veto delay schedule to
+    ///         snapshot for a newly requested reserved redemption.
+    /// @param requestedAmount Reserved redemption amount in satoshis.
+    /// @return reservedDefaultDelay Delay before any guardian objection.
+    /// @return reservedLevelOneDelay Delay after one guardian objection.
+    /// @return reservedLevelTwoDelay Delay after two guardian objections.
+    /// @dev Returns an all-zero schedule when no guardian veto policy applies
+    ///      at request time: the watchtower is not enabled, has been disabled,
+    ///      or the requested amount is below the waiver limit.
+    function getReservedRedemptionDelaySchedule(uint64 requestedAmount)
+        external
+        view
+        returns (
+            uint32 reservedDefaultDelay,
+            uint32 reservedLevelOneDelay,
+            uint32 reservedLevelTwoDelay
+        )
+    {
+        if (
+            // slither-disable-next-line incorrect-equality
+            watchtowerEnabledAt == 0 ||
+            watchtowerDisabledAt != 0 ||
+            requestedAmount < waivedAmountLimit
+        ) {
+            return (0, 0, 0);
+        }
+
+        return (defaultDelay, levelOneDelay, levelTwoDelay);
+    }
+
+    /// @notice Selects a reserved redemption generation's snapshotted veto
+    ///         delay for the given number of objections.
+    /// @dev A permanently disabled watchtower makes the effective delay zero
+    ///      for every generation, including those requested before shutdown.
+    function _reservedRedemptionDelay(
+        Reservation.ReservationAction memory action,
+        uint8 objectionsCount
+    ) internal view returns (uint32) {
+        if (watchtowerDisabledAt != 0) {
+            return 0;
+        }
+
+        if (
+            // slither-disable-next-line incorrect-equality
+            objectionsCount == 0
+        ) {
+            return action.watchtowerDefaultDelay;
+        } else if (
+            // slither-disable-next-line incorrect-equality
+            objectionsCount == 1
+        ) {
+            return action.watchtowerLevelOneDelay;
+        } else if (
+            // slither-disable-next-line incorrect-equality
+            objectionsCount == 2
+        ) {
+            return action.watchtowerLevelTwoDelay;
+        } else {
+            revert("No delay for given objections count");
+        }
     }
 
     /// @notice Determines whether a reserved redemption request is
