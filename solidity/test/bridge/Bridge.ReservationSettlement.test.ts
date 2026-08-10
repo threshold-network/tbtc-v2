@@ -426,7 +426,7 @@ describe("Bridge - Reservation settlement", () => {
       .approve(reservationVault.address, grossTbtc.add(redemptionFee))
     await reservationVault
       .connect(thirdParty)
-      .redeemReservation(reservationKey, redeemerScript)
+      .redeemReservation(reservationKey, redeemerScript, redemptionFee)
   }
 
   // Retries via the Bank-balance path after a timeout refund.
@@ -1776,7 +1776,11 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationVault
           .connect(thirdParty)
-          .redeemReservation(reservationKey, randomRedeemerScript())
+          .redeemReservation(
+            reservationKey,
+            randomRedeemerScript(),
+            redemptionFee
+          )
       ).to.be.revertedWith("Reservation expired")
     })
 
@@ -1803,7 +1807,11 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationVault
           .connect(thirdParty)
-          .redeemReservation(reservationKey, randomRedeemerScript())
+          .redeemReservation(
+            reservationKey,
+            randomRedeemerScript(),
+            redemptionFee
+          )
       ).to.be.revertedWith("Wallet must be in Live or MovingFunds state")
     })
   })
