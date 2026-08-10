@@ -868,6 +868,169 @@ describe("Bridge - Reservation settlement", () => {
       expect(wallet.movingFundsRequestedAt).to.equal(await lastBlockTime())
     })
 
+    it("strands a late dissolution output after the source wallet terminates", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+
+      // The dissolution generation times out and moves the source wallet
+      // into MovingFunds. A subsequent moving-funds timeout terminates the
+      // wallet before the already-confirmed dissolution proof reaches the
+      // Bridge.
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      const { movingFundsTimeout } = await bridge.movingFundsParameters()
+      await increaseTime(movingFundsTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyMovingFundsTimeout(walletPubKeyHash, [])
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.Terminated
+      )
+
+      const dissolutionFee = 500
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          dissolutionTx.info,
+          proofFor(dissolutionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+      await expect(tx)
+        .to.emit(bridge, "ReservationLateSettled")
+        .withArgs(reservationKey, 2, ActionType.Dissolution)
+      await expect(tx)
+        .to.emit(bridge, "ReservationDissolved")
+        .withArgs(reservationKey, 2, walletPubKeyHash, dissolutionTx.txHash)
+
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.state).to.equal(walletState.Terminated)
+      expect(wallet.mainUtxoHash).to.equal(ZERO_BYTES32)
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Stranded
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletPendingDissolution(walletPubKeyHash)).to.equal(
+        0
+      )
+
+      const outputKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [dissolutionTx.txHash, 0]
+        )
+      )
+      expect((await bridge.movedFundsSweepRequests(outputKey)).state).to.equal(
+        0
+      )
+      const anchorKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [anchorTx.txHash, 0]
+        )
+      )
+      expect(await bridge.spentMainUTXOs(anchorKey)).to.equal(true)
+    })
+
+    it("clears a consumed main UTXO when a late dissolution settles after termination", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const mainUtxo = {
+        txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+        txOutputIndex: 1,
+        txOutputValue: 7000000,
+      }
+      await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      const { movingFundsTimeout } = await bridge.movingFundsParameters()
+      await increaseTime(movingFundsTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyMovingFundsTimeout(walletPubKeyHash, [])
+
+      const dissolutionFee = 500
+      const dissolutionTx = buildTx(
+        [
+          { txHash: anchorTx.txHash, index: 0 },
+          { txHash: mainUtxo.txHash, index: mainUtxo.txOutputIndex },
+        ],
+        [
+          {
+            valueSat: anchorAmount
+              .add(mainUtxo.txOutputValue)
+              .sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          dissolutionTx.info,
+          proofFor(dissolutionTx.txHash),
+          mainUtxo,
+          reservationKey,
+          2
+        )
+
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.state).to.equal(walletState.Terminated)
+      expect(wallet.mainUtxoHash).to.equal(ZERO_BYTES32)
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Stranded
+      )
+      expect(await bridge.walletPendingDissolution(walletPubKeyHash)).to.equal(
+        0
+      )
+
+      const mainUtxoKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [mainUtxo.txHash, mainUtxo.txOutputIndex]
+        )
+      )
+      expect(await bridge.spentMainUTXOs(mainUtxoKey)).to.equal(true)
+      const outputKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [dissolutionTx.txHash, 0]
+        )
+      )
+      expect((await bridge.movedFundsSweepRequests(outputKey)).state).to.equal(
+        0
+      )
+    })
+
     it("supersedes a cross-reservation lock when a late dissolution consumes its main UTXO", async () => {
       const first = await makeAcceptedReservation()
       const second = await makeAcceptedReservation()
@@ -1341,11 +1504,11 @@ describe("Bridge - Reservation settlement", () => {
   })
 
   describe("wallet lifecycle integration", () => {
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
     })
 
-    after(async () => {
+    afterEach(async () => {
       await restoreSnapshot()
     })
 
