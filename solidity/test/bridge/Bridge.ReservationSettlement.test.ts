@@ -182,11 +182,15 @@ describe("Bridge - Reservation settlement", () => {
     })
   }
 
-  async function terminateWallet(pkh: string) {
+  async function setWalletState(pkh: string, state: number) {
     await bridge.setWallet(pkh, {
       ...(await bridge.wallets(pkh)),
-      state: walletState.Terminated,
+      state,
     })
+  }
+
+  async function terminateWallet(pkh: string) {
+    await setWalletState(pkh, walletState.Terminated)
   }
 
   async function expectWalletSeized(ecdsaWalletID: string) {
@@ -584,6 +588,195 @@ describe("Bridge - Reservation settlement", () => {
 
     afterEach(async () => {
       await restoreSnapshot()
+    })
+
+    async function prepareTimedOutReanchor(targetState: number) {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const reanchorFee = 500
+      const newAnchorAmount = anchorAmount.sub(reanchorFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: newAnchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      await setWalletState(secondWalletPubKeyHash, targetState)
+
+      return { anchorTx, reservationKey, reanchorTx, newAnchorAmount }
+    }
+
+    async function submitTimedOutReanchor(
+      fixture: Awaited<ReturnType<typeof prepareTimedOutReanchor>>
+    ) {
+      return bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          fixture.reanchorTx.info,
+          proofFor(fixture.reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          fixture.reservationKey,
+          2
+        )
+    }
+
+    async function expectReanchorFullyStranded(
+      fixture: Awaited<ReturnType<typeof prepareTimedOutReanchor>>
+    ) {
+      const reservation = await bridge.reservations(fixture.reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Stranded)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorAmount).to.equal(fixture.newAnchorAmount)
+      expect(reservation.mintedAmount).to.equal(fixture.newAnchorAmount)
+      expect(
+        (await bridge.reservationActions(fixture.reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(
+        await bridge.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await bridge.walletReservationsAmount(secondWalletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await bridge.walletReservations(secondWalletPubKeyHash)
+      ).to.deep.equal([])
+      expect(
+        await bridge.reservationByAnchorUtxo(fixture.anchorTx.txHash, 0)
+      ).to.equal(0)
+      expect(
+        await bridge.reservationByAnchorUtxo(fixture.reanchorTx.txHash, 0)
+      ).to.equal(0)
+    }
+
+    const reanchorTargetStates = [
+      { targetState: walletState.Closing, stateName: "Closing" },
+      { targetState: walletState.Closed, stateName: "Closed" },
+      { targetState: walletState.Terminated, stateName: "Terminated" },
+    ]
+
+    reanchorTargetStates.forEach(({ targetState, stateName }) => {
+      it(`does not repeat recovery evidence when a stranded re-anchor lands on a ${stateName} target`, async () => {
+        const fixture = await prepareTimedOutReanchor(targetState)
+
+        await terminateWallet(walletPubKeyHash)
+        const firstStrandTx = await bridge
+          .connect(thirdParty)
+          .notifyReservationStranded(fixture.reservationKey)
+        await expect(firstStrandTx)
+          .to.emit(bridge, "ReservationStranded")
+          .withArgs(
+            fixture.reservationKey,
+            walletPubKeyHash,
+            thirdParty.address,
+            anchorAmount
+          )
+        const firstStrandReceipt = await firstStrandTx.wait()
+        expect(
+          firstStrandReceipt.events?.filter(
+            ({ event }) => event === "ReservationStranded"
+          )
+        ).to.have.lengthOf(1)
+
+        const proofTx = await submitTimedOutReanchor(fixture)
+        await expect(proofTx)
+          .to.emit(bridge, "ReservationLateSettled")
+          .withArgs(fixture.reservationKey, 2, ActionType.Reanchor)
+        await expect(proofTx).not.to.emit(bridge, "ReservationStranded")
+        const proofReceipt = await proofTx.wait()
+        expect(
+          proofReceipt.events?.filter(
+            ({ event }) => event === "ReservationStranded"
+          )
+        ).to.have.lengthOf(0)
+
+        // The lineage is already stranded on its new, unmanageable target.
+        // A later caller cannot create a second compensation record.
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .notifyReservationStranded(fixture.reservationKey)
+        ).to.be.revertedWith("Reservation is not active")
+
+        await expectReanchorFullyStranded(fixture)
+      })
+
+      it(`emits the first recovery evidence when an ordinary late re-anchor lands on a ${stateName} target`, async () => {
+        const fixture = await prepareTimedOutReanchor(targetState)
+        const proofTx = await submitTimedOutReanchor(fixture)
+
+        await expect(proofTx)
+          .to.emit(bridge, "ReservationLateSettled")
+          .withArgs(fixture.reservationKey, 2, ActionType.Reanchor)
+
+        if (targetState === walletState.Terminated) {
+          // Preserve the existing permissionless cleanup for a first-time
+          // Terminated target: the proof settles, then notification supplies
+          // the lineage's single recovery record.
+          await expect(proofTx).not.to.emit(bridge, "ReservationStranded")
+          expect(
+            (await bridge.reservations(fixture.reservationKey)).state
+          ).to.equal(ReservationState.Active)
+
+          const strandTx = await bridge
+            .connect(thirdParty)
+            .notifyReservationStranded(fixture.reservationKey)
+          await expect(strandTx)
+            .to.emit(bridge, "ReservationStranded")
+            .withArgs(
+              fixture.reservationKey,
+              secondWalletPubKeyHash,
+              thirdParty.address,
+              fixture.newAnchorAmount
+            )
+          const strandReceipt = await strandTx.wait()
+          expect(
+            strandReceipt.events?.filter(
+              ({ event }) => event === "ReservationStranded"
+            )
+          ).to.have.lengthOf(1)
+        } else {
+          await expect(proofTx)
+            .to.emit(bridge, "ReservationStranded")
+            .withArgs(
+              fixture.reservationKey,
+              secondWalletPubKeyHash,
+              thirdParty.address,
+              fixture.newAnchorAmount
+            )
+          const proofReceipt = await proofTx.wait()
+          expect(
+            proofReceipt.events?.filter(
+              ({ event }) => event === "ReservationStranded"
+            )
+          ).to.have.lengthOf(1)
+        }
+
+        await expectReanchorFullyStranded(fixture)
+      })
     })
 
     it("preserves a pending confirmed re-anchor instead of stranding it", async () => {

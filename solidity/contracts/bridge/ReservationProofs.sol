@@ -205,6 +205,43 @@ library ReservationProofs {
         late = action.state == Reservation.ActionState.TimedOut;
     }
 
+    /// @notice Converts a late settlement into the existing stranded-position
+    ///         accounting when its target wallet can no longer manage the
+    ///         newly settled anchor.
+    /// @dev Live and MovingFunds wallets can still manage the anchor.
+    ///      Closing and Closed wallets are stranded immediately. Terminated
+    ///      wallets retain the permissionless `notifyReservationStranded`
+    ///      cleanup path unless this lineage was already stranded before the
+    ///      proof. In that case, restore the Stranded state latch before
+    ///      cleanup so the reconstructed accounting is released without
+    ///      emitting duplicate recovery evidence.
+    function strandLateSettlementIfTargetWalletClosed(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        bool late,
+        bool evidenceAlreadyEmitted
+    ) internal {
+        if (!late) {
+            return;
+        }
+
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        if (
+            walletState == Wallets.WalletState.Closing ||
+            walletState == Wallets.WalletState.Closed ||
+            (evidenceAlreadyEmitted &&
+                walletState == Wallets.WalletState.Terminated)
+        ) {
+            if (evidenceAlreadyEmitted) {
+                reservation.state = Reservation.ReservationState.Stranded;
+            }
+            self.strandReservation(reservation, reservationKey);
+        }
+    }
+
     /// @notice Validates the position can settle the loaded action and, for a
     ///         timed-out generation whose position was already stranded,
     ///         reconstructs the source anchor's tracking before settlement.
@@ -685,6 +722,8 @@ library ReservationProofs {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
+        bool evidenceAlreadyEmitted = reservation.state ==
+            Reservation.ReservationState.Stranded;
         prepareReservationForSettlement(
             self,
             reservation,
@@ -809,6 +848,14 @@ library ReservationProofs {
             newWalletPubKeyHash,
             reanchorTxHash,
             newAnchorAmount
+        );
+
+        strandLateSettlementIfTargetWalletClosed(
+            self,
+            reservation,
+            reservationKey,
+            late,
+            evidenceAlreadyEmitted
         );
     }
 
