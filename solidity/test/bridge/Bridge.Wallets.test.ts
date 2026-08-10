@@ -1497,6 +1497,7 @@ describe("Bridge - Wallets", () => {
 
         before(async () => {
           await createSnapshot()
+          walletRegistry.closeWallet.reset()
 
           await increaseTime(
             (
