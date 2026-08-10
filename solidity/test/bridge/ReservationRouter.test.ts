@@ -165,7 +165,9 @@ describe("ReservationRouter", () => {
           const members = candidate.types[selfEntry.type].members as
             | StorageEntry[]
             | undefined
-          return members?.some((member) => member.label === "reservedDeposits")
+          return members?.some(
+            (member) => member.label === "pendingReservedDeposit"
+          )
             ? candidate
             : matchingLayout
         },

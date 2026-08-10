@@ -376,8 +376,8 @@ library Reservation {
             "Deposit not routed to the reservation vault"
         );
 
-        BridgeState.ReservedDepositInfo storage reservedDeposit = self
-            .reservedDeposits[reservationKey];
+        BridgeState.PendingReservedDeposit storage reservedDeposit = self
+            .pendingReservedDeposit[reservationKey];
         require(
             reservedDeposit.walletPubKeyHash == walletPubKeyHash,
             "Wallet is not the deposit's designated wallet"

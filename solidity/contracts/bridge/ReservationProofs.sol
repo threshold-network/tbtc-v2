@@ -298,7 +298,7 @@ library ReservationProofs {
 
         /* solhint-disable-next-line not-rely-on-time */
         deposit.sweptAt = uint32(block.timestamp);
-        delete self.reservedDeposits[reservationKey];
+        delete self.pendingReservedDeposit[reservationKey];
     }
 
     /// @notice Parses the anchor transaction's single output, validates it
@@ -811,6 +811,7 @@ library ReservationProofs {
             wallet.mainUtxoHash = keccak256(
                 abi.encodePacked(dissolutionTxHash, uint32(0), outputValue)
             );
+            Wallets.rearmMovingFundsTimeout(self, walletPubKeyHash);
         } else {
             // Registry drift: another transaction (e.g. a deposit sweep)
             // registered a main UTXO after this no-main-UTXO dissolution

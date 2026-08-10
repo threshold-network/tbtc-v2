@@ -830,6 +830,44 @@ describe("Bridge - Reservation settlement", () => {
         .withArgs(second.reservationKey, 2, walletPubKeyHash, secondTx.txHash)
     })
 
+    it("rearms a completed moving-funds timeout when dissolution creates a main UTXO", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await bridge.setWallet(walletPubKeyHash, {
+        ...(await bridge.wallets(walletPubKeyHash)),
+        state: walletState.MovingFunds,
+        movingFundsRequestedAt: 0,
+      })
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(500),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          dissolutionTx.info,
+          proofFor(dissolutionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.mainUtxoHash).not.to.equal(ZERO_BYTES32)
+      expect(wallet.movingFundsRequestedAt).to.equal(await lastBlockTime())
+    })
+
     it("supersedes a cross-reservation lock when a late dissolution consumes its main UTXO", async () => {
       const first = await makeAcceptedReservation()
       const second = await makeAcceptedReservation()
@@ -1332,7 +1370,7 @@ describe("Bridge - Reservation settlement", () => {
     })
 
     it("records a confirmed main-UTXO move while reservation obligations remain", async () => {
-      await makeAcceptedReservation()
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
       await liveWallet(secondWalletPubKeyHash)
 
       const mainUtxo = {
@@ -1382,6 +1420,10 @@ describe("Bridge - Reservation settlement", () => {
       const sourceWallet = await bridge.wallets(walletPubKeyHash)
       expect(sourceWallet.mainUtxoHash).to.equal(ZERO_BYTES32)
       expect(sourceWallet.state).to.equal(walletState.MovingFunds)
+      expect(sourceWallet.movingFundsRequestedAt).to.equal(0)
+      expect(sourceWallet.movingFundsTargetWalletsCommitmentHash).to.equal(
+        ZERO_BYTES32
+      )
 
       const targetRequest = await bridge.movedFundsSweepRequests(
         BigNumber.from(
@@ -1397,6 +1439,42 @@ describe("Bridge - Reservation settlement", () => {
         (await bridge.wallets(secondWalletPubKeyHash))
           .pendingMovedFundsSweepRequestsCount
       ).to.equal(1)
+
+      // Move the final reservation obligation away from the source wallet.
+      // Its already-proven moving-funds generation must stay completed rather
+      // than becoming slashable again when the retained count reaches zero.
+      await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(500),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+      const { movingFundsTimeout } = await bridge.movingFundsParameters()
+      await increaseTime(movingFundsTimeout + 1)
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .notifyMovingFundsTimeout(walletPubKeyHash, [])
+      ).to.be.revertedWith("Moving funds process already completed")
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.MovingFunds
+      )
     })
   })
 })

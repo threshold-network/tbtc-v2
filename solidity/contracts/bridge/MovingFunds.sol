@@ -136,6 +136,8 @@ library MovingFunds {
     ///        wallets that the source wallet commits to move the funds to.
     /// @dev Requirements:
     ///      - The source wallet must be in the MovingFunds state,
+    ///      - The source wallet's current moving-funds generation must not be
+    ///        already completed,
     ///      - The source wallet must not have pending redemption requests,
     ///      - The source wallet must not have pending moved funds sweep requests,
     ///      - The source wallet must not have submitted its commitment already,
@@ -176,6 +178,11 @@ library MovingFunds {
         require(
             wallet.state == Wallets.WalletState.MovingFunds,
             "Source wallet must be in MovingFunds state"
+        );
+
+        require(
+            wallet.movingFundsRequestedAt != 0,
+            "Moving funds process already completed"
         );
 
         require(
@@ -267,6 +274,8 @@ library MovingFunds {
     /// @param walletPubKeyHash 20-byte public key hash of the moving funds wallet
     /// @dev Requirements:
     ///      - The wallet must be in the MovingFunds state,
+    ///      - The wallet's current moving-funds generation must not be already
+    ///        completed,
     ///      - The target wallets commitment must not be already submitted for
     ///        the given moving funds wallet,
     ///      - Live wallets count must be zero,
@@ -282,6 +291,11 @@ library MovingFunds {
         require(
             wallet.state == Wallets.WalletState.MovingFunds,
             "Wallet must be in MovingFunds state"
+        );
+
+        require(
+            wallet.movingFundsRequestedAt != 0,
+            "Moving funds process already completed"
         );
 
         // If the moving funds wallet already submitted their target wallets
@@ -497,10 +511,10 @@ library MovingFunds {
             // by the target wallet. The target wallet must sweep the
             // received funds with their own main UTXO in order to update
             // their BTC balance. Worth noting there is no need to check
-            // if the sweep request already exists in the system because
-            // the moving funds wallet is moved to the Closing state after
-            // submitting the moving funds proof so there is no possibility
-            // to submit the proof again and register the sweep request twice.
+            // if the sweep request already exists in the system because the
+            // successfully proven source main UTXO is deleted. Even when
+            // other tracked obligations retain MovingFunds, the same proof
+            // therefore cannot register the request twice.
             self.movedFundsSweepRequests[
                 uint256(
                     keccak256(
@@ -569,11 +583,19 @@ library MovingFunds {
         bytes20 walletPubKeyHash,
         uint32[] calldata walletMembersIDs
     ) external {
-        // Wallet state is validated in `notifyWalletMovingFundsTimeout`.
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            walletPubKeyHash
+        ];
+        require(
+            wallet.state == Wallets.WalletState.MovingFunds,
+            "Wallet must be in MovingFunds state"
+        );
 
-        uint32 movingFundsRequestedAt = self
-            .registeredWallets[walletPubKeyHash]
-            .movingFundsRequestedAt;
+        uint32 movingFundsRequestedAt = wallet.movingFundsRequestedAt;
+        require(
+            movingFundsRequestedAt != 0,
+            "Moving funds process already completed"
+        );
 
         require(
             /* solhint-disable-next-line not-rely-on-time */
@@ -661,7 +683,9 @@ library MovingFunds {
     ///      - `mainUtxo` components must point to the recent main UTXO
     ///        of the sweeping wallet, as currently known on the Ethereum chain.
     ///        If there is no main UTXO, this parameter is ignored,
-    ///      - The sweeping wallet must be in the Live or MovingFunds state,
+    ///      - The sweeping wallet must be in the Live, MovingFunds, or Closing
+    ///        state. A Closing wallet is returned to MovingFunds without being
+    ///        counted as Live again,
     ///      - The total Bitcoin transaction fee must be lesser or equal
     ///        to `movedFundsSweepTxMaxTotalFee` governable parameter.
     function submitMovedFundsSweepProof(
@@ -708,6 +732,7 @@ library MovingFunds {
         wallet.mainUtxoHash = keccak256(
             abi.encodePacked(sweepTxHash, uint32(0), sweepTxOutputValue)
         );
+        Wallets.rearmMovingFundsTimeout(self, walletPubKeyHash);
 
         // slither-disable-next-line reentrancy-events
         emit MovedFundsSwept(walletPubKeyHash, sweepTxHash);
@@ -768,7 +793,9 @@ library MovingFunds {
     ///         the chain state. If the validation went well, this is the
     ///         plain-text main UTXO corresponding to the `wallet.mainUtxoHash`.
     /// @dev Requirements:
-    ///     - Sweeping wallet must be either in Live or MovingFunds state,
+    ///     - Sweeping wallet must be in Live, MovingFunds, or Closing state.
+    ///       A Closing wallet is reactivated with a fresh moving-funds
+    ///       deadline; its Live-wallet count is not changed,
     ///     - If the main UTXO of the sweeping wallet exists in the storage,
     ///       the passed `mainUTXO` parameter must be equal to the stored one.
     function resolveMovedFundsSweepingWallet(
@@ -777,7 +804,6 @@ library MovingFunds {
         BitcoinTx.UTXO calldata mainUtxo
     )
         internal
-        view
         returns (
             Wallets.Wallet storage wallet,
             BitcoinTx.UTXO memory resolvedMainUtxo
@@ -788,9 +814,19 @@ library MovingFunds {
         Wallets.WalletState walletState = wallet.state;
         require(
             walletState == Wallets.WalletState.Live ||
-                walletState == Wallets.WalletState.MovingFunds,
-            "Wallet must be in Live or MovingFunds state"
+                walletState == Wallets.WalletState.MovingFunds ||
+                walletState == Wallets.WalletState.Closing,
+            "Wallet must be in Live or MovingFunds or Closing state"
         );
+
+        if (walletState == Wallets.WalletState.Closing) {
+            wallet.state = Wallets.WalletState.MovingFunds;
+            delete wallet.movingFundsRequestedAt;
+            delete wallet.closingStartedAt;
+            // Closing wallets from earlier generations may retain a stale
+            // commitment. It must not constrain the freshly rearmed process.
+            delete wallet.movingFundsTargetWalletsCommitmentHash;
+        }
 
         // Check if the main UTXO for given wallet exists. If so, validate
         // passed main UTXO data against the stored hash and use them for
@@ -1017,8 +1053,8 @@ library MovingFunds {
     /// @dev Requirements:
     ///      - The moved funds sweep request must be in the Pending state,
     ///      - The moved funds sweep timeout must be actually exceeded,
-    ///      - The wallet must be either in the Live or MovingFunds or
-    ///        Terminated state,,
+    ///      - The wallet must be in the Live, MovingFunds, Closing, Closed,
+    ///        or Terminated state,
     ///      - The expression `keccak256(abi.encode(walletMembersIDs))` must
     ///        be exactly the same as the hash stored under `membersIdsHash`
     ///        for the given `walletID`. Those IDs are not directly stored

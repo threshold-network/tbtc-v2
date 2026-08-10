@@ -358,10 +358,11 @@ library Deposit {
         if (
             reveal.vault != address(0) && reveal.vault == self.reservationVault
         ) {
-            self.reservedDeposits[depositKey] = BridgeState.ReservedDepositInfo(
-                reveal.walletPubKeyHash,
-                refundDeadline
-            );
+            self.pendingReservedDeposit[depositKey] = BridgeState
+                .PendingReservedDeposit(
+                    reveal.walletPubKeyHash,
+                    refundDeadline
+                );
         }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);

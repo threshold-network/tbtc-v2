@@ -31,7 +31,7 @@ import "../bank/Bank.sol";
 library BridgeState {
     /// @notice Reveal-time facts for a deposit routed to the reservation
     ///         vault. Both fields fit in one storage word.
-    struct ReservedDepositInfo {
+    struct PendingReservedDeposit {
         // Wallet committed by the deposit script and therefore the only
         // wallet that can be authorized to anchor the deposit.
         bytes20 walletPubKeyHash;
@@ -408,7 +408,7 @@ library BridgeState {
         // Reveal-time facts for deposits routed to the reservation vault.
         // The exact refund deadline is immutable even when governance later
         // changes `depositRevealAheadPeriod`.
-        mapping(uint256 => ReservedDepositInfo) reservedDeposits;
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
