@@ -64,9 +64,10 @@ interface IRedemptionWatchtower {
         returns (uint32);
 
     /// @notice Returns the applicable veto delay for the given pending
-    ///         reserved redemption generation. Zero when the watchtower is
-    ///         not enabled (no guardians can object) or was permanently
-    ///         disabled.
+    ///         reserved redemption generation, selected from the immutable
+    ///         schedule captured when the generation was requested. A
+    ///         permanently disabled watchtower overrides the snapshot with
+    ///         zero.
     /// @param reservationKey The key of the reservation.
     /// @param requestNonce The redemption generation.
     /// @return Reserved redemption veto delay.
@@ -74,6 +75,23 @@ interface IRedemptionWatchtower {
         uint256 reservationKey,
         uint64 requestNonce
     ) external view returns (uint32);
+
+    /// @notice Returns the current three-level veto delay schedule to
+    ///         snapshot for a newly requested reserved redemption. All
+    ///         values are zero when the watchtower is not enabled, has been
+    ///         disabled, or the amount is waived.
+    /// @param requestedAmount Reserved redemption amount in satoshis.
+    /// @return defaultDelay Delay before any guardian objection.
+    /// @return levelOneDelay Delay after one guardian objection.
+    /// @return levelTwoDelay Delay after two guardian objections.
+    function getReservedRedemptionDelaySchedule(uint64 requestedAmount)
+        external
+        view
+        returns (
+            uint32 defaultDelay,
+            uint32 levelOneDelay,
+            uint32 levelTwoDelay
+        );
 
     /// @notice Determines whether a reserved redemption request is
     ///         considered safe: neither the reservation owner nor the
