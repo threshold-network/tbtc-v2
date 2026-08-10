@@ -2133,6 +2133,85 @@ describe("Bridge - Reservation", () => {
       expect(reservation.state).to.equal(ReservationState.Active)
     })
 
+    it("rejects a terminated re-anchor target at signing but still settles an already-built transaction", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const validator = await helpers.contracts.getContract(
+        "WalletProposalValidator"
+      )
+      const proposal = {
+        sourceWalletPubKeyHash: walletPubKeyHash,
+        reservationKey,
+        requestNonce: 2,
+        targetWalletPubKeyHash: secondWalletPubKeyHash,
+        reanchorTxFee: 1000,
+      }
+
+      // A transaction authorized while the target is Live may already have
+      // been signed and broadcast before the target's registry state changes.
+      expect(await validator.validateReservationReanchorProposal(proposal)).to
+        .be.true
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(proposal.reanchorTxFee),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await bridge.setWallet(secondWalletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Terminated,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      // The wallet must not sign a fresh transaction to a target that is no
+      // longer Live.
+      await expect(
+        validator.validateReservationReanchorProposal(proposal)
+      ).to.be.revertedWith("Target wallet must be in Live state")
+
+      // Proof settlement deliberately remains state-independent: rejecting a
+      // transaction that was already broadcast would drop its BTC from the
+      // reservation accounting.
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          2,
+          secondWalletPubKeyHash,
+          reanchorTx.txHash,
+          anchorAmount.sub(proposal.reanchorTxFee)
+        )
+      expect(
+        (await bridge.reservations(reservationKey)).walletPubKeyHash
+      ).to.equal(secondWalletPubKeyHash)
+    })
+
     it("rejects a re-anchor paying a wallet other than the authorized target", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
 
