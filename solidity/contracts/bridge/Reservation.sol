@@ -427,8 +427,12 @@ library Reservation {
 
         BridgeState.PendingReservedDeposit storage reservedDeposit = self
             .pendingReservedDeposit[reservationKey];
+        // The pending marker and designated-wallet binding are checked
+        // together: stale or accepted deposits have a zero marker, and only
+        // the wallet committed by the deposit script may become custodian.
         require(
-            reservedDeposit.walletPubKeyHash != bytes20(0),
+            reservedDeposit.walletPubKeyHash != bytes20(0) &&
+                reservedDeposit.walletPubKeyHash == walletPubKeyHash,
             "Wallet is not the deposit's designated wallet"
         );
 
@@ -443,16 +447,6 @@ library Reservation {
             getAction(self, reservationKey, reservation.requestNonce).state !=
                 ActionState.Pending,
             "Acceptance already pending"
-        );
-
-        // The anchor must be bound to the wallet the deposit was revealed
-        // for: only that wallet's key can spend the deposit, and only it
-        // may become the custodian. The mapping doubles as the pending
-        // marker — a deposit marked stale (or already accepted) cannot be
-        // re-authorized.
-        require(
-            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
-            "Wallet is not the deposit's designated wallet"
         );
 
         require(
