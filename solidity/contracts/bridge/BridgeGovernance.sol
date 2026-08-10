@@ -293,6 +293,12 @@ contract BridgeGovernance is Ownable {
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
 
+    event ReservationCapsUpdateStarted(
+        uint64 newMaxReservationsAmountPerWallet,
+        uint64 newReservationMaxSingleAmount,
+        uint256 timestamp
+    );
+
     constructor(Bridge _bridge, uint256 _governanceDelay) {
         bridge = _bridge;
         governanceDelays[0] = _governanceDelay;
