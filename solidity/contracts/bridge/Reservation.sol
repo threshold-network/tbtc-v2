@@ -712,7 +712,7 @@ library Reservation {
             "Reservation expired"
         );
 
-        uint64 retryCreditSourceNonce;
+        uint64 retryCreditSourceNonce = 0;
         if (useRetryCredit) {
             retryCreditSourceNonce = consumeRetryCredit(
                 self,
