@@ -30,14 +30,23 @@ import "../bank/Bank.sol";
 
 library BridgeState {
     /// @notice Reveal-time facts for a deposit routed to the reservation
-    ///         vault. Both fields fit in one storage word.
+    ///         vault. All fields fit in one storage word. `isReserved` is
+    ///         permanent; the remaining fields are used by the reservation
+    ///         action flow and may be cleared after acceptance or staleness.
     struct PendingReservedDeposit {
+        // Immutable reveal-time reservation classification.
+        bool isReserved;
         // Wallet committed by the deposit script and therefore the only
         // wallet that can be authorized to anchor the deposit.
         bytes20 walletPubKeyHash;
-        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
-        // sentinel used when the reveal-ahead validation was disabled.
+        // Exact Bitcoin refund locktime decoded at reveal time. Reserved
+        // deposits retain it even when reveal-ahead validation is disabled,
+        // because acceptance must enforce the validator's refund margin.
         uint32 refundDeadline;
+        // True if the global reveal-ahead policy validated the deadline.
+        // Later stale cleanup uses this bit to preserve the disabled policy's
+        // historical behavior; acceptance always uses the exact deadline.
+        bool refundDeadlineValidated;
     }
 
     struct Storage {
@@ -380,6 +389,11 @@ library BridgeState {
         // The number of active reservations custodied by the given wallet,
         // identified by its 20-byte wallet public key hash.
         mapping(bytes20 => uint32) walletReservationsCount;
+        // Reveal-time facts for deposits routed to the reservation vault.
+        // The permanent classification prevents later reservation-vault
+        // updates from changing an ordinary deposit into a reservation or
+        // making a reserved deposit eligible for an ordinary sweep.
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Address of the reservation router: the delegatecall extension of
         // the Bridge holding the UTXO-reservation external surface. The
         // Bridge's fallback function routes calls with unmatched selectors
@@ -414,10 +428,6 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
-        // Reveal-time facts for deposits routed to the reservation vault.
-        // The exact refund deadline is immutable even when governance later
-        // changes `depositRevealAheadPeriod`.
-        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -968,7 +978,8 @@ library BridgeState {
     /// @param _reservationRouter Address of the reservation router.
     /// @dev Requirements:
     ///      - Reservation router address must not be already set,
-    ///      - Reservation router address must not be 0x0.
+    ///      - Reservation router address must not be 0x0,
+    ///      - Reservation router address must contain deployed code.
     ///
     ///      This function is designed to support a one-time initialization
     ///      of the reservation router. The router is a `delegatecall`
@@ -987,6 +998,10 @@ library BridgeState {
         require(
             _reservationRouter != address(0),
             "Reservation router address must not be 0x0"
+        );
+        require(
+            _reservationRouter.code.length > 0,
+            "Reservation router must be a contract"
         );
 
         self.reservationRouter = _reservationRouter;

@@ -239,9 +239,11 @@ Acceptance follows the same model with reveal-time integration:
 * `requestReservationAcceptance` (permissionless) authorizes the anchor:
   checks deposit routing, designated-wallet liveness, minimum amount and
   post-fee floor, reserves capacity against the designated wallet,
-  snapshots the fee bound, and sets the authorization's validity window
-  ending safely before the deposit refund locktime (the wallet must never
-  sign an anchor that can race the depositor's refund).
+  snapshots the fee bound, and rejects the request unless at least one
+  integer timestamp remains after the deposit-age gate and before both the
+  action-timeout and deposit-refund safety margins. The authorization ends
+  before the exact refund locktime (the wallet must never sign an anchor
+  that can race the depositor's refund).
 * The acceptance proof requires the authorization record and requires the
   anchor output to pay the *designated* wallet.
 * If the wallet never anchors, the authorization times out (capacity
@@ -412,3 +414,10 @@ deployed inert (`reservationVault == 0` in Bridge parameters), the router
 ships with the Bridge implementation upgrade, and governance enables the
 vault last. No live reservation state ever exists on the pre-router
 layout, so there is no live-state migration.
+
+The production `MaintainerProxy` is immutable and does not expose the routed
+reservation-proof selector. Before activation, deploy `MaintainerProxyV2`,
+migrate the SPV-maintainer allowlist, transfer its ownership to governance,
+and have governance authorize the new proxy in both the Bridge and
+`ReimbursementPool`. The existing proxy remains the route for legacy and
+wallet-maintainer calls.
