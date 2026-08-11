@@ -204,6 +204,10 @@ describe("Bridge - Reservation settlement", () => {
     })
   }
 
+  async function terminateWallet(pkh: string) {
+    await setWalletState(pkh, walletState.Terminated)
+  }
+
   async function expectWalletSeized(ecdsaWalletID: string) {
     const {
       redemptionTimeoutSlashingAmount,
@@ -448,7 +452,7 @@ describe("Bridge - Reservation settlement", () => {
       .approve(reservationVault.address, grossTbtc.add(redemptionFee))
     await reservationVault
       .connect(thirdParty)
-      .redeemReservation(reservationKey, redeemerScript)
+      .redeemReservation(reservationKey, redeemerScript, redemptionFee)
   }
 
   // Retries via the Bank-balance path after a timeout refund.
@@ -589,6 +593,655 @@ describe("Bridge - Reservation settlement", () => {
             2
           )
       ).to.be.revertedWith("Action is not settleable")
+    })
+  })
+
+  describe("proof settlement across terminated-wallet stranding", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function prepareTimedOutReanchor(targetState: number) {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const reanchorFee = 500
+      const newAnchorAmount = anchorAmount.sub(reanchorFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: newAnchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      await setWalletState(secondWalletPubKeyHash, targetState)
+
+      return { anchorTx, reservationKey, reanchorTx, newAnchorAmount }
+    }
+
+    async function submitTimedOutReanchor(
+      fixture: Awaited<ReturnType<typeof prepareTimedOutReanchor>>
+    ) {
+      return bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          fixture.reanchorTx.info,
+          proofFor(fixture.reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          fixture.reservationKey,
+          2
+        )
+    }
+
+    async function expectReanchorFullyStranded(
+      fixture: Awaited<ReturnType<typeof prepareTimedOutReanchor>>
+    ) {
+      const reservation = await bridge.reservations(fixture.reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Stranded)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorAmount).to.equal(fixture.newAnchorAmount)
+      expect(reservation.mintedAmount).to.equal(fixture.newAnchorAmount)
+      expect(
+        (await bridge.reservationActions(fixture.reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(
+        await bridge.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await bridge.walletReservationsAmount(secondWalletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await bridge.walletReservations(secondWalletPubKeyHash)
+      ).to.deep.equal([])
+      expect(
+        await bridge.reservationByAnchorUtxo(fixture.anchorTx.txHash, 0)
+      ).to.equal(0)
+      expect(
+        await bridge.reservationByAnchorUtxo(fixture.reanchorTx.txHash, 0)
+      ).to.equal(0)
+    }
+
+    const reanchorTargetStates = [
+      { targetState: walletState.Closing, stateName: "Closing" },
+      { targetState: walletState.Closed, stateName: "Closed" },
+      { targetState: walletState.Terminated, stateName: "Terminated" },
+    ]
+
+    reanchorTargetStates.forEach(({ targetState, stateName }) => {
+      it(`does not repeat recovery evidence when a stranded re-anchor lands on a ${stateName} target`, async () => {
+        const fixture = await prepareTimedOutReanchor(targetState)
+
+        await terminateWallet(walletPubKeyHash)
+        const firstStrandTx = await bridge
+          .connect(thirdParty)
+          .notifyReservationStranded(fixture.reservationKey)
+        await expect(firstStrandTx)
+          .to.emit(bridge, "ReservationStranded")
+          .withArgs(
+            fixture.reservationKey,
+            walletPubKeyHash,
+            thirdParty.address,
+            anchorAmount
+          )
+        const firstStrandReceipt = await firstStrandTx.wait()
+        expect(
+          firstStrandReceipt.events?.filter(
+            ({ event }) => event === "ReservationStranded"
+          )
+        ).to.have.lengthOf(1)
+
+        const proofTx = await submitTimedOutReanchor(fixture)
+        await expect(proofTx)
+          .to.emit(bridge, "ReservationLateSettled")
+          .withArgs(fixture.reservationKey, 2, ActionType.Reanchor)
+        await expect(proofTx).not.to.emit(bridge, "ReservationStranded")
+        const proofReceipt = await proofTx.wait()
+        expect(
+          proofReceipt.events?.filter(
+            ({ event }) => event === "ReservationStranded"
+          )
+        ).to.have.lengthOf(0)
+
+        // The lineage is already stranded on its new, unmanageable target.
+        // A later caller cannot create a second compensation record.
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .notifyReservationStranded(fixture.reservationKey)
+        ).to.be.revertedWith("Reservation is not active")
+
+        await expectReanchorFullyStranded(fixture)
+      })
+
+      it(`emits the first recovery evidence when an ordinary late re-anchor lands on a ${stateName} target`, async () => {
+        const fixture = await prepareTimedOutReanchor(targetState)
+        const proofTx = await submitTimedOutReanchor(fixture)
+
+        await expect(proofTx)
+          .to.emit(bridge, "ReservationLateSettled")
+          .withArgs(fixture.reservationKey, 2, ActionType.Reanchor)
+
+        if (targetState === walletState.Terminated) {
+          // Preserve the existing permissionless cleanup for a first-time
+          // Terminated target: the proof settles, then notification supplies
+          // the lineage's single recovery record.
+          await expect(proofTx).not.to.emit(bridge, "ReservationStranded")
+          expect(
+            (await bridge.reservations(fixture.reservationKey)).state
+          ).to.equal(ReservationState.Active)
+
+          const strandTx = await bridge
+            .connect(thirdParty)
+            .notifyReservationStranded(fixture.reservationKey)
+          await expect(strandTx)
+            .to.emit(bridge, "ReservationStranded")
+            .withArgs(
+              fixture.reservationKey,
+              secondWalletPubKeyHash,
+              thirdParty.address,
+              fixture.newAnchorAmount
+            )
+          const strandReceipt = await strandTx.wait()
+          expect(
+            strandReceipt.events?.filter(
+              ({ event }) => event === "ReservationStranded"
+            )
+          ).to.have.lengthOf(1)
+        } else {
+          await expect(proofTx)
+            .to.emit(bridge, "ReservationStranded")
+            .withArgs(
+              fixture.reservationKey,
+              secondWalletPubKeyHash,
+              thirdParty.address,
+              fixture.newAnchorAmount
+            )
+          const proofReceipt = await proofTx.wait()
+          expect(
+            proofReceipt.events?.filter(
+              ({ event }) => event === "ReservationStranded"
+            )
+          ).to.have.lengthOf(1)
+        }
+
+        await expectReanchorFullyStranded(fixture)
+      })
+    })
+
+    it("preserves a pending confirmed re-anchor instead of stranding it", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const reanchorFee = 500
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(reanchorFee),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      // The transaction may already be confirmed while its generation is
+      // still pending. Wallet termination must not let a third party erase
+      // the authorization before its real SPV proof arrives.
+      await terminateWallet(walletPubKeyHash)
+      await expect(
+        bridge.connect(thirdParty).notifyReservationStranded(reservationKey)
+      ).to.be.revertedWith("Reservation is not active")
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          2,
+          secondWalletPubKeyHash,
+          reanchorTx.txHash,
+          anchorAmount.sub(reanchorFee)
+        )
+      await expect(tx).not.to.emit(bridge, "ReservationStranded")
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorAmount).to.equal(anchorAmount.sub(reanchorFee))
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(
+        await bridge.walletReservationsCount(secondWalletPubKeyHash)
+      ).to.equal(1)
+    })
+
+    it("settles a timed-out re-anchor after stranding and finances its fee through the original vault", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const reanchorFee = 500
+      const newAnchorAmount = anchorAmount.sub(reanchorFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: newAnchorAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      await terminateWallet(walletPubKeyHash)
+      const strandTx = await bridge
+        .connect(thirdParty)
+        .notifyReservationStranded(reservationKey)
+      await expect(strandTx)
+        .to.emit(bridge, "ReservationStranded")
+        .withArgs(
+          reservationKey,
+          walletPubKeyHash,
+          thirdParty.address,
+          anchorAmount
+        )
+
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+
+      // Stranding releases the migration guard. A proof for this original
+      // deposit must nevertheless finance its miner fee through the vault
+      // that issued the claim, not the newly configured vault.
+      const ReservationVaultFactory = await ethers.getContractFactory(
+        "ReservationVault",
+        deployer
+      )
+      const replacementVault = (await ReservationVaultFactory.deploy(
+        bank.address,
+        tbtcVault.address,
+        bridge.address
+      )) as ReservationVault
+      await replacementVault.deployed()
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          replacementVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      const originalReserveBefore = await tbtc.balanceOf(
+        reservationVault.address
+      )
+      const replacementReserveBefore = await tbtc.balanceOf(
+        replacementVault.address
+      )
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationLateSettled")
+        .withArgs(reservationKey, 2, ActionType.Reanchor)
+      await expect(tx)
+        .to.emit(reservationVault, "InKindFeeFinanced")
+        .withArgs(reanchorFee, 0)
+      await expect(tx).not.to.emit(replacementVault, "InKindFeeFinanced")
+      await expect(tx).not.to.emit(bridge, "ReservationStranded")
+
+      const financedTbtc = BigNumber.from(reanchorFee).mul(SATOSHI_MULTIPLIER)
+      expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+        originalReserveBefore.sub(financedTbtc)
+      )
+      expect(await tbtc.balanceOf(replacementVault.address)).to.equal(
+        replacementReserveBefore
+      )
+      expect(await replacementVault.inKindFeeDebtSat()).to.equal(0)
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorAmount).to.equal(newAnchorAmount)
+      expect(reservation.mintedAmount).to.equal(newAnchorAmount)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(newAnchorAmount)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(
+        (await bridge.walletReservations(secondWalletPubKeyHash)).map(String)
+      ).to.deep.equal([reservationKey.toString()])
+      expect(
+        await bridge.walletReservationsAmount(secondWalletPubKeyHash)
+      ).to.equal(newAnchorAmount)
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+      expect(
+        await bridge.reservationByAnchorUtxo(reanchorTx.txHash, 0)
+      ).to.equal(reservationKey)
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+    })
+
+    it("settles a timed-out redemption after stranding without moving Bank balances twice", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+      const fundingReservation = await makeAcceptedReservation(
+        secondWalletPubKeyHash
+      )
+
+      const redeemerScript = randomRedeemerScript()
+      await requestRedemption(reservationKey, redeemerScript)
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(500),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      await terminateWallet(walletPubKeyHash)
+      await bridge.connect(thirdParty).notifyReservationStranded(reservationKey)
+
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(anchorAmount)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+
+      const redeemerBankBalance = await bank.balanceOf(thirdParty.address)
+      const bridgeBankBalance = await bank.balanceOf(bridge.address)
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Redemption,
+          redemptionTx.info,
+          proofFor(redemptionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationLateSettled")
+        .withArgs(reservationKey, 2, ActionType.Redemption)
+      await expect(tx).not.to.emit(bridge, "ReservationStranded")
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        redeemerBankBalance
+      )
+      expect(await bank.balanceOf(bridge.address)).to.equal(bridgeBankBalance)
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Closed
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(anchorAmount)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(
+        (await bridge.walletReservations(secondWalletPubKeyHash)).map(String)
+      ).to.deep.equal([fundingReservation.reservationKey.toString()])
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+
+      const anchorKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [anchorTx.txHash, 0]
+        )
+      )
+      expect(await bridge.spentMainUTXOs(anchorKey)).to.be.true
+    })
+
+    it("settles a timed-out dissolution after stranding once without duplicate recovery evidence", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+
+      const dissolutionFee = 500
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      // The first dissolution failure moves the Live wallet to MovingFunds.
+      // A second failure terminates it, leaving two timed-out generations
+      // whose no-main-UTXO authorizations can describe the same transaction.
+      await bridge
+        .connect(thirdParty)
+        .requestReservationDissolution(reservationKey)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+        walletState.Terminated
+      )
+      const strandTx = await bridge
+        .connect(thirdParty)
+        .notifyReservationStranded(reservationKey)
+      await expect(strandTx)
+        .to.emit(bridge, "ReservationStranded")
+        .withArgs(
+          reservationKey,
+          walletPubKeyHash,
+          thirdParty.address,
+          anchorAmount
+        )
+
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          dissolutionTx.info,
+          proofFor(dissolutionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationLateSettled")
+        .withArgs(reservationKey, 2, ActionType.Dissolution)
+      await expect(tx)
+        .to.emit(bridge, "ReservationDissolved")
+        .withArgs(reservationKey, 2, walletPubKeyHash, dissolutionTx.txHash)
+      await expect(tx)
+        .to.emit(reservationVault, "InKindFeeFinanced")
+        .withArgs(dissolutionFee, 0)
+      await expect(tx).not.to.emit(bridge, "ReservationStranded")
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Stranded
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+      expect(await bridge.walletPendingDissolution(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect((await bridge.wallets(walletPubKeyHash)).mainUtxoHash).to.equal(
+        ZERO_BYTES32
+      )
+
+      const anchorKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [anchorTx.txHash, 0]
+        )
+      )
+      expect(await bridge.spentMainUTXOs(anchorKey)).to.be.true
+
+      const vaultReserveAfterSettlement = await tbtc.balanceOf(
+        reservationVault.address
+      )
+      const vaultDebtAfterSettlement = await reservationVault.inKindFeeDebtSat()
+
+      // Generation 3 snapshotted the same no-main-UTXO anchor. The proven
+      // Bitcoin spend can settle only once: replay must not reconstruct the
+      // position or finance the same miner fee a second time.
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Dissolution,
+            dissolutionTx.info,
+            proofFor(dissolutionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            3
+          )
+      ).to.be.revertedWith("Reservation anchor already spent")
+
+      expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+        vaultReserveAfterSettlement
+      )
+      expect(await reservationVault.inKindFeeDebtSat()).to.equal(
+        vaultDebtAfterSettlement
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.TimedOut)
     })
   })
 
@@ -2166,7 +2819,11 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationVault
           .connect(thirdParty)
-          .redeemReservation(reservationKey, randomRedeemerScript())
+          .redeemReservation(
+            reservationKey,
+            randomRedeemerScript(),
+            redemptionFee
+          )
       ).to.be.revertedWith("Reservation expired")
     })
 
@@ -2193,7 +2850,11 @@ describe("Bridge - Reservation settlement", () => {
       await expect(
         reservationVault
           .connect(thirdParty)
-          .redeemReservation(reservationKey, randomRedeemerScript())
+          .redeemReservation(
+            reservationKey,
+            randomRedeemerScript(),
+            redemptionFee
+          )
       ).to.be.revertedWith("Wallet must be in Live or MovingFunds state")
     })
   })

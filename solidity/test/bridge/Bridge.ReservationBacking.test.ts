@@ -415,7 +415,7 @@ describe("Bridge - Reservation backing", () => {
         )
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, redeemerScript)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
 
       const redemptionTx = buildTx(
         [{ txHash: reanchorTx.txHash, index: 0 }],
@@ -707,7 +707,7 @@ describe("Bridge - Reservation backing", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(first.reservationKey, redeemerScript)
+        .redeemReservation(first.reservationKey, redeemerScript, redemptionFee)
       const redemptionTx = buildTx(
         [{ txHash: first.anchorTx.txHash, index: 0 }],
         [

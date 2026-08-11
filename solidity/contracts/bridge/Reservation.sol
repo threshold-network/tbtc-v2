@@ -103,7 +103,8 @@ library Reservation {
         Closed,
         /// @dev The custodying wallet was terminated while the anchor was
         ///      outstanding. The owner's minted balance remains an ordinary
-        ///      pooled claim; the anchor is no longer tracked.
+        ///      pooled claim; the anchor is no longer tracked unless a
+        ///      previously timed-out generation later settles against it.
         Stranded
     }
 
@@ -234,19 +235,33 @@ library Reservation {
         // capacity-reserved deposit value for acceptances, the anchor
         // value at request time otherwise.
         uint64 amount;
-        // keccak256 hash of the length-prefixed redeemer output script a
-        // redemption generation must pay to. Zero for other action types.
-        bytes32 redeemerOutputScriptHash;
-        // Wallet main UTXO hash expected by a dissolution generation
-        // (`registeredWallets[wallet].mainUtxoHash` at request time).
-        // Zero for other action types, and for dissolutions of wallets
-        // with no main UTXO.
-        bytes32 expectedMainUtxoHash;
+        // Action-specific commitment: keccak256 hash of the length-prefixed
+        // redeemer output script for redemptions, or the wallet main UTXO
+        // hash snapshotted by dissolutions. Zero for acceptances and
+        // re-anchors, and for dissolutions of wallets with no main UTXO.
+        bytes32 actionDataHash;
+        // keccak256 hash of the exact source anchor outpoint every spending
+        // action (redemption, re-anchor, dissolution) was requested against.
+        // Prevents a stale timed-out generation from being reused after a
+        // different late proof advances the reservation's anchor. Zero for
+        // acceptances.
+        bytes32 sourceAnchorUtxoHash;
         // True when this redemption generation consumed the reservation's
         // single-use retry entitlement. Needed to return the entitlement if
         // a late action consumes the expected anchor while leaving the
         // reservation open and makes this generation impossible to settle.
         bool usedRetryCredit;
+        // Reserved-redemption veto delay with no guardian objections,
+        // snapshotted from the watchtower policy at request time. Zero when
+        // the watchtower is absent, not enabled, disabled, or the amount is
+        // waived.
+        uint32 watchtowerDefaultDelay;
+        // Reserved-redemption veto delay after one guardian objection,
+        // snapshotted from the watchtower policy at request time.
+        uint32 watchtowerLevelOneDelay;
+        // Reserved-redemption veto delay after two guardian objections,
+        // snapshotted from the watchtower policy at request time.
+        uint32 watchtowerLevelTwoDelay;
         // True when a redemption generation is partial: it redeems only
         // `amount` of the reservation's claim in a 1-input-2-output spend
         // (redeemer output + re-anchored remainder) and leaves the
@@ -772,7 +787,22 @@ library Reservation {
         action.retryCreditSourceNonce = retryCreditSourceNonce;
         action.redeemer = redeemer;
         action.amount = redeemAmount;
-        action.redeemerOutputScriptHash = keccak256(redeemerOutputScriptMem);
+        action.actionDataHash = keccak256(redeemerOutputScriptMem);
+        action.sourceAnchorUtxoHash = keccak256(
+            abi.encodePacked(
+                reservation.anchorTxHash,
+                reservation.anchorTxOutputIndex
+            )
+        );
+
+        if (self.redemptionWatchtower != address(0)) {
+            (
+                action.watchtowerDefaultDelay,
+                action.watchtowerLevelOneDelay,
+                action.watchtowerLevelTwoDelay
+            ) = IRedemptionWatchtower(self.redemptionWatchtower)
+                .getReservedRedemptionDelaySchedule(redeemAmount);
+        }
 
         // slither-disable-next-line reentrancy-events
         emit ReservedRedemptionRequested(
@@ -939,6 +969,12 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
         action.amount = reservation.anchorAmount;
+        action.sourceAnchorUtxoHash = keccak256(
+            abi.encodePacked(
+                reservation.anchorTxHash,
+                reservation.anchorTxOutputIndex
+            )
+        );
 
         emit ReservationReanchorRequested(
             reservationKey,
@@ -1022,14 +1058,20 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = reservation.anchorAmount;
-        action.expectedMainUtxoHash = wallet.mainUtxoHash;
+        action.actionDataHash = wallet.mainUtxoHash;
+        action.sourceAnchorUtxoHash = keccak256(
+            abi.encodePacked(
+                reservation.anchorTxHash,
+                reservation.anchorTxOutputIndex
+            )
+        );
 
         emit ReservationDissolutionRequested(
             reservationKey,
             requestNonce,
             walletPubKeyHash,
             action.txMaxFee,
-            action.expectedMainUtxoHash
+            action.actionDataHash
         );
     }
 
@@ -1431,16 +1473,17 @@ library Reservation {
     ///         stranded. A terminated wallet's operators are already
     ///         slashed and can sign the anchor away unchallengeably, so
     ///         the registry stops tracking the anchor: the position closes
-    ///         as Stranded, reserved capacity is released, and any pending
-    ///         action is unwound (a pending redemption's escrow returns to
-    ///         its redeemer). The owner's minted balance simply remains an
-    ///         ordinary pooled claim — the backing shortfall is socialized
-    ///         exactly like a terminated wallet's main UTXO. A governance
-    ///         compensation path can consume the emitted evidence.
+    ///         as Stranded and reserved capacity is released. A pending
+    ///         action cannot be stranded: its Bitcoin transaction may already
+    ///         be confirmed and must remain provable. The owner's minted
+    ///         balance simply remains an ordinary pooled claim — the backing
+    ///         shortfall is socialized exactly like a terminated wallet's main
+    ///         UTXO. A governance compensation path can consume the emitted
+    ///         evidence.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated state,
-    ///      - The reservation must be Active or have a pending action.
+    ///      - The reservation must be Active.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1449,8 +1492,7 @@ library Reservation {
             reservationKey
         ];
         require(
-            reservation.state == ReservationState.Active ||
-                reservation.state == ReservationState.ActionPending,
+            reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
         require(
@@ -1458,15 +1500,6 @@ library Reservation {
                 Wallets.WalletState.Terminated,
             "Wallet is not terminated"
         );
-
-        if (reservation.state == ReservationState.ActionPending) {
-            ReservationProofs.unwindPendingAction(
-                self,
-                reservation,
-                reservationKey,
-                false
-            );
-        }
 
         strandReservation(self, reservation, reservationKey);
     }
@@ -1537,6 +1570,9 @@ library Reservation {
         ReservationRequest storage reservation,
         uint256 reservationKey
     ) internal {
+        bool evidenceAlreadyEmitted = reservation.state ==
+            ReservationState.Stranded;
+
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
         self.walletReservationsAmount[
             reservation.walletPubKeyHash
@@ -1562,13 +1598,18 @@ library Reservation {
             )
         ];
 
-        // slither-disable-next-line reentrancy-events
-        emit ReservationStranded(
-            reservationKey,
-            reservation.walletPubKeyHash,
-            reservation.owner,
-            reservation.anchorAmount
-        );
+        // A late dissolution proof can reconstruct and then release the
+        // accounting of an already-stranded position. Preserve the original
+        // recovery evidence instead of emitting a second compensation claim.
+        if (!evidenceAlreadyEmitted) {
+            // slither-disable-next-line reentrancy-events
+            emit ReservationStranded(
+                reservationKey,
+                reservation.walletPubKeyHash,
+                reservation.owner,
+                reservation.anchorAmount
+            );
+        }
     }
 
     /// @notice Closes a reservation: adjusts the wallet reservation count

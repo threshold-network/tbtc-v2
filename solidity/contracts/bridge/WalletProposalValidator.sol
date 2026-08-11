@@ -1174,8 +1174,8 @@ contract WalletProposalValidator {
     ///      - The reservation must be Active and custodied by the source
     ///        wallet,
     ///      - The named re-anchor authorization generation must be pending,
-    ///        target the proposal's target wallet, and not be within the
-    ///        timeout safety margin,
+    ///        target the proposal's target wallet, whose current state must
+    ///        still be Live, and not be within the timeout safety margin,
     ///      - The proposed fee must be positive, within the authorization's
     ///        snapshotted fee bound, and leave the re-anchored amount above
     ///        the dust floor.
@@ -1200,6 +1200,12 @@ contract WalletProposalValidator {
         require(
             action.targetWalletPubKeyHash == proposal.targetWalletPubKeyHash,
             "Re-anchor authorized for different target wallet"
+        );
+
+        require(
+            bridge.wallets(proposal.targetWalletPubKeyHash).state ==
+                Wallets.WalletState.Live,
+            "Target wallet must be in Live state"
         );
 
         require(

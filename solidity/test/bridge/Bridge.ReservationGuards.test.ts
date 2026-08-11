@@ -644,7 +644,7 @@ describe("Bridge - Reservation guards", () => {
       ).to.be.revertedWith("Reservation is not active")
     })
 
-    it("unwinds a pending redemption while stranding", async () => {
+    it("refuses to strand a reservation with a pending redemption", async () => {
       const { reservationKey } = await makeAcceptedReservation()
       await makeAcceptedReservation() // funds the owner for the surrender
 
@@ -654,27 +654,30 @@ describe("Bridge - Reservation guards", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, randomRedeemerScript())
+        .redeemReservation(
+          reservationKey,
+          randomRedeemerScript(),
+          redemptionFee
+        )
 
       expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
 
       await terminatedWallet(walletPubKeyHash)
 
-      const tx = await bridge
-        .connect(thirdParty)
-        .notifyReservationStranded(reservationKey)
-      await expect(tx)
-        .to.emit(bridge, "ReservationActionSuperseded")
-        .withArgs(reservationKey, 2)
+      await expect(
+        bridge.connect(thirdParty).notifyReservationStranded(reservationKey)
+      ).to.be.revertedWith("Reservation is not active")
 
-      // The escrowed claim returned to the redeemer as Bank balance.
-      expect(await bank.balanceOf(bridge.address)).to.equal(0)
-      expect(await bank.balanceOf(thirdParty.address)).to.equal(anchorAmount)
+      // A transaction may already have been signed and confirmed while the
+      // generation is pending. Preserve both its proof eligibility and its
+      // escrow until the proof or timeout resolves it.
+      expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
       expect(
         (await bridge.reservationActions(reservationKey, 2)).state
-      ).to.equal(ActionState.Superseded)
+      ).to.equal(ActionState.Pending)
       expect((await bridge.reservations(reservationKey)).state).to.equal(
-        ReservationState.Stranded
+        ReservationState.ActionPending
       )
     })
   })
@@ -754,7 +757,7 @@ describe("Bridge - Reservation guards", () => {
         )
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(first.reservationKey, redeemerScript)
+        .redeemReservation(first.reservationKey, redeemerScript, redemptionFee)
       const redemptionTx = buildTx(
         [{ txHash: reanchorTx.txHash, index: 0 }],
         [{ valueSat: newAnchor.sub(500), script: redeemerScript.slice(4) }]

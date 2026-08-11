@@ -177,6 +177,23 @@ describe("Bridge - Reservation partial redemption", () => {
     })
   }
 
+  async function setWalletState(pkh: string, state: number) {
+    const wallet = await bridge.wallets(pkh)
+    await bridge.setWallet(pkh, {
+      ecdsaWalletID: wallet.ecdsaWalletID,
+      mainUtxoHash: wallet.mainUtxoHash,
+      pendingRedemptionsValue: wallet.pendingRedemptionsValue,
+      createdAt: wallet.createdAt,
+      movingFundsRequestedAt: wallet.movingFundsRequestedAt,
+      closingStartedAt: wallet.closingStartedAt,
+      pendingMovedFundsSweepRequestsCount:
+        wallet.pendingMovedFundsSweepRequestsCount,
+      state,
+      movingFundsTargetWalletsCommitmentHash:
+        wallet.movingFundsTargetWalletsCommitmentHash,
+    })
+  }
+
   // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
   const REGTEST_BITS_LE = "ffff7f20"
@@ -409,7 +426,7 @@ describe("Bridge - Reservation partial redemption", () => {
       .approve(reservationVault.address, gross.add(feeFor(gross)))
     await reservationVault
       .connect(thirdParty)
-      .redeemReservation(reservationKey, redeemerScript)
+      .redeemReservation(reservationKey, redeemerScript, feeFor(gross))
   }
 
   // Builds a two-output partial-redemption transaction: output 0 pays the
@@ -898,6 +915,163 @@ describe("Bridge - Reservation partial redemption", () => {
 
       expect(
         (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.TimedOut)
+    })
+  })
+
+  describe("late partial settlement after direct stranding", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("settles the confirmed spend, re-strands the residual once, and rejects replay", async () => {
+      const redeemAmount = 1000000
+      const minerFee = 800
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const redeemerScript = randomRedeemerScript()
+      const partialTx = buildPartialTx(
+        anchorTx.txHash,
+        0,
+        redeemerScript,
+        redeemAmount - minerFee,
+        anchorAmount.sub(redeemAmount)
+      )
+
+      // Two timed-out generations can both authorize the same Bitcoin
+      // transaction. Keep the second generation settleable so replay reaches
+      // the proof boundary after the first proof reconstructs and advances a
+      // directly stranded position.
+      await requestPartial(reservationKey, redeemerScript, redeemAmount)
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      await requestPartial(reservationKey, redeemerScript, redeemAmount)
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      const sourceAnchorUtxoHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTx.txHash, 0]
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 2))
+          .sourceAnchorUtxoHash
+      ).to.equal(sourceAnchorUtxoHash)
+      expect(
+        (await bridge.reservationActions(reservationKey, 3))
+          .sourceAnchorUtxoHash
+      ).to.equal(sourceAnchorUtxoHash)
+
+      await setWalletState(walletPubKeyHash, walletState.Terminated)
+      const strandTx = await bridge
+        .connect(thirdParty)
+        .notifyReservationStranded(reservationKey)
+      await expect(strandTx)
+        .to.emit(bridge, "ReservationStranded")
+        .withArgs(
+          reservationKey,
+          walletPubKeyHash,
+          thirdParty.address,
+          anchorAmount
+        )
+
+      const ownerBankBefore = await bank.balanceOf(thirdParty.address)
+      const bridgeBankBefore = await bank.balanceOf(bridge.address)
+      expect(ownerBankBefore).to.equal(redeemAmount * 2)
+      expect(bridgeBankBefore).to.equal(0)
+
+      const proofTx = await proveRedemption(partialTx, reservationKey, 2)
+      await expect(proofTx)
+        .to.emit(bridge, "ReservationLateSettled")
+        .withArgs(reservationKey, 2, ActionType.Redemption)
+      await expect(proofTx)
+        .to.emit(bridge, "ReservationPartiallyRedeemed")
+        .withArgs(
+          reservationKey,
+          2,
+          partialTx.txHash,
+          redeemAmount,
+          anchorAmount.sub(redeemAmount)
+        )
+      await expect(proofTx).not.to.emit(bridge, "ReservationStranded")
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Stranded)
+      expect(reservation.mintedAmount).to.equal(anchorAmount.sub(redeemAmount))
+      expect(reservation.anchorAmount).to.equal(anchorAmount.sub(redeemAmount))
+      expect(reservation.anchorTxHash).to.equal(partialTx.txHash)
+      expect(reservation.anchorTxOutputIndex).to.equal(1)
+      expect(reservation.retryCredit).to.be.true
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Settled)
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.TimedOut)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(await bridge.reservationByAnchorUtxo(anchorTx.txHash, 0)).to.equal(
+        0
+      )
+      expect(
+        await bridge.reservationByAnchorUtxo(partialTx.txHash, 1)
+      ).to.equal(0)
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(ownerBankBefore)
+      expect(await bank.balanceOf(bridge.address)).to.equal(bridgeBankBefore)
+
+      const anchorKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [anchorTx.txHash, 0]
+        )
+      )
+      expect(await bridge.spentMainUTXOs(anchorKey)).to.be.true
+
+      await expect(
+        proveRedemption(partialTx, reservationKey, 3)
+      ).to.be.revertedWith("Action source anchor is no longer current")
+
+      // A different transaction spending the newly created residual must
+      // not be able to reuse generation 3's authorization, which was
+      // snapshotted against the original anchor.
+      const chainedPartialTx = buildPartialTx(
+        partialTx.txHash,
+        1,
+        redeemerScript,
+        redeemAmount - minerFee,
+        anchorAmount.sub(redeemAmount * 2)
+      )
+      await expect(
+        proveRedemption(chainedPartialTx, reservationKey, 3)
+      ).to.be.revertedWith("Action source anchor is no longer current")
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(ownerBankBefore)
+      expect(await bank.balanceOf(bridge.address)).to.equal(bridgeBankBefore)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Stranded
+      )
+      expect((await bridge.reservations(reservationKey)).retryCredit).to.be.true
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).state
       ).to.equal(ActionState.TimedOut)
     })
   })

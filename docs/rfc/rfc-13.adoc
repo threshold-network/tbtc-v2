@@ -182,12 +182,14 @@ Each action goes through the same *two-phase* lifecycle:
   liveness, post-fee dust floor, the per-wallet main-UTXO action lock) —
   a wallet that signs an authorized action must never find the action
   unprovable because state moved after signing;
-* *snapshots* every proof- and settlement-critical parameter (tx max fee,
-  redeemer script hash, target wallet, expected main-UTXO hash, fee-paid
-  flag) — later governance changes never affect an in-flight generation.
+* *snapshots* every proof- and settlement-critical parameter (source anchor
+  outpoint hash, tx max fee, redeemer script hash, target wallet, expected
+  main-UTXO hash, fee-paid flag, and the three-level watchtower delay schedule
+  for redemptions) — later governance changes never affect an in-flight
+  generation.
 
 *Authorization.* For reserved redemptions, the request is
-authorized-for-signing only after the applicable watchtower delay elapses
+authorized-for-signing only after its snapshotted watchtower delay elapses
 without a veto. The *Bridge proof path itself* enforces this: a proof for a
 redemption generation is rejected until
 `requestedAt + watchtowerDelay(generation) <= now` and the generation is not
@@ -346,11 +348,14 @@ latency).
 Veto and objection state is keyed by `keccak256(reservationKey, nonce)`:
 objections never accumulate across generations, and a once-vetoed
 reservation (owner later unbanned) starts every new generation with a clean
-objection count. The watchtower exposes the applicable delay per generation
-(2h/8h/24h ladder shared with the pooled path); the Bridge proof path
-consults it (H-03), and the request path uses a reservation-scoped safety
-check (owner/redeemer ban state) rather than the pooled redemption-key
-check.
+objection count. At request time the Bridge snapshots the watchtower's
+applicable three-level delay schedule (2h/8h/24h ladder shared with the
+pooled path). Later manager delay or waiver updates apply only to new
+generations, so an already-authorized spend cannot have its veto window
+reopened. Permanent watchtower shutdown remains a deliberate global override
+that makes every delay zero. The Bridge proof path consults the generation
+snapshot (H-03), and the request path uses a reservation-scoped safety check
+(owner/redeemer ban state) rather than the pooled redemption-key check.
 
 == Backing integrity
 
@@ -400,12 +405,18 @@ checked and reserved at request/authorization time, never at proof time.
 * Reserved redemption requests require the wallet to be Live or
   MovingFunds; every settlement path (timeout, veto, proof) works in any
   wallet state.
-* A *terminated* wallet's reservations can be permissionlessly marked
-  `Stranded` (per position): pending escrow unwinds to its redeemer,
-  counters release, and the owner's minted TBTC simply remains a fungible
-  pooled claim — the backing shortfall is socialized exactly like a
-  terminated wallet's main UTXO today. A governance-insurance hook is
-  stubbed for a future compensation module.
+* A *terminated* wallet's active reservations can be permissionlessly marked
+  `Stranded` (per position): counters release, and the owner's minted TBTC
+  simply remains a fungible pooled claim — the backing shortfall is
+  socialized exactly like a terminated wallet's main UTXO today. A pending
+  generation cannot be stranded or have its escrow unwound: its Bitcoin
+  transaction may already be confirmed, so its proof and ordinary timeout
+  paths remain available. After a timeout returns the position to `Active`,
+  it can be marked `Stranded`; a late proof of that timed-out generation
+  atomically reconstructs the released anchor accounting, settles the
+  confirmed transaction, and re-strands any lineage that still belongs to
+  an unusable wallet. A governance-insurance hook is stubbed for a future
+  compensation module.
 
 == Economic policy (governed defaults)
 
@@ -422,10 +433,10 @@ decisions* surfaced for sign-off:
 * pricing of the embedded senior-liquidity option: financial-modeling task,
   out of scope for the contracts, tracked as an open economics item;
 * `ReservationVault` ownership transferred to governance at deploy, with
-  renewals paused until governance activates them; the renewal call
-  carries a user fee bound (`maxFeeTbtc`). Fee schedule stays 40 bps
-  initiation / 20 bps/yr renewal / 20 bps redemption. A governance-delay
-  posture for `updateFees` and an initiation-fee snapshot remain open
+  renewals paused until governance activates them; renewal and whole-
+  redemption calls carry a user fee bound (`maxFeeTbtc`). Fee schedule stays
+  40 bps initiation / 20 bps/yr renewal / 20 bps redemption. A governance-
+  delay posture for `updateFees` and an initiation-fee snapshot remain open
   items tracked for the policy PR.
 
 == Storage layout policy

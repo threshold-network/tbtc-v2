@@ -1127,7 +1127,7 @@ describe("Bridge - Reservation", () => {
         await expect(
           reservationVault
             .connect(governance)
-            .redeemReservation(reservationKey, redeemerOutputScript)
+            .redeemReservation(reservationKey, redeemerOutputScript, 0)
         ).to.be.revertedWith("Caller is not the reservation owner")
       })
 
@@ -1141,7 +1141,7 @@ describe("Bridge - Reservation", () => {
 
         const tx = await reservationVault
           .connect(thirdParty)
-          .redeemReservation(reservationKey, redeemerOutputScript)
+          .redeemReservation(reservationKey, redeemerOutputScript, fee)
 
         await expect(tx)
           .to.emit(reservationVault, "ReservedRedemptionInitiated")
@@ -1159,6 +1159,83 @@ describe("Bridge - Reservation", () => {
         expect((await bridge.reservationActions(reservationKey, 1)).feePaid).to
           .be.true
         expect(await bank.balanceOf(bridge.address)).to.equal(amountSat)
+      })
+
+      it("should reject a stale fee quote after governance update and accept the exact bound", async () => {
+        const exposedReservationKey = 998
+        const quotedFee = grossTbtc.mul(20).div(10000)
+        const updatedFee = grossTbtc.mul(500).div(10000)
+
+        await bridge.setReservation(
+          exposedReservationKey,
+          await activeReservation(
+            thirdParty.address,
+            walletPubKeyHash,
+            amountSat
+          )
+        )
+
+        const bridgeSigner = await impersonateContract(bridge.address)
+        await bank
+          .connect(bridgeSigner)
+          .increaseBalanceAndCall(
+            reservationVault.address,
+            [thirdParty.address],
+            [amountSat.mul(2)]
+          )
+        await tbtc
+          .connect(thirdParty)
+          .approve(reservationVault.address, ethers.constants.MaxUint256)
+
+        const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+        const reserveBefore = await tbtc.balanceOf(reservationVault.address)
+
+        await reservationVault.connect(governance).updateFees(40, 20, 500)
+
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .redeemReservation(
+              exposedReservationKey,
+              redeemerOutputScript,
+              quotedFee
+            )
+        ).to.be.revertedWith("Fee exceeds the caller's bound")
+
+        expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+          ownerBalanceBefore
+        )
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore
+        )
+        expect(
+          (await bridge.reservations(exposedReservationKey)).state
+        ).to.equal(1)
+
+        const tx = await reservationVault
+          .connect(thirdParty)
+          .redeemReservation(
+            exposedReservationKey,
+            redeemerOutputScript,
+            updatedFee
+          )
+
+        await expect(tx)
+          .to.emit(reservationVault, "ReservedRedemptionInitiated")
+          .withArgs(
+            exposedReservationKey,
+            thirdParty.address,
+            grossTbtc,
+            updatedFee
+          )
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore.add(updatedFee)
+        )
+        expect(
+          (await bridge.reservations(exposedReservationKey)).state
+        ).to.equal(2)
+
+        await reservationVault.connect(governance).updateFees(40, 20, 20)
       })
     })
   })
@@ -1595,6 +1672,305 @@ describe("Bridge - Reservation", () => {
       expect((await bridge.reservations(reservationKey)).state).to.equal(
         ReservationState.ActionPending
       )
+    })
+  })
+
+  describe("RedemptionWatchtower reserved delay snapshots", () => {
+    const reservationKey = 667
+    const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+    const amountSat = BigNumber.from(100000000)
+    const redeemerOutputScript =
+      "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
+    let redemptionWatchtower: Contract
+    let guardianSigners: SignerWithAddress[]
+    let watchtowerManager: SignerWithAddress
+
+    async function updateDelayPolicy(
+      defaultDelay: number,
+      levelOneDelay: number,
+      levelTwoDelay: number,
+      waivedAmountLimit: BigNumber | number
+    ) {
+      return redemptionWatchtower
+        .connect(watchtowerManager)
+        .updateWatchtowerParameters(
+          await redemptionWatchtower.watchtowerLifetime(),
+          20,
+          await redemptionWatchtower.vetoFreezePeriod(),
+          defaultDelay,
+          levelOneDelay,
+          levelTwoDelay,
+          waivedAmountLimit
+        )
+    }
+
+    async function requestRedemption() {
+      await bridge.setReservation(
+        reservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      await requestRedemptionViaVault(
+        reservationKey,
+        amountSat,
+        thirdParty.address,
+        redeemerOutputScript
+      )
+    }
+
+    before(async () => {
+      await createSnapshot()
+      await wireReservations()
+
+      redemptionWatchtower = await helpers.contracts.getContract(
+        "RedemptionWatchtower"
+      )
+      guardianSigners = (await ethers.getSigners()).slice(10, 13)
+      const watchtowerOwner = await impersonateContract(
+        await redemptionWatchtower.owner()
+      )
+      await redemptionWatchtower.connect(watchtowerOwner).enableWatchtower(
+        governance.address,
+        guardianSigners.map((guardian) => guardian.address)
+      )
+      watchtowerManager = await impersonateContract(
+        await redemptionWatchtower.manager()
+      )
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setRedemptionWatchtower(redemptionWatchtower.address)
+
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("keeps every objection-level delay on the old generation and applies updates to the next one", async () => {
+      const defaultDelay = await redemptionWatchtower.defaultDelay()
+      const levelOneDelay = await redemptionWatchtower.levelOneDelay()
+      const levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+      await requestRedemption()
+
+      const oldAction = await bridge.reservationActions(reservationKey, 1)
+      expect(oldAction.watchtowerDefaultDelay).to.equal(defaultDelay)
+      expect(oldAction.watchtowerLevelOneDelay).to.equal(levelOneDelay)
+      expect(oldAction.watchtowerLevelTwoDelay).to.equal(levelTwoDelay)
+
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 1)
+      ).to.equal(defaultDelay)
+
+      const newDefaultDelay = defaultDelay + 60
+      const newLevelOneDelay = levelOneDelay + 120
+      const newLevelTwoDelay = levelTwoDelay + 180
+      await updateDelayPolicy(
+        newDefaultDelay,
+        newLevelOneDelay,
+        newLevelTwoDelay,
+        0
+      )
+
+      // Policy changes never rewrite the authorization window of an already
+      // requested generation.
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 1)
+      ).to.equal(defaultDelay)
+
+      await redemptionWatchtower
+        .connect(guardianSigners[0])
+        .raiseReservedObjection(reservationKey, 1)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 1)
+      ).to.equal(levelOneDelay)
+
+      await redemptionWatchtower
+        .connect(guardianSigners[1])
+        .raiseReservedObjection(reservationKey, 1)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 1)
+      ).to.equal(levelTwoDelay)
+
+      await redemptionWatchtower
+        .connect(guardianSigners[2])
+        .raiseReservedObjection(reservationKey, 1)
+      await redemptionWatchtower
+        .connect(watchtowerManager)
+        .unban(thirdParty.address)
+
+      await requestRedemptionViaVault(
+        reservationKey,
+        amountSat,
+        thirdParty.address,
+        redeemerOutputScript
+      )
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 2)
+      ).to.equal(newDefaultDelay)
+    })
+
+    it("keeps a waived generation objection-free after the waiver policy changes", async () => {
+      const defaultDelay = await redemptionWatchtower.defaultDelay()
+      const levelOneDelay = await redemptionWatchtower.levelOneDelay()
+      const levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+      await updateDelayPolicy(
+        defaultDelay,
+        levelOneDelay,
+        levelTwoDelay,
+        amountSat.add(1)
+      )
+      await requestRedemption()
+
+      const action = await bridge.reservationActions(reservationKey, 1)
+      expect(action.watchtowerDefaultDelay).to.equal(0)
+      expect(action.watchtowerLevelOneDelay).to.equal(0)
+      expect(action.watchtowerLevelTwoDelay).to.equal(0)
+
+      // Removing the waiver affects future generations only. This generation
+      // retains the zero schedule captured when it was requested.
+      await updateDelayPolicy(defaultDelay, levelOneDelay, levelTwoDelay, 0)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 1)
+      ).to.equal(0)
+      await expect(
+        redemptionWatchtower
+          .connect(guardianSigners[0])
+          .raiseReservedObjection(reservationKey, 1)
+      ).to.be.revertedWith("Redemption veto delay period expired")
+    })
+
+    it("snapshots the waiver against a partial amount rather than the full claim", async () => {
+      const partialReservationKey = 668
+      const wholeReservationKey = 669
+      const partialAmount = amountSat.div(4)
+      const waiverLimit = amountSat.div(2)
+      const defaultDelay = await redemptionWatchtower.defaultDelay()
+      const levelOneDelay = await redemptionWatchtower.levelOneDelay()
+      const levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+
+      await updateDelayPolicy(
+        defaultDelay,
+        levelOneDelay,
+        levelTwoDelay,
+        waiverLimit
+      )
+
+      await bridge.setReservation(
+        partialReservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, partialAmount)
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      await bank
+        .connect(vaultSigner)
+        .approveBalance(bridge.address, partialAmount)
+      await bridge
+        .connect(vaultSigner)
+        .requestPartialReservedRedemption(
+          partialReservationKey,
+          thirdParty.address,
+          redeemerOutputScript,
+          partialAmount,
+          true,
+          false
+        )
+
+      // The reservation's full claim is above the waiver, but this
+      // generation redeems only the partial amount below it.
+      const partialAction = await bridge.reservationActions(
+        partialReservationKey,
+        1
+      )
+      expect(partialAction.amount).to.equal(partialAmount)
+      expect(partialAction.isPartial).to.be.true
+      expect(partialAction.watchtowerDefaultDelay).to.equal(0)
+      expect(partialAction.watchtowerLevelOneDelay).to.equal(0)
+      expect(partialAction.watchtowerLevelTwoDelay).to.equal(0)
+
+      await bridge.setReservation(
+        wholeReservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      await requestRedemptionViaVault(
+        wholeReservationKey,
+        amountSat,
+        thirdParty.address,
+        redeemerOutputScript
+      )
+      const wholeAction = await bridge.reservationActions(
+        wholeReservationKey,
+        1
+      )
+      expect(wholeAction.amount).to.equal(amountSat)
+      expect(wholeAction.isPartial).to.be.false
+      expect(wholeAction.watchtowerDefaultDelay).to.equal(defaultDelay)
+      expect(wholeAction.watchtowerLevelOneDelay).to.equal(levelOneDelay)
+      expect(wholeAction.watchtowerLevelTwoDelay).to.equal(levelTwoDelay)
+
+      // Removing the waiver affects later requests only; both generations
+      // retain the schedules selected from their own requested amounts.
+      await updateDelayPolicy(
+        defaultDelay + 60,
+        levelOneDelay + 120,
+        levelTwoDelay + 180,
+        0
+      )
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(
+          partialReservationKey,
+          1
+        )
+      ).to.equal(0)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(
+          wholeReservationKey,
+          1
+        )
+      ).to.equal(defaultDelay)
+    })
+
+    it("captures a zero schedule after the watchtower is disabled", async () => {
+      const lifetimeExpiresAt =
+        (await redemptionWatchtower.watchtowerEnabledAt()) +
+        (await redemptionWatchtower.watchtowerLifetime())
+      await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+      await redemptionWatchtower.connect(thirdParty).disableWatchtower()
+
+      await requestRedemption()
+
+      const action = await bridge.reservationActions(reservationKey, 1)
+      expect(action.watchtowerDefaultDelay).to.equal(0)
+      expect(action.watchtowerLevelOneDelay).to.equal(0)
+      expect(action.watchtowerLevelTwoDelay).to.equal(0)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 1)
+      ).to.equal(0)
+      await expect(
+        redemptionWatchtower
+          .connect(guardianSigners[0])
+          .raiseReservedObjection(reservationKey, 1)
+      ).to.be.revertedWith("Redemption veto delay period expired")
     })
   })
 
@@ -2314,8 +2690,7 @@ describe("Bridge - Reservation", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, redeemerScript)
-
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
       const redemptionTx = buildTx(
         [{ txHash: anchorTx.txHash, index: 0 }],
         [
@@ -2352,6 +2727,181 @@ describe("Bridge - Reservation", () => {
       expect(await tbtc.totalSupply()).to.equal(supplyBefore.sub(grossTbtc))
     })
 
+    it("keeps a signed reserved redemption provable after the manager raises delays", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const redemptionWatchtower = await helpers.contracts.getContract(
+        "RedemptionWatchtower"
+      )
+      const guardian = (await ethers.getSigners())[10]
+      const watchtowerOwner = await impersonateContract(
+        await redemptionWatchtower.owner()
+      )
+      await redemptionWatchtower
+        .connect(watchtowerOwner)
+        .enableWatchtower(governance.address, [guardian.address])
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setRedemptionWatchtower(redemptionWatchtower.address)
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      await requestRedemptionViaVault(
+        reservationKey,
+        anchorAmount,
+        thirdParty.address,
+        redeemerScript
+      )
+
+      const defaultDelay = await redemptionWatchtower.defaultDelay()
+      const levelOneDelay = await redemptionWatchtower.levelOneDelay()
+      const levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+      await increaseTime(defaultDelay + 1)
+
+      const watchtowerManager = await impersonateContract(
+        await redemptionWatchtower.manager()
+      )
+      await redemptionWatchtower
+        .connect(watchtowerManager)
+        .updateWatchtowerParameters(
+          await redemptionWatchtower.watchtowerLifetime(),
+          20,
+          await redemptionWatchtower.vetoFreezePeriod(),
+          defaultDelay + 3600,
+          levelOneDelay + 3600,
+          levelTwoDelay + 3600,
+          0
+        )
+
+      // The old signing window is closed permanently. Raising live policy
+      // cannot reopen guardian objections against the already-signed spend.
+      await expect(
+        redemptionWatchtower
+          .connect(guardian)
+          .raiseReservedObjection(reservationKey, 2)
+      ).to.be.revertedWith("Redemption veto delay period expired")
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 2)
+      ).to.equal(defaultDelay)
+
+      const validator = await helpers.contracts.getContract(
+        "WalletProposalValidator"
+      )
+      expect(
+        await validator.validateReservedRedemptionProposal({
+          walletPubKeyHash,
+          reservationKey,
+          requestNonce: 2,
+          redemptionTxFee: 1000,
+        })
+      ).to.be.true
+
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            redemptionTx.info,
+            proofFor(redemptionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            2
+          )
+      )
+        .to.emit(bridge, "ReservedRedemptionCompleted")
+        .withArgs(reservationKey, 2, redemptionTx.txHash)
+    })
+
+    it("removes the delay from a pre-existing generation after permanent watchtower shutdown", async () => {
+      const redemptionWatchtower = await helpers.contracts.getContract(
+        "RedemptionWatchtower"
+      )
+      const guardian = (await ethers.getSigners())[10]
+      const watchtowerOwner = await impersonateContract(
+        await redemptionWatchtower.owner()
+      )
+      await redemptionWatchtower
+        .connect(watchtowerOwner)
+        .enableWatchtower(governance.address, [guardian.address])
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setRedemptionWatchtower(redemptionWatchtower.address)
+
+      // Let the finite watchtower lifetime expire without disabling it yet.
+      // The generation requested after expiry still captures the live policy,
+      // then permanent shutdown must override that snapshot globally.
+      const lifetimeExpiresAt =
+        (await redemptionWatchtower.watchtowerEnabledAt()) +
+        (await redemptionWatchtower.watchtowerLifetime())
+      await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+
+      // Create the reservation after the time jump so its redemption window
+      // remains active while the expired-but-not-yet-disabled watchtower still
+      // exposes its nonzero policy.
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      await requestRedemptionViaVault(
+        reservationKey,
+        anchorAmount,
+        thirdParty.address,
+        redeemerScript
+      )
+
+      const defaultDelay = await redemptionWatchtower.defaultDelay()
+      const action = await bridge.reservationActions(reservationKey, 2)
+      expect(action.watchtowerDefaultDelay).to.equal(defaultDelay)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 2)
+      ).to.equal(defaultDelay)
+
+      await redemptionWatchtower.connect(thirdParty).disableWatchtower()
+
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(reservationKey, 2)
+      ).to.equal(0)
+      await expect(
+        redemptionWatchtower
+          .connect(guardian)
+          .raiseReservedObjection(reservationKey, 2)
+      ).to.be.revertedWith("Redemption veto delay period expired")
+
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            redemptionTx.info,
+            proofFor(redemptionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            2
+          )
+      )
+        .to.emit(bridge, "ReservedRedemptionCompleted")
+        .withArgs(reservationKey, 2, redemptionTx.txHash)
+    })
+
     it("keeps redemption provable when txMaxFee exceeds the anchor (underflow guard)", async () => {
       // Regression: the redemption fee bound is snapshotted at request
       // time, but a snapshot can still exceed the anchor value. The
@@ -2385,7 +2935,7 @@ describe("Bridge - Reservation", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, redeemerScript)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
 
       // Pay the full anchor value out (zero miner fee). The old lower bound
       // `anchorAmount - redemptionTxMaxFee` would revert on underflow here.
@@ -2585,6 +3135,85 @@ describe("Bridge - Reservation", () => {
       await expect(
         bridge.connect(thirdParty).requestReservationDissolution(reservationKey)
       ).to.emit(bridge, "ReservationDissolutionRequested")
+    })
+
+    it("rejects a terminated re-anchor target at signing but still settles an already-built transaction", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+
+      const validator = await helpers.contracts.getContract(
+        "WalletProposalValidator"
+      )
+      const proposal = {
+        sourceWalletPubKeyHash: walletPubKeyHash,
+        reservationKey,
+        requestNonce: 2,
+        targetWalletPubKeyHash: secondWalletPubKeyHash,
+        reanchorTxFee: 1000,
+      }
+
+      // A transaction authorized while the target is Live may already have
+      // been signed and broadcast before the target's registry state changes.
+      expect(await validator.validateReservationReanchorProposal(proposal)).to
+        .be.true
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(proposal.reanchorTxFee),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await bridge.setWallet(secondWalletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Terminated,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      // The wallet must not sign a fresh transaction to a target that is no
+      // longer Live.
+      await expect(
+        validator.validateReservationReanchorProposal(proposal)
+      ).to.be.revertedWith("Target wallet must be in Live state")
+
+      // Proof settlement deliberately remains state-independent: rejecting a
+      // transaction that was already broadcast would drop its BTC from the
+      // reservation accounting.
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          2
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          2,
+          secondWalletPubKeyHash,
+          reanchorTx.txHash,
+          anchorAmount.sub(proposal.reanchorTxFee)
+        )
+      expect(
+        (await bridge.reservations(reservationKey)).walletPubKeyHash
+      ).to.equal(secondWalletPubKeyHash)
     })
 
     it("rejects a re-anchor paying a wallet other than the authorized target", async () => {
