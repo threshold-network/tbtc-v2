@@ -51,7 +51,9 @@ Deploy inert, then activate last.
    is unaffected. Do not trust the future reservation vault during this step;
    it must remain untrusted through all configuration below.
 4. **Watchtower implementation upgrade** (per-generation reserved
-   objections). Independent of vault activation; can precede it.
+   objections and request-time delay snapshots). This must complete before
+   vault activation: the upgraded Bridge snapshots the watchtower's delay
+   schedule when it creates each reserved-redemption generation.
 5. **Deploy `ReservationVault`** (`95_deploy_reservation_vault.ts`). It
    deploys **with renewals paused** and immediately transfers ownership to
    the governance account. Do not skip the ownership transfer.
@@ -115,10 +117,16 @@ Standard transparent-proxy upgrade via `BridgeGovernance` /
   empty).
 - The reserved-objection surface changed shape (`raiseReservedObjection`,
   `getReservedRedemptionDelay`, `isSafeReservedRedemption` now take a
-  generation nonce / are ban-only). No storage layout change: veto and
-  objection state reuse the existing `vetoProposals`/`objections` mappings
-  under generation-scoped keys. A straight `upgradeTo` suffices; no
-  reinitializer.
+  generation nonce / are ban-only), and the Bridge now calls
+  `getReservedRedemptionDelaySchedule(amount)` when creating a generation.
+  No storage layout change: veto and objection state reuse the existing
+  `vetoProposals`/`objections` mappings under generation-scoped keys. A
+  straight `upgradeTo` suffices; no reinitializer.
+- Treat the Bridge and watchtower upgrades as one activation unit: upgrade
+  and verify the watchtower before the final `setVaultStatus(vault, true)`.
+  The Bridge stores the three delay levels in each new action, so later
+  watchtower manager delay or waiver changes affect only later generations;
+  permanent watchtower shutdown remains a global zero-delay override.
 - Guardian set and parameters are preserved across the upgrade (same
   storage).
 
@@ -145,6 +153,10 @@ Standard transparent-proxy upgrade via `BridgeGovernance` /
   owner-gated; apply it only through the governance process. A
   governance-delay wrapper on `updateFees` and a per-position initiation-
   fee snapshot are open follow-ups (tracked in the frozen spec).
+- **Redemption fee slippage**: owners call
+  `redeemReservation(reservationKey, script, maxFeeTbtc)`. The vault checks
+  the live redemption fee against `maxFeeTbtc` before transferring tokens or
+  changing Bank/Bridge state; clients must quote and supply this bound.
 
 ## 6. BridgeGovernance replacement plan
 
