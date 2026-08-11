@@ -2031,12 +2031,10 @@ __metadata:
     "@typechain/ethers-v5": "npm:^8.0.5"
     "@typechain/hardhat": "npm:^4.0.0"
     "@types/chai": "npm:^4.3.0"
-    "@types/crypto-js": "npm:^4.1.1"
     "@types/mocha": "npm:^9.1.0"
     "@types/node": "npm:^17.0.10"
     chai: "npm:^4.3.4"
     chai-as-promised: "npm:^7.1.1"
-    crypto-js: "npm:^4.1.1"
     dotenv: "npm:^16.4.5"
     eslint: "npm:^7.32.0"
     ethereum-waffle: "npm:^3.4.0"
@@ -3193,13 +3191,6 @@ __metadata:
   version: 0.0.0
   resolution: "@types/country-data@npm:0.0.0"
   checksum: 10c0/d06b54b25552c1c388abd9c8dcfff98ed3ddff083ba410f0b2581af677676bf71e676372888fab4a49e27fa638e4bfbc03c23905b5f9eafc0bcc5a15a70784cb
-  languageName: node
-  linkType: hard
-
-"@types/crypto-js@npm:^4.1.1":
-  version: 4.2.2
-  resolution: "@types/crypto-js@npm:4.2.2"
-  checksum: 10c0/760a2078f36f2a3a1089ef367b0d13229876adcf4bcd6e8824d00d9e9bfad8118dc7e6a3cc66322b083535e12be3a29044ccdc9603bfb12519ff61551a3322c6
   languageName: node
   linkType: hard
 
@@ -6499,14 +6490,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"crypto-js@npm:^3.1.9-1":
-  version: 3.3.0
-  resolution: "crypto-js@npm:3.3.0"
-  checksum: 10c0/10b5d91bdc85095df9be01f9d0d954b8a3aba6202f143efa6215b8b3d5dd984e0883e10aeff792ef4a51b77cd4442320242b496acf6dce5069d0e0fc2e1d75d2
-  languageName: node
-  linkType: hard
-
-"crypto-js@npm:^4.1.1":
+"crypto-js@npm:4.2.0":
   version: 4.2.0
   resolution: "crypto-js@npm:4.2.0"
   checksum: 10c0/8fbdf9d56f47aea0794ab87b0eb9833baf80b01a7c5c1b0edc7faf25f662fb69ab18dc2199e2afcac54670ff0cd9607a9045a3f7a80336cccd18d77a55b9fdf0

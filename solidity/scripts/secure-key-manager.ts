@@ -7,7 +7,7 @@
 
 import * as fs from "fs"
 import * as path from "path"
-import * as CryptoJS from "crypto-js"
+import { decryptPrivateKey } from "./private-key-crypto"
 
 const ENCRYPTED_KEY_FILE = path.join(__dirname, ".encrypted-key")
 
@@ -35,14 +35,7 @@ class SecureKeyManagerImpl implements SecureKeyManager {
 
     try {
       const encryptedData = fs.readFileSync(ENCRYPTED_KEY_FILE, "utf8")
-      const decrypted = CryptoJS.AES.decrypt(encryptedData, masterPassword)
-      const privateKey = decrypted.toString(CryptoJS.enc.Utf8)
-
-      if (!privateKey || privateKey.length !== 64) {
-        throw new Error("Invalid password or corrupted key file")
-      }
-
-      return privateKey
+      return await decryptPrivateKey(encryptedData, masterPassword)
     } catch (error) {
       throw new Error("Failed to decrypt private key. Check your password.")
     }
