@@ -33,12 +33,9 @@ contract BridgeStub is Bridge {
         uint256 reservationKey,
         uint64 requestNonce
     ) external {
-        Reservation.ReservationAction storage action = self
-            .reservationActions[
-                uint256(
-                    keccak256(abi.encodePacked(reservationKey, requestNonce))
-                )
-            ];
+        Reservation.ReservationAction storage action = self.reservationActions[
+            uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)))
+        ];
         action.actionType = Reservation.ActionType.Acceptance;
         action.state = Reservation.ActionState.Pending;
     }

@@ -1102,7 +1102,8 @@ library Reservation {
     ///      - Reservation minimum amount must be greater than the
     ///        reservation transaction max fee,
     ///      - Reservation term must be greater than zero,
-    ///      - Reservation action timeout must be greater than zero,
+    ///      - Reservation action timeout must exceed the wallet proposal
+    ///        validator's final signing safety margin,
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero).
     ///
@@ -1133,8 +1134,9 @@ library Reservation {
             "Reservation term must be greater than zero"
         );
         require(
-            reservationActionTimeout > 0,
-            "Reservation action timeout must be greater than zero"
+            reservationActionTimeout >
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Reservation action timeout must exceed the safety margin"
         );
 
         if (reservationVault != self.reservationVault) {

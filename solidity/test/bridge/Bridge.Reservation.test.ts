@@ -389,7 +389,7 @@ describe("Bridge - Reservation", () => {
         )
       })
 
-      it("should revert for a zero action timeout", async () => {
+      it("should reject an action timeout equal to the safety margin", async () => {
         await expect(
           bridge
             .connect(bridgeGovernanceSigner)
@@ -401,11 +401,28 @@ describe("Bridge - Reservation", () => {
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
               MAX_RESERVATIONS_PER_WALLET,
-              0
+              2 * 60 * 60
             )
         ).to.be.revertedWith(
-          "Reservation action timeout must be greater than zero"
+          "Reservation action timeout must exceed the safety margin"
         )
+      })
+
+      it("should accept an action timeout one second above the safety margin", async () => {
+        await expect(
+          bridge
+            .connect(bridgeGovernanceSigner)
+            .updateReservationParameters(
+              reservationVault.address,
+              RESERVATION_MIN_AMOUNT,
+              RESERVATION_TX_MAX_FEE,
+              RESERVATION_TERM,
+              RESERVATION_GRACE,
+              RESERVATION_MAX_TOTAL,
+              MAX_RESERVATIONS_PER_WALLET,
+              2 * 60 * 60 + 1
+            )
+        ).to.emit(bridge, "ReservationParametersUpdated")
       })
 
       it("should revert when changing the vault with active reservations", async () => {
@@ -2237,13 +2254,16 @@ describe("Bridge - Reservation", () => {
         (await lastBlockTime()) + 30 * 24 * 60 * 60
       )
 
-      for (let i = 0; i < 2; i++) {
-        await expect(
-          bridge
-            .connect(thirdParty)
-            .requestReservationAcceptance(reservationKey, walletPubKeyHash)
-        ).to.be.revertedWith("Acceptance authorization has no signing window")
-      }
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Acceptance authorization has no signing window")
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Acceptance authorization has no signing window")
 
       expect(
         (await bridge.reservationParameters()).reservationTotalAmount
@@ -2583,6 +2603,14 @@ describe("Bridge - Reservation", () => {
           [fundingTx.txHash, 0]
         )
       )
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Deposit was not revealed as reserved")
+
+      // Build an otherwise settleable generation to exercise the proof-side
+      // classification defense independently of the request-side guard.
       await bridge.setPendingReservationAcceptanceAction(reservationKey, 1)
 
       const anchorTx = buildTx(
