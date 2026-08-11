@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { deployments, ethers, helpers, upgrades } from "hardhat"
+import hre, { deployments, ethers, helpers, upgrades } from "hardhat"
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 
@@ -12,15 +12,18 @@ import type {
   TBTCVault,
   TBTC,
   MaintainerProxy,
+  MaintainerProxyV2,
   ReimbursementPool,
   WalletRegistry,
   VendingMachine,
 } from "../../typechain"
 import type { TransparentUpgradeableProxy } from "../../typechain/TransparentUpgradeableProxy"
+import deployMaintainerProxyV2 from "../../deploy/96_deploy_maintainer_proxy_v2"
 
 chai.use(chaiAsPromised)
 
 const { AddressZero } = ethers.constants
+const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 describe("Deployment", async () => {
   let deployer: SignerWithAddress
@@ -37,6 +40,7 @@ describe("Deployment", async () => {
   let tbtcVault: TBTCVault
   let tbtc: TBTC
   let maintainerProxy: MaintainerProxy
+  let maintainerProxyV2: MaintainerProxyV2
   let reimbursementPool: ReimbursementPool
   let walletRegistry: WalletRegistry
   let vendingMachine: VendingMachine
@@ -70,6 +74,7 @@ describe("Deployment", async () => {
     tbtcVault = await helpers.contracts.getContract("TBTCVault")
     tbtc = await helpers.contracts.getContract("TBTC")
     maintainerProxy = await helpers.contracts.getContract("MaintainerProxy")
+    maintainerProxyV2 = await helpers.contracts.getContract("MaintainerProxyV2")
     reimbursementPool = await helpers.contracts.getContract("ReimbursementPool")
     walletRegistry = await helpers.contracts.getContract("WalletRegistry")
     vendingMachine = await helpers.contracts.getContract("VendingMachine")
@@ -235,6 +240,72 @@ describe("Deployment", async () => {
         await maintainerProxy.owner(),
         "invalid MaintainerProxy owner"
       ).equal(governance.address)
+    })
+  })
+
+  describe("MaintainerProxyV2", () => {
+    it("should set Bridge reference", async () => {
+      expect(await maintainerProxyV2.bridge(), "invalid Bridge address").equal(
+        bridge.address
+      )
+    })
+
+    it("should set ReimbursementPool reference", async () => {
+      expect(
+        await maintainerProxyV2.reimbursementPool(),
+        "invalid ReimbursementPool address"
+      ).equal(reimbursementPool.address)
+    })
+
+    it("should set owner", async () => {
+      expect(await maintainerProxyV2.owner(), "invalid owner").equal(
+        governance.address
+      )
+    })
+
+    it("should set reservation proof gas offset", async () => {
+      expect(
+        await maintainerProxyV2.submitReservationProofGasOffset(),
+        "invalid reservation proof gas offset"
+      ).equal(30000)
+    })
+
+    describe("deployment resume", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should idempotently migrate SPV maintainers before handing ownership off", async () => {
+        expect(await maintainerProxy.isSpvMaintainer(esdm.address)).to.equal(0)
+        await maintainerProxy
+          .connect(governance)
+          .authorizeSpvMaintainer(esdm.address)
+
+        await maintainerProxyV2
+          .connect(governance)
+          .transferOwnership(deployer.address)
+
+        await deployMaintainerProxyV2(hre)
+
+        expect(
+          await maintainerProxyV2.isSpvMaintainer(esdm.address)
+        ).to.not.equal(0)
+        expect(await maintainerProxyV2.owner()).to.equal(governance.address)
+
+        const maintainersCount = (await maintainerProxyV2.allSpvMaintainers())
+          .length
+
+        await deployMaintainerProxyV2(hre)
+
+        expect((await maintainerProxyV2.allSpvMaintainers()).length).to.equal(
+          maintainersCount
+        )
+        expect(await maintainerProxyV2.owner()).to.equal(governance.address)
+      })
     })
   })
 

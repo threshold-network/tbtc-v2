@@ -26,6 +26,7 @@ import "./IReservationBridge.sol";
 import "./Reservation.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
+import "./WalletProposalValidatorConstants.sol";
 
 /// @title Wallet proposal validator.
 /// @notice This contract exposes several view functions allowing to validate
@@ -142,7 +143,8 @@ contract WalletProposalValidator {
     ///      In the happy path case, i.e. where the deposit is revealed immediately
     ///      after being broadcast on the Bitcoin network, the minimum age
     ///      check also ensures block finality for Bitcoin.
-    uint32 public constant DEPOSIT_MIN_AGE = 2 hours;
+    uint32 public constant DEPOSIT_MIN_AGE =
+        WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
 
     /// @notice Each deposit can be technically swept until it reaches its
     ///         refund timestamp after which it can be taken back by the depositor.
@@ -159,7 +161,8 @@ contract WalletProposalValidator {
     ///         For example, if a deposit becomes refundable after 8 pm and
     ///         DEPOSIT_REFUND_SAFETY_MARGIN is 6 hours, the deposit is valid
     ///         for a sweep only before 2 pm.
-    uint32 public constant DEPOSIT_REFUND_SAFETY_MARGIN = 24 hours;
+    uint32 public constant DEPOSIT_REFUND_SAFETY_MARGIN =
+        WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
 
     /// @notice The maximum count of deposits that can be swept within a
     ///         single sweep.
@@ -192,7 +195,8 @@ contract WalletProposalValidator {
     ///         For example, if a request times out after 8 pm and
     ///         REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN is 2 hours, the
     ///         request is valid for processing only before 6 pm.
-    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN = 2 hours;
+    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN =
+        WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
 
     /// @notice The maximum count of redemption requests that can be processed
     ///         within a single redemption.
@@ -270,10 +274,6 @@ contract WalletProposalValidator {
 
         address proposalVault = address(0);
 
-        (address reservationVault, , , , , , , , , ) = IReservationBridge(
-            address(bridge)
-        ).reservationParameters();
-
         uint256[] memory processedDepositKeys = new uint256[](
             proposal.depositsKeys.length
         );
@@ -306,11 +306,11 @@ contract WalletProposalValidator {
 
             require(depositRequest.sweptAt == 0, "Deposit already swept");
 
-            // Deposits routed to the reservation vault are anchored via the
-            // reservation flow and must never be swept.
+            // Deposits classified as reserved when revealed are anchored via
+            // the reservation flow and must never be swept.
+            // slither-disable-next-line calls-loop
             require(
-                reservationVault == address(0) ||
-                    depositRequest.vault != reservationVault,
+                !bridge.isReservedDeposit(depositKeyUint),
                 "Reserved deposits must not be swept"
             );
 
@@ -1053,6 +1053,11 @@ contract WalletProposalValidator {
         );
 
         require(depositRequest.sweptAt == 0, "Deposit already swept");
+
+        require(
+            bridge.isReservedDeposit(depositKeyUint),
+            "Deposit was not revealed as reserved"
+        );
 
         require(
             proposal.anchorTxFee > 0,

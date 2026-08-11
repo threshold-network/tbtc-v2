@@ -84,7 +84,6 @@ describe("Bridge - Reservation guards", () => {
   const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
   const blindingFactor = "0xf9f0c90d00039523"
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
-  const refundLocktime = "0x60bcea61"
   const NO_MAIN_UTXO_PARAM = {
     txHash: ZERO_BYTES32,
     txOutputIndex: 0,
@@ -180,6 +179,13 @@ describe("Bridge - Reservation guards", () => {
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Terminated,
       movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+    })
+  }
+
+  async function setWalletState(pkh: string, state: number) {
+    await bridge.setWallet(pkh, {
+      ...(await bridge.wallets(pkh)),
+      state,
     })
   }
 
@@ -291,8 +297,11 @@ describe("Bridge - Reservation guards", () => {
 
   async function revealReservedDeposit(
     custodian = walletPubKeyHash,
-    depositRefundLocktime = refundLocktime
+    depositRefundLocktime?: string
   ) {
+    const effectiveRefundLocktime =
+      depositRefundLocktime ??
+      `0x${toLE((await lastBlockTime()) + 400 * 24 * 60 * 60, 4)}`
     const fundingTx = buildTx(
       [
         {
@@ -309,7 +318,7 @@ describe("Bridge - Reservation guards", () => {
               blindingFactor,
               custodian,
               refundPubKeyHash,
-              depositRefundLocktime
+              effectiveRefundLocktime
             )
           ),
         },
@@ -321,7 +330,7 @@ describe("Bridge - Reservation guards", () => {
       blindingFactor,
       walletPubKeyHash: custodian,
       refundPubKeyHash,
-      refundLocktime: depositRefundLocktime,
+      refundLocktime: effectiveRefundLocktime,
       vault: reservationVault.address,
     })
 
@@ -396,6 +405,82 @@ describe("Bridge - Reservation guards", () => {
     afterEach(async () => {
       await restoreSnapshot()
     })
+
+    async function settleLateAcceptanceAfterStale(targetState?: number) {
+      await bridge.setDepositRevealAheadPeriod(0)
+      const { fundingTx, reservationKey } = await revealReservedDeposit()
+      await bridge
+        .connect(thirdParty)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+
+      const anchorTx = buildTx(
+        [{ txHash: fundingTx.txHash, index: 0 }],
+        [{ valueSat: anchorAmount, script: p2wpkhScript(walletPubKeyHash) }]
+      )
+
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+      const totalAfterTimeout = (await bridge.reservationParameters())
+        .reservationTotalAmount
+
+      if (targetState !== undefined) {
+        await setWalletState(walletPubKeyHash, targetState)
+      }
+
+      await bridge
+        .connect(thirdParty)
+        .notifyStaleReservedDeposit(reservationKey)
+
+      expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
+
+      const proofTx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Acceptance,
+          anchorTx.info,
+          proofFor(anchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          1
+        )
+
+      return { anchorTx, reservationKey, proofTx, totalAfterTimeout }
+    }
+
+    async function expectLateAcceptanceFullyStranded(
+      fixture: Awaited<ReturnType<typeof settleLateAcceptanceAfterStale>>
+    ) {
+      expect(
+        (await bridge.reservations(fixture.reservationKey)).state
+      ).to.equal(ReservationState.Stranded)
+      expect(
+        (await bridge.reservationActions(fixture.reservationKey, 1)).state
+      ).to.equal(ActionState.Settled)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(await bridge.walletReservations(walletPubKeyHash)).to.deep.equal(
+        []
+      )
+      expect(
+        await bridge.getWalletReservationKeyIndex(fixture.reservationKey)
+      ).to.equal(0)
+      expect(
+        await bridge.reservationByAnchorUtxo(fixture.anchorTx.txHash, 0)
+      ).to.equal(0)
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(fixture.totalAfterTimeout)
+      expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(fixture.reservationKey)).to.be.true
+      expect(
+        await bridge.reservedDepositWallet(fixture.reservationKey)
+      ).to.equal(`0x${"00".repeat(20)}`)
+    }
 
     it("tracks reveals through acceptance and blocks vault changes while pending", async () => {
       expect(await bridge.pendingReservedDeposits()).to.equal(0)
@@ -486,6 +571,7 @@ describe("Bridge - Reservation guards", () => {
         )
 
       expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
       expect(await bridge.reservedDepositWallet(reservationKey)).to.equal(
         `0x${"00".repeat(20)}`
       )
@@ -505,6 +591,7 @@ describe("Bridge - Reservation guards", () => {
         .withArgs(reservationKey)
 
       expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
 
       // A stale deposit cannot be re-authorized.
       await expect(
@@ -565,6 +652,7 @@ describe("Bridge - Reservation guards", () => {
         .withArgs(reservationKey)
 
       expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
       expect(await bridge.reservedDepositWallet(reservationKey)).to.equal(
         `0x${"00".repeat(20)}`
       )
@@ -580,6 +668,96 @@ describe("Bridge - Reservation guards", () => {
       await expect(
         bridge.connect(thirdParty).notifyStaleReservedDeposit(reservationKey)
       ).to.be.revertedWith("Acceptance authorization pending")
+    })
+
+    it("keeps a timed-out acceptance proof settleable after stale cleanup", async () => {
+      const fixture = await settleLateAcceptanceAfterStale()
+
+      // The reveal-time classification survives stale cleanup, so a Bitcoin
+      // anchor signed while generation 1 was pending can still be registered.
+      await expect(fixture.proofTx).to.emit(bridge, "ReservationLateSettled")
+      await expect(fixture.proofTx).not.to.emit(bridge, "ReservationStranded")
+
+      expect(
+        (await bridge.reservations(fixture.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+      expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(fixture.reservationKey)).to.be.true
+      expect(
+        await bridge.getWalletReservationKeyIndex(fixture.reservationKey)
+      ).to.equal(1)
+    })
+
+    const retiredAcceptanceTargetStates = [
+      { targetState: walletState.Closing, stateName: "Closing" },
+      { targetState: walletState.Closed, stateName: "Closed" },
+    ]
+
+    retiredAcceptanceTargetStates.forEach(({ targetState, stateName }) => {
+      it(`strands a late acceptance after its target enters ${stateName}`, async () => {
+        const fixture = await settleLateAcceptanceAfterStale(targetState)
+
+        await expect(fixture.proofTx).to.emit(bridge, "ReservationLateSettled")
+        await expect(fixture.proofTx)
+          .to.emit(bridge, "ReservationStranded")
+          .withArgs(
+            fixture.reservationKey,
+            walletPubKeyHash,
+            thirdParty.address,
+            anchorAmount
+          )
+        const proofReceipt = await fixture.proofTx.wait()
+        expect(
+          proofReceipt.events?.filter(
+            ({ event }) => event === "ReservationStranded"
+          )
+        ).to.have.lengthOf(1)
+
+        await expectLateAcceptanceFullyStranded(fixture)
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .notifyReservationStranded(fixture.reservationKey)
+        ).to.be.revertedWith("Reservation is not active")
+      })
+    })
+
+    it("keeps a late acceptance manageable on a MovingFunds target", async () => {
+      const fixture = await settleLateAcceptanceAfterStale(
+        walletState.MovingFunds
+      )
+
+      await expect(fixture.proofTx).to.emit(bridge, "ReservationLateSettled")
+      await expect(fixture.proofTx).not.to.emit(bridge, "ReservationStranded")
+      expect(
+        (await bridge.reservations(fixture.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+      expect(await bridge.walletReservationsCount(walletPubKeyHash)).to.equal(1)
+    })
+
+    it("leaves Terminated-target evidence to permissionless stranding", async () => {
+      const fixture = await settleLateAcceptanceAfterStale(
+        walletState.Terminated
+      )
+
+      await expect(fixture.proofTx).not.to.emit(bridge, "ReservationStranded")
+      expect(
+        (await bridge.reservations(fixture.reservationKey)).state
+      ).to.equal(ReservationState.Active)
+
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .notifyReservationStranded(fixture.reservationKey)
+      )
+        .to.emit(bridge, "ReservationStranded")
+        .withArgs(
+          fixture.reservationKey,
+          walletPubKeyHash,
+          thirdParty.address,
+          anchorAmount
+        )
+      await expectLateAcceptanceFullyStranded(fixture)
     })
   })
 
