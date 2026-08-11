@@ -2090,7 +2090,8 @@ contract Bridge is
     /// @dev Requirements:
     ///      - The caller must be the governance,
     ///      - The reservation router must not be already set,
-    ///      - The reservation router address must not be 0x0.
+    ///      - The reservation router address must not be 0x0,
+    ///      - The reservation router address must contain deployed code.
     ///
     ///      This function supports a one-time initialization of the router.
     ///      Since the router executes via `delegatecall` on the Bridge

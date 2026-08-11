@@ -924,7 +924,8 @@ library BridgeState {
     /// @param _reservationRouter Address of the reservation router.
     /// @dev Requirements:
     ///      - Reservation router address must not be already set,
-    ///      - Reservation router address must not be 0x0.
+    ///      - Reservation router address must not be 0x0,
+    ///      - Reservation router address must contain deployed code.
     ///
     ///      This function is designed to support a one-time initialization
     ///      of the reservation router. The router is a `delegatecall`
@@ -943,6 +944,10 @@ library BridgeState {
         require(
             _reservationRouter != address(0),
             "Reservation router address must not be 0x0"
+        );
+        require(
+            _reservationRouter.code.length > 0,
+            "Reservation router must be a contract"
         );
 
         self.reservationRouter = _reservationRouter;
