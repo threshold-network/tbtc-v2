@@ -300,6 +300,22 @@ library ReservationProofs {
         self.reservationsByAnchorUtxo[anchorUtxoKey] = reservationKey;
     }
 
+    /// @notice Reverts unless the reservation still points at the exact
+    ///         anchor outpoint this generation was authorized to spend.
+    ///         This prevents a timed-out generation from being replayed
+    ///         against a later anchor whose transaction merely has the old
+    ///         generation's output shape.
+    function requireCurrentSourceAnchor(
+        Reservation.ReservationRequest storage reservation,
+        Reservation.ReservationAction storage action
+    ) internal view {
+        require(
+            Reservation.anchorUtxoHash(reservation) ==
+                action.sourceAnchorUtxoHash,
+            "Action source anchor is no longer current"
+        );
+    }
+
     /// @notice Used by the wallet to prove the BTC anchor transaction of an
     ///         authorized reserved deposit acceptance and to credit the
     ///         owner's balance accordingly.
@@ -626,6 +642,8 @@ library ReservationProofs {
             }
         }
 
+        requireCurrentSourceAnchor(reservation, action);
+
         bytes32 redemptionTxHash = self.validateProof(
             redemptionTx,
             redemptionProof
@@ -639,7 +657,7 @@ library ReservationProofs {
         {
             bytes memory outputScript = output.slice(8, output.length - 8);
             require(
-                keccak256(outputScript) == action.redeemerOutputScriptHash,
+                keccak256(outputScript) == action.actionDataHash,
                 "Output does not pay the requested redeemer script"
             );
         }
@@ -736,6 +754,8 @@ library ReservationProofs {
                 "Not the current generation"
             );
         }
+
+        requireCurrentSourceAnchor(reservation, action);
 
         bytes32 reanchorTxHash = self.validateProof(reanchorTx, reanchorProof);
 
@@ -912,6 +932,8 @@ library ReservationProofs {
             );
         }
 
+        requireCurrentSourceAnchor(reservation, action);
+
         bytes32 dissolutionTxHash = self.validateProof(
             dissolutionTx,
             dissolutionProof
@@ -921,7 +943,7 @@ library ReservationProofs {
             self,
             reservation,
             dissolutionTx.inputVector,
-            action.expectedMainUtxoHash,
+            action.actionDataHash,
             mainUtxo
         );
 
@@ -1004,12 +1026,12 @@ library ReservationProofs {
         ];
         bool walletTerminated = wallet.state == Wallets.WalletState.Terminated;
 
-        if (wallet.mainUtxoHash == action.expectedMainUtxoHash) {
+        if (wallet.mainUtxoHash == action.actionDataHash) {
             // A timed-out dissolution may settle after a different
             // reservation acquired the wallet lock against the same main
             // UTXO. This proof consumes that shared snapshot, so the newer
             // generation can no longer confirm and must be superseded now.
-            if (late && action.expectedMainUtxoHash != bytes32(0)) {
+            if (late && action.actionDataHash != bytes32(0)) {
                 supersedeConflictingDissolution(
                     self,
                     walletPubKeyHash,
@@ -1023,7 +1045,7 @@ library ReservationProofs {
                 // UTXO. The dissolution output is deliberately not installed
                 // as a replacement: Bridge spending paths reject Terminated
                 // wallets and their registry group is already closed.
-                if (action.expectedMainUtxoHash != bytes32(0)) {
+                if (action.actionDataHash != bytes32(0)) {
                     delete wallet.mainUtxoHash;
                 }
             } else {
@@ -1036,7 +1058,7 @@ library ReservationProofs {
             }
         } else {
             require(
-                action.expectedMainUtxoHash == bytes32(0),
+                action.actionDataHash == bytes32(0),
                 "Recorded main UTXO can no longer be spent"
             );
 
@@ -1178,8 +1200,7 @@ library ReservationProofs {
             ];
         if (
             pendingAction.actionType == Reservation.ActionType.Redemption &&
-            pendingAction.redeemerOutputScriptHash ==
-            action.redeemerOutputScriptHash &&
+            pendingAction.actionDataHash == action.actionDataHash &&
             reservation.anchorAmount - outputValue <= pendingAction.txMaxFee
         ) {
             revert("Must settle the pending generation");
