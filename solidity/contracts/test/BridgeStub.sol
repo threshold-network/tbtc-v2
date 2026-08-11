@@ -220,4 +220,12 @@ contract BridgeStub is Bridge {
     function cancelRebate(address user, uint256 requestedAt) external {
         RebateStaking(self.rebateStaking).cancelRebate(user, requestedAt);
     }
+
+    function getWalletReservationsCount(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32)
+    {
+        return self.walletReservationsCount[walletPubKeyHash];
+    }
 }

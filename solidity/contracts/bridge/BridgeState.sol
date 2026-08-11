@@ -30,14 +30,19 @@ import "../bank/Bank.sol";
 
 library BridgeState {
     /// @notice Reveal-time facts for a deposit routed to the reservation
-    ///         vault. Both fields fit in one storage word.
+    ///         vault. All fields fit in one storage word.
     struct PendingReservedDeposit {
         // Wallet committed by the deposit script and therefore the only
         // wallet that can be authorized to anchor the deposit.
         bytes20 walletPubKeyHash;
-        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
-        // sentinel used when the reveal-ahead validation was disabled.
+        // Exact Bitcoin refund locktime decoded at reveal time. Reserved
+        // deposits retain it even when reveal-ahead validation is disabled,
+        // because acceptance must enforce the validator's refund margin.
         uint32 refundDeadline;
+        // True if the global reveal-ahead policy validated the deadline.
+        // Later stale cleanup uses this bit to preserve the disabled policy's
+        // historical behavior; acceptance always uses the exact deadline.
+        bool refundDeadlineValidated;
     }
 
     struct Storage {
