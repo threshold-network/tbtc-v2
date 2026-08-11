@@ -18,6 +18,9 @@ import type {
   BridgeStub,
   IWalletRegistry,
   IRelay,
+  MaintainerProxy,
+  MaintainerProxyV2,
+  ReimbursementPool,
   ReservationRouter,
   ReservationVault,
   TBTCVault,
@@ -85,6 +88,9 @@ describe("Bridge - Reservation settlement", () => {
   let relay: FakeContract<IRelay>
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub & ReservationRouter
+  let maintainerProxy: MaintainerProxy
+  let maintainerProxyV2: MaintainerProxyV2
+  let reimbursementPool: ReimbursementPool
   let tbtc: TBTC & Contract
   let tbtcVault: TBTCVault & Contract
   let reservationVault: ReservationVault
@@ -117,9 +123,13 @@ describe("Bridge - Reservation settlement", () => {
       relay,
       walletRegistry,
       bridge,
+      reimbursementPool,
       tbtc,
       tbtcVault,
     } = await waffle.loadFixture(bridgeFixture))
+
+    maintainerProxy = await helpers.contracts.getContract("MaintainerProxy")
+    maintainerProxyV2 = await helpers.contracts.getContract("MaintainerProxyV2")
 
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(
@@ -301,9 +311,8 @@ describe("Bridge - Reservation settlement", () => {
   const randomRedeemerScript = (): string =>
     `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
 
-  // Reveals a fresh reserved deposit, requests acceptance (generation 1)
-  // and proves the anchor.
-  async function makeAcceptedReservation(custodian = walletPubKeyHash) {
+  // Reveals a fresh reserved deposit and requests acceptance (generation 1).
+  async function makeRequestedReservation(custodian = walletPubKeyHash) {
     const fundingTx = buildTx(
       [
         {
@@ -351,6 +360,15 @@ describe("Bridge - Reservation settlement", () => {
       [{ txHash: fundingTx.txHash, index: 0 }],
       [{ valueSat: anchorAmount, script: p2wpkhScript(custodian) }]
     )
+
+    return { fundingTx, anchorTx, reservationKey }
+  }
+
+  // Reveals a fresh reserved deposit, requests acceptance (generation 1)
+  // and proves the anchor.
+  async function makeAcceptedReservation(custodian = walletPubKeyHash) {
+    const { fundingTx, anchorTx, reservationKey } =
+      await makeRequestedReservation(custodian)
 
     await bridge
       .connect(spvMaintainer)
@@ -466,6 +484,191 @@ describe("Bridge - Reservation settlement", () => {
 
     return reanchorTx
   }
+
+  describe("production MaintainerProxy reservation proof route", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("settles and reimburses a real proof when only the proxy is authorized in Bridge", async () => {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setSpvMaintainerStatus(spvMaintainer.address, false)
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setSpvMaintainerStatus(maintainerProxyV2.address, false)
+      await maintainerProxyV2
+        .connect(governance)
+        .authorizeSpvMaintainer(spvMaintainer.address)
+      await deployer.sendTransaction({
+        to: reimbursementPool.address,
+        value: ethers.utils.parseEther("1"),
+      })
+
+      const { anchorTx, reservationKey } = await makeRequestedReservation()
+      const proof = proofFor(anchorTx.txHash)
+
+      // The immutable production proxy does not have this selector, so it
+      // cannot provide an authorized route even though it knows the caller.
+      await maintainerProxy
+        .connect(governance)
+        .authorizeSpvMaintainer(spvMaintainer.address)
+      expect(
+        await maintainerProxy.isSpvMaintainer(spvMaintainer.address)
+      ).to.not.equal(0)
+      const legacyProxyReservationBridge = await ethers.getContractAt(
+        "IReservationBridge",
+        maintainerProxy.address
+      )
+      await expect(
+        legacyProxyReservationBridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proof,
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            1
+          )
+      ).to.be.reverted
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proof,
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            1
+          )
+      ).to.be.revertedWith("Caller is not SPV maintainer")
+
+      const proxyReservationBridge = await ethers.getContractAt(
+        "IReservationBridge",
+        maintainerProxyV2.address
+      )
+      await expect(
+        proxyReservationBridge
+          .connect(thirdParty)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proof,
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            1
+          )
+      ).to.be.revertedWith("Caller is not authorized")
+
+      await expect(
+        proxyReservationBridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proof,
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            1
+          )
+      ).to.be.revertedWith("Caller is not SPV maintainer")
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setSpvMaintainerStatus(maintainerProxyV2.address, true)
+
+      expect(await reimbursementPool.isAuthorized(maintainerProxyV2.address)).to
+        .be.false
+      await expect(
+        proxyReservationBridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proof,
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            1
+          )
+      ).to.be.revertedWith("Contract is not authorized for a refund")
+
+      // The strict refund failure rolls the external Bridge settlement back.
+      expect((await bridge.reservations(reservationKey)).state).to.equal(
+        ReservationState.Unknown
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 1)).state
+      ).to.equal(ActionState.Pending)
+
+      await reimbursementPool
+        .connect(governance)
+        .authorize(maintainerProxyV2.address)
+
+      const balanceBefore = await ethers.provider.getBalance(
+        spvMaintainer.address
+      )
+      const tx = await proxyReservationBridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Acceptance,
+          anchorTx.info,
+          proof,
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          1
+        )
+
+      const reservation = await bridge.reservations(reservationKey)
+      await expect(tx)
+        .to.emit(bridge, "ReservationAccepted")
+        .withArgs(
+          reservationKey,
+          1,
+          walletPubKeyHash,
+          thirdParty.address,
+          anchorTx.txHash,
+          anchorAmount,
+          reservation.expiresAt
+        )
+
+      const balanceAfter = await ethers.provider.getBalance(
+        spvMaintainer.address
+      )
+      expect(balanceAfter).to.be.gt(balanceBefore)
+      expect(reservation.state).to.equal(ReservationState.Active)
+    })
+
+    it("keeps the proof offset owner-configurable", async () => {
+      expect(
+        await maintainerProxyV2.submitReservationProofGasOffset()
+      ).to.equal(30000)
+
+      await expect(
+        maintainerProxyV2
+          .connect(thirdParty)
+          .updateReservationProofGasOffset(31000)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      await expect(
+        maintainerProxyV2
+          .connect(governance)
+          .updateReservationProofGasOffset(31000)
+      )
+        .to.emit(maintainerProxyV2, "ReservationProofGasOffsetUpdated")
+        .withArgs(31000)
+
+      expect(
+        await maintainerProxyV2.submitReservationProofGasOffset()
+      ).to.equal(31000)
+    })
+  })
 
   describe("claim double-spend regression (timeout racing a confirmed redemption)", () => {
     before(async () => {

@@ -382,3 +382,10 @@ deployed inert (`reservationVault == 0` in Bridge parameters), the router
 ships with the Bridge implementation upgrade, and governance enables the
 vault last. No live reservation state ever exists on the pre-router
 layout, so there is no live-state migration.
+
+The production `MaintainerProxy` is immutable and does not expose the routed
+reservation-proof selector. Before activation, deploy `MaintainerProxyV2`,
+migrate the SPV-maintainer allowlist, transfer its ownership to governance,
+and have governance authorize the new proxy in both the Bridge and
+`ReimbursementPool`. The existing proxy remains the route for legacy and
+wallet-maintainer calls.
