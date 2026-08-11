@@ -1388,6 +1388,229 @@ describe("Bridge - Reservation settlement", () => {
     })
   })
 
+  describe("action source-anchor binding", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("rejects a timed-out re-anchor replay against a later anchor", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const thirdWalletPubKeyHash = ethers.utils.hexlify(
+        ethers.utils.randomBytes(20)
+      )
+      await liveWallet(secondWalletPubKeyHash)
+      await liveWallet(thirdWalletPubKeyHash)
+      await bridge.setWallet(walletPubKeyHash, {
+        ...(await bridge.wallets(walletPubKeyHash)),
+        state: walletState.MovingFunds,
+        movingFundsRequestedAt: await lastBlockTime(),
+      })
+
+      // Generation 2 authorizes A -> B and times out while its already-
+      // confirmed transaction awaits an SPV proof.
+      await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      const firstReanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(500),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      // Generation 3 authorizes the same source A -> C and also times out.
+      await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, thirdWalletPubKeyHash)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      const originalAnchorHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTx.txHash, 0]
+      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 2))
+          .sourceAnchorUtxoHash
+      ).to.equal(originalAnchorHash)
+      expect(
+        (await bridge.reservationActions(reservationKey, 3))
+          .sourceAnchorUtxoHash
+      ).to.equal(originalAnchorHash)
+
+      // The genuine, already-confirmed generation-2 transaction remains
+      // late-settleable and advances the tracked anchor from A to B.
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            firstReanchorTx.info,
+            proofFor(firstReanchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            2
+          )
+      )
+        .to.emit(bridge, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          2,
+          secondWalletPubKeyHash,
+          firstReanchorTx.txHash,
+          anchorAmount.sub(500)
+        )
+
+      // A freshly crafted B -> C transaction has generation 3's shape but
+      // spends an anchor that generation never authorized. Without the
+      // source snapshot it would settle as a valid late generation-3 proof.
+      const replayTx = buildTx(
+        [{ txHash: firstReanchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: p2wpkhScript(thirdWalletPubKeyHash),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            replayTx.info,
+            proofFor(replayTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            3
+          )
+      ).to.be.revertedWith("Action source anchor is no longer current")
+
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorTxHash).to.equal(firstReanchorTx.txHash)
+      expect(
+        (await bridge.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.TimedOut)
+      expect(
+        await bridge.spentMainUTXOs(
+          BigNumber.from(
+            ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [firstReanchorTx.txHash, 0]
+            )
+          )
+        )
+      ).to.be.false
+    })
+
+    it("rejects an old redemption authorization against a re-anchored output", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation()
+
+      const redeemerScript = randomRedeemerScript()
+      await requestRedemption(reservationKey, redeemerScript)
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      const refundedBalance = await bank.balanceOf(thirdParty.address)
+      const redemptionAction = await bridge.reservationActions(
+        reservationKey,
+        2
+      )
+      expect(redemptionAction.actionDataHash).to.equal(
+        ethers.utils.keccak256(redeemerScript)
+      )
+      expect(redemptionAction.sourceAnchorUtxoHash).to.equal(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [anchorTx.txHash, 0]
+        )
+      )
+
+      await liveWallet(secondWalletPubKeyHash)
+      await bridge
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(500),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          3
+        )
+
+      // This transaction spends the new B anchor and pays the old
+      // redemption script. It must not inherit generation 2's authority.
+      const replayTx = buildTx(
+        [{ txHash: reanchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1500),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            replayTx.info,
+            proofFor(replayTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            2
+          )
+      ).to.be.revertedWith("Action source anchor is no longer current")
+
+      const currentAnchorKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [reanchorTx.txHash, 0]
+        )
+      )
+      const reservation = await bridge.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorTxHash).to.equal(reanchorTx.txHash)
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.TimedOut)
+      expect(await bridge.spentMainUTXOs(currentAnchorKey)).to.be.false
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(refundedBalance)
+    })
+  })
+
   describe("retry-credit restoration after a late re-anchor", () => {
     beforeEach(async () => {
       await createSnapshot()

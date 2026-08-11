@@ -32,6 +32,12 @@ The overriding rule (from the review): **reservations must never activate
 on a temporary storage layout that later needs live-state migration.**
 Deploy inert, then activate last.
 
+This rollout assumes no live `ReservationAction` record was written by an
+intermediate implementation; the source-anchor snapshot has no migration
+path for such records. Ship the complete Bridge/router and watchtower stack
+as one coordinated release, verify reservation state is empty, and only then
+trust the fully configured vault in the final activation transaction.
+
 1. **Bridge implementation upgrade** carrying the full reservation storage
    append (all stacked PRs at once — do not ship the storage in pieces).
    The append-only discipline (every field decrements `__gap`, nothing

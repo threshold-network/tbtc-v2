@@ -266,14 +266,9 @@ library ReservationProofs {
         uint256 reservationKey,
         bool late
     ) internal {
+        bytes32 currentAnchorUtxoHash = Reservation.anchorUtxoHash(reservation);
         require(
-            action.sourceAnchorUtxoHash ==
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                ),
+            action.sourceAnchorUtxoHash == currentAnchorUtxoHash,
             "Action source anchor is no longer current"
         );
 
@@ -291,14 +286,7 @@ library ReservationProofs {
             return;
         }
 
-        uint256 anchorUtxoKey = uint256(
-            keccak256(
-                abi.encodePacked(
-                    reservation.anchorTxHash,
-                    reservation.anchorTxOutputIndex
-                )
-            )
-        );
+        uint256 anchorUtxoKey = uint256(currentAnchorUtxoHash);
         // Multiple timed-out generations can describe the same Bitcoin
         // transaction. Once one proof consumes the anchor, do not let another
         // generation reconstruct the position or finance the miner fee again.

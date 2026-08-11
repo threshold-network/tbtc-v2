@@ -235,16 +235,15 @@ library Reservation {
         // capacity-reserved deposit value for acceptances, the anchor
         // value at request time otherwise.
         uint64 amount;
-        // Action-specific commitment: keccak256 hash of the length-prefixed
-        // redeemer output script for redemptions, or the wallet main UTXO
-        // hash snapshotted by dissolutions. Zero for acceptances and
-        // re-anchors, and for dissolutions of wallets with no main UTXO.
+        // Action-specific authorization data: the keccak256 hash of the
+        // length-prefixed redeemer output script for redemptions, or the
+        // wallet main UTXO hash snapshotted for dissolutions. Zero for
+        // acceptances and re-anchors, and for dissolutions of wallets with
+        // no main UTXO.
         bytes32 actionDataHash;
-        // keccak256 hash of the exact source anchor outpoint every spending
-        // action (redemption, re-anchor, dissolution) was requested against.
-        // Prevents a stale timed-out generation from being reused after a
-        // different late proof advances the reservation's anchor. Zero for
-        // acceptances.
+        // Hash of the reservation anchor outpoint this generation was
+        // authorized to spend. Zero only for acceptance generations, which
+        // spend the revealed deposit rather than an existing anchor.
         bytes32 sourceAnchorUtxoHash;
         // True when this redemption generation consumed the reservation's
         // single-use retry entitlement. Needed to return the entitlement if
@@ -403,6 +402,23 @@ library Reservation {
         uint64 requestNonce
     ) internal view returns (ReservationAction storage) {
         return self.reservationActions[actionKey(reservationKey, requestNonce)];
+    }
+
+    /// @notice Returns the canonical hash of a reservation anchor outpoint.
+    ///         Action generations snapshot this value so a late proof can
+    ///         only consume the exact anchor that generation authorized.
+    function anchorUtxoHash(ReservationRequest storage reservation)
+        internal
+        view
+        returns (bytes32)
+    {
+        return
+            keccak256(
+                abi.encodePacked(
+                    reservation.anchorTxHash,
+                    reservation.anchorTxOutputIndex
+                )
+            );
     }
 
     /// @notice Requests the acceptance of a revealed reserved deposit: the
@@ -788,12 +804,7 @@ library Reservation {
         action.redeemer = redeemer;
         action.amount = redeemAmount;
         action.actionDataHash = keccak256(redeemerOutputScriptMem);
-        action.sourceAnchorUtxoHash = keccak256(
-            abi.encodePacked(
-                reservation.anchorTxHash,
-                reservation.anchorTxOutputIndex
-            )
-        );
+        action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
 
         if (self.redemptionWatchtower != address(0)) {
             (
@@ -969,12 +980,7 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
         action.amount = reservation.anchorAmount;
-        action.sourceAnchorUtxoHash = keccak256(
-            abi.encodePacked(
-                reservation.anchorTxHash,
-                reservation.anchorTxOutputIndex
-            )
-        );
+        action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
 
         emit ReservationReanchorRequested(
             reservationKey,
@@ -1059,12 +1065,7 @@ library Reservation {
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = reservation.anchorAmount;
         action.actionDataHash = wallet.mainUtxoHash;
-        action.sourceAnchorUtxoHash = keccak256(
-            abi.encodePacked(
-                reservation.anchorTxHash,
-                reservation.anchorTxOutputIndex
-            )
-        );
+        action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
 
         emit ReservationDissolutionRequested(
             reservationKey,
