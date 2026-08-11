@@ -29,6 +29,20 @@ contract BridgeStub is Bridge {
         ] = reservationKey;
     }
 
+    function setPendingReservationAcceptanceAction(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external {
+        Reservation.ReservationAction storage action = self
+            .reservationActions[
+                uint256(
+                    keccak256(abi.encodePacked(reservationKey, requestNonce))
+                )
+            ];
+        action.actionType = Reservation.ActionType.Acceptance;
+        action.state = Reservation.ActionState.Pending;
+    }
+
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(
@@ -219,5 +233,13 @@ contract BridgeStub is Bridge {
 
     function cancelRebate(address user, uint256 requestedAt) external {
         RebateStaking(self.rebateStaking).cancelRebate(user, requestedAt);
+    }
+
+    function getWalletReservationsCount(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32)
+    {
+        return self.walletReservationsCount[walletPubKeyHash];
     }
 }
