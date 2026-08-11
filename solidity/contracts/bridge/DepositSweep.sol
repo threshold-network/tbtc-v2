@@ -158,17 +158,6 @@ library DepositSweep {
         // `txProofDifficultyFactor` constant.
         bytes32 sweepTxHash = self.validateProof(sweepTx, sweepProof);
 
-        // Reserved deposits are anchored via the `Reservation` library
-        // instead of being swept. Since every deposit swept by a single
-        // transaction must share the `vault` parameter (enforced per input
-        // below), rejecting the reservation vault here rejects every
-        // reserved deposit.
-        require(
-            self.reservationVault == address(0) ||
-                vault != self.reservationVault,
-            "Reserved deposits must not be swept"
-        );
-
         // Process sweep transaction output and extract its target wallet
         // public key hash and value.
         (
@@ -429,16 +418,20 @@ library DepositSweep {
                     inputStartingIndex
                 );
 
-            Deposit.DepositRequest storage deposit = self.deposits[
-                uint256(
-                    keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
-                )
-            ];
+            uint256 depositKey = uint256(
+                keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
+            );
+            Deposit.DepositRequest storage deposit = self.deposits[depositKey];
 
             if (deposit.revealedAt != 0) {
                 // If we entered here, that means the input was identified as
                 // a revealed deposit.
                 require(deposit.sweptAt == 0, "Deposit already swept");
+
+                require(
+                    !self.pendingReservedDeposit[depositKey].isReserved,
+                    "Reserved deposits must not be swept"
+                );
 
                 require(
                     deposit.vault == processInfo.vault,

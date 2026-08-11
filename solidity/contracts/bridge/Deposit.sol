@@ -317,13 +317,12 @@ library Deposit {
             )
             .hash256View();
 
-        DepositRequest storage deposit = self.deposits[
-            uint256(
-                keccak256(
-                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
-                )
+        uint256 depositKey = uint256(
+            keccak256(
+                abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
             )
-        ];
+        );
+        DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.revealedAt == 0, "Deposit already revealed");
 
         uint64 fundingOutputAmount = fundingOutput.extractValue();
@@ -342,6 +341,12 @@ library Deposit {
             ? fundingOutputAmount / self.depositTreasuryFeeDivisor
             : 0;
         deposit.extraData = extraData;
+
+        if (
+            reveal.vault != address(0) && reveal.vault == self.reservationVault
+        ) {
+            self.pendingReservedDeposit[depositKey].isReserved = true;
+        }
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)

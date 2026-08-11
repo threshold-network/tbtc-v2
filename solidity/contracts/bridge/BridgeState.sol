@@ -29,6 +29,25 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice Reveal-time facts for a deposit routed to the reservation
+    ///         vault. All fields fit in one storage word. `isReserved` is
+    ///         permanent; the remaining fields are used by the reservation
+    ///         action flow and may be cleared after acceptance or staleness.
+    struct PendingReservedDeposit {
+        // Immutable reveal-time reservation classification.
+        bool isReserved;
+        // Wallet committed by the deposit script and therefore the only
+        // wallet that can be authorized to anchor the deposit.
+        bytes20 walletPubKeyHash;
+        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
+        // valid value when reveal-ahead validation was disabled.
+        uint32 refundDeadline;
+        // Whether the refund deadline was validated against a nonzero
+        // reveal-ahead period. This preserves the disabled validation mode
+        // without overloading a valid zero locktime.
+        bool refundDeadlineValidated;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -366,6 +385,11 @@ library BridgeState {
         // The number of active reservations custodied by the given wallet,
         // identified by its 20-byte wallet public key hash.
         mapping(bytes20 => uint32) walletReservationsCount;
+        // Reveal-time facts for deposits routed to the reservation vault.
+        // The permanent classification prevents later reservation-vault
+        // updates from changing an ordinary deposit into a reservation or
+        // making a reserved deposit eligible for an ordinary sweep.
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -373,7 +397,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[43] __gap;
+        uint256[42] __gap;
     }
 
     event DepositParametersUpdated(
