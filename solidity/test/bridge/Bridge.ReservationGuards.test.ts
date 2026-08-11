@@ -654,7 +654,11 @@ describe("Bridge - Reservation guards", () => {
         .approve(reservationVault.address, grossTbtc.add(redemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(reservationKey, randomRedeemerScript())
+        .redeemReservation(
+          reservationKey,
+          randomRedeemerScript(),
+          redemptionFee
+        )
 
       expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
 
@@ -753,7 +757,7 @@ describe("Bridge - Reservation guards", () => {
         )
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(first.reservationKey, redeemerScript)
+        .redeemReservation(first.reservationKey, redeemerScript, redemptionFee)
       const redemptionTx = buildTx(
         [{ txHash: reanchorTx.txHash, index: 0 }],
         [{ valueSat: newAnchor.sub(500), script: redeemerScript.slice(4) }]

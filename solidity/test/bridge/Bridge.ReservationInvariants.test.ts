@@ -380,7 +380,7 @@ describe("Bridge - Reservation invariants", () => {
         .approve(reservationVault.address, aGross.add(aRedemptionFee))
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(a.reservationKey, redeemerScript)
+        .redeemReservation(a.reservationKey, redeemerScript, aRedemptionFee)
       const aRedemptionTx = buildTx(
         [{ txHash: aReanchorTx.txHash, index: 0 }],
         [{ valueSat: aNewAnchor.sub(400), script: redeemerScript.slice(4) }]
@@ -446,7 +446,11 @@ describe("Bridge - Reservation invariants", () => {
         )
       await reservationVault
         .connect(thirdParty)
-        .redeemReservation(c.reservationKey, cScript)
+        .redeemReservation(
+          c.reservationKey,
+          cScript,
+          grossTbtc.mul(20).div(10000)
+        )
       // While the redemption is pending, the invariant does NOT hold in
       // its quiescent form: the vault unminted the gross claim (supply
       // dropped) but the anchor is still counted reserved, with the gap
