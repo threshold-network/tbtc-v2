@@ -24,6 +24,7 @@ import "./Deposit.sol";
 import "./Redemption.sol";
 import "./ReservationProofs.sol";
 import "./Wallets.sol";
+import "./WalletProposalValidatorConstants.sol";
 
 import "../bank/Bank.sol";
 
@@ -402,9 +403,13 @@ library Reservation {
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
-    ///      - The authorization window (now + action timeout) must end
-    ///        before the deposit's exact reveal-time refund deadline, so an
-    ///        authorized anchor can never race the depositor's refund,
+    ///      - At least one integer timestamp must remain after the deposit
+    ///        minimum age and before both the action-timeout and exact
+    ///        reveal-time refund safety margins, so every created action has
+    ///        a proposal the wallet validator can sign,
+    ///      - The authorization window (now + action timeout) must end before
+    ///        the exact refund deadline, so an authorized anchor can never
+    ///        race the depositor's refund,
     ///      - Reservation capacity (total amount, per-wallet count) must
     ///        allow the deposit; both are reserved by this call and
     ///        released if the authorization times out.
@@ -421,6 +426,10 @@ library Reservation {
         Deposit.DepositRequest storage deposit = self.deposits[reservationKey];
         require(deposit.revealedAt != 0, "Deposit not revealed");
         require(deposit.sweptAt == 0, "Deposit already swept");
+        require(
+            self.pendingReservedDeposit[reservationKey].isReserved,
+            "Deposit was not revealed as reserved"
+        );
         require(
             deposit.vault == self.reservationVault,
             "Deposit not routed to the reservation vault"
@@ -462,16 +471,44 @@ library Reservation {
         uint32 timeoutAt = uint32(block.timestamp) +
             self.reservationActionTimeout;
 
+        // Proposal timestamps are integer seconds and must be later than both
+        // the strict deposit-age boundary and the block creating the action.
+        // The first admissible timestamp is therefore one second after the
+        // greater of those two lower bounds.
+        uint256 signingLowerBound = uint256(deposit.revealedAt) +
+            WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
+        /* solhint-disable-next-line not-rely-on-time */
+        if (signingLowerBound < block.timestamp) {
+            /* solhint-disable-next-line not-rely-on-time */
+            signingLowerBound = block.timestamp;
+        }
+        uint256 earliestSigningAt = signingLowerBound + 1;
+
+        uint256 actionSigningDeadline = uint256(timeoutAt) -
+            WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
+        require(
+            earliestSigningAt < actionSigningDeadline,
+            "Acceptance authorization has no signing window"
+        );
+
         // Use the exact refund locktime captured at reveal. A later
         // governance update of `depositRevealAheadPeriod` must neither
-        // extend nor shorten this deposit's authorization window. Zero
-        // means the reveal-ahead validation was disabled at reveal time.
-        if (reservedDeposit.refundDeadline != 0) {
-            require(
-                timeoutAt <= reservedDeposit.refundDeadline,
-                "Authorization window would overlap the deposit refund window"
-            );
-        }
+        // extend nor shorten this deposit's authorization window. The raw
+        // deadline is retained even when reveal-ahead validation is disabled
+        // because the wallet validator always enforces its refund margin.
+        require(
+            timeoutAt <= reservedDeposit.refundDeadline,
+            "Authorization window would overlap the deposit refund window"
+        );
+        require(
+            uint256(reservedDeposit.refundDeadline) >
+                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN &&
+                earliestSigningAt <
+                uint256(reservedDeposit.refundDeadline) -
+                    WalletProposalValidatorConstants
+                        .DEPOSIT_REFUND_SAFETY_MARGIN,
+            "Acceptance authorization has no signing window"
+        );
 
         require(
             self.reservationMaxSingleAmount == 0 ||
@@ -1159,7 +1196,8 @@ library Reservation {
     ///        than the term (checked atomically here and re-checked at
     ///        renewal execution, so neither parameter change can reopen
     ///        term stacking),
-    ///      - Reservation action timeout must be greater than zero,
+    ///      - Reservation action timeout must exceed the wallet proposal
+    ///        validator's final signing safety margin,
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero).
     ///
@@ -1197,8 +1235,9 @@ library Reservation {
             "Renewal window must be shorter than the term"
         );
         require(
-            reservationActionTimeout > 0,
-            "Reservation action timeout must be greater than zero"
+            reservationActionTimeout >
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Reservation action timeout must exceed the safety margin"
         );
 
         if (reservationVault != self.reservationVault) {

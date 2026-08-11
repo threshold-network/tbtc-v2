@@ -267,6 +267,10 @@ library ReservationProofs {
                 Reservation.ReservationState.Unknown,
             "Reservation already exists"
         );
+        require(
+            self.pendingReservedDeposit[reservationKey].isReserved,
+            "Deposit was not revealed as reserved"
+        );
 
         bytes32 anchorTxHash = self.validateProof(anchorTx, anchorProof);
 
@@ -317,7 +321,12 @@ library ReservationProofs {
 
         /* solhint-disable-next-line not-rely-on-time */
         deposit.sweptAt = uint32(block.timestamp);
-        delete self.pendingReservedDeposit[reservationKey];
+
+        BridgeState.PendingReservedDeposit storage reservedDeposit = self
+            .pendingReservedDeposit[reservationKey];
+        delete reservedDeposit.walletPubKeyHash;
+        delete reservedDeposit.refundDeadline;
+        delete reservedDeposit.refundDeadlineValidated;
     }
 
     /// @notice Parses the anchor transaction's single output, validates it
