@@ -109,6 +109,9 @@ describe("Deploy Script 95: ReservationVault", () => {
       "utf8"
     )
     const orderedActions = [
+      "MaintainerProxyV2",
+      "BridgeGovernance.setSpvMaintainerStatus(proxyV2, true)",
+      "ReimbursementPool.authorize(proxyV2)",
       "BridgeGovernance.beginReservationParametersUpdate(...)",
       "BridgeGovernance.finalizeReservationParametersUpdate()",
       "BridgeGovernance.beginReservationCapsUpdate(...)",
@@ -130,7 +133,7 @@ describe("Deploy Script 95: ReservationVault", () => {
     })
 
     expect(source).to.include(
-      "Required steps 1-3 must be completed while the vault is untrusted"
+      "Required steps 1-4 must be completed while the vault is untrusted"
     )
     expect(source).to.include("As the final activation step")
   })

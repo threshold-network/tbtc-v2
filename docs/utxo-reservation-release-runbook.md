@@ -19,6 +19,7 @@ duties the feature adds. It assumes the stacked PRs
 | `ReservationRouter`                | Plain contract, delegatecall target        | New. Holds the reservation ABI surface; executes on Bridge storage.                                                 |
 | `Reservation`, `ReservationProofs` | Libraries linked by the router             | New / reworked.                                                                                                     |
 | `ReservationVault`                 | Plain `Ownable` contract                   | New. Liability-side vault + renewal policy + fee reserve/financing.                                                 |
+| `MaintainerProxyV2`                | Plain `Ownable` reimbursable proxy         | New. Preserves the legacy proxy routes and adds the routed reservation-proof endpoint.                              |
 | `RedemptionWatchtower`             | Transparent proxy (impl upgrade)           | Reserved-objection surface reworked to per-generation keys; imports the reservation types.                          |
 | `WalletProposalValidator`          | Plain contract (non-upgradeable)           | New reservation proposal validators; redeploy + repoint.                                                            |
 | `BridgeGovernance`                 | Plain `Ownable` contract (non-upgradeable) | Immediate router/re-anchor forwarders + grouped delayed reservation params/caps.                                    |
@@ -63,12 +64,24 @@ trust the fully configured vault in the final activation transaction.
 5. **Deploy `ReservationVault`** (`95_deploy_reservation_vault.ts`). It
    deploys **with renewals paused** and immediately transfers ownership to
    the governance account. Do not skip the ownership transfer.
-6. **Redeploy `WalletProposalValidator`** against the upgraded Bridge and
+6. **Deploy `MaintainerProxyV2`**
+   (`96_deploy_maintainer_proxy_v2.ts`). The legacy mainnet proxy is
+   immutable and does not expose `submitReservationProof`, so changing only
+   its source cannot make reservation proofs executable. The V2 deployment
+   copies the legacy proxy's SPV-maintainer allowlist while the deployer owns
+   it, then transfers ownership to governance. Before continuing, governance
+   must call `BridgeGovernance.setSpvMaintainerStatus(proxyV2, true)`, the
+   ReimbursementPool owner must call `ReimbursementPool.authorize(proxyV2)`,
+   and operators must verify V2 ownership, Bridge and pool authorization,
+   Bridge/pool references, and every copied SPV maintainer. Keep the legacy
+   proxy authorized during client cutover; its later revocation is separate
+   from reservation activation.
+7. **Redeploy `WalletProposalValidator`** against the upgraded Bridge and
    repoint the coordinator/maintainer configuration at the new address.
-7. **Configuration and activation (governance, last):**
+8. **Configuration and activation (governance, last):**
    1. Confirm `Bridge.isVaultTrusted(vault) == false`. A fresh vault is
       untrusted by default; stop if this precondition does not hold, and keep
-      it untrusted through step 7.6.
+      it untrusted through step 8.6.
    2. `BridgeGovernance.beginReservationParametersUpdate(...)` →
       `finalizeReservationParametersUpdate()` after the governance delay,
       setting `reservationVault` to the deployed vault plus the launch
@@ -86,10 +99,10 @@ trust the fully configured vault in the final activation transaction.
       transaction**. Trusting the fully configured vault permits deposit
       reveals to it and opens the reservation lane.
 
-From deployment through step 7.6 the vault is untrusted, so any deposit
+From deployment through step 8.6 the vault is untrusted, so any deposit
 reveal naming it fails the Bridge trust check and no reserved deposit or
 acceptance can begin. This remains true after the Bridge's `reservationVault`
-parameter is configured. Step 7.7 is therefore the sole final activation
+parameter is configured. Step 8.7 is therefore the sole final activation
 gate; do not use the renewal pause as a global reservation pause.
 
 ## 3. Bridge proxy upgrade procedure
@@ -230,8 +243,9 @@ published npm artifacts), same as the SDK work.
       margin; router/libraries each under EIP-170.
 - [ ] Storage-layout diff append-only and expected (parity test green).
 - [ ] Deployment dry-run on a fork exercises the full activation sequence
-      and leaves the vault untrusted and inert until the final
-      `setVaultStatus(vault, true)` transaction.
+      and verifies `MaintainerProxyV2` is Bridge- and pool-authorized with the
+      expected SPV maintainers while leaving the vault untrusted and inert
+      until the final `setVaultStatus(vault, true)` transaction.
 - [ ] `docs/utxo-reservation-frozen-spec.md` parameter values signed off by
       governance.
 - [ ] keep-core executor updated for the two-phase ABI (or explicitly
