@@ -452,9 +452,10 @@ contract ReservationRouter is Governable, Initializable {
     }
 
     /// @notice Marks a reservation custodied by a terminated wallet as
-    ///         stranded: the position closes, capacity is released, a
-    ///         pending action is unwound and the owner's minted balance
-    ///         remains an ordinary pooled claim. See
+    ///         stranded: an idle position closes, capacity is released and
+    ///         the owner's minted balance remains an ordinary pooled claim.
+    ///         Pending actions remain proof-eligible and cannot be stranded.
+    ///         See
     ///         `Reservation.notifyReservationStranded`.
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external {

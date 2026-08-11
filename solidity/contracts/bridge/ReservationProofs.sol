@@ -205,6 +205,101 @@ library ReservationProofs {
         late = action.state == Reservation.ActionState.TimedOut;
     }
 
+    /// @notice Converts a late settlement into the existing stranded-position
+    ///         accounting when its target wallet can no longer manage the
+    ///         newly settled anchor.
+    /// @dev Live and MovingFunds wallets can still manage the anchor.
+    ///      Closing and Closed wallets are stranded immediately. Terminated
+    ///      wallets retain the permissionless `notifyReservationStranded`
+    ///      cleanup path unless this lineage was already stranded before the
+    ///      proof. In that case, restore the Stranded state latch before
+    ///      cleanup so the reconstructed accounting is released without
+    ///      emitting duplicate recovery evidence.
+    function strandLateSettlementIfTargetWalletClosed(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        bool late,
+        bool evidenceAlreadyEmitted
+    ) internal {
+        if (!late) {
+            return;
+        }
+
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        if (
+            walletState == Wallets.WalletState.Closing ||
+            walletState == Wallets.WalletState.Closed ||
+            (evidenceAlreadyEmitted &&
+                walletState == Wallets.WalletState.Terminated)
+        ) {
+            if (evidenceAlreadyEmitted) {
+                reservation.state = Reservation.ReservationState.Stranded;
+            }
+            self.strandReservation(reservation, reservationKey);
+        }
+    }
+
+    /// @notice Validates the position can settle the loaded action and, for a
+    ///         timed-out generation whose position was already stranded,
+    ///         reconstructs the source anchor's tracking before settlement.
+    /// @dev Stranding releases the global and wallet accounting, enumeration,
+    ///      and reverse anchor index. A transaction confirmed before stranding
+    ///      must still settle, so the proof transaction atomically restores
+    ///      those surfaces before the ordinary settlement path consumes or
+    ///      moves them. Caps are request-time throttles and are deliberately
+    ///      not re-checked for an already-confirmed Bitcoin transaction.
+    function prepareReservationForSettlement(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        bool late
+    ) internal {
+        bool stranded = reservation.state ==
+            Reservation.ReservationState.Stranded;
+        require(
+            reservation.state == Reservation.ReservationState.Active ||
+                reservation.state ==
+                Reservation.ReservationState.ActionPending ||
+                (stranded && late),
+            "Reservation is not settleable"
+        );
+
+        if (!stranded) {
+            return;
+        }
+
+        uint256 anchorUtxoKey = uint256(
+            keccak256(
+                abi.encodePacked(
+                    reservation.anchorTxHash,
+                    reservation.anchorTxOutputIndex
+                )
+            )
+        );
+        // Multiple timed-out generations can describe the same Bitcoin
+        // transaction. Once one proof consumes the anchor, do not let another
+        // generation reconstruct the position or finance the miner fee again.
+        require(
+            !self.spentMainUTXOs[anchorUtxoKey],
+            "Reservation anchor already spent"
+        );
+
+        self.reservationTotalAmount += reservation.anchorAmount;
+        self.walletReservationsCount[reservation.walletPubKeyHash] += 1;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] += reservation.anchorAmount;
+        Reservation.addWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
+        self.reservationsByAnchorUtxo[anchorUtxoKey] = reservationKey;
+    }
+
     /// @notice Used by the wallet to prove the BTC anchor transaction of an
     ///         authorized reserved deposit acceptance and to credit the
     ///         owner's balance accordingly.
@@ -498,10 +593,11 @@ library ReservationProofs {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
-        require(
-            reservation.state == Reservation.ReservationState.Active ||
-                reservation.state == Reservation.ReservationState.ActionPending,
-            "Reservation is not settleable"
+        prepareReservationForSettlement(
+            self,
+            reservation,
+            reservationKey,
+            late
         );
 
         if (!late) {
@@ -626,10 +722,13 @@ library ReservationProofs {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
-        require(
-            reservation.state == Reservation.ReservationState.Active ||
-                reservation.state == Reservation.ReservationState.ActionPending,
-            "Reservation is not settleable"
+        bool evidenceAlreadyEmitted = reservation.state ==
+            Reservation.ReservationState.Stranded;
+        prepareReservationForSettlement(
+            self,
+            reservation,
+            reservationKey,
+            late
         );
         if (!late) {
             require(
@@ -732,9 +831,8 @@ library ReservationProofs {
         reservation.state = Reservation.ReservationState.Active;
 
         if (minerFee > 0) {
-            IReservationFeeFinancer(self.reservationVault).financeInKindFee(
-                minerFee
-            );
+            IReservationFeeFinancer(self.deposits[reservationKey].vault)
+                .financeInKindFee(minerFee);
         }
 
         action.state = Reservation.ActionState.Settled;
@@ -750,6 +848,14 @@ library ReservationProofs {
             newWalletPubKeyHash,
             reanchorTxHash,
             newAnchorAmount
+        );
+
+        strandLateSettlementIfTargetWalletClosed(
+            self,
+            reservation,
+            reservationKey,
+            late,
+            evidenceAlreadyEmitted
         );
     }
 
@@ -793,10 +899,11 @@ library ReservationProofs {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
-        require(
-            reservation.state == Reservation.ReservationState.Active ||
-                reservation.state == Reservation.ReservationState.ActionPending,
-            "Reservation is not settleable"
+        prepareReservationForSettlement(
+            self,
+            reservation,
+            reservationKey,
+            late
         );
         if (!late) {
             require(
@@ -843,9 +950,8 @@ library ReservationProofs {
         // atomically with the settlement.
         uint64 dissolutionFee = inputsTotalValue - outputValue;
         if (dissolutionFee > 0) {
-            IReservationFeeFinancer(self.reservationVault).financeInKindFee(
-                dissolutionFee
-            );
+            IReservationFeeFinancer(self.deposits[reservationKey].vault)
+                .financeInKindFee(dissolutionFee);
         }
     }
 
