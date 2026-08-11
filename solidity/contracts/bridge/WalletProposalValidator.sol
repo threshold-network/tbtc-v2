@@ -304,6 +304,7 @@ contract WalletProposalValidator {
 
             // Deposits classified as reserved when revealed are anchored via
             // the reservation flow and must never be swept.
+            // slither-disable-next-line calls-loop
             require(
                 !bridge.isReservedDeposit(depositKeyUint),
                 "Reserved deposits must not be swept"
