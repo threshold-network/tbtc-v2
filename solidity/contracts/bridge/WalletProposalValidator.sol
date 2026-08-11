@@ -270,10 +270,6 @@ contract WalletProposalValidator {
 
         address proposalVault = address(0);
 
-        (address reservationVault, , , , , , , ) = IReservationBridge(
-            address(bridge)
-        ).reservationParameters();
-
         uint256[] memory processedDepositKeys = new uint256[](
             proposal.depositsKeys.length
         );
@@ -306,11 +302,10 @@ contract WalletProposalValidator {
 
             require(depositRequest.sweptAt == 0, "Deposit already swept");
 
-            // Deposits routed to the reservation vault are anchored via the
-            // reservation flow and must never be swept.
+            // Deposits classified as reserved when revealed are anchored via
+            // the reservation flow and must never be swept.
             require(
-                reservationVault == address(0) ||
-                    depositRequest.vault != reservationVault,
+                !bridge.isReservedDeposit(depositKeyUint),
                 "Reserved deposits must not be swept"
             );
 
@@ -1014,6 +1009,11 @@ contract WalletProposalValidator {
         );
 
         require(depositRequest.sweptAt == 0, "Deposit already swept");
+
+        require(
+            bridge.isReservedDeposit(depositKeyUint),
+            "Deposit was not revealed as reserved"
+        );
 
         require(
             depositRequest.vault == reservationVault,
