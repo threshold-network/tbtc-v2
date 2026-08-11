@@ -547,12 +547,12 @@ describe("Bridge - Reservation", () => {
   })
 
   describe("deposit sweep guard", () => {
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
       await wireReservations()
     })
 
-    after(async () => {
+    afterEach(async () => {
       await restoreSnapshot()
     })
 
@@ -590,6 +590,36 @@ describe("Bridge - Reservation", () => {
       })
       await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
 
+      const depositKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [fundingTx.hash, reveal.fundingOutputIndex]
+      )
+      expect(await bridge.isReservedDeposit(depositKey)).to.be.true
+
+      // Release the pending-deposit capacity without erasing its immutable
+      // reveal-time classification. Reveal-ahead validation was disabled, so
+      // stale notification is immediately available.
+      await bridge.connect(thirdParty).notifyStaleReservedDeposit(depositKey)
+      expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(depositKey)).to.be.true
+
+      // Moving the configured reservation vault away must not make this
+      // reveal-time reserved deposit eligible for an ordinary sweep.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          tbtcVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+      expect(await bridge.isReservedDeposit(depositKey)).to.be.true
+
       await expect(
         bridge
           .connect(spvMaintainer)
@@ -600,6 +630,156 @@ describe("Bridge - Reservation", () => {
             data.vault
           )
       ).to.be.revertedWith("Reserved deposits must not be swept")
+    })
+
+    it("should sweep an ordinary deposit after its vault becomes the reservation vault", async () => {
+      const data: DepositSweepTestData = JSON.parse(
+        JSON.stringify(SingleP2WSHDeposit)
+      )
+      // The deposit is ordinary at reveal time because the reservation vault
+      // is still `reservationVault`. Governance then repurposes its trusted
+      // vault as the reservation vault before the sweep is proven.
+      data.deposits[0].reveal.vault = tbtcVault.address
+      data.vault = tbtcVault.address
+
+      relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+      relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+
+      await bridge.setDepositDustThreshold(10000)
+      await bridge.setDepositTxMaxFee(2000)
+      await bridge.setDepositRevealAheadPeriod(0)
+
+      const { fundingTx, depositor, reveal } = data.deposits[0]
+      await bridge.setWallet(reveal.walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      const depositorSigner = await impersonateAccount(depositor, {
+        from: governance,
+        value: 10,
+      })
+      await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
+
+      const depositKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [fundingTx.hash, reveal.fundingOutputIndex]
+      )
+      expect(await bridge.isReservedDeposit(depositKey)).to.be.false
+
+      // Build a fresh ordinary deposit with a future refund deadline so the
+      // wallet proposal validator can exercise the same migration path.
+      const validatorBlindingFactor = "0xf9f0c90d00039523"
+      const validatorRefundPubKeyHash =
+        "0x28e081f285138ccbe389c1eb8985716230129f89"
+      const validatorRefundLocktime = `0x${toLE(
+        (await lastBlockTime()) + 400 * 24 * 3600,
+        4
+      )}`
+      const validatorFundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: BigNumber.from(3000000),
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                validatorBlindingFactor,
+                reveal.walletPubKeyHash as string,
+                validatorRefundPubKeyHash,
+                validatorRefundLocktime
+              )
+            ),
+          },
+        ]
+      )
+      await bridge.connect(thirdParty).revealDeposit(validatorFundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor: validatorBlindingFactor,
+        walletPubKeyHash: reveal.walletPubKeyHash,
+        refundPubKeyHash: validatorRefundPubKeyHash,
+        refundLocktime: validatorRefundLocktime,
+        vault: tbtcVault.address,
+      })
+      const validatorDepositKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [validatorFundingTx.txHash, 0]
+      )
+      expect(await bridge.isReservedDeposit(validatorDepositKey)).to.be.false
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          tbtcVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      // Classification is a reveal-time fact, not a live vault-address
+      // comparison.
+      expect(await bridge.isReservedDeposit(depositKey)).to.be.false
+      expect(await bridge.isReservedDeposit(validatorDepositKey)).to.be.false
+
+      await increaseTime(7300)
+      const ValidatorFactory = await ethers.getContractFactory(
+        "WalletProposalValidator"
+      )
+      const validator = await ValidatorFactory.deploy(bridge.address)
+      expect(
+        await validator.validateDepositSweepProposal(
+          {
+            walletPubKeyHash: reveal.walletPubKeyHash,
+            depositsKeys: [
+              {
+                fundingTxHash: validatorFundingTx.txHash,
+                fundingOutputIndex: 0,
+              },
+            ],
+            sweepTxFee: 1500,
+            depositsRevealBlocks: [0],
+          },
+          [
+            {
+              fundingTx: validatorFundingTx.info,
+              blindingFactor: validatorBlindingFactor,
+              walletPubKeyHash: reveal.walletPubKeyHash,
+              refundPubKeyHash: validatorRefundPubKeyHash,
+              refundLocktime: validatorRefundLocktime,
+            },
+          ]
+        )
+      ).to.be.true
+
+      // Let the ordinary TBTC vault mint the swept deposit balance.
+      const tbtcOwner = await impersonateContract(await tbtc.owner())
+      await tbtc.connect(tbtcOwner).transferOwnership(tbtcVault.address)
+
+      await bridge
+        .connect(spvMaintainer)
+        .submitDepositSweepProof(
+          data.sweepTx,
+          data.sweepProof,
+          data.mainUtxo,
+          data.vault
+        )
     })
   })
 
@@ -2242,7 +2422,7 @@ describe("Bridge - Reservation", () => {
     const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
     const blindingFactor = "0xf9f0c90d00039523"
     const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
-    const refundLocktime = "0x60bcea61"
+    let refundLocktime: string
     const NO_MAIN_UTXO_PARAM = {
       txHash: ZERO_BYTES32,
       txOutputIndex: 0,
@@ -2287,6 +2467,85 @@ describe("Bridge - Reservation", () => {
         state: walletState.MovingFunds,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
+    }
+
+    async function revealReservedDeposit(refundDeadline: number) {
+      const exactRefundLocktime = `0x${toLE(refundDeadline, 4)}`
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: depositAmount,
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                exactRefundLocktime
+              )
+            ),
+          },
+        ]
+      )
+
+      const revealTx = await bridge
+        .connect(thirdParty)
+        .revealDeposit(fundingTx.info, {
+          fundingOutputIndex: 0,
+          blindingFactor,
+          walletPubKeyHash,
+          refundPubKeyHash,
+          refundLocktime: exactRefundLocktime,
+          vault: reservationVault.address,
+        })
+      const revealReceipt = await revealTx.wait()
+      const revealBlock = await ethers.provider.getBlock(
+        revealReceipt.blockNumber
+      )
+      const reservationKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [fundingTx.txHash, 0]
+        )
+      )
+
+      return {
+        depositKey: {
+          fundingTxHash: fundingTx.txHash,
+          fundingOutputIndex: 0,
+        },
+        depositExtraInfo: {
+          fundingTx: fundingTx.info,
+          blindingFactor,
+          walletPubKeyHash,
+          refundPubKeyHash,
+          refundLocktime: exactRefundLocktime,
+        },
+        reservationKey,
+        revealedAt: revealBlock.timestamp,
+      }
+    }
+
+    async function setReservationActionTimeout(actionTimeout: number) {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          actionTimeout,
+          RESERVATION_RENEWAL_WINDOW
+        )
     }
 
     // Reveals a fresh reserved deposit, requests its acceptance and proves
@@ -2362,6 +2621,11 @@ describe("Bridge - Reservation", () => {
     before(async () => {
       await createSnapshot()
       await wireReservations()
+
+      refundLocktime = `0x${toLE(
+        (await lastBlockTime()) + 4000 * 24 * 60 * 60,
+        4
+      )}`
 
       relay.getCurrentEpochDifficulty.returns(0)
       relay.getPrevEpochDifficulty.returns(0)
@@ -2441,6 +2705,164 @@ describe("Bridge - Reservation", () => {
             1
           )
       ).to.be.revertedWith("Action type mismatch")
+    })
+
+    it("rejects repeat acceptance requests when deposit age and action margins leave no signing window", async () => {
+      const actionTimeout = 3 * 60 * 60
+      await setReservationActionTimeout(actionTimeout)
+      await bridge.setDepositRevealAheadPeriod(24 * 60 * 60)
+
+      const { reservationKey } = await revealReservedDeposit(
+        (await lastBlockTime()) + 30 * 24 * 60 * 60
+      )
+
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Acceptance authorization has no signing window")
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Acceptance authorization has no signing window")
+
+      expect(
+        (await bridge.reservationParameters()).reservationTotalAmount
+      ).to.equal(0)
+      expect(
+        await bridge.getWalletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect((await bridge.reservations(reservationKey)).requestNonce).to.equal(
+        0
+      )
+    })
+
+    it("accepts the first exact deposit-age/action-margin boundary with an integer signing timestamp", async () => {
+      const actionTimeout = 3 * 60 * 60
+      const depositMinAge = 2 * 60 * 60
+      const actionSafetyMargin = 2 * 60 * 60
+      await setReservationActionTimeout(actionTimeout)
+      await bridge.setDepositRevealAheadPeriod(24 * 60 * 60)
+      const ValidatorFactory = await ethers.getContractFactory(
+        "WalletProposalValidator"
+      )
+      const acceptanceValidator = await ValidatorFactory.deploy(bridge.address)
+
+      const { depositKey, depositExtraInfo, reservationKey, revealedAt } =
+        await revealReservedDeposit((await lastBlockTime()) + 30 * 24 * 60 * 60)
+      const earliestSigningAt = revealedAt + depositMinAge + 1
+      const requestAtEmptyBoundary =
+        earliestSigningAt - (actionTimeout - actionSafetyMargin)
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [
+        requestAtEmptyBoundary,
+      ])
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Acceptance authorization has no signing window")
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [
+        requestAtEmptyBoundary + 1,
+      ])
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.emit(bridge, "ReservationAcceptanceRequested")
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [
+        earliestSigningAt,
+      ])
+      await ethers.provider.send("evm_mine", [])
+      expect(
+        await acceptanceValidator.validateReservationAnchorProposal(
+          {
+            walletPubKeyHash,
+            depositKey,
+            requestNonce: 1,
+            anchorTxFee: anchorFee,
+          },
+          depositExtraInfo
+        )
+      ).to.be.true
+    })
+
+    it("uses the exact refund-safety boundary when reveal-ahead validation is disabled", async () => {
+      const actionTimeout = 3 * 60 * 60
+      const depositMinAge = 2 * 60 * 60
+      const actionSafetyMargin = 2 * 60 * 60
+      const refundSafetyMargin = 24 * 60 * 60
+      await setReservationActionTimeout(actionTimeout)
+      await bridge.setDepositRevealAheadPeriod(0)
+      const ValidatorFactory = await ethers.getContractFactory(
+        "WalletProposalValidator"
+      )
+      const acceptanceValidator = await ValidatorFactory.deploy(bridge.address)
+
+      const firstRevealAt = (await lastBlockTime()) + 10
+      await ethers.provider.send("evm_setNextBlockTimestamp", [firstRevealAt])
+      const emptyRefundDeadline =
+        firstRevealAt + refundSafetyMargin + depositMinAge + 1
+      const firstDeposit = await revealReservedDeposit(emptyRefundDeadline)
+      expect(firstDeposit.revealedAt).to.equal(firstRevealAt)
+
+      const firstRequestAt =
+        firstRevealAt +
+        depositMinAge +
+        1 -
+        (actionTimeout - actionSafetyMargin) +
+        1
+      await ethers.provider.send("evm_setNextBlockTimestamp", [firstRequestAt])
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(
+            firstDeposit.reservationKey,
+            walletPubKeyHash
+          )
+      ).to.be.revertedWith("Acceptance authorization has no signing window")
+
+      const secondRevealAt = (await lastBlockTime()) + 10
+      await ethers.provider.send("evm_setNextBlockTimestamp", [secondRevealAt])
+      const oneSecondRefundDeadline =
+        secondRevealAt + refundSafetyMargin + depositMinAge + 2
+      const secondDeposit = await revealReservedDeposit(oneSecondRefundDeadline)
+      expect(secondDeposit.revealedAt).to.equal(secondRevealAt)
+
+      const earliestSigningAt = secondRevealAt + depositMinAge + 1
+      const secondRequestAt =
+        earliestSigningAt - (actionTimeout - actionSafetyMargin) + 1
+      await ethers.provider.send("evm_setNextBlockTimestamp", [secondRequestAt])
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(
+            secondDeposit.reservationKey,
+            walletPubKeyHash
+          )
+      ).to.emit(bridge, "ReservationAcceptanceRequested")
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [
+        earliestSigningAt,
+      ])
+      await ethers.provider.send("evm_mine", [])
+      expect(
+        await acceptanceValidator.validateReservationAnchorProposal(
+          {
+            walletPubKeyHash,
+            depositKey: secondDeposit.depositKey,
+            requestNonce: 1,
+            anchorTxFee: anchorFee,
+          },
+          secondDeposit.depositExtraInfo
+        )
+      ).to.be.true
     })
 
     it("uses the exact reveal-time refund deadline after parameter updates", async () => {
@@ -2545,6 +2967,8 @@ describe("Bridge - Reservation", () => {
       const { anchorTx, acceptTx, reservationKey } =
         await makeAcceptedReservation()
 
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
+
       await expect(acceptTx)
         .to.emit(bridge, "ReservationAccepted")
         .withArgs(
@@ -2595,6 +3019,88 @@ describe("Bridge - Reservation", () => {
             1
           )
       ).to.be.revertedWith("Action is not settleable")
+    })
+
+    it("does not accept an ordinary deposit after its vault becomes the reservation vault", async () => {
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: depositAmount,
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                refundLocktime
+              )
+            ),
+          },
+        ]
+      )
+
+      await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor,
+        walletPubKeyHash,
+        refundPubKeyHash,
+        refundLocktime,
+        vault: tbtcVault.address,
+      })
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          tbtcVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+
+      const reservationKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [fundingTx.txHash, 0]
+        )
+      )
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Deposit was not revealed as reserved")
+
+      // Build an otherwise settleable generation to exercise the proof-side
+      // classification defense independently of the request-side guard.
+      await bridge.setPendingReservationAcceptanceAction(reservationKey, 1)
+
+      const anchorTx = buildTx(
+        [{ txHash: fundingTx.txHash, index: 0 }],
+        [{ valueSat: anchorAmount, script: p2wpkhScript(walletPubKeyHash) }]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proofFor(anchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            1
+          )
+      ).to.be.revertedWith("Deposit was not revealed as reserved")
     })
 
     it("rejects an anchor paying an excessive miner fee", async () => {

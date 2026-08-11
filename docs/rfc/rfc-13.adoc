@@ -273,15 +273,19 @@ Acceptance follows the same model with reveal-time integration:
 * `requestReservationAcceptance` (permissionless) authorizes the anchor:
   checks deposit routing, designated-wallet liveness, minimum amount and
   post-fee floor, reserves capacity against the designated wallet,
-  snapshots the fee bound, and sets the authorization's validity window
-  ending safely before the deposit refund locktime (the wallet must never
-  sign an anchor that can race the depositor's refund).
+  snapshots the fee bound, and rejects the request unless at least one
+  integer timestamp remains after the deposit-age gate and before both the
+  action-timeout and deposit-refund safety margins. The authorization ends
+  before the exact refund locktime (the wallet must never sign an anchor
+  that can race the depositor's refund).
 * The acceptance proof requires the authorization record and requires the
   anchor output to pay the *designated* wallet.
 * If the wallet never anchors, the authorization times out (capacity
   released; re-requestable while the locktime margin allows). After the
-  refund locktime, a stale reserved deposit with no live authorization can
-  be permissionlessly marked stale, decrementing the pending counter.
+  snapshotted refund deadline — or immediately when reveal-ahead validation
+  was disabled at reveal — a stale reserved deposit with no live
+  authorization can be permissionlessly marked stale, decrementing the
+  pending counter.
 
 === Explicit re-anchor and dissolution authorization
 
@@ -337,11 +341,17 @@ bounded-lookahead* model:
 A pre-expiry pending redemption may still settle after expiry (its
 generation record governs); if it times out or is vetoed at/after expiry
 the position returns to a state where every owner path is expiry-gated —
-dissolution-bound in behavior. The hard stranding bound after the final
-expiry is the dissolution delay plus one action timeout (plus, for a
-governance intervention, one final front-run term: detection-to-block
-latency + window + term + max(delay, redemption timeout) + settlement
-latency).
+dissolution-bound in behavior. For a Live custody wallet, the hard
+stranding bound after the final expiry is the dissolution delay plus one
+action timeout to move the wallet into MovingFunds and a second dissolution
+action timeout to terminate it (plus request, notification, and settlement
+inclusion latency). A still-armed moving-funds timeout may terminate the
+wallet earlier, but it is not part of the hard bound: a successful main-funds
+proof can clear that deadline while the residual reservation remains. A
+custody wallet already in MovingFunds at the first dissolution timeout needs
+only that one action timeout. For a governance intervention, the bound
+additionally allows one final front-run term: detection-to-block latency +
+window + term + max(delay, redemption timeout) + settlement latency.
 
 === Watchtower integration (per-generation)
 
@@ -455,3 +465,10 @@ deployed inert (`reservationVault == 0` in Bridge parameters), the router
 ships with the Bridge implementation upgrade, and governance enables the
 vault last. No live reservation state ever exists on the pre-router
 layout, so there is no live-state migration.
+
+The production `MaintainerProxy` is immutable and does not expose the routed
+reservation-proof selector. Before activation, deploy `MaintainerProxyV2`,
+migrate the SPV-maintainer allowlist, transfer its ownership to governance,
+and have governance authorize the new proxy in both the Bridge and
+`ReimbursementPool`. The existing proxy remains the route for legacy and
+wallet-maintainer calls.

@@ -354,6 +354,10 @@ library ReservationProofs {
                 Reservation.ReservationState.Unknown,
             "Reservation already exists"
         );
+        require(
+            self.pendingReservedDeposit[reservationKey].isReserved,
+            "Deposit was not revealed as reserved"
+        );
 
         bytes32 anchorTxHash = self.validateProof(anchorTx, anchorProof);
 
@@ -404,14 +408,17 @@ library ReservationProofs {
 
         /* solhint-disable-next-line not-rely-on-time */
         deposit.sweptAt = uint32(block.timestamp);
+
+        BridgeState.PendingReservedDeposit storage reservedDeposit = self
+            .pendingReservedDeposit[reservationKey];
         // Stale notification may already have released this pending marker
         // before a late acceptance proof arrives. Consume the marker and its
-        // counter exactly once, while always recording the proven sweep.
-        if (
-            self.pendingReservedDeposit[reservationKey].walletPubKeyHash !=
-            bytes20(0)
-        ) {
-            delete self.pendingReservedDeposit[reservationKey];
+        // counter exactly once, while always recording the proven sweep and
+        // preserving the immutable reveal-time reservation classification.
+        if (reservedDeposit.walletPubKeyHash != bytes20(0)) {
+            delete reservedDeposit.walletPubKeyHash;
+            delete reservedDeposit.refundDeadline;
+            delete reservedDeposit.refundDeadlineValidated;
             self.pendingReservedDeposits -= 1;
         }
     }
@@ -562,6 +569,11 @@ library ReservationProofs {
             amounts
         );
 
+        // A timed-out authorization released the target wallet's reservation
+        // count, so the wallet may have retired before this already-confirmed
+        // anchor is proven. Closing and Closed wallets have no later cleanup
+        // path; strand the newly registered position immediately. Terminated
+        // wallets retain the canonical permissionless evidence path.
         strandLateSettlementIfTargetWalletClosed(
             self,
             reservation,

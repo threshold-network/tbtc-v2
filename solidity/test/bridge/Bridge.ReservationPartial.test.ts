@@ -93,7 +93,7 @@ describe("Bridge - Reservation partial redemption", () => {
   const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
   const blindingFactor = "0xf9f0c90d00039523"
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
-  const refundLocktime = "0x60bcea61"
+  let refundLocktime: string
   const NO_MAIN_UTXO_PARAM = {
     txHash: ZERO_BYTES32,
     txOutputIndex: 0,
@@ -116,6 +116,14 @@ describe("Bridge - Reservation partial redemption", () => {
       tbtc,
       tbtcVault,
     } = await waffle.loadFixture(bridgeFixture))
+
+    // Acceptance validates the exact reveal-time refund deadline even while
+    // the global reveal-ahead check is disabled. Keep it beyond every term
+    // and timeout transition exercised by this suite.
+    refundLocktime = `0x${toLE(
+      (await lastBlockTime()) + 400 * 24 * 60 * 60,
+      4
+    )}`
 
     reservationVault = await helpers.contracts.getContract("ReservationVault")
     bridgeGovernanceSigner = await impersonateContract(

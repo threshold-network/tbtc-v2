@@ -57,6 +57,16 @@ interface IReservationBridge {
     /// @notice See `ReservationRouter.requestReservationDissolution`.
     function requestReservationDissolution(uint256 reservationKey) external;
 
+    /// @notice See `ReservationRouter.submitReservationProof`.
+    function submitReservationProof(
+        uint8 proofType,
+        BitcoinTx.Info calldata txInfo,
+        BitcoinTx.Proof calldata proof,
+        BitcoinTx.UTXO calldata mainUtxo,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external;
+
     /// @notice See `ReservationRouter.notifyReservationActionTimeout`.
     function notifyReservationActionTimeout(
         uint256 reservationKey,
