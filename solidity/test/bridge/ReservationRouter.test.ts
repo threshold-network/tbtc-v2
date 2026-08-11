@@ -337,6 +337,59 @@ describe("ReservationRouter", () => {
             .connect(deployer)
             .setReservationRouter(ethers.constants.AddressZero)
         ).to.be.revertedWith("Reservation router address must not be 0x0")
+
+        await freshBridge.connect(deployer).setReservationRouter(routerAddress)
+        expect(
+          await bridge.attach(freshBridge.address).reservationRouter()
+        ).to.equal(routerAddress)
+      })
+    })
+
+    context("when called with an EOA", () => {
+      it("should revert without consuming the one-time slot", async () => {
+        const [freshBridge] = await deployBridge(1, false)
+
+        await expect(
+          freshBridge.connect(deployer).setReservationRouter(thirdParty.address)
+        ).to.be.revertedWith("Reservation router must be a contract")
+
+        await freshBridge.connect(deployer).setReservationRouter(routerAddress)
+        expect(
+          await bridge.attach(freshBridge.address).reservationRouter()
+        ).to.equal(routerAddress)
+      })
+    })
+
+    context("when called with a not-yet-deployed address", () => {
+      it("should revert without consuming the one-time slot", async () => {
+        const [freshBridge] = await deployBridge(1, false)
+        const notYetDeployedAddress = ethers.utils.getContractAddress({
+          from: thirdParty.address,
+          nonce: await thirdParty.getTransactionCount(),
+        })
+
+        expect(await ethers.provider.getCode(notYetDeployedAddress)).to.equal(
+          "0x"
+        )
+        await expect(
+          freshBridge
+            .connect(deployer)
+            .setReservationRouter(notYetDeployedAddress)
+        ).to.be.revertedWith("Reservation router must be a contract")
+        expect(await ethers.provider.getCode(notYetDeployedAddress)).to.equal(
+          "0x"
+        )
+        expect(
+          ethers.utils.getContractAddress({
+            from: thirdParty.address,
+            nonce: await thirdParty.getTransactionCount(),
+          })
+        ).to.equal(notYetDeployedAddress)
+
+        await freshBridge.connect(deployer).setReservationRouter(routerAddress)
+        expect(
+          await bridge.attach(freshBridge.address).reservationRouter()
+        ).to.equal(routerAddress)
       })
     })
 
@@ -356,6 +409,10 @@ describe("ReservationRouter", () => {
         expect(
           await bridge.attach(freshBridge.address).reservationRouter()
         ).to.equal(routerAddress)
+
+        await expect(
+          freshBridge.connect(deployer).setReservationRouter(routerAddress)
+        ).to.be.revertedWith("Reservation router already set")
       })
     })
   })

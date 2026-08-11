@@ -407,6 +407,10 @@ library Reservation {
         require(deposit.revealedAt != 0, "Deposit not revealed");
         require(deposit.sweptAt == 0, "Deposit already swept");
         require(
+            self.pendingReservedDeposit[reservationKey].isReserved,
+            "Deposit was not revealed as reserved"
+        );
+        require(
             deposit.vault == self.reservationVault,
             "Deposit not routed to the reservation vault"
         );

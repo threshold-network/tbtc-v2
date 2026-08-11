@@ -207,11 +207,23 @@ library Deposit {
             "Vault is not trusted"
         );
 
+        bool isReservedDeposit = reveal.vault != address(0) &&
+            reveal.vault == self.reservationVault;
         uint32 refundDeadline = 0;
+        bool refundDeadlineValidated = false;
         if (self.depositRevealAheadPeriod > 0) {
             refundDeadline = validateDepositRefundLocktime(
                 self,
                 reveal.refundLocktime
+            );
+            refundDeadlineValidated = true;
+        } else if (isReservedDeposit) {
+            // Ordinary deposits preserve the historical disabled-validation
+            // path. Reserved deposits still need the exact script deadline
+            // so a permissionless acceptance request cannot reserve capacity
+            // for an action the wallet validator can never sign.
+            refundDeadline = BTCUtils.reverseUint32(
+                uint32(reveal.refundLocktime)
             );
         }
 
@@ -346,22 +358,22 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
+        if (isReservedDeposit) {
+            self.pendingReservedDeposit[depositKey] = BridgeState
+                .PendingReservedDeposit(
+                    true,
+                    reveal.walletPubKeyHash,
+                    refundDeadline,
+                    refundDeadlineValidated
+                );
+        }
+
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
                     deposit.depositor,
                     deposit.treasuryFee,
                     RebateStaking.TreasuryFeeType.Deposit
-                );
-        }
-
-        if (
-            reveal.vault != address(0) && reveal.vault == self.reservationVault
-        ) {
-            self.pendingReservedDeposit[depositKey] = BridgeState
-                .PendingReservedDeposit(
-                    reveal.walletPubKeyHash,
-                    refundDeadline
                 );
         }
 
