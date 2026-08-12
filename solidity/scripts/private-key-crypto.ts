@@ -1,3 +1,11 @@
+/**
+ * Private-key encryption for local dev/deploy key files.
+ *
+ * New keys are encrypted with scrypt + AES-256-GCM (versioned JSON envelope,
+ * see EncryptedPrivateKeyV1). This module also decrypts legacy CryptoJS/
+ * OpenSSL-format ciphertext for backward compatibility; that path is
+ * decrypt-only and is never used for new writes (see encryptPrivateKey).
+ */
 import {
   createCipheriv,
   createDecipheriv,
@@ -12,6 +20,9 @@ const KEY_LENGTH = 32
 const SALT_LENGTH = 16
 const IV_LENGTH = 12
 const AUTH_TAG_LENGTH = 16
+// N=2^17 (128 MiB) is OWASP's top-recommended scrypt configuration for
+// password-based key derivation when Argon2id is unavailable; do not lower
+// without re-evaluating offline brute-force cost.
 const SCRYPT_OPTIONS = {
   N: 2 ** 17,
   r: 8,
@@ -19,10 +30,16 @@ const SCRYPT_OPTIONS = {
   maxmem: 256 * 1024 * 1024,
 }
 const ASSOCIATED_DATA = Buffer.from(
-  "threshold-network:encrypted-private-key:v1",
+  `threshold-network:encrypted-private-key:v${FORMAT_VERSION}`,
   "utf8"
 )
 const LEGACY_OPENSSL_HEADER = Buffer.from("Salted__", "ascii")
+const LEGACY_SALT_LENGTH = 8
+const LEGACY_CIPHER_BLOCK_LENGTH = 16
+// AES-256-GCM does not pad: ciphertext length always equals plaintext
+// length, and normalizePrivateKey guarantees a 64-character (ASCII) hex
+// string, so a valid ciphertext is always exactly 64 bytes.
+const PRIVATE_KEY_BYTE_LENGTH = 64
 
 interface EncryptedPrivateKeyV1 {
   version: typeof FORMAT_VERSION
@@ -79,8 +96,18 @@ function decodeBase64(value: unknown, expectedLength?: number): Buffer {
   return decoded
 }
 
-function parseEnvelope(encryptedData: string): EncryptedPrivateKeyV1 {
-  const parsed: unknown = JSON.parse(encryptedData)
+function parseEnvelope(encryptedData: string): {
+  salt: Buffer
+  iv: Buffer
+  authTag: Buffer
+  ciphertext: Buffer
+} {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(encryptedData)
+  } catch {
+    throw new Error("Invalid encrypted private key")
+  }
 
   if (typeof parsed !== "object" || parsed === null) {
     throw new Error("Invalid encrypted private key")
@@ -95,12 +122,12 @@ function parseEnvelope(encryptedData: string): EncryptedPrivateKeyV1 {
     throw new Error("Invalid encrypted private key")
   }
 
-  decodeBase64(candidate.salt, SALT_LENGTH)
-  decodeBase64(candidate.iv, IV_LENGTH)
-  decodeBase64(candidate.authTag, AUTH_TAG_LENGTH)
-  decodeBase64(candidate.ciphertext)
-
-  return candidate as unknown as EncryptedPrivateKeyV1
+  return {
+    salt: decodeBase64(candidate.salt, SALT_LENGTH),
+    iv: decodeBase64(candidate.iv, IV_LENGTH),
+    authTag: decodeBase64(candidate.authTag, AUTH_TAG_LENGTH),
+    ciphertext: decodeBase64(candidate.ciphertext, PRIVATE_KEY_BYTE_LENGTH),
+  }
 }
 
 // CryptoJS passphrase ciphertext uses OpenSSL's EVP_BytesToKey derivation.
@@ -133,9 +160,11 @@ function decryptLegacyCryptoJs(
   password: string
 ): string {
   const payload = Buffer.from(encryptedData, "base64")
+  const legacyPrefixLength = LEGACY_OPENSSL_HEADER.length + LEGACY_SALT_LENGTH
 
   if (
-    payload.length <= LEGACY_OPENSSL_HEADER.length + 8 ||
+    payload.length < legacyPrefixLength + LEGACY_CIPHER_BLOCK_LENGTH ||
+    (payload.length - legacyPrefixLength) % LEGACY_CIPHER_BLOCK_LENGTH !== 0 ||
     !payload
       .subarray(0, LEGACY_OPENSSL_HEADER.length)
       .equals(LEGACY_OPENSSL_HEADER)
@@ -143,8 +172,11 @@ function decryptLegacyCryptoJs(
     throw new Error("Invalid encrypted private key")
   }
 
-  const salt = payload.subarray(LEGACY_OPENSSL_HEADER.length, 16)
-  const ciphertext = payload.subarray(16)
+  const salt = payload.subarray(
+    LEGACY_OPENSSL_HEADER.length,
+    legacyPrefixLength
+  )
+  const ciphertext = payload.subarray(legacyPrefixLength)
   const { key, iv } = deriveLegacyCryptoJsKey(password, salt)
 
   try {
@@ -198,19 +230,22 @@ export async function decryptPrivateKey(
   encryptedData: string,
   password: string
 ): Promise<string> {
+  if (!password) {
+    throw new Error("Password must not be empty")
+  }
+
   const trimmedEncryptedData = encryptedData.trim()
 
   if (!trimmedEncryptedData.startsWith("{")) {
+    // New-format envelopes are JSON objects; legacy CryptoJS ciphertext is
+    // base64 and never starts with "{", so this discriminates the two
+    // formats safely.
     return normalizePrivateKey(
       decryptLegacyCryptoJs(trimmedEncryptedData, password)
     )
   }
 
-  const envelope = parseEnvelope(trimmedEncryptedData)
-  const salt = decodeBase64(envelope.salt, SALT_LENGTH)
-  const iv = decodeBase64(envelope.iv, IV_LENGTH)
-  const authTag = decodeBase64(envelope.authTag, AUTH_TAG_LENGTH)
-  const ciphertext = decodeBase64(envelope.ciphertext)
+  const { salt, iv, authTag, ciphertext } = parseEnvelope(trimmedEncryptedData)
   const key = await deriveKey(password, salt)
 
   try {

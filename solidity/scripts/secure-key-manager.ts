@@ -33,11 +33,17 @@ class SecureKeyManagerImpl implements SecureKeyManager {
       throw new Error("DEPLOYER_PASSWORD environment variable not set")
     }
 
+    const encryptedData = fs.readFileSync(ENCRYPTED_KEY_FILE, "utf8")
+
     try {
-      const encryptedData = fs.readFileSync(ENCRYPTED_KEY_FILE, "utf8")
+      // `await` is required here: without it, a decryptPrivateKey rejection
+      // would bypass the catch below instead of being caught by it.
       return await decryptPrivateKey(encryptedData, masterPassword)
     } catch (error) {
-      throw new Error("Failed to decrypt private key. Check your password.")
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `Failed to decrypt private key. Check your password. (${reason})`
+      )
     }
   }
 
