@@ -34,6 +34,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.ReservationCapsData;
 
     BridgeGovernanceParameters.DepositData internal depositData;
     BridgeGovernanceParameters.RedemptionData internal redemptionData;
@@ -42,6 +43,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
     BridgeGovernanceParameters.ReservationData internal reservationData;
+    BridgeGovernanceParameters.ReservationCapsData internal reservationCapsData;
 
     Bridge internal bridge;
 
@@ -293,7 +295,7 @@ contract BridgeGovernance is Ownable {
 
     // Emitted by the linked BridgeGovernanceParameters library through
     // delegatecall, hence its address is this BridgeGovernance contract.
-    // Redeclare the exact signature so governance tooling can decode it
+    // Redeclare the exact signatures so governance tooling can decode them
     // from the BridgeGovernance ABI.
     event ReservationParametersUpdateStarted(
         address newReservationVault,
@@ -305,6 +307,11 @@ contract BridgeGovernance is Ownable {
         uint32 newMaxReservationsPerWallet,
         uint32 newReservationActionTimeout,
         uint32 newReservationRenewalWindowSeconds,
+        uint256 timestamp
+    );
+    event ReservationCapsUpdateStarted(
+        uint64 newMaxReservationsAmountPerWallet,
+        uint64 newReservationMaxSingleAmount,
         uint256 timestamp
     );
 
@@ -1854,6 +1861,33 @@ contract BridgeGovernance is Ownable {
             _newMaxReservationsPerWallet,
             _newReservationActionTimeout,
             _newReservationRenewalWindowSeconds
+        );
+    }
+
+    /// @notice Begins the reservation caps update process. Both
+    ///         amount-denominated caps are staged together since they are
+    ///         applied atomically via a single Bridge call.
+    /// @dev Can be called only by the contract owner.
+    function beginReservationCapsUpdate(
+        uint64 _newMaxReservationsAmountPerWallet,
+        uint64 _newReservationMaxSingleAmount
+    ) external onlyOwner {
+        reservationCapsData.beginReservationCapsUpdate(
+            _newMaxReservationsAmountPerWallet,
+            _newReservationMaxSingleAmount
+        );
+    }
+
+    /// @notice Finalizes the reservation caps update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses.
+    function finalizeReservationCapsUpdate() external onlyOwner {
+        BridgeGovernanceParameters.ReservationCapsData
+            memory staged = reservationCapsData;
+        reservationCapsData.finalizeReservationCapsUpdate(governanceDelay());
+        IReservationBridge(address(bridge)).updateReservationCaps(
+            staged.newMaxReservationsAmountPerWallet,
+            staged.newReservationMaxSingleAmount
         );
     }
 

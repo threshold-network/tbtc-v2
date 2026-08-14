@@ -965,7 +965,7 @@ describe("Bridge - Reservation", () => {
       })
 
       it("renews for the owner with a fee bound", async () => {
-        const treasuryBefore = await tbtc.balanceOf(treasury.address)
+        const reserveBefore = await tbtc.balanceOf(reservationVault.address)
         const tx = await reservationVault
           .connect(thirdParty)
           .extendCustody(
@@ -977,8 +977,10 @@ describe("Bridge - Reservation", () => {
         await expect(tx)
           .to.emit(reservationVault, "CustodyExtended")
           .withArgs(reservationKey, thirdParty.address, extensionFee)
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(
-          treasuryBefore.add(extensionFee)
+        // The renewal fee accumulates in the vault as the in-kind fee
+        // reserve.
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore.add(extensionFee)
         )
       })
 
@@ -1242,12 +1244,15 @@ describe("Bridge - Reservation", () => {
             [amountSat]
           )
 
-        // 40 bps initiation fee.
+        // 40 bps initiation fee, retained by the vault as the in-kind fee
+        // reserve.
         const expectedFee = grossTbtc.mul(40).div(10000)
         expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
           grossTbtc.sub(expectedFee)
         )
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(expectedFee)
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          expectedFee
+        )
       })
     })
 
@@ -1300,7 +1305,7 @@ describe("Bridge - Reservation", () => {
 
       it("should surrender gross TBTC, charge the redemption fee, and register the redemption", async () => {
         const fee = grossTbtc.mul(20).div(10000)
-        const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
+        const reserveBefore = await tbtc.balanceOf(reservationVault.address)
 
         await tbtc
           .connect(thirdParty)
@@ -1315,8 +1320,10 @@ describe("Bridge - Reservation", () => {
           .withArgs(reservationKey, thirdParty.address, grossTbtc, fee)
         await expect(tx).to.emit(bridge, "ReservedRedemptionRequested")
 
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(
-          treasuryBalanceBefore.add(fee)
+        // The redemption fee accumulates in the vault as the in-kind fee
+        // reserve.
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore.add(fee)
         )
         expect((await bridge.reservations(reservationKey)).state).to.equal(
           ReservationState.ActionPending
@@ -1353,7 +1360,7 @@ describe("Bridge - Reservation", () => {
           .approve(reservationVault.address, ethers.constants.MaxUint256)
 
         const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
-        const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
+        const reserveBefore = await tbtc.balanceOf(reservationVault.address)
 
         await reservationVault.connect(governance).updateFees(40, 20, 500)
 
@@ -1370,8 +1377,8 @@ describe("Bridge - Reservation", () => {
         expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
           ownerBalanceBefore
         )
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(
-          treasuryBalanceBefore
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore
         )
         expect(
           (await bridge.reservations(exposedReservationKey)).state
@@ -1393,8 +1400,8 @@ describe("Bridge - Reservation", () => {
             grossTbtc,
             updatedFee
           )
-        expect(await tbtc.balanceOf(treasury.address)).to.equal(
-          treasuryBalanceBefore.add(updatedFee)
+        expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+          reserveBefore.add(updatedFee)
         )
         expect(
           (await bridge.reservations(exposedReservationKey)).state
@@ -1602,6 +1609,14 @@ describe("Bridge - Reservation", () => {
     })
 
     it("stages the parameters and applies them after the governance delay", async () => {
+      expect(
+        bridgeGovernance.interface
+          .getEvent("ReservationParametersUpdateStarted")
+          .format()
+      ).to.equal(
+        "ReservationParametersUpdateStarted(address,uint64,uint64,uint32,uint32,uint64,uint32,uint32,uint32,uint256)"
+      )
+
       const beginTx = await bridgeGovernance
         .connect(governance)
         .beginReservationParametersUpdate(
@@ -2617,6 +2632,9 @@ describe("Bridge - Reservation", () => {
       expect(
         await bridge.getWalletReservationsCount(walletPubKeyHash)
       ).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
       expect((await bridge.reservations(reservationKey)).requestNonce).to.equal(
         0
       )

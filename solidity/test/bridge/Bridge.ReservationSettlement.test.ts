@@ -1252,8 +1252,13 @@ describe("Bridge - Reservation settlement", () => {
       expect(
         (await bridge.reservationActions(reservationKey, 5)).usedRetryCredit
       ).to.be.true
-      expect(await bank.balanceOf(thirdParty.address)).to.equal(0)
-      expect(await bank.balanceOf(bridge.address)).to.equal(anchorAmount)
+      // The backing branch writes the claim down by the re-anchor miner fee.
+      // The restored credit therefore re-escrows the current claim, leaving
+      // the financed 500-satoshi write-down in the redeemer's Bank balance.
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(500)
+      expect(await bank.balanceOf(bridge.address)).to.equal(
+        anchorAmount.sub(500)
+      )
     })
 
     it("does not mint credit when the superseded redemption paid a fee", async () => {
@@ -1575,6 +1580,11 @@ describe("Bridge - Reservation settlement", () => {
 
     it("strands a late dissolution output after the source wallet terminates", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const supplyBefore = await tbtc.totalSupply()
+      const reserveBefore = await tbtc.balanceOf(reservationVault.address)
+      const debtBefore = await reservationVault.inKindFeeDebtSat()
+      const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+      expect(debtBefore).to.equal(0)
 
       await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
       await bridge
@@ -1624,6 +1634,20 @@ describe("Bridge - Reservation settlement", () => {
       await expect(tx)
         .to.emit(bridge, "ReservationDissolved")
         .withArgs(reservationKey, 2, walletPubKeyHash, dissolutionTx.txHash)
+      await expect(tx)
+        .to.emit(reservationVault, "InKindFeeFinanced")
+        .withArgs(dissolutionFee, 0)
+
+      const financedTbtc =
+        BigNumber.from(dissolutionFee).mul(SATOSHI_MULTIPLIER)
+      expect(await tbtc.totalSupply()).to.equal(supplyBefore.sub(financedTbtc))
+      expect(await tbtc.balanceOf(reservationVault.address)).to.equal(
+        reserveBefore.sub(financedTbtc)
+      )
+      expect(await reservationVault.inKindFeeDebtSat()).to.equal(debtBefore)
+      expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+        ownerBalanceBefore
+      )
 
       const wallet = await bridge.wallets(walletPubKeyHash)
       expect(wallet.state).to.equal(walletState.Terminated)
@@ -1637,6 +1661,9 @@ describe("Bridge - Reservation settlement", () => {
       expect(
         (await bridge.reservationParameters()).reservationTotalAmount
       ).to.equal(0)
+      expect(await bridge.walletReservationsAmount(walletPubKeyHash)).to.equal(
+        0
+      )
       expect(await bridge.walletPendingDissolution(walletPubKeyHash)).to.equal(
         0
       )

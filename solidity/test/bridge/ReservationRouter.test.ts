@@ -142,7 +142,7 @@ describe("ReservationRouter", () => {
   })
 
   describe("storage layout parity", () => {
-    it("should consume exactly nine slots from the deployed Bridge gap", async () => {
+    it("should consume exactly eleven slots from the deployed Bridge gap", async () => {
       const bridgeLayout = await getStorageLayout(
         "contracts/bridge/Bridge.sol",
         "Bridge"
@@ -160,14 +160,84 @@ describe("ReservationRouter", () => {
         throw new Error("No BridgeState.Storage.__gap entry in Bridge layout")
       }
 
-      // The deployed layout reserves slots 81..128. Combined reservation and
-      // reveal-time state uses exactly nine of them, so the remaining gap
-      // starts at 90, contains 39 slots, and keeps the original endpoint.
+      // The deployed layout reserves slots 81..128. Combined reservation,
+      // backing, and reveal-time state uses exactly eleven of them, so the
+      // remaining gap starts at 92, contains 37 slots, and keeps the original
+      // endpoint.
       const gapType = bridgeLayout.types[gap.type]
       const absoluteGapSlot = Number(self.slot) + Number(gap.slot)
-      expect(absoluteGapSlot).to.equal(90)
-      expect(gapType.numberOfBytes).to.equal((39 * 32).toString())
+      expect(absoluteGapSlot).to.equal(92)
+      expect(gapType.numberOfBytes).to.equal((37 * 32).toString())
       expect(absoluteGapSlot + Number(gapType.numberOfBytes) / 32).to.equal(129)
+    })
+
+    it("should preserve the parent-first reservation roots and packed reveal classification", async () => {
+      const bridgeLayout = await getStorageLayout(
+        "contracts/bridge/Bridge.sol",
+        "Bridge"
+      )
+      const self = bridgeLayout.storage.find((entry) => entry.label === "self")
+      if (!self) {
+        throw new Error("No BridgeState.Storage entry in Bridge layout")
+      }
+
+      const { members } = bridgeLayout.types[self.type]
+      if (!members) {
+        throw new Error("No BridgeState.Storage members in Bridge layout")
+      }
+
+      const expectedRoots = [
+        ["walletReservationsCount", "34", 0],
+        ["pendingReservedDeposit", "35", 0],
+        ["reservationRouter", "36", 0],
+        ["reservationActionTimeout", "36", 20],
+        ["reservationRenewalWindowSeconds", "36", 24],
+        ["reservationActions", "37", 0],
+        ["walletPendingDissolution", "38", 0],
+        ["walletReservationsAmount", "39", 0],
+        ["maxReservationsAmountPerWallet", "40", 0],
+        ["reservationMaxSingleAmount", "40", 8],
+        ["__gap", "41", 0],
+      ] as const
+
+      expectedRoots.forEach(([label, slot, offset]) => {
+        const member = members.find((entry) => entry.label === label)
+        if (!member) {
+          throw new Error(`No BridgeState.Storage.${label} entry`)
+        }
+        expect({ slot: member.slot, offset: member.offset }).to.deep.equal({
+          slot,
+          offset,
+        })
+      })
+
+      const pendingReservedDeposit = members.find(
+        (entry) => entry.label === "pendingReservedDeposit"
+      )
+      if (!pendingReservedDeposit) {
+        throw new Error("No pendingReservedDeposit storage root")
+      }
+      const pendingMappingType = bridgeLayout.types[pendingReservedDeposit.type]
+      if (!pendingMappingType.value) {
+        throw new Error("pendingReservedDeposit is not a mapping")
+      }
+      const pendingStructType = bridgeLayout.types[pendingMappingType.value]
+      if (!pendingStructType.members) {
+        throw new Error("No PendingReservedDeposit struct members")
+      }
+
+      expect(
+        pendingStructType.members.map(({ label, slot, offset }) => ({
+          label,
+          slot,
+          offset,
+        }))
+      ).to.deep.equal([
+        { label: "isReserved", slot: "0", offset: 0 },
+        { label: "walletPubKeyHash", slot: "0", offset: 1 },
+        { label: "refundDeadline", slot: "0", offset: 21 },
+        { label: "refundDeadlineValidated", slot: "0", offset: 25 },
+      ])
     })
 
     it("should pass the OpenZeppelin upgrade check from the deployed Bridge gap", () => {
@@ -216,9 +286,9 @@ describe("ReservationRouter", () => {
       expect(rebateStakingIndex).to.be.greaterThan(-1)
 
       const currentGap = members.find((member) => member.label === "__gap")!
-      expect(currentGap.slot).to.equal("39")
+      expect(currentGap.slot).to.equal("41")
       expect(currentLayout!.types[currentGap.type].label).to.equal(
-        "uint256[39]"
+        "uint256[37]"
       )
 
       const asStorageItem = (entry: StorageEntry) => ({

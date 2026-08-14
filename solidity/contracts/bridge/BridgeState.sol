@@ -428,6 +428,17 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
+        // Total satoshi amount of reservation anchors (and reserved
+        // capacity of pending reservation actions) custodied by the given
+        // wallet. Because the claim always equals the anchor, this is both
+        // the asset- and the liability-side per-wallet figure.
+        mapping(bytes20 => uint64) walletReservationsAmount;
+        // Maximum total satoshi amount of reservation anchors a single
+        // wallet can custody. Zero disables the cap.
+        uint64 maxReservationsAmountPerWallet;
+        // Maximum satoshi amount of a single reservation. Zero disables
+        // the cap.
+        uint64 reservationMaxSingleAmount;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -435,7 +446,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[37] __gap;
     }
 
     event DepositParametersUpdated(
