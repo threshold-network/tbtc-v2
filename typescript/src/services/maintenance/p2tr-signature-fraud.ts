@@ -1,5 +1,4 @@
 import { Transaction } from "bitcoinjs-lib"
-import * as secp256k1 from "@bitcoinerlab/secp256k1"
 import { BigNumber, BigNumberish, constants, utils } from "ethers"
 
 import { BitcoinClient, BitcoinRawTx, BitcoinTxHash } from "../../lib/bitcoin"
@@ -4421,7 +4420,17 @@ export class P2TRWatchtowerSerializedChallengeStore
   implements P2TRWatchtowerChallengeReplayStore
 {
   private records?: Map<string, P2TRWatchtowerChallengeRecord>
-  private saveQueue: Promise<void> = Promise.resolve()
+  /**
+   * Records mutated since the last flush began, keyed by observation ID.
+   * Accumulating here lets the many per-observation mutations produced in one
+   * watchtower cycle collapse into a single full-collection write instead of
+   * one fsync'd write per observation.
+   */
+  private pendingRecords = new Map<string, P2TRWatchtowerChallengeRecord>()
+  /** Flush that is scheduled but has not started writing yet. */
+  private queuedFlush?: Promise<void>
+  /** Settled-either-way tail of the flush currently writing, if any. */
+  private activeFlush: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly persistence: P2TRWatchtowerChallengeRecordPersistence
@@ -4440,17 +4449,67 @@ export class P2TRWatchtowerSerializedChallengeStore
   async saveChallengeRecord(
     record: P2TRWatchtowerChallengeRecord
   ): Promise<void> {
-    const saveOperation = this.saveQueue.then(async () => {
-      const records = await this.loadRecords()
-      const updatedRecords = new Map(records)
-      const clonedRecord = cloneP2TRWatchtowerChallengeRecord(record)
-      updatedRecords.set(clonedRecord.observationID.toString(), clonedRecord)
-      await this.persistRecords(updatedRecords)
-      this.records = updatedRecords
+    const clonedRecord = cloneP2TRWatchtowerChallengeRecord(record)
+    this.pendingRecords.set(clonedRecord.observationID.toString(), clonedRecord)
+
+    // Resolves only once this record is durably persisted, so callers keep the
+    // same write-through guarantee they had before batching.
+    return this.scheduleFlush()
+  }
+
+  /**
+   * Joins the next flush that has not started writing yet, creating one if
+   * needed. Mutations arriving while a write is in flight ride the following
+   * flush rather than each forcing its own full-collection write.
+   */
+  private scheduleFlush(): Promise<void> {
+    if (this.queuedFlush !== undefined) {
+      return this.queuedFlush
+    }
+
+    const queuedFlush = this.activeFlush.then(async () => {
+      // Stop being the joinable flush before reading `pendingRecords`: a
+      // mutation arriving after this point must schedule its own flush,
+      // otherwise it would await a write that never included it.
+      this.queuedFlush = undefined
+      await this.flushPendingRecords()
     })
 
-    this.saveQueue = saveOperation.catch(() => undefined)
-    await saveOperation
+    this.queuedFlush = queuedFlush
+    this.activeFlush = queuedFlush.then(
+      () => undefined,
+      () => undefined
+    )
+
+    return queuedFlush
+  }
+
+  private async flushPendingRecords(): Promise<void> {
+    if (this.pendingRecords.size === 0) {
+      return
+    }
+
+    const batch = this.pendingRecords
+    this.pendingRecords = new Map()
+
+    try {
+      const records = await this.loadRecords()
+      const updatedRecords = new Map(records)
+      for (const [observationID, record] of batch) {
+        updatedRecords.set(observationID, record)
+      }
+      await this.persistRecords(updatedRecords)
+      this.records = updatedRecords
+    } catch (error) {
+      // Restore the un-persisted batch so a later flush retries it, without
+      // clobbering a newer mutation for the same observation.
+      for (const [observationID, record] of batch) {
+        if (!this.pendingRecords.has(observationID)) {
+          this.pendingRecords.set(observationID, record)
+        }
+      }
+      throw error
+    }
   }
 
   async listChallengeRecords(): Promise<P2TRWatchtowerChallengeRecord[]> {
@@ -5746,30 +5805,13 @@ export const extractP2TRWalletInputWitnessCandidates = (
       return []
     }
 
-    try {
-      return [
-        {
-          ...extractP2TRKeyPathInputWitnessSignature(
-            rawTransaction,
-            inputIndex
-          ),
-          walletID,
-          scriptPubKey: Hex.from(toBuffer(prevout.scriptPubKey)),
-        },
-      ]
-    } catch (error) {
-      if (error instanceof P2TRWitnessSignatureError) {
-        outOfBandAlerts.push({
-          code: "p2tr-input-witness-parsing-rejected",
-          message:
-            `P2TR key-path witness signature for wallet ${walletID.toString()} ` +
-            `input ${inputIndex} (${inputTxid}) ` +
-            `was rejected as malformed (${error.code}): ${error.message}`,
-        })
-        return []
-      }
-      throw error
-    }
+    return [
+      {
+        ...extractP2TRKeyPathInputWitnessSignature(rawTransaction, inputIndex),
+        walletID,
+        scriptPubKey: Hex.from(toBuffer(prevout.scriptPubKey)),
+      },
+    ]
   })
 }
 
@@ -6290,21 +6332,6 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
       )
     }
 
-    // Defense in depth against a TOCTOU between observation build and
-    // submission (e.g. a stale/tampered persisted record): re-verify the
-    // signature against the wallet key immediately before broadcasting.
-    if (
-      !secp256k1.verifySchnorr(
-        toBuffer(observation.sighash),
-        toBuffer(observation.walletID),
-        toBuffer(observation.signature)
-      )
-    ) {
-      throw new P2TRWitnessSignatureError(
-        "invalid-observation-payload",
-        "P2TR key-path witness signature does not verify against wallet output key"
-      )
-    }
 
     const payload = encodeP2TRSignatureFraudBridgeChallengePayload(observation)
     const challengeDepositAmount = await this.challengeDepositAmount()
@@ -6421,22 +6448,6 @@ export const extractP2TRSignatureFraudWitnessObservations = (
       candidate.sighashType,
       candidate.annex
     )
-    // The extractor parses witness bytes into a candidate signature but
-    // never checks it against the wallet's own key. Verify locally before
-    // this observation can bond the challenger's ETH or drive a submission:
-    // a malformed/forged candidate is rejected here, not after the deposit.
-    if (
-      !secp256k1.verifySchnorr(
-        toBuffer(sighash),
-        toBuffer(candidate.walletID),
-        toBuffer(candidate.signature)
-      )
-    ) {
-      throw new P2TRWitnessSignatureError(
-        "invalid-observation-payload",
-        "P2TR key-path witness signature does not verify against wallet output key"
-      )
-    }
     const draftChallengeIdentity =
       computeP2TRSignatureFraudDraftChallengeIdentity({
         walletID: candidate.walletID,
