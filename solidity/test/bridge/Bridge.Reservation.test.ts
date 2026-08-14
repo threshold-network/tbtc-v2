@@ -595,6 +595,13 @@ describe("Bridge - Reservation", () => {
       )
       expect(await bridge.isReservedDeposit(depositKey)).to.be.true
 
+      // Release the pending-deposit capacity without erasing its immutable
+      // reveal-time classification. Reveal-ahead validation was disabled, so
+      // stale notification is immediately available.
+      await bridge.connect(thirdParty).notifyStaleReservedDeposit(depositKey)
+      expect(await bridge.pendingReservedDeposits()).to.equal(0)
+      expect(await bridge.isReservedDeposit(depositKey)).to.be.true
+
       // Moving the configured reservation vault away must not make this
       // reveal-time reserved deposit eligible for an ordinary sweep.
       await bridge

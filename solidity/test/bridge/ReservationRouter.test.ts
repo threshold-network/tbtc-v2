@@ -142,7 +142,7 @@ describe("ReservationRouter", () => {
   })
 
   describe("storage layout parity", () => {
-    it("should consume exactly eleven slots from the deployed Bridge gap", async () => {
+    it("should consume exactly fourteen slots from the deployed Bridge gap", async () => {
       const bridgeLayout = await getStorageLayout(
         "contracts/bridge/Bridge.sol",
         "Bridge"
@@ -161,13 +161,13 @@ describe("ReservationRouter", () => {
       }
 
       // The deployed layout reserves slots 81..128. Combined reservation,
-      // backing, and reveal-time state uses exactly eleven of them, so the
-      // remaining gap starts at 92, contains 37 slots, and keeps the original
-      // endpoint.
+      // backing, enumeration, and reveal-time state uses exactly fourteen of
+      // them, so the remaining gap starts at 95, contains 34 slots, and keeps
+      // the original endpoint.
       const gapType = bridgeLayout.types[gap.type]
       const absoluteGapSlot = Number(self.slot) + Number(gap.slot)
-      expect(absoluteGapSlot).to.equal(92)
-      expect(gapType.numberOfBytes).to.equal((37 * 32).toString())
+      expect(absoluteGapSlot).to.equal(95)
+      expect(gapType.numberOfBytes).to.equal((34 * 32).toString())
       expect(absoluteGapSlot + Number(gapType.numberOfBytes) / 32).to.equal(129)
     })
 
@@ -197,7 +197,10 @@ describe("ReservationRouter", () => {
         ["walletReservationsAmount", "39", 0],
         ["maxReservationsAmountPerWallet", "40", 0],
         ["reservationMaxSingleAmount", "40", 8],
-        ["__gap", "41", 0],
+        ["walletReservationKeys", "41", 0],
+        ["walletReservationKeyIndex", "42", 0],
+        ["pendingReservedDeposits", "43", 0],
+        ["__gap", "44", 0],
       ] as const
 
       expectedRoots.forEach(([label, slot, offset]) => {
@@ -286,9 +289,9 @@ describe("ReservationRouter", () => {
       expect(rebateStakingIndex).to.be.greaterThan(-1)
 
       const currentGap = members.find((member) => member.label === "__gap")!
-      expect(currentGap.slot).to.equal("41")
+      expect(currentGap.slot).to.equal("44")
       expect(currentLayout!.types[currentGap.type].label).to.equal(
-        "uint256[37]"
+        "uint256[34]"
       )
 
       const asStorageItem = (entry: StorageEntry) => ({

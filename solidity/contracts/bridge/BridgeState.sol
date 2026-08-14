@@ -439,6 +439,20 @@ library BridgeState {
         // Maximum satoshi amount of a single reservation. Zero disables
         // the cap.
         uint64 reservationMaxSingleAmount;
+        // Per-wallet enumeration of custodied reservation keys, maintained
+        // for monitoring and audit evidence. Entries are appended on
+        // acceptance, moved on re-anchor and swap-removed on close and
+        // stranding.
+        mapping(bytes20 => uint256[]) walletReservationKeys;
+        // Index-plus-one of each reservation key inside its wallet's
+        // `walletReservationKeys` array (zero means absent).
+        mapping(uint256 => uint256) walletReservationKeyIndex;
+        // Number of revealed reserved deposits that were neither accepted
+        // nor marked stale yet. The reservation vault cannot be changed
+        // while this is non-zero: revealed-but-unanchored deposits routed
+        // to the old vault would otherwise become pool-sweepable while
+        // still minting through the old vault's callback.
+        uint64 pendingReservedDeposits;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -446,7 +460,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[37] __gap;
+        uint256[34] __gap;
     }
 
     event DepositParametersUpdated(

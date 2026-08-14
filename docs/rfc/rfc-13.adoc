@@ -248,8 +248,10 @@ Acceptance follows the same model with reveal-time integration:
   anchor output to pay the *designated* wallet.
 * If the wallet never anchors, the authorization times out (capacity
   released; re-requestable while the locktime margin allows). After the
-  refund locktime, a stale reserved deposit with no live authorization can
-  be permissionlessly marked stale, decrementing the pending counter.
+  snapshotted refund deadline — or immediately when reveal-ahead validation
+  was disabled at reveal — a stale reserved deposit with no live
+  authorization can be permissionlessly marked stale, decrementing the
+  pending counter.
 
 === Explicit re-anchor and dissolution authorization
 

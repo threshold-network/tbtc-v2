@@ -89,6 +89,12 @@ interface IReservationBridge {
         uint32 reservationRenewalWindowSeconds
     ) external;
 
+    /// @notice See `ReservationRouter.notifyStaleReservedDeposit`.
+    function notifyStaleReservedDeposit(uint256 depositKey) external;
+
+    /// @notice See `ReservationRouter.notifyReservationStranded`.
+    function notifyReservationStranded(uint256 reservationKey) external;
+
     /// @notice See `ReservationRouter.updateReservationCaps`.
     function updateReservationCaps(
         uint64 maxReservationsAmountPerWallet,
