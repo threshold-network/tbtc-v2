@@ -16,8 +16,14 @@
 // https://github.com/keep-network/keep-core/blob/5138c7628868dbeed3ae2164f76fccc6c1fbb9e8/solidity/random-beacon/contracts/DKGValidator.sol
 //
 // With the following differences:
-// - group public key length,
+// - group public key length (32-byte x-only Taproot output key instead of
+//   64-byte uncompressed ECDSA public key),
 // - group size and related thresholds,
+// - DKG result digest format (RFC v4: `tbtc-frost-dkg-result-v1` preimage
+//   binds chainid, bridge, registry, seed, xOnlyOutputKey, membersHash,
+//   misbehavedMembersIndicesHash; see `docs/rfc/wallet-registry-trust-model-rfc.md`
+//   §"DKG result message format" for the field rationale), replacing the
+//   keep-core beacon's `random-beacon-dkg-result-v1` digest,
 // - documentation.
 
 pragma solidity 0.8.17;
@@ -26,6 +32,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@keep-network/random-beacon/contracts/libraries/BytesLib.sol";
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 import "./libraries/FrostDkg.sol";
+import {CheckBitcoinBIP340Sigs} from "../bridge/CheckBitcoinBIP340Sigs.sol";
 
 /// @title DKG result validator
 /// @notice FrostDkgValidator allows performing a full validation of DKG result,
@@ -41,8 +48,10 @@ contract FrostDkgValidator {
     using BytesLib for bytes;
     using ECDSA for bytes32;
 
-    /// @dev Size of a group in DKG.
-    uint256 public constant groupSize = 100;
+    /// @dev Size of a group in DKG. Defined on the `FrostDkg` library so the
+    ///      registry's sortition-pool call sites and the validator's member
+    ///      bound checks share one source of truth.
+    uint256 public constant groupSize = FrostDkg.groupSize;
 
     /// @dev The minimum number of group members needed to interact according to
     ///      the protocol to produce a signature. The adversary can not learn
@@ -55,10 +64,6 @@ contract FrostDkgValidator {
     ///      than `groupThreshold` to keep a safety margin for members becoming
     ///      inactive after DKG so that the group can still produce signature.
     uint256 public constant activeThreshold = 90; // 90% of groupSize
-
-    /// @dev Size in bytes of the FROST x-only Taproot output key
-    ///      produced by group members during DKG (BIP-340 / BIP-341).
-    uint256 public constant publicKeyByteSize = 32;
 
     /// @dev Size in bytes of a single signature produced by operator supporting
     ///      DKG result.
@@ -74,13 +79,17 @@ contract FrostDkgValidator {
     ///         format of fields in the result, declared selected group members,
     ///         and signatures of operators supporting the result.
     /// @param seed seed used to start the DKG and select group members
-    /// @param startBlock DKG start block
     /// @return isValid true if the result is valid, false otherwise
     /// @return errorMsg validation error message; empty for a valid result
+    /// @dev The RFC v4 digest binds (chainid, bridge, registry, seed,
+    ///      xOnlyOutputKey, membersHash, misbehavedMembersIndicesHash); the
+    ///      DKG start block is intentionally absent from the digest so the
+    ///      signature surface does not include it. See
+    ///      `docs/rfc/wallet-registry-trust-model-rfc.md` §"DKG result
+    ///      message format".
     function validate(
         FrostDkg.Result calldata result,
         uint256 seed,
-        uint256 startBlock,
         address bridge,
         address registry
     ) external view returns (bool isValid, string memory errorMsg) {
@@ -101,7 +110,6 @@ contract FrostDkgValidator {
             !validateSignatures(
                 result,
                 seed,
-                startBlock,
                 DigestBinding({bridge: bridge, registry: registry})
             )
         ) {
@@ -200,6 +208,26 @@ contract FrostDkgValidator {
         return (true, "");
     }
 
+    /// @notice Checks that an x-only output key is a valid, liftable
+    ///         secp256k1 x-coordinate: strictly below the field prime and
+    ///         corresponding to a real curve point.
+    /// @dev Delegates to the canonical BIP-340 primitive rather than
+    ///      re-deriving the curve math, so this contract and the Taproot
+    ///      deposit path (`Deposit.sol`) cannot drift. `view` rather than
+    ///      `pure` because the square root uses the modexp precompile.
+    /// @param xOnlyOutputKey BIP-340 x-only key to check.
+    /// @return True if the key lifts to a curve point, false otherwise.
+    function isXOnlyOutputKeyLiftable(bytes32 xOnlyOutputKey)
+        public
+        view
+        returns (bool)
+    {
+        (bool lifted, ) = CheckBitcoinBIP340Sigs.liftX(
+            uint256(xOnlyOutputKey)
+        );
+        return lifted;
+    }
+
     /// @notice Performs validation of group members as declared in DKG
     ///         result against group members selected by the sortition pool.
     /// @param seed seed used to start the DKG and select group members
@@ -266,11 +294,6 @@ contract FrostDkgValidator {
     /// @param bridge Bridge contract address (digest binding).
     /// @param registry FrostWalletRegistry address (digest binding).
     /// @return true if signatures match; false otherwise.
-    /// @dev `startBlock` is intentionally accepted but unused — the
-    ///      RFC v4 digest binds to (chainid, bridge, registry, seed,
-    ///      xOnlyOutputKey, membersHash, misbehavedHash) rather than
-    ///      the start block; the start block is implicit in the
-    ///      seed binding.
     /// @dev Bundles the digest-binding addresses so
     ///      `validateSignatures` and `validate` can pass them as
     ///      one slot, keeping the function's local-variable count
@@ -283,9 +306,8 @@ contract FrostDkgValidator {
     function validateSignatures(
         FrostDkg.Result calldata result,
         uint256 seed,
-        uint256, /* startBlock */
         DigestBinding memory binding
-    ) public view returns (bool) {
+    ) internal view returns (bool) {
         // RFC v4 digest format. See
         // `wallet-registry-trust-model-rfc.md` §"DKG result message
         // format" for the field rationale. The digest is computed
