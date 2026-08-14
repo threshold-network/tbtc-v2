@@ -25,6 +25,9 @@
     "prettier": "^2.3.2",
     "typescript": "^4.9.5"
   },
+  "resolutions": {
+    "crypto-js": "4.2.0"
+  },
   "engines": {
     "node": ">=16"
   }
