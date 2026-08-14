@@ -103,7 +103,10 @@ type EsploraTransactionStatus = {
 const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000
 const DEFAULT_RETRY_DELAY_MS = 250
-const DEFAULT_CONFIRMED_PAGE_LIMIT = 10000
+// One Esplora page per wallet per cycle. This is a deliberate per-cycle work
+// budget, not a cap on total pagination: catch-up advances each wallet's
+// history by one page per cycle so a long backlog cannot monopolise a cycle.
+const DEFAULT_CONFIRMED_PAGE_LIMIT = 1
 const DEFAULT_DEPOSIT_SCAN_CONCURRENCY = 8
 const DEFAULT_TAPROOT_DEPOSIT_REVEAL_FROM_BLOCK = 0
 const DEFAULT_TAPROOT_DEPOSIT_REVEAL_CONFIRMATION_DEPTH = 12

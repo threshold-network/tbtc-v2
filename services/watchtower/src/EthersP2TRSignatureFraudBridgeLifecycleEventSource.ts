@@ -512,12 +512,13 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
           "Bridge lifecycle source cursor commit block hash does not match the independent canonical view"
         )
       }
-    }
 
-    // Always persist the canonical hash so the next cycle can detect a
-    // reorg. requireCursorBlockHash gates an extra cross-check against the
-    // source provider; it does NOT gate persistence.
-    cursor.lastScannedBlockHash = currentCanonicalBlockHash
+      // Persisting the hash is what lets the next cycle detect a reorg (and
+      // rewind instead of wedging). It stays behind `requireCursorBlockHash`
+      // because that flag is the operator's opt-in to cursor hash checking;
+      // deployments without it keep the hash-less cursor shape.
+      cursor.lastScannedBlockHash = currentCanonicalBlockHash
+    }
 
     await this.options.scanCursorStore.saveBridgeLifecycleScanCursor(cursor)
     this.pendingCursorBlock = undefined
@@ -898,7 +899,9 @@ export class P2TRBridgeLifecycleCursorReorgDetectedError extends Error {
     cursorOverlapBlocks: number
   ) {
     super(
-      `Bridge lifecycle scan cursor rewound due to a reorg: ` +
+      // Keeps the original "block hash mismatch" wording that callers and
+      // operator runbooks match on, and appends what the source did about it.
+      `Bridge lifecycle scan cursor block hash mismatch; cursor rewound: ` +
         `lastScannedBlock ${fromBlock} -> ${toBlock} (overlap ${cursorOverlapBlocks}).`
     )
     this.name = "P2TRBridgeLifecycleCursorReorgDetected"
@@ -936,10 +939,14 @@ async function validateCursorBlockHash(
   requireCursorBlockHash: boolean
 ): Promise<void> {
   if (cursor.lastScannedBlockHash === undefined) {
-    // Presence of a cursor store implies a previously-committed cycle, so a
-    // missing hash is a hard error regardless of requireCursorBlockHash. The
-    // option only adds an extra cross-check against the source provider.
-    throw new Error("Bridge lifecycle scan cursor block hash is required")
+    // A hash-less cursor cannot be checked for a reorg. Whether that is
+    // tolerable is the operator's call, so honour `requireCursorBlockHash`
+    // rather than forcing strictness on every deployment.
+    if (requireCursorBlockHash) {
+      throw new Error("Bridge lifecycle scan cursor block hash is required")
+    }
+
+    return
   }
 
   const expectedBlockHash = normalizeFixedBytes32(

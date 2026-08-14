@@ -408,6 +408,36 @@ test("persists watchtower records to an operator state file atomically", async (
   }
 })
 
+test("rejects a corrupted challenge-record state file with an actionable error", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
+  const statePath = join(directory, "records.json")
+
+  try {
+    // Simulates external truncation or a partially-written file: valid UTF-8
+    // that is not valid JSON at all, which must not surface as an opaque
+    // `SyntaxError: Unexpected token` from inside the load path.
+    await writeFile(statePath, '[{"observationID": "0x11", "sta')
+
+    const persistence = new FileBackedP2TRWatchtowerChallengeRecordPersistence(
+      statePath
+    )
+
+    await assert.rejects(
+      () => persistence.loadChallengeRecords(),
+      (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.match(error.message, /is not valid JSON/)
+        // The operator must be told which file to act on and what to do.
+        assert.ok(error.message.includes(statePath))
+        assert.match(error.message, /Restore it from a backup or remove it/)
+        return true
+      }
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("fails closed before overwriting challenge records changed after load", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
