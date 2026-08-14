@@ -2,57 +2,88 @@
 
 Status: **DRAFT pending governance sign-off.** This document freezes the
 parameter surface and economic model of the UTXO reservation feature for
-audit. Every value below marked _(sign-off)_ is a governance decision the
-implementation exposes but does not settle; the mechanics are fixed, the
-numbers are proposals. Companion: `docs/rfc/rfc-13.adoc`,
+audit. The mechanics are fixed; the numbers are governance decisions the
+implementation exposes but does not settle. Values marked _(prov. DATE)_ are
+**provisionally confirmed by the owner** on that date and to be revisited
+before launch; items marked _(pending, …)_ still need a final number. Nothing
+here is final until governance sign-off. Companion: `docs/rfc/rfc-13.adoc`,
 `docs/utxo-reservation-design.md`.
 
 ## 1. Parameter surface
 
+> **Provisional launch values set 2026-08-09 (owner), to be revisited before
+> launch.** Term 365 d, renewal window 30 d, dissolution delay 7 d, minimum
+> 10 BTC, global cap 100 BTC, single-reservation cap 25 BTC, per-wallet amount
+> cap 50 BTC, ~10 reservations/wallet, action timeout 48 h, fees 40/20/20. The
+> two `_(pending)_` items — `reservationTxMaxFee` (fee-market) and
+> `feeReserveTarget` (reserve seed) — still need a final number. Final
+> governance sign-off is a launch gate (see the runbook checklist).
+
 ### Bridge reservation parameters (`updateReservationParameters`)
 
-| Parameter                         | Meaning                                                    | Launch value            | Bounds / notes                                                                       |
-| --------------------------------- | ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
-| `reservationVault`                | Liability-side vault; deposits revealed to it are reserved | deployed vault          | Changeable only with zero active reservations **and** zero pending reserved deposits |
-| `reservationMinAmount`            | Minimum anchor amount (sat)                                | 10 BTC _(sign-off)_     | Must exceed `reservationTxMaxFee`; the count/size dial for pre-FROST ceremony cost   |
-| `reservationTxMaxFee`             | Per-transaction Bitcoin miner-fee cap (sat)                | governance _(sign-off)_ | > 0                                                                                  |
-| `reservationTermSeconds`          | Custody term granted per acceptance/renewal                | 365 days _(sign-off)_   | Hard bounds **90–730 days** (protocol constants)                                     |
-| `reservationDissolutionDelay`     | Post-expiry delay before dissolvable (renamed grace)       | 30 days _(sign-off)_    | Snapshotted per granted term; not an owner-action window                             |
-| `reservationMaxTotalAmount`       | Global reserved-anchor cap (sat)                           | 500 BTC _(sign-off)_    | The absolute lever; the reserved-fraction target is enforced through it (§3)         |
-| `maxReservationsPerWallet`        | Per-wallet reservation count cap                           | ~10 _(sign-off)_        | Bounds re-anchor ceremonies in a rotation window                                     |
-| `reservationActionTimeout`        | Timeout for acceptance/re-anchor/dissolution actions       | 48 hours _(sign-off)_   | > 0; redemptions use `redemptionTimeout`                                             |
-| `reservationRenewalWindowSeconds` | Renewal window before expiry                               | 30 days _(sign-off)_    | `0 < window < term`, enforced atomically                                             |
+| Parameter                         | Meaning                                                    | Launch value                                      | Bounds / notes                                                                       |
+| --------------------------------- | ---------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `reservationVault`                | Liability-side vault; deposits revealed to it are reserved | deployed vault                                    | Changeable only with zero active reservations **and** zero pending reserved deposits |
+| `reservationMinAmount`            | Minimum anchor amount (sat)                                | 10 BTC (1,000,000,000 sat) _(prov. 2026-08-09)_   | Must exceed `reservationTxMaxFee`; the count/size dial for pre-FROST ceremony cost   |
+| `reservationTxMaxFee`             | Per-transaction Bitcoin miner-fee cap (sat)                | 50,000 sat (0.0005 BTC) _(pending, fee-market)_   | > 0; a partial redemption's redeemed portion and remainder must each exceed it       |
+| `reservationTermSeconds`          | Custody term granted per acceptance/renewal                | 365 days _(prov. 2026-08-09)_                     | Hard bounds **90–730 days** (protocol constants)                                     |
+| `reservationDissolutionDelay`     | Post-expiry delay before dissolvable (renamed grace)       | 7 days _(prov. 2026-08-09)_                       | Snapshotted per granted term; not an owner-action window                             |
+| `reservationMaxTotalAmount`       | Global reserved-anchor cap (sat)                           | 100 BTC (10,000,000,000 sat) _(prov. 2026-08-09)_ | The absolute lever; the reserved-fraction target is enforced through it (§3)         |
+| `maxReservationsPerWallet`        | Per-wallet reservation count cap                           | 10 _(prov. 2026-08-09)_                           | Bounds re-anchor ceremonies in a rotation window                                     |
+| `reservationActionTimeout`        | Timeout for acceptance/re-anchor/dissolution actions       | 48 hours _(prov. 2026-08-09)_                     | Must be **> 2 h**; see the timing note below                                         |
+| `reservationRenewalWindowSeconds` | Renewal window before expiry                               | 30 days _(prov. 2026-08-09)_                      | `0 < window < term`, enforced atomically                                             |
+
+Acceptance has an additional timing constraint: its proposal validator requires
+the deposit to be older than 2 hours, as well as preserving the final 2-hour
+action-timeout safety margin. An acceptance requested immediately after reveal
+therefore needs `reservationActionTimeout > 4 hours` to have any valid proposal
+window. A shorter timeout that still satisfies the hard `> 2 hours` bound is
+usable only if the requester waits for the deposit to age before requesting.
+In either case, the entire authorization must also fit within the deposit's
+remaining guaranteed reveal-ahead window.
 
 ### Bridge reservation caps (`updateReservationCaps`)
 
-| Parameter                        | Meaning                              | Launch value              | Notes      |
-| -------------------------------- | ------------------------------------ | ------------------------- | ---------- |
-| `maxReservationsAmountPerWallet` | Per-wallet total anchor amount (sat) | governance _(sign-off)_   | 0 disables |
-| `reservationMaxSingleAmount`     | Single-reservation maximum (sat)     | 0 = disabled _(sign-off)_ | 0 disables |
+| Parameter                        | Meaning                              | Launch value                                    | Notes      |
+| -------------------------------- | ------------------------------------ | ----------------------------------------------- | ---------- |
+| `maxReservationsAmountPerWallet` | Per-wallet total anchor amount (sat) | 50 BTC (5,000,000,000 sat) _(prov. 2026-08-09)_ | 0 disables |
+| `reservationMaxSingleAmount`     | Single-reservation maximum (sat)     | 25 BTC (2,500,000,000 sat) _(prov. 2026-08-09)_ | 0 disables |
 
 ### ReservationVault fees and reserve
 
-| Parameter              | Meaning                             | Value                   | Notes                                                 |
-| ---------------------- | ----------------------------------- | ----------------------- | ----------------------------------------------------- |
-| `initiationFeeBps`     | Acceptance fee (bps of gross)       | 40                      | 20 bps mint-leg parity + 20 bps first-year custody    |
-| `extensionFeeBps`      | Renewal fee (bps of gross)          | 20                      | Per renewed term                                      |
-| `redemptionFeeBps`     | Redemption fee (bps of gross)       | 20                      | Pooled parity; not re-charged on wallet-fault retries |
-| `MAX_FEE_BASIS_POINTS` | Per-fee hard cap                    | 500 (constant)          |                                                       |
-| `feeReserveTarget`     | Retained in-kind fee reserve (TBTC) | governance _(sign-off)_ | Seed before unpausing; excess sweeps to treasury      |
+| Parameter              | Meaning                             | Value                                         | Notes                                                                                               |
+| ---------------------- | ----------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `initiationFeeBps`     | Acceptance fee (bps of gross)       | 40                                            | 20 bps mint-leg parity + 20 bps first-year custody                                                  |
+| `extensionFeeBps`      | Renewal fee (bps of gross)          | 20                                            | Per renewed term                                                                                    |
+| `redemptionFeeBps`     | Redemption fee (bps of gross)       | 20                                            | Pooled parity; not re-charged on wallet-fault retries; a partial charges it on the redeemed portion |
+| `MAX_FEE_BASIS_POINTS` | Per-fee hard cap                    | 500 (constant)                                |                                                                                                     |
+| `feeReserveTarget`     | Retained in-kind fee reserve (TBTC) | governance _(pending, seed before unpausing)_ | Seed before unpausing; excess sweeps to treasury                                                    |
 
 ## 2. Economic model (frozen mechanics)
 
 - **Claim ≡ anchor, always.** `mintedAmount` tracks `anchorAmount` at every
-  instant. Acceptance mints the gross anchor value; redemption burns it;
-  re-anchor and dissolution write it down to the new anchor and finance the
-  miner fee from the vault reserve. There is no netting and no per-position
-  accumulating leakage.
+  instant. Acceptance mints the gross anchor value; a whole redemption burns
+  it, and a partial burns the redeemed portion while re-anchoring the
+  remainder to the wallet (claim and anchor drop by the redeemed amount in
+  lockstep); re-anchor and dissolution write it down to the new anchor and
+  finance the miner fee from the vault reserve. There is no netting and no
+  per-position accumulating leakage.
 - **Fee schedule 40 / 20 / 20**, all-in initiation 40 bps (endpoints at
   pooled parity, so the purchased premium is exactly the 20 bps/yr custody
   fee). N-year holding pays `40 + 20N` bps vs pooled 40 — strictly premium
   at every horizon. Stable across the FROST transition by design; the
   minimum reservation size, not a fee change, keeps carry ≥ per-position
   lifecycle cost.
+- **Custody is prepaid and non-refundable.** The 20 bps/yr custody fee is
+  charged up front on the full position for the full term (first year in the
+  40 bps initiation, each further year via the 20 bps extension). Redemption —
+  whole or partial — never rebates unexpired custody on the exited amount; a
+  partial additionally pays the 20 bps redeem-leg fee on the redeemed portion.
+  This is deliberate: no per-position custody accrual, and no refund outflow
+  path. Renewal after a partial is charged on the reduced remainder
+  (`extendCustody` reads the live `mintedAmount`), so the surviving position is
+  never over-charged going forward — only the redeemed slice forfeits its
+  unexpired prepayment, once, at the moment of the partial.
 - **Renewal is exactly one term.** Proration is moot (a renewal never adds
   a partial term) and a renewal-horizon cap is unnecessary (the window <
   term makes stacking impossible). Maximum owner lookahead = one term +
@@ -71,8 +102,10 @@ protects against. Instead:
 - The absolute `reservationMaxTotalAmount` is the on-chain lever.
 - Governance sets it to at most the target fraction of the current total
   BTC backing, observed off-chain, and re-tightens it as backing moves.
-- Launch target: **10 %** of backing _(sign-off)_, realized as a 500 BTC
-  absolute cap at the assumed launch backing _(sign-off)_.
+- Launch cap: **100 BTC** _(prov. 2026-08-09)_ — a deliberately conservative
+  start that sits **below** the 10 % reserved-fraction target at any plausible
+  launch backing, ramping up toward that target as the feature proves out.
+  The 10–20 % fraction remains the governing off-chain rule the cap serves.
 
 Flag this as an explicit accepted limitation for the audit.
 
@@ -118,9 +151,9 @@ the contracts do not enforce but that governance must respect:
 | --------------------------------------------------------- | -------------------------- | --------- |
 | Term bounds 90–730 d, default 365 d                       | governance                 | ☐         |
 | Renewal window 30 d                                       | governance                 | ☐         |
-| Dissolution delay 30 d                                    | governance                 | ☐         |
+| Dissolution delay 7 d                                     | governance                 | ☐         |
 | Min reservation 10 BTC                                    | governance                 | ☐         |
-| Global cap 500 BTC / 10 % fraction                        | governance                 | ☐         |
+| Global cap 100 BTC / 10 % fraction                        | governance                 | ☐         |
 | Per-wallet count ~10, amount cap                          | governance                 | ☐         |
 | Action timeout 48 h                                       | governance                 | ☐         |
 | Fee schedule 40 / 20 / 20                                 | governance (settled prior) | ☐ confirm |

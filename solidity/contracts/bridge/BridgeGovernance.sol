@@ -1835,6 +1835,42 @@ contract BridgeGovernance is Ownable {
         bridge.setRebateStaking(rebateStaking);
     }
 
+    /// @notice Sets the reservation router address. This function does not
+    ///         have a governance delay as setting the reservation router is
+    ///         a one-off action performed during reservation initialization.
+    /// @param reservationRouter Address of the reservation router.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        reservation router address is set exactly once and is not 0x0.
+    function setReservationRouter(address reservationRouter)
+        external
+        onlyOwner
+    {
+        bridge.setReservationRouter(reservationRouter);
+    }
+
+    /// @notice Requests a governance-approved re-anchor of a reservation to
+    ///         another wallet. Forwarding through this contract makes the
+    ///         Bridge governance the caller, allowing a rotation away from a
+    ///         Live wallet.
+    /// @param reservationKey The key of the reservation to re-anchor.
+    /// @param targetWalletPubKeyHash 20-byte public key hash of the target
+    ///        wallet.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The reservation and wallets must satisfy the Bridge's re-anchor
+    ///        requirements.
+    function requestReservationReanchor(
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash
+    ) external onlyOwner {
+        IReservationBridge(address(bridge)).requestReservationReanchor(
+            reservationKey,
+            targetWalletPubKeyHash
+        );
+    }
+
     /// @notice Begins the reservation parameters update process. All
     ///         reservation parameters (including the reservation vault) are
     ///         staged together since they are applied atomically via a

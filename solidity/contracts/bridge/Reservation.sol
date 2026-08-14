@@ -173,10 +173,14 @@ library Reservation {
         uint64 requestNonce;
         // True when the owner holds a single-use, fee-free redemption
         // retry entitlement, minted when a fee-paid redemption request
-        // times out through the wallet's fault. It is returned if a late
-        // re-anchor supersedes the retry that consumed it. Consumed by the
-        // next strictly pre-expiry retry request; voided by a dissolution
-        // request.
+        // times out through the wallet's fault. The source generation is
+        // stored separately and binds partial retries to its exact amount
+        // and whole retries to no more than its original full claim. It is
+        // returned if a late re-anchor or partial redemption supersedes the
+        // retry that consumed it while leaving the reservation open. A late
+        // partial settlement retires the entitlement when it settles that
+        // entitlement's source generation. Consumed by the next strictly
+        // pre-expiry retry request; voided by a dissolution request.
         bool retryCredit;
         // UNIX timestamp the reservation becomes dissolvable at. Set to
         // `expiresAt + reservationDissolutionDelay` whenever a term is
@@ -218,8 +222,10 @@ library Reservation {
         // redemption generation time out. Zero for other action types.
         address redeemer;
         // Amount in satoshi associated with the generation: the escrowed
-        // gross claim for redemptions, the capacity-reserved deposit value
-        // for acceptances, the anchor value at request time otherwise.
+        // gross claim for redemptions (the full claim for a whole
+        // redemption, the redeemed portion for a partial), the
+        // capacity-reserved deposit value for acceptances, the anchor
+        // value at request time otherwise.
         uint64 amount;
         // Action-specific authorization data: the keccak256 hash of the
         // length-prefixed redeemer output script for redemptions, or the
@@ -233,7 +239,8 @@ library Reservation {
         bytes32 sourceAnchorUtxoHash;
         // True when this redemption generation consumed the reservation's
         // single-use retry entitlement. Needed to return the entitlement if
-        // a late re-anchor makes the generation impossible to settle.
+        // a late action consumes the expected anchor while leaving the
+        // reservation open and makes this generation impossible to settle.
         bool usedRetryCredit;
         // Reserved-redemption veto delay with no guardian objections,
         // snapshotted from the watchtower policy at request time. Zero when
@@ -246,6 +253,19 @@ library Reservation {
         // Reserved-redemption veto delay after two guardian objections,
         // snapshotted from the watchtower policy at request time.
         uint32 watchtowerLevelTwoDelay;
+        // True when a redemption generation is partial: it redeems only
+        // `amount` of the reservation's claim in a 1-input-2-output spend
+        // (redeemer output + re-anchored remainder) and leaves the
+        // reservation open with a reduced anchor. False for a whole
+        // redemption (1-input-1-output, closes the reservation) and for
+        // every non-redemption action. Appended to the end of the struct so
+        // the existing field layout is unchanged.
+        bool isPartial;
+        // Fee-paid redemption generation that originated the retry credit
+        // consumed by this action. Zero when `usedRetryCredit` is false.
+        // Kept on the action so a late re-anchor or partial redemption can
+        // restore the exact amount/shape binding after superseding the retry.
+        uint64 retryCreditSourceNonce;
     }
 
     event ReservationAcceptanceRequested(
@@ -447,8 +467,12 @@ library Reservation {
 
         BridgeState.PendingReservedDeposit storage reservedDeposit = self
             .pendingReservedDeposit[reservationKey];
+        // The pending marker and designated-wallet binding are checked
+        // together: stale or accepted deposits have a zero marker, and only
+        // the wallet committed by the deposit script may become custodian.
         require(
-            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
+            reservedDeposit.walletPubKeyHash != bytes20(0) &&
+                reservedDeposit.walletPubKeyHash == walletPubKeyHash,
             "Wallet is not the deposit's designated wallet"
         );
 
@@ -463,16 +487,6 @@ library Reservation {
             getAction(self, reservationKey, reservation.requestNonce).state !=
                 ActionState.Pending,
             "Acceptance already pending"
-        );
-
-        // The anchor must be bound to the wallet the deposit was revealed
-        // for: only that wallet's key can spend the deposit, and only it
-        // may become the custodian. The mapping doubles as the pending
-        // marker — a deposit marked stale (or already accepted) cannot be
-        // re-authorized.
-        require(
-            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
-            "Wallet is not the deposit's designated wallet"
         );
 
         require(
@@ -611,13 +625,11 @@ library Reservation {
     ///        approved the Bridge in the Bank for the gross minted amount,
     ///      - The reservation must be Active and custodied by a Live or
     ///        MovingFunds wallet,
-    ///      - The custody term plus (snapshotted) grace period must not
-    ///        have elapsed — after grace only dissolution is possible, so
-    ///        request/timeout cycling cannot defeat the stranding bound.
-    ///        A retry-entitled request is exempt until a dissolution is
-    ///        requested (which voids the entitlement),
-    ///      - When `useRetryCredit` is set, the position must hold the
-    ///        retry entitlement (consumed by this call),
+    ///      - The custody term must not have expired; paid requests and
+    ///        retries both stop strictly before expiry,
+    ///      - When `useRetryCredit` is set, the position must hold a
+    ///        matching partial entitlement or a whole entitlement covering
+    ///        the current full claim (consumed by this call),
     ///      - If the redemption watchtower is set, neither the owner nor
     ///        the redeemer may be banned,
     ///      - `redeemerOutputScript` must be a standard type and must not
@@ -630,6 +642,94 @@ library Reservation {
         bool feePaid,
         bool useRetryCredit
     ) external {
+        // A whole redemption redeems the full minted claim (1-in-1-out,
+        // closes the reservation). Passing the full `mintedAmount` marks
+        // the generation non-partial.
+        _requestReservedRedemption(
+            self,
+            reservationKey,
+            redeemer,
+            redeemerOutputScript,
+            self.reservations[reservationKey].mintedAmount,
+            false,
+            feePaid,
+            useRetryCredit
+        );
+    }
+
+    /// @notice Requests a partial in-kind redemption of a reservation: the
+    ///         wallet is expected to spend the anchor in a 1-input-2-output
+    ///         transaction paying `redeemAmount` (less the miner fee) to
+    ///         the redeemer and re-anchoring the remainder back to the
+    ///         custodying wallet. The reservation stays open with its claim
+    ///         and anchor both reduced by `redeemAmount`.
+    /// @param reservationKey The key of the reservation to partially redeem.
+    /// @param redeemer The address able to claim the escrowed portion back
+    ///        if the redemption times out.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param redeemAmount The satoshi portion of the claim to redeem.
+    /// @param feePaid True when the vault collected the (proportional)
+    ///        redemption fee for this request.
+    /// @param useRetryCredit True when the request consumes the fee-free
+    ///        retry entitlement instead of paying the fee.
+    /// @dev Requirements (in addition to the shared redemption
+    ///      requirements):
+    ///      - `redeemAmount` must exceed the per-transaction fee bound (so
+    ///        the redeemer output is positive after the miner fee),
+    ///      - `redeemAmount` must be strictly less than the minted claim
+    ///        (a full-claim redemption uses the whole-redemption path),
+    ///      - the remainder (`mintedAmount - redeemAmount`) must stay above
+    ///        the dust floor so the surviving reservation is still
+    ///        redeemable and dissolvable.
+    function requestPartialReservedRedemption(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool feePaid,
+        bool useRetryCredit
+    ) external {
+        uint64 mintedAmount = self.reservations[reservationKey].mintedAmount;
+        require(
+            redeemAmount > self.reservationTxMaxFee,
+            "Redeemed amount below the dust floor"
+        );
+        require(
+            redeemAmount < mintedAmount,
+            "Use the whole redemption path for a full claim"
+        );
+        require(
+            mintedAmount - redeemAmount > self.reservationTxMaxFee,
+            "Remainder below the dust floor"
+        );
+
+        _requestReservedRedemption(
+            self,
+            reservationKey,
+            redeemer,
+            redeemerOutputScript,
+            redeemAmount,
+            true,
+            feePaid,
+            useRetryCredit
+        );
+    }
+
+    /// @notice Shared body for whole and partial reserved redemption
+    ///         requests. Escrows `redeemAmount` gross from the reservation
+    ///         vault's Bank balance and records a redemption generation.
+    function _requestReservedRedemption(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript,
+        uint64 redeemAmount,
+        bool isPartial,
+        bool feePaid,
+        bool useRetryCredit
+    ) internal {
         require(
             msg.sender == self.reservationVault,
             "Caller is not the reservation vault"
@@ -668,9 +768,15 @@ library Reservation {
             "Reservation expired"
         );
 
+        uint64 retryCreditSourceNonce = 0;
         if (useRetryCredit) {
-            require(reservation.retryCredit, "No retry entitlement");
-            reservation.retryCredit = false;
+            retryCreditSourceNonce = consumeRetryCredit(
+                self,
+                reservation,
+                reservationKey,
+                redeemAmount,
+                isPartial
+            );
         }
 
         if (self.redemptionWatchtower != address(0)) {
@@ -708,6 +814,7 @@ library Reservation {
         );
         action.actionType = ActionType.Redemption;
         action.state = ActionState.Pending;
+        action.isPartial = isPartial;
         /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
         /* solhint-disable-next-line not-rely-on-time */
@@ -715,8 +822,9 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.feePaid = feePaid;
         action.usedRetryCredit = useRetryCredit;
+        action.retryCreditSourceNonce = retryCreditSourceNonce;
         action.redeemer = redeemer;
-        action.amount = reservation.mintedAmount;
+        action.amount = redeemAmount;
         action.actionDataHash = keccak256(redeemerOutputScriptMem);
         action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
 
@@ -726,7 +834,7 @@ library Reservation {
                 action.watchtowerLevelOneDelay,
                 action.watchtowerLevelTwoDelay
             ) = IRedemptionWatchtower(self.redemptionWatchtower)
-                .getReservedRedemptionDelaySchedule(reservation.mintedAmount);
+                .getReservedRedemptionDelaySchedule(redeemAmount);
         }
 
         // slither-disable-next-line reentrancy-events
@@ -735,16 +843,55 @@ library Reservation {
             requestNonce,
             redeemer,
             redeemerOutputScript,
-            reservation.mintedAmount,
+            redeemAmount,
             action.txMaxFee,
             feePaid
         );
 
-        self.bank.transferBalanceFrom(
-            msg.sender,
-            address(this),
-            reservation.mintedAmount
+        self.bank.transferBalanceFrom(msg.sender, address(this), redeemAmount);
+    }
+
+    /// @notice Consumes the retry credit minted by a timed-out, fee-paid
+    ///         redemption generation after verifying the new request keeps
+    ///         that generation's shape and does not exceed its paid amount.
+    /// @dev The source action is terminal and immutable, so binding the
+    ///      credit to its nonce also binds all retry-critical fields without
+    ///      duplicating them in reservation storage.
+    function consumeRetryCredit(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 redeemAmount,
+        bool isPartial
+    ) internal returns (uint64 sourceNonce) {
+        require(reservation.retryCredit, "No retry entitlement");
+
+        sourceNonce = self.reservationRetryCreditActionNonce[reservationKey];
+        ReservationAction storage sourceAction = getAction(
+            self,
+            reservationKey,
+            sourceNonce
         );
+
+        // A partial retry must preserve the exact paid amount. A whole
+        // redemption paid for the source generation's entire claim, so a
+        // later re-anchor write-down may retry the current full claim as
+        // long as it did not grow beyond that paid amount.
+        bool retryMatches = isPartial
+            ? sourceAction.isPartial && sourceAction.amount == redeemAmount
+            : !sourceAction.isPartial &&
+                redeemAmount == reservation.mintedAmount &&
+                redeemAmount <= sourceAction.amount;
+        require(
+            sourceAction.actionType == ActionType.Redemption &&
+                sourceAction.state == ActionState.TimedOut &&
+                sourceAction.feePaid &&
+                retryMatches,
+            "Retry entitlement does not match redemption"
+        );
+
+        reservation.retryCredit = false;
+        delete self.reservationRetryCreditActionNonce[reservationKey];
     }
 
     /// @notice Requests the re-anchoring of a reservation to another
@@ -881,9 +1028,9 @@ library Reservation {
     ///        of a no-main-UTXO wallet could otherwise all confirm on
     ///        Bitcoin with only the first being provable.
     ///
-    ///      Requesting a dissolution voids the position's redemption retry
-    ///      entitlement: dissolution is the terminal cleanup and the
-    ///      stranding bound takes precedence.
+    ///      Any outstanding redemption retry entitlement is already unusable
+    ///      here: paid requests and retries stop strictly at expiry, while
+    ///      dissolution starts no earlier than `dissolutionEligibleAt`.
     function requestReservationDissolution(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1008,6 +1155,9 @@ library Reservation {
 
             if (action.feePaid) {
                 reservation.retryCredit = true;
+                self.reservationRetryCreditActionNonce[
+                    reservationKey
+                ] = requestNonce;
                 emit ReservationRetryCreditMinted(reservationKey);
             }
 
@@ -1435,10 +1585,12 @@ library Reservation {
         delete self.walletReservationKeyIndex[reservationKey];
     }
 
-    /// @notice Strands a reservation: releases its tracked capacity, removes
-    ///         it from wallet enumeration and emits the canonical recovery
-    ///         evidence. The caller decides whether the anchor was honestly
-    ///         spent before invoking this accounting transition.
+    /// @notice Stops tracking an anchor that its custodying wallet can no
+    ///         longer manage through the reservation lifecycle. The owner's
+    ///         minted balance remains an ordinary pooled claim.
+    /// @dev The caller must first unwind any pending generation and ensure
+    ///      the reservation and its capacity are registered against the
+    ///      current custodying wallet.
     function strandReservation(
         BridgeState.Storage storage self,
         ReservationRequest storage reservation,
@@ -1459,6 +1611,8 @@ library Reservation {
         );
         reservation.state = ReservationState.Stranded;
 
+        // The unmanageable anchor is deliberately NOT marked as honestly
+        // spent: a later spend by the wallet remains recognizable as such.
         delete self.reservationsByAnchorUtxo[
             uint256(
                 keccak256(

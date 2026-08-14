@@ -104,8 +104,8 @@ describe("Bridge - Reservation", () => {
     reservationVault = await helpers.contracts.getContract("ReservationVault")
 
     // The Bridge is governed by the BridgeGovernance contract in the
-    // fixture; impersonate it to exercise onlyGovernance functions
-    // directly. Production wiring through BridgeGovernance is a follow-up.
+    // fixture; impersonate it where tests need to exercise low-level
+    // onlyGovernance functions directly.
     bridgeGovernanceSigner = await impersonateContract(
       await bridge.governance()
     )
@@ -457,47 +457,37 @@ describe("Bridge - Reservation", () => {
         ).to.be.revertedWith("Renewal window must be shorter than the term")
       })
 
-      it("should revert for a zero action timeout", async () => {
-        await expect(
-          bridge
-            .connect(bridgeGovernanceSigner)
-            .updateReservationParameters(
-              reservationVault.address,
-              RESERVATION_MIN_AMOUNT,
-              RESERVATION_TX_MAX_FEE,
-              RESERVATION_TERM,
-              RESERVATION_GRACE,
-              RESERVATION_MAX_TOTAL,
-              MAX_RESERVATIONS_PER_WALLET,
-              0,
-              RESERVATION_RENEWAL_WINDOW
-            )
-        ).to.be.revertedWith(
-          "Reservation action timeout must exceed the safety margin"
-        )
+      it("should reject action timeouts that do not exceed the safety margin", async () => {
+        const timeoutSafetyMargin = 2 * 60 * 60
+
+        const expectTimeoutRejected = async (actionTimeout: number) => {
+          await expect(
+            bridge
+              .connect(bridgeGovernanceSigner)
+              .updateReservationParameters(
+                reservationVault.address,
+                RESERVATION_MIN_AMOUNT,
+                RESERVATION_TX_MAX_FEE,
+                RESERVATION_TERM,
+                RESERVATION_GRACE,
+                RESERVATION_MAX_TOTAL,
+                MAX_RESERVATIONS_PER_WALLET,
+                actionTimeout,
+                RESERVATION_RENEWAL_WINDOW
+              )
+          ).to.be.revertedWith(
+            "Reservation action timeout must exceed the safety margin"
+          )
+        }
+
+        await expectTimeoutRejected(0)
+        await expectTimeoutRejected(timeoutSafetyMargin - 1)
+        await expectTimeoutRejected(timeoutSafetyMargin)
       })
 
-      it("should reject an action timeout equal to the safety margin", async () => {
-        await expect(
-          bridge
-            .connect(bridgeGovernanceSigner)
-            .updateReservationParameters(
-              reservationVault.address,
-              RESERVATION_MIN_AMOUNT,
-              RESERVATION_TX_MAX_FEE,
-              RESERVATION_TERM,
-              RESERVATION_GRACE,
-              RESERVATION_MAX_TOTAL,
-              MAX_RESERVATIONS_PER_WALLET,
-              2 * 60 * 60,
-              RESERVATION_RENEWAL_WINDOW
-            )
-        ).to.be.revertedWith(
-          "Reservation action timeout must exceed the safety margin"
-        )
-      })
+      it("should accept an action timeout above the safety margin", async () => {
+        const actionTimeout = 2 * 60 * 60 + 1
 
-      it("should accept an action timeout one second above the safety margin", async () => {
         await expect(
           bridge
             .connect(bridgeGovernanceSigner)
@@ -509,10 +499,21 @@ describe("Bridge - Reservation", () => {
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
               MAX_RESERVATIONS_PER_WALLET,
-              2 * 60 * 60 + 1,
+              actionTimeout,
               RESERVATION_RENEWAL_WINDOW
             )
-        ).to.emit(bridge, "ReservationParametersUpdated")
+        )
+          .to.emit(bridge, "ReservationParametersUpdated")
+          .withArgs(
+            RESERVATION_MIN_AMOUNT,
+            RESERVATION_TX_MAX_FEE,
+            RESERVATION_TERM,
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            actionTimeout,
+            RESERVATION_RENEWAL_WINDOW
+          )
       })
 
       it("should revert when changing the vault with active reservations", async () => {
@@ -2036,6 +2037,99 @@ describe("Bridge - Reservation", () => {
       ).to.be.revertedWith("Redemption veto delay period expired")
     })
 
+    it("snapshots the waiver against a partial amount rather than the full claim", async () => {
+      const partialReservationKey = 668
+      const wholeReservationKey = 669
+      const partialAmount = amountSat.div(4)
+      const waiverLimit = amountSat.div(2)
+      const defaultDelay = await redemptionWatchtower.defaultDelay()
+      const levelOneDelay = await redemptionWatchtower.levelOneDelay()
+      const levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+
+      await updateDelayPolicy(
+        defaultDelay,
+        levelOneDelay,
+        levelTwoDelay,
+        waiverLimit
+      )
+
+      await bridge.setReservation(
+        partialReservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, partialAmount)
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      await bank
+        .connect(vaultSigner)
+        .approveBalance(bridge.address, partialAmount)
+      await bridge
+        .connect(vaultSigner)
+        .requestPartialReservedRedemption(
+          partialReservationKey,
+          thirdParty.address,
+          redeemerOutputScript,
+          partialAmount,
+          true,
+          false
+        )
+
+      // The reservation's full claim is above the waiver, but this
+      // generation redeems only the partial amount below it.
+      const partialAction = await bridge.reservationActions(
+        partialReservationKey,
+        1
+      )
+      expect(partialAction.amount).to.equal(partialAmount)
+      expect(partialAction.isPartial).to.be.true
+      expect(partialAction.watchtowerDefaultDelay).to.equal(0)
+      expect(partialAction.watchtowerLevelOneDelay).to.equal(0)
+      expect(partialAction.watchtowerLevelTwoDelay).to.equal(0)
+
+      await bridge.setReservation(
+        wholeReservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      await requestRedemptionViaVault(
+        wholeReservationKey,
+        amountSat,
+        thirdParty.address,
+        redeemerOutputScript
+      )
+      const wholeAction = await bridge.reservationActions(
+        wholeReservationKey,
+        1
+      )
+      expect(wholeAction.amount).to.equal(amountSat)
+      expect(wholeAction.isPartial).to.be.false
+      expect(wholeAction.watchtowerDefaultDelay).to.equal(defaultDelay)
+      expect(wholeAction.watchtowerLevelOneDelay).to.equal(levelOneDelay)
+      expect(wholeAction.watchtowerLevelTwoDelay).to.equal(levelTwoDelay)
+
+      // Removing the waiver affects later requests only; both generations
+      // retain the schedules selected from their own requested amounts.
+      await updateDelayPolicy(
+        defaultDelay + 60,
+        levelOneDelay + 120,
+        levelTwoDelay + 180,
+        0
+      )
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(
+          partialReservationKey,
+          1
+        )
+      ).to.equal(0)
+      expect(
+        await redemptionWatchtower.getReservedRedemptionDelay(
+          wholeReservationKey,
+          1
+        )
+      ).to.equal(defaultDelay)
+    })
+
     it("captures a zero schedule after the watchtower is disabled", async () => {
       const lifetimeExpiresAt =
         (await redemptionWatchtower.watchtowerEnabledAt()) +
@@ -3442,8 +3536,16 @@ describe("Bridge - Reservation", () => {
           .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
       ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
 
-      await bridge
-        .connect(bridgeGovernanceSigner)
+      // A non-owner cannot obtain the BridgeGovernance contract's privileged
+      // caller identity.
+      await expect(
+        bridgeGovernance
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      await bridgeGovernance
+        .connect(governance)
         .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
 
       // Migrate with a 1-sat fee: the anchor stays above the dust floor.

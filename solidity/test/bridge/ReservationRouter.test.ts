@@ -10,7 +10,12 @@ import { unfoldStorageLayout } from "@openzeppelin/upgrades-core/dist/validate/q
 import type { StorageLayout as OZStorageLayout } from "@openzeppelin/upgrades-core/dist/storage/layout"
 
 import bridgeFixture from "../fixtures/bridge"
-import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
+import type {
+  Bridge,
+  BridgeGovernance,
+  BridgeStub,
+  ReservationRouter,
+} from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -142,7 +147,7 @@ describe("ReservationRouter", () => {
   })
 
   describe("storage layout parity", () => {
-    it("should consume exactly fourteen slots from the deployed Bridge gap", async () => {
+    it("should consume exactly fifteen slots from the deployed Bridge gap", async () => {
       const bridgeLayout = await getStorageLayout(
         "contracts/bridge/Bridge.sol",
         "Bridge"
@@ -162,12 +167,13 @@ describe("ReservationRouter", () => {
 
       // The deployed layout reserves slots 81..128. Combined reservation,
       // backing, enumeration, and reveal-time state uses exactly fourteen of
-      // them, so the remaining gap starts at 95, contains 34 slots, and keeps
-      // the original endpoint.
+      // them, plus retry-credit generation binding uses one more. The
+      // remaining gap starts at 96, contains 33 slots, and keeps the original
+      // endpoint.
       const gapType = bridgeLayout.types[gap.type]
       const absoluteGapSlot = Number(self.slot) + Number(gap.slot)
-      expect(absoluteGapSlot).to.equal(95)
-      expect(gapType.numberOfBytes).to.equal((34 * 32).toString())
+      expect(absoluteGapSlot).to.equal(96)
+      expect(gapType.numberOfBytes).to.equal((33 * 32).toString())
       expect(absoluteGapSlot + Number(gapType.numberOfBytes) / 32).to.equal(129)
     })
 
@@ -200,7 +206,8 @@ describe("ReservationRouter", () => {
         ["walletReservationKeys", "41", 0],
         ["walletReservationKeyIndex", "42", 0],
         ["pendingReservedDeposits", "43", 0],
-        ["__gap", "44", 0],
+        ["reservationRetryCreditActionNonce", "44", 0],
+        ["__gap", "45", 0],
       ] as const
 
       expectedRoots.forEach(([label, slot, offset]) => {
@@ -289,9 +296,9 @@ describe("ReservationRouter", () => {
       expect(rebateStakingIndex).to.be.greaterThan(-1)
 
       const currentGap = members.find((member) => member.label === "__gap")!
-      expect(currentGap.slot).to.equal("44")
+      expect(currentGap.slot).to.equal("45")
       expect(currentLayout!.types[currentGap.type].label).to.equal(
-        "uint256[34]"
+        "uint256[33]"
       )
 
       const asStorageItem = (entry: StorageEntry) => ({
@@ -409,6 +416,53 @@ describe("ReservationRouter", () => {
   })
 
   describe("setReservationRouter", () => {
+    context("when the bridge is governed by BridgeGovernance", () => {
+      let freshBridge: Bridge & BridgeStub & ReservationRouter
+      let localBridgeGovernance: BridgeGovernance
+
+      before(async () => {
+        await createSnapshot()
+        ;[freshBridge] = await deployBridge(1, false)
+
+        const paramsLib = await helpers.contracts.getContract(
+          "BridgeGovernanceParameters"
+        )
+        const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+          libraries: {
+            BridgeGovernanceParameters: paramsLib.address,
+          },
+        })
+        localBridgeGovernance = (await govFactory
+          .connect(governance)
+          .deploy(freshBridge.address, 0)) as BridgeGovernance
+        await localBridgeGovernance.deployed()
+
+        await freshBridge
+          .connect(deployer)
+          .transferGovernance(localBridgeGovernance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reject a non-owner forwarding the router wiring", async () => {
+        await expect(
+          localBridgeGovernance
+            .connect(thirdParty)
+            .setReservationRouter(routerAddress)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should let the owner wire the router through governance", async () => {
+        await localBridgeGovernance
+          .connect(governance)
+          .setReservationRouter(routerAddress)
+
+        expect(await freshBridge.reservationRouter()).to.equal(routerAddress)
+      })
+    })
+
     context("when called on a bridge with the router already set", () => {
       it("should revert", async () => {
         // A fresh bridge is governed by the deployer (the main bridge's

@@ -172,6 +172,20 @@ const config: HardhatUserConfig = {
           },
         },
       },
+      // ReservationProofs combines whole and partial settlement with the
+      // late-wallet lifecycle recovery paths. At runs=300 the fully
+      // integrated runtime leaves too little headroom below EIP-170. Using
+      // runs=200 produces a 24,132-byte runtime and preserves 444 bytes of
+      // deployment headroom without weakening those invariants.
+      "contracts/bridge/ReservationProofs.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {

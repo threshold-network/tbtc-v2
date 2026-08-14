@@ -84,6 +84,14 @@ library ReservationProofs {
         bytes32 redemptionTxHash
     );
 
+    event ReservationPartiallyRedeemed(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes32 redemptionTxHash,
+        uint64 redeemedAmount,
+        uint64 newAnchorAmount
+    );
+
     event ReservationReanchored(
         uint256 indexed reservationKey,
         uint64 requestNonce,
@@ -254,9 +262,16 @@ library ReservationProofs {
     function prepareReservationForSettlement(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
+        Reservation.ReservationAction storage action,
         uint256 reservationKey,
         bool late
     ) internal {
+        bytes32 currentAnchorUtxoHash = Reservation.anchorUtxoHash(reservation);
+        require(
+            action.sourceAnchorUtxoHash == currentAnchorUtxoHash,
+            "Action source anchor is no longer current"
+        );
+
         bool stranded = reservation.state ==
             Reservation.ReservationState.Stranded;
         require(
@@ -271,14 +286,7 @@ library ReservationProofs {
             return;
         }
 
-        uint256 anchorUtxoKey = uint256(
-            keccak256(
-                abi.encodePacked(
-                    reservation.anchorTxHash,
-                    reservation.anchorTxOutputIndex
-                )
-            )
-        );
+        uint256 anchorUtxoKey = uint256(currentAnchorUtxoHash);
         // Multiple timed-out generations can describe the same Bitcoin
         // transaction. Once one proof consumes the anchor, do not let another
         // generation reconstruct the position or finance the miner fee again.
@@ -298,22 +306,6 @@ library ReservationProofs {
             reservationKey
         );
         self.reservationsByAnchorUtxo[anchorUtxoKey] = reservationKey;
-    }
-
-    /// @notice Reverts unless the reservation still points at the exact
-    ///         anchor outpoint this generation was authorized to spend.
-    ///         This prevents a timed-out generation from being replayed
-    ///         against a later anchor whose transaction merely has the old
-    ///         generation's output shape.
-    function requireCurrentSourceAnchor(
-        Reservation.ReservationRequest storage reservation,
-        Reservation.ReservationAction storage action
-    ) internal view {
-        require(
-            Reservation.anchorUtxoHash(reservation) ==
-                action.sourceAnchorUtxoHash,
-            "Action source anchor is no longer current"
-        );
     }
 
     /// @notice Used by the wallet to prove the BTC anchor transaction of an
@@ -632,6 +624,7 @@ library ReservationProofs {
         prepareReservationForSettlement(
             self,
             reservation,
+            action,
             reservationKey,
             late
         );
@@ -662,8 +655,6 @@ library ReservationProofs {
             }
         }
 
-        requireCurrentSourceAnchor(reservation, action);
-
         bytes32 redemptionTxHash = self.validateProof(
             redemptionTx,
             redemptionProof
@@ -671,7 +662,72 @@ library ReservationProofs {
 
         consumeAnchor(self, reservation, redemptionTx.inputVector);
 
-        bytes memory output = parseSingleOutput(redemptionTx.outputVector);
+        if (action.isPartial) {
+            settlePartialRedemption(
+                self,
+                reservation,
+                reservationKey,
+                requestNonce,
+                action,
+                late,
+                redemptionTxHash,
+                redemptionTx.outputVector
+            );
+        } else {
+            settleWholeRedemption(
+                self,
+                reservation,
+                reservationKey,
+                requestNonce,
+                action,
+                late,
+                redemptionTxHash,
+                redemptionTx.outputVector
+            );
+        }
+
+        if (late) {
+            retireRetryCreditForGeneration(
+                self,
+                reservation,
+                reservationKey,
+                requestNonce
+            );
+        }
+    }
+
+    /// @notice Retires a retry credit only when the generation that minted
+    ///         it has now settled late. A credit minted by a newer timed-out
+    ///         generation remains valid.
+    function retireRetryCreditForGeneration(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) internal {
+        if (
+            self.reservationRetryCreditActionNonce[reservationKey] ==
+            requestNonce
+        ) {
+            reservation.retryCredit = false;
+            delete self.reservationRetryCreditActionNonce[reservationKey];
+        }
+    }
+
+    /// @notice Settles a whole reserved redemption: a 1-input-1-output
+    ///         spend that pays the full claim to the redeemer and closes
+    ///         the reservation.
+    function settleWholeRedemption(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ReservationAction storage action,
+        bool late,
+        bytes32 redemptionTxHash,
+        bytes memory outputVector
+    ) internal {
+        bytes memory output = parseSingleOutput(outputVector);
         uint64 outputValue = output.extractValue();
 
         {
@@ -693,12 +749,13 @@ library ReservationProofs {
         );
 
         if (late) {
-            resolveLateRedemptionAgainstPending(
+            resolveLateAgainstPending(
                 self,
                 reservation,
                 reservationKey,
                 action,
-                outputValue
+                outputValue,
+                reservation.anchorAmount
             );
 
             emit ReservationLateSettled(
@@ -726,6 +783,152 @@ library ReservationProofs {
             // redemption request.
             self.bank.decreaseBalance(action.amount);
         }
+    }
+
+    /// @notice Settles a partial reserved redemption: a 1-input-2-output
+    ///         spend that pays `action.amount` (less the miner fee) to the
+    ///         redeemer and re-anchors the remainder back to the custodying
+    ///         wallet. The reservation stays open with its claim and anchor
+    ///         reduced by the redeemed portion — claim always equals the new
+    ///         anchor — and the remainder output becomes the new anchor
+    ///         (output index 1).
+    function settlePartialRedemption(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ReservationAction storage action,
+        bool late,
+        bytes32 redemptionTxHash,
+        bytes memory outputVector
+    ) internal {
+        bool evidenceAlreadyEmitted = reservation.state ==
+            Reservation.ReservationState.Stranded;
+        (uint64 redeemerValue, uint64 remainderValue) = validatePartialOutputs(
+            self,
+            reservation,
+            action,
+            outputVector
+        );
+
+        if (late) {
+            resolveLateAgainstPending(
+                self,
+                reservation,
+                reservationKey,
+                action,
+                redeemerValue,
+                action.amount
+            );
+
+            emit ReservationLateSettled(
+                reservationKey,
+                requestNonce,
+                Reservation.ActionType.Redemption
+            );
+            // No Bank movement: the timeout already refunded the escrowed
+            // portion and slashed the wallet.
+        }
+
+        action.state = Reservation.ActionState.Settled;
+
+        // Reduce the reservation to the remainder anchor; it stays Active.
+        // Because the claim equals the anchor, the redeemed portion drops
+        // out of both the claim and the reserved capacity in lockstep.
+        self.reservationTotalAmount -= action.amount;
+        self.walletReservationsAmount[reservation.walletPubKeyHash] -= action
+            .amount;
+
+        reservation.mintedAmount -= action.amount;
+        reservation.anchorAmount = remainderValue;
+        reservation.anchorTxHash = redemptionTxHash;
+        reservation.anchorTxOutputIndex = 1;
+        reservation.state = Reservation.ReservationState.Active;
+
+        self.reservationsByAnchorUtxo[
+            uint256(keccak256(abi.encodePacked(redemptionTxHash, uint32(1))))
+        ] = reservationKey;
+
+        emit ReservationPartiallyRedeemed(
+            reservationKey,
+            requestNonce,
+            redemptionTxHash,
+            action.amount,
+            remainderValue
+        );
+
+        if (!late) {
+            // Burn the redeemed portion held by the Bridge since the
+            // request.
+            self.bank.decreaseBalance(action.amount);
+        }
+
+        if (evidenceAlreadyEmitted) {
+            // Direct stranding released every accounting and index surface
+            // before this already-confirmed partial transaction was proven.
+            // Settlement reconstructed those surfaces and installed the
+            // remainder anchor above. Release the residual position again,
+            // preserving the original Stranded state as the one-time
+            // recovery-evidence latch.
+            reservation.state = Reservation.ReservationState.Stranded;
+            self.strandReservation(reservation, reservationKey);
+        }
+    }
+
+    /// @notice Validates the two outputs of a partial redemption
+    ///         transaction and returns their values.
+    /// @return redeemerValue Value of the redeemer output (output 0).
+    /// @return remainderValue Value of the re-anchored remainder (output 1).
+    function validatePartialOutputs(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        Reservation.ReservationAction storage action,
+        bytes memory outputVector
+    ) internal view returns (uint64 redeemerValue, uint64 remainderValue) {
+        (, uint256 outputsCount) = outputVector.parseVarInt();
+        require(
+            outputsCount == 2,
+            "Partial redemption must have exactly two outputs"
+        );
+
+        bytes memory redeemerOutput = outputVector.extractOutputAtIndex(0);
+        bytes memory remainderOutput = outputVector.extractOutputAtIndex(1);
+
+        redeemerValue = redeemerOutput.extractValue();
+        remainderValue = remainderOutput.extractValue();
+
+        // Output 0 pays the requested redeemer script; its value is the
+        // redeemed portion less the miner fee, which the redeemer bears.
+        {
+            bytes memory redeemerScript = redeemerOutput.slice(
+                8,
+                redeemerOutput.length - 8
+            );
+            require(
+                keccak256(redeemerScript) == action.actionDataHash,
+                "First output does not pay the requested redeemer script"
+            );
+        }
+        require(
+            redeemerValue <= action.amount &&
+                action.amount - redeemerValue <= action.txMaxFee,
+            "Redeemer output value is not within the acceptable range"
+        );
+
+        // Output 1 re-anchors to the custodying wallet; its value must equal
+        // the anchor minus the redeemed portion, so the surviving claim
+        // still equals the surviving anchor to the satoshi. The whole miner
+        // fee is therefore borne by the redeemer output, never the
+        // remainder.
+        require(
+            self.extractPubKeyHash(remainderOutput) ==
+                reservation.walletPubKeyHash,
+            "Second output must re-anchor to the custodying wallet"
+        );
+        require(
+            remainderValue == reservation.anchorAmount - action.amount,
+            "Remainder value must equal the anchor minus the redeemed amount"
+        );
     }
 
     /// @notice Used by the wallet to prove a re-anchor transaction moving a
@@ -765,6 +968,7 @@ library ReservationProofs {
         prepareReservationForSettlement(
             self,
             reservation,
+            action,
             reservationKey,
             late
         );
@@ -774,8 +978,6 @@ library ReservationProofs {
                 "Not the current generation"
             );
         }
-
-        requireCurrentSourceAnchor(reservation, action);
 
         bytes32 reanchorTxHash = self.validateProof(reanchorTx, reanchorProof);
 
@@ -942,6 +1144,7 @@ library ReservationProofs {
         prepareReservationForSettlement(
             self,
             reservation,
+            action,
             reservationKey,
             late
         );
@@ -951,8 +1154,6 @@ library ReservationProofs {
                 "Not the current generation"
             );
         }
-
-        requireCurrentSourceAnchor(reservation, action);
 
         bytes32 dissolutionTxHash = self.validateProof(
             dissolutionTx,
@@ -1203,12 +1404,13 @@ library ReservationProofs {
     ///         generations can claim the transaction); otherwise the
     ///         pending generation's anchor is provably gone and it is
     ///         unwound.
-    function resolveLateRedemptionAgainstPending(
+    function resolveLateAgainstPending(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
         uint256 reservationKey,
         Reservation.ReservationAction storage action,
-        uint64 outputValue
+        uint64 redeemerValue,
+        uint64 effectiveRedeemAmount
     ) internal {
         if (reservation.state != Reservation.ReservationState.ActionPending) {
             return;
@@ -1218,17 +1420,37 @@ library ReservationProofs {
             .reservationActions[
                 Reservation.actionKey(reservationKey, reservation.requestNonce)
             ];
+        // The pending generation is satisfied by this same transaction only
+        // if it is a redemption of the same shape (whole vs partial), the
+        // same redeemer script, the same redeemed amount, and the redeemer
+        // output falls within its snapshotted fee bound. `redeemerValue` is
+        // the redeemer's output value and `effectiveRedeemAmount` is the
+        // value it is measured against (the anchor for a whole redemption,
+        // the redeemed portion for a partial). When it matches, settling the
+        // timed-out generation (no burn) while unwinding the pending one
+        // (refund) would lose the burn, so the proof must settle the pending
+        // generation instead.
         if (
             pendingAction.actionType == Reservation.ActionType.Redemption &&
+            pendingAction.isPartial == action.isPartial &&
             pendingAction.actionDataHash == action.actionDataHash &&
-            reservation.anchorAmount - outputValue <= pendingAction.txMaxFee
+            pendingAction.amount == action.amount &&
+            effectiveRedeemAmount - redeemerValue <= pendingAction.txMaxFee
         ) {
             revert("Must settle the pending generation");
         }
 
         // The pending generation cannot claim the transaction; its anchor
-        // is gone, so unwind it.
-        unwindPendingAction(self, reservation, reservationKey, false);
+        // is gone, so unwind it. A late partial leaves the reservation open,
+        // so preserve any retry provenance consumed by the superseded
+        // generation. The post-settlement source-nonce check retires it when
+        // this is the source generation itself and preserves it otherwise.
+        unwindPendingAction(
+            self,
+            reservation,
+            reservationKey,
+            action.isPartial
+        );
     }
 
     /// @notice Unwinds the position's current pending generation during a
@@ -1237,9 +1459,11 @@ library ReservationProofs {
     ///         consumed, so the generation can never settle. Its escrow is
     ///         refunded (redemptions), its reserved capacity and locks are
     ///         released, and it is terminally marked `Superseded`. Retry
-    ///         credit restoration is enabled only by the late-reanchor call
-    ///         site, whose successful settlement leaves the reservation
-    ///         Active on a replacement anchor.
+    ///         credit restoration is enabled only by late re-anchor and late
+    ///         partial-redemption call sites, whose successful settlements
+    ///         leave the reservation Active on a replacement anchor. A late
+    ///         partial's source-nonce retirement then removes the credit when
+    ///         its own source settled and preserves a newer source.
     function unwindPendingAction(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
@@ -1261,6 +1485,9 @@ library ReservationProofs {
         if (pendingAction.actionType == Reservation.ActionType.Redemption) {
             if (restoreRetryCredit && pendingAction.usedRetryCredit) {
                 reservation.retryCredit = true;
+                self.reservationRetryCreditActionNonce[
+                    reservationKey
+                ] = pendingAction.retryCreditSourceNonce;
                 emit ReservationRetryCreditMinted(reservationKey);
             }
 
