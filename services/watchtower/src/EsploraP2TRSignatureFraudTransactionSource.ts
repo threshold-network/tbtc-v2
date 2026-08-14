@@ -1,8 +1,10 @@
 import {
+  BitcoinAddressConverter,
   BitcoinNetwork,
   BitcoinTxHash,
   DepositScript,
   DepositScriptType,
+  Hex,
 } from "@keep-network/tbtc-v2.ts"
 import type {
   BitcoinRawTx,
@@ -101,22 +103,47 @@ type EsploraTransactionStatus = {
 const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000
 const DEFAULT_RETRY_DELAY_MS = 250
-const DEFAULT_CONFIRMED_PAGE_LIMIT = 1
+const DEFAULT_CONFIRMED_PAGE_LIMIT = 10000
 const DEFAULT_DEPOSIT_SCAN_CONCURRENCY = 8
 const DEFAULT_TAPROOT_DEPOSIT_REVEAL_FROM_BLOCK = 0
 const DEFAULT_TAPROOT_DEPOSIT_REVEAL_CONFIRMATION_DEPTH = 12
+
+/**
+ * Esplora's /address/:addr/txs/mempool view caps its response with no cursor.
+ * When the response equals or exceeds this size, more entries exist in the
+ * mempool than Esplora returns, so we cannot see the full picture and an
+ * attacker could dust-spam a wallet to push a fraudulent spend out of view.
+ */
+const ESPLORA_MEMPOOL_PAGE_CAP = 50
 const DEFAULT_TAPROOT_DEPOSIT_REVEAL_MAX_BLOCK_RANGE = 2000
 const DEFAULT_TAPROOT_DEPOSIT_REVEAL_MAX_EVENTS_PER_RANGE = 1000
 const DEFAULT_DEPOSIT_OUTSPEND_SCAN_LIMIT = 100
 const DEFAULT_TAPROOT_DEPOSIT_BINDING_INVENTORY_LIMIT = 10000
 const MAX_UINT32 = 0xffffffff
 const ZERO_BYTES32 = "00".repeat(32)
-const BECH32M_CONST = 0x2bc830a3
-const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-const BECH32_GENERATORS = [
-  0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3,
-]
-const TAPROOT_WITNESS_VERSION = 1
+// P2TR addresses are encoded via the SDK's BitcoinAddressConverter
+// (see deriveP2TRWalletAddress below). The local bech32m implementation has
+// been removed to avoid divergence with the SDK's canonical encoder.
+
+/**
+ * Concrete evidence that the Esplora mempool view is truncated for a wallet.
+ * An attacker can dust-spam the wallet's address to push a fraudulent
+ * spend out of the visible window, so the watchtower must surface this
+ * as a regular operator alert rather than silently continue.
+ */
+export class EsploraMempoolTruncationAlert extends Error {
+  readonly address: string
+  readonly visibleCount: number
+  constructor(address: string, visibleCount: number) {
+    super(
+      `Esplora mempool view for ${address} is truncated at ${visibleCount} entries; ` +
+        `additional mempool transactions are not visible and may evade detection.`
+    )
+    this.name = "EsploraMempoolTruncationAlert"
+    this.address = address
+    this.visibleCount = visibleCount
+  }
+}
 
 /**
  * Rehearsal-only Esplora observer.
@@ -739,7 +766,18 @@ export class EsploraP2TRSignatureFraudTransactionSource
 
       const bindingResults = await this.scanTaskQueue.mapSettled(
         canonicalEvents,
-        (event) => this.taprootDepositEventBinding(event)
+        (event) => {
+          const fundingTxid = normalizeTxid(event.fundingTxHash.toString())
+          const existingKey = `${fundingTxid}:${event.fundingOutputIndex}`
+          // Look up any binding already in the prior inventory by the
+          // stable outpoint key so we can skip the refetch.
+          const cached = inventory?.bindings.find(
+            (binding) =>
+              `${binding.fundingTxid}:${binding.fundingOutputIndex}` ===
+              existingKey
+          )
+          return this.taprootDepositEventBinding(event, cached)
+        }
       )
       const nextBindings = new Map<
         string,
@@ -951,7 +989,8 @@ export class EsploraP2TRSignatureFraudTransactionSource
       ReturnType<
         P2TRTaprootDepositRevealSource["getTaprootDepositRevealedEvents"]
       >
-    >[number]
+    >[number],
+    cachedBinding?: P2TRTaprootDepositBindingInventoryEntry
   ): Promise<P2TRTaprootDepositBindingInventoryEntry | undefined> {
     const walletID = normalizeBytes32Hex(
       event.walletXOnlyPublicKey.toString(),
@@ -964,6 +1003,20 @@ export class EsploraP2TRSignatureFraudTransactionSource
       "revealed deposit funding output index",
       { minimum: 0, maximum: MAX_UINT32 }
     )
+
+    // Per-deposit (fundingTxHash, vout) -> (depositKeyCommitment, outputKey)
+    // is immutable after the Bridge settles the deposit (Deposit.sol:461-470).
+    // Short-circuit when the cached binding already covers this outpoint so
+    // we don't re-fetch taprootDepositOutputKeyCommitment + deposits every
+    // cycle for known deposits.
+    if (
+      cachedBinding !== undefined &&
+      cachedBinding.fundingOutputIndex === fundingOutputIndex &&
+      cachedBinding.fundingTxid === normalizeTxid(event.fundingTxHash.toString())
+    ) {
+      return cachedBinding
+    }
+
     const sourceCommitment =
       await this.taprootDepositRevealSource.taprootDepositOutputKeyCommitment(
         event.fundingTxHash,
@@ -1138,10 +1191,14 @@ export class EsploraP2TRSignatureFraudTransactionSource
   private async listAddressMempoolTransactions(
     address: string
   ): Promise<EsploraTransactionSummary[]> {
-    return this.readTransactionSummaries(
+    const transactions = await this.readTransactionSummaries(
       `/address/${encodeURIComponent(address)}/txs/mempool`,
       `fetch mempool P2TR wallet transactions for ${address}`
     )
+    if (transactions.length >= ESPLORA_MEMPOOL_PAGE_CAP) {
+      throw new EsploraMempoolTruncationAlert(address, transactions.length)
+    }
+    return transactions
   }
 
   private async listConfirmedWalletTransactions(): Promise<{
@@ -1854,12 +1911,10 @@ export function deriveP2TRWalletAddress(
   walletID: string,
   bitcoinNetwork: BitcoinNetwork
 ): string {
-  const walletIDBuffer = Buffer.from(
-    normalizeBytes32Hex(walletID, "wallet ID"),
-    "hex"
+  return BitcoinAddressConverter.taprootOutputKeyToAddress(
+    Hex.from(normalizeBytes32Hex(walletID, "wallet ID")),
+    bitcoinNetwork
   )
-
-  return encodeSegwitV1Address(bitcoinNetwork, walletIDBuffer)
 }
 
 function parseDepositOutspend(
@@ -2063,121 +2118,6 @@ function normalizeHex(value: string): string {
   }
 
   return normalizedValue
-}
-
-function encodeSegwitV1Address(
-  bitcoinNetwork: BitcoinNetwork,
-  witnessProgram: Buffer
-): string {
-  const humanReadablePart = bitcoinNetworkBech32Prefix(bitcoinNetwork)
-  const data = [
-    TAPROOT_WITNESS_VERSION,
-    ...convertBits([...witnessProgram], 8, 5, true),
-  ]
-
-  return encodeBech32m(humanReadablePart, data)
-}
-
-function bitcoinNetworkBech32Prefix(bitcoinNetwork: BitcoinNetwork): string {
-  switch (bitcoinNetwork) {
-    case BitcoinNetwork.Mainnet:
-      return "bc"
-    case BitcoinNetwork.Testnet:
-    case BitcoinNetwork.Testnet4:
-      // testnet3 and testnet4 P2TR addresses share the same `tb` bech32 HRP.
-      return "tb"
-    default:
-      throw new Error(
-        "P2TR Esplora source supports only mainnet, testnet, and testnet4"
-      )
-  }
-}
-
-function encodeBech32m(humanReadablePart: string, data: number[]): string {
-  const checksum = createBech32mChecksum(humanReadablePart, data)
-  const combined = [...data, ...checksum]
-
-  return `${humanReadablePart}1${combined
-    .map((value) => BECH32_CHARSET[value])
-    .join("")}`
-}
-
-function createBech32mChecksum(
-  humanReadablePart: string,
-  data: number[]
-): number[] {
-  const values = [...expandBech32HumanReadablePart(humanReadablePart), ...data]
-  const polymod = bech32Polymod([...values, 0, 0, 0, 0, 0, 0]) ^ BECH32M_CONST
-  const checksum: number[] = []
-
-  for (let index = 0; index < 6; index++) {
-    checksum.push((polymod >> (5 * (5 - index))) & 31)
-  }
-
-  return checksum
-}
-
-function expandBech32HumanReadablePart(humanReadablePart: string): number[] {
-  return [
-    ...[...humanReadablePart].map((character) => character.charCodeAt(0) >> 5),
-    0,
-    ...[...humanReadablePart].map((character) => character.charCodeAt(0) & 31),
-  ]
-}
-
-function bech32Polymod(values: number[]): number {
-  let checksum = 1
-
-  for (const value of values) {
-    const top = checksum >> 25
-    checksum = ((checksum & 0x1ffffff) << 5) ^ value
-
-    for (let index = 0; index < BECH32_GENERATORS.length; index++) {
-      if (((top >> index) & 1) === 1) {
-        checksum ^= BECH32_GENERATORS[index]
-      }
-    }
-  }
-
-  return checksum
-}
-
-function convertBits(
-  data: number[],
-  fromBits: number,
-  toBits: number,
-  pad: boolean
-): number[] {
-  let accumulator = 0
-  let bits = 0
-  const result: number[] = []
-  const maxValue = (1 << toBits) - 1
-  const maxAccumulator = (1 << (fromBits + toBits - 1)) - 1
-
-  for (const value of data) {
-    if (value < 0 || value >> fromBits !== 0) {
-      throw new Error("Invalid Bech32 conversion input value")
-    }
-
-    accumulator = ((accumulator << fromBits) | value) & maxAccumulator
-    bits += fromBits
-
-    while (bits >= toBits) {
-      bits -= toBits
-      result.push((accumulator >> bits) & maxValue)
-    }
-  }
-
-  if (pad && bits > 0) {
-    result.push((accumulator << (toBits - bits)) & maxValue)
-  } else if (
-    !pad &&
-    (bits >= fromBits || ((accumulator << (toBits - bits)) & maxValue) !== 0)
-  ) {
-    throw new Error("Invalid Bech32 conversion padding")
-  }
-
-  return result
 }
 
 function stripHexPrefix(value: string): string {
