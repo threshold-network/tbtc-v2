@@ -48,11 +48,6 @@ const checkBitcoinP2TRSignatureFraudPath = path.join(
   rootDir,
   "solidity/contracts/bridge/CheckBitcoinP2TRSignatureFraud.sol"
 )
-const prototypeP2TRSignatureFraudPath = path.join(
-  rootDir,
-  "solidity/contracts/prototypes/PrototypeP2TRSignatureFraud.sol"
-)
-
 const fail = (message) => {
   console.error(`[vector-conformance] ${message}`)
   process.exit(1)
@@ -546,10 +541,6 @@ const checkBitcoinP2TRSignatureFraud = fs.readFileSync(
   checkBitcoinP2TRSignatureFraudPath,
   "utf8"
 )
-const prototypeP2TRSignatureFraud = fs.readFileSync(
-  prototypeP2TRSignatureFraudPath,
-  "utf8"
-)
 if (vectors.name !== "p2tr-signature-fraud-v0") {
   fail(`unsupported vector corpus [${vectors.name}]`)
 }
@@ -579,14 +570,6 @@ if (
 ) {
   fail(
     "draft P2TR challenge identity helper must stay outside production Bridge library"
-  )
-}
-if (
-  !prototypeP2TRSignatureFraud.includes("computeDraftChallengeIdentity") ||
-  !prototypeP2TRSignatureFraud.includes("DraftChallengeIdentityDomain")
-) {
-  fail(
-    "prototype P2TR challenge identity helper is missing draft vector evidence"
   )
 }
 

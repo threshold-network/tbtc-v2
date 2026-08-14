@@ -63,6 +63,14 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         RandomBeacon.address,
         ReimbursementPool.address,
         Bridge.address,
+        // Initial authorization source is zero — the registry is
+        // deployed before the FrostAllowlist contract exists in the
+        // shipped deploy order; deploy script 51 wires the source via
+        // `updateAuthorizationSource` immediately after the allowlist
+        // is deployed. Passing a non-zero address here atomically binds
+        // the source at initialize() time for deploy orders that DO
+        // have the allowlist available first.
+        ethers.constants.AddressZero,
       ],
       factoryOpts: {
         signer: await ethers.getSigner(deployer),

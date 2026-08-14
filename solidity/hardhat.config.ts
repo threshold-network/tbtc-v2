@@ -36,13 +36,31 @@ loadEnv({ path: path.join(__dirname, "..", ".env") })
 // run normally. TODO: remove this patch after upgrading upgrades-core and
 // verifying the Bridge proxy fixture/deploy path no longer throws.
 const { getUnlinkedBytecode } = upgradesCoreQuery
+// Heuristic guard: the false positive we tolerate is specifically the one
+// triggered by external-library placeholders in a contract that the
+// upgrades-core validation path is currently inspecting (Bridge + its
+// linked libraries). Without this guard, the fallback would silently
+// absorb any unrelated validation failure elsewhere in the upgrade
+// pipeline. We therefore:
+//   1. Limit the fallback to bytecode that contains the upgrades-core
+//      library-placeholder marker `__$<library-name>$_` so the catch only
+//      fires for contracts that actually use external-library linking.
+//   2. Require the SAME error message the original Bridge reproducer
+//      produced, so a future, distinct "Bytecode is not a valid hex
+//      string" failure elsewhere is not silently swallowed.
+const EXTERNAL_LIBRARY_PLACEHOLDER_REGEX = /__\$[A-Za-z0-9_]+?\$_/
+const { isExternalLibraryLinkedBytecode } = {
+  isExternalLibraryLinkedBytecode: (bytecode: string): boolean =>
+    EXTERNAL_LIBRARY_PLACEHOLDER_REGEX.test(bytecode),
+}
 upgradesCoreQuery.getUnlinkedBytecode = (validations, bytecode) => {
   try {
     return getUnlinkedBytecode(validations, bytecode)
   } catch (error) {
     if (
       error instanceof Error &&
-      error.message === "Bytecode is not a valid hex string"
+      error.message === "Bytecode is not a valid hex string" &&
+      isExternalLibraryLinkedBytecode(bytecode)
     ) {
       return bytecode
     }
