@@ -1580,6 +1580,7 @@ library BridgeGovernanceParameters {
         uint32 newReservationGracePeriod;
         uint64 newReservationMaxTotalAmount;
         uint32 newMaxReservationsPerWallet;
+        uint32 newReservationActionTimeout;
         uint256 reservationParametersChangeInitiated;
     }
 
@@ -1591,6 +1592,7 @@ library BridgeGovernanceParameters {
         uint32 newReservationGracePeriod,
         uint64 newReservationMaxTotalAmount,
         uint32 newMaxReservationsPerWallet,
+        uint32 newReservationActionTimeout,
         uint256 timestamp
     );
 
@@ -1605,7 +1607,8 @@ library BridgeGovernanceParameters {
         uint32 _newReservationTermSeconds,
         uint32 _newReservationGracePeriod,
         uint64 _newReservationMaxTotalAmount,
-        uint32 _newMaxReservationsPerWallet
+        uint32 _newMaxReservationsPerWallet,
+        uint32 _newReservationActionTimeout
     ) external {
         /* solhint-disable not-rely-on-time */
         self.newReservationVault = _newReservationVault;
@@ -1615,6 +1618,7 @@ library BridgeGovernanceParameters {
         self.newReservationGracePeriod = _newReservationGracePeriod;
         self.newReservationMaxTotalAmount = _newReservationMaxTotalAmount;
         self.newMaxReservationsPerWallet = _newMaxReservationsPerWallet;
+        self.newReservationActionTimeout = _newReservationActionTimeout;
         self.reservationParametersChangeInitiated = block.timestamp;
         emit ReservationParametersUpdateStarted(
             _newReservationVault,
@@ -1624,6 +1628,7 @@ library BridgeGovernanceParameters {
             _newReservationGracePeriod,
             _newReservationMaxTotalAmount,
             _newMaxReservationsPerWallet,
+            _newReservationActionTimeout,
             block.timestamp
         );
         /* solhint-enable not-rely-on-time */

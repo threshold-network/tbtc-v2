@@ -291,6 +291,10 @@ contract BridgeGovernance is Ownable {
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
 
+    // Emitted by the linked BridgeGovernanceParameters library through
+    // delegatecall, hence its address is this BridgeGovernance contract.
+    // Redeclare the exact signature so governance tooling can decode it
+    // from the BridgeGovernance ABI.
     event ReservationParametersUpdateStarted(
         address newReservationVault,
         uint64 newReservationMinAmount,
@@ -299,6 +303,7 @@ contract BridgeGovernance is Ownable {
         uint32 newReservationGracePeriod,
         uint64 newReservationMaxTotalAmount,
         uint32 newMaxReservationsPerWallet,
+        uint32 newReservationActionTimeout,
         uint256 timestamp
     );
 
@@ -1834,7 +1839,8 @@ contract BridgeGovernance is Ownable {
         uint32 _newReservationTermSeconds,
         uint32 _newReservationGracePeriod,
         uint64 _newReservationMaxTotalAmount,
-        uint32 _newMaxReservationsPerWallet
+        uint32 _newMaxReservationsPerWallet,
+        uint32 _newReservationActionTimeout
     ) external onlyOwner {
         reservationData.beginReservationParametersUpdate(
             _newReservationVault,
@@ -1843,7 +1849,8 @@ contract BridgeGovernance is Ownable {
             _newReservationTermSeconds,
             _newReservationGracePeriod,
             _newReservationMaxTotalAmount,
-            _newMaxReservationsPerWallet
+            _newMaxReservationsPerWallet,
+            _newReservationActionTimeout
         );
     }
 
@@ -1861,7 +1868,8 @@ contract BridgeGovernance is Ownable {
             staged.newReservationTermSeconds,
             staged.newReservationGracePeriod,
             staged.newReservationMaxTotalAmount,
-            staged.newMaxReservationsPerWallet
+            staged.newMaxReservationsPerWallet,
+            staged.newReservationActionTimeout
         );
     }
 }

@@ -261,7 +261,9 @@ contract ReservationVault is IVault, Ownable {
         bridge.requestReservedRedemption(
             reservationKey,
             msg.sender,
-            redeemerOutputScript
+            redeemerOutputScript,
+            true, // The redemption fee was collected above.
+            false
         );
     }
 
@@ -309,7 +311,11 @@ contract ReservationVault is IVault, Ownable {
     /// @dev Requirements:
     ///      - The caller must be the reservation owner,
     ///      - The caller must have approved this vault in the Bank for the
-    ///        gross minted amount (`Bank.approveBalance`).
+    ///        gross minted amount (`Bank.approveBalance`),
+    ///      - The reservation must hold the single-use retry entitlement
+    ///        the Bridge mints when a fee-paid redemption request times
+    ///        out through the wallet's fault (enforced by the Bridge and
+    ///        consumed by this call).
     ///
     ///      The redemption fee is not re-charged: it was collected by the
     ///      original `redeemReservation` call and the retry only exists
@@ -353,7 +359,9 @@ contract ReservationVault is IVault, Ownable {
         bridge.requestReservedRedemption(
             reservationKey,
             msg.sender,
-            redeemerOutputScript
+            redeemerOutputScript,
+            false,
+            true // Consume the retry entitlement instead of paying the fee.
         );
     }
 

@@ -26,6 +26,7 @@ import "./IReservationBridge.sol";
 import "./Reservation.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
+import "./WalletProposalValidatorConstants.sol";
 
 /// @title Wallet proposal validator.
 /// @notice This contract exposes several view functions allowing to validate
@@ -142,7 +143,8 @@ contract WalletProposalValidator {
     ///      In the happy path case, i.e. where the deposit is revealed immediately
     ///      after being broadcast on the Bitcoin network, the minimum age
     ///      check also ensures block finality for Bitcoin.
-    uint32 public constant DEPOSIT_MIN_AGE = 2 hours;
+    uint32 public constant DEPOSIT_MIN_AGE =
+        WalletProposalValidatorConstants.DEPOSIT_MIN_AGE;
 
     /// @notice Each deposit can be technically swept until it reaches its
     ///         refund timestamp after which it can be taken back by the depositor.
@@ -159,7 +161,8 @@ contract WalletProposalValidator {
     ///         For example, if a deposit becomes refundable after 8 pm and
     ///         DEPOSIT_REFUND_SAFETY_MARGIN is 6 hours, the deposit is valid
     ///         for a sweep only before 2 pm.
-    uint32 public constant DEPOSIT_REFUND_SAFETY_MARGIN = 24 hours;
+    uint32 public constant DEPOSIT_REFUND_SAFETY_MARGIN =
+        WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
 
     /// @notice The maximum count of deposits that can be swept within a
     ///         single sweep.
@@ -192,7 +195,8 @@ contract WalletProposalValidator {
     ///         For example, if a request times out after 8 pm and
     ///         REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN is 2 hours, the
     ///         request is valid for processing only before 6 pm.
-    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN = 2 hours;
+    uint32 public constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN =
+        WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN;
 
     /// @notice The maximum count of redemption requests that can be processed
     ///         within a single redemption.
@@ -821,7 +825,8 @@ contract WalletProposalValidator {
     /// @param proposal The moved funds sweep proposal to validate.
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
-    ///      - The source wallet must be in the Live or MovingFunds state,
+    ///      - The sweeping wallet must be in the Live, MovingFunds, or Closing
+    ///        state,
     ///      - The moved funds sweep request identified by the proposed
     ///        transaction hash and output index must be in the Pending state,
     ///      - The transaction hash and output index from the proposal must
@@ -839,11 +844,12 @@ contract WalletProposalValidator {
             proposal.walletPubKeyHash
         );
 
-        // Make sure the wallet is in Live or MovingFunds state.
+        // Make sure the wallet is in Live, MovingFunds, or Closing state.
         require(
             wallet.state == Wallets.WalletState.Live ||
-                wallet.state == Wallets.WalletState.MovingFunds,
-            "Source wallet is not in Live or MovingFunds state"
+                wallet.state == Wallets.WalletState.MovingFunds ||
+                wallet.state == Wallets.WalletState.Closing,
+            "Sweeping wallet is not in Live or MovingFunds or Closing state"
         );
 
         // Make sure the moved funds sweep request is valid.
@@ -914,6 +920,8 @@ contract WalletProposalValidator {
         bytes20 walletPubKeyHash;
         // Key of the reserved deposit to anchor.
         DepositKey depositKey;
+        // Generation of the acceptance authorization being executed.
+        uint64 requestNonce;
         // Proposed BTC fee for the anchor transaction.
         uint256 anchorTxFee;
     }
@@ -924,6 +932,8 @@ contract WalletProposalValidator {
         bytes20 walletPubKeyHash;
         // Key of the reservation with the pending reserved redemption.
         uint256 reservationKey;
+        // Generation of the redemption request being executed.
+        uint64 requestNonce;
         // Proposed BTC fee for the reserved redemption transaction.
         uint256 redemptionTxFee;
     }
@@ -935,6 +945,8 @@ contract WalletProposalValidator {
         bytes20 sourceWalletPubKeyHash;
         // Key of the reservation to re-anchor.
         uint256 reservationKey;
+        // Generation of the re-anchor authorization being executed.
+        uint64 requestNonce;
         // 20-byte public key hash of the wallet receiving the anchor.
         bytes20 targetWalletPubKeyHash;
         // Proposed BTC fee for the re-anchor transaction.
@@ -948,8 +960,32 @@ contract WalletProposalValidator {
         bytes20 walletPubKeyHash;
         // Key of the reservation to dissolve.
         uint256 reservationKey;
+        // Generation of the dissolution authorization being executed.
+        uint64 requestNonce;
         // Proposed BTC fee for the dissolution transaction.
         uint256 dissolutionTxFee;
+    }
+
+    /// @notice Fetches the given reservation action generation and reverts
+    ///         unless it is pending and of the expected type. Wallets must
+    ///         only sign explicitly requested, still-pending generations —
+    ///         the Bridge proof path settles nothing else (except late
+    ///         proofs of timed-out generations, which only exist for
+    ///         transactions signed while the generation was pending).
+    function requirePendingAction(
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ActionType expectedType
+    ) internal view returns (Reservation.ReservationAction memory action) {
+        action = IReservationBridge(address(bridge)).reservationActions(
+            reservationKey,
+            requestNonce
+        );
+        require(
+            action.actionType == expectedType &&
+                action.state == Reservation.ActionState.Pending,
+            "No pending action of the expected type"
+        );
     }
 
     /// @notice View function encapsulating the main rules of a valid
@@ -959,13 +995,15 @@ contract WalletProposalValidator {
     ///        validation.
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
-    ///      - Reservations must be enabled (reservation vault set),
+    ///      - The named acceptance authorization generation must be
+    ///        pending, authorize the proposal wallet, and not be within
+    ///        the timeout safety margin,
     ///      - The wallet must be in the Live or MovingFunds state,
-    ///      - The deposit must be revealed, old enough, not swept, and
-    ///        routed to the reservation vault,
-    ///      - The proposed fee must be positive, within the reservation
-    ///        transaction max fee, and must leave an anchor amount above
-    ///        the reservation minimum,
+    ///      - The deposit must be revealed, old enough and not swept,
+    ///      - The proposed fee must be positive and within the
+    ///        authorization's snapshotted fee bound (which, with the
+    ///        request-time amount check, keeps the anchor above the
+    ///        reservation minimum),
     ///      - The deposit extra info must be valid and preserve the refund
     ///        safety margin,
     ///      - The deposit must be controlled by the proposal wallet.
@@ -973,19 +1011,6 @@ contract WalletProposalValidator {
         ReservationAnchorProposal calldata proposal,
         DepositExtraInfo calldata depositExtraInfo
     ) external view returns (bool) {
-        (
-            address reservationVault,
-            uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee,
-            ,
-            ,
-            ,
-            ,
-
-        ) = IReservationBridge(address(bridge)).reservationParameters();
-
-        require(reservationVault != address(0), "Reservations are disabled");
-
         requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
 
         uint256 depositKeyUint = uint256(
@@ -995,6 +1020,24 @@ contract WalletProposalValidator {
                     proposal.depositKey.fundingOutputIndex
                 )
             )
+        );
+
+        Reservation.ReservationAction memory action = requirePendingAction(
+            depositKeyUint,
+            proposal.requestNonce,
+            Reservation.ActionType.Acceptance
+        );
+
+        require(
+            action.targetWalletPubKeyHash == proposal.walletPubKeyHash,
+            "Acceptance authorized for different wallet"
+        );
+
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                action.timeoutAt - REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Authorization timeout safety margin is not preserved"
         );
 
         Deposit.DepositRequest memory depositRequest = bridge.deposits(
@@ -1017,22 +1060,12 @@ contract WalletProposalValidator {
         );
 
         require(
-            depositRequest.vault == reservationVault,
-            "Deposit not routed to the reservation vault"
-        );
-
-        require(
             proposal.anchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.anchorTxFee <= reservationTxMaxFee,
+            proposal.anchorTxFee <= action.txMaxFee,
             "Proposed transaction fee is too high"
-        );
-        require(
-            depositRequest.amount - proposal.anchorTxFee >=
-                reservationMinAmount,
-            "Anchor amount below the reservation minimum"
         );
 
         validateDepositExtraInfo(
@@ -1084,20 +1117,29 @@ contract WalletProposalValidator {
         ).reservations(proposal.reservationKey);
 
         require(
-            reservation.state ==
-                Reservation.ReservationState.RedemptionRequested,
-            "No pending reserved redemption"
-        );
-        require(
             reservation.walletPubKeyHash == proposal.walletPubKeyHash,
             "Reservation custodied by different wallet"
         );
 
+        Reservation.ReservationAction memory action = requirePendingAction(
+            proposal.reservationKey,
+            proposal.requestNonce,
+            Reservation.ActionType.Redemption
+        );
+
+        // The authorization gate: the watchtower delay applicable to this
+        // generation must have elapsed before the wallet signs. The Bridge
+        // proof path enforces the same rule, so signing earlier would
+        // produce a transaction that cannot settle before the guardians'
+        // window closes — and never settles if the generation gets vetoed.
         uint32 requestMinAge = REDEMPTION_REQUEST_MIN_AGE;
         address watchtower = bridge.getRedemptionWatchtower();
         if (watchtower != address(0)) {
             uint32 delay = IRedemptionWatchtower(watchtower)
-                .getReservedRedemptionDelay(proposal.reservationKey);
+                .getReservedRedemptionDelay(
+                    proposal.reservationKey,
+                    proposal.requestNonce
+                );
             if (delay > requestMinAge) {
                 requestMinAge = delay;
             }
@@ -1105,17 +1147,14 @@ contract WalletProposalValidator {
 
         require(
             /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp > reservation.redemptionRequestedAt + requestMinAge,
+            block.timestamp > action.requestedAt + requestMinAge,
             "Reserved redemption min age not achieved yet"
         );
 
-        (, , , , uint32 redemptionTimeout, , ) = bridge.redemptionParameters();
         require(
             /* solhint-disable-next-line not-rely-on-time */
             block.timestamp <
-                reservation.redemptionRequestedAt +
-                    redemptionTimeout -
-                    REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN,
+                action.timeoutAt - REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Redemption request timeout safety margin is not preserved"
         );
 
@@ -1124,7 +1163,7 @@ contract WalletProposalValidator {
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.redemptionTxFee <= reservation.redemptionTxMaxFee,
+            proposal.redemptionTxFee <= action.txMaxFee,
             "Proposed transaction fee is too high"
         );
 
@@ -1138,13 +1177,12 @@ contract WalletProposalValidator {
     /// @dev Requirements:
     ///      - The reservation must be Active and custodied by the source
     ///        wallet,
-    ///      - The target wallet must be in the Live state,
-    ///      - The proposed fee must be positive and within the reservation
-    ///        transaction max fee.
-    ///
-    ///      The source wallet state is deliberately not restricted, mirroring
-    ///      `Reservation.submitReservationReanchorProof`: moving reservations
-    ///      out must remain possible for wallets in any lifecycle state.
+    ///      - The named re-anchor authorization generation must be pending,
+    ///        target the proposal's target wallet, whose current state must
+    ///        still be Live, and not be within the timeout safety margin,
+    ///      - The proposed fee must be positive, within the authorization's
+    ///        snapshotted fee bound, and leave the re-anchored amount above
+    ///        the dust floor.
     function validateReservationReanchorProposal(
         ReservationReanchorProposal calldata proposal
     ) external view returns (bool) {
@@ -1153,12 +1191,19 @@ contract WalletProposalValidator {
         ).reservations(proposal.reservationKey);
 
         require(
-            reservation.state == Reservation.ReservationState.Active,
-            "Reservation is not active"
-        );
-        require(
             reservation.walletPubKeyHash == proposal.sourceWalletPubKeyHash,
             "Reservation custodied by different wallet"
+        );
+
+        Reservation.ReservationAction memory action = requirePendingAction(
+            proposal.reservationKey,
+            proposal.requestNonce,
+            Reservation.ActionType.Reanchor
+        );
+
+        require(
+            action.targetWalletPubKeyHash == proposal.targetWalletPubKeyHash,
+            "Re-anchor authorized for different target wallet"
         );
 
         require(
@@ -1167,16 +1212,24 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-        (, , uint64 reservationTxMaxFee, , , , , ) = IReservationBridge(
-            address(bridge)
-        ).reservationParameters();
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                action.timeoutAt - REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Authorization timeout safety margin is not preserved"
+        );
+
         require(
             proposal.reanchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.reanchorTxFee <= reservationTxMaxFee,
+            proposal.reanchorTxFee <= action.txMaxFee,
             "Proposed transaction fee is too high"
+        );
+        require(
+            reservation.anchorAmount - proposal.reanchorTxFee > action.txMaxFee,
+            "Re-anchor amount below the dust floor"
         );
 
         return true;
@@ -1188,10 +1241,12 @@ contract WalletProposalValidator {
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
     ///      - The wallet must be in the Live or MovingFunds state,
-    ///      - The reservation must be Active, custodied by the proposal
-    ///        wallet, and past its custody term plus grace period,
-    ///      - The proposed fee must be positive and within the reservation
-    ///        transaction max fee.
+    ///      - The reservation must be custodied by the proposal wallet,
+    ///      - The named dissolution authorization generation must be
+    ///        pending (its request already validated the term and grace
+    ///        expiry) and not be within the timeout safety margin,
+    ///      - The proposed fee must be positive and within the
+    ///        authorization's snapshotted fee bound.
     function validateReservationDissolutionProposal(
         ReservationDissolutionProposal calldata proposal
     ) external view returns (bool) {
@@ -1202,30 +1257,21 @@ contract WalletProposalValidator {
         ).reservations(proposal.reservationKey);
 
         require(
-            reservation.state == Reservation.ReservationState.Active,
-            "Reservation is not active"
-        );
-        require(
             reservation.walletPubKeyHash == proposal.walletPubKeyHash,
             "Reservation custodied by different wallet"
         );
 
-        (
-            ,
-            ,
-            uint64 reservationTxMaxFee,
-            ,
-            uint32 reservationGracePeriod,
-            ,
-            ,
-
-        ) = IReservationBridge(address(bridge)).reservationParameters();
+        Reservation.ReservationAction memory action = requirePendingAction(
+            proposal.reservationKey,
+            proposal.requestNonce,
+            Reservation.ActionType.Dissolution
+        );
 
         require(
             /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp >
-                uint256(reservation.expiresAt) + reservationGracePeriod,
-            "Reservation term or grace period not elapsed"
+            block.timestamp <
+                action.timeoutAt - REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Authorization timeout safety margin is not preserved"
         );
 
         require(
@@ -1233,7 +1279,7 @@ contract WalletProposalValidator {
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.dissolutionTxFee <= reservationTxMaxFee,
+            proposal.dissolutionTxFee <= action.txMaxFee,
             "Proposed transaction fee is too high"
         );
 

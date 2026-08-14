@@ -16,6 +16,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       },
       proxyOpts: {
         kind: "transparent",
+        // The watchtower imports the `Reservation` library for its shared
+        // types; that library forwards reservation proofs to the external
+        // `ReservationProofs` library, which trips the upgrades plugin's
+        // source-closure check. The watchtower's own bytecode links no
+        // external library (types and internal helpers are inlined), so
+        // the linking is upgrade safe here — same rationale as the Bridge
+        // deployment.
+        unsafeAllow: ["external-library-linking"],
       },
     })
 

@@ -2620,10 +2620,6 @@ describe("WalletProposalValidator", () => {
           walletState: walletState.Unknown,
         },
         {
-          testName: "when wallet state is Closing",
-          walletState: walletState.Closing,
-        },
-        {
           testName: "when wallet state is Closed",
           walletState: walletState.Closed,
         },
@@ -2666,7 +2662,7 @@ describe("WalletProposalValidator", () => {
                 movedFundsSweepTxFee: 0,
               })
             ).to.be.revertedWith(
-              "Source wallet is not in Live or MovingFunds state"
+              "Sweeping wallet is not in Live or MovingFunds or Closing state"
             )
           })
         })
@@ -2682,6 +2678,10 @@ describe("WalletProposalValidator", () => {
         {
           testName: "when wallet state is MovingFunds",
           walletState: walletState.MovingFunds,
+        },
+        {
+          testName: "when wallet state is Closing",
+          walletState: walletState.Closing,
         },
       ]
 

@@ -404,32 +404,52 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         }
     }
 
+    /// @notice Computes the veto-state key of a reserved redemption
+    ///         generation. Veto and objection state is keyed per
+    ///         generation, so objections never accumulate across
+    ///         generations and a once-vetoed reservation starts every new
+    ///         generation with a clean objection count.
+    /// @param reservationKey The key of the reservation.
+    /// @param requestNonce The redemption generation.
+    function reservedVetoKey(uint256 reservationKey, uint64 requestNonce)
+        public
+        pure
+        returns (uint256)
+    {
+        return
+            uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)));
+    }
+
     /// @notice Raises an objection to a pending reserved redemption
-    ///         identified by its reservation key. Works the same way as
-    ///         `raiseObjection` does for regular redemption requests: each
-    ///         pending reserved redemption has a delay period during which
-    ///         the wallet is not allowed to process it and the guardians can
-    ///         raise objections to; the third objection vetoes it. A veto
-    ///         detains the surrendered gross amount from the Bridge, freezes
-    ///         it for the freeze period, burns the penalty fee, and bans the
-    ///         redeemer. The reservation itself returns to the Active state
-    ///         on the Bridge -- the anchor outpoint was not spent, so the
-    ///         in-kind claim survives (though a banned owner cannot
-    ///         re-request until unbanned).
+    ///         generation. Works the same way as `raiseObjection` does for
+    ///         regular redemption requests: each pending reserved
+    ///         redemption has a delay period during which the wallet is not
+    ///         allowed to process it and the guardians can raise objections
+    ///         to; the third objection vetoes it. A veto detains the
+    ///         escrowed gross amount from the Bridge, freezes it for the
+    ///         freeze period, burns the penalty fee, and bans the redeemer.
+    ///         The reservation itself returns to the Active state on the
+    ///         Bridge -- the anchor outpoint was not spent, so the in-kind
+    ///         claim survives (though a banned owner cannot re-request
+    ///         until unbanned). The vetoed generation never accepts an SPV
+    ///         proof.
     /// @param reservationKey The key of the reservation with the pending
     ///        reserved redemption.
+    /// @param requestNonce The pending redemption generation.
     /// @dev Requirements:
     ///      - The caller must be a redemption guardian,
-    ///      - The reserved redemption must not have been vetoed already,
+    ///      - The generation must not have been vetoed already,
     ///      - The guardian must not have already objected to it,
-    ///      - The reserved redemption must be pending,
-    ///      - The reserved redemption must be within its veto delay period,
-    ///        unless it was requested before the watchtower was enabled.
-    function raiseReservedObjection(uint256 reservationKey)
+    ///      - The generation must be the reservation's pending redemption,
+    ///      - The generation must be within the veto delay snapshotted for
+    ///        its current objection level; a permanently disabled watchtower
+    ///        makes the effective delay zero.
+    function raiseReservedObjection(uint256 reservationKey, uint64 requestNonce)
         external
         onlyGuardian
     {
-        VetoProposal storage veto = vetoProposals[reservationKey];
+        uint256 vetoKey = reservedVetoKey(reservationKey, requestNonce);
+        VetoProposal storage veto = vetoProposals[vetoKey];
 
         require(
             veto.objectionsCount < REQUIRED_OBJECTIONS_COUNT,
@@ -437,60 +457,54 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         );
 
         uint256 objectionKey = uint256(
-            keccak256(abi.encodePacked(reservationKey, msg.sender))
+            keccak256(abi.encodePacked(vetoKey, msg.sender))
         );
         require(!objections[objectionKey], "Guardian already objected");
 
-        Reservation.ReservationRequest memory reservation = IReservationBridge(
+        Reservation.ReservationAction memory action = IReservationBridge(
             address(bridge)
-        ).reservations(reservationKey);
+        ).reservationActions(reservationKey, requestNonce);
 
         require(
-            reservation.state ==
-                Reservation.ReservationState.RedemptionRequested,
+            action.actionType == Reservation.ActionType.Redemption &&
+                action.state == Reservation.ActionState.Pending,
             "Reserved redemption does not exist"
         );
 
-        if (reservation.redemptionRequestedAt >= watchtowerEnabledAt) {
-            require(
-                /* solhint-disable-next-line not-rely-on-time */
-                block.timestamp <
-                    reservation.redemptionRequestedAt +
-                        _redemptionDelay(
-                            veto.objectionsCount,
-                            reservation.mintedAmount
-                        ),
-                "Redemption veto delay period expired"
-            );
-        } else {
-            emit VetoPeriodCheckOmitted(reservationKey);
-        }
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                uint256(action.requestedAt) +
+                    _reservedRedemptionDelay(action, veto.objectionsCount),
+            "Redemption veto delay period expired"
+        );
 
         objections[objectionKey] = true;
-        veto.redeemer = reservation.redeemer;
+        veto.redeemer = action.redeemer;
         veto.objectionsCount++;
 
-        emit ObjectionRaised(reservationKey, msg.sender);
+        emit ObjectionRaised(vetoKey, msg.sender);
 
         if (veto.objectionsCount == REQUIRED_OBJECTIONS_COUNT) {
             uint64 penaltyFee = vetoPenaltyFeeDivisor > 0
-                ? reservation.mintedAmount / vetoPenaltyFeeDivisor
+                ? action.amount / vetoPenaltyFeeDivisor
                 : 0;
 
-            veto.withdrawableAmount = reservation.mintedAmount - penaltyFee;
+            veto.withdrawableAmount = action.amount - penaltyFee;
             /* solhint-disable-next-line not-rely-on-time */
             veto.finalizedAt = uint32(block.timestamp);
-            isBanned[reservation.redeemer] = true;
+            isBanned[action.redeemer] = true;
 
-            emit Banned(reservation.redeemer);
+            emit Banned(action.redeemer);
 
-            emit VetoFinalized(reservationKey);
+            emit VetoFinalized(vetoKey);
 
             // Notify the Bridge about the veto. As result of this call,
-            // this contract receives the surrendered gross amount
+            // this contract receives the escrowed gross amount
             // (as Bank's balance) from the Bridge.
             IReservationBridge(address(bridge)).notifyReservedRedemptionVeto(
-                reservationKey
+                reservationKey,
+                requestNonce
             );
             // Burn the penalty fee but leave the claimable amount for the
             // redeemer to withdraw after the freeze period.
@@ -498,31 +512,120 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         }
     }
 
-    /// @notice Returns the applicable veto delay for a pending reserved
-    ///         redemption identified by the given reservation key.
+    /// @notice Returns the applicable veto delay for the given pending
+    ///         reserved redemption generation. This is the delay the
+    ///         Bridge proof path enforces before a redemption generation
+    ///         can settle: wallets must not sign before it elapses.
     /// @param reservationKey The key of the reservation.
+    /// @param requestNonce The redemption generation.
     /// @return Reserved redemption veto delay.
-    /// @dev If the watchtower has been disabled, the delay is always zero.
-    function getReservedRedemptionDelay(uint256 reservationKey)
-        external
-        view
-        returns (uint32)
-    {
-        Reservation.ReservationRequest memory reservation = IReservationBridge(
+    /// @dev The returned level is selected from the immutable schedule the
+    ///      Bridge captured when the generation was requested. A permanently
+    ///      disabled watchtower overrides every captured schedule with zero.
+    function getReservedRedemptionDelay(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (uint32) {
+        // Preserve the pre-enable API behavior: no guardians exist, so no
+        // reservation lookup is needed to establish that the delay is zero.
+        // slither-disable-next-line incorrect-equality
+        if (watchtowerEnabledAt == 0) {
+            return 0;
+        }
+
+        Reservation.ReservationAction memory action = IReservationBridge(
             address(bridge)
-        ).reservations(reservationKey);
+        ).reservationActions(reservationKey, requestNonce);
 
         require(
-            reservation.state ==
-                Reservation.ReservationState.RedemptionRequested,
+            action.actionType == Reservation.ActionType.Redemption,
             "Reserved redemption does not exist"
         );
 
         return
-            _redemptionDelay(
-                vetoProposals[reservationKey].objectionsCount,
-                reservation.mintedAmount
+            _reservedRedemptionDelay(
+                action,
+                vetoProposals[reservedVetoKey(reservationKey, requestNonce)]
+                    .objectionsCount
             );
+    }
+
+    /// @notice Returns the current three-level veto delay schedule to
+    ///         snapshot for a newly requested reserved redemption.
+    /// @param requestedAmount Reserved redemption amount in satoshis.
+    /// @return reservedDefaultDelay Delay before any guardian objection.
+    /// @return reservedLevelOneDelay Delay after one guardian objection.
+    /// @return reservedLevelTwoDelay Delay after two guardian objections.
+    /// @dev Returns an all-zero schedule when no guardian veto policy applies
+    ///      at request time: the watchtower is not enabled, has been disabled,
+    ///      or the requested amount is below the waiver limit.
+    function getReservedRedemptionDelaySchedule(uint64 requestedAmount)
+        external
+        view
+        returns (
+            uint32 reservedDefaultDelay,
+            uint32 reservedLevelOneDelay,
+            uint32 reservedLevelTwoDelay
+        )
+    {
+        if (
+            // slither-disable-next-line incorrect-equality
+            watchtowerEnabledAt == 0 ||
+            watchtowerDisabledAt != 0 ||
+            requestedAmount < waivedAmountLimit
+        ) {
+            return (0, 0, 0);
+        }
+
+        return (defaultDelay, levelOneDelay, levelTwoDelay);
+    }
+
+    /// @notice Selects a reserved redemption generation's snapshotted veto
+    ///         delay for the given number of objections.
+    /// @dev A permanently disabled watchtower makes the effective delay zero
+    ///      for every generation, including those requested before shutdown.
+    function _reservedRedemptionDelay(
+        Reservation.ReservationAction memory action,
+        uint8 objectionsCount
+    ) internal view returns (uint32) {
+        if (watchtowerDisabledAt != 0) {
+            return 0;
+        }
+
+        if (
+            // slither-disable-next-line incorrect-equality
+            objectionsCount == 0
+        ) {
+            return action.watchtowerDefaultDelay;
+        } else if (
+            // slither-disable-next-line incorrect-equality
+            objectionsCount == 1
+        ) {
+            return action.watchtowerLevelOneDelay;
+        } else if (
+            // slither-disable-next-line incorrect-equality
+            objectionsCount == 2
+        ) {
+            return action.watchtowerLevelTwoDelay;
+        } else {
+            revert("No delay for given objections count");
+        }
+    }
+
+    /// @notice Determines whether a reserved redemption request is
+    ///         considered safe: neither the reservation owner nor the
+    ///         redeemer may be banned. Objection state is per generation,
+    ///         so no historical objection count is consulted — a fresh
+    ///         generation always starts with a clean count.
+    /// @param owner The reservation owner.
+    /// @param redeemer The address requesting the redemption.
+    /// @return True if the reserved redemption request is safe.
+    function isSafeReservedRedemption(address owner, address redeemer)
+        external
+        view
+        returns (bool)
+    {
+        return !isBanned[owner] && !isBanned[redeemer];
     }
 
     /// @notice Returns the redemption delay for a given number of objections

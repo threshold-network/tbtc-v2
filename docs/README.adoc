@@ -446,33 +446,36 @@ but they will not get reimbursed for doing so. To not mix the concept of
 reimbursement with the logic of the `Bridge` contract, we placed the
 reimbursement logic in a special contract called `MaintainerProxy`. Only
 DAO-authorized maintainers can call `Bridge` via `MaintainerProxy` and get
-reimbursed for the call but it does not block anyone from calling `Bridge`
-directly. The only difference is that those calling `Bridge` directly will not
-get reimbursed. This should be enough to prevent malicious actors from
-front-running honest maintainers. Maintainers are getting authorized by a DAO
-with a call to `MaintainerProxy.authorize` and can be deauthorized by a DAO with
-a call to `MaintainerProxy.unauthorize`.
+reimbursed. Permissionless `Bridge` endpoints remain callable directly without
+reimbursement. SPV-proof endpoints additionally require the caller to be
+authorized in `Bridge`, so governance authorizes the proxy address itself;
+direct proof submitters need separate Bridge authorization. This should be
+enough to prevent malicious actors from front-running honest maintainers.
+Maintainers are authorized and deauthorized by a DAO using the wallet- or
+SPV-specific authorization functions exposed by `MaintainerProxy`.
 
-`Bridge.submitDepositSweepProof` and `Bridge.submitRedemptionProof` are
-functions that must be called often and they execute quite an expensive SPV
-proof. These functions need to be protected with `onlyMaintainer` notifier in
-`MaintainerProxy`.
+`Bridge.submitDepositSweepProof`, `Bridge.submitRedemptionProof`, and
+`Bridge.submitReservationProof` are functions that must be called often and
+they execute quite an expensive SPV proof. These functions need to be protected
+with `onlySpvMaintainer` in the maintainer proxy (the reservation endpoint is
+available in `MaintainerProxyV2`).
 
 `Bridge.submitMovingFundsProof` and `Bridge.submitMovedFundsSweepProof` are
 functions that are called less often but they also execute an expensive SPV
 proof. The input parameters to them are pretty much the same as for
 `Bridge.submitDepositSweepProof` and `Bridge.submitRedemptionProof` so we assume
 calling them is also the maintainer's responsibility and we protect them in
-`MaintainerProxy` with `onlyMaintainer` modifier.
+`MaintainerProxy` with the `onlySpvMaintainer` modifier.
 
 It is important to note that the off-chain client software should not rely
 entirely on maintainers to call these functions. If proofs are not submitted on
 time, the wallet can be accused of fraud, or it can get slashed because of
 exceeding redemption timeout, moving funds timeout, or sweeping moved funds
 timeout. The wallet should expect the maintainer bots to do their work but it
-should also monitor if that actually happens. If not, the wallet should submit
-the proof itself - directly to the `Bridge` - to avoid slashing. Such a call
-would not be reimbursed but it should also never be needed.
+should also monitor if that actually happens. If not, it should ensure that an
+authorized maintainer submits the proof. A wallet-controlled account can submit
+directly only if governance separately authorized it in `Bridge`; that call is
+not reimbursed.
 
 Functions like `Bridge.requestNewWallet`, `Bridge.notifyMovingFundsBelowDust`,
 `Bridge.notifyWalletCloseable`, or `Bridge.notifyWalletClosingPeriodElapsed`

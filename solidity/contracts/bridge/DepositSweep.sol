@@ -231,6 +231,7 @@ library DepositSweep {
         wallet.mainUtxoHash = keccak256(
             abi.encodePacked(sweepTxHash, uint32(0), sweepTxOutputValue)
         );
+        Wallets.rearmMovingFundsTimeout(self, walletPubKeyHash);
 
         // slither-disable-next-line reentrancy-events
         emit DepositsSwept(walletPubKeyHash, sweepTxHash);

@@ -63,14 +63,49 @@ interface IRedemptionWatchtower {
         view
         returns (uint32);
 
-    /// @notice Returns the applicable veto delay for a pending reserved
-    ///         redemption identified by the given reservation key.
+    /// @notice Returns the applicable veto delay for the given pending
+    ///         reserved redemption generation, selected from the immutable
+    ///         schedule captured when the generation was requested. A
+    ///         permanently disabled watchtower overrides the snapshot with
+    ///         zero.
     /// @param reservationKey The key of the reservation.
+    /// @param requestNonce The redemption generation.
     /// @return Reserved redemption veto delay.
-    function getReservedRedemptionDelay(uint256 reservationKey)
+    function getReservedRedemptionDelay(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view returns (uint32);
+
+    /// @notice Returns the current three-level veto delay schedule to
+    ///         snapshot for a newly requested reserved redemption. All
+    ///         values are zero when the watchtower is not enabled, has been
+    ///         disabled, or the amount is waived.
+    /// @param requestedAmount Reserved redemption amount in satoshis.
+    /// @return defaultDelay Delay before any guardian objection.
+    /// @return levelOneDelay Delay after one guardian objection.
+    /// @return levelTwoDelay Delay after two guardian objections.
+    function getReservedRedemptionDelaySchedule(uint64 requestedAmount)
         external
         view
-        returns (uint32);
+        returns (
+            uint32 defaultDelay,
+            uint32 levelOneDelay,
+            uint32 levelTwoDelay
+        );
+
+    /// @notice Determines whether a reserved redemption request is
+    ///         considered safe: neither the reservation owner nor the
+    ///         redeemer may be banned. Objection state is per generation,
+    ///         so — unlike the pooled `isSafeRedemption` — no historical
+    ///         objection count is consulted: a fresh generation always
+    ///         starts with a clean count.
+    /// @param owner The reservation owner.
+    /// @param redeemer The address requesting the redemption.
+    /// @return True if the reserved redemption request is safe.
+    function isSafeReservedRedemption(address owner, address redeemer)
+        external
+        view
+        returns (bool);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof

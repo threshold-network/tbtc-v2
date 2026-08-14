@@ -23,18 +23,54 @@ import "./Reservation.sol";
 ///         `delegatecall`, so callers use this interface against the Bridge
 ///         address itself — the Bridge contract type does not declare them.
 interface IReservationBridge {
+    /// @notice See `ReservationRouter.requestReservationAcceptance`.
+    function requestReservationAcceptance(
+        uint256 reservationKey,
+        bytes20 walletPubKeyHash
+    ) external;
+
     /// @notice See `ReservationRouter.requestReservedRedemption`.
     function requestReservedRedemption(
         uint256 reservationKey,
         address redeemer,
-        bytes calldata redeemerOutputScript
+        bytes calldata redeemerOutputScript,
+        bool feePaid,
+        bool useRetryCredit
+    ) external;
+
+    /// @notice See `ReservationRouter.requestReservationReanchor`.
+    function requestReservationReanchor(
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash
+    ) external;
+
+    /// @notice See `ReservationRouter.requestReservationDissolution`.
+    function requestReservationDissolution(uint256 reservationKey) external;
+
+    /// @notice See `ReservationRouter.submitReservationProof`.
+    function submitReservationProof(
+        uint8 proofType,
+        BitcoinTx.Info calldata txInfo,
+        BitcoinTx.Proof calldata proof,
+        BitcoinTx.UTXO calldata mainUtxo,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external;
+
+    /// @notice See `ReservationRouter.notifyReservationActionTimeout`.
+    function notifyReservationActionTimeout(
+        uint256 reservationKey,
+        uint32[] calldata walletMembersIDs
     ) external;
 
     /// @notice See `ReservationRouter.extendReservation`.
     function extendReservation(uint256 reservationKey) external;
 
     /// @notice See `ReservationRouter.notifyReservedRedemptionVeto`.
-    function notifyReservedRedemptionVeto(uint256 reservationKey) external;
+    function notifyReservedRedemptionVeto(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external;
 
     /// @notice See `ReservationRouter.updateReservationParameters`.
     function updateReservationParameters(
@@ -44,7 +80,8 @@ interface IReservationBridge {
         uint32 reservationTermSeconds,
         uint32 reservationGracePeriod,
         uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet
+        uint32 maxReservationsPerWallet,
+        uint32 reservationActionTimeout
     ) external;
 
     /// @notice Bridge treasury address. Declared by the Bridge contract
@@ -59,6 +96,12 @@ interface IReservationBridge {
         view
         returns (Reservation.ReservationRequest memory);
 
+    /// @notice See `ReservationRouter.reservationActions`.
+    function reservationActions(uint256 reservationKey, uint64 requestNonce)
+        external
+        view
+        returns (Reservation.ReservationAction memory);
+
     /// @notice See `ReservationRouter.reservationParameters`.
     function reservationParameters()
         external
@@ -71,6 +114,7 @@ interface IReservationBridge {
             uint32 reservationGracePeriod,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet
+            uint32 maxReservationsPerWallet,
+            uint32 reservationActionTimeout
         );
 }

@@ -19,6 +19,73 @@ import "solidity-docgen"
 // Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
 loadEnv({ path: path.join(__dirname, "..", ".env") })
 
+// Backport of the upstream fix for a @openzeppelin/upgrades-core@1.20.0 bug:
+// `getUnlinkedBytecode` probes every linkable contract by splicing its
+// library-link placeholders into the bytecode being deployed. When a foreign
+// contract's link position lands inside the metadata-trim boundary of that
+// bytecode, the truncated placeholder makes `getVersion` throw "Bytecode is
+// not a valid hex string" and the whole proxy deployment fails — observed
+// once the ReservationRouter (a delegatecall extension with library link
+// references) entered the compilation set. Newer upgrades-core versions
+// wrap each probe in try/catch; this shim applies the same per-candidate
+// tolerance without a dependency bump.
+/* eslint-disable @typescript-eslint/no-var-requires, global-require */
+{
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch = (queryModule: any) => {
+    const {
+      normalizeValidationData,
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+    } = require("@openzeppelin/upgrades-core/dist/validate/data")
+    const {
+      unlinkBytecode,
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+    } = require("@openzeppelin/upgrades-core/dist/link-refs")
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getVersion } = require("@openzeppelin/upgrades-core/dist/version")
+
+    // eslint-disable-next-line no-param-reassign, @typescript-eslint/no-explicit-any
+    queryModule.getUnlinkedBytecode = (data: any, bytecode: string) => {
+      const dataV3 = normalizeValidationData(data)
+      let result = bytecode
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataV3.log.some((validation: any) =>
+        Object.keys(validation)
+          .filter((name) => validation[name].linkReferences.length > 0)
+          .some((name) => {
+            try {
+              const unlinkedBytecode = unlinkBytecode(
+                bytecode,
+                validation[name].linkReferences
+              )
+              const version = getVersion(unlinkedBytecode)
+              if (
+                validation[name].version?.withMetadata === version.withMetadata
+              ) {
+                result = unlinkedBytecode
+                return true
+              }
+            } catch {
+              // A foreign contract's link references mangled this bytecode;
+              // it cannot be the contract being deployed — skip the
+              // candidate.
+            }
+            return false
+          })
+      )
+      return result
+    }
+  }
+
+  patch(require("@openzeppelin/upgrades-core/dist/validate/query"))
+  const upgradesCore = require("@openzeppelin/upgrades-core")
+  const queryModule = require("@openzeppelin/upgrades-core/dist/validate/query")
+  if (upgradesCore.getUnlinkedBytecode !== queryModule.getUnlinkedBytecode) {
+    patch(upgradesCore)
+  }
+}
+/* eslint-enable @typescript-eslint/no-var-requires, global-require */
+
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
   settings: {
