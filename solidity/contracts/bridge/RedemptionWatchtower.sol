@@ -19,6 +19,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import "./Bridge.sol";
 import "./Redemption.sol";
+import "./IReservationBridge.sol";
 import "./Reservation.sol";
 
 /// @title Redemption watchtower
@@ -440,9 +441,9 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         );
         require(!objections[objectionKey], "Guardian already objected");
 
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            reservationKey
-        );
+        Reservation.ReservationRequest memory reservation = IReservationBridge(
+            address(bridge)
+        ).reservations(reservationKey);
 
         require(
             reservation.state ==
@@ -488,7 +489,9 @@ contract RedemptionWatchtower is OwnableUpgradeable {
             // Notify the Bridge about the veto. As result of this call,
             // this contract receives the surrendered gross amount
             // (as Bank's balance) from the Bridge.
-            bridge.notifyReservedRedemptionVeto(reservationKey);
+            IReservationBridge(address(bridge)).notifyReservedRedemptionVeto(
+                reservationKey
+            );
             // Burn the penalty fee but leave the claimable amount for the
             // redeemer to withdraw after the freeze period.
             bank.decreaseBalance(penaltyFee);
@@ -505,9 +508,9 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         view
         returns (uint32)
     {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            reservationKey
-        );
+        Reservation.ReservationRequest memory reservation = IReservationBridge(
+            address(bridge)
+        ).reservations(reservationKey);
 
         require(
             reservation.state ==

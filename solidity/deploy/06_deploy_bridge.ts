@@ -41,6 +41,17 @@ const func: DeployFunction = async function deployBridge(
   const MovingFunds = await deploy("MovingFunds", deployOptions)
   const Reservation = await deploy("Reservation", deployOptions)
 
+  // The reservation router holds the Bridge's UTXO-reservation external
+  // surface and is reached through the Bridge's fallback via delegatecall.
+  // It is stateless code (all storage lives in the Bridge), so a single
+  // instance can serve any number of Bridge deployments.
+  const ReservationRouter = await deploy("ReservationRouter", {
+    ...deployOptions,
+    libraries: {
+      Reservation: Reservation.address,
+    },
+  })
+
   const [bridge, proxyDeployment] = await helpers.upgrades.deployProxy(
     "Bridge",
     {
@@ -63,7 +74,6 @@ const func: DeployFunction = async function deployBridge(
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
-          Reservation: Reservation.address,
         },
       },
       proxyOpts: {
@@ -77,6 +87,14 @@ const func: DeployFunction = async function deployBridge(
     }
   )
 
+  // Point the Bridge's fallback at the reservation router. The deployer
+  // holds the Bridge governance right after initialization (it is
+  // transferred to the governance account in a later script), so this
+  // one-time wiring can be done here.
+  await (await ethers.getContractAt("Bridge", bridge.address))
+    .connect(await ethers.getSigner(deployer))
+    .setReservationRouter(ReservationRouter.address)
+
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(Deposit)
     await helpers.etherscan.verify(DepositSweep)
@@ -85,6 +103,7 @@ const func: DeployFunction = async function deployBridge(
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
     await helpers.etherscan.verify(Reservation)
+    await helpers.etherscan.verify(ReservationRouter)
 
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
     // in "@openzeppelin/hardhat-upgrades" to perform Etherscan verification

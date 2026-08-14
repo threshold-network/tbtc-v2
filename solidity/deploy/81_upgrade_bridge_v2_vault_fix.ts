@@ -86,7 +86,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
-          Reservation: Reservation.address,
         },
       },
       proxyOpts: {
