@@ -22,7 +22,6 @@ type SignatureFraudVector = {
   expectedBip341SighashHex: string
   bip340SignatureHex: string
   witnessSignatureHex: string
-  expectedDraftChallengeIdentityHex: string
   expectedBridgeChallengeIdentityHex: string
 }
 
@@ -46,78 +45,30 @@ const vectorCorpusPath = path.resolve(
 
 const hex = (value: string): string => `0x${value}`
 
-const mutateLastByte = (value: string): string => {
-  const replacement = value.endsWith("00") ? "01" : "00"
-  return `${value.slice(0, -2)}${replacement}`
-}
-
 const loadVectorCorpus = (): SignatureFraudVectorCorpus =>
   JSON.parse(
     fs.readFileSync(vectorCorpusPath, "utf8")
   ) as SignatureFraudVectorCorpus
 
-const toHarnessPrevouts = (prevouts: PrevoutVector[]) =>
-  prevouts.map((prevout) => ({
-    txid: hex(prevout.txidHex),
-    vout: prevout.vout,
-    valueSats: BigNumber.from(prevout.valueSats.toString()),
-    scriptPubKey: hex(prevout.scriptPubKeyHex),
-  }))
-
-const computeDraftChallengeIdentity = async (
-  harness: Contract,
-  vector: SignatureFraudVector,
-  prevouts = toHarnessPrevouts(vector.prevouts),
-  signedInputIndex = vector.signedInputIndex
-): Promise<string> =>
-  harness.computeDraftChallengeIdentity(
-    hex(vector.walletIDHex),
-    hex(vector.expectedBip341SighashHex),
-    hex(vector.bip340SignatureHex),
-    vector.sighashType,
-    signedInputIndex,
-    hex(vector.unsignedTransactionHex),
-    prevouts
-  )
+const witnessErrorMessages: Record<string, string> = {
+  "invalid-length": "Invalid witness signature length",
+  "unsupported-sighash": "Unsupported witness sighash type",
+}
 
 describe("P2TR signature-fraud challenge identity vectors", () => {
   const vectorCorpus = loadVectorCorpus()
-  const witnessErrorMessages = new Map([
-    ["invalid-length", "Invalid witness signature length"],
-    ["unsupported-sighash", "Unsupported witness sighash type"],
-  ])
   let harness: Contract
 
   before(async () => {
+    // Draft challenge identity (prototype) coverage was removed when the
+    // PrototypeP2TRSignatureFraud library was retired alongside
+    // solidity/contracts/prototypes/. The harness here exercises only the
+    // production P2TRSignatureFraud witness parser and Bridge challenge-key
+    // derivation.
     const TestP2TRSignatureFraudChallenge = await ethers.getContractFactory(
       "TestP2TRSignatureFraudChallenge"
     )
     harness = await TestP2TRSignatureFraudChallenge.deploy()
-  })
-
-  it("matches the draft challenge identities in the vector corpus", async () => {
-    expect(vectorCorpus.name).to.equal("p2tr-signature-fraud-v0")
-    expect(
-      vectorCorpus.cases.some((vector) => vector.sighashType === 1),
-      "SIGHASH_ALL vector coverage"
-    ).to.be.true
-
-    const seenChallengeIdentities = new Set<string>()
-
-    const actualChallengeIdentities = await Promise.all(
-      vectorCorpus.cases.map(async (vector) => ({
-        id: vector.id,
-        expected: hex(vector.expectedDraftChallengeIdentityHex),
-        actual: await computeDraftChallengeIdentity(harness, vector),
-      }))
-    )
-
-    actualChallengeIdentities.forEach(({ id, expected, actual }) => {
-      expect(actual, id).to.equal(expected)
-      expect(seenChallengeIdentities.has(actual), id).to.be.false
-
-      seenChallengeIdentities.add(actual)
-    })
   })
 
   it("computes domain-separated Bridge challenge keys", async () => {
@@ -181,107 +132,6 @@ describe("P2TR signature-fraud challenge identity vectors", () => {
     ).to.be.revertedWith("Bridge address must be non-zero")
   })
 
-  it("commits to the challenged input index and prevout metadata", async () => {
-    const vector = vectorCorpus.cases.find(
-      (candidate) =>
-        candidate.id ===
-        "bip341-keypath-sighash-default-multi-input-multi-output"
-    )
-
-    if (!vector) {
-      throw new Error("Missing multi-input P2TR signature-fraud vector")
-    }
-
-    const expectedChallengeIdentity = hex(
-      vector.expectedDraftChallengeIdentityHex
-    )
-    const wrongInputIndexIdentity = await computeDraftChallengeIdentity(
-      harness,
-      vector,
-      toHarnessPrevouts(vector.prevouts),
-      vector.signedInputIndex - 1
-    )
-    const mutatedPrevouts = toHarnessPrevouts(vector.prevouts)
-    mutatedPrevouts[vector.signedInputIndex] = {
-      ...mutatedPrevouts[vector.signedInputIndex],
-      valueSats: mutatedPrevouts[vector.signedInputIndex].valueSats.add(1),
-    }
-
-    const wrongPrevoutIdentity = await computeDraftChallengeIdentity(
-      harness,
-      vector,
-      mutatedPrevouts
-    )
-
-    expect(wrongInputIndexIdentity).to.not.equal(expectedChallengeIdentity)
-    expect(wrongPrevoutIdentity).to.not.equal(expectedChallengeIdentity)
-  })
-
-  it("commits to wallet, sighash, signature, sighash type, and transaction", async () => {
-    const vector = vectorCorpus.cases.find(
-      (candidate) =>
-        candidate.id === "bip341-keypath-sighash-default-single-input"
-    )
-
-    if (!vector) {
-      throw new Error("Missing single-input P2TR signature-fraud vector")
-    }
-
-    const expectedChallengeIdentity = hex(
-      vector.expectedDraftChallengeIdentityHex
-    )
-    const mutations: { name: string; vector: SignatureFraudVector }[] = [
-      {
-        name: "walletID",
-        vector: {
-          ...vector,
-          walletIDHex: mutateLastByte(vector.walletIDHex),
-        },
-      },
-      {
-        name: "sighash",
-        vector: {
-          ...vector,
-          expectedBip341SighashHex: mutateLastByte(
-            vector.expectedBip341SighashHex
-          ),
-        },
-      },
-      {
-        name: "signature",
-        vector: {
-          ...vector,
-          bip340SignatureHex: mutateLastByte(vector.bip340SignatureHex),
-        },
-      },
-      {
-        name: "sighash type",
-        vector: {
-          ...vector,
-          sighashType: vector.sighashType === 0 ? 1 : 0,
-        },
-      },
-      {
-        name: "transaction",
-        vector: {
-          ...vector,
-          unsignedTransactionHex: mutateLastByte(vector.unsignedTransactionHex),
-        },
-      },
-    ]
-
-    const mutatedIdentities = await Promise.all(
-      mutations.map(async (mutation) => ({
-        name: mutation.name,
-        identity: await computeDraftChallengeIdentity(harness, mutation.vector),
-      }))
-    )
-
-    mutatedIdentities.forEach(({ name, identity }) => {
-      expect(identity, name).to.not.equal(expectedChallengeIdentity)
-    })
-  })
-
   it("parses supported Taproot witness signature encodings", async () => {
     const parsedWitnesses = await Promise.all(
       vectorCorpus.cases.map(async (vector) => {
@@ -321,7 +171,7 @@ describe("P2TR signature-fraud challenge identity vectors", () => {
           negative.id
         ).to.be.true
 
-        const expectedError = witnessErrorMessages.get(negative.expectedError)
+        const expectedError = witnessErrorMessages[negative.expectedError]
 
         if (!expectedError) {
           throw new Error(

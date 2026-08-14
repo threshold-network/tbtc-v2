@@ -1834,6 +1834,27 @@ contract BridgeGovernance is Ownable {
         bridge.setRedemptionWatchtower(redemptionWatchtower);
     }
 
+    // FROST activation setters (intentional, reviewed tradeoff)
+    //
+    // The `setFrostWalletRegistry`, `setEcdsaFraudRouter`, and
+    // `setLifecycleRouter` forwarders below are deliberately not
+    // gated by the begin/finalize `governanceDelay()` pattern used
+    // for every other economic parameter in this contract. They are
+    // irreversible one-time wiring actions performed during
+    // enablement of a FROST path, and BridgeState guards them
+    // on-chain with `*AlreadySet` on a second call, so the no-delay
+    // surface does not extend the blast radius of a successful
+    // call beyond its first use.
+    //
+    // The external owner of this contract is itself the
+    // Council Safe -> Timelock chain documented in
+    // `85_deploy_tip109_governance_upgrade.ts`, so every invocation
+    // here has already cleared the same governance review that a
+    // begin/finalize round would impose. The tradeoff is recorded
+    // here so future changes that want to route these setters
+    // through `governanceDelay()` can do so without losing the
+    // rationale for why the simpler surface was originally chosen.
+
     /// @notice Sets the FROST wallet registry address. This function does
     ///         not have a governance delay because it is a one-off
     ///         action performed during enablement of the FROST wallet

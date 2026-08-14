@@ -4420,7 +4420,17 @@ export class P2TRWatchtowerSerializedChallengeStore
   implements P2TRWatchtowerChallengeReplayStore
 {
   private records?: Map<string, P2TRWatchtowerChallengeRecord>
-  private saveQueue: Promise<void> = Promise.resolve()
+  /**
+   * Records mutated since the last flush began, keyed by observation ID.
+   * Accumulating here lets the many per-observation mutations produced in one
+   * watchtower cycle collapse into a single full-collection write instead of
+   * one fsync'd write per observation.
+   */
+  private pendingRecords = new Map<string, P2TRWatchtowerChallengeRecord>()
+  /** Flush that is scheduled but has not started writing yet. */
+  private queuedFlush?: Promise<void>
+  /** Settled-either-way tail of the flush currently writing, if any. */
+  private activeFlush: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly persistence: P2TRWatchtowerChallengeRecordPersistence
@@ -4439,17 +4449,67 @@ export class P2TRWatchtowerSerializedChallengeStore
   async saveChallengeRecord(
     record: P2TRWatchtowerChallengeRecord
   ): Promise<void> {
-    const saveOperation = this.saveQueue.then(async () => {
-      const records = await this.loadRecords()
-      const updatedRecords = new Map(records)
-      const clonedRecord = cloneP2TRWatchtowerChallengeRecord(record)
-      updatedRecords.set(clonedRecord.observationID.toString(), clonedRecord)
-      await this.persistRecords(updatedRecords)
-      this.records = updatedRecords
+    const clonedRecord = cloneP2TRWatchtowerChallengeRecord(record)
+    this.pendingRecords.set(clonedRecord.observationID.toString(), clonedRecord)
+
+    // Resolves only once this record is durably persisted, so callers keep the
+    // same write-through guarantee they had before batching.
+    return this.scheduleFlush()
+  }
+
+  /**
+   * Joins the next flush that has not started writing yet, creating one if
+   * needed. Mutations arriving while a write is in flight ride the following
+   * flush rather than each forcing its own full-collection write.
+   */
+  private scheduleFlush(): Promise<void> {
+    if (this.queuedFlush !== undefined) {
+      return this.queuedFlush
+    }
+
+    const queuedFlush = this.activeFlush.then(async () => {
+      // Stop being the joinable flush before reading `pendingRecords`: a
+      // mutation arriving after this point must schedule its own flush,
+      // otherwise it would await a write that never included it.
+      this.queuedFlush = undefined
+      await this.flushPendingRecords()
     })
 
-    this.saveQueue = saveOperation.catch(() => undefined)
-    await saveOperation
+    this.queuedFlush = queuedFlush
+    this.activeFlush = queuedFlush.then(
+      () => undefined,
+      () => undefined
+    )
+
+    return queuedFlush
+  }
+
+  private async flushPendingRecords(): Promise<void> {
+    if (this.pendingRecords.size === 0) {
+      return
+    }
+
+    const batch = this.pendingRecords
+    this.pendingRecords = new Map()
+
+    try {
+      const records = await this.loadRecords()
+      const updatedRecords = new Map(records)
+      for (const [observationID, record] of batch) {
+        updatedRecords.set(observationID, record)
+      }
+      await this.persistRecords(updatedRecords)
+      this.records = updatedRecords
+    } catch (error) {
+      // Restore the un-persisted batch so a later flush retries it, without
+      // clobbering a newer mutation for the same observation.
+      for (const [observationID, record] of batch) {
+        if (!this.pendingRecords.has(observationID)) {
+          this.pendingRecords.set(observationID, record)
+        }
+      }
+      throw error
+    }
   }
 
   async listChallengeRecords(): Promise<P2TRWatchtowerChallengeRecord[]> {
@@ -5427,6 +5487,25 @@ export const validateP2TRSignatureFraudPayloadBounds = (
     )
   }
 
+  // `inputPrevouts[i]` is trusted to describe `transaction.ins[i]` by
+  // position alone; nothing above checks that the txid/vout at each index
+  // actually match. A caller-supplied prevout array out of order with the
+  // transaction's own input vector would silently bind the wrong prevout
+  // (and therefore the wrong scriptPubKey / wallet) to a witness.
+  inputPrevouts.forEach((prevout, index) => {
+    const input = transaction.ins[index]
+    const expectedTxid = BitcoinTxHash.from(input.hash).reverse().toString()
+    const observedTxid = toBytes32Hex(prevout.txid, "Prevout txid").toString()
+    if (observedTxid !== expectedTxid || prevout.vout !== input.index) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        `Prevout at index ${index} (${observedTxid}:${prevout.vout}) does ` +
+          `not match transaction input ${index} (${expectedTxid}:${input.index})`
+      )
+    }
+  })
+
+
   inputPrevouts.forEach((prevout) => {
     requireWithinPayloadBound(
       toBuffer(prevout.scriptPubKey).length,
@@ -5677,7 +5756,8 @@ export const extractP2TRWalletInputWitnessCandidates = (
   rawTransaction: BitcoinRawTx,
   inputPrevouts: P2TRWalletInputPrevout[],
   registeredWalletIDs: (Hex | Buffer | string)[],
-  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+  outOfBandAlerts: P2TRWatchtowerOperatorAlert[] = []
 ): P2TRWalletInputWitnessCandidate[] => {
   const transaction = Transaction.fromHex(rawTransaction.transactionHex)
 
@@ -6252,6 +6332,7 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
       )
     }
 
+
     const payload = encodeP2TRSignatureFraudBridgeChallengePayload(observation)
     const challengeDepositAmount = await this.challengeDepositAmount()
     const tx = await this.bridge.processP2TRSignatureFraudChallenge(
@@ -6330,7 +6411,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
   spendTypeClassifier?: P2TRSignatureFraudSpendTypeClassifier,
   payloadBounds?: P2TRSignatureFraudPayloadBounds,
   bridgeChallengeDomain?: P2TRSignatureFraudBridgeChallengeDomain,
-  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+  outOfBandAlerts: P2TRWatchtowerOperatorAlert[] = []
 ): P2TRSignatureFraudWitnessObservation[] => {
   if (payloadBounds !== undefined) {
     validateP2TRSignatureFraudPayloadBounds(
@@ -6347,7 +6429,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
     rawTransaction,
     inputPrevouts,
     registeredWalletIDs,
-    walletInputKeyBindings
+    walletInputKeyBindings,
+    outOfBandAlerts
   ).map((candidate) => {
     const spendType = requireP2TRSignatureFraudSpendType(
       spendTypeClassifier?.({

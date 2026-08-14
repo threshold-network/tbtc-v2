@@ -13,8 +13,10 @@
     "taprootSpendPath": "key-path",
     "sighashType": "SIGHASH_DEFAULT and SIGHASH_ALL",
     "annex": "absent",
-    "scriptPath": "unsupported"
-  },
+    "scriptPath": "unsupported",
+    "txidByteOrder": "display (big-endian hex, human-readable). The serialized Bitcoin transaction commits to the little-endian outpoint — `Deposit.sol:461-466` and `P2TRSignatureFraudRouter._signedInputUtxoKey` (`solidity/contracts/bridge/P2TRSignatureFraudRouter.sol:645-655`) hash `abi.encodePacked(signedInput.txid, signedInput.vout)` and expect the internal byte order. A field named `txidHex` in any per-case `prevouts[]` entry holds DISPLAY order, NOT internal order. When building a payload from this corpus for the Solidity verifier, byte-reverse `txidHex` to obtain the internal-order form. See the 2026-08-14 multi-agent review."
+   },
+  "provenanceGap": "Per the 2026-08-14 multi-agent review, the SIGHASH_ALL and flow-shaped cases in this corpus are partly self-authored via the customFixtureGenerator rather than derived from an independent BIP-341 reference. The companion corpus `p2tr-signature-fraud-full-sighash-v0.json` is bitcoinjs-lib-derived (`hashForWitnessV1` is the canonical BIP-341 sighash reference) and `@noble/curves`-signed, and is the recommended vector source for any production-activation conformance check. Before treating this corpus as third-party-verified activation evidence, regenerate the SIGHASH_ALL and flow-shaped cases from an independent oracle (bitcoinjs-lib `hashForWitnessV1`, Bitcoin Core `test/functional/data/tx_invalid.json` + `test_runner.py`, or rust-bitcoin's test corpus) and re-run `solidity/test/bridge/Bridge.P2TRFrauds.test.ts` against the regenerated corpus.",
   "cases": [
     {
       "id": "bip341-keypath-sighash-default-single-input",

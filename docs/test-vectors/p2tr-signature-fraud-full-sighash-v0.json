@@ -431,5 +431,29 @@
       "tamperedBip340SignatureHex": "83bf651ae149001f6f626cc4d1d3194d47066c8d50f94509809eab7ed1e86cb397e137f83216237585a884df2d3873f2568574d5a605ed2b5e1abc0e22e13ed1",
       "expectedBridgeChallengeIdentityHex": "813aa3ab40714e2e16fb281cac3f263b534366be8ac1aa7d712ce523629f26ef"
     }
-  ]
+  ],
+  "missingCoverage": {
+    "note": "Per the 2026-08-14 multi-agent review, the corpus above is missing the following BIP-341 sighash combinations most likely to be mis-ported. Each must be regenerated from `bitcoinjs-lib` `Transaction.prototype.hashForWitnessV1(inIndex, prevOutScripts, values, hashType, undefined, annex)` with a real `@noble/curves` `schnorr.sign` over the resulting sighash, exactly as the existing entries were generated.",
+    "toAdd": [
+      {
+        "id": "bip341-keypath-anyonecanpay-all-with-annex",
+        "sighashType": "0x81",
+        "annexHex": "50deadbeef",
+        "description": "SIGHASH_ALL|ANYONECANPAY key-path spend with an annex. CheckBitcoinBIP341Sighash must hash the annex into the BIP-341 sighash and reject the challenge if the verifier payload reports `annexPresent=true` while the Solidity path uses the no-annex formula (see CheckBitcoinP2TRSignatureFraud.sol's `annexPresent` boundary)."
+      },
+      {
+        "id": "bip341-keypath-none-with-annex",
+        "sighashType": "0x02",
+        "annexHex": "50deadbeef",
+        "description": "SIGHASH_NONE key-path spend with an annex. SIGHASH_NONE commits to no outputs; the annex path is the same as ANYONECANPAY-NONE. If the verifier produces a non-no-output sighash, the derived challenge identity will diverge."
+      },
+      {
+        "id": "bip341-keypath-single-output-missing-rejection",
+        "sighashType": "0x03",
+        "signedInputIndex": 2,
+        "outputsLength": 1,
+        "description": "SIGHASH_SINGLE rejection case where `signedInputIndex >= outputs.length`. BIP-341 requires the sighash to commit to a non-existent output whose value is `0xffffffff` and whose scriptPubKey is empty; the Solidity verifier must reject this case rather than silently computing a sighash over the (incorrect) real output at that index."
+      }
+    ]
+  }
 }

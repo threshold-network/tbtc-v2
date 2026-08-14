@@ -158,12 +158,21 @@ library FrostRegistryWallets {
     /// @param xOnlyOutputKey The 32-byte x-only Taproot output key. Used
     ///        directly as the walletID.
     /// @return walletID The wallet's canonical id (== xOnlyOutputKey).
+    /// @dev Inline duplicate guard (`registry[walletID].xOnlyOutputKey
+    ///      == bytes32(0)`) re-checks the precondition that callers
+    ///      must have invoked `validateXOnlyOutputKey`. Cheap invariant
+    ///      hygiene so a future caller that forgets the precondition,
+    ///      or a reentrancy from `__frostWalletCreatedCallback`, cannot
+    ///      silently overwrite an existing wallet row.
     function addWallet(
         Data storage self,
         bytes32 membersIdsHash,
         bytes32 xOnlyOutputKey
     ) internal returns (bytes32 walletID) {
         walletID = xOnlyOutputKey;
+        if (self.registry[walletID].xOnlyOutputKey != bytes32(0)) {
+            revert XOnlyOutputKeyAlreadyRegistered();
+        }
         self.registry[walletID].membersIdsHash = membersIdsHash;
         self.registry[walletID].xOnlyOutputKey = xOnlyOutputKey;
     }

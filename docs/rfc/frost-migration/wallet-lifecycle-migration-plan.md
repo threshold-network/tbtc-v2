@@ -138,6 +138,38 @@ approved classification manifest, the exact batch calldata, the migration
 transaction receipts, and confirmation that both routers report the expected
 open challenge counts afterward.
 
+### Tooling gap (2026-08-14 multi-agent review)
+
+PR #971 ships calldata-generation + on-chain post-check tooling for
+every other governance wiring step (e.g. `44_deploy_ecdsa_fraud_router.ts`,
+`45_deploy_p2tr_signature_fraud_router.ts`, `48_*.ts`,
+`49_deploy_bridge_lifecycle_router.ts`, `53_*.ts`,
+`85_deploy_tip109_governance_upgrade.ts` emits full Timelock /
+Council action manifests). **No equivalent script ships for the
+`migrateLegacyFraudChallenges` batches.** Given that the same section
+above states classification is irreversible and a wrong classification
+"has no supported on-chain rollback or reclassification path", the
+migration tooling gap is a real operational risk: a hand-built batch
+calldata is exactly the surface where a misclassification slips in.
+
+Before any migration batch executes on mainnet, this plan MUST be
+paired with either:
+
+- A `migrate_legacy_fraud_challenges.ts` deploy script that takes
+  the approved classification manifest as input, dry-runs against a
+  forked state, emits the exact batch calldata, and asserts the
+  post-conditions `EcdsaFraudRouter.openFraudChallengeCount() == 0`
+  + `P2TRSignatureFraudRouter.openChallengeCount() == 0` after each
+  batch; **or**
+- A documented, peer-reviewed runbook template with a
+  machine-checkable classification manifest format (JSON schema +
+  event-derivation check + dry-run harness) such that an operator
+  cannot submit batch calldata that disagrees with the approved
+  manifest.
+
+Until one of these is shipped, the activation runbook should
+treat the migration-batches step as **not ready** even if every
+other activation step has been completed.
 ## Phase B-1 design
 
 RFC #437 (v4.1, frozen) selects **sortition-attested DKG result**:
@@ -182,9 +214,22 @@ existing #435/#434 retargeting work and the #439-added surface:
   follow-up SDK breaking-change release.
 - **Watchtower event scanner**
   (`EthersP2TRSignatureFraudBridgeLifecycleEventSource.ts`) — scans an
-  arbitrary contract instance for events; needs to be pointed at the
-  P2TR router address post-cutover.
-- **Backend Bridge interface** (`services/backend/src/interfaces/Bridge.ts`)
+- **`services/p2tr-signature-fraud-watchtower/`** — the duck-typed
+  contract reference (`P2TREthersBridgeLifecycleContract`) is preserved
+  for source compat, but production callers must instantiate it with
+  the router contract instance, not Bridge. JSDoc on
+  `P2TRSignatureFraudBridgeChallengeContract` in
+  `services/watchtower/src/services/p2tr-signature-fraud.ts`
+  flags this for callers. The type rename
+  (`...BridgeChallengeContract` → `...RouterContract`) is queued for a
+  follow-up SDK breaking-change release. **(2026-08-14: dead-pointer
+  cleanup — the canonical paths are
+  `services/watchtower/src/services/p2tr-signature-fraud.ts` and
+  `typescript/src/services/maintenance/p2tr-signature-fraud.ts`;
+  the historical `services/p2tr-signature-fraud-watchtower/` and
+  `sdk/tbtc-v2-ts/src/services/maintenance/p2tr-signature-fraud.ts`
+  references in the pre-canonical-mirror umbrella repo do not exist
+  in this repo.)**
   — if it references fraud entry points, retarget at the router.
 
 **Phase A lifecycle routing (from #434):**
@@ -204,10 +249,16 @@ existing #435/#434 retargeting work and the #439-added surface:
   deferred indefinitely before the canonical mirror. Consumers derive
   ECDSA historical counts by replaying `NewWalletRegistered`.
 - Operator-facing dashboards / SDK helpers can read the public
-  `Bridge.ecdsaRetired()` getter. Scheme selection is no longer a live
-  runtime value in the canonical mirror; new wallet creation dispatches
-  only to the FROST registry once the lifecycle router and registry
-  owner are wired.
+  `Bridge.ecdsaRetired()` getter. **ECDSA wallet creation is removed
+  permanently from the canonical Bridge implementation.** Scheme
+  selection is no longer a live runtime value; new wallet creation
+  dispatches unconditionally to the FROST registry (via
+  `Wallets.requestNewWallet`) and reverts with
+  `FrostWalletRegistryNotSet` / `LifecycleRouterNotSet` /
+  `LifecycleOwnerMismatch` until the FROST wallet registry and
+  lifecycle router are wired. Rollback requires a Bridge
+  implementation upgrade (redeploy + proxy upgrade) that
+  reintroduces a scheme branch.
 
 - ~~Formal-evidence manifest update~~ — DONE in PR #436. The two
   readiness gates
@@ -235,8 +286,12 @@ existing #435/#434 retargeting work and the #439-added surface:
 - [x] Phase A (#434) merges once CI green + reviewer re-validation.
       **Merged 2026-05-24 as `00e0838d1e`**.
 - [x] Phase B-1 trust-model design + RFC. **RFC #437 v4.1 frozen.**
-- [ ] Phase B-1 implementation (port the on-chain
-      `FrostWalletRegistry` per RFC #437).
+- [x] Phase B-1 implementation (port the on-chain
+     `FrostWalletRegistry` per RFC #437). **Shipped in PR #971;
+     see `solidity/contracts/frost-registry/FrostWalletRegistry.sol`
+     (1,545-line contract). Activation still blocked on the
+     lifecycle router + B-2 wiring per the row above and the
+     "Phase A" row.**
 - [ ] Phase B-2 implementation (keep-core Go-side DKG coordinator
       that produces the threshold-attested transcript B-1's
       registry verifies).

@@ -513,6 +513,10 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
         )
       }
 
+      // Persisting the hash is what lets the next cycle detect a reorg (and
+      // rewind instead of wedging). It stays behind `requireCursorBlockHash`
+      // because that flag is the operator's opt-in to cursor hash checking;
+      // deployments without it keep the hash-less cursor shape.
       cursor.lastScannedBlockHash = currentCanonicalBlockHash
     }
 
@@ -870,20 +874,74 @@ async function resolveCursorFromBlock(
   await validateCursorBlockHash(
     bridge,
     canonicalLogVerifier,
+    cursorStore,
     cursor,
+    cursorOverlapBlocks,
     requireCursorBlockHash
   )
 
   return Math.max(0, cursor.lastScannedBlock + 1 - cursorOverlapBlocks)
 }
 
+/**
+ * Concrete evidence of a reorg-induced Bridge lifecycle cursor rewind.
+ * Operators should treat this as a regular watchtower alert: the next cycle
+ * will resume from the rewound block, so a one-time reorg no longer
+ * permanently wedges every subsequent cycle.
+ */
+export class P2TRBridgeLifecycleCursorReorgDetectedError extends Error {
+  readonly fromBlock: number
+  readonly toBlock: number
+  readonly cursorOverlapBlocks: number
+  constructor(
+    fromBlock: number,
+    toBlock: number,
+    cursorOverlapBlocks: number
+  ) {
+    super(
+      // Keeps the original "block hash mismatch" wording that callers and
+      // operator runbooks match on, and appends what the source did about it.
+      `Bridge lifecycle scan cursor block hash mismatch; cursor rewound: ` +
+        `lastScannedBlock ${fromBlock} -> ${toBlock} (overlap ${cursorOverlapBlocks}).`
+    )
+    this.name = "P2TRBridgeLifecycleCursorReorgDetected"
+    this.fromBlock = fromBlock
+    this.toBlock = toBlock
+    this.cursorOverlapBlocks = cursorOverlapBlocks
+  }
+}
+
+/**
+ * Detect a reorg-derived cursor block-hash mismatch, walk the cursor back
+ * by `cursorOverlapBlocks`, persist the rewound cursor, and surface it as
+ * a typed error so the caller can alert. The deterministic rewind
+ + persistence prevents a single reorg from permanently wedging the
+ * watchtower on a hot loop of identical mismatches every cycle.
+ */
+async function rewindCursorOnReorg(
+  cursorStore: P2TRBridgeLifecycleScanCursorStore,
+  cursor: P2TRBridgeLifecycleScanCursor,
+  cursorOverlapBlocks: number
+): Promise<number> {
+  const fromBlock = cursor.lastScannedBlock
+  const toBlock = Math.max(0, fromBlock - cursorOverlapBlocks)
+  const rewoundCursor = { ...cursor, lastScannedBlock: toBlock }
+  await cursorStore.saveBridgeLifecycleScanCursor(rewoundCursor)
+  return toBlock
+}
+
 async function validateCursorBlockHash(
   bridge: P2TREthersBridgeLifecycleContract,
   canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier,
+  cursorStore: P2TRBridgeLifecycleScanCursorStore,
   cursor: P2TRBridgeLifecycleScanCursor,
+  cursorOverlapBlocks: number,
   requireCursorBlockHash: boolean
 ): Promise<void> {
   if (cursor.lastScannedBlockHash === undefined) {
+    // A hash-less cursor cannot be checked for a reorg. Whether that is
+    // tolerable is the operator's call, so honour `requireCursorBlockHash`
+    // rather than forcing strictness on every deployment.
     if (requireCursorBlockHash) {
       throw new Error("Bridge lifecycle scan cursor block hash is required")
     }
@@ -902,7 +960,21 @@ async function validateCursorBlockHash(
   )
 
   if (currentBlockHash !== expectedBlockHash) {
-    throw new Error("Bridge lifecycle scan cursor block hash mismatch")
+    // Reorg detected: walk the cursor back by cursorOverlapBlocks so the
+    // next cycle can resume from before the reorg boundary, then surface
+    // the rewind as a typed alert. Without this, every cycle re-throws
+    // the same mismatch until an operator hand-edits the cursor JSON.
+    const fromBlock = cursor.lastScannedBlock
+    const toBlock = await rewindCursorOnReorg(
+      cursorStore,
+      cursor,
+      cursorOverlapBlocks
+    )
+    throw new P2TRBridgeLifecycleCursorReorgDetectedError(
+      fromBlock,
+      toBlock,
+      cursorOverlapBlocks
+    )
   }
 
   if (requireCursorBlockHash) {

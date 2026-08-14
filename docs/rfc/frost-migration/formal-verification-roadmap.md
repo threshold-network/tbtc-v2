@@ -5,10 +5,25 @@ Status: Draft
 Owner: Threshold Labs
 Scope: targeted formal methods for high-risk protocol and custody invariants
 
-## 1. Decision Summary
-
-Full formal verification of the entire monorepo is not practical.
-A targeted program is practical and high value:
+> **Historical / foreign-repo banner (2026-08-14).** This
+> document was imported from the umbrella `tlabs-xyz/tbtc`
+> repository before the 2026-05-27 source-of-truth pivot (see
+> [`external-repository-tracking.md`](./external-repository-tracking.md))
+> and references code paths that no longer exist in the
+> canonical `threshold-network/tbtc-v2` repo:
+> `tools/tbtc-signer/src/engine.rs` (umbrella's Rust signer),
+> `contracts/tbtc-v2/contracts/{vault,bridge,bank}/*.sol`
+> (umbrella's monorepo layout), and
+> `contracts/tbtc-v2/test/formal/*` + `.github/workflows/{ci-formal-verification,nightly-formal-invariants}.yml`
+> (umbrella's CI surface). The canonical repo's formal
+> verification surface lives under
+> `solidity/test/formal/...` (e.g. `seed-corpus-nightly.json`)
+> without a consuming CI workflow. Treat the body below as a
+> record of the umbrella-repo program that informed the canonical
+> migration; do not interpret its path references as current
+> canonical-repo paths. The two real path references below
+> (`solidity/test/formal/...`) are corrected where the
+> canonical surface exists; everything else is historical only.
 
 1. ROAST/FROST signer state-machine invariants (`tools/tbtc-signer`).
 2. Custody-critical smart-contract invariants (`contracts/tbtc-v2`, selected

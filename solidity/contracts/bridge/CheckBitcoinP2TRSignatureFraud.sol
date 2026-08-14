@@ -10,12 +10,18 @@ import "./P2TRSignatureFraud.sol";
 /// @notice Reconstructs Taproot key-path sighashes for every supported sighash
 ///         mode -- with or without a witness annex -- and verifies the
 ///         corresponding BIP-340 witness signature.
-/// @dev This helper is intentionally not wired into Bridge fraud entrypoints
-///      yet. It combines the BIP-341 key-path sighash and BIP-340 verifier
-///      behind one contract-facing API for verifier feasibility testing.
-///      Script-path (ext_flag = 1) spends stay out of scope: a key-path-only
-///      tBTC FROST wallet signer cannot produce a script-path signature, so
-///      such a spend is not a signer-producible fraud.
+/// @dev Used in production by `P2TRSignatureFraudRouter` (via
+///      `checkSignature` on the `_submit` action path and via
+///      `validatePayloadShape` / `computeBridgeChallengeIdentitySighash`
+///      on the `_submit`/`_defeat`/`_timeout` paths). The router is wired
+///      into Bridge via `setP2TRFraudRouter`; the production *activation*
+///      of the P2TR signature-fraud challenge per
+///      `docs/test-vectors/p2tr-signature-fraud-spend-type-closure.json` is
+///      still `draft-no-go`. It combines the BIP-341 key-path sighash and
+///      BIP-340 verifier behind one contract-facing API. Script-path
+///      (ext_flag = 1) spends stay out of scope: a key-path-only tBTC FROST
+///      wallet signer cannot produce a script-path signature, so such a
+///      spend is not a signer-producible fraud.
 library CheckBitcoinP2TRSignatureFraud {
     struct PayloadBounds {
         uint16 maxInputs;
@@ -118,6 +124,13 @@ library CheckBitcoinP2TRSignatureFraud {
         bytes memory witnessSignature,
         bytes memory annex
     ) internal pure returns (bytes32) {
+        // Validate the annex prefix here so every code path that uses the
+        // computed sighash shares one annex-shape guard. Callers that already
+        // pass through `validatePayloadShape`/`computeBridgeChallengeIdentitySighash`
+        // (which invoke `validateAnnex`) end up running this twice, but the
+        // check is a single byte comparison.
+        validateAnnex(annex);
+
         (, uint8 sighashType) = P2TRSignatureFraud.parseWitnessSignature(
             witnessSignature
         );

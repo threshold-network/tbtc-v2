@@ -241,6 +241,31 @@ describe("CheckBitcoinBIP340Sigs", () => {
     ).to.be.false
   })
 
+  it("rejects pubKeyX that is below p but not liftable to a curve point", async () => {
+    // Pin the liftX helper boundary: pubKeyX = 0 lies strictly below Secp256k1P
+    // but 0^3 + 7 = 7 is a non-quadratic-residue mod secp256k1p (Euler's
+    // criterion: 7^((p-1)/2) = p-1 mod p, so no y satisfies y^2 = 7). The
+    // verifier must refuse the signature rather than compute a phantom point.
+    // This case is distinct from the boundary tests above (which check the
+    // upper bounds on x and s/n); liftX exists exactly to reject this class
+    // of input, and a regression that lets it through would be silent.
+    const vector = vectorCorpus.cases[0]
+    const { nonceX, signatureScalar } = splitSignature(
+      vector.bip340SignatureHex
+    )
+    const nonQuadraticResidueX = "0".repeat(64)
+
+    expect(
+      await harness["checkSig(bytes32,bytes32,bytes32,bytes32)"](
+        hex(nonQuadraticResidueX),
+        hex(vector.expectedBip341SighashHex),
+        nonceX,
+        signatureScalar
+      ),
+      "pubKeyX == 0 (x^3 + 7 = 7, a non-quadratic-residue mod p)"
+    ).to.be.false
+  })
+
   it("reports the current verifier gas envelope", async () => {
     const vector = vectorCorpus.cases[0]
 

@@ -8,7 +8,20 @@ ECDSA wallet creation when the flag is set. The Bridge-side
 governance setter that flips the flag is **deferred to D-2** for
 the bytecode-budget reason captured below.
 
-## What this PR ships
+> **Canonical-mirror correction (2026-08-14):** PR #971 + the
+> D-2.2 slice 3 follow-up further removed `setNewWalletScheme`
+> and the `requestNewWallet` scheme branch. ECDSA wallet creation
+> is removed permanently from the canonical Bridge implementation:
+> `Wallets.requestNewWallet` dispatches unconditionally to the
+> FROST wallet registry and reverts with `FrostWalletRegistryNotSet`
+> / `LifecycleRouterNotSet` / `LifecycleOwnerMismatch` until the
+> FROST wallet registry and lifecycle router are wired. Once
+> wired, every call goes to FROST regardless of any prior intent.
+> Rollback requires a Bridge implementation upgrade (redeploy +
+> proxy upgrade) that reintroduces a scheme branch. The
+> description of "flipping to FROST" via `setNewWalletScheme`
+> below describes the superseded v6/C-2 design, not the canonical
+> mirror.
 
 1. `BridgeState.Storage.ecdsaRetired` (bool, 1 byte) — packed into
    slot 37 at offset 17, alongside the existing

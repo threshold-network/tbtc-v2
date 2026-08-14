@@ -462,7 +462,24 @@ library BridgeState {
         // (slashing off); permissionless fraud-proof wallet termination is
         // unaffected. Packs at slot 37 offset 18 (one byte after `ecdsaRetired`);
         // total slot 37 usage: 19 bytes of 32. No __gap change.
+        //
+        // ECDSA economic-effect note: when `false`, ECDSA watchtower
+        // notifier rewards are gated off even though the timeout paths still
+        // execute. The default is defensible only because ECDSA operators
+        // currently hold no T stake under the TIP-092 / TIP-100 transition
+        // state of the production ECDSA registry (i.e. `seize` is a
+        // no-op). If that premise breaks, `slashingActive` must be flipped
+        // to `true` in the same upgrade that reintroduces slashable T
+        // collateral, or this flag becomes a silent enforcement regression.
+        //
+        // Grace window / monitor: governance / off-chain ops must alert
+        // if `slashingActive == false` for longer than the defined
+        // post-upgrade grace window; `slashingActive` flipping back to
+        // `true` is itself a governance action that must be paired with
+        // reintroducing slashable T collateral, never with relying on a
+        // stale "no T is staked" assertion.
         bool slashingActive;
+
         // Binds each revealed Taproot-native deposit outpoint to its registered
         // wallet ID and deposit-specific output key. The value is
         // keccak256(walletID || outputKey). Zero denotes a legacy, unrevealed,
@@ -1145,6 +1162,13 @@ library BridgeState {
     ///      Bridge implementation upgrade. Requirements:
     ///      - FROST wallet registry address must not be already set,
     ///      - FROST wallet registry address must not be 0x0.
+    /// @dev Intentionally irreversible: a mis-set registry would
+    ///      permanently block termination, redemption-timeout, and
+    ///      moving-funds-timeout handling for every FROST wallet.
+    ///      Governance is expected to dry-run the exact calldata
+    ///      against the target address in a multi-sig-witnessed
+    ///      ceremony immediately before submission. Reviewed
+    ///      tradeoff — no correction window is provided.
     function setFrostWalletRegistry(
         Storage storage self,
         address _frostWalletRegistry
@@ -1167,6 +1191,13 @@ library BridgeState {
     ///      Requirements:
     ///      - ECDSA fraud router address must not be already set,
     ///      - ECDSA fraud router address must not be 0x0.
+    /// @dev Intentionally irreversible: a mis-set router would
+    ///      permanently block submission, defeat, and timeout
+    ///      handling for every ECDSA fraud challenge. Governance
+    ///      is expected to dry-run the exact calldata against the
+    ///      target address in a multi-sig-witnessed ceremony
+    ///      immediately before submission. Reviewed tradeoff —
+    ///      no correction window is provided.
     function setEcdsaFraudRouter(
         Storage storage self,
         address _ecdsaFraudRouter
@@ -1188,6 +1219,13 @@ library BridgeState {
     ///      Requirements:
     ///      - P2TR fraud router address must not be already set,
     ///      - P2TR fraud router address must not be 0x0.
+    /// @dev Intentionally irreversible: a mis-set router would
+    ///      permanently block submission, defeat, and timeout
+    ///      handling for every P2TR fraud challenge. Governance
+    ///      is expected to dry-run the exact calldata against the
+    ///      target address in a multi-sig-witnessed ceremony
+    ///      immediately before submission. Reviewed tradeoff —
+    ///      no correction window is provided.
     function setP2TRFraudRouter(Storage storage self, address _p2trFraudRouter)
         internal
     {
@@ -1209,6 +1247,13 @@ library BridgeState {
     ///      Bridge implementation upgrade. Requirements:
     ///      - Lifecycle router address must not be already set,
     ///      - Lifecycle router address must not be 0x0.
+    /// @dev Intentionally irreversible: a mis-set router would
+    ///      permanently block every FROST-scheme lifecycle
+    ///      transition (close, terminate, moveFunds, etc.).
+    ///      Governance is expected to dry-run the exact calldata
+    ///      against the target address in a multi-sig-witnessed
+    ///      ceremony immediately before submission. Reviewed
+    ///      tradeoff — no correction window is provided.
     function setLifecycleRouter(Storage storage self, address _lifecycleRouter)
         internal
     {
@@ -1239,10 +1284,13 @@ library BridgeState {
     // EIP-170) rather than routed through a library function
     // here, to shave the bytes of indirection that would
     // otherwise push the Bridge implementation past the 24 KiB
-    // EIP-170 deploy limit. The bytecode budget for the setter
-    // comes from D-2's removal of the
-    // `__ecdsaWalletCreatedCallback` external function (~107
-    // bytes reclaim).
+    // EIP-170 deploy limit. The reclaimed bytecode budget comes
+    // from D-2.2's combined edits across the FROST migration
+    // (notably the sidecar split for fraud routers and the
+    // withdrawal of `setNewWalletScheme`); see
+    // `d2-2-followups-plan.md` for the historical account.
+    // NOTE: `__ecdsaWalletCreatedCallback` is still declared on
+    // Bridge.sol and is intentionally retained, not reclaimed.
 
     /// @notice Sets the rebate staking address.
     /// @param _rebateStaking Address of the rebate staking contract.
