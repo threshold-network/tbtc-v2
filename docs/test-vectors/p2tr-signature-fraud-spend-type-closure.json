@@ -9,6 +9,7 @@
     "unsupportedOrUnclassifiedSpendTypes": "fail-closed",
     "sharedBridgeStateGates": "must-not-be-counted-as-flow-specific-closure-without-per-flow-vectors-and-proof-event-correlation"
   },
+  "deployTimeGate": "Per the 2026-08-14 multi-agent review, the canonical mirror (PR #971) must leave `setP2TRFraudRouter` unset (i.e. `address(0)`) at deployment time so the manifest's `draft-no-go` status is enforced on-chain. Until each `spendType` is upgraded to `productionApproved: true`, the absence of the router guarantees that no P2TR fraud challenge submission can succeed — the discrepancy between the manifest and any production-activation narrative cannot be misread as sign-off. Re-running the `setP2TRFraudRouter(router)` activation step must be gated on every spend-type in `spendTypes` reaching `productionApproved: true` (or a governance commit to override the manifest), recorded in the deployment record.",
   "spendTypes": [
     {
       "id": "unclassified",

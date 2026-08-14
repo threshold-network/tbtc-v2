@@ -829,17 +829,60 @@ fraud-run evidence, and owner approvals are recorded.
    - run funded regtest/testnet wallet creation, signing, honest-spend defeat,
      fraudulent challenge timeout/slashing, rollback, and recovery.
 7. Production approval:
-   - attach security/runtime/governance approvals and accepted residual risks.
+## Activation Runbook — Governance Wiring Order (2026-08-14 addendum)
+
+Per the 2026-08-14 multi-agent review, the canonical mirror
+(PR #971) does not gate `Wallets.requestNewWallet` /
+`Wallets.registerNewFrostWallet` on
+`p2trFraudRouter != address(0)`. A FROST wallet can therefore
+reach Live state and custody BTC with no P2TR fraud enforcement
+wired. To close this ordering gap as an activation-time
+requirement (the code-level fix is a follow-up; see the
+`p2trFraudRouter != address(0)` fail-closed guard tracked as a
+deployment-precondition until that fix lands):
+
+1. Governance deploys `Bridge.setP2TRFraudRouter` (a one-time
+   setter) to the configured `P2TRSignatureFraudRouter` address.
+2. Governance verifies `Bridge.p2trFraudRouter() != address(0)`
+   (or, pre-deployment of the router, leaves it unset and treats
+   the absence as the implicit activation gate per
+   `p2tr-signature-fraud-spend-type-closure.json`'s
+   `deployTimeGate` rule).
+3. Governance then calls `Bridge.setFrostWalletRegistry(registry)`
+   and `Bridge.setLifecycleRouter(router)` per the
+   scheme-preference RFC activation runbook.
+4. Only AFTER steps 1-3 are confirmed on-chain does governance
+   permit the first `requestNewWallet(Frost)` call.
+
+Until the code-level fail-closed guard ships, the activation
+ordering above is the only enforcement mechanism. Operators MUST
+add an integration test asserting this ordering is enforced
+either in code or in the runbook before any mainnet FROST wallet
+creation can be considered ready for activation.
 
 ## Activation Gate
 
 P2TR/FROST production activation remains `NO-GO` until all of the following are
 true:
-
 - P2TR signature-fraud spec freeze is approved by maintainers and security
   reviewers.
 - Canonical vectors exist and pass across independent implementations.
-- Bridge verifier gas and DoS limits are reviewed and accepted.
+  **The Rust (or Go) FROST/ROAST implementation MUST derive its
+  test vectors from Bitcoin Core's BIP-341 reference test cases
+  (`test/functional/data/tx_invalid.json` + `test_runner.py`'s
+  BIP-341 reference cases) or from rust-bitcoin's test corpus, NOT
+  from the PR's seed JSON (`docs/test-vectors/p2tr-signature-fraud-v0.json`).
+  Per the 2026-08-14 multi-agent review, the SIGHASH_ALL and
+  flow-shaped cases in that seed JSON are partly self-authored via
+  a customFixtureGenerator rather than derived from Bitcoin Core
+  / rust-bitcoin, so passing conformance against it only proves
+  the implementations agree with each other, not with Bitcoin.
+  The Solidity implementation can then reference the
+  Bitcoin-Core-derived vectors as the canonical source. The
+  "three independent implementations" property becomes real only
+  when at least one of them uses an external Bitcoin reference
+  oracle; `p2tr-signature-fraud-full-sighash-v0.json` (bitcoinjs-lib
+  + `@noble/curves`) is the closest currently available substitute.**
 - Watchtower/operator payload extraction is implemented and rehearsed.
 - Fraud lifecycle tests pass for challenge, defeat, timeout, slashing, replay,
   and inactive-wallet rejection.
