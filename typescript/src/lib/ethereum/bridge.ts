@@ -115,6 +115,13 @@ export class EthereumBridge
   implements Bridge
 {
   private readonly activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
+  /**
+   * Memoized verdict of the first call to isMissingBridgeV2CompatibilityMethodError.
+   * Once the deployed Bridge bytecode is classified as a pre-upgrade contract
+   * (no V2 selectors), subsequent walletID/activeWalletID/walletPubKeyHashForWalletID
+   * calls skip the ABI retry and go straight to the legacy alias.
+   */
+  private v2CompatibilityAvailable?: boolean
 
   private static normalizeTrustDomainID(value: string, label: string): string {
     if (typeof value !== "string" || value.trim().length === 0) {
@@ -1337,6 +1344,13 @@ export class EthereumBridge
    * @see {Bridge#walletID}
    */
   async walletID(walletPublicKeyHash: Hex): Promise<Hex> {
+    // Memoized verdict: if the deployed Bridge has already been classified
+    // as pre-upgrade (no V2 selectors), skip the retry and return the
+    // legacy alias directly.
+    if (this.v2CompatibilityAvailable === false) {
+      return WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
+    }
+
     const bridgeContract = this._instance as unknown as {
       walletID?: (walletPubKeyHash: string) => Promise<string>
     }
@@ -1351,6 +1365,7 @@ export class EthereumBridge
           }
         )
 
+        this.v2CompatibilityAvailable = true
         return Hex.from(walletID)
       } catch (err) {
         // The bundled artifact ABI may expose this selector while the deployed
@@ -1370,6 +1385,7 @@ export class EthereumBridge
           bridgeV2Contract.walletID(walletPublicKeyHash.toPrefixedString())
       )
 
+      this.v2CompatibilityAvailable = true
       return Hex.from(walletID)
     } catch (err) {
       EthereumBridge.ensureBridgeV2CompatibilityFallback(err, "walletID")
@@ -1377,6 +1393,7 @@ export class EthereumBridge
       // whose ABI and bytecode do not expose canonical wallet IDs.
     }
 
+    this.v2CompatibilityAvailable = false
     return WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
   }
 
@@ -1385,6 +1402,23 @@ export class EthereumBridge
    * @see {Bridge#walletPublicKeyHashForWalletID}
    */
   async walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex> {
+    // Memoized verdict: if the deployed Bridge has already been classified
+    // as pre-upgrade (no V2 selectors), skip the retry and return the
+    // legacy alias directly.
+    if (this.v2CompatibilityAvailable === false) {
+      const walletIDHex = walletID.toString()
+      const highBytesHex = walletIDHex.slice(0, 24)
+      if (!/^0+$/.test(highBytesHex)) {
+        throw new Error(
+          "Bridge ABI lacks walletPubKeyHashForWalletID and the wallet ID " +
+            "is not a left-padded legacy alias (high 12 bytes are non-zero). " +
+            "Upgrade the SDK to use a post-upgrade Bridge ABI so wallet ID " +
+            "resolution can go through the on-chain canonical mapping."
+        )
+      }
+      return Hex.from(`0x${walletIDHex.slice(24)}`)
+    }
+
     const bridgeContract = this._instance as unknown as {
       walletPubKeyHashForWalletID?: (walletID: string) => Promise<string>
     }
@@ -1399,6 +1433,7 @@ export class EthereumBridge
           )
         })
 
+        this.v2CompatibilityAvailable = true
         return Hex.from(walletPublicKeyHash)
       } catch (err) {
         // The bundled artifact ABI may expose this selector while the deployed
@@ -1424,6 +1459,7 @@ export class EthereumBridge
         )
       )
 
+      this.v2CompatibilityAvailable = true
       return Hex.from(walletPublicKeyHash)
     } catch (err) {
       EthereumBridge.ensureBridgeV2CompatibilityFallback(
@@ -1456,9 +1492,9 @@ export class EthereumBridge
           "resolution can go through the on-chain canonical mapping."
       )
     }
+    this.v2CompatibilityAvailable = false
     return Hex.from(`0x${walletIDHex.slice(24)}`)
   }
-
   /**
    * Resolves a wallet's compressed public key. ECDSA wallets expose it via the
    * ECDSA wallet registry; FROST wallets (zero `ecdsaWalletID`) carry their

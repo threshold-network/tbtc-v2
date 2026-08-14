@@ -89,17 +89,14 @@ export class TBTC extends TBTCCore {
   }
 
   /**
-   * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
+   * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet3.
    * The initialized instance uses default Electrum servers to interact
-   * with Bitcoin testnet4.
+   * with Bitcoin testnet3.
    *
-   * BREAKING CHANGE (v4): This method previously connected to Bitcoin testnet3
-   * (BitcoinNetwork.Testnet). It now connects to Bitcoin testnet4
-   * (BitcoinNetwork.Testnet4, BIP-94). Both networks share the same address
-   * prefixes (tb1/m/2), so callers will not see a compile-time or runtime
-   * error -- they will silently connect to the wrong Bitcoin network if not
-   * updated. Update your integration to testnet4 Bitcoin tooling before
-   * upgrading this SDK.
+   * This entrypoint preserves the v3 Bitcoin network selection. Migrating to
+   * BIP-94 (Bitcoin testnet4) requires an explicit call to
+   * {@link TBTC.initializeSepoliaTestnet4}: both networks share the same
+   * address prefixes (tb1/m/2), so an implicit switch is silently wrong.
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupportOrActiveWalletIdentityQuorum Whether to enable
    *        cross-chain support, or the wallet-identity quorum when cross-chain
@@ -108,9 +105,53 @@ export class TBTC extends TBTCCore {
    *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
-   *         Ethereum mainnet.
+   *         Ethereum Sepolia.
    */
   static async initializeSepolia(
+    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    crossChainSupportOrActiveWalletIdentityQuorum:
+      | boolean
+      | EthereumActiveWalletIdentityQuorum = false,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
+  ): Promise<TBTC> {
+    const crossChainSupport =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? crossChainSupportOrActiveWalletIdentityQuorum
+        : false
+    const resolvedActiveWalletIdentityQuorum =
+      typeof crossChainSupportOrActiveWalletIdentityQuorum === "boolean"
+        ? activeWalletIdentityQuorum
+        : crossChainSupportOrActiveWalletIdentityQuorum
+
+    return this.initializeEthereum(
+      ethereumSignerOrProvider,
+      Chains.Ethereum.Sepolia,
+      BitcoinNetwork.Testnet,
+      crossChainSupport,
+      resolvedActiveWalletIdentityQuorum
+    )
+  }
+
+  /**
+   * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin
+   * testnet4 (BIP-94). The initialized instance uses default Electrum servers
+   * to interact with Bitcoin testnet4.
+   *
+   * This is a separately-named entrypoint because testnet3 and testnet4 share
+   * the same address prefixes (tb1/m/2). An implicit switch of
+   * {@link TBTC.initializeSepolia} from testnet3 to testnet4 would silently
+   * route existing integrations to the wrong Bitcoin network.
+   * @param ethereumSignerOrProvider Ethereum signer or provider.
+   * @param crossChainSupportOrActiveWalletIdentityQuorum Whether to enable
+   *        cross-chain support, or the wallet-identity quorum when cross-chain
+   *        support is disabled. False by default.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
+   * @returns Initialized tBTC v2 SDK entrypoint.
+   * @throws Throws an error if the signer's Ethereum network is other than
+   *         Ethereum Sepolia.
+   */
+  static async initializeSepoliaTestnet4(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     crossChainSupportOrActiveWalletIdentityQuorum:
       | boolean
@@ -134,7 +175,6 @@ export class TBTC extends TBTCCore {
       resolvedActiveWalletIdentityQuorum
     )
   }
-
   /**
    * Initializes the tBTC v2 SDK entrypoint for the given Ethereum network and Bitcoin network.
    * The initialized instance uses default Electrum servers to interact

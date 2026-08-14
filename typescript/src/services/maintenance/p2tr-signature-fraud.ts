@@ -1,4 +1,5 @@
 import { Transaction } from "bitcoinjs-lib"
+import * as secp256k1 from "@bitcoinerlab/secp256k1"
 import { BigNumber, BigNumberish, constants, utils } from "ethers"
 
 import { BitcoinClient, BitcoinRawTx, BitcoinTxHash } from "../../lib/bitcoin"
@@ -5427,6 +5428,25 @@ export const validateP2TRSignatureFraudPayloadBounds = (
     )
   }
 
+  // `inputPrevouts[i]` is trusted to describe `transaction.ins[i]` by
+  // position alone; nothing above checks that the txid/vout at each index
+  // actually match. A caller-supplied prevout array out of order with the
+  // transaction's own input vector would silently bind the wrong prevout
+  // (and therefore the wrong scriptPubKey / wallet) to a witness.
+  inputPrevouts.forEach((prevout, index) => {
+    const input = transaction.ins[index]
+    const expectedTxid = BitcoinTxHash.from(input.hash).reverse().toString()
+    const observedTxid = toBytes32Hex(prevout.txid, "Prevout txid").toString()
+    if (observedTxid !== expectedTxid || prevout.vout !== input.index) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        `Prevout at index ${index} (${observedTxid}:${prevout.vout}) does ` +
+          `not match transaction input ${index} (${expectedTxid}:${input.index})`
+      )
+    }
+  })
+
+
   inputPrevouts.forEach((prevout) => {
     requireWithinPayloadBound(
       toBuffer(prevout.scriptPubKey).length,
@@ -5677,7 +5697,8 @@ export const extractP2TRWalletInputWitnessCandidates = (
   rawTransaction: BitcoinRawTx,
   inputPrevouts: P2TRWalletInputPrevout[],
   registeredWalletIDs: (Hex | Buffer | string)[],
-  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+  outOfBandAlerts: P2TRWatchtowerOperatorAlert[] = []
 ): P2TRWalletInputWitnessCandidate[] => {
   const transaction = Transaction.fromHex(rawTransaction.transactionHex)
 
@@ -5725,13 +5746,30 @@ export const extractP2TRWalletInputWitnessCandidates = (
       return []
     }
 
-    return [
-      {
-        ...extractP2TRKeyPathInputWitnessSignature(rawTransaction, inputIndex),
-        walletID,
-        scriptPubKey: Hex.from(toBuffer(prevout.scriptPubKey)),
-      },
-    ]
+    try {
+      return [
+        {
+          ...extractP2TRKeyPathInputWitnessSignature(
+            rawTransaction,
+            inputIndex
+          ),
+          walletID,
+          scriptPubKey: Hex.from(toBuffer(prevout.scriptPubKey)),
+        },
+      ]
+    } catch (error) {
+      if (error instanceof P2TRWitnessSignatureError) {
+        outOfBandAlerts.push({
+          code: "p2tr-input-witness-parsing-rejected",
+          message:
+            `P2TR key-path witness signature for wallet ${walletID.toString()} ` +
+            `input ${inputIndex} (${inputTxid}) ` +
+            `was rejected as malformed (${error.code}): ${error.message}`,
+        })
+        return []
+      }
+      throw error
+    }
   })
 }
 
@@ -6252,6 +6290,22 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
       )
     }
 
+    // Defense in depth against a TOCTOU between observation build and
+    // submission (e.g. a stale/tampered persisted record): re-verify the
+    // signature against the wallet key immediately before broadcasting.
+    if (
+      !secp256k1.verifySchnorr(
+        toBuffer(observation.sighash),
+        toBuffer(observation.walletID),
+        toBuffer(observation.signature)
+      )
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-observation-payload",
+        "P2TR key-path witness signature does not verify against wallet output key"
+      )
+    }
+
     const payload = encodeP2TRSignatureFraudBridgeChallengePayload(observation)
     const challengeDepositAmount = await this.challengeDepositAmount()
     const tx = await this.bridge.processP2TRSignatureFraudChallenge(
@@ -6330,7 +6384,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
   spendTypeClassifier?: P2TRSignatureFraudSpendTypeClassifier,
   payloadBounds?: P2TRSignatureFraudPayloadBounds,
   bridgeChallengeDomain?: P2TRSignatureFraudBridgeChallengeDomain,
-  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+  outOfBandAlerts: P2TRWatchtowerOperatorAlert[] = []
 ): P2TRSignatureFraudWitnessObservation[] => {
   if (payloadBounds !== undefined) {
     validateP2TRSignatureFraudPayloadBounds(
@@ -6347,7 +6402,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
     rawTransaction,
     inputPrevouts,
     registeredWalletIDs,
-    walletInputKeyBindings
+    walletInputKeyBindings,
+    outOfBandAlerts
   ).map((candidate) => {
     const spendType = requireP2TRSignatureFraudSpendType(
       spendTypeClassifier?.({
@@ -6365,6 +6421,22 @@ export const extractP2TRSignatureFraudWitnessObservations = (
       candidate.sighashType,
       candidate.annex
     )
+    // The extractor parses witness bytes into a candidate signature but
+    // never checks it against the wallet's own key. Verify locally before
+    // this observation can bond the challenger's ETH or drive a submission:
+    // a malformed/forged candidate is rejected here, not after the deposit.
+    if (
+      !secp256k1.verifySchnorr(
+        toBuffer(sighash),
+        toBuffer(candidate.walletID),
+        toBuffer(candidate.signature)
+      )
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-observation-payload",
+        "P2TR key-path witness signature does not verify against wallet output key"
+      )
+    }
     const draftChallengeIdentity =
       computeP2TRSignatureFraudDraftChallengeIdentity({
         walletID: candidate.walletID,

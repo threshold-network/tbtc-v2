@@ -258,9 +258,12 @@ export class DepositScript {
 
   static fromReceipt(
     receipt: DepositReceipt,
-    options: DepositScriptOptions = inferDepositScriptType(receipt)
+    options: DepositScriptOptions = {}
   ): DepositScript {
-    return new DepositScript(receipt, normalizeDepositScriptType(options))
+    return new DepositScript(
+      receipt,
+      normalizeDepositScriptType(receipt, options)
+    )
   }
 
   /**
@@ -451,6 +454,7 @@ function inferDepositScriptType(receipt: DepositReceipt): DepositScriptType {
 }
 
 function normalizeDepositScriptType(
+  receipt: DepositReceipt,
   options: DepositScriptOptions
 ): DepositScriptType {
   if (typeof options == "boolean") {
@@ -461,5 +465,9 @@ function normalizeDepositScriptType(
     return options
   }
 
-  return options.scriptType ?? DepositScriptType.P2WSH
+  // When the caller does not pin scriptType, infer it from the receipt so
+  // a Taproot receipt (with x-only wallet + refund keys) does not silently
+  // fall through to a P2WSH script built from HASH160(0x02||xOnly)
+  // compatibility aliases that no FROST signer holds keys for.
+  return options.scriptType ?? inferDepositScriptType(receipt)
 }
