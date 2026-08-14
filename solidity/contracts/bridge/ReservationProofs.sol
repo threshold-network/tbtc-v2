@@ -401,8 +401,9 @@ library ReservationProofs {
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
-        reservation.termSeconds = self.reservationTermSeconds;
-        reservation.gracePeriod = self.reservationGracePeriod;
+        reservation.dissolutionEligibleAt =
+            expiresAt +
+            self.reservationDissolutionDelay;
 
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(anchorTxHash, uint32(0))))

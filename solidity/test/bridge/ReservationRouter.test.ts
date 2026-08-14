@@ -142,6 +142,34 @@ describe("ReservationRouter", () => {
   })
 
   describe("storage layout parity", () => {
+    it("should consume exactly nine slots from the deployed Bridge gap", async () => {
+      const bridgeLayout = await getStorageLayout(
+        "contracts/bridge/Bridge.sol",
+        "Bridge"
+      )
+      const self = bridgeLayout.storage.find((entry) => entry.label === "self")
+      if (!self) {
+        throw new Error("No BridgeState.Storage entry in Bridge layout")
+      }
+
+      const storageType = bridgeLayout.types[self.type]
+      const gap = storageType.members?.find(
+        (member) => member.label === "__gap"
+      )
+      if (!gap) {
+        throw new Error("No BridgeState.Storage.__gap entry in Bridge layout")
+      }
+
+      // The deployed layout reserves slots 81..128. Combined reservation and
+      // reveal-time state uses exactly nine of them, so the remaining gap
+      // starts at 90, contains 39 slots, and keeps the original endpoint.
+      const gapType = bridgeLayout.types[gap.type]
+      const absoluteGapSlot = Number(self.slot) + Number(gap.slot)
+      expect(absoluteGapSlot).to.equal(90)
+      expect(gapType.numberOfBytes).to.equal((39 * 32).toString())
+      expect(absoluteGapSlot + Number(gapType.numberOfBytes) / 32).to.equal(129)
+    })
+
     it("should pass the OpenZeppelin upgrade check from the deployed Bridge gap", () => {
       const validations = normalizeValidationData(
         JSON.parse(
@@ -495,12 +523,13 @@ describe("ReservationRouter", () => {
             2592000,
             100000000000,
             10,
-            172800
+            172800,
+            2592000
           )
       ).to.be.revertedWith("Caller is not the governance")
 
       await expect(
-        standaloneRouter.connect(thirdParty).extendReservation(1)
+        standaloneRouter.connect(thirdParty).extendReservation(1, 0, 0)
       ).to.be.revertedWith("Caller is not the reservation vault")
 
       await expect(

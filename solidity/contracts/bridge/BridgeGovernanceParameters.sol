@@ -1577,10 +1577,11 @@ library BridgeGovernanceParameters {
         uint64 newReservationMinAmount;
         uint64 newReservationTxMaxFee;
         uint32 newReservationTermSeconds;
-        uint32 newReservationGracePeriod;
+        uint32 newReservationDissolutionDelay;
         uint64 newReservationMaxTotalAmount;
         uint32 newMaxReservationsPerWallet;
         uint32 newReservationActionTimeout;
+        uint32 newReservationRenewalWindowSeconds;
         uint256 reservationParametersChangeInitiated;
     }
 
@@ -1589,10 +1590,11 @@ library BridgeGovernanceParameters {
         uint64 newReservationMinAmount,
         uint64 newReservationTxMaxFee,
         uint32 newReservationTermSeconds,
-        uint32 newReservationGracePeriod,
+        uint32 newReservationDissolutionDelay,
         uint64 newReservationMaxTotalAmount,
         uint32 newMaxReservationsPerWallet,
         uint32 newReservationActionTimeout,
+        uint32 newReservationRenewalWindowSeconds,
         uint256 timestamp
     );
 
@@ -1605,30 +1607,34 @@ library BridgeGovernanceParameters {
         uint64 _newReservationMinAmount,
         uint64 _newReservationTxMaxFee,
         uint32 _newReservationTermSeconds,
-        uint32 _newReservationGracePeriod,
+        uint32 _newReservationDissolutionDelay,
         uint64 _newReservationMaxTotalAmount,
         uint32 _newMaxReservationsPerWallet,
-        uint32 _newReservationActionTimeout
+        uint32 _newReservationActionTimeout,
+        uint32 _newReservationRenewalWindowSeconds
     ) external {
         /* solhint-disable not-rely-on-time */
         self.newReservationVault = _newReservationVault;
         self.newReservationMinAmount = _newReservationMinAmount;
         self.newReservationTxMaxFee = _newReservationTxMaxFee;
         self.newReservationTermSeconds = _newReservationTermSeconds;
-        self.newReservationGracePeriod = _newReservationGracePeriod;
+        self.newReservationDissolutionDelay = _newReservationDissolutionDelay;
         self.newReservationMaxTotalAmount = _newReservationMaxTotalAmount;
         self.newMaxReservationsPerWallet = _newMaxReservationsPerWallet;
         self.newReservationActionTimeout = _newReservationActionTimeout;
+        self
+            .newReservationRenewalWindowSeconds = _newReservationRenewalWindowSeconds;
         self.reservationParametersChangeInitiated = block.timestamp;
         emit ReservationParametersUpdateStarted(
             _newReservationVault,
             _newReservationMinAmount,
             _newReservationTxMaxFee,
             _newReservationTermSeconds,
-            _newReservationGracePeriod,
+            _newReservationDissolutionDelay,
             _newReservationMaxTotalAmount,
             _newMaxReservationsPerWallet,
             _newReservationActionTimeout,
+            _newReservationRenewalWindowSeconds,
             block.timestamp
         );
         /* solhint-enable not-rely-on-time */

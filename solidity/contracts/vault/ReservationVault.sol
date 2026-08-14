@@ -82,6 +82,27 @@ contract ReservationVault is IVault, Ownable {
     ///         after wallet-fault timeouts.
     uint16 public redemptionFeeBps;
 
+    /// @notice True while all renewals are paused. A fresh vault starts
+    ///         paused; governance unpauses as part of activation. Pausing
+    ///         only removes future renewal opportunities — it never
+    ///         shortens a term already purchased and has no effect on
+    ///         redemption, re-anchoring or dissolution.
+    bool public renewalsPaused;
+
+    /// @notice Per-reservation renewal blocks, keyed by the stable
+    ///         reservation key (derived from the original deposit outpoint;
+    ///         preserved through re-anchors and wallet migration). A block
+    ///         prevents future renewals of the reservation only.
+    mapping(uint256 => bool) public renewalBlocked;
+
+    /// @notice Address allowed to apply the restrictive policy actions
+    ///         (pause renewals, block a reservation) besides the owner.
+    ///         Guardian actions are monotonic — they cannot disturb an
+    ///         already-paid term or move funds — so they are safe to make
+    ///         immediate. Only the owner (governance) can relax policy:
+    ///         unpause, unblock, or replace the guardian.
+    address public renewalGuardian;
+
     event ReservationCreditProcessed(
         address indexed owner,
         uint256 satAmount,
@@ -107,8 +128,29 @@ contract ReservationVault is IVault, Ownable {
         uint16 redemptionFeeBps
     );
 
+    event ReservationRenewalBlocked(uint256 indexed reservationKey);
+
+    event ReservationRenewalUnblocked(uint256 indexed reservationKey);
+
+    event ReservationRenewalsPaused(address indexed caller);
+
+    event ReservationRenewalsUnpaused(address indexed caller);
+
+    event RenewalGuardianUpdated(
+        address indexed oldGuardian,
+        address indexed newGuardian
+    );
+
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
+        _;
+    }
+
+    modifier onlyGuardianOrOwner() {
+        require(
+            msg.sender == renewalGuardian || msg.sender == owner(),
+            "Caller is not the renewal guardian or owner"
+        );
         _;
     }
 
@@ -147,6 +189,11 @@ contract ReservationVault is IVault, Ownable {
         initiationFeeBps = 40;
         extensionFeeBps = 20;
         redemptionFeeBps = 20;
+
+        // A fresh vault starts with renewals paused; governance unpauses
+        // as part of the activation ceremony, after ownership has been
+        // transferred out of the deployer's hands.
+        renewalsPaused = true;
     }
 
     /// @notice Called by the Bank when the Bridge proves a reservation's
@@ -267,14 +314,37 @@ contract ReservationVault is IVault, Ownable {
         );
     }
 
-    /// @notice Extends the custody term of the caller's reservation by one
-    ///         term length, charging the extension fee in TBTC.
-    /// @param reservationKey The key of the reservation to extend.
+    /// @notice Renews the custody term of the caller's reservation by
+    ///         exactly one current term, charging the extension fee in
+    ///         TBTC. Renewal is possible only inside the renewal window
+    ///         immediately before expiry (enforced independently by the
+    ///         Bridge) and only while neither the global renewal pause nor
+    ///         a per-reservation block is in effect.
+    /// @param reservationKey The key of the reservation to renew.
+    /// @param expectedExpiresAt The expiry the caller observed; rejects
+    ///        stale renewal transactions.
+    /// @param expectedNewExpiresAt The new expiry the caller is paying
+    ///        for; rejects renewals whose term parameter changed between
+    ///        transaction construction and execution.
+    /// @param maxFeeTbtc Upper bound on the TBTC fee the caller accepts;
+    ///        an unexpected fee update reverts instead of overcharging.
     /// @dev Requirements:
     ///      - The caller must be the reservation owner,
-    ///      - The caller must have approved this vault for the extension
-    ///        fee in TBTC.
-    function extendCustody(uint256 reservationKey) external {
+    ///      - Renewals must not be paused and the reservation not blocked,
+    ///      - The fee must not exceed `maxFeeTbtc`,
+    ///      - The caller must have approved this vault for the fee in TBTC,
+    ///      - The Bridge-side renewal window, expiry-intent and one-term
+    ///        checks must pass.
+    ///
+    ///      The Bridge renewal executes before the fee transfer; if either
+    ///      fails the whole transaction reverts, so no expiry change or
+    ///      fee payment survives without the other.
+    function extendCustody(
+        uint256 reservationKey,
+        uint32 expectedExpiresAt,
+        uint32 expectedNewExpiresAt,
+        uint256 maxFeeTbtc
+    ) external {
         Reservation.ReservationRequest memory reservation = bridge.reservations(
             reservationKey
         );
@@ -283,9 +353,20 @@ contract ReservationVault is IVault, Ownable {
             "Caller is not the reservation owner"
         );
 
+        require(!renewalsPaused, "Renewals are paused");
+        require(!renewalBlocked[reservationKey], "Reservation renewal blocked");
+
         uint256 fee = (uint256(reservation.mintedAmount) *
             SATOSHI_MULTIPLIER *
             extensionFeeBps) / BASIS_POINTS;
+        require(fee <= maxFeeTbtc, "Fee exceeds the caller's bound");
+
+        bridge.extendReservation(
+            reservationKey,
+            expectedExpiresAt,
+            expectedNewExpiresAt
+        );
+
         if (fee > 0) {
             IERC20(tbtcToken).safeTransferFrom(
                 msg.sender,
@@ -296,8 +377,49 @@ contract ReservationVault is IVault, Ownable {
 
         // slither-disable-next-line reentrancy-events
         emit CustodyExtended(reservationKey, msg.sender, fee);
+    }
 
-        bridge.extendReservation(reservationKey);
+    /// @notice Pauses all future renewals. Restrictive and monotonic:
+    ///         callable by the guardian or the owner, effective
+    ///         immediately, and without any effect on already-purchased
+    ///         terms or on redemption/re-anchor/dissolution.
+    function pauseRenewals() external onlyGuardianOrOwner {
+        renewalsPaused = true;
+        emit ReservationRenewalsPaused(msg.sender);
+    }
+
+    /// @notice Unpauses renewals. Restorative: owner (governance) only.
+    function unpauseRenewals() external onlyOwner {
+        renewalsPaused = false;
+        emit ReservationRenewalsUnpaused(msg.sender);
+    }
+
+    /// @notice Blocks future renewals of the given reservation.
+    ///         Restrictive and monotonic: callable by the guardian or the
+    ///         owner, effective immediately.
+    /// @param reservationKey The key of the reservation to block.
+    function blockRenewal(uint256 reservationKey) external onlyGuardianOrOwner {
+        renewalBlocked[reservationKey] = true;
+        emit ReservationRenewalBlocked(reservationKey);
+    }
+
+    /// @notice Unblocks renewals of the given reservation. Restorative:
+    ///         owner (governance) only.
+    /// @param reservationKey The key of the reservation to unblock.
+    function unblockRenewal(uint256 reservationKey) external onlyOwner {
+        renewalBlocked[reservationKey] = false;
+        emit ReservationRenewalUnblocked(reservationKey);
+    }
+
+    /// @notice Replaces the renewal guardian. Owner (governance) only.
+    /// @param newGuardian The new guardian address; the zero address
+    ///        leaves policy actions to the owner alone.
+    function setRenewalGuardian(address newGuardian) external onlyOwner {
+        emit RenewalGuardianUpdated(renewalGuardian, newGuardian);
+        // The zero address is a deliberate setting: it leaves the
+        // restrictive policy actions to the owner alone.
+        // slither-disable-next-line missing-zero-check
+        renewalGuardian = newGuardian;
     }
 
     /// @notice Re-requests an in-kind redemption using the caller's Bank

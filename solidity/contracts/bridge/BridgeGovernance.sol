@@ -300,10 +300,11 @@ contract BridgeGovernance is Ownable {
         uint64 newReservationMinAmount,
         uint64 newReservationTxMaxFee,
         uint32 newReservationTermSeconds,
-        uint32 newReservationGracePeriod,
+        uint32 newReservationDissolutionDelay,
         uint64 newReservationMaxTotalAmount,
         uint32 newMaxReservationsPerWallet,
         uint32 newReservationActionTimeout,
+        uint32 newReservationRenewalWindowSeconds,
         uint256 timestamp
     );
 
@@ -1837,20 +1838,22 @@ contract BridgeGovernance is Ownable {
         uint64 _newReservationMinAmount,
         uint64 _newReservationTxMaxFee,
         uint32 _newReservationTermSeconds,
-        uint32 _newReservationGracePeriod,
+        uint32 _newReservationDissolutionDelay,
         uint64 _newReservationMaxTotalAmount,
         uint32 _newMaxReservationsPerWallet,
-        uint32 _newReservationActionTimeout
+        uint32 _newReservationActionTimeout,
+        uint32 _newReservationRenewalWindowSeconds
     ) external onlyOwner {
         reservationData.beginReservationParametersUpdate(
             _newReservationVault,
             _newReservationMinAmount,
             _newReservationTxMaxFee,
             _newReservationTermSeconds,
-            _newReservationGracePeriod,
+            _newReservationDissolutionDelay,
             _newReservationMaxTotalAmount,
             _newMaxReservationsPerWallet,
-            _newReservationActionTimeout
+            _newReservationActionTimeout,
+            _newReservationRenewalWindowSeconds
         );
     }
 
@@ -1866,10 +1869,11 @@ contract BridgeGovernance is Ownable {
             staged.newReservationMinAmount,
             staged.newReservationTxMaxFee,
             staged.newReservationTermSeconds,
-            staged.newReservationGracePeriod,
+            staged.newReservationDissolutionDelay,
             staged.newReservationMaxTotalAmount,
             staged.newMaxReservationsPerWallet,
-            staged.newReservationActionTimeout
+            staged.newReservationActionTimeout,
+            staged.newReservationRenewalWindowSeconds
         );
     }
 }
