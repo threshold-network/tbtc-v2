@@ -46,6 +46,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Wallets = await get("Wallets")
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
+  const Reservation = await get("Reservation")
 
   const Bridge = await deployments.get("Bridge")
 
@@ -56,6 +57,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
+    Reservation: Reservation.address,
   }
 
   const bridgeFactory = await ethers.getContractFactory("Bridge", {

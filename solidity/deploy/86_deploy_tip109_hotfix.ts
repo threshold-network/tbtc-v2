@@ -136,6 +136,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Wallets = await get("Wallets")
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
+  const Reservation = await get("Reservation")
 
   // --- Step 4: Deploy new Bridge implementation ---
   // Linked to existing Deposit + new Redemption + unchanged libs.
@@ -147,6 +148,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
+    Reservation: Reservation.address,
   }
 
   const bridgeImpl = await deploy("BridgeTIP109HotfixImplementation", {

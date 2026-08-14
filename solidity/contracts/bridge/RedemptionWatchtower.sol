@@ -19,6 +19,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import "./Bridge.sol";
 import "./Redemption.sol";
+import "./Reservation.sol";
 
 /// @title Redemption watchtower
 /// @notice This contract encapsulates the logic behind the redemption veto
@@ -400,6 +401,125 @@ contract RedemptionWatchtower is OwnableUpgradeable {
             // freeze period.
             bank.decreaseBalance(penaltyFee);
         }
+    }
+
+    /// @notice Raises an objection to a pending reserved redemption
+    ///         identified by its reservation key. Works the same way as
+    ///         `raiseObjection` does for regular redemption requests: each
+    ///         pending reserved redemption has a delay period during which
+    ///         the wallet is not allowed to process it and the guardians can
+    ///         raise objections to; the third objection vetoes it. A veto
+    ///         detains the surrendered gross amount from the Bridge, freezes
+    ///         it for the freeze period, burns the penalty fee, and bans the
+    ///         redeemer. The reservation itself returns to the Active state
+    ///         on the Bridge -- the anchor outpoint was not spent, so the
+    ///         in-kind claim survives (though a banned owner cannot
+    ///         re-request until unbanned).
+    /// @param reservationKey The key of the reservation with the pending
+    ///        reserved redemption.
+    /// @dev Requirements:
+    ///      - The caller must be a redemption guardian,
+    ///      - The reserved redemption must not have been vetoed already,
+    ///      - The guardian must not have already objected to it,
+    ///      - The reserved redemption must be pending,
+    ///      - The reserved redemption must be within its veto delay period,
+    ///        unless it was requested before the watchtower was enabled.
+    function raiseReservedObjection(uint256 reservationKey)
+        external
+        onlyGuardian
+    {
+        VetoProposal storage veto = vetoProposals[reservationKey];
+
+        require(
+            veto.objectionsCount < REQUIRED_OBJECTIONS_COUNT,
+            "Reserved redemption already vetoed"
+        );
+
+        uint256 objectionKey = uint256(
+            keccak256(abi.encodePacked(reservationKey, msg.sender))
+        );
+        require(!objections[objectionKey], "Guardian already objected");
+
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            reservationKey
+        );
+
+        require(
+            reservation.state ==
+                Reservation.ReservationState.RedemptionRequested,
+            "Reserved redemption does not exist"
+        );
+
+        if (reservation.redemptionRequestedAt >= watchtowerEnabledAt) {
+            require(
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp <
+                    reservation.redemptionRequestedAt +
+                        _redemptionDelay(
+                            veto.objectionsCount,
+                            reservation.mintedAmount
+                        ),
+                "Redemption veto delay period expired"
+            );
+        } else {
+            emit VetoPeriodCheckOmitted(reservationKey);
+        }
+
+        objections[objectionKey] = true;
+        veto.redeemer = reservation.redeemer;
+        veto.objectionsCount++;
+
+        emit ObjectionRaised(reservationKey, msg.sender);
+
+        if (veto.objectionsCount == REQUIRED_OBJECTIONS_COUNT) {
+            uint64 penaltyFee = vetoPenaltyFeeDivisor > 0
+                ? reservation.mintedAmount / vetoPenaltyFeeDivisor
+                : 0;
+
+            veto.withdrawableAmount = reservation.mintedAmount - penaltyFee;
+            /* solhint-disable-next-line not-rely-on-time */
+            veto.finalizedAt = uint32(block.timestamp);
+            isBanned[reservation.redeemer] = true;
+
+            emit Banned(reservation.redeemer);
+
+            emit VetoFinalized(reservationKey);
+
+            // Notify the Bridge about the veto. As result of this call,
+            // this contract receives the surrendered gross amount
+            // (as Bank's balance) from the Bridge.
+            bridge.notifyReservedRedemptionVeto(reservationKey);
+            // Burn the penalty fee but leave the claimable amount for the
+            // redeemer to withdraw after the freeze period.
+            bank.decreaseBalance(penaltyFee);
+        }
+    }
+
+    /// @notice Returns the applicable veto delay for a pending reserved
+    ///         redemption identified by the given reservation key.
+    /// @param reservationKey The key of the reservation.
+    /// @return Reserved redemption veto delay.
+    /// @dev If the watchtower has been disabled, the delay is always zero.
+    function getReservedRedemptionDelay(uint256 reservationKey)
+        external
+        view
+        returns (uint32)
+    {
+        Reservation.ReservationRequest memory reservation = bridge.reservations(
+            reservationKey
+        );
+
+        require(
+            reservation.state ==
+                Reservation.ReservationState.RedemptionRequested,
+            "Reserved redemption does not exist"
+        );
+
+        return
+            _redemptionDelay(
+                vetoProposals[reservationKey].objectionsCount,
+                reservation.mintedAmount
+            );
     }
 
     /// @notice Returns the redemption delay for a given number of objections

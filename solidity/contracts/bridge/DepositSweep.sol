@@ -418,16 +418,20 @@ library DepositSweep {
                     inputStartingIndex
                 );
 
-            Deposit.DepositRequest storage deposit = self.deposits[
-                uint256(
-                    keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
-                )
-            ];
+            uint256 depositKey = uint256(
+                keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
+            );
+            Deposit.DepositRequest storage deposit = self.deposits[depositKey];
 
             if (deposit.revealedAt != 0) {
                 // If we entered here, that means the input was identified as
                 // a revealed deposit.
                 require(deposit.sweptAt == 0, "Deposit already swept");
+
+                require(
+                    !self.pendingReservedDeposit[depositKey].isReserved,
+                    "Reserved deposits must not be swept"
+                );
 
                 require(
                     deposit.vault == processInfo.vault,

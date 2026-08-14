@@ -141,6 +141,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Wallets = await get("Wallets")
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
+  const Reservation = await get("Reservation")
 
   console.log("✓ Using existing DepositSweep at:", DepositSweep.address)
   console.log("✓ Using existing Wallets at:", Wallets.address)
@@ -167,6 +168,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       Wallets: Wallets.address,
       Fraud: Fraud.address,
       MovingFunds: MovingFunds.address,
+      Reservation: Reservation.address,
     },
   })
 
@@ -385,6 +387,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
+          Reservation: Reservation.address,
         },
       })
     } catch (error) {

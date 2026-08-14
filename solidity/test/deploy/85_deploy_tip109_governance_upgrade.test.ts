@@ -27,6 +27,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   const MOVING_FUNDS_ADDRESS = "0x0000000000000000000000000000000000000006"
   const BRIDGE_IMPL_ADDRESS = "0x0000000000000000000000000000000000000007"
   const REBATE_IMPL_ADDRESS = "0x0000000000000000000000000000000000000008"
+  const RESERVATION_ADDRESS = "0x0000000000000000000000000000000000000009"
   const BRIDGE_PROXY_ADDRESS = "0x5e4861a80B55f035D899f66772117F00FA0E8e7B"
   const REBATE_STAKING_PROXY_ADDRESS =
     "0x0184739c02d51bFc1cc2E3a2bF6bbBe31e265a45"
@@ -45,6 +46,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     Wallets: WALLETS_ADDRESS,
     Fraud: FRAUD_ADDRESS,
     MovingFunds: MOVING_FUNDS_ADDRESS,
+    Reservation: RESERVATION_ADDRESS,
     Bridge: BRIDGE_PROXY_ADDRESS,
     RebateStaking: REBATE_STAKING_PROXY_ADDRESS,
     BridgeGovernance: BRIDGE_GOV_ADDRESS,
@@ -229,6 +231,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           "Wallets",
           "Fraud",
           "MovingFunds",
+          "Reservation",
         ]
         const getNames = getCalls.map((c) => c.name)
 
@@ -257,7 +260,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(directBridgeCall).to.be.undefined
       })
 
-      it("should define all 6 required libraries for Bridge implementation deployment", async () => {
+      it("should define all 7 required libraries for Bridge implementation deployment", async () => {
         await func(mockHre)
 
         const bridgeCall = deployCalls.find(
@@ -275,9 +278,10 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           "Wallets",
           "Fraud",
           "MovingFunds",
+          "Reservation",
         ]
         const actualKeys = Object.keys(libraries)
-        expect(actualKeys).to.have.lengthOf(6)
+        expect(actualKeys).to.have.lengthOf(7)
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
@@ -291,6 +295,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(libraries.Wallets).to.equal(WALLETS_ADDRESS)
         expect(libraries.Fraud).to.equal(FRAUD_ADDRESS)
         expect(libraries.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
+        expect(libraries.Reservation).to.equal(RESERVATION_ADDRESS)
       })
 
       it("should deploy RebateStaking implementation with distinct artifact name", async () => {
@@ -772,11 +777,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    it("should have libraries with all 6 entries", () => {
+    it("should have libraries with all 7 entries", () => {
       expect(summary).to.not.be.null
       const libs = summary.libraries
 
-      expect(Object.keys(libs)).to.have.lengthOf(6)
+      expect(Object.keys(libs)).to.have.lengthOf(7)
 
       const requiredKeys = [
         "Deposit",
@@ -785,6 +790,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         "Wallets",
         "Fraud",
         "MovingFunds",
+        "Reservation",
       ]
 
       requiredKeys.forEach((key) => {

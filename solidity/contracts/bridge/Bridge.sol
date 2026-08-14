@@ -27,6 +27,7 @@ import "./BridgeState.sol";
 import "./Deposit.sol";
 import "./DepositSweep.sol";
 import "./Redemption.sol";
+import "./Reservation.sol";
 import "./BitcoinTx.sol";
 import "./EcdsaLib.sol";
 import "./Wallets.sol";
@@ -67,6 +68,7 @@ contract Bridge is
     using Deposit for BridgeState.Storage;
     using DepositSweep for BridgeState.Storage;
     using Redemption for BridgeState.Storage;
+    using Reservation for BridgeState.Storage;
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
     using Fraud for BridgeState.Storage;
@@ -105,6 +107,64 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash,
         bytes redeemerOutputScript
     );
+
+    event ReservationAccepted(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash,
+        address indexed owner,
+        bytes32 anchorTxHash,
+        uint64 anchorAmount,
+        uint32 expiresAt
+    );
+
+    event ReservationExtended(
+        uint256 indexed reservationKey,
+        uint32 newExpiresAt
+    );
+
+    event ReservedRedemptionRequested(
+        uint256 indexed reservationKey,
+        address indexed redeemer,
+        bytes redeemerOutputScript,
+        uint64 mintedAmount,
+        uint64 txMaxFee
+    );
+
+    event ReservedRedemptionCompleted(
+        uint256 indexed reservationKey,
+        bytes32 redemptionTxHash
+    );
+
+    event ReservedRedemptionTimedOut(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash
+    );
+
+    event ReservedRedemptionVetoed(uint256 indexed reservationKey);
+
+    event ReservationReanchored(
+        uint256 indexed reservationKey,
+        bytes20 indexed newWalletPubKeyHash,
+        bytes32 newAnchorTxHash,
+        uint64 newAnchorAmount
+    );
+
+    event ReservationDissolved(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash,
+        bytes32 dissolutionTxHash
+    );
+
+    event ReservationParametersUpdated(
+        uint64 reservationMinAmount,
+        uint64 reservationTxMaxFee,
+        uint32 reservationTermSeconds,
+        uint32 reservationGracePeriod,
+        uint64 reservationMaxTotalAmount,
+        uint32 maxReservationsPerWallet
+    );
+
+    event ReservationVaultUpdated(address reservationVault);
 
     event WalletMovingFunds(
         bytes32 indexed ecdsaWalletID,
@@ -764,6 +824,99 @@ contract Bridge is
             walletMembersIDs,
             redeemerOutputScript
         );
+    }
+
+    /// @notice Single entry point for all reservation lifecycle SPV proofs:
+    ///         anchor acceptance, in-kind reserved redemption, re-anchoring
+    ///         and dissolution. Consolidated into one external function to
+    ///         preserve the Bridge's EIP-170 deployment size margin. See
+    ///         `Reservation.submitReservationProof` and the individual
+    ///         handlers in the `Reservation` library for detailed
+    ///         requirements.
+    /// @param proofType The type of the submitted proof, see
+    ///        `Reservation.ProofType`.
+    /// @param txInfo Bitcoin transaction data.
+    /// @param proof Bitcoin proof data.
+    /// @param mainUtxo Data of the wallet's main UTXO; only used for
+    ///        `Dissolution` proofs and ignored otherwise.
+    /// @param reservationKey The key of the target reservation; ignored for
+    ///        `Acceptance` proofs where the key is derived from the spent
+    ///        deposit outpoint.
+    function submitReservationProof(
+        uint8 proofType,
+        BitcoinTx.Info calldata txInfo,
+        BitcoinTx.Proof calldata proof,
+        BitcoinTx.UTXO calldata mainUtxo,
+        uint256 reservationKey
+    ) external onlySpvMaintainer {
+        self.submitReservationProof(
+            proofType,
+            txInfo,
+            proof,
+            mainUtxo,
+            reservationKey
+        );
+    }
+
+    /// @notice Extends the custody term of a reservation by the current
+    ///         reservation term length. Can only be called by the
+    ///         reservation vault, which collects the custody fee for the
+    ///         extension. See `Reservation.extendReservation`.
+    /// @param reservationKey The key of the reservation to extend.
+    function extendReservation(uint256 reservationKey) external {
+        // The caller is checked in the library function.
+        self.extendReservation(reservationKey);
+    }
+
+    /// @notice Requests an in-kind redemption of a reservation: the wallet
+    ///         is expected to spend exactly the reservation's current anchor
+    ///         outpoint to the redeemer output script in a 1-input-1-output
+    ///         transaction. Can only be called by the reservation vault,
+    ///         which must have approved the Bridge in the Bank for the gross
+    ///         minted amount. See `Reservation.requestReservedRedemption`.
+    /// @param reservationKey The key of the reservation to redeem.
+    /// @param redeemer The address able to claim the surrendered balance
+    ///        back if the redemption times out.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    function requestReservedRedemption(
+        uint256 reservationKey,
+        address redeemer,
+        bytes calldata redeemerOutputScript
+    ) external {
+        // The caller is checked in the library function.
+        self.requestReservedRedemption(
+            reservationKey,
+            redeemer,
+            redeemerOutputScript
+        );
+    }
+
+    /// @notice Notifies that a pending reserved redemption has timed out.
+    ///         Returns the surrendered balance to the redeemer, slashes the
+    ///         wallet operators like a regular redemption timeout, and
+    ///         returns the reservation to the Active state. See
+    ///         `Reservation.notifyReservedRedemptionTimeout`.
+    /// @param reservationKey The key of the reservation with the timed out
+    ///        redemption.
+    /// @param walletMembersIDs Identifiers of the wallet signing group
+    ///        members.
+    function notifyReservedRedemptionTimeout(
+        uint256 reservationKey,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        self.notifyReservedRedemptionTimeout(reservationKey, walletMembersIDs);
+    }
+
+    /// @notice Notifies that a pending reserved redemption was vetoed in the
+    ///         redemption watchtower. Detains the surrendered balance to the
+    ///         watchtower and returns the reservation to the Active state.
+    ///         See `Reservation.notifyReservedRedemptionVeto`.
+    /// @param reservationKey The key of the reservation with the vetoed
+    ///        redemption.
+    function notifyReservedRedemptionVeto(uint256 reservationKey) external {
+        // The caller is checked in the library function.
+        self.notifyReservedRedemptionVeto(reservationKey);
     }
 
     /// @notice Submits the moving funds target wallets commitment.
@@ -1625,6 +1778,16 @@ contract Bridge is
         return self.deposits[depositKey];
     }
 
+    /// @notice Returns whether the deposit was routed to the reservation
+    ///         vault that was configured at reveal time.
+    function isReservedDeposit(uint256 depositKey)
+        external
+        view
+        returns (bool)
+    {
+        return self.pendingReservedDeposit[depositKey].isReserved;
+    }
+
     /// @notice Collection of all pending redemption requests indexed by
     ///         redemption key built as
     ///         `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
@@ -2079,5 +2242,86 @@ contract Bridge is
     ) external {
         // The caller is checked in the internal function.
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    /// @notice Updates parameters of reservations, including the
+    ///         reservation vault address. Deposits revealed with the
+    ///         reservation vault address are treated as UTXO reservations.
+    /// @param reservationVault Address of the reservation vault. Can only be
+    ///        changed while there are no active reservations.
+    /// @param reservationMinAmount New value of the reservation minimum
+    ///        amount in satoshis. It is the minimal anchor output amount
+    ///        accepted for a reservation.
+    /// @param reservationTxMaxFee New value of the reservation transaction
+    ///        max fee in satoshis. It is the maximum amount of BTC
+    ///        transaction fee that can be incurred by a single reservation
+    ///        lifecycle transaction.
+    /// @param reservationTermSeconds New value of the reservation custody
+    ///        term length in seconds.
+    /// @param reservationGracePeriod New value of the reservation grace
+    ///        period in seconds.
+    /// @param reservationMaxTotalAmount New cap on the total amount in
+    ///        satoshi locked under active reservations.
+    /// @param maxReservationsPerWallet New cap on the number of active
+    ///        reservations a single wallet can custody.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - See `Reservation.updateReservationParameters` for parameter
+    ///        requirements.
+    function updateReservationParameters(
+        address reservationVault,
+        uint64 reservationMinAmount,
+        uint64 reservationTxMaxFee,
+        uint32 reservationTermSeconds,
+        uint32 reservationGracePeriod,
+        uint64 reservationMaxTotalAmount,
+        uint32 maxReservationsPerWallet
+    ) external onlyGovernance {
+        self.updateReservationParameters(
+            reservationVault,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            reservationTermSeconds,
+            reservationGracePeriod,
+            reservationMaxTotalAmount,
+            maxReservationsPerWallet
+        );
+    }
+
+    /// @notice Collection of all reservations indexed by the deposit key of
+    ///         the underlying reserved deposit, i.e.
+    ///         `keccak256(fundingTxHash | fundingOutputIndex)`.
+    /// @param reservationKey The key of the reservation.
+    function reservations(uint256 reservationKey)
+        external
+        view
+        returns (Reservation.ReservationRequest memory)
+    {
+        return self.reservations[reservationKey];
+    }
+
+    /// @notice Returns the current values of Bridge reservation parameters.
+    function reservationParameters()
+        external
+        view
+        returns (
+            address reservationVault,
+            uint64 reservationMinAmount,
+            uint64 reservationTxMaxFee,
+            uint32 reservationTermSeconds,
+            uint32 reservationGracePeriod,
+            uint64 reservationMaxTotalAmount,
+            uint64 reservationTotalAmount,
+            uint32 maxReservationsPerWallet
+        )
+    {
+        reservationVault = self.reservationVault;
+        reservationMinAmount = self.reservationMinAmount;
+        reservationTxMaxFee = self.reservationTxMaxFee;
+        reservationTermSeconds = self.reservationTermSeconds;
+        reservationGracePeriod = self.reservationGracePeriod;
+        reservationMaxTotalAmount = self.reservationMaxTotalAmount;
+        reservationTotalAmount = self.reservationTotalAmount;
+        maxReservationsPerWallet = self.maxReservationsPerWallet;
     }
 }
