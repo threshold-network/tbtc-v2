@@ -446,6 +446,22 @@ contract WalletProposalValidator {
                 depositExtraInfo
             );
 
+            // Defence-in-depth: confirm the deposit's x-only wallet key
+            // matches the actual on-chain walletID for the proposal's
+            // walletPubKeyHash. Without this, `validateTaprootDepositExtraInfo`
+            // only verifies internal consistency of the supplied fields
+            // (the x-only key is consistently derived from the
+            // pubKeyHash). A FROST registration always writes
+            // `walletIDByWalletPubKeyHash[pubKeyHash] = xOnlyKey`; an
+            // ECDSA wallet has no mapping entry and `walletID()` falls
+            // back to the legacy padded PKH, so this check rejects
+            // Taproot sweeps against ECDSA wallets too.
+            require(
+                bridge.walletID(depositExtraInfo.walletPubKeyHash) ==
+                    depositExtraInfo.walletXOnlyPublicKey,
+                "Wallet x-only key not registered"
+            );
+
             uint32 depositRefundableTimestamp = BTCUtils.reverseUint32(
                 uint32(depositExtraInfo.refundLocktime)
             );

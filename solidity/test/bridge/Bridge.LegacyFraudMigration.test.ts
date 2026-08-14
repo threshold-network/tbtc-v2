@@ -454,6 +454,69 @@ describe("Bridge - legacy fraud challenge migration", () => {
     })
   }
 
+  it("defeats a migrated legacy ECDSA challenge end-to-end after migrateLegacyFraudChallenges", async () => {
+    // The previous tests proved the migrated *record* matches the legacy
+    // shape field-by-field. This test proves the migrated record is genuinely
+    // consumable by EcdsaFraudRouter: a reportedAt on the wrong epoch base,
+    // or any field the defeat path cannot consume, would pass a struct-field
+    // assertion while still reverting inside defeatFraudChallenge. We seed
+    // a legacy challenge whose sighash matches the non-witness single-input
+    // fraud fixture, mark the corresponding moved-funds sweep request as
+    // Processed (so defeat finds the spent UTXO), migrate, then drive
+    // defeat through EcdsaFraudRouter and assert the resolved flag flips
+    // and FraudChallengeDefeated fires.
+    const data = nonWitnessSignSingleInputTx
+    const key = ethers.BigNumber.from(
+      ethers.utils.solidityKeccak256(
+        ["bytes", "bytes32"],
+        [fraudWallet.publicKey, data.sighash]
+      )
+    )
+    const depositAmount = ethers.utils.parseEther("0.4")
+    await seedChallenge(key, depositAmount)
+
+    // defeatFraudChallenge consumes the preimage and looks up the spent UTXO
+    // on Bridge; for a non-witness preimage it accepts a Processed moved-funds
+    // sweep request as the honestly-spent counterpart.
+    await bridge.setProcessedMovedFundsSweepRequests(
+      data.movedFundsSweepRequests.map((request) => ({
+        txHash: request.txHash,
+        txOutputIndex: request.txOutputIndex,
+        txOutputValue: request.txOutputValue,
+      }))
+    )
+
+    await bridgeGovernance
+      .connect(governance)
+      .migrateLegacyFraudChallenges(0, [key])
+
+    const migrated = await ecdsaFraudRouter.fraudChallenges(key)
+    expect(migrated.resolved).to.equal(false)
+
+    const tx = await ecdsaFraudRouter
+      .connect(thirdParty)
+      .defeatFraudChallenge(
+        fraudWallet.publicKey,
+        data.preimage,
+        data.witness
+      )
+
+    await expect(tx)
+      .to.emit(ecdsaFraudRouter, "FraudChallengeDefeated")
+      .withArgs(fraudWallet.pubKeyHash160, data.sighash)
+
+    const resolved = await ecdsaFraudRouter.fraudChallenges(key)
+    expect(resolved.resolved).to.equal(true)
+    expect(resolved.challenger).to.equal(thirdParty.address)
+    expect(resolved.depositAmount).to.equal(depositAmount)
+    expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
+    expect(
+      await ecdsaFraudRouter.hasOpenFraudChallengeForWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(false)
+  })
+
   it("keeps production BOUNDED_V1 migration dormant", async () => {
     const factory = await ethers.getContractFactory(
       "P2TRSignatureFraudRouter",

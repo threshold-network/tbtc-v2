@@ -4,9 +4,15 @@ pragma solidity 0.8.17;
 
 /// @title Check Bitcoin BIP-340 Signatures
 /// @notice Verifies Bitcoin Schnorr signatures according to BIP-340.
-/// @dev This verifier is intentionally not wired into Bridge fraud entrypoints
-///      yet. It exists as a correctness and gas-measurement seed for the P2TR
-///      signature-fraud production path.
+/// @dev Used in production by `P2TRSignatureFraudRouter` (via
+///      `CheckBitcoinP2TRSignatureFraud.checkSignature` on the
+///      `_submit` action path) and `Deposit.deriveTaprootDepositOutputKey`
+///      (which calls `liftX` on the live Taproot deposit reveal path).
+///      The router is wired into Bridge via `setP2TRFraudRouter`; the
+///      production *activation* of the P2TR signature-fraud challenge
+///      per `docs/test-vectors/p2tr-signature-fraud-spend-type-closure.json`
+///      is still `draft-no-go`. Treat the library as a live, reachable
+///      dependency.
 library CheckBitcoinBIP340Sigs {
     struct Point {
         uint256 x;
@@ -122,6 +128,21 @@ library CheckBitcoinBIP340Sigs {
         if (!challengePointComputed) {
             return false;
         }
+        // Shamir's trick opportunity: the textbook BIP-340 check is
+        // `s*G - e*P`, and this code computes it as two independent
+        // scalarMuls (`s*G` and `-e*P`) plus one pointAdd. Combining
+        // them into a single double-scalar multiplication over a
+        // precomputed `{O, G, publicKey, G+publicKey}` table would
+        // collapse the work to roughly one scalar-mult's doublings
+        // instead of two. The optimization is correctness-neutral
+        // and not required by the custody contract today; it is
+        // deferred because (a) the in-repo EC arithmetic is on the
+        // gas-bounded same hot path that already drives the 128
+        // in/out cap, and (b) Shamir's trick here needs a careful
+        // Jacobian/affine transition to keep the parity comparison
+        // on the canonical affine y coordinate, which is the
+        // property this file's checkSig relies on below. Re-evaluate
+        // when the gas ceiling of the P2TR fraud path is raised.
 
         // Both addends are already affine from scalarMul, and we only need
         // R.x to compare against nonceXUint, so the final reconstruction stays

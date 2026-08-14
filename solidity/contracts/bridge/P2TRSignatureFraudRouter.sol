@@ -9,47 +9,21 @@ import "./Fraud.sol";
 import "./P2TRSignatureFraud.sol";
 import "./P2TRFraudEvidenceProtocol.sol";
 import "./Wallets.sol";
+import "./IBridgeFraudViews.sol";
 
 /// @notice State the P2TR fraud router needs to read from Bridge while
 ///         processing P2TR signature-fraud lifecycle actions, plus the
-///         one privileged callback used for slashing on timeout.
-///
-/// @dev This interface intentionally mirrors `IBridgeForFraud` declared
-///      in `EcdsaFraudRouter.sol`, with a separate callback name
-///      (`slashWalletForP2TRFraud`) so Bridge can gate the two paths
-///      independently via separate modifiers.
-interface IBridgeForP2TRFraud {
-    function wallets(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.Wallet memory);
-
-    function walletPubKeyHashForWalletID(bytes32 walletId)
-        external
-        view
-        returns (bytes20);
-
-    function fraudParameters()
-        external
-        view
-        returns (
-            uint96 fraudChallengeDepositAmount,
-            uint32 fraudChallengeDefeatTimeout,
-            uint96 fraudSlashingAmount,
-            uint32 fraudNotifierRewardMultiplier
-        );
-
-    function treasury() external view returns (address);
-
+///         one privileged callback used for slashing on timeout. The
+///         shared read-only getters used by both fraud router sidecars
+///         are declared on `IBridgeFraudViews`; this interface extends
+///         that with the P2TR-specific helpers and the privileged
+///         slash callback (`slashWalletForP2TRFraud`) so Bridge can
+///         gate the two paths independently via separate modifiers.
+interface IBridgeForP2TRFraud is IBridgeFraudViews {
     function taprootDepositOutputKeyCommitment(uint256 depositKey)
         external
         view
         returns (bytes32);
-
-    function legacyFraudChallengeExists(uint256 challengeKey)
-        external
-        view
-        returns (bool);
 
     function processP2TRWalletLifecycle(bytes calldata payload)
         external
@@ -206,6 +180,16 @@ contract P2TRSignatureFraudRouter {
         uint256 depositAmount
     );
 
+    /// @notice Emitted when `resolveUnattributedChallenge` closes a
+    ///         migrated challenge that never resolved to a specific
+    ///         wallet, decrementing the unattributed-challenge counter
+    ///         and best-effort refunding the original challenger.
+    event P2TRUnattributedFraudChallengeResolved(
+        uint256 indexed challengeKey,
+        address indexed challenger,
+        uint256 refundAmount
+    );
+
     constructor(address _bridge) {
         require(_bridge != address(0), "Bridge address cannot be zero");
         bridge = _bridge;
@@ -260,6 +244,66 @@ contract P2TRSignatureFraudRouter {
         require(msg.value == totalDeposit, "msg.value != total deposit");
     }
 
+    /// @notice Governance-only escape hatch for legacy migrated challenges
+    ///         that arrived via `acceptMigration` without a wallet
+    ///         attribution. The migrated challenges increment
+    ///         `unattributedOpenFraudChallengeCount`, which makes
+    ///         `hasOpenFraudChallengeForWallet` return true for every
+    ///         wallet and blocks graceful closure indefinitely. A
+    ///         governance-controlled call marks the migrated record
+    ///         resolved, decrements the unattributed counter, refunds
+    ///         the original challenger, and clears the graceful-closure
+    ///         lock.
+    /// @dev Only callable by `bridge` (Timelock/Council on mainnet).
+    ///      Use the exact `challengeKey` reported by
+    ///      `P2TRFraudChallengeMigratedFromBridge` and the original
+    ///      challenger address. The refund is intentionally a
+    ///      best-effort low-level call; a reverting challenger
+    ///      fallback self-griefs the refund but does not block the
+    ///      counter decrement.
+    function resolveUnattributedChallenge(
+        uint256 challengeKey,
+        address refundTo
+    ) external {
+        require(msg.sender == bridge, "Caller is not Bridge");
+        Fraud.FraudChallenge storage challenge = fraudChallenges[challengeKey];
+        require(challenge.reportedAt > 0, "Challenge not migrated");
+        require(!challenge.resolved, "Challenge already resolved");
+
+        // The challenge must be unattributed before decrementing the
+        // shared counter. Per-wallet attribution is expressed by
+        // `openFraudChallengeCountByWallet`; a zero entry combined
+        // with a non-zero `unattributedOpenFraudChallengeCount` is
+        // the only legitimate state for this escape hatch.
+        require(
+            unattributedOpenFraudChallengeCount > 0,
+            "No unattributed challenge"
+        );
+
+        challenge.resolved = true;
+        if (openFraudChallengeCount > 0) {
+            openFraudChallengeCount--;
+        }
+        unattributedOpenFraudChallengeCount--;
+
+        // Best-effort refund to the original challenger. A failed
+        // refund does not re-open the challenge or roll back the
+        // counter decrement.
+        if (refundTo != address(0) && challenge.depositAmount > 0) {
+            /* solhint-disable avoid-low-level-calls */
+            // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
+            (bool ok, ) = refundTo.call{value: challenge.depositAmount}("");
+            /* solhint-enable avoid-low-level-calls */
+            ok; // explicitly silenced
+        }
+
+        emit P2TRUnattributedFraudChallengeResolved(
+            challengeKey,
+            challenge.challenger,
+            challenge.depositAmount
+        );
+    }
+
     /// @notice Returns whether graceful closure of the given wallet must wait
     ///         for an unresolved local or unattributed migrated challenge.
     function hasOpenFraudChallengeForWallet(bytes20 walletPubKeyHash)
@@ -309,6 +353,20 @@ contract P2TRSignatureFraudRouter {
             revert("Unknown P2TR fraud action");
         }
     }
+
+    // MEV-shape note: `_submit` is a plain public transaction whose
+    // calldata fully identifies the BIP-341 challenge, so a searcher
+    // could observe and copy it in the mempool before inclusion. This
+    // mirrors the pre-existing ECDSA fraud submission shape in
+    // `EcdsaFraudRouter` and is acceptable today because there is no
+    // reward to capture on a P2TR timeout (seizure is event-only
+    // until `IFrostAuthorizationSource` is backed by slashable
+    // collateral). A commit-reveal submission (commit to
+    // `keccak256(payload)` first, reveal payload in a second tx
+    // after a short delay) would harden challenger attribution and
+    // can be layered on top without touching this function's
+    // signature when the eventual reward design makes MEV
+    // resistance worth the extra tx per challenger.
 
     function _submit(
         CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload
@@ -379,12 +437,28 @@ contract P2TRSignatureFraudRouter {
 
     function _defeat(
         CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload memory
+        payload
     ) internal {
         // BOUNDED_V1 cannot prove that an accepted Bitcoin authorization is
         // identical to the challenged BIP-341 authorization. A Bitcoin txid
         // does not commit witness/annex data or the prevout values and scripts
         // used by the sighash. Keep defeat fail-closed until COMPLETE_V2
         // supplies authenticated, authorization-complete evidence.
+        //
+        // Mirror the ECDSA custody model: once COMPLETE_V2 evidence is
+        // available, defeat requires the signature to commit to either
+        // SIGHASH_DEFAULT (implicit) or SIGHASH_ALL (explicit) — any other
+        // type is a non-default signing policy that the wallet cannot honor
+        // under the custody contract and must be permanently undefeatable.
+        (, uint8 sighashType) = P2TRSignatureFraud.parseWitnessSignature(
+            payload.witnessSignature
+        );
+        require(
+            sighashType == P2TRSignatureFraud.SighashDefault ||
+                sighashType == P2TRSignatureFraud.SighashAll,
+            "Wrong sighash type"
+        );
+
         revert P2TRFraudEvidenceProtocol.P2TRFraudEvidenceUnavailable();
     }
 
@@ -412,19 +486,32 @@ contract P2TRSignatureFraudRouter {
             block.timestamp >= challenge.reportedAt + defeatTimeout,
             "Fraud challenge defeat period did not time out yet"
         );
-
         challenge.resolved = true;
 
         // The return value is intentionally ignored: a reverting
         // challenger fallback self-griefs the refund but must not block
         // the fraud timeout slashing path.
-        /* solhint-disable avoid-low-level-calls */
+        //
+        // P2TR fraud timeouts intentionally pay the challenger back
+        // only their `challenge.depositAmount` escrow and do not
+        // transfer a separate notifier bounty. The matching FROST
+        // slash callback in Bridge (slashing route -> router.seize ->
+        // FrostAllowlist.reportMaliciousBehavior) emits
+        // `MaliciousBehaviorIdentified` for DAO-managed operator
+        // enforcement but has no economic effect today: `IFrost
+        // AuthorizationSource` operators hold no slashable collateral,
+        // so seizure is event-only and rewarding a notifier from it
+        // would silently move unbacked value. A bounty can be wired in
+        // here (a fixed amount or a multiple of
+        // `fraudChallengeDepositAmount`) once FROST authorization is
+        // backed by slashable collateral; until then the challenger
+        // retains their original deposit as their compensation.
+        /* solhint-disable-next-line avoid-low-level-calls */
         // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         challenge.challenger.call{gas: 100000, value: challenge.depositAmount}(
             ""
         );
         /* solhint-enable avoid-low-level-calls */
-
         b.processP2TRWalletLifecycle(
             abi.encode(
                 uint8(2),
@@ -456,6 +543,13 @@ contract P2TRSignatureFraudRouter {
         walletPubKeyHash = _resolveWalletPubKeyHash(b, walletId);
 
         Wallets.Wallet memory wallet = b.wallets(walletPubKeyHash);
+        // Defence in depth: a legacy ECDSA wallet carries a non-zero
+        // `ecdsaWalletID` field, while a FROST wallet leaves it at zero.
+        // Forging a BIP-340 signature under an ECDSA wallet's aliased
+        // ID is computationally infeasible, so this is purely a
+        // clearer failure semantic mirroring EcdsaFraudRouter's
+        // `Legacy ECDSA wallet required` guard at :294-298.
+        require(wallet.ecdsaWalletID == bytes32(0), "Not a FROST wallet");
         require(
             wallet.state == Wallets.WalletState.Live ||
                 wallet.state == Wallets.WalletState.MovingFunds ||
