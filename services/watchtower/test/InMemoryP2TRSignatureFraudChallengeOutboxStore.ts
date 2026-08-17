@@ -72,6 +72,20 @@ const hexByteLength = (value: Hex | string): number => {
   return (rendered.startsWith("0x") ? rendered.length - 2 : rendered.length) / 2
 }
 
+/**
+ * Mirrors the durable adapter's `status NOT IN (...)` exclusion clause in
+ * `invalidateCanonicalProvenance`. Any record whose status is in this set or
+ * which already carries `provenanceInvalidationEvidence` is a no-op for a
+ * second or late invalidation, exactly as the `provenance_invalidation_id
+ * IS NULL AND status NOT IN (...)` predicate would behave against Postgres.
+ */
+const INVALIDATED_PROVENANCE_EXCLUDED_STATUSES = [
+  "cancelled-before-broadcast",
+  "cancelled-honest-spend",
+  "cancelled-reorg",
+  "cancelled-provenance-invalidated",
+] as const
+
 export const normalizeOwner = (value: string): string => {
   const normalized = value.trim()
   if (
@@ -783,8 +797,18 @@ export class InMemoryOutboxStore
     const key = normalizeKey(recordID)
     const durable = this.records.get(key)
     if (durable === undefined) return false
-    // The same predicate the database trigger enforces. A caller must never be
-    // able to retire an incident for a boundary that may have escaped.
+    // The PostgreSQL adapter runs the version CAS first and only inserts the
+    // retirement row on a confirmed match, mirroring the durable adapter. A
+    // lost CAS on this path used to throw inside the dispatcher's retry loop
+    // and abort the whole resolution, while the durable adapter returns
+    // `false` and lets the caller reload the cleared record. The barrier-
+    // clearing swap must therefore evaluate the version before any predicate
+    // that could throw.
+    if (!(await this.compareAndSwap(recordID, expectedVersion, next))) {
+      return false
+    }
+    // The same predicate the database trigger enforces. A caller must never
+    // be able to retire an incident for a boundary that may have escaped.
     if (
       durable.signerInvocationStartedAtUnixMs !== undefined ||
       (durable.preparedTransactionVariants?.length ?? 0) > 0 ||
@@ -806,9 +830,6 @@ export class InMemoryOutboxStore
       throw new Error(
         "provenance incident resolution does not name the durable boundary"
       )
-    }
-    if (!(await this.compareAndSwap(recordID, expectedVersion, next))) {
-      return false
     }
     this.retiredProvenanceIncidents.push({
       recordID: next.recordID,
@@ -1124,6 +1145,19 @@ export class InMemoryOutboxStore
           normalizeKey(evidence.candidateDigest) ||
         current.canonicalProvenance.candidateProvenanceGeneration !==
           evidence.candidateProvenanceGeneration
+      ) {
+        continue
+      }
+      // Mirrors the durable adapter's WHERE clause: a second or late
+      // invalidation of an already-resolved or already-cancelled record is a
+      // silent no-op against real Postgres. Without this guard the double
+      // would reprocess the record, bump `version`, overwrite
+      // `lastError`/`updatedAtUnixMs`/`provenanceInvalidationEvidence`, and
+      // re-emit a `provenance-reconciliation-incident` alert the durable
+      // adapter would refuse to raise.
+      if (
+        current.provenanceInvalidationEvidence !== undefined ||
+        INVALIDATED_PROVENANCE_EXCLUDED_STATUSES.includes(current.status)
       ) {
         continue
       }

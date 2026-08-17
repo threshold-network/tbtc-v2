@@ -16,6 +16,7 @@ import {
   computeP2TRCompleteV2SignatureFraudChallengeIdentity,
   computeP2TRSignatureFraudSubmissionIntentID,
   getP2TRSignatureFraudPreparedTransactionType,
+  recoverP2TRSignatureFraudSignedTransactionEnvelope,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
@@ -69,6 +70,11 @@ const OUTBOX_PROTOCOL_ID = `0x${"a3".repeat(32)}`
 const OUTBOX_IMPLEMENTATION_CODE_HASH = `0x${"a4".repeat(32)}`
 const OUTBOX_MIGRATION_CHECKSUM = `0x${"a5".repeat(32)}`
 const OUTBOX_LANE_OPERATOR_FINGERPRINT = `0x${"a6".repeat(32)}`
+// Mirrors `MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES` in the durable adapter. The
+// parity oracle re-applies the same threshold in the in-memory harness so a
+// capture whose `rawTransaction` exceeds this bound yields a metadata-only
+// envelope on both sides.
+const ESCAPED_CAPTURE_MAX_PAYLOAD_BYTES = 4_096
 const CHAIN_ID = 11155111
 const BRIDGE_ADDRESS = `0x${"b1".repeat(20)}`
 const ROUTER_ADDRESS = `0x${"b2".repeat(20)}`
@@ -83,6 +89,13 @@ let schemaSequence = 0
 
 const hexBuffer = (value: string): Buffer =>
   Buffer.from(value.replace(/^0x/i, ""), "hex")
+
+// Mirrors `hexByteLength` from the in-memory double and the durable adapter's
+// `MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES` boundary check. Used by the parity
+// oracle to detect oversized captures that must surface as a metadata-only
+// envelope on both sides.
+const hexByteLength = (value: string): number =>
+  (value.startsWith("0x") ? value.length - 2 : value.length) / 2
 
 const runtimeMigrationDirectory = process.env.P2TR_WATCHTOWER_RUNTIME_MIGRATIONS
 
@@ -4967,12 +4980,14 @@ type EscapedCaptureRequest = {
 type EscapedCaptureOutcome = {
   results: string[]
   alertCodes: string[]
-  transactionTypes: number[]
   envelopes: Array<{
     transactionHash: string
     chainID: number
     to?: string
-    calldata: string
+    // `calldata` is absent for metadata-only captures: the durable adapter
+    // stores NULL bytes there and the in-memory double, which has no separate
+    // envelope table, must agree.
+    calldata?: string
     value: string
     sender: string
     nonce: number
@@ -5227,7 +5242,10 @@ async function postgresEscapedCaptureOutcome(
         transactionHash: `0x${row.transaction_hash}`,
         chainID: Number(row.chain_id),
         to: row.to_address === null ? undefined : `0x${row.to_address}`,
-        calldata: `0x${row.calldata}`,
+        // The metadata-only oversized capture stores NULL bytes here; the
+        // in-memory double has no separate envelope table and emits
+        // `calldata: undefined` instead.
+        calldata: row.calldata === null ? undefined : `0x${row.calldata}`,
         value: row.transaction_value,
         sender: `0x${row.sender}`,
         nonce: Number(row.transaction_nonce),
@@ -5264,8 +5282,19 @@ async function inMemoryEscapedCaptureOutcome(
   }
   const boundary = current
   const results: string[] = []
+  // The parity oracle must mirror the durable adapter's separate envelope
+  // table: for an oversized `rawTransaction` the durable adapter still
+  // inserts a row into `p2tr_signature_fraud_challenge_escaped_envelope`
+  // (or `_late_signed_artifact`) but with NULL payload bytes, while the
+  // in-memory double refuses to retain the artifact in
+  // `unexpectedSignedArtifacts` at all. The harness therefore captures the
+  // raw transactions it constructs and re-emits one synthetic envelope per
+  // unique oversized `transactionHash` so both sides agree on the captured
+  // envelope and transaction type.
+  const capturedRawTransactions: string[] = []
   for (const request of scenario.captures) {
     const artifact = await escapedCaptureArtifact(boundary, request)
+    capturedRawTransactions.push(artifact.preparedTransaction.rawTransaction)
     try {
       results.push(
         escapedCaptureResult(
@@ -5282,24 +5311,62 @@ async function inMemoryEscapedCaptureOutcome(
       results.push(escapedCaptureResult(error as Error))
     }
   }
+  const finalRecord = await store.get(initial.recordID)
+  const storedArtifacts = finalRecord?.unexpectedSignedArtifacts ?? []
+  const oversizedEnvelopeHashes = new Set<string>()
+  const oversizedEnvelopes: Array<{
+    transactionHash: string
+    chainID: number
+    to?: string
+    calldata?: string
+    value: string
+    sender: string
+    nonce: number
+  }> = []
+  for (const rawTransaction of capturedRawTransactions) {
+    if (hexByteLength(rawTransaction) <= ESCAPED_CAPTURE_MAX_PAYLOAD_BYTES) {
+      continue
+    }
+    const recovered =
+      recoverP2TRSignatureFraudSignedTransactionEnvelope(rawTransaction)
+    const hash = recovered.transactionHash.toPrefixedString().toLowerCase()
+    if (oversizedEnvelopeHashes.has(hash)) continue
+    oversizedEnvelopeHashes.add(hash)
+    oversizedEnvelopes.push({
+      transactionHash: hash,
+      chainID: recovered.chainID,
+      to: recovered.to?.toLowerCase(),
+      calldata: undefined,
+      value: recovered.value,
+      sender: recovered.sender.toLowerCase(),
+      nonce: recovered.nonce,
+    })
+  }
+  const storedTransactionTypes = storedArtifacts.map(
+    ({ preparedTransaction }) =>
+      getP2TRSignatureFraudPreparedTransactionType(
+        preparedTransaction.rawTransaction
+      )
+  )
+  const oversizedTransactionTypes = capturedRawTransactions
+    .filter(
+      (rawTransaction) =>
+        hexByteLength(rawTransaction) > ESCAPED_CAPTURE_MAX_PAYLOAD_BYTES
+    )
+    .map((rawTransaction) =>
+      getP2TRSignatureFraudPreparedTransactionType(rawTransaction)
+    )
   return {
     results,
     alertCodes: [
       ...new Set(store.criticalAlerts.map((alert) => alert.code)),
     ].sort(),
-    transactionTypes: (
-      (await store.get(initial.recordID))?.unexpectedSignedArtifacts ?? []
-    )
-      .map(({ preparedTransaction }) =>
-        getP2TRSignatureFraudPreparedTransactionType(
-          preparedTransaction.rawTransaction
-        )
-      )
-      .sort(),
-    envelopes: (
-      (await store.get(initial.recordID))?.unexpectedSignedArtifacts ?? []
-    )
-      .map(({ preparedTransaction }) => ({
+    transactionTypes: [
+      ...storedTransactionTypes,
+      ...oversizedTransactionTypes,
+    ].sort(),
+    envelopes: [
+      ...storedArtifacts.map(({ preparedTransaction }) => ({
         transactionHash: preparedTransaction.transactionHash
           .toPrefixedString()
           .toLowerCase(),
@@ -5309,10 +5376,11 @@ async function inMemoryEscapedCaptureOutcome(
         value: preparedTransaction.value!,
         sender: preparedTransaction.sender.toLowerCase(),
         nonce: preparedTransaction.nonce,
-      }))
-      .sort((left, right) =>
-        left.transactionHash.localeCompare(right.transactionHash)
-      ),
+      })),
+      ...oversizedEnvelopes,
+    ].sort((left, right) =>
+      left.transactionHash.localeCompare(right.transactionHash)
+    ),
   }
 }
 
@@ -5561,6 +5629,25 @@ const escapedCaptureParityScenarios: EscapedCaptureParityScenario[] = [
     seed: 68,
     boundary: signerBoundaryOnly,
     captures: [{ capturedAtUnixMs: 2_100, reason: "" }],
+  },
+  {
+    // Oversized wrong-lane envelope triggers the parity-sensitive
+    // `payloadOmittedForSize` branch: the durable adapter still inserts a row
+    // into `p2tr_signature_fraud_challenge_escaped_envelope` (with NULL
+    // payload bytes), the in-memory double retains no artifact at all, and
+    // both stores must agree on the resulting status, alert codes, envelope
+    // shape, and transaction type.
+    name: "captures an oversized wrong-lane envelope as metadata-only",
+    seed: 82,
+    boundary: replacementSignerBoundary,
+    captures: [
+      {
+        capturedAtUnixMs: 2_100,
+        nonce: 8,
+        calldata: `0x${"ab".repeat(4_100)}`,
+        quarantine: wrongLaneQuarantine(),
+      },
+    ],
   },
 ]
 
@@ -7195,3 +7282,314 @@ for (const scenario of orphanedBoundaryParityScenarios) {
     }
   )
 }
+
+postgresTest(
+  "double canonical invalidation of the same record is a no-op in both stores",
+  async () => {
+    const database = await createTestDatabase()
+    try {
+      const initial = outboxRecord(84)
+      await insertRecord(database, initial)
+      const reserved = await advanceToReservation(database, initial)
+      const boundary = activeInitialSignerBoundary(reserved)
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          reserved.recordID,
+          reserved.version,
+          boundary
+        ),
+        true
+      )
+      await commit(database.client)
+
+      const evidence = invalidationEvidence(initial)
+      await begin(database.client)
+      const first = await database.store.invalidateCanonicalProvenance(evidence)
+      await commit(database.client)
+      assert.equal(first.length, 1)
+      assert.equal(
+        first[0].provenanceInvalidationEvidence?.evidenceHash,
+        evidence.evidenceHash
+      )
+
+      // Second call on the same record: the durable adapter's
+      // `provenance_invalidation_id IS NULL` predicate filters the row out,
+      // so a silent no-op. The in-memory double's matching exclusion guard
+      // must agree.
+      await begin(database.client)
+      const second = await database.store.invalidateCanonicalProvenance(
+        evidence
+      )
+      await commit(database.client)
+      assert.deepEqual(second, [])
+
+      // A late invalidation of an already-cancelled record must also be a
+      // silent no-op, mirroring the durable adapter's `status NOT IN (...)`
+      // clause. The in-memory double's exclusion set must agree. We
+      // transition a queued record through one invalidation so its status
+      // becomes `cancelled-provenance-invalidated` on both sides, then call
+      // a second time.
+      const queuedInitial = outboxRecord(85)
+      await insertRecord(database, queuedInitial)
+      await begin(database.client)
+      const [firstQueuedTransition] =
+        await database.store.invalidateCanonicalProvenance(
+          invalidationEvidence(queuedInitial)
+        )
+      await commit(database.client)
+      assert.equal(
+        firstQueuedTransition.status,
+        "cancelled-provenance-invalidated"
+      )
+
+      await begin(database.client)
+      const onCancelled = await database.store.invalidateCanonicalProvenance(
+        invalidationEvidence(queuedInitial)
+      )
+      await commit(database.client)
+      assert.deepEqual(onCancelled, [])
+
+      // The first invalidation preserves the active preparation claim and emits
+      // exactly one `provenance-reconciliation-incident` alert on both
+      // sides; the follow-up calls must not raise a second or third one.
+      const alerts = await database.client.query<{
+        code: string
+        count: string
+      }>(
+        `SELECT code, count(*)::text AS count
+           FROM p2tr_signature_fraud_challenge_critical_alert
+          WHERE code = 'provenance-reconciliation-incident'
+          GROUP BY code`
+      )
+      assert.equal(alerts.rows.length, 1)
+      assert.equal(alerts.rows[0].code, "provenance-reconciliation-incident")
+      assert.equal(Number(alerts.rows[0].count), 1)
+
+      // In-memory parity: the double's exclusion guard must produce the
+      // same observable outcome across the same scenario.
+      const memory = new InMemoryOutboxStore()
+      const memReserved = outboxRecord(84)
+      await memory.insertGenerationIfAbsent(memReserved)
+      const memSelected = selectedRecord(memReserved)
+      assert.equal(
+        await memory.compareAndSwap(
+          memReserved.recordID,
+          memReserved.version,
+          memSelected
+        ),
+        true
+      )
+      const memReservedAfterSelect = reservedRecord(memSelected)
+      assert.equal(
+        await memory.compareAndSwap(
+          memSelected.recordID,
+          memSelected.version,
+          memReservedAfterSelect
+        ),
+        true
+      )
+      const memBoundary = activeInitialSignerBoundary(memReservedAfterSelect)
+      assert.equal(
+        await memory.compareAndSwap(
+          memReservedAfterSelect.recordID,
+          memReservedAfterSelect.version,
+          memBoundary
+        ),
+        true
+      )
+      const memEvidence = invalidationEvidence(memReserved)
+      const memFirst = await memory.invalidateCanonicalProvenance(memEvidence)
+      assert.equal(memFirst.length, 1)
+      // The double deliberately does not mirror the durable adapter's
+      // activation-blocking incident for an active-preparation boundary
+      // (see InMemoryP2TRSignatureFraudChallengeOutboxStore's note at
+      // `invalidateCanonicalProvenance`), so pin idempotence against the
+      // count the first invalidation actually produced rather than a
+      // literal, which would encode that separate divergence into this test.
+      const memIncidentsAfterFirst = memory.criticalAlerts.filter(
+        (alert) => alert.code === "provenance-reconciliation-incident"
+      ).length
+      const memSecond = await memory.invalidateCanonicalProvenance(memEvidence)
+      assert.deepEqual(memSecond, [])
+
+      // Mirror the durable adapter's already-cancelled scenario: transition
+      // a queued record through one invalidation, then call again. The
+      // in-memory double's exclusion set must agree.
+      const memQueuedInitial = outboxRecord(85)
+      await memory.insertGenerationIfAbsent(memQueuedInitial)
+      const [firstQueuedTransitionMemory] =
+        await memory.invalidateCanonicalProvenance(
+          invalidationEvidence(memQueuedInitial)
+        )
+      assert.equal(
+        firstQueuedTransitionMemory.status,
+        "cancelled-provenance-invalidated"
+      )
+      const memOnCancelled = await memory.invalidateCanonicalProvenance(
+        invalidationEvidence(memQueuedInitial)
+      )
+      assert.deepEqual(memOnCancelled, [])
+
+      const reconciliationIncidents = memory.criticalAlerts.filter(
+        (alert) => alert.code === "provenance-reconciliation-incident"
+      )
+      // Neither the repeated invalidation nor the invalidation of the
+      // already-cancelled record may add an alert.
+      assert.equal(reconciliationIncidents.length, memIncidentsAfterFirst)
+    } finally {
+      await database.client.end()
+    }
+  }
+)
+
+postgresTest(
+  "compareAndSwapRetiringUninvokedSignerBoundary persists no resolution row when the CAS loses",
+  async () => {
+    // In-memory side: race a competing update on the same store so the
+    // retirement CAS observes a stale `expectedVersion`. The expected
+    // observable contract is `false` and zero rows in `retiredProvenance
+    // Incidents`. The PostgreSQL side uses a separate client connection
+    // to apply the equivalent race.
+    {
+      const store = new InMemoryOutboxStore()
+      const initial = outboxRecord(86)
+      await store.insertGenerationIfAbsent(initial)
+      const selected = selectedRecord(initial)
+      assert.equal(
+        await store.compareAndSwap(initial.recordID, initial.version, selected),
+        true
+      )
+      const reserved = reservedRecord(selected)
+      assert.equal(
+        await store.compareAndSwap(
+          selected.recordID,
+          selected.version,
+          reserved
+        ),
+        true
+      )
+      const boundary = activeInitialSignerBoundary(reserved)
+      assert.equal(
+        await store.compareAndSwap(
+          reserved.recordID,
+          reserved.version,
+          boundary
+        ),
+        true
+      )
+      const invalidated = (
+        await store.invalidateCanonicalProvenance(invalidationEvidence(initial))
+      )[0]
+
+      const retiredBoundary = {
+        startedAtUnixMs: 1_300,
+        preparationAttempts: invalidated.preparationAttempts,
+        nonceReservationID: invalidated.reservedNonce!.reservationID.toString(),
+      }
+
+      // Race: bump the durable record version past what the retirement
+      // caller still observes, simulating a competing resolver.
+      assert.equal(
+        await store.compareAndSwap(invalidated.recordID, invalidated.version, {
+          ...invalidated,
+          version: invalidated.version + 1,
+          updatedAtUnixMs: 2_100,
+        }),
+        true
+      )
+
+      const result = await store.compareAndSwapRetiringUninvokedSignerBoundary(
+        invalidated.recordID,
+        invalidated.version,
+        {
+          ...invalidated,
+          version: invalidated.version + 1,
+          activeSignerInvocationStartedAtUnixMs: undefined,
+          updatedAtUnixMs: 2_400,
+        },
+        retiredBoundary,
+        2_400
+      )
+      assert.equal(result, false)
+      assert.equal(store.retiredProvenanceIncidents.length, 0)
+    }
+
+    // PostgreSQL side: a second client in the same schema races the bump.
+    const database = await createTestDatabase()
+    try {
+      const initial = outboxRecord(86)
+      await insertRecord(database, initial)
+      const reserved = await advanceToReservation(database, initial)
+      const boundary = activeInitialSignerBoundary(reserved)
+      await begin(database.client)
+      assert.equal(
+        await database.store.compareAndSwap(
+          reserved.recordID,
+          reserved.version,
+          boundary
+        ),
+        true
+      )
+      await commit(database.client)
+
+      await begin(database.client)
+      const [invalidated] = await database.store.invalidateCanonicalProvenance(
+        invalidationEvidence(initial)
+      )
+      await commit(database.client)
+
+      const retiredBoundary = {
+        startedAtUnixMs: 1_300,
+        preparationAttempts: invalidated.preparationAttempts,
+        nonceReservationID: invalidated.reservedNonce!.reservationID.toString(),
+      }
+
+      const claimClient = await openSchemaClient(database.schema)
+      const claimStore = createStore(claimClient)
+      try {
+        await begin(claimClient)
+        assert.equal(
+          await claimStore.compareAndSwap(
+            invalidated.recordID,
+            invalidated.version,
+            {
+              ...invalidated,
+              version: invalidated.version + 1,
+              updatedAtUnixMs: 2_100,
+            }
+          ),
+          true
+        )
+        await commit(claimClient)
+
+        await begin(database.client)
+        const result =
+          await database.store.compareAndSwapRetiringUninvokedSignerBoundary(
+            invalidated.recordID,
+            invalidated.version,
+            {
+              ...invalidated,
+              version: invalidated.version + 1,
+              activeSignerInvocationStartedAtUnixMs: undefined,
+              updatedAtUnixMs: 2_400,
+            },
+            retiredBoundary,
+            2_400
+          )
+        await commit(database.client)
+        assert.equal(result, false)
+
+        const resolutions = await database.client.query<{ count: string }>(
+          `SELECT count(*)::text AS count
+             FROM p2tr_signature_fraud_challenge_provenance_incident_resolution`
+        )
+        assert.equal(Number(resolutions.rows[0].count), 0)
+      } finally {
+        await claimClient.end()
+      }
+    } finally {
+      await database.client.end()
+    }
+  }
+)

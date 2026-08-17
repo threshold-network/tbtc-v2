@@ -45,6 +45,11 @@ import {
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
+
+import {
+  normalizeAddress,
+  normalizeBytes32,
+} from "./P2TRDurableValueNormalization.js"
 import type { P2TRPostgresOutboxTransactionSession } from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
 import type { P2TRSignatureFraudWatchtowerTransactionCoordinator } from "./types.js"
 
@@ -223,6 +228,9 @@ type NonceReleaseRequestRow = {
   ambiguous: boolean
 }
 
+type NonceReleaseRequestHydratedRow = NonceReleaseRequestRow & {
+  outbox_record_state: unknown
+}
 const STORED_ROW_COLUMNS = `
   record_state, status, version, updated_at_unix_ms,
   preparation_attempts, broadcast_attempts, reconciliation_attempts,
@@ -263,6 +271,30 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       "Outbox broadcaster provider ID",
       128
     )
+    for (const [name, value] of [
+      ["assertTransactionSession", options.assertTransactionSession],
+      [
+        "lockAndAssertCurrentCanonicalProvenance",
+        options.lockAndAssertCurrentCanonicalProvenance,
+      ],
+      [
+        "lockAndAssertCanonicalProvenanceInvalidation",
+        options.lockAndAssertCanonicalProvenanceInvalidation,
+      ],
+      ["loadEligibilitySnapshot", options.loadEligibilitySnapshot],
+      [
+        "assertIndependentSignerBoundaryResolution",
+        options.assertIndependentSignerBoundaryResolution,
+      ],
+      [
+        "assertIndependentNonceReleaseResolution",
+        options.assertIndependentNonceReleaseResolution,
+      ],
+    ] as const) {
+      if (typeof value !== "function") {
+        throw new Error(`PostgreSQL outbox store requires callback ${name}`)
+      }
+    }
     this.p2trSignatureFraudWatchtowerTransactionalStoreID = options.storeID
   }
 
@@ -380,7 +412,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       return this.runInTransaction(() => this.insertGenerationIfAbsent(record))
     }
     this.assertSession()
-    assertCompactDurableOutboxRecord(record)
+    const serializedRecordState = assertCompactDurableOutboxRecord(record)
     const existing = await this.getByRecordOrSeriesGeneration(
       record.recordID,
       record.seriesID,
@@ -393,7 +425,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     )
     if (serializedExisting !== undefined) return serializedExisting
     const priorLinks = await this.loadPriorGenerationLinks(record)
-    const columns = outboxInsertColumns(record, priorLinks)
+    const columns = outboxInsertColumns(
+      record,
+      priorLinks,
+      serializedRecordState
+    )
     const inserted = await insertObject(
       this.options.session,
       "p2tr_signature_fraud_challenge_outbox",
@@ -607,7 +643,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       request.cursor === undefined
         ? undefined
         : bytes32(request.cursor, "Nonce-release page cursor")
-    const rows = await this.queryNonceReleaseRequests(
+    const rows = await this.queryPendingNonceReleaseRequestsWithOutbox(
       `NOT EXISTS (
           SELECT 1
             FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
@@ -618,10 +654,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       request.limit + 1
     )
     const pageRows = rows.slice(0, request.limit)
-    const requests: P2TRSignatureFraudNonceReleaseRequest[] = []
-    for (const row of pageRows) {
-      requests.push(await this.hydrateNonceReleaseRequest(row))
-    }
+    const requests: P2TRSignatureFraudNonceReleaseRequest[] = pageRows.map(
+      (row) => this.hydrateJoinedNonceReleaseRequest(row)
+    )
     return {
       requests,
       nextCursor:
@@ -2251,8 +2286,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         ? "Signer returned an oversized signed envelope; authenticated metadata was retained and the signer lane was quarantined"
         : current.lastError,
     }
-    assertCompactDurableOutboxRecord(next)
-    const updated = await this.updateMutableState(current, next)
+    const nextSerialized = assertCompactDurableOutboxRecord(next)
+    const updated = await this.updateMutableState(current, next, nextSerialized)
     if (!updated) throw new Error("Escaped artifact CAS unexpectedly failed")
     await this.persistDerivedCriticalAlerts(current, next)
     const expectedLaneArtifact =
@@ -2407,8 +2442,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         ),
         lastError: evidence.reason,
       }
-      assertCompactDurableOutboxRecord(next)
-      if (!(await this.updateMutableState(current, next))) {
+      const nextSerialized = assertCompactDurableOutboxRecord(next)
+      if (!(await this.updateMutableState(current, next, nextSerialized))) {
         throw new Error("Canonical provenance invalidation CAS failed")
       }
       if (preserveProvenanceIncident) {
@@ -2640,6 +2675,56 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     return result.rows
   }
 
+  private async queryPendingNonceReleaseRequestsWithOutbox(
+    predicate: string,
+    values: readonly unknown[],
+    limit: number
+  ): Promise<NonceReleaseRequestHydratedRow[]> {
+    const result =
+      await this.options.session.query<NonceReleaseRequestHydratedRow>(
+        `SELECT r.release_request_id,
+              r.record_id,
+              r.generation,
+              r.nonce_guard_id,
+              r.chain_id,
+              r.signer_lane_id,
+              r.signer_identity,
+              r.sender,
+              r.transaction_nonce,
+              r.reservation_epoch,
+              g.reservation_binding,
+              r.void_evidence_digest,
+              r.requested_at_unix_ms,
+              (SELECT count(*)::bigint
+                 FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                WHERE a.release_request_id = r.release_request_id
+              ) AS attempt_count,
+              EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                  LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+                    ON x.release_request_id = a.release_request_id
+                   AND x.attempt_sequence = a.attempt_sequence
+                 WHERE a.release_request_id = r.release_request_id
+                   AND (x.result_kind IS NULL OR x.result_kind NOT IN (
+                     'released', 'already-released'
+                   ))
+              ) AS ambiguous,
+              o.record_state AS outbox_record_state
+         FROM p2tr_signature_fraud_challenge_nonce_release_request r
+         JOIN p2tr_signature_fraud_challenge_nonce_guard g
+           ON g.nonce_guard_id = r.nonce_guard_id
+         JOIN p2tr_signature_fraud_challenge_outbox o
+           ON o.record_id = r.record_id
+          AND o.generation = r.generation
+        WHERE ${predicate}
+        ORDER BY r.release_request_id
+        LIMIT ${positiveSafeInteger(limit, "Nonce-release query limit")}`,
+        values
+      )
+    return result.rows
+  }
+
   private async hydrateNonceReleaseRequest(
     row: NonceReleaseRequestRow
   ): Promise<P2TRSignatureFraudNonceReleaseRequest> {
@@ -2650,69 +2735,26 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         "Nonce-release request references a missing outbox record"
       )
     }
-    const reservationID = prefixedHex(row.nonce_guard_id)
-    const tombstone = (record.voidedNonceReservations ?? []).find(
-      (item) =>
-        hexValue(item.reservation.reservationID, "Voided reservation ID") ===
-        reservationID
-    )
-    if (tombstone === undefined) {
-      throw new Error(
-        "Nonce-release request is absent from the durable record tombstones"
-      )
-    }
-    const reservation = tombstone.reservation
-    if (
-      record.generation !==
-        databaseSafeInteger(row.generation, "Nonce-release generation") ||
-      record.intent.chainID !==
-        databaseSafeInteger(row.chain_id, "Nonce-release chain ID") ||
-      reservation.laneID !== row.signer_lane_id ||
-      reservation.signerIdentity !== row.signer_identity ||
-      address(reservation.sender, "Nonce-release sender") !==
-        prefixedHex(row.sender) ||
-      reservation.nonce !==
-        databaseSafeInteger(row.transaction_nonce, "Nonce-release nonce") ||
-      reservation.reservationEpoch !==
-        databaseSafeInteger(
-          row.reservation_epoch,
-          "Nonce-release reservation epoch"
-        ) ||
-      hexData(reservation.bindingSignature, "Nonce-release binding") !==
-        prefixedHex(row.reservation_binding) ||
-      bytes32(tombstone.evidenceDigest, "Void evidence digest") !==
-        prefixedHex(row.void_evidence_digest)
-    ) {
-      throw new Error(
-        "Nonce-release request does not match its exact durable reservation"
-      )
-    }
-    const releaseRequestID = prefixedHex(row.release_request_id)
-    if (
-      computeP2TRSignatureFraudNonceReleaseRequestID(
-        recordID,
-        reservationID,
-        tombstone.evidenceDigest
-      ) !== releaseRequestID
-    ) {
-      throw new Error("Nonce-release request identity is invalid")
-    }
-    return {
-      releaseRequestID,
-      recordID,
+    return hydrateNonceReleaseRequestFromState(row, recordID, {
       generation: record.generation,
-      reservation,
-      voidEvidenceDigest: tombstone.evidenceDigest,
-      requestedAtUnixMs: databaseSafeInteger(
-        row.requested_at_unix_ms,
-        "Nonce-release request time"
-      ),
-      attemptCount: databaseSafeInteger(
-        row.attempt_count,
-        "Nonce-release attempt count"
-      ),
-      ambiguous: row.ambiguous,
-    }
+      chainID: record.intent.chainID,
+      voidedNonceReservations: record.voidedNonceReservations ?? [],
+    })
+  }
+
+  private hydrateJoinedNonceReleaseRequest(
+    row: NonceReleaseRequestHydratedRow
+  ): P2TRSignatureFraudNonceReleaseRequest {
+    const recordID = prefixedHex(row.record_id)
+    // Same parser the single-row `get()` path uses, so the joined read applies
+    // identical stored-state hydration and validation instead of a second,
+    // looser JSON reader that could drift from it.
+    const state = hydrateRecordState(row.outbox_record_state)
+    return hydrateNonceReleaseRequestFromState(row, recordID, {
+      generation: state.generation,
+      chainID: state.intent.chainID,
+      voidedNonceReservations: state.voidedNonceReservations ?? [],
+    })
   }
 
   private async compareAndSwapLocked(
@@ -2721,7 +2763,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     next: P2TRSignatureFraudChallengeOutboxRecord,
     expectedProvenance?: P2TRSignatureFraudCanonicalProvenanceBinding
   ): Promise<boolean> {
-    assertCompactDurableOutboxRecord(next)
+    const nextSerialized = assertCompactDurableOutboxRecord(next)
     const row = await this.lockRecord(recordID)
     if (row === undefined) return false
     const current = await this.hydrateRow(row)
@@ -2747,7 +2789,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       return false
     }
     await this.syncChildLedgers(current, next)
-    const updated = await this.updateMutableState(current, next)
+    const updated = await this.updateMutableState(current, next, nextSerialized)
     if (updated) {
       await this.persistDerivedCriticalAlerts(current, next)
       await this.resolveEligibleCriticalAlerts(next)
@@ -2932,9 +2974,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
 
   private async updateMutableState(
     current: P2TRSignatureFraudChallengeOutboxRecord,
-    next: P2TRSignatureFraudChallengeOutboxRecord
+    next: P2TRSignatureFraudChallengeOutboxRecord,
+    serializedRecordState?: string
   ): Promise<boolean> {
-    const columns = outboxMutableColumns(next)
+    const columns = outboxMutableColumns(next, serializedRecordState)
     const entries = Object.entries(columns)
     const values = entries.map(([, value]) => value)
     const assignments = entries
@@ -3274,47 +3317,102 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
   private async insertFeePolicy(
     record: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<void> {
-    for (const lane of record.feePolicyManifest.lanes) {
-      await this.options.session.query(
-        `INSERT INTO p2tr_signature_fraud_challenge_fee_policy (
-            record_id, policy_hash, activation_manifest_hash, chain_id,
-            challenge_value_wei, signer_lane_id, signer_identity, sender,
-            max_gas_limit, max_fee_per_gas, max_priority_fee_per_gas,
-            max_total_fee_wei, minimum_replacement_fee_bump_bps
-         ) VALUES (
-            decode($1, 'hex'), decode($2, 'hex'), decode($3, 'hex'), $4,
-            $5, $6, $7, decode($8, 'hex'), $9, $10, $11, $12, $13
-         )`,
-        [
-          stripHex(bytes32(record.recordID, "Fee-policy record ID")),
-          stripHex(
-            bytes32(record.feePolicyManifest.policyHash, "Fee-policy hash")
-          ),
-          stripHex(
-            bytes32(
-              record.feePolicyManifest.activationManifestHash,
-              "Fee-policy manifest hash"
-            )
-          ),
-          record.feePolicyManifest.chainID,
-          unsignedDecimal(
-            record.feePolicyManifest.challengeValueWei,
-            "Challenge value"
-          ),
-          lane.laneID,
-          lane.signerIdentity,
-          stripHex(address(lane.sender, "Fee-policy sender")),
-          unsignedDecimal(lane.maxGasLimit, "Maximum gas limit"),
-          unsignedDecimal(lane.maxFeePerGas, "Maximum fee per gas"),
-          unsignedDecimal(
-            lane.maxPriorityFeePerGas,
-            "Maximum priority fee per gas"
-          ),
-          unsignedDecimal(lane.maxTotalFeeWei, "Maximum total fee"),
-          lane.minimumReplacementFeeBumpBps,
-        ]
+    const recordIDHex = stripHex(
+      bytes32(record.recordID, "Fee-policy record ID")
+    )
+    const policyHashHex = stripHex(
+      bytes32(record.feePolicyManifest.policyHash, "Fee-policy hash")
+    )
+    const activationManifestHashHex = stripHex(
+      bytes32(
+        record.feePolicyManifest.activationManifestHash,
+        "Fee-policy manifest hash"
       )
+    )
+    const chainIDValue = record.feePolicyManifest.chainID
+    const challengeValueWeiValue = unsignedDecimal(
+      record.feePolicyManifest.challengeValueWei,
+      "Challenge value"
+    )
+    const lanes = record.feePolicyManifest.lanes
+    const recordIDs = new Array<Buffer>(lanes.length)
+    const policyHashes = new Array<Buffer>(lanes.length)
+    const activationManifestHashes = new Array<Buffer>(lanes.length)
+    const chainIDs = new Array<number>(lanes.length)
+    const challengeValueWeis = new Array<string>(lanes.length)
+    const signerLaneIDs = new Array<string>(lanes.length)
+    const signerIdentities = new Array<string>(lanes.length)
+    const senders = new Array<Buffer>(lanes.length)
+    const maxGasLimits = new Array<string>(lanes.length)
+    const maxFeePerGasValues = new Array<string>(lanes.length)
+    const maxPriorityFeePerGasValues = new Array<string>(lanes.length)
+    const maxTotalFeeWeiValues = new Array<string>(lanes.length)
+    const minimumReplacementFeeBumpBpsList = new Array<number>(lanes.length)
+    for (let i = 0; i < lanes.length; i++) {
+      const lane = lanes[i]
+      recordIDs[i] = Buffer.from(recordIDHex, "hex")
+      policyHashes[i] = Buffer.from(policyHashHex, "hex")
+      activationManifestHashes[i] = Buffer.from(
+        activationManifestHashHex,
+        "hex"
+      )
+      chainIDs[i] = chainIDValue
+      challengeValueWeis[i] = challengeValueWeiValue
+      signerLaneIDs[i] = lane.laneID
+      signerIdentities[i] = lane.signerIdentity
+      senders[i] = Buffer.from(
+        stripHex(address(lane.sender, "Fee-policy sender")),
+        "hex"
+      )
+      maxGasLimits[i] = unsignedDecimal(lane.maxGasLimit, "Maximum gas limit")
+      maxFeePerGasValues[i] = unsignedDecimal(
+        lane.maxFeePerGas,
+        "Maximum fee per gas"
+      )
+      maxPriorityFeePerGasValues[i] = unsignedDecimal(
+        lane.maxPriorityFeePerGas,
+        "Maximum priority fee per gas"
+      )
+      maxTotalFeeWeiValues[i] = unsignedDecimal(
+        lane.maxTotalFeeWei,
+        "Maximum total fee"
+      )
+      minimumReplacementFeeBumpBpsList[i] = lane.minimumReplacementFeeBumpBps
     }
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_fee_policy (
+          record_id, policy_hash, activation_manifest_hash, chain_id,
+          challenge_value_wei, signer_lane_id, signer_identity, sender,
+          max_gas_limit, max_fee_per_gas, max_priority_fee_per_gas,
+          max_total_fee_wei, minimum_replacement_fee_bump_bps
+       )
+       SELECT * FROM unnest(
+          $1::bytea[], $2::bytea[], $3::bytea[], $4::numeric[],
+          $5::numeric[], $6::text[], $7::text[], $8::bytea[],
+          $9::numeric[], $10::numeric[], $11::numeric[], $12::numeric[],
+          $13::int[]
+       ) AS t(
+          record_id, policy_hash, activation_manifest_hash, chain_id,
+          challenge_value_wei, signer_lane_id, signer_identity, sender,
+          max_gas_limit, max_fee_per_gas, max_priority_fee_per_gas,
+          max_total_fee_wei, minimum_replacement_fee_bump_bps
+       )`,
+      [
+        recordIDs,
+        policyHashes,
+        activationManifestHashes,
+        chainIDs,
+        challengeValueWeis,
+        signerLaneIDs,
+        signerIdentities,
+        senders,
+        maxGasLimits,
+        maxFeePerGasValues,
+        maxPriorityFeePerGasValues,
+        maxTotalFeeWeiValues,
+        minimumReplacementFeeBumpBpsList,
+      ]
+    )
   }
 
   private async syncChildLedgers(
@@ -5079,7 +5177,7 @@ const FORBIDDEN_RAW_OBSERVATION_KEYS = new Set([
 
 function assertCompactDurableOutboxRecord(
   record: P2TRSignatureFraudChallengeOutboxRecord
-): void {
+): string {
   assertExactKeys(record, DURABLE_OUTBOX_RECORD_KEYS, "outbox record")
   assertExactKeys(record.intent, DURABLE_INTENT_KEYS, "COMPLETE_V2 intent")
   assertExactKeys(
@@ -5235,13 +5333,12 @@ function assertCompactDurableOutboxRecord(
       throw new Error("Signed Ethereum transaction exceeds the durable bound")
     }
   }
-  const serializedBytes = Buffer.byteLength(
-    JSON.stringify(serializeJSON(record)),
-    "utf8"
-  )
+  const serialized = JSON.stringify(serializeJSON(record))
+  const serializedBytes = Buffer.byteLength(serialized, "utf8")
   if (serializedBytes > MAX_DURABLE_OUTBOX_RECORD_BYTES) {
     throw new Error("Durable outbox record exceeds the compact evidence bound")
   }
+  return serialized
 }
 
 function assertGenerationTriggerKeys(
@@ -5625,7 +5722,8 @@ function provenanceIncidentKind(
 
 function outboxInsertColumns(
   record: P2TRSignatureFraudChallengeOutboxRecord,
-  prior: PriorGenerationLinks
+  prior: PriorGenerationLinks,
+  serializedRecordState?: string
 ): Record<string, unknown> {
   const identity: Record<string, unknown> = {
     record_id: databaseBytes(bytes32(record.recordID, "Outbox record ID")),
@@ -5891,11 +5989,15 @@ function outboxInsertColumns(
       record.evidenceCheckpoint.confirmedSourceComplete,
     created_at_unix_ms: record.createdAtUnixMs,
   }
-  return { ...identity, ...outboxMutableColumns(record) }
+  return {
+    ...identity,
+    ...outboxMutableColumns(record, serializedRecordState),
+  }
 }
 
 function outboxMutableColumns(
-  record: P2TRSignatureFraudChallengeOutboxRecord
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  serializedRecordState?: string
 ): Record<string, unknown> {
   const reservation = record.reservedNonce
   const variants = record.preparedTransactionVariants ?? []
@@ -5979,7 +6081,8 @@ function outboxMutableColumns(
       record.lastPreBroadcastRecheckStatus ?? null,
     last_resolution_status: record.lastResolutionStatus ?? null,
     last_error: record.lastError ?? null,
-    record_state: JSON.stringify(serializeJSON(record)),
+    record_state:
+      serializedRecordState ?? JSON.stringify(serializeJSON(record)),
   }
 }
 
@@ -6228,6 +6331,80 @@ async function insertObject(
   )
 }
 
+function hydrateNonceReleaseRequestFromState(
+  row: NonceReleaseRequestRow,
+  recordID: string,
+  state: {
+    generation: number
+    chainID: number
+    voidedNonceReservations: readonly P2TRSignatureFraudVoidedNonceReservation[]
+  }
+): P2TRSignatureFraudNonceReleaseRequest {
+  const reservationID = prefixedHex(row.nonce_guard_id)
+  const tombstone = (state.voidedNonceReservations ?? []).find(
+    (item) =>
+      hexValue(item.reservation.reservationID, "Voided reservation ID") ===
+      reservationID
+  )
+  if (tombstone === undefined) {
+    throw new Error(
+      "Nonce-release request is absent from the durable record tombstones"
+    )
+  }
+  const reservation = tombstone.reservation
+  if (
+    state.generation !==
+      databaseSafeInteger(row.generation, "Nonce-release generation") ||
+    state.chainID !==
+      databaseSafeInteger(row.chain_id, "Nonce-release chain ID") ||
+    reservation.laneID !== row.signer_lane_id ||
+    reservation.signerIdentity !== row.signer_identity ||
+    address(reservation.sender, "Nonce-release sender") !==
+      prefixedHex(row.sender) ||
+    reservation.nonce !==
+      databaseSafeInteger(row.transaction_nonce, "Nonce-release nonce") ||
+    reservation.reservationEpoch !==
+      databaseSafeInteger(
+        row.reservation_epoch,
+        "Nonce-release reservation epoch"
+      ) ||
+    hexData(reservation.bindingSignature, "Nonce-release binding") !==
+      prefixedHex(row.reservation_binding) ||
+    bytes32(tombstone.evidenceDigest, "Void evidence digest") !==
+      prefixedHex(row.void_evidence_digest)
+  ) {
+    throw new Error(
+      "Nonce-release request does not match its exact durable reservation"
+    )
+  }
+  const releaseRequestID = prefixedHex(row.release_request_id)
+  if (
+    computeP2TRSignatureFraudNonceReleaseRequestID(
+      recordID,
+      reservationID,
+      tombstone.evidenceDigest
+    ) !== releaseRequestID
+  ) {
+    throw new Error("Nonce-release request identity is invalid")
+  }
+  return {
+    releaseRequestID,
+    recordID,
+    generation: state.generation,
+    reservation,
+    voidEvidenceDigest: tombstone.evidenceDigest,
+    requestedAtUnixMs: databaseSafeInteger(
+      row.requested_at_unix_ms,
+      "Nonce-release request time"
+    ),
+    attemptCount: databaseSafeInteger(
+      row.attempt_count,
+      "Nonce-release attempt count"
+    ),
+    ambiguous: row.ambiguous,
+  }
+}
+
 function hydrateRecordState(
   value: unknown
 ): P2TRSignatureFraudChallengeOutboxRecord {
@@ -6395,17 +6572,8 @@ function hexData(value: unknown, label: string): string {
   return value.toLowerCase()
 }
 
-function bytes32(value: unknown, label: string): string {
-  const normalized = hexValue(value, label)
-  if (normalized.length !== 66) throw new Error(`${label} must be 32 bytes`)
-  return normalized
-}
-
-function address(value: unknown, label: string): string {
-  const normalized = hexValue(value, label)
-  if (normalized.length !== 42) throw new Error(`${label} must be 20 bytes`)
-  return normalized
-}
+const bytes32 = normalizeBytes32
+const address = normalizeAddress
 
 function stripHex(value: string): string {
   return value.slice(2)

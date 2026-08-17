@@ -1274,8 +1274,9 @@ CREATE TRIGGER p2tr_signature_fraud_register_nonce_lane_barrier_trigger
 AFTER INSERT ON p2tr_signature_fraud_signer_lane_configuration
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_register_nonce_lane_barrier();
 
-CREATE INDEX p2tr_signature_fraud_pending_nonce_release_idx
-    ON p2tr_signature_fraud_challenge_nonce_release_request (release_request_id);
+-- Anti-join access path for `hasPendingNonceReleases*` and `listPendingNonceReleases`.
+CREATE INDEX p2tr_signature_fraud_challenge_nonce_release_request_chain_sender_idx
+    ON p2tr_signature_fraud_challenge_nonce_release_request (chain_id, sender);
 
 -- Every signed EIP-1559 envelope is an immutable, generation-scoped identity.
 -- Reconciliation scans all variants; the main row only caches the latest key.
@@ -5262,6 +5263,15 @@ CREATE UNIQUE INDEX p2tr_signature_fraud_challenge_outbox_active_sender_idx
     ON p2tr_signature_fraud_challenge_outbox (chain_id, reserved_sender)
     WHERE nonce_reservation_id IS NOT NULL
       AND lane_released_at_unix_ms IS NULL;
+
+-- Access path for `invalidateCanonicalProvenance` and the manifest-rotation trigger.
+CREATE INDEX p2tr_signature_fraud_challenge_outbox_provenance_invalidation_idx
+    ON p2tr_signature_fraud_challenge_outbox (
+        canonical_provenance_fingerprint,
+        canonical_candidate_digest,
+        canonical_candidate_provenance_generation
+    )
+    WHERE provenance_invalidation_id IS NULL;
 
 CREATE TABLE p2tr_signature_fraud_legacy_submission_quarantine (
     observation_id bytea PRIMARY KEY CHECK (octet_length(observation_id) = 32),

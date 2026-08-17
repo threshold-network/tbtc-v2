@@ -923,6 +923,14 @@ export type P2TRProductionActivationGateOptions = {
   expectedProtocols: P2TRProductionActivationExpectedProtocols
   candidateAuthorizationLifetimeMs?: number
   candidateEnqueueTransactionMaxAttempts?: number
+  candidateEnqueueRetryBackoff?: P2TRProductionCandidateEnqueueRetryBackoff
+}
+
+export type P2TRProductionCandidateEnqueueRetryBackoff = {
+  baseMs: number
+  maxMs: number
+  sleep?: (ms: number) => Promise<void>
+  random?: () => number
 }
 
 export type P2TRProductionReadySnapshot = {
@@ -945,6 +953,26 @@ type CandidateTokenRecord = {
 const DEFAULT_CANDIDATE_AUTHORIZATION_LIFETIME_MS = 60_000
 const DEFAULT_CANDIDATE_ENQUEUE_TRANSACTION_MAX_ATTEMPTS = 3
 const MAX_CANDIDATE_ENQUEUE_TRANSACTION_ATTEMPTS = 8
+const DEFAULT_CANDIDATE_ENQUEUE_RETRY_BACKOFF_BASE_MS = 5
+const DEFAULT_CANDIDATE_ENQUEUE_RETRY_BACKOFF_MAX_MS = 40
+const MAX_CANDIDATE_ENQUEUE_RETRY_BACKOFF_MS = 250
+function defaultP2TRProductionCandidateEnqueueRetryBackoffSleep(
+  ms: number
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+// Test fixtures that bypass the constructor (Object.create on the prototype)
+// never set `candidateEnqueueRetryBackoff`. Falling back to a zero-delay
+// no-op keeps the suite deterministic and free of real timers while leaving
+// production callers — which always run the constructor — on the real sleep.
+const NOOP_P2TR_PRODUCTION_CANDIDATE_ENQUEUE_RETRY_BACKOFF = {
+  baseMs: 0,
+  maxMs: 0,
+  sleep: (_ms: number): Promise<void> => Promise.resolve(),
+  random: (): number => 0,
+}
 
 /**
  * Fail-closed production gate. Readiness is recomputed at pinned chain points;
@@ -956,6 +984,12 @@ export class P2TRProductionActivationGate {
   readonly manifestHash: string
   private readonly candidateAuthorizationLifetimeMs: number
   private readonly candidateEnqueueTransactionMaxAttempts: number
+  private readonly candidateEnqueueRetryBackoff: {
+    baseMs: number
+    maxMs: number
+    sleep: (ms: number) => Promise<void>
+    random: () => number
+  }
   private readonly candidateTokens = new WeakMap<object, CandidateTokenRecord>()
   // A readiness check replaces the singleton durable certificate. Keep that
   // authority through candidate attestation and durable authorization issue.
@@ -983,6 +1017,31 @@ export class P2TRProductionActivationGate {
       MAX_CANDIDATE_ENQUEUE_TRANSACTION_ATTEMPTS,
       "candidate enqueue transaction attempts"
     )
+    const providedBackoff = options.candidateEnqueueRetryBackoff
+    const backoffBaseMs = boundedPositiveInteger(
+      providedBackoff?.baseMs ??
+        DEFAULT_CANDIDATE_ENQUEUE_RETRY_BACKOFF_BASE_MS,
+      MAX_CANDIDATE_ENQUEUE_RETRY_BACKOFF_MS,
+      "candidate enqueue retry backoff base"
+    )
+    const backoffMaxMs = boundedPositiveInteger(
+      providedBackoff?.maxMs ?? DEFAULT_CANDIDATE_ENQUEUE_RETRY_BACKOFF_MAX_MS,
+      MAX_CANDIDATE_ENQUEUE_RETRY_BACKOFF_MS,
+      "candidate enqueue retry backoff max"
+    )
+    if (backoffMaxMs < backoffBaseMs) {
+      throw new Error(
+        "candidate enqueue retry backoff max must be at least the base"
+      )
+    }
+    this.candidateEnqueueRetryBackoff = {
+      baseMs: backoffBaseMs,
+      maxMs: backoffMaxMs,
+      sleep:
+        providedBackoff?.sleep ??
+        defaultP2TRProductionCandidateEnqueueRetryBackoffSleep,
+      random: providedBackoff?.random ?? Math.random,
+    }
     validateManifestPolicy(this.manifest, options.expectedProtocols)
     assertP2TRActivationAttestationKeySeparation({
       activationAuthorityKeyHash: options.trustedManifestSignerKeyHash,
@@ -1408,6 +1467,7 @@ export class P2TRProductionActivationGate {
         }
         if (!transactionCallbackStarted) {
           if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
+            await this.applyCandidateEnqueueRetryBackoff(attemptCount)
             continue
           }
           throw error
@@ -1421,6 +1481,7 @@ export class P2TRProductionActivationGate {
           // insert rolled back completely and is safe to replay. Keep this
           // retry policy symmetric with the guarded enqueue transaction.
           if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
+            await this.applyCandidateEnqueueRetryBackoff(attemptCount)
             continue
           }
           throw error
@@ -1435,6 +1496,8 @@ export class P2TRProductionActivationGate {
         ) {
           throw error
         }
+        await this.applyCandidateEnqueueRetryBackoff(attemptCount)
+        continue
       }
     }
   }
@@ -1514,7 +1577,10 @@ export class P2TRProductionActivationGate {
           // within the bounded budget, and leave the guard unresolved if the
           // budget is exhausted so restart recovery can try again. They must
           // never be recorded as terminal application failures.
-          if (attemptCount < maxAttemptCount) continue
+          if (attemptCount < maxAttemptCount) {
+            await this.applyCandidateEnqueueRetryBackoff(attemptCount)
+            continue
+          }
           throw error
         }
         if (
@@ -1526,7 +1592,10 @@ export class P2TRProductionActivationGate {
           // transaction is safe. Exhaustion is still transient infrastructure
           // failure, so persist it as an activation blocker that requires
           // explicit operator resolution rather than abandoning the candidate.
-          if (attemptCount < maxAttemptCount) continue
+          if (attemptCount < maxAttemptCount) {
+            await this.applyCandidateEnqueueRetryBackoff(attemptCount)
+            continue
+          }
           const alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
             tokenID: receipt.tokenID,
             manifestHash: receipt.manifestHash,
@@ -1568,6 +1637,7 @@ export class P2TRProductionActivationGate {
           throw error
         }
         if (attemptCount < maxAttemptCount) {
+          await this.applyCandidateEnqueueRetryBackoff(attemptCount)
           continue
         }
         const alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
@@ -1591,6 +1661,26 @@ export class P2TRProductionActivationGate {
       }
     }
     throw new Error("Candidate enqueue transaction retry bound is unreachable")
+  }
+
+  private async applyCandidateEnqueueRetryBackoff(
+    attemptCount: number
+  ): Promise<void> {
+    // Test fixtures that use `Object.create(prototype)` bypass the constructor
+    // and never set `candidateEnqueueRetryBackoff`. Fall back to a zero-delay
+    // no-op so the suite keeps running synchronously; production callers always
+    // reach this through the constructor, which installs the real backoff.
+    const backoff =
+      this.candidateEnqueueRetryBackoff ??
+      NOOP_P2TR_PRODUCTION_CANDIDATE_ENQUEUE_RETRY_BACKOFF
+    // Exponential attempt-based delay capped at maxMs, jittered so concurrent
+    // contenders on the same exclusive advisory-lock key cannot lockstep.
+    const exponent = Math.max(0, attemptCount - 1)
+    const cap = Math.min(backoff.baseMs * 2 ** exponent, backoff.maxMs)
+    const jitteredHalf = backoff.random() * (cap / 2)
+    const delayMs = Math.max(0, cap / 2 + jitteredHalf)
+    if (delayMs === 0) return
+    await backoff.sleep(delayMs)
   }
 
   private async readVerifiedEthereum(): Promise<P2TRProductionEthereumState> {

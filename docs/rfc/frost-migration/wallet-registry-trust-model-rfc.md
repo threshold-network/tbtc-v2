@@ -492,7 +492,6 @@ contract FrostWalletRegistry is
     _;
   }
 }
-
 ```
 
 Why split: close/seize calls come from the router
@@ -536,7 +535,6 @@ function approveDkgResult(DKG.Result calldata dkgResult) external {
   }
   // ... approval body ...
 }
-
 ```
 
 ### Custom-error vocabulary
@@ -557,7 +555,6 @@ error FrostWalletAlreadyRegistered();
 error FrostWalletIdMissing();
 error XOnlyOutputKeyIsZero();
 error XOnlyOutputKeyIsLegacyAlias();
-
 ```
 
 ### Already-registered fail-fast at submission
@@ -579,7 +576,6 @@ function submitDkgResult(DKG.Result calldata dkgResult) external {
   wallets.validateXOnlyOutputKey(dkgResult.xOnlyOutputKey);
   dkg.submitResult(dkgResult);
 }
-
 ```
 
 ### Bridge-side walletPubKeyHash derivation

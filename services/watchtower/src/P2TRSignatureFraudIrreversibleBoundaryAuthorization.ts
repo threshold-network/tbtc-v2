@@ -15,6 +15,11 @@ import type {
   P2TRSignatureFraudIrreversibleBoundaryBinding,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
 
+import {
+  normalizeAddress,
+  normalizeBytes32,
+} from "./P2TRDurableValueNormalization.js"
+
 export type P2TRSignatureFraudVerifiedBoundaryEvidence = {
   reconcilerAttestation: P2TRVerifiedReconcilerCandidateAttestation
   liveCoreEvidence: P2TRVerifiedLiveCoreCandidateEvidence
@@ -68,11 +73,17 @@ type PendingAuthorization = {
  * Converts the two process-local verification brands into a one-use boundary
  * capability. The capability cannot be serialized or reconstructed and is
  * consumed synchronously immediately before external signer/broadcaster I/O.
+ * A later authorize() against a newer export fence retroactively invalidates
+ * any still-pending authorization minted against an older fence.
  */
 export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
   implements P2TRSignatureFraudIrreversibleBoundaryAuthorizer
 {
   private readonly pending = new WeakMap<object, PendingAuthorization>()
+  // Process-wide monotonic high-water mark of the newest export fence ever
+  // authorized. A still-pending authorization cannot be consumed after a
+  // newer fence has been observed, so a later authorize() retroactively
+  // invalidates any still-pending authorization minted against an older one.
   private highestObservedExportFence = -1
 
   constructor(
@@ -149,6 +160,9 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
       exportFence: payload.export.exportFence,
       nowUnixMs,
     })
+    // Advance the high-water mark only after the reconciler evidence has passed
+    // every binding and live-core check; consume() then uses it to fail closed
+    // on any older authorization that has not yet been spent.
     this.highestObservedExportFence = payload.export.exportFence
 
     const authorization = Object.freeze(
@@ -194,6 +208,9 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     if (nowUnixMs < pending.authorizedAtUnixMs) {
       throw new Error("Boundary authorization clock moved backwards")
     }
+    // Fail-closed: closes the TOCTOU window between authorize() and
+    // consume() — without this, an authorization minted against an
+    // older fence could still be redeemed after the boundary advanced.
     if (pending.exportFence < this.highestObservedExportFence) {
       throw new Error(
         "Irreversible-boundary authorization was superseded by a newer export fence"
@@ -304,23 +321,10 @@ function normalizeBoundaryBinding(
   }
 }
 
-function bytes32(value: string, label: string): string {
-  if (typeof value !== "string") throw new Error(`${label} is malformed`)
-  const normalized = value.toLowerCase().replace(/^0x/, "")
-  if (!/^[0-9a-f]{64}$/.test(normalized)) {
-    throw new Error(`${label} must be 32 bytes`)
-  }
-  return normalized
-}
+const bytes32 = (value: string, label: string): string =>
+  normalizeBytes32(value, label).slice(2)
 
-function address(value: string, label: string): string {
-  if (typeof value !== "string") throw new Error(`${label} is malformed`)
-  const normalized = value.toLowerCase().replace(/^0x/, "")
-  if (!/^[0-9a-f]{40}$/.test(normalized)) {
-    throw new Error(`${label} must be 20 bytes`)
-  }
-  return `0x${normalized}`
-}
+const address = normalizeAddress
 
 function nonNegativeSafeInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {

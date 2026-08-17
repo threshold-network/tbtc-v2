@@ -1222,7 +1222,11 @@ export class PostgresP2TRProductionActivationStore
       )
     }
   }
-
+  // Despite the `outboxIntentID` parameter name and the `outbox_intent_id`
+  // column it writes, the value IS the outbox RECORD id — a 32-byte FK to
+  // `p2tr_signature_fraud_challenge_outbox.record_id` (matched in the WHERE
+  // clause below as `outbox.record_id = $2`). The outbox table also has its
+  // own distinct `intent_id` column, which this predicate does NOT use.
   async consumeCandidateAuthorization(
     tokenID: string,
     outboxIntentID: string,
@@ -1714,6 +1718,12 @@ export class PostgresP2TRProductionActivationStore
         hexBuffer(normalized.tokenID, "enqueue resolution token"),
       ]
     )
+
+    // Read-side counterpart of the comment on consumeCandidateAuthorization:
+    // despite the column name `outbox_intent_id`, this comparison is against
+    // the outbox RECORD id (the same 32-byte FK to
+    // `p2tr_signature_fraud_challenge_outbox.record_id`). The outbox table's
+    // own distinct `intent_id` column is not referenced by this guard.
     if (
       guard.rows.length !== 1 ||
       bytes32(guard.rows[0].candidate_digest, "resolution guard candidate") !==

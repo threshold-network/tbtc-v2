@@ -57,14 +57,14 @@ sender nonce may terminate the immutable transaction; `pending`, `unknown`, or
 inconsistent evidence never makes it replayable. Legacy records with any prior
 submission attempt are quarantined instead of imported into the new outbox.
 
-`migrations/003_p2tr_signature_fraud_challenge_outbox.sql` documents the
-PostgreSQL uniqueness, CAS-version, immutable-generation, and prepared-bytes
-constraints enforced by `PostgresP2TRSignatureFraudChallengeOutboxStore`; the
-PostgreSQL activation-handshake adapter is exported alongside it. No concrete
-Ethers reconciler/broadcaster, service scheduling hook, or environment
-activation flag is wired in this tranche. Consequently, constructing these
-exported classes does not change the hard rejection of
-`submitChallenges: true`.
+Migrations `003` through `015` (with `003_p2tr_signature_fraud_challenge_outbox.sql`
+as the durable-outbox surface) document the PostgreSQL uniqueness, CAS-version,
+immutable-generation, and prepared-bytes constraints enforced by
+`PostgresP2TRSignatureFraudChallengeOutboxStore`; the PostgreSQL
+activation-handshake adapter is exported alongside it. No concrete Ethers
+reconciler/broadcaster, service scheduling hook, or environment activation
+flag is wired in this tranche. Consequently, constructing these exported
+classes does not change the hard rejection of `submitChallenges: true`.
 
 This package is intentionally scoped to the Schnorr FROST/ROAST P2TR fraud path. It does not depend on account-control, ac-watchdog, or covenant packages.
 
@@ -159,9 +159,9 @@ of the following in one production composition:
 - deposit-key derivation from
   `Bridge.taprootDepositOutputKey(depositKey)` at the pinned finalized Ethereum
   block, never from caller-decoded event arguments;
-- a durable transactional broadcast outbox with idempotent dispatch and an
-  independently operated reconciler that proves submitted, mined, replaced,
-  defeated, timed-out, and orphaned outcomes;
+- concrete broadcaster and reconciler adapters wired to production sources, and
+  the environment activation flag, for the durable outbox protocol, store, and
+  reconciler boundary already delivered by this tranche;
 - an independent Bitcoin header/chain verifier or provider, in a distinct trust
   domain from the indexing Core node, that checks the pinned range and
   cumulative-work selection before a challenge can leave the outbox;

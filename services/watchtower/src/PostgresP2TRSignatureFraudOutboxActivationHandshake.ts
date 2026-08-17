@@ -8,6 +8,11 @@ import {
   type P2TRProductionOutboxHandshakeState,
 } from "./P2TRProductionActivation.js"
 
+import {
+  normalizeAddress,
+  normalizeBytes32,
+} from "./P2TRDurableValueNormalization.js"
+
 export const P2TR_PRODUCTION_ACTIVATION_HANDSHAKE_SCHEMA =
   "tbtc-p2tr-production-activation-handshake/v1" as const
 
@@ -1409,12 +1414,7 @@ function canonicalBase64(value: string, label: string): string {
   return value
 }
 
-function bytes32(value: unknown, label: string): string {
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
-    throw new Error(`${label} must be 32-byte hexadecimal data`)
-  }
-  return value.toLowerCase()
-}
+const bytes32 = normalizeBytes32
 
 /**
  * Compares every field the lane query selects against the deployment-bound
@@ -1443,12 +1443,7 @@ function signerLaneKey(chainID: string | number, laneID: string): string {
   return `${String(chainID)}:${laneID}`
 }
 
-function address(value: unknown, label: string): string {
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error(`${label} must be a 20-byte hexadecimal address`)
-  }
-  return value.toLowerCase()
-}
+const address = normalizeAddress
 
 function bytes32FromDatabase(value: string, label: string): string {
   return bytes32(`0x${value}`, label)
