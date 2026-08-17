@@ -47,6 +47,88 @@ describe(
   "PostgresP2TRCanonicalIndexStore integration",
   { skip: postgresURL === undefined },
   () => {
+    it("classifies real deferred constraint failures as confirmed COMMIT aborts", async () => {
+      await withIntegrationStore(async ({ store, database }) => {
+        await database.query(
+          `CREATE TABLE p2tr_deferred_parent (id integer PRIMARY KEY);
+           CREATE TABLE p2tr_deferred_child (
+             id integer PRIMARY KEY,
+             parent_id integer REFERENCES p2tr_deferred_parent(id)
+               DEFERRABLE INITIALLY DEFERRED
+           );
+           CREATE TABLE p2tr_deferred_trigger_fixture (
+             id integer PRIMARY KEY
+           );
+           CREATE FUNCTION p2tr_deferred_trigger_rejection()
+           RETURNS trigger LANGUAGE plpgsql AS $body$
+           BEGIN
+             RAISE EXCEPTION 'deferred trigger rejected commit';
+           END
+           $body$;
+           CREATE CONSTRAINT TRIGGER p2tr_deferred_trigger_rejection_trigger
+           AFTER INSERT ON p2tr_deferred_trigger_fixture
+           DEFERRABLE INITIALLY DEFERRED
+           FOR EACH ROW EXECUTE FUNCTION p2tr_deferred_trigger_rejection();`
+        )
+        const adapter =
+          store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+            (session) => ({
+              violateForeignKey: () =>
+                session.query(
+                  `INSERT INTO p2tr_deferred_child (id, parent_id)
+                   VALUES (1, 999)`
+                ),
+              violateConstraintTrigger: () =>
+                session.query(
+                  `INSERT INTO p2tr_deferred_trigger_fixture (id) VALUES (1)`
+                ),
+            })
+          )
+
+        for (const [sqlState, operation] of [
+          ["23503", adapter.violateForeignKey],
+          ["P0001", adapter.violateConstraintTrigger],
+        ] as const) {
+          const error = await store
+            .runInP2TRSignatureFraudWatchtowerTransaction(operation)
+            .then(
+              () => undefined,
+              (failure: unknown) => failure
+            )
+          assert.equal(
+            isP2TRPostgresTransactionConfirmedAbortError(error),
+            true
+          )
+          if (!isP2TRPostgresTransactionConfirmedAbortError(error)) continue
+          assert.equal(error.reason, "definitive-commit-sqlstate")
+          assert.equal(error.sqlState, sqlState)
+          assert.equal(
+            store.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+              error
+            ),
+            undefined
+          )
+          assert.equal(
+            store.isP2TRSignatureFraudWatchtowerTransactionOutcomeUnknown(
+              error
+            ),
+            false
+          )
+        }
+
+        const rolledBack = await database.query<{ child_count: string }>(
+          `SELECT
+             (SELECT count(*)::text FROM p2tr_deferred_child) AS child_count,
+             (SELECT count(*)::text FROM p2tr_deferred_trigger_fixture)
+               AS trigger_count`
+        )
+        assert.deepEqual(rolledBack.rows[0], {
+          child_count: "0",
+          trigger_count: "0",
+        })
+      })
+    })
+
     it("atomically replaces a reorged chain and removes orphaned Ethereum evidence", async () => {
       const require = createRequire(import.meta.url)
       const { Pool } = require("pg") as {
@@ -67,6 +149,19 @@ describe(
         for (const filename of [
           "001_p2tr_canonical_index.sql",
           "002_p2tr_canonical_ethereum.sql",
+          "003_p2tr_signature_fraud_challenge_outbox.sql",
+          "004_p2tr_candidate_enqueue_retry_alerts.sql",
+          "005_p2tr_deposit_binding_byte_order.sql",
+          "006_p2tr_candidate_enqueue_generation_authority.sql",
+          "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+          "008_p2tr_candidate_enqueue_challenge_series.sql",
+          "009_p2tr_candidate_enqueue_capacity_authority.sql",
+          "010_p2tr_candidate_enqueue_transient_retries.sql",
+          "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+          "012_p2tr_provenance_alert_retirement.sql",
+          "013_p2tr_fee_policy_feasibility.sql",
+          "014_p2tr_candidate_enqueue_rotation_resolution.sql",
+          "015_p2tr_candidate_enqueue_transport_exhaustion.sql",
         ]) {
           const migration = await readFile(
             new URL(`../migrations/${filename}`, import.meta.url),
@@ -1966,6 +2061,19 @@ const withIntegrationStore = async (
     for (const filename of [
       "001_p2tr_canonical_index.sql",
       "002_p2tr_canonical_ethereum.sql",
+      "003_p2tr_signature_fraud_challenge_outbox.sql",
+      "004_p2tr_candidate_enqueue_retry_alerts.sql",
+      "005_p2tr_deposit_binding_byte_order.sql",
+      "006_p2tr_candidate_enqueue_generation_authority.sql",
+      "007_p2tr_candidate_enqueue_recovery_hardening.sql",
+      "008_p2tr_candidate_enqueue_challenge_series.sql",
+      "009_p2tr_candidate_enqueue_capacity_authority.sql",
+      "010_p2tr_candidate_enqueue_transient_retries.sql",
+      "011_p2tr_candidate_enqueue_manifest_rotation_disposition.sql",
+      "012_p2tr_provenance_alert_retirement.sql",
+      "013_p2tr_fee_policy_feasibility.sql",
+      "014_p2tr_candidate_enqueue_rotation_resolution.sql",
+      "015_p2tr_candidate_enqueue_transport_exhaustion.sql",
     ]) {
       const migration = await readFile(
         new URL(`../migrations/${filename}`, import.meta.url),
@@ -1987,6 +2095,496 @@ const withIntegrationStore = async (
     await admin.end()
   }
 }
+
+describe(
+  "candidate enqueue retry migration integration",
+  { skip: postgresURL === undefined },
+  () => {
+    it("preserves consumed pre-outbox authorizations while enforcing new FK writes", async () => {
+      if (postgresURL === undefined) throw new Error("PostgreSQL URL is absent")
+      const require = createRequire(import.meta.url)
+      const { Pool } = require("pg") as {
+        Pool: new (options: Record<string, unknown>) => IntegrationPool
+      }
+      const schema = `p2tr_retry_migration_${process.pid}_${randomBytes(
+        6
+      ).toString("hex")}`
+      const admin = new Pool({ connectionString: postgresURL })
+      let database: IntegrationPool | undefined
+      try {
+        await admin.query(`CREATE SCHEMA "${schema}"`)
+        database = new Pool({
+          connectionString: postgresURL,
+          options: `-c search_path=${schema}`,
+        })
+        for (const filename of [
+          "001_p2tr_canonical_index.sql",
+          "002_p2tr_canonical_ethereum.sql",
+        ]) {
+          const migration = await readFile(
+            new URL(`../migrations/${filename}`, import.meta.url),
+            "utf8"
+          )
+          await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+        }
+        await database.query(
+          `INSERT INTO p2tr_readiness_certificates (
+              certificate_id, certificate_generation, manifest_hash,
+              manifest_activation_sequence, primary_bitcoin_generation,
+              primary_bitcoin_root, primary_bitcoin_semantic_root,
+              bitcoin_height, bitcoin_hash, ethereum_journal_generation,
+              ethereum_history_root, ethereum_block_number,
+              ethereum_block_hash, provider_read_set_hash, payload
+           ) VALUES (
+              decode(repeat('11', 32), 'hex'), 1,
+              decode(repeat('12', 32), 'hex'), 1, 1,
+              decode(repeat('13', 32), 'hex'),
+              decode(repeat('14', 32), 'hex'), 0,
+              decode(repeat('15', 32), 'hex'), 1,
+              decode(repeat('16', 32), 'hex'), 0,
+              decode(repeat('17', 32), 'hex'),
+              decode(repeat('18', 32), 'hex'), '{}'::jsonb
+           );
+           INSERT INTO p2tr_candidate_enqueue_authorizations (
+              token_id, manifest_hash, candidate_digest, observation_id,
+              challenge_key, txid, wtxid, input_index,
+              bitcoin_block_height, bitcoin_block_hash,
+              verified_bitcoin_height, verified_bitcoin_hash,
+              verified_ethereum_block, verified_ethereum_hash,
+              funding_block_hash, funding_txid, funding_vout,
+              input_wallet_id, input_output_key, input_binding_kind,
+              input_binding_source_event_id,
+              candidate_provenance_generation, provenance_fingerprint,
+              readiness_certificate_id, readiness_certificate_generation,
+              issued_at, expires_at, consumed_at, outbox_intent_id
+           ) VALUES (
+              decode(repeat('21', 32), 'hex'),
+              decode(repeat('12', 32), 'hex'),
+              decode(repeat('22', 32), 'hex'),
+              decode(repeat('23', 32), 'hex'),
+              decode(repeat('24', 32), 'hex'),
+              decode(repeat('25', 32), 'hex'),
+              decode(repeat('26', 32), 'hex'), 0, 0,
+              decode(repeat('27', 32), 'hex'), 0,
+              decode(repeat('28', 32), 'hex'), 0,
+              decode(repeat('29', 32), 'hex'),
+              decode(repeat('2a', 32), 'hex'),
+              decode(repeat('2b', 32), 'hex'), 0,
+              decode(repeat('2c', 32), 'hex'),
+              decode(repeat('2c', 32), 'hex'),
+              'registered-wallet-output',
+              decode(repeat('2d', 32), 'hex'), 1,
+              decode(repeat('2e', 32), 'hex'),
+              decode(repeat('11', 32), 'hex'), 1,
+              clock_timestamp(), clock_timestamp() + interval '1 hour',
+              clock_timestamp(), decode(repeat('2f', 32), 'hex')
+           )`
+        )
+        for (const filename of [
+          "003_p2tr_signature_fraud_challenge_outbox.sql",
+          "004_p2tr_candidate_enqueue_retry_alerts.sql",
+        ]) {
+          const migration = await readFile(
+            new URL(`../migrations/${filename}`, import.meta.url),
+            "utf8"
+          )
+          await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+        }
+
+        const upgraded = await database.query<{
+          authorization_count: string
+          constraint_validated: boolean
+        }>(
+          `SELECT (SELECT count(*)::text
+                     FROM p2tr_candidate_enqueue_authorizations)
+                       AS authorization_count,
+                  convalidated AS constraint_validated
+             FROM pg_constraint
+            WHERE conrelid =
+                    'p2tr_candidate_enqueue_authorizations'::regclass
+              AND conname =
+                    'p2tr_candidate_enqueue_authorizations_outbox_intent_fk'`
+        )
+        assert.deepEqual(upgraded.rows[0], {
+          authorization_count: "1",
+          constraint_validated: false,
+        })
+        await assert.rejects(
+          database.query(
+            `UPDATE p2tr_candidate_enqueue_authorizations
+                SET outbox_intent_id = decode(repeat('30', 32), 'hex')
+              WHERE token_id = decode(repeat('21', 32), 'hex')`
+          ),
+          /outbox_intent_fk/
+        )
+      } finally {
+        await database?.end()
+        await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+        await admin.end()
+      }
+    })
+  }
+)
+
+describe(
+  "deposit-binding byte-order migration integration",
+  { skip: postgresURL === undefined },
+  () => {
+    it("preserves wallet observations and seals rewritten deposit evidence", async () => {
+      await withIntegrationStore(async ({ store, database }) => {
+        const checkpoint = checkpointBlock("byte-order-migration")
+        const walletID = "61".repeat(32)
+        const depositWalletID = "62".repeat(32)
+        const depositOutputKey = "63".repeat(32)
+        const funding = fundingTransaction("byte-order-migration:funding", [
+          { valueSats: 10, scriptPubKey: `5120${walletID}` },
+          { valueSats: 11, scriptPubKey: `5120${depositOutputKey}` },
+        ])
+        const fundingBlock = block(
+          1,
+          bitcoinPoint(checkpoint),
+          [funding],
+          "byte-order-migration:block:funding"
+        )
+        const fundingPoint = bitcoinPoint(fundingBlock)
+        await store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+          await store.addFrostWalletBindings([
+            walletBinding(walletID, "wallet:byte-order-migration", 0),
+          ])
+          await store.addTaprootDepositBindings([
+            depositBinding(
+              funding.txid,
+              1,
+              depositWalletID,
+              depositOutputKey,
+              "deposit:byte-order-migration",
+              0
+            ),
+          ])
+          await store.applyBitcoinScan(
+            canonicalMutationScan({ checkpoint, blocks: [fundingBlock] })
+          )
+        })
+
+        const spend = spendingTransaction(
+          "byte-order-migration:spend",
+          funding.outputs
+        )
+        const headBlock = block(
+          2,
+          fundingPoint,
+          [spend],
+          "byte-order-migration:block:head"
+        )
+        const head = bitcoinPoint(headBlock)
+        const staged = canonicalMutationScan({
+          checkpoint,
+          expected: fundingPoint,
+          blocks: [headBlock],
+        })
+        staged.trackedOutpointSpends = [0, 1].map((vout) => ({
+          txid: funding.txid,
+          vout,
+          spendingTxid: spend.txid,
+          spendingWtxid: spend.wtxid,
+          inputIndex: vout,
+          spentAt: head,
+        }))
+        staged.candidates = [
+          {
+            txid: spend.txid,
+            wtxid: spend.wtxid,
+            rawTransactionHex: spend.rawTransactionHex,
+            block: head,
+            inputPrevouts: spend.inputs.map(
+              ({ authenticatedPrevout }) => authenticatedPrevout!
+            ),
+            walletInputKeyBindings: [
+              {
+                txid: funding.txid,
+                vout: 1,
+                walletID: depositWalletID,
+                outputKey: depositOutputKey,
+              },
+            ],
+          },
+        ]
+        await store.applyBitcoinScan(staged)
+
+        const pendingObservations =
+          await store.loadPendingCandidateObservations({
+            limit: 10,
+            atOrBelowHeight: head.height,
+          })
+        assert.equal(pendingObservations.state, "ready")
+        assert.equal(pendingObservations.observations.length, 2)
+        await store.applyBitcoinScan(
+          canonicalMutationScan({
+            checkpoint,
+            expected: head,
+            candidateObservationAcknowledgement:
+              compactObservationAcknowledgement(pendingObservations),
+          })
+        )
+
+        const observations = await database.query<{
+          binding_kind: string
+          count: string
+        }>(
+          `SELECT binding_kind, count(*) AS count
+             FROM p2tr_bitcoin_candidate_observations
+            GROUP BY binding_kind
+            ORDER BY binding_kind`
+        )
+        assert.deepEqual(observations.rows, [
+          { binding_kind: "deposit", count: "1" },
+          { binding_kind: "wallet", count: "1" },
+        ])
+
+        // Reconstruct the pre-005 schema and seal a generation whose deposit
+        // observation still commits to the display-order funding txid.
+        await database.query(
+          `DROP TABLE p2tr_signature_fraud_challenge_chainless_replay_guard;
+           DROP TRIGGER p2tr_candidate_enqueue_generation_authority_guard_trigger
+             ON p2tr_candidate_enqueue_authorizations;
+           DROP FUNCTION p2tr_candidate_enqueue_generation_authority_guard();
+           DROP INDEX p2tr_candidate_enqueue_authorizations_generation_consumed_idx;
+           CREATE UNIQUE INDEX p2tr_candidate_enqueue_authorizations_candidate_consumed_idx
+             ON p2tr_candidate_enqueue_authorizations (candidate_digest)
+             WHERE consumed_at IS NOT NULL;
+           DROP FUNCTION p2tr_candidate_enqueue_expected_authority(
+             bytea, bytea, bytea, bytea, bytea, bigint, bytea, text,
+             bytea, bigint
+           );
+           DROP FUNCTION p2tr_candidate_enqueue_series_id(
+             bytea, bytea, bytea, bigint, bytea, text, bytea, bigint
+           );
+           ALTER TABLE p2tr_candidate_enqueue_authorizations
+             DROP CONSTRAINT p2tr_candidate_enqueue_generation_authority_shape,
+             DROP COLUMN generation_authority_version,
+             DROP COLUMN expected_outbox_series_id,
+             DROP COLUMN expected_outbox_generation,
+             DROP COLUMN expected_outbox_disposition,
+             DROP COLUMN expected_outbox_predecessor_id,
+             DROP COLUMN expected_outbox_evidence_id;
+           DELETE FROM p2tr_watchtower_schema_version
+            WHERE component = 'candidate-enqueue-generation-authority';
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
+           ALTER TABLE p2tr_signature_fraud_challenge_outbox
+             DROP CONSTRAINT p2tr_outbox_deposit_binding_uses_bridge_byte_order;
+           DROP TRIGGER p2tr_signature_fraud_guard_legacy_deposit_binding_marker_trigger
+             ON p2tr_signature_fraud_challenge_outbox;
+           DROP TRIGGER p2tr_signature_fraud_retire_legacy_deposit_binding_trigger
+             ON p2tr_signature_fraud_challenge_outbox;
+           DROP FUNCTION p2tr_signature_fraud_guard_legacy_deposit_binding_marker();
+           DROP FUNCTION p2tr_signature_fraud_retire_legacy_deposit_binding();
+           ALTER TABLE p2tr_signature_fraud_challenge_outbox
+             DROP COLUMN legacy_deposit_binding_byte_order;
+           DROP TRIGGER p2tr_signature_fraud_reject_legacy_quarantine_mutation_trigger
+             ON p2tr_signature_fraud_legacy_submission_quarantine;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             DISABLE TRIGGER p2tr_candidate_input_disposition_guard;`
+        )
+        await database.query(
+          `UPDATE p2tr_bitcoin_candidate_observations
+              SET binding_tx_hash = local_funding_txid,
+                  disposition_evidence_object_digest = NULL
+            WHERE binding_kind = 'deposit'`
+        )
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             ENABLE TRIGGER p2tr_candidate_input_disposition_guard;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             ADD CONSTRAINT p2tr_candidate_observation_legacy_binding
+             CHECK (
+               (binding_kind = 'wallet' AND signing_key = wallet_id AND
+                binding_tx_hash = decode(repeat('00', 32), 'hex') AND
+                binding_output_index = 0) OR
+               (binding_kind = 'deposit' AND signing_key = output_key AND
+                binding_tx_hash = local_funding_txid AND
+                binding_output_index = local_funding_vout)
+             )`
+        )
+        const legacyEvidence = await database.query<{
+          evidence_digest: string
+        }>(
+          `SELECT encode(disposition_evidence_object_digest, 'hex')
+                    AS evidence_digest
+             FROM p2tr_bitcoin_candidate_observations
+            WHERE binding_kind = 'deposit'`
+        )
+        await store.applyBitcoinScan(
+          canonicalMutationScan({ checkpoint, expected: head })
+        )
+        const before = await database.query<{ generation_id: string }>(
+          `SELECT max(generation_id)::text AS generation_id
+             FROM p2tr_canonical_generations
+            WHERE state = 'committed'`
+        )
+
+        await database.query(
+          `UPDATE p2tr_watchtower_schema_version
+              SET version = 3
+            WHERE component = 'canonical-evidence-index';
+           DROP FUNCTION p2tr_reverse_bytea(bytea)`
+        )
+        const migration = await readFile(
+          new URL(
+            "../migrations/005_p2tr_deposit_binding_byte_order.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+
+        const migrated = await database.query<{
+          binding_kind: string
+          binding_tx_hash: string
+          disposition: string
+          evidence_digest: string
+        }>(
+          `SELECT binding_kind, encode(binding_tx_hash, 'hex')
+                    AS binding_tx_hash,
+                  disposition,
+                  encode(disposition_evidence_object_digest, 'hex')
+                    AS evidence_digest
+             FROM p2tr_bitcoin_candidate_observations
+            ORDER BY binding_kind`
+        )
+        assert.equal(migrated.rows[0].binding_kind, "deposit")
+        assert.equal(
+          migrated.rows[0].binding_tx_hash,
+          Buffer.from(funding.txid, "hex").reverse().toString("hex")
+        )
+        assert.equal(migrated.rows[0].disposition, "keypath_delivered")
+        assert.notEqual(
+          migrated.rows[0].evidence_digest,
+          legacyEvidence.rows[0].evidence_digest
+        )
+        assert.equal(migrated.rows[1].binding_kind, "wallet")
+        assert.equal(migrated.rows[1].binding_tx_hash, "00".repeat(32))
+        assert.equal(migrated.rows[1].disposition, "keypath_delivered")
+
+        const sealed = await database.query<{
+          generation_id: string
+          state: string
+          generation_projection_root: string
+          current_projection_root: string
+          generation_semantic_root: string
+          current_semantic_root: string
+          building_generation_id: string | null
+        }>(
+          `SELECT generation.generation_id::text AS generation_id,
+                  generation.state,
+                  encode(generation.projection_root, 'hex')
+                    AS generation_projection_root,
+                  encode(p2tr_muhash_finalize(
+                    projection.projection_numerator,
+                    projection.projection_denominator
+                  ), 'hex') AS current_projection_root,
+                  encode(generation.semantic_root, 'hex')
+                    AS generation_semantic_root,
+                  encode(p2tr_muhash_finalize(
+                    projection.semantic_numerator,
+                    projection.semantic_denominator
+                  ), 'hex') AS current_semantic_root,
+                  journal.building_generation_id::text
+                    AS building_generation_id
+             FROM p2tr_canonical_generations generation
+             JOIN p2tr_readiness_projection_state projection
+               ON projection.singleton = true
+             JOIN p2tr_canonical_change_journal_state journal
+               ON journal.singleton = true
+            WHERE generation.state = 'committed'
+            ORDER BY generation.generation_id DESC
+            LIMIT 1`
+        )
+        assert.equal(
+          Number(sealed.rows[0].generation_id),
+          Number(before.rows[0].generation_id) + 1
+        )
+        assert.equal(sealed.rows[0].state, "committed")
+        assert.equal(sealed.rows[0].building_generation_id, null)
+        assert.equal(
+          sealed.rows[0].generation_projection_root,
+          sealed.rows[0].current_projection_root
+        )
+        assert.equal(
+          sealed.rows[0].generation_semantic_root,
+          sealed.rows[0].current_semantic_root
+        )
+
+        // Model the row that the old migration runner could miss after taking
+        // its SERIALIZABLE snapshot but before acquiring the writer fence.
+        // Migration 006 must repair that upgrade state and validate the
+        // normalized constraint under the runner's corrected session fence.
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             DROP CONSTRAINT p2tr_candidate_observation_binding_matches_funding;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             DISABLE TRIGGER p2tr_candidate_input_disposition_guard;`
+        )
+        await database.query(
+          `UPDATE p2tr_bitcoin_candidate_observations
+              SET binding_tx_hash = local_funding_txid,
+                  disposition_evidence_object_digest = NULL
+            WHERE binding_kind = 'deposit'`
+        )
+        await database.query(
+          `ALTER TABLE p2tr_bitcoin_candidate_observations
+             ENABLE TRIGGER p2tr_candidate_input_disposition_guard;
+           ALTER TABLE p2tr_bitcoin_candidate_observations
+             ADD CONSTRAINT p2tr_candidate_observation_binding_matches_funding
+             CHECK (
+               (binding_kind = 'wallet' AND signing_key = wallet_id AND
+                binding_tx_hash = decode(repeat('00', 32), 'hex') AND
+                binding_output_index = 0) OR
+               (binding_kind = 'deposit' AND signing_key = output_key AND
+                binding_tx_hash = p2tr_reverse_bytea(local_funding_txid) AND
+                binding_output_index = local_funding_vout)
+             ) NOT VALID`
+        )
+        const generationAuthorityMigration = await readFile(
+          new URL(
+            "../migrations/006_p2tr_candidate_enqueue_generation_authority.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+        await database.query(`BEGIN;\n${generationAuthorityMigration}\nCOMMIT;`)
+        const repaired = await database.query<{
+          binding_tx_hash: string
+          constraint_validated: boolean
+          generation_id: string
+        }>(
+          `SELECT encode(observation.binding_tx_hash, 'hex')
+                    AS binding_tx_hash,
+                  constraint_record.convalidated AS constraint_validated,
+                  (SELECT max(generation_id)::text
+                     FROM p2tr_canonical_generations
+                    WHERE state = 'committed') AS generation_id
+             FROM p2tr_bitcoin_candidate_observations observation
+             JOIN pg_constraint constraint_record
+               ON constraint_record.conrelid =
+                    'p2tr_bitcoin_candidate_observations'::regclass
+              AND constraint_record.conname =
+                    'p2tr_candidate_observation_binding_matches_funding'
+            WHERE observation.binding_kind = 'deposit'`
+        )
+        assert.equal(
+          repaired.rows[0].binding_tx_hash,
+          Buffer.from(funding.txid, "hex").reverse().toString("hex")
+        )
+        assert.equal(repaired.rows[0].constraint_validated, true)
+        assert.equal(
+          Number(repaired.rows[0].generation_id),
+          Number(sealed.rows[0].generation_id) + 1
+        )
+      })
+    })
+  }
+)
 
 const canonicalMutationScan = ({
   checkpoint,

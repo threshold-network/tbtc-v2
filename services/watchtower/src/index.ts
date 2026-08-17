@@ -12,7 +12,9 @@ export {
 export { CanonicalBitcoinP2TRSignatureFraudTransactionSource } from "./CanonicalBitcoinP2TRSignatureFraudTransactionSource.js"
 export {
   isP2TRPostgresTransactionConfirmedAbortError,
+  isP2TRPostgresTransactionUnknownOutcomeError,
   P2TRPostgresTransactionConfirmedAbortError,
+  P2TRPostgresTransactionUnknownOutcomeError,
   PostgresP2TRCanonicalIndexStore,
   assertP2TRPostgresTransactionSession,
 } from "./PostgresP2TRCanonicalIndexStore.js"
@@ -43,6 +45,10 @@ export {
   P2TRSignatureFraudWatchtowerService,
   buildP2TRSignatureFraudWatchtowerCycleMetrics,
 } from "./P2TRSignatureFraudWatchtowerService.js"
+export * from "./P2TRSignatureFraudChallengeOutbox.js"
+export * from "./P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
+export * from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
+export * from "./PostgresP2TRSignatureFraudChallengeOutboxStore.js"
 export {
   abortableDelay,
   runP2TRSignatureFraudWatchtowerLoop,
