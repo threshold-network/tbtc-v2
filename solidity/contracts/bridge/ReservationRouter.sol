@@ -148,13 +148,6 @@ contract ReservationRouter is Governable, Initializable {
 
     event ReservationVaultUpdated(address reservationVault);
 
-    // Re-declaration of the event emitted by
-    // `BridgeState.setReservationRouter` (invoked through
-    // `Bridge.setReservationRouter`). Library events are not part of any
-    // contract ABI under solc 0.8.17, so the router — the ABI home of the
-    // reservation surface — declares it for off-chain consumers.
-    event ReservationRouterSet(address reservationRouter);
-
     modifier onlySpvMaintainer() {
         require(
             self.isSpvMaintainer[msg.sender],

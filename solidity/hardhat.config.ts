@@ -87,9 +87,9 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
 // Preserve the Bridge's EIP-170 deployment margin. Even with the
       // UTXO-reservation surface moved out to the delegatecall
-      // ReservationRouter, the monolithic Bridge sits ~71 bytes over the
-      // limit at runs=1000 (24,647 B measured); runs=100 leaves a ~2.1 kB
-      // margin (22,403 B measured). The runtime-gas cost of the lower runs
+      // ReservationRouter, the monolithic Bridge sits ~695 bytes over the
+      // limit at runs=1000 (25,271 B measured); runs=100 leaves a ~1.6 kB
+      // margin (22,914 B measured). The runtime-gas cost of the lower runs
       // value is effectively nil: the Bridge is a thin dispatch shell over
       // linked libraries (Deposit, DepositSweep, Redemption, ...) that stay
       // at runs=1000, so a measured runs=1000-vs-100 diff over the

@@ -1,62 +1,13 @@
-import { artifacts, ethers, helpers, waffle } from "hardhat"
+import { artifacts, ethers, helpers, upgrades, waffle } from "hardhat"
 import { expect } from "chai"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 
 import bridgeFixture from "../fixtures/bridge"
 import reservationRouterStorageLayoutSnapshot from "../fixtures/reservation-router-storage-layout.snapshot.json"
 import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
+import { getStorageLayout, StorageLayout } from "../helpers/storage-layout"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-
-/**
- * Storage layout entry as reported by solc's `storageLayout` output.
- */
-type StorageEntry = {
-  label: string
-  offset: number
-  slot: string
-  type: string
-}
-
-type StorageLayout = {
-  storage: StorageEntry[]
-  types: Record<
-    string,
-    {
-      label: string
-      encoding: string
-      numberOfBytes: string
-      members?: StorageEntry[]
-      key?: string
-      value?: string
-      base?: string
-    }
-  >
-}
-
-async function getStorageLayout(
-  sourceName: string,
-  contractName: string
-): Promise<StorageLayout> {
-  const buildInfo = await artifacts.getBuildInfo(
-    `${sourceName}:${contractName}`
-  )
-  if (!buildInfo) {
-    throw new Error(`No build info for ${sourceName}:${contractName}`)
-  }
-  const layout = (
-    buildInfo.output.contracts[sourceName][contractName] as {
-      storageLayout?: StorageLayout
-    }
-  ).storageLayout
-  if (!layout) {
-    throw new Error(
-      `No storage layout for ${sourceName}:${contractName}; ` +
-        "is the storageLayout output selection enabled?"
-    )
-  }
-  return layout
-}
 
 /**
  * Produces a compilation-independent canonical description of a storage
@@ -462,6 +413,94 @@ describe("ReservationRouter", () => {
     })
   })
 
+  describe("initializeV6_SetReservationRouter", () => {
+    let esdm: SignerWithAddress
+
+    before(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-extra-semi
+      ;({ esdm } = await helpers.signers.getNamedSigners())
+    })
+
+    context(
+      "when called directly, not through ProxyAdmin.upgradeAndCall",
+      () => {
+        it("should revert", async () => {
+          const [freshBridge] = await deployBridge(1, false)
+          await expect(
+            freshBridge
+              .connect(thirdParty)
+              .initializeV6_SetReservationRouter(routerAddress)
+          ).to.be.revertedWith("Caller is not the proxy admin")
+        })
+      }
+    )
+
+    context(
+      "when called by the proxy admin via ProxyAdmin.upgradeAndCall",
+      () => {
+        it("should set the router and emit ReservationRouterSet", async () => {
+          const [freshBridge, freshDeployment] = await deployBridge(1, false)
+
+          const proxyAdmin = await upgrades.admin.getInstance()
+          const proxyAdminWithUpgrade = await ethers.getContractAt(
+            [
+              "function upgradeAndCall(address proxy, address implementation, bytes data)",
+            ],
+            proxyAdmin.address,
+            esdm
+          )
+
+          const upgradeData = freshBridge.interface.encodeFunctionData(
+            "initializeV6_SetReservationRouter",
+            [routerAddress]
+          )
+
+          const tx = await proxyAdminWithUpgrade.upgradeAndCall(
+            freshBridge.address,
+            freshDeployment.implementation,
+            upgradeData
+          )
+
+          await expect(tx)
+            .to.emit(freshBridge, "ReservationRouterSet")
+            .withArgs(routerAddress)
+
+          expect(await freshBridge.getReservationRouter()).to.equal(
+            routerAddress
+          )
+        })
+      }
+    )
+
+    context("when the router is already set", () => {
+      it("should revert even when called by the proxy admin", async () => {
+        const [freshBridge, freshDeployment] = await deployBridge(1)
+
+        const proxyAdmin = await upgrades.admin.getInstance()
+        const proxyAdminWithUpgrade = await ethers.getContractAt(
+          [
+            "function upgradeAndCall(address proxy, address implementation, bytes data)",
+          ],
+          proxyAdmin.address,
+          esdm
+        )
+
+        const upgradeData = freshBridge.interface.encodeFunctionData(
+          "initializeV6_SetReservationRouter",
+          [thirdParty.address]
+        )
+
+        await expect(
+          proxyAdminWithUpgrade.upgradeAndCall(
+            freshBridge.address,
+            freshDeployment.implementation,
+            upgradeData
+          )
+        ).to.be.revertedWith("Reservation router already set")
+      })
+    })
+  })
+
   describe("fallback routing", () => {
     context("before the router is set", () => {
       it("should revert reservation calls with a clear error", async () => {
@@ -537,12 +576,16 @@ describe("ReservationRouter", () => {
             `(direct: ${directGas.toString()}, routed: ${routedGas.toString()})`
         )
 
-        // Loose upper bound, not a tight snapshot: guards against the
-        // overhead silently growing far past the analytically-estimated
-        // ~5,000 gas (e.g. an accidental extra cold SLOAD or storage read
-        // added to the dispatch path), without pinning an exact value that
-        // would make this test brittle across compiler/EVM-version bumps.
-        expect(overhead.toNumber()).to.be.within(0, 15000)
+        // Bounded around the measured ~12,600 gas (matches
+        // `hardhat.config.ts`'s own citation of this test), not the
+        // previous, considerably lower "analytically-estimated ~5,000 gas"
+        // this test's comment used to claim before that estimate was
+        // checked against an actual run. Tightened from a loose
+        // `within(0, 15000)` so a real regression (e.g. an accidental
+        // extra cold SLOAD added to the dispatch path) or an unexpected
+        // drop (e.g. the router silently not being invoked) both fail,
+        // while still tolerating compiler/EVM-version gas-cost drift.
+        expect(overhead.toNumber()).to.be.within(10000, 15000)
       })
     })
   })

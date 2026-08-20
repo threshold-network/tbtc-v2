@@ -46,7 +46,7 @@ backing/fee model and the wallet lifecycle integration.
 
 === Problem
 
-The Bridge implementation on this branch, compiled at the reduced `runs=100` optimizer setting used to keep it under the limit, sits within ~400 bytes of the EIP-170 deployed-code limit (22,403 B measured; at the mainnet-standard `runs=1000` it is ~71 bytes over the 24,576 B limit, 24,647 B measured). The reservation surface — and any serious rework of it — does not fit.
+The Bridge implementation on this branch, compiled at the reduced `runs=100` optimizer setting used to keep it under the limit, sits within ~1.6 kB of the EIP-170 deployed-code limit (22,914 B measured; at the mainnet-standard `runs=1000` it is ~695 bytes over the 24,576 B limit, 25,271 B measured). The reservation surface — and any serious rework of it — does not fit.
 
 === Considered shapes
 
@@ -63,6 +63,13 @@ with the address of a `ReservationRouter` contract and routes every call
 with an unmatched function selector to it via `delegatecall` from its
 fallback. Router code executes at the Bridge address, on Bridge storage,
 with Bridge Bank authority. Selectors and log topics observable at the Bridge address are unchanged at runtime; however the published Bridge contract ABI no longer includes the moved functions/views/events, so off-chain consumers use the `IReservationBridge`/`ReservationRouter` ABI alongside the Bridge ABI to reach the full surface.
+
+*Placement rule*: not every reservation-adjacent read moves to the router.
+`Bridge.deposits`/`Bridge.isReservedDeposit` stay Bridge-side because they
+are deposit-classification state owned by the `Deposit` library, not
+reservation-lifecycle state -- only functions whose logic *is* the
+reservation lifecycle itself (anchor acceptance, in-kind redemption,
+re-anchor, dissolution, parameters) move to the router.
 
 === Invariants
 
@@ -86,7 +93,7 @@ with Bridge Bank authority. Selectors and log topics observable at the Bridge ad
 
 The Bridge remains at reduced optimizer `runs` (measured ~0 runtime-gas
 cost: it is a dispatch shell over external libraries that keep `runs=1000`),
-with a ~2.1 kB margin; the router has its own EIP-170 budget for the
+with a ~1.6 kB margin; the router has its own EIP-170 budget for the
 settlement machine below.
 
 == Two-phase settlement machine

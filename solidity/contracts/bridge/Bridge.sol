@@ -21,6 +21,7 @@ import {IWalletOwner as EcdsaWalletOwner} from "@keep-network/ecdsa/contracts/ap
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
+import "@openzeppelin/contracts/utils/StorageSlot.sol";
 
 import "./IRelay.sol";
 import "./BridgeState.sol";
@@ -72,6 +73,13 @@ contract Bridge is
     using Fraud for BridgeState.Storage;
 
     BridgeState.Storage internal self;
+
+    /// @dev EIP-1967 proxy admin storage slot
+    ///      (`bytes32(uint256(keccak256("eip1967.proxy.admin")) - 1)`), used
+    ///      by `initializeV6_SetReservationRouter` to authorize its caller.
+    ///      Matches OpenZeppelin's `ERC1967Upgrade._ADMIN_SLOT`.
+    bytes32 private constant _PROXY_ADMIN_SLOT =
+        0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
 
     event DepositRevealed(
         bytes32 fundingTxHash,
@@ -237,6 +245,15 @@ event WalletMovingFunds(
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    // Re-declaration of the event emitted by
+    // `BridgeState.setReservationRouter` (invoked through
+    // `Bridge.setReservationRouter` / `Bridge.initializeV6_SetReservationRouter`).
+    // Library events are not part of any contract ABI under solc 0.8.17;
+    // both wiring entry points are Bridge-side, so -- mirroring
+    // `RedemptionWatchtowerSet`/`RebateStakingSet` above -- the event is
+    // declared here, not on `ReservationRouter`.
+    event ReservationRouterSet(address reservationRouter);
 
     event RebateStakingSet(address rebateStaking);
     event RebateStakingRepaired(
@@ -411,11 +428,21 @@ event WalletMovingFunds(
     ///         governance-transferred Bridge during a proxy implementation
     ///         upgrade.
     /// @param _reservationRouter Address of the reservation router.
-    /// @dev Uses reinitializer(6) so this can only run once, atomically with
-    ///      the ProxyAdmin implementation upgrade that ships this function
-    ///      (`ProxyAdmin.upgradeAndCall`). A fresh Bridge deployment instead
-    ///      wires the router directly via `setReservationRouter` while the
-    ///      deployer still holds governance, before it is transferred to
+    /// @dev Requirements:
+    ///      - The caller must be the proxy's current ERC-1967 admin (the
+    ///        `ProxyAdmin` contract, as seen via `msg.sender` preserved
+    ///        through `ProxyAdmin.upgradeAndCall`'s inner delegatecall) --
+    ///        see requirements on `BridgeState.setReservationRouter` for
+    ///        the rest.
+    ///
+    ///      Uses `reinitializer(6)` so this can only run once, but a
+    ///      version gate alone does not restrict the caller: without the
+    ///      admin check above, any address could call this the moment a
+    ///      router-capable implementation is live, regardless of whether
+    ///      it was reached through `ProxyAdmin.upgradeAndCall` or a plain
+    ///      call to the proxy. A fresh Bridge deployment instead wires the
+    ///      router directly via `setReservationRouter` while the deployer
+    ///      still holds governance, before it is transferred to
     ///      `BridgeGovernance` (see `06_deploy_bridge.ts`). Once governance
     ///      is transferred, `setReservationRouter` is unreachable --
     ///      `BridgeGovernance` provides no passthrough for it, by design
@@ -423,12 +450,19 @@ event WalletMovingFunds(
     ///      the only reachable wiring path behind the proxy-admin upgrade
     ///      ceremony, rather than adding a plain governance passthrough,
     ///      is what keeps the router's code-change authority with the
-    ///      proxy admin as documented (see `docs/rfc/rfc-13.adoc`).
-    ///      Requirements: see `BridgeState.setReservationRouter`.
+    ///      proxy admin as documented (see `docs/rfc/rfc-13.adoc`). A
+    ///      proxy-admin upgrade that ships this function without also
+    ///      calling it (a bare `ProxyAdmin.upgrade()`) is safe -- the
+    ///      router just stays unset until a deliberate follow-up
+    ///      `ProxyAdmin.upgradeAndCall` wires it.
     function initializeV6_SetReservationRouter(address _reservationRouter)
         external
         reinitializer(6)
     {
+        require(
+            msg.sender == StorageSlot.getAddressSlot(_PROXY_ADMIN_SLOT).value,
+            "Caller is not the proxy admin"
+        );
         self.setReservationRouter(_reservationRouter);
     }
 
@@ -2139,6 +2173,19 @@ event WalletMovingFunds(
         onlyGovernance
     {
         self.setReservationRouter(_reservationRouter);
+    }
+
+    /// @notice Returns the address of the reservation router, or 0x0 if not
+    ///         yet wired.
+    /// @dev Declared directly on Bridge (like `getRebateStaking`/
+    ///      `getRedemptionWatchtower` above) rather than relying on
+    ///      `ReservationRouter.reservationRouter()` reached through the
+    ///      fallback: before wiring, the fallback's own
+    ///      `require(reservationRouter != address(0), ...)` guard means
+    ///      the delegatecall path always reverts, so wiring state could
+    ///      not otherwise be read from the Bridge ABI at all.
+    function getReservationRouter() external view returns (address) {
+        return self.reservationRouter;
     }
 
     /// @notice Routes calls with unmatched function selectors to the

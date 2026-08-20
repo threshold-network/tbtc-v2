@@ -32,6 +32,65 @@ export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f"
 // Known mainnet T token address used by the RebateStaking contract.
 export const KNOWN_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
 
+/**
+ * Fails loudly if a freshly compiled Bridge implementation includes
+ * UTXO-reservation router wiring (`setReservationRouter`/
+ * `initializeV6_SetReservationRouter` present in its ABI) and this
+ * script's Bridge proxy upgrade would ship it without also wiring the
+ * router in the same transaction. The router's own functions (e.g.
+ * `reservationRouter()`) are never in the Bridge's own ABI -- the whole
+ * point of the delegatecall architecture is that they're reached through
+ * the fallback, not declared on Bridge itself -- so this checks for the
+ * Bridge-side wiring signal instead.
+ *
+ * `initializeV6_SetReservationRouter` is gated to the ERC-1967 proxy admin
+ * (see `Bridge.sol`), so shipping it unwired is not a hijack risk -- the
+ * router just stays disabled until a deliberate follow-up
+ * `ProxyAdmin.upgradeAndCall(bridgeImpl, initializeV6Calldata)`. This guard
+ * exists so that follow-up doesn't get silently forgotten.
+ *
+ * Shared by scripts 85 and 86, whose Bridge proxy upgrades ship the new
+ * implementation differently (one via `upgradeAndCall` with an unrelated
+ * inner call, the other via a bare `upgrade()`) -- `upgradeShape` must
+ * accurately describe THIS script's actual call a few lines below it, since
+ * an operator debugging the thrown error reads it as ground truth.
+ *
+ * @param bridgeImpl - The freshly deployed Bridge implementation artifact.
+ * @param upgradeShape - How this script's Bridge proxy upgrade actually
+ *        ships, e.g. "a bare `ProxyAdmin.upgrade()` with no initializer
+ *        call" or "a `ProxyAdmin.upgradeAndCall()` whose inner call is
+ *        `initializeV5_RepairRebateStaking`, which does not wire the
+ *        router either".
+ */
+export function assertReservationRouterNotSilentlyShipped(
+  bridgeImpl: { abi: ReadonlyArray<{ type: string; name: string }> },
+  upgradeShape: string
+): void {
+  const bridgeIncludesReservationRouter = bridgeImpl.abi.some(
+    (fragment) =>
+      fragment.type === "function" &&
+      (fragment.name === "setReservationRouter" ||
+        fragment.name === "initializeV6_SetReservationRouter")
+  )
+  if (
+    bridgeIncludesReservationRouter &&
+    process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER !== "true"
+  ) {
+    throw new Error(
+      "The compiled Bridge implementation now includes UTXO-reservation " +
+        "router wiring (`setReservationRouter`/" +
+        "`initializeV6_SetReservationRouter` present in its ABI). This " +
+        `script's Bridge proxy upgrade generates ${upgradeShape}, ` +
+        "which would leave the router unwired on this " +
+        "already-governance-transferred Bridge. Either (a) wire the router " +
+        "in the same upgrade via `upgradeAndCall` + " +
+        "`initializeV6_SetReservationRouter`, or (b) set " +
+        "DEPLOY_TIP109_ACK_RESERVATION_ROUTER=true to acknowledge this and " +
+        "proceed with the router left unset for now."
+    )
+  }
+}
+
 // ABI fragments for calldata encoding. These are the minimal function
 // signatures needed to generate governance calldata without importing
 // full contract artifacts.
@@ -366,46 +425,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   })
 
   // --- Step 3b: Guard against silently shipping the reservation router ---
-  // This script deploys a fresh Bridge implementation from current source
-  // for an unrelated TIP-109/rebate purpose and swaps it in via a bare
-  // `ProxyAdmin.upgrade()` with no initializer call (see calldata generation
-  // below). The router's own functions (e.g. `reservationRouter()`) are
-  // never in the Bridge's own ABI -- the whole point of the delegatecall
-  // architecture is that they're reached through the fallback, not
-  // declared on Bridge itself -- so detect the Bridge-side wiring signal
-  // instead: `setReservationRouter` points the fallback at a router, and
-  // `initializeV6_SetReservationRouter` is the atomic-upgrade path added
-  // alongside it. If either is present, this bare `upgrade()` would ship
-  // the router live with `reservationRouter` unset and no reachable way to
-  // set it afterwards on a governance-transferred Bridge (see
-  // `Bridge.initializeV6_SetReservationRouter`). Re-running this script
-  // after the router feature has merged requires deliberately wiring the
-  // router in the same upgrade via `ProxyAdmin.upgradeAndCall` +
-  // `initializeV6_SetReservationRouter` instead of the plain `upgrade()`
-  // calldata generated below.
-  const bridgeIncludesReservationRouter = bridgeImpl.abi.some(
-    (fragment) =>
-      fragment.type === "function" &&
-      (fragment.name === "setReservationRouter" ||
-        fragment.name === "initializeV6_SetReservationRouter")
+  // This script's Bridge proxy upgrade actually ships via
+  // `ProxyAdmin.upgradeAndCall` calling `initializeV5_RepairRebateStaking`
+  // (see calldata generation below) -- that inner call does not wire the
+  // reservation router either, so the guard still applies.
+  assertReservationRouterNotSilentlyShipped(
+    bridgeImpl,
+    "a `ProxyAdmin.upgradeAndCall()` whose inner call is " +
+      "`initializeV5_RepairRebateStaking`, which does not wire the router " +
+      "either"
   )
-  if (
-    bridgeIncludesReservationRouter &&
-    process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER !== "true"
-  ) {
-    throw new Error(
-      "The compiled Bridge implementation now includes UTXO-reservation " +
-        "router wiring (`setReservationRouter`/" +
-        "`initializeV6_SetReservationRouter` present in its ABI). This " +
-        "script generates a bare `ProxyAdmin.upgrade()` with no initializer, " +
-        "which would ship the router live but permanently unwired on this " +
-        "already-governance-transferred Bridge. Either (a) wire the router " +
-        "in the same upgrade via `upgradeAndCall` + " +
-        "`initializeV6_SetReservationRouter`, or (b) set " +
-        "DEPLOY_TIP109_ACK_RESERVATION_ROUTER=true to acknowledge this and " +
-        "proceed with the router left unset for now."
-    )
-  }
 
   // --- Step 4: Deploy RebateStaking implementation ---
   // Implementation-only (NOT a proxy). Uses a distinct artifact name to
