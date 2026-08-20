@@ -415,7 +415,6 @@ contract ReservationVault is IVault, Ownable {
         );
     }
 
-
     /// @notice Updates the vault fee parameters.
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance),

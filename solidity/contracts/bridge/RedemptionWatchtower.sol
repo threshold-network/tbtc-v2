@@ -742,11 +742,10 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     }
 
     /// @notice Determines whether a reserved redemption request is
-    ///         considered safe.
-    /// @param reservationKey The key of the reservation being redeemed.
-    /// @param redemptionRequestedAt UNIX timestamp the reserved redemption
-    ///        request is being made at (the value about to be written to
-    ///        the reservation's `redemptionRequestedAt` field).
+    ///         considered safe. The first two positional parameters
+    ///         (a reservation key and the request's timestamp) are part
+    ///         of the interface the Bridge calls through but are unused
+    ///         by this check.
     /// @param balanceOwner The address of the Bank balance owner whose
     ///        balance is getting redeemed.
     /// @param redeemer The address that requested the redemption.
@@ -755,8 +754,8 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     ///         - The balance owner is not banned,
     ///         - The redeemer is not banned.
     function isSafeReservedRedemption(
-        uint256 reservationKey,
-        uint32 redemptionRequestedAt,
+        uint256,
+        uint32,
         address balanceOwner,
         address redeemer
     ) external view returns (bool) {

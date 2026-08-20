@@ -659,10 +659,8 @@ library Reservation {
             // terminalized here (closed) since the anchor this proof
             // proves is now provably spent and can never be re-anchored or
             // dissolved again.
-            BridgeState.ReservedRedemptionSettlement
-                storage settlement = self.reservedRedemptionSettlements[
-                    reservationKey
-                ];
+            BridgeState.ReservedRedemptionSettlement storage settlement = self
+                .reservedRedemptionSettlements[reservationKey];
             require(
                 settlement.anchorTxHash != bytes32(0),
                 "No settled reserved redemption"
@@ -680,15 +678,10 @@ library Reservation {
                 "Reservation anchor no longer matches the settlement"
             );
 
-            (
-                bytes32 outpointTxHash,
-                uint32 outpointIndex
-            ) = OutboundTx.parseWalletOutboundTxInput(
-                    redemptionTx.inputVector
-                );
+            (bytes32 outpointTxHash, uint32 outpointIndex) = OutboundTx
+                .parseWalletOutboundTxInput(redemptionTx.inputVector);
             require(
-                settlement.anchorTxHash == outpointTxHash &&
-                    outpointIndex == 0,
+                settlement.anchorTxHash == outpointTxHash && outpointIndex == 0,
                 "Wrong settled anchor outpoint"
             );
 
@@ -793,12 +786,11 @@ library Reservation {
         // still be acknowledged and mark the anchor outpoint spent,
         // mirroring the pooled redemption path's `timedOutRedemptions`
         // mechanism.
-        self.reservedRedemptionSettlements[
-            reservationKey
-        ] = BridgeState.ReservedRedemptionSettlement({
-            anchorTxHash: reservation.anchorTxHash,
-            redeemerOutputScriptHash: reservation.redeemerOutputScriptHash
-        });
+        self.reservedRedemptionSettlements[reservationKey] = BridgeState
+            .ReservedRedemptionSettlement({
+                anchorTxHash: reservation.anchorTxHash,
+                redeemerOutputScriptHash: reservation.redeemerOutputScriptHash
+            });
 
         reservation.state = ReservationState.Active;
         reservation.redeemer = address(0);
@@ -875,12 +867,11 @@ library Reservation {
         // Record a terminal settlement BEFORE clearing the reservation
         // fields, mirroring the timeout path above, so a redemption proof
         // that lands after this veto can still be acknowledged.
-        self.reservedRedemptionSettlements[
-            reservationKey
-        ] = BridgeState.ReservedRedemptionSettlement({
-            anchorTxHash: reservation.anchorTxHash,
-            redeemerOutputScriptHash: reservation.redeemerOutputScriptHash
-        });
+        self.reservedRedemptionSettlements[reservationKey] = BridgeState
+            .ReservedRedemptionSettlement({
+                anchorTxHash: reservation.anchorTxHash,
+                redeemerOutputScriptHash: reservation.redeemerOutputScriptHash
+            });
 
         reservation.state = ReservationState.Active;
         reservation.redeemer = address(0);
@@ -992,8 +983,7 @@ library Reservation {
         uint64 fee = anchorAmount - newAnchorAmount;
         reservation.cumulativeReanchorFee += fee;
         require(
-            reservation.cumulativeReanchorFee <=
-                self.maxCumulativeReanchorFee,
+            reservation.cumulativeReanchorFee <= self.maxCumulativeReanchorFee,
             "Cumulative re-anchor fee budget exceeded"
         );
 
@@ -1417,9 +1407,7 @@ library Reservation {
             "Transaction input must point to the wallet's main UTXO"
         );
 
-        self.spentMainUTXOs[
-            _outpointKey(outpointTxHash, outpointIndex)
-        ] = true;
+        self.spentMainUTXOs[_outpointKey(outpointTxHash, outpointIndex)] = true;
     }
 
     /// @notice Closes a reservation: adjusts the wallet reservation count
