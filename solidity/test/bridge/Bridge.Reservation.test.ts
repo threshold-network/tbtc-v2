@@ -2003,6 +2003,53 @@ describe("Bridge - Reservation", () => {
         })
       ).to.be.revertedWith("Reservation custodied by different wallet")
     })
+
+    it("enforces the dissolution-specific fee cap, not the reservation tx max fee", async () => {
+      // Regression test: validateReservationDissolutionProposal must check
+      // proposal.dissolutionTxFee against reservationDissolutionTxMaxFee,
+      // not reservationTxMaxFee. Configure the two caps to differ so a fee
+      // that would pass the wrong cap is caught by the right one.
+      const reservationKey = 54321
+      await bridge.setReservation(
+        reservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          500, // reservationDissolutionTxMaxFee, deliberately below RESERVATION_TX_MAX_FEE
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
+        )
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      // Within RESERVATION_TX_MAX_FEE (2000) but above the dissolution cap
+      // (500): must revert if the fee is checked against the right cap.
+      await expect(
+        validator.validateReservationDissolutionProposal({
+          walletPubKeyHash,
+          reservationKey,
+          dissolutionTxFee: 1000,
+        })
+      ).to.be.revertedWith("Proposed transaction fee is too high")
+
+      // Exactly at the dissolution cap: must be accepted.
+      expect(
+        await validator.validateReservationDissolutionProposal({
+          walletPubKeyHash,
+          reservationKey,
+          dissolutionTxFee: 500,
+        })
+      ).to.be.true
+    })
   })
 
   describe("reservation SPV proofs", () => {
