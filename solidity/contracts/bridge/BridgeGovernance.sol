@@ -294,10 +294,12 @@ contract BridgeGovernance is Ownable {
         address newReservationVault,
         uint64 newReservationMinAmount,
         uint64 newReservationTxMaxFee,
+        uint64 newReservationDissolutionTxMaxFee,
         uint32 newReservationTermSeconds,
         uint32 newReservationGracePeriod,
         uint64 newReservationMaxTotalAmount,
         uint32 newMaxReservationsPerWallet,
+        uint64 newMaxCumulativeReanchorFee,
         uint256 timestamp
     );
 
@@ -1830,19 +1832,23 @@ contract BridgeGovernance is Ownable {
         address _newReservationVault,
         uint64 _newReservationMinAmount,
         uint64 _newReservationTxMaxFee,
+        uint64 _newReservationDissolutionTxMaxFee,
         uint32 _newReservationTermSeconds,
         uint32 _newReservationGracePeriod,
         uint64 _newReservationMaxTotalAmount,
-        uint32 _newMaxReservationsPerWallet
+        uint32 _newMaxReservationsPerWallet,
+        uint64 _newMaxCumulativeReanchorFee
     ) external onlyOwner {
         reservationData.beginReservationParametersUpdate(
             _newReservationVault,
             _newReservationMinAmount,
             _newReservationTxMaxFee,
+            _newReservationDissolutionTxMaxFee,
             _newReservationTermSeconds,
             _newReservationGracePeriod,
             _newReservationMaxTotalAmount,
-            _newMaxReservationsPerWallet
+            _newMaxReservationsPerWallet,
+            _newMaxCumulativeReanchorFee
         );
     }
 
@@ -1857,10 +1863,12 @@ contract BridgeGovernance is Ownable {
             staged.newReservationVault,
             staged.newReservationMinAmount,
             staged.newReservationTxMaxFee,
+            staged.newReservationDissolutionTxMaxFee,
             staged.newReservationTermSeconds,
             staged.newReservationGracePeriod,
             staged.newReservationMaxTotalAmount,
-            staged.newMaxReservationsPerWallet
+            staged.newMaxReservationsPerWallet,
+            staged.newMaxCumulativeReanchorFee
         );
     }
 }

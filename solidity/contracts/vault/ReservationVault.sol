@@ -69,7 +69,13 @@ interface IReservationBridge {
 ///         `updateReservationParameters`.
 /// @dev The vault deliberately keeps no claim registry of its own -- the
 ///      Bridge's reservation records are the single source of truth and are
-///      consulted for ownership checks.
+///      consulted for ownership checks. A reservation's `owner` is set once
+///      at acceptance and has no reassignment path anywhere in the Bridge
+///      or this vault: reservation positions are deliberately
+///      non-transferable, even though the TBTC minted against a reservation
+///      is freely transferable. Key rotation or entity restructuring on the
+///      owner side therefore requires redeeming and re-establishing the
+///      reservation rather than transferring it directly.
 contract ReservationVault is IVault, Ownable {
     using SafeERC20 for IERC20;
 
@@ -176,6 +182,18 @@ contract ReservationVault is IVault, Ownable {
     ///      created against the reservation equals the sats earmarked
     ///      on-chain; the fee is an explicit transfer, never a netted
     ///      credit.
+    ///
+    ///      Known limitation: this function cannot distinguish an
+    ///      acceptance credit from an ordinary pooled sweep credit. A
+    ///      deposit revealed to this vault's address before a vault swap,
+    ///      or after this vault is de-designated but still trusted by the
+    ///      Bridge, lands here as an ordinary multi-depositor credit and
+    ///      is charged the initiation fee for what is really a pooled
+    ///      deposit with no reservation record. This is accepted current
+    ///      behavior (see the reveal-time classification tests) -- fixing
+    ///      it properly requires the Bridge to pass an explicit
+    ///      discriminator through the shared `IVault.receiveBalanceIncrease`
+    ///      interface, a change affecting every vault, not just this one.
     function receiveBalanceIncrease(
         address[] calldata depositors,
         uint256[] calldata depositedAmounts
@@ -214,6 +232,23 @@ contract ReservationVault is IVault, Ownable {
         }
     }
 
+    /// @notice Fetches a reservation and validates the caller owns it.
+    /// @param reservationKey The key of the reservation.
+    /// @return reservation The validated reservation struct.
+    /// @dev Requirements:
+    ///      - The caller must be the reservation owner.
+    function _ownedReservation(uint256 reservationKey)
+        internal
+        view
+        returns (Reservation.ReservationRequest memory reservation)
+    {
+        reservation = bridge.reservations(reservationKey);
+        require(
+            reservation.owner == msg.sender,
+            "Caller is not the reservation owner"
+        );
+    }
+
     /// @notice Requests an in-kind redemption of the caller's reservation.
     ///         The caller surrenders the gross minted TBTC amount plus the
     ///         redemption fee; the vault unmints the gross amount and asks
@@ -240,12 +275,8 @@ contract ReservationVault is IVault, Ownable {
         bytes calldata redeemerOutputScript,
         uint256 maxFeeTbtc
     ) external {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
+        Reservation.ReservationRequest memory reservation = _ownedReservation(
             reservationKey
-        );
-        require(
-            reservation.owner == msg.sender,
-            "Caller is not the reservation owner"
         );
 
         uint256 grossTbtc = uint256(reservation.mintedAmount) *
@@ -286,22 +317,24 @@ contract ReservationVault is IVault, Ownable {
     /// @notice Extends the custody term of the caller's reservation by one
     ///         term length, charging the extension fee in TBTC.
     /// @param reservationKey The key of the reservation to extend.
+    /// @param maxFeeTbtc Upper bound on the TBTC fee the caller accepts; an
+    ///        unexpected fee update reverts instead of overcharging.
     /// @dev Requirements:
     ///      - The caller must be the reservation owner,
+    ///      - The fee must not exceed `maxFeeTbtc`,
     ///      - The caller must have approved this vault for the extension
     ///        fee in TBTC.
-    function extendCustody(uint256 reservationKey) external {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
+    function extendCustody(uint256 reservationKey, uint256 maxFeeTbtc)
+        external
+    {
+        Reservation.ReservationRequest memory reservation = _ownedReservation(
             reservationKey
-        );
-        require(
-            reservation.owner == msg.sender,
-            "Caller is not the reservation owner"
         );
 
         uint256 fee = (uint256(reservation.mintedAmount) *
             SATOSHI_MULTIPLIER *
             extensionFeeBps) / BASIS_POINTS;
+        require(fee <= maxFeeTbtc, "Fee exceeds the caller's bound");
         if (fee > 0) {
             IERC20(tbtcToken).safeTransferFrom(
                 msg.sender,
@@ -326,6 +359,13 @@ contract ReservationVault is IVault, Ownable {
     ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
     /// @dev Requirements:
     ///      - The caller must be the reservation owner,
+    ///      - The reservation's most recent reserved redemption timeout
+    ///        must specifically have been caused by wallet fault (the
+    ///        Bridge's `lastTimeoutWasWalletFault` marker) -- otherwise
+    ///        this path would let an owner use it as an ordinary
+    ///        fee-free first redemption, or grief wallet operators for
+    ///        free by repeatedly requesting, waiting out the timeout
+    ///        (slashing the wallet), and retrying,
     ///      - The caller must have approved this vault in the Bank for the
     ///        gross minted amount (`Bank.approveBalance`).
     ///
@@ -337,12 +377,12 @@ contract ReservationVault is IVault, Ownable {
         uint256 reservationKey,
         bytes calldata redeemerOutputScript
     ) external {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
+        Reservation.ReservationRequest memory reservation = _ownedReservation(
             reservationKey
         );
         require(
-            reservation.owner == msg.sender,
-            "Caller is not the reservation owner"
+            reservation.lastTimeoutWasWalletFault,
+            "Previous request did not time out through wallet fault"
         );
 
         uint256 grossTbtc = uint256(reservation.mintedAmount) *
@@ -374,6 +414,7 @@ contract ReservationVault is IVault, Ownable {
             redeemerOutputScript
         );
     }
+
 
     /// @notice Updates the vault fee parameters.
     /// @dev Requirements:

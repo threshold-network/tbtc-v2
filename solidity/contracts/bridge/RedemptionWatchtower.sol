@@ -415,6 +415,21 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     ///         on the Bridge -- the anchor outpoint was not spent, so the
     ///         in-kind claim survives (though a banned owner cannot
     ///         re-request until unbanned).
+    ///
+    ///         Veto state is keyed per request generation
+    ///         (`_reservedVetoKey(reservationKey, redemptionRequestedAt)`),
+    ///         not by the bare reservation key: a reservation returns to
+    ///         Active and can be re-requested after a timeout, so keying by
+    ///         the bare reservation key would let a stale `objectionsCount`
+    ///         or per-guardian objection from a resolved earlier request
+    ///         permanently block or bias every future request generation
+    ///         on the same reservation. The `ObjectionRaised`/
+    ///         `VetoFinalized`/`VetoPeriodCheckOmitted` events below carry
+    ///         the generation key (not the bare reservation key) since
+    ///         that is the value `withdrawVetoedFunds` requires and the
+    ///         Bridge clears `redemptionRequestedAt` once the veto
+    ///         finalizes, so the generation key cannot be recomputed from
+    ///         Bridge state after the fact.
     /// @param reservationKey The key of the reservation with the pending
     ///        reserved redemption.
     /// @dev Requirements:
@@ -428,18 +443,6 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         external
         onlyGuardian
     {
-        VetoProposal storage veto = vetoProposals[reservationKey];
-
-        require(
-            veto.objectionsCount < REQUIRED_OBJECTIONS_COUNT,
-            "Reserved redemption already vetoed"
-        );
-
-        uint256 objectionKey = uint256(
-            keccak256(abi.encodePacked(reservationKey, msg.sender))
-        );
-        require(!objections[objectionKey], "Guardian already objected");
-
         Reservation.ReservationRequest memory reservation = bridge.reservations(
             reservationKey
         );
@@ -449,6 +452,22 @@ contract RedemptionWatchtower is OwnableUpgradeable {
                 Reservation.ReservationState.RedemptionRequested,
             "Reserved redemption does not exist"
         );
+
+        uint256 vetoKey = _reservedVetoKey(
+            reservationKey,
+            reservation.redemptionRequestedAt
+        );
+        VetoProposal storage veto = vetoProposals[vetoKey];
+
+        require(
+            veto.objectionsCount < REQUIRED_OBJECTIONS_COUNT,
+            "Reserved redemption already vetoed"
+        );
+
+        uint256 objectionKey = uint256(
+            keccak256(abi.encodePacked(vetoKey, msg.sender))
+        );
+        require(!objections[objectionKey], "Guardian already objected");
 
         if (reservation.redemptionRequestedAt >= watchtowerEnabledAt) {
             require(
@@ -462,14 +481,14 @@ contract RedemptionWatchtower is OwnableUpgradeable {
                 "Redemption veto delay period expired"
             );
         } else {
-            emit VetoPeriodCheckOmitted(reservationKey);
+            emit VetoPeriodCheckOmitted(vetoKey);
         }
 
         objections[objectionKey] = true;
         veto.redeemer = reservation.redeemer;
         veto.objectionsCount++;
 
-        emit ObjectionRaised(reservationKey, msg.sender);
+        emit ObjectionRaised(vetoKey, msg.sender);
 
         if (veto.objectionsCount == REQUIRED_OBJECTIONS_COUNT) {
             uint64 penaltyFee = vetoPenaltyFeeDivisor > 0
@@ -483,7 +502,7 @@ contract RedemptionWatchtower is OwnableUpgradeable {
 
             emit Banned(reservation.redeemer);
 
-            emit VetoFinalized(reservationKey);
+            emit VetoFinalized(vetoKey);
 
             // Notify the Bridge about the veto. As result of this call,
             // this contract receives the surrendered gross amount
@@ -493,6 +512,25 @@ contract RedemptionWatchtower is OwnableUpgradeable {
             // redeemer to withdraw after the freeze period.
             bank.decreaseBalance(penaltyFee);
         }
+    }
+
+    /// @notice Derives the veto-state key for a reserved redemption request
+    ///         generation, scoping guardian objections and veto state to
+    ///         the specific request rather than the reservation as a whole.
+    /// @param reservationKey The key of the reservation.
+    /// @param redemptionRequestedAt UNIX timestamp the reserved redemption
+    ///        request was (or is about to be) made at.
+    /// @return The generation-scoped veto-state key.
+    function _reservedVetoKey(
+        uint256 reservationKey,
+        uint32 redemptionRequestedAt
+    ) internal pure returns (uint256) {
+        return
+            uint256(
+                keccak256(
+                    abi.encodePacked(reservationKey, redemptionRequestedAt)
+                )
+            );
     }
 
     /// @notice Returns the applicable veto delay for a pending reserved
@@ -517,7 +555,12 @@ contract RedemptionWatchtower is OwnableUpgradeable {
 
         return
             _redemptionDelay(
-                vetoProposals[reservationKey].objectionsCount,
+                vetoProposals[
+                    _reservedVetoKey(
+                        reservationKey,
+                        reservation.redemptionRequestedAt
+                    )
+                ].objectionsCount,
                 reservation.mintedAmount
             );
     }
@@ -692,6 +735,47 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         );
 
         if (vetoProposals[redemptionKey].objectionsCount > 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// @notice Determines whether a reserved redemption request is
+    ///         considered safe.
+    /// @param reservationKey The key of the reservation being redeemed.
+    /// @param redemptionRequestedAt UNIX timestamp the reserved redemption
+    ///        request is being made at (the value about to be written to
+    ///        the reservation's `redemptionRequestedAt` field).
+    /// @param balanceOwner The address of the Bank balance owner whose
+    ///        balance is getting redeemed.
+    /// @param redeemer The address that requested the redemption.
+    /// @return True if the reserved redemption request is safe, false
+    ///         otherwise. The redemption is considered safe when:
+    ///         - The balance owner is not banned,
+    ///         - The redeemer is not banned,
+    ///         - There are no objections against this reservation's
+    ///           current request generation.
+    function isSafeReservedRedemption(
+        uint256 reservationKey,
+        uint32 redemptionRequestedAt,
+        address balanceOwner,
+        address redeemer
+    ) external view returns (bool) {
+        if (isBanned[balanceOwner]) {
+            return false;
+        }
+
+        if (isBanned[redeemer]) {
+            return false;
+        }
+
+        uint256 vetoKey = _reservedVetoKey(
+            reservationKey,
+            redemptionRequestedAt
+        );
+
+        if (vetoProposals[vetoKey].objectionsCount > 0) {
             return false;
         }
 

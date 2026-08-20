@@ -16,17 +16,7 @@ contract BridgeStub is Bridge {
     ) external {
         self.reservations[reservationKey] = reservation;
         self.walletReservationsCount[reservation.walletPubKeyHash] += 1;
-        self.reservationTotalAmount += reservation.anchorAmount;
-        self.reservationsByAnchorUtxo[
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                )
-            )
-        ] = reservationKey;
+        self.reservationTotalAmount += reservation.mintedAmount;
     }
 
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
