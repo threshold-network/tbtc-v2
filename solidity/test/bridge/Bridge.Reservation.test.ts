@@ -76,7 +76,6 @@ describe("Bridge - Reservation", () => {
       tbtc,
       tbtcVault,
     } = await waffle.loadFixture(bridgeFixture))
-
     ;({
       redemptionTimeoutSlashingAmount,
       redemptionTimeoutNotifierRewardMultiplier,
@@ -354,19 +353,17 @@ describe("Bridge - Reservation", () => {
 
       it("should revert when the minimum amount is not greater than the tx max fee", async () => {
         await expect(
-          bridge
-            .connect(bridgeGovernanceSigner)
-            .updateReservationParameters(
-              reservationVault.address,
-              RESERVATION_TX_MAX_FEE, // equal, not greater
-              RESERVATION_TX_MAX_FEE,
-              RESERVATION_DISSOLUTION_TX_MAX_FEE,
-              RESERVATION_TERM,
-              RESERVATION_GRACE,
-              RESERVATION_MAX_TOTAL,
-              MAX_RESERVATIONS_PER_WALLET,
-              MAX_CUMULATIVE_REANCHOR_FEE
-            )
+          bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+            reservationVault.address,
+            RESERVATION_TX_MAX_FEE, // equal, not greater
+            RESERVATION_TX_MAX_FEE,
+            RESERVATION_DISSOLUTION_TX_MAX_FEE,
+            RESERVATION_TERM,
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            MAX_CUMULATIVE_REANCHOR_FEE
+          )
         ).to.be.revertedWith(
           "Reservation minimum amount must be greater than the reservation TX max fee"
         )
@@ -708,9 +705,7 @@ describe("Bridge - Reservation", () => {
           state: 2, // RedemptionRequested
         })
 
-        const vaultSigner = await impersonateContract(
-          reservationVault.address
-        )
+        const vaultSigner = await impersonateContract(reservationVault.address)
         await expect(
           bridge.connect(vaultSigner).extendReservation(pendingKey)
         ).to.be.revertedWith("Reservation is not active")
@@ -866,9 +861,7 @@ describe("Bridge - Reservation", () => {
         .increaseBalance(reservationVault.address, amountSat)
 
       const vaultSigner = await impersonateContract(reservationVault.address)
-      await bank
-        .connect(vaultSigner)
-        .approveBalance(bridge.address, amountSat)
+      await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
       await bridge
         .connect(vaultSigner)
         .requestReservedRedemption(
@@ -1038,10 +1031,7 @@ describe("Bridge - Reservation", () => {
             [firstAmount, secondAmount]
           )
 
-        const firstFee = firstAmount
-          .mul(SATOSHI_MULTIPLIER)
-          .mul(40)
-          .div(10000)
+        const firstFee = firstAmount.mul(SATOSHI_MULTIPLIER).mul(40).div(10000)
         const secondFee = secondAmount
           .mul(SATOSHI_MULTIPLIER)
           .mul(40)
@@ -1260,9 +1250,9 @@ describe("Bridge - Reservation", () => {
         expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
           ownerBalanceBefore.sub(fee)
         )
-        expect(
-          (await bridge.reservations(reservationKey)).expiresAt
-        ).to.equal(expiresAtBefore + RESERVATION_TERM)
+        expect((await bridge.reservations(reservationKey)).expiresAt).to.equal(
+          expiresAtBefore + RESERVATION_TERM
+        )
       })
     })
 
@@ -1696,9 +1686,7 @@ describe("Bridge - Reservation", () => {
         .connect(bridgeSigner)
         .increaseBalance(reservationVault.address, amountSat)
       const vaultSigner = await impersonateContract(reservationVault.address)
-      await bank
-        .connect(vaultSigner)
-        .approveBalance(bridge.address, amountSat)
+      await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
       await bridge
         .connect(vaultSigner)
         .requestReservedRedemption(
@@ -1730,9 +1718,7 @@ describe("Bridge - Reservation", () => {
         )),
         state: 2, // RedemptionRequested
         redeemer: thirdParty.address,
-        redeemerOutputScriptHash: ethers.utils.keccak256(
-          redeemerOutputScript
-        ),
+        redeemerOutputScriptHash: ethers.utils.keccak256(redeemerOutputScript),
         redemptionRequestedAt: grandfatheredRequestedAt,
         redemptionTxMaxFee: RESERVATION_TX_MAX_FEE,
       })
@@ -2689,9 +2675,9 @@ describe("Bridge - Reservation", () => {
       )
 
       expect((await bridge.reservations(reservationKey)).state).to.equal(1) // Active
-      expect(
-        (await bridge.reservations(reservationKey)).anchorTxHash
-      ).to.equal(reanchorTx.txHash)
+      expect((await bridge.reservations(reservationKey)).anchorTxHash).to.equal(
+        reanchorTx.txHash
+      )
     })
 
     it("acknowledges a late redemption proof for a reservation that was vetoed", async () => {
@@ -3015,19 +3001,17 @@ describe("Bridge - Reservation", () => {
     it("rejects a re-anchor once the cumulative fee budget is exceeded", async () => {
       // Lower the cumulative budget so two ordinary-fee re-anchor hops
       // exceed it on the second hop.
-      await bridge
-        .connect(bridgeGovernanceSigner)
-        .updateReservationParameters(
-          reservationVault.address,
-          RESERVATION_MIN_AMOUNT,
-          RESERVATION_TX_MAX_FEE,
-          RESERVATION_DISSOLUTION_TX_MAX_FEE,
-          RESERVATION_TERM,
-          RESERVATION_GRACE,
-          RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET,
-          anchorFee // budget == exactly one hop's fee
-        )
+      await bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+        reservationVault.address,
+        RESERVATION_MIN_AMOUNT,
+        RESERVATION_TX_MAX_FEE,
+        RESERVATION_DISSOLUTION_TX_MAX_FEE,
+        RESERVATION_TERM,
+        RESERVATION_GRACE,
+        RESERVATION_MAX_TOTAL,
+        MAX_RESERVATIONS_PER_WALLET,
+        anchorFee // budget == exactly one hop's fee
+      )
 
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
       await liveWallet(secondWalletPubKeyHash)
