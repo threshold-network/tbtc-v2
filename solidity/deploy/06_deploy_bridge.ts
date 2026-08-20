@@ -82,7 +82,10 @@ const func: DeployFunction = async function deployBridge(
         // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.
         // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-        unsafeAllow: ["external-library-linking"],
+        // The Bridge's fallback delegatecalls into the ReservationRouter
+        // (see docs/rfc/rfc-13.adoc); this is guarded so it can only be
+        // triggered through the proxy, not on the implementation itself.
+        unsafeAllow: ["external-library-linking", "delegatecall"],
       },
     }
   )

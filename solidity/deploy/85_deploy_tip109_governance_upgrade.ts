@@ -365,6 +365,48 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     libraries: bridgeLibraries,
   })
 
+  // --- Step 3b: Guard against silently shipping the reservation router ---
+  // This script deploys a fresh Bridge implementation from current source
+  // for an unrelated TIP-109/rebate purpose and swaps it in via a bare
+  // `ProxyAdmin.upgrade()` with no initializer call (see calldata generation
+  // below). The router's own functions (e.g. `reservationRouter()`) are
+  // never in the Bridge's own ABI -- the whole point of the delegatecall
+  // architecture is that they're reached through the fallback, not
+  // declared on Bridge itself -- so detect the Bridge-side wiring signal
+  // instead: `setReservationRouter` points the fallback at a router, and
+  // `initializeV6_SetReservationRouter` is the atomic-upgrade path added
+  // alongside it. If either is present, this bare `upgrade()` would ship
+  // the router live with `reservationRouter` unset and no reachable way to
+  // set it afterwards on a governance-transferred Bridge (see
+  // `Bridge.initializeV6_SetReservationRouter`). Re-running this script
+  // after the router feature has merged requires deliberately wiring the
+  // router in the same upgrade via `ProxyAdmin.upgradeAndCall` +
+  // `initializeV6_SetReservationRouter` instead of the plain `upgrade()`
+  // calldata generated below.
+  const bridgeIncludesReservationRouter = bridgeImpl.abi.some(
+    (fragment) =>
+      fragment.type === "function" &&
+      (fragment.name === "setReservationRouter" ||
+        fragment.name === "initializeV6_SetReservationRouter")
+  )
+  if (
+    bridgeIncludesReservationRouter &&
+    process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER !== "true"
+  ) {
+    throw new Error(
+      "The compiled Bridge implementation now includes UTXO-reservation " +
+        "router wiring (`setReservationRouter`/" +
+        "`initializeV6_SetReservationRouter` present in its ABI). This " +
+        "script generates a bare `ProxyAdmin.upgrade()` with no initializer, " +
+        "which would ship the router live but permanently unwired on this " +
+        "already-governance-transferred Bridge. Either (a) wire the router " +
+        "in the same upgrade via `upgradeAndCall` + " +
+        "`initializeV6_SetReservationRouter`, or (b) set " +
+        "DEPLOY_TIP109_ACK_RESERVATION_ROUTER=true to acknowledge this and " +
+        "proceed with the router left unset for now."
+    )
+  }
+
   // --- Step 4: Deploy RebateStaking implementation ---
   // Implementation-only (NOT a proxy). Uses a distinct artifact name to
   // avoid overwriting the existing RebateStaking proxy artifact. The actual

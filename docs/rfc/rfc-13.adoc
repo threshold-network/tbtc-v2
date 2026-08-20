@@ -46,14 +46,11 @@ backing/fee model and the wallet lifecycle integration.
 
 === Problem
 
-The mainnet Bridge implementation sits within ~400 bytes of the EIP-170
-deployed-code limit even with the optimizer turned down. The reservation
-surface — and any serious rework of it — does not fit.
+The Bridge implementation on this branch, compiled at the reduced `runs=100` optimizer setting used to keep it under the limit, sits within ~400 bytes of the EIP-170 deployed-code limit (22,403 B measured; at the mainnet-standard `runs=1000` it is ~71 bytes over the 24,576 B limit, 24,647 B measured). The reservation surface — and any serious rework of it — does not fit.
 
 === Considered shapes
 
-*External router with privileged callbacks* (the shape used by the P2TR
-activation track for fraud signature verification): works for stateless
+*External router with privileged callbacks*: works for stateless
 verification, but reservations mutate core Bridge state (`deposits`,
 `registeredWallets`, `spentMainUTXOs`) and exercise Bank authority reserved
 for the Bridge address (`increaseBalanceAndCall`, `transferBalanceFrom`,
@@ -65,8 +62,7 @@ removes, plus a brand-new trusted-party surface.
 with the address of a `ReservationRouter` contract and routes every call
 with an unmatched function selector to it via `delegatecall` from its
 fallback. Router code executes at the Bridge address, on Bridge storage,
-with Bridge Bank authority. The ABI observable at the Bridge address is
-unchanged; off-chain clients are unaffected.
+with Bridge Bank authority. Selectors and log topics observable at the Bridge address are unchanged at runtime; however the published Bridge contract ABI no longer includes the moved functions/views/events, so off-chain consumers use the `IReservationBridge`/`ReservationRouter` ABI alongside the Bridge ABI to reach the full surface.
 
 === Invariants
 

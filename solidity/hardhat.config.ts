@@ -41,6 +41,15 @@ const bridgeGovernanceCompilerConfig = {
   },
 }
 
+// Hardhat compiler-settings overrides replace, not merge, so every override
+// that needs `storageLayout` output must repeat this key; hoisted once here
+// so the two usages below can't drift.
+const storageLayoutOutputSelection = {
+  "*": {
+    "*": ["storageLayout"],
+  },
+}
+
 // Configuration for testing environment.
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
@@ -68,11 +77,7 @@ const config: HardhatUserConfig = {
           },
           // Storage layouts are asserted by tests guarding the
           // Bridge / ReservationRouter delegatecall storage parity.
-          outputSelection: {
-            "*": {
-              "*": ["storageLayout"],
-            },
-          },
+          outputSelection: storageLayoutOutputSelection,
         },
       },
     ],
@@ -80,19 +85,23 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-// The UTXO-reservation surface lives in the ReservationRouter
-      // delegatecall extension; the Bridge only keeps the router wiring
-      // (`setReservationRouter`/`initializeV6_*`) and the fallback hop, so
-      // it stays under EIP-170 even as the reservation model grows. The
-      // runs=100 setting keeps this headroom; the runtime-gas cost of the
-      // lower runs value is expected to be small from a committed gas-diff
-      // standpooint -- the Bridge is a thin dispatch shell over linked
-      // libraries (Deposit, DepositSweep, Redemption, Reservation) that
-      // stay at runs=1000, so a runs=1000-vs-100 diff over the
-      // deposit/redemption hot paths is small (noise-to-single-digits,
-      // not backed by a committed gas-diff test). New reservation code
-      // goes into the ReservationRouter, which has its own EIP-170
-      // budget.
+// Preserve the Bridge's EIP-170 deployment margin. Even with the
+      // UTXO-reservation surface moved out to the delegatecall
+      // ReservationRouter, the monolithic Bridge sits ~71 bytes over the
+      // limit at runs=1000 (24,647 B measured); runs=100 leaves a ~2.1 kB
+      // margin (22,403 B measured). The runtime-gas cost of the lower runs
+      // value is effectively nil: the Bridge is a thin dispatch shell over
+      // linked libraries (Deposit, DepositSweep, Redemption, ...) that stay
+      // at runs=1000, so a measured runs=1000-vs-100 diff over the
+      // deposit/redemption hot paths is 0-8 gas (noise). New reservation
+      // code goes into the ReservationRouter, which has its own EIP-170
+      // budget. Separately, the fallback's own delegatecall dispatch adds
+      // a measured ~12,600 gas fixed overhead per reservation call over a
+      // direct call on the standalone router (cold SLOAD of the router
+      // slot, cold-address delegatecall surcharge, extra dispatch framing)
+      // -- see the "delegatecall dispatch overhead" test in
+      // ReservationRouter.test.ts. This is unrelated to the runs=1000-vs-100
+      // setting above; it is the cost of the router architecture itself.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {
@@ -120,11 +129,7 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1,
           },
-          outputSelection: {
-            "*": {
-              "*": ["storageLayout"],
-            },
-          },
+          outputSelection: storageLayoutOutputSelection,
         },
       },
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {

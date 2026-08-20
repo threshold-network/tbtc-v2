@@ -1860,16 +1860,17 @@ contract BridgeGovernance is Ownable {
         BridgeGovernanceParameters.ReservationData
             memory staged = reservationData;
         reservationData.finalizeReservationParametersUpdate(governanceDelay());
-        IReservationBridge(address(bridge)).updateReservationParameters(
-            staged.newReservationVault,
-            staged.newReservationMinAmount,
-            staged.newReservationTxMaxFee,
-            staged.newReservationDissolutionTxMaxFee,
-            staged.newReservationTermSeconds,
-            staged.newReservationGracePeriod,
-            staged.newReservationMaxTotalAmount,
-            staged.newMaxReservationsPerWallet,
-            staged.newMaxCumulativeReanchorFee
-        );
+IReservationBridgeGovernance(address(bridge))
+            .updateReservationParameters(
+                staged.newReservationVault,
+                staged.newReservationMinAmount,
+                staged.newReservationTxMaxFee,
+                staged.newReservationDissolutionTxMaxFee,
+                staged.newReservationTermSeconds,
+                staged.newReservationGracePeriod,
+                staged.newReservationMaxTotalAmount,
+                staged.newMaxReservationsPerWallet,
+                staged.newMaxCumulativeReanchorFee
+            );
     }
 }

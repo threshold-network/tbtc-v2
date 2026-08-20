@@ -407,6 +407,31 @@ event WalletMovingFunds(
         emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
     }
 
+    /// @notice Wires the reservation router into an already-deployed,
+    ///         governance-transferred Bridge during a proxy implementation
+    ///         upgrade.
+    /// @param _reservationRouter Address of the reservation router.
+    /// @dev Uses reinitializer(6) so this can only run once, atomically with
+    ///      the ProxyAdmin implementation upgrade that ships this function
+    ///      (`ProxyAdmin.upgradeAndCall`). A fresh Bridge deployment instead
+    ///      wires the router directly via `setReservationRouter` while the
+    ///      deployer still holds governance, before it is transferred to
+    ///      `BridgeGovernance` (see `06_deploy_bridge.ts`). Once governance
+    ///      is transferred, `setReservationRouter` is unreachable --
+    ///      `BridgeGovernance` provides no passthrough for it, by design
+    ///      (unlike `setRedemptionWatchtower`/`setRebateStaking`): keeping
+    ///      the only reachable wiring path behind the proxy-admin upgrade
+    ///      ceremony, rather than adding a plain governance passthrough,
+    ///      is what keeps the router's code-change authority with the
+    ///      proxy admin as documented (see `docs/rfc/rfc-13.adoc`).
+    ///      Requirements: see `BridgeState.setReservationRouter`.
+    function initializeV6_SetReservationRouter(address _reservationRouter)
+        external
+        reinitializer(6)
+    {
+        self.setReservationRouter(_reservationRouter);
+    }
+
     /// @notice Used by the depositor to reveal information about their P2(W)SH
     ///         Bitcoin deposit to the Bridge on Ethereum chain. The off-chain
     ///         wallet listens for revealed deposit events and may decide to
@@ -2125,10 +2150,10 @@ event WalletMovingFunds(
     /// @dev The router address can only be set once, by the governance, via
     ///      `setReservationRouter`; replacing it requires a Bridge
     ///      implementation upgrade. Calls made before the router is set
-    ///      revert. The function is deliberately not payable — the Bridge
-    ///      never accepts ETH.
-    // The fallback is intentionally a delegatecall dispatcher (the whole
-    // point of the router architecture) and intentionally not payable.
+    ///      revert. The fallback dispatch path itself accepts no value
+    ///      (unrelated Bridge functions such as `submitFraudChallenge`
+    ///      handle ETH deposits separately -- the Bridge as a whole does
+    ///      accept and custody ETH).
     /* solhint-disable payable-fallback, no-complex-fallback */
     fallback() external {
         address reservationRouter = self.reservationRouter;
@@ -2143,6 +2168,7 @@ event WalletMovingFunds(
             // through a Bridge implementation upgrade, so this delegatecall
             // target is as trusted as the Bridge implementation itself.
             // slither-disable-next-line controlled-delegatecall
+            /// @custom:oz-upgrades-unsafe-allow delegatecall
             let result := delegatecall(
                 gas(),
                 reservationRouter,

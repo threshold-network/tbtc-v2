@@ -2,7 +2,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from "chai"
+import chai, { expect } from "chai"
+import chaiAsPromised from "chai-as-promised"
 import hre, { ethers, deployments } from "hardhat"
 import fs from "fs"
 import path from "path"
@@ -14,6 +15,8 @@ import func, {
   KNOWN_PROXY_ADMIN,
   KNOWN_T_TOKEN,
 } from "../../deploy/85_deploy_tip109_governance_upgrade"
+
+chai.use(chaiAsPromised)
 
 describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   // Shared test addresses used across multiple describe blocks.
@@ -80,6 +83,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   function createMockHre(options?: {
     networkTags?: Record<string, boolean>
     runBehavior?: "resolve" | "reject"
+    bridgeAbi?: unknown[]
   }): {
     mockHre: any
     deployCalls: DeployCall[]
@@ -110,7 +114,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         deploy: async (name: string, opts: any) => {
           deployCalls.push({ name, options: opts })
           const address = deployAddressMap[name] || ethers.constants.AddressZero
-          return { address, newlyDeployed: true }
+          const abi =
+            name === "BridgeTIP109Implementation"
+              ? options?.bridgeAbi ?? []
+              : []
+          return { address, newlyDeployed: true, abi }
         },
         get: async (name: string) => {
           getCalls.push({ name })
@@ -316,10 +324,20 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
     describe("integration: deployment on hardhat network", () => {
       let originalEnv: string | undefined
+      let originalAckEnv: string | undefined
 
       before(async () => {
         originalEnv = process.env.DEPLOY_TIP109
         process.env.DEPLOY_TIP109 = "true"
+        // The current Bridge source includes the UTXO-reservation router
+        // wiring surface (`setReservationRouter` /
+        // `initializeV6_SetReservationRouter`), which this script's guard
+        // (see "Step 3b") would otherwise reject deploying via a bare
+        // `ProxyAdmin.upgrade()`. This integration test exercises the
+        // deployment mechanics only, not the router-wiring safety
+        // guard -- that guard has its own dedicated test below.
+        originalAckEnv = process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+        process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = "true"
         await deployments.fixture()
       })
 
@@ -328,6 +346,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           delete process.env.DEPLOY_TIP109
         } else {
           process.env.DEPLOY_TIP109 = originalEnv
+        }
+        if (originalAckEnv === undefined) {
+          delete process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+        } else {
+          process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = originalAckEnv
         }
       })
 
@@ -389,6 +412,72 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           console.log = originalLog
         }
       })
+    })
+  })
+
+  describe("reservation router wiring guard", () => {
+    const bridgeAbiWithSetReservationRouter = [
+      {
+        type: "function",
+        name: "setReservationRouter",
+        inputs: [],
+        outputs: [],
+        stateMutability: "nonpayable",
+      },
+    ]
+    const bridgeAbiWithInitializeV6 = [
+      {
+        type: "function",
+        name: "initializeV6_SetReservationRouter",
+        inputs: [],
+        outputs: [],
+        stateMutability: "nonpayable",
+      },
+    ]
+    let originalAckEnv: string | undefined
+
+    beforeEach(() => {
+      originalAckEnv = process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+      delete process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+    })
+
+    afterEach(() => {
+      if (originalAckEnv === undefined) {
+        delete process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+      } else {
+        process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = originalAckEnv
+      }
+    })
+
+    it("should throw when the compiled Bridge ABI includes setReservationRouter and no ack env var is set", async () => {
+      const { mockHre } = createMockHre({
+        bridgeAbi: bridgeAbiWithSetReservationRouter,
+      })
+      await expect(func(mockHre)).to.be.rejectedWith(
+        /UTXO-reservation router wiring/
+      )
+    })
+
+    it("should throw when the compiled Bridge ABI includes initializeV6_SetReservationRouter and no ack env var is set", async () => {
+      const { mockHre } = createMockHre({
+        bridgeAbi: bridgeAbiWithInitializeV6,
+      })
+      await expect(func(mockHre)).to.be.rejectedWith(
+        /UTXO-reservation router wiring/
+      )
+    })
+
+    it("should not throw when the ack env var is set to true", async () => {
+      process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = "true"
+      const { mockHre } = createMockHre({
+        bridgeAbi: bridgeAbiWithSetReservationRouter,
+      })
+      await expect(func(mockHre)).to.not.be.rejected
+    })
+
+    it("should not throw when the compiled Bridge ABI has neither router-wiring function", async () => {
+      const { mockHre } = createMockHre()
+      await expect(func(mockHre)).to.not.be.rejected
     })
   })
 

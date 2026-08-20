@@ -83,7 +83,6 @@ import "./Reservation.sol";
 ///         authority exactly where it is today: with the proxy admin, not
 ///         with the parameter governance.
 contract ReservationRouter is Governable, Initializable {
-    using BridgeState for BridgeState.Storage;
     using Reservation for BridgeState.Storage;
 
     // Mirror of the Bridge's storage anchor. `Governable` contributes slots

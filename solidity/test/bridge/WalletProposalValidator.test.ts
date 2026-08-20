@@ -10,6 +10,7 @@ import type {
 } from "../../typechain"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
+import { mergeReservationRouterFragments } from "../fixtures/bridge"
 
 chai.use(smock.matchers)
 
@@ -48,15 +49,9 @@ describe("WalletProposalValidator", () => {
     const bridgeAbi = (await artifacts.readArtifact("Bridge")).abi
     const routerAbi = (await artifacts.readArtifact("ReservationRouter")).abi
     const bridgeInterface = new ethers.utils.Interface(bridgeAbi)
-    const bridgeSignatures = new Set(
-      bridgeInterface.fragments
-        .filter((f) => f.type === "function" || f.type === "event")
-        .map((f) => f.format())
-    )
-    const routerExtras = new ethers.utils.Interface(routerAbi).fragments.filter(
-      (f) =>
-        (f.type === "function" || f.type === "event") &&
-        !bridgeSignatures.has(f.format())
+    const routerExtras = mergeReservationRouterFragments(
+      bridgeInterface.fragments,
+      routerAbi
     )
     bridge = await smock.fake<Bridge>([
       ...bridgeInterface.fragments,
