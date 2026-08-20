@@ -2015,19 +2015,17 @@ describe("Bridge - Reservation", () => {
         await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
       )
 
-      await bridge
-        .connect(bridgeGovernanceSigner)
-        .updateReservationParameters(
-          reservationVault.address,
-          RESERVATION_MIN_AMOUNT,
-          RESERVATION_TX_MAX_FEE,
-          500, // reservationDissolutionTxMaxFee, deliberately below RESERVATION_TX_MAX_FEE
-          RESERVATION_TERM,
-          RESERVATION_GRACE,
-          RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET,
-          MAX_CUMULATIVE_REANCHOR_FEE
-        )
+      await bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+        reservationVault.address,
+        RESERVATION_MIN_AMOUNT,
+        RESERVATION_TX_MAX_FEE,
+        500, // reservationDissolutionTxMaxFee, deliberately below RESERVATION_TX_MAX_FEE
+        RESERVATION_TERM,
+        RESERVATION_GRACE,
+        RESERVATION_MAX_TOTAL,
+        MAX_RESERVATIONS_PER_WALLET,
+        MAX_CUMULATIVE_REANCHOR_FEE
+      )
 
       await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
 
