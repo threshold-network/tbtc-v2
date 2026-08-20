@@ -753,9 +753,7 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     /// @return True if the reserved redemption request is safe, false
     ///         otherwise. The redemption is considered safe when:
     ///         - The balance owner is not banned,
-    ///         - The redeemer is not banned,
-    ///         - There are no objections against this reservation's
-    ///           current request generation.
+    ///         - The redeemer is not banned.
     function isSafeReservedRedemption(
         uint256 reservationKey,
         uint32 redemptionRequestedAt,
@@ -767,15 +765,6 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         }
 
         if (isBanned[redeemer]) {
-            return false;
-        }
-
-        uint256 vetoKey = _reservedVetoKey(
-            reservationKey,
-            redemptionRequestedAt
-        );
-
-        if (vetoProposals[vetoKey].objectionsCount > 0) {
             return false;
         }
 

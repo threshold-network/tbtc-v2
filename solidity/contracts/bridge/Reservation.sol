@@ -141,10 +141,10 @@ library Reservation {
         // re-anchors.
         uint64 cumulativeReanchorFee;
         // Set true when the most recent reserved redemption timeout
-        // slashed the custodying wallet (it was Live, MovingFunds, or
-        // Terminated); set false when slashing was skipped (wallet
-        // already Closing/Closed) or the most recent resolution was a
-        // veto rather than a timeout. Read by
+        // actually slashed the custodying wallet (it was Live or
+        // MovingFunds); set false when slashing was skipped (wallet
+        // already Terminated, Closing, or Closed) or the most recent
+        // resolution was a veto rather than a timeout. Read by
         // `ReservationVault.retryRedeemReservation` to confirm the prior
         // request specifically ended in a wallet-fault timeout before
         // waiving the redemption fee -- without this gate an owner could
@@ -377,6 +377,14 @@ library Reservation {
     ///         deposit as swept blocks any future regular sweep, prevents
     ///         double acceptance, and makes the deposit outpoint recognized
     ///         as correctly spent by the fraud challenge defeat path.
+    /// @dev Does not re-check the deposit's revealed `vault` against the
+    ///      current `self.reservationVault`: the reveal-time
+    ///      classification in `pendingReservedDeposit` is what gates
+    ///      reservation treatment. If governance changes the reservation
+    ///      vault between reveal and acceptance, this deposit is still
+    ///      accepted and its credit is routed through the *current*
+    ///      vault (see `submitReservationAcceptanceProof`), not the one
+    ///      set at reveal time.
     /// @return reservationKey The deposit key of the reserved deposit, used
     ///         as the reservation key.
     function resolveAcceptedDeposit(
@@ -420,9 +428,8 @@ library Reservation {
         );
     }
 
-    /// @notice Registers a new reservation: checks and adjusts the caps,
-    ///         stores the reservation record and indexes the anchor
-    ///         outpoint.
+    /// @notice Registers a new reservation: checks and adjusts the caps
+    ///         and stores the reservation record.
     function registerReservation(
         BridgeState.Storage storage self,
         uint256 reservationKey,
@@ -581,8 +588,6 @@ library Reservation {
 
         bytes memory redeemerOutputScriptMem = redeemerOutputScript;
 
-        // Validate the redeemer output script is a correct standard type
-        // (P2PKH, P2WPKH, P2SH or P2WSH), the same way `Redemption` does.
         OutboundTx.validateRedeemerOutputScript(
             redeemerOutputScriptMem,
             reservation.walletPubKeyHash
@@ -650,12 +655,30 @@ library Reservation {
             // was refunded there; acknowledge a late-arriving proof for the
             // exact settled anchor spend without moving any further
             // balance, mirroring the pooled redemption path's
-            // `timedOutRedemptions` mechanism.
+            // `timedOutRedemptions` mechanism. The reservation itself is
+            // terminalized here (closed) since the anchor this proof
+            // proves is now provably spent and can never be re-anchored or
+            // dissolved again.
             BridgeState.ReservedRedemptionSettlement
                 storage settlement = self.reservedRedemptionSettlements[
                     reservationKey
                 ];
-            require(settlement.pending, "No pending reserved redemption");
+            require(
+                settlement.anchorTxHash != bytes32(0),
+                "No settled reserved redemption"
+            );
+
+            // The reservation may have been re-anchored since the
+            // settlement was recorded (a timeout/veto returns it to
+            // Active, which permits re-anchoring). If so, the anchor
+            // this settlement refers to is no longer the reservation's
+            // current position -- the reservation has since moved on to
+            // a live, unsettled anchor that must go through its own
+            // redemption or dissolution, not be force-closed here.
+            require(
+                reservation.anchorTxHash == settlement.anchorTxHash,
+                "Reservation anchor no longer matches the settlement"
+            );
 
             (
                 bytes32 outpointTxHash,
@@ -669,11 +692,21 @@ library Reservation {
                 "Wrong settled anchor outpoint"
             );
 
+            bytes memory settlementOutput = parseSingleOutput(
+                redemptionTx.outputVector
+            );
+            require(
+                keccak256(
+                    settlementOutput.slice(8, settlementOutput.length - 8)
+                ) == settlement.redeemerOutputScriptHash,
+                "Output does not pay the settled redeemer script"
+            );
+
             self.spentMainUTXOs[
                 _outpointKey(outpointTxHash, outpointIndex)
             ] = true;
 
-            delete self.reservedRedemptionSettlements[reservationKey];
+            closeReservation(self, reservation, reservationKey);
 
             // slither-disable-next-line reentrancy-events
             emit ReservedRedemptionSettled(reservationKey, redemptionTxHash);
@@ -709,7 +742,7 @@ library Reservation {
             "Output value is not within the acceptable range"
         );
 
-        closeReservation(self, reservation);
+        closeReservation(self, reservation, reservationKey);
 
         // slither-disable-next-line reentrancy-events
         emit ReservedRedemptionCompleted(reservationKey, redemptionTxHash);
@@ -763,8 +796,8 @@ library Reservation {
         self.reservedRedemptionSettlements[
             reservationKey
         ] = BridgeState.ReservedRedemptionSettlement({
-            pending: true,
-            anchorTxHash: reservation.anchorTxHash
+            anchorTxHash: reservation.anchorTxHash,
+            redeemerOutputScriptHash: reservation.redeemerOutputScriptHash
         });
 
         reservation.state = ReservationState.Active;
@@ -775,18 +808,17 @@ library Reservation {
 
         // Propagate timeout consequences to the wallet: slashing and state
         // transition follow the regular redemption timeout rules, but only
-        // when the wallet is in a state where slashing is possible (Live,
-        // MovingFunds, or Terminated). A wallet that already reached
-        // Closing or Closed cannot be slashed via this path -- skip the
-        // call instead of reverting so the refund below is never blocked
-        // by wallet state.
+        // when the wallet is actually slashable (Live or MovingFunds). A
+        // wallet that already reached Terminated, Closing, or Closed
+        // cannot be slashed via this path -- skip the call instead of
+        // reverting so the refund below is never blocked by wallet
+        // state.
         Wallets.WalletState walletState = self
             .registeredWallets[walletPubKeyHash]
             .state;
         if (
             walletState == Wallets.WalletState.Live ||
-            walletState == Wallets.WalletState.MovingFunds ||
-            walletState == Wallets.WalletState.Terminated
+            walletState == Wallets.WalletState.MovingFunds
         ) {
             reservation.lastTimeoutWasWalletFault = true;
             self.notifyWalletRedemptionTimeout(
@@ -846,8 +878,8 @@ library Reservation {
         self.reservedRedemptionSettlements[
             reservationKey
         ] = BridgeState.ReservedRedemptionSettlement({
-            pending: true,
-            anchorTxHash: reservation.anchorTxHash
+            anchorTxHash: reservation.anchorTxHash,
+            redeemerOutputScriptHash: reservation.redeemerOutputScriptHash
         });
 
         reservation.state = ReservationState.Active;
@@ -993,10 +1025,12 @@ library Reservation {
 
     /// @notice Used by the wallet to prove a dissolution transaction merging
     ///         an expired reservation's anchor outpoint into the wallet's
-    ///         main UTXO. Any accrued re-anchor fee loss (the gap between
-    ///         the original minted amount and the anchor's current value)
-    ///         is burned so backing reconciles exactly; the remaining
-    ///         anchor value rejoins the pool as an ordinary claim.
+    ///         main UTXO. The anchor value rejoins the pool as an ordinary
+    ///         claim; any accrued re-anchor fee loss (the gap between the
+    ///         original minted amount and the anchor's current value) is
+    ///         simply not reconciled -- see the inline comment preceding
+    ///         the `closeReservation` call in this function's body for
+    ///         why no Bank balance is burned.
     /// @param dissolutionTx Bitcoin dissolution transaction data.
     /// @param dissolutionProof Bitcoin dissolution proof data.
     /// @param mainUtxo Data of the wallet's main UTXO, as currently known on
@@ -1103,10 +1137,11 @@ library Reservation {
             self.extractPubKeyHash(output) == walletPubKeyHash,
             "Dissolution output must pay to the custodying wallet"
         );
-        // Dissolution is a 2-in-1-out spend (anchor + wallet main
-        // UTXO rolled into a new main UTXO) whose fee economics
-        // differ from the 1-in-1-out anchor / re-anchor / redemption
-        // shapes, so the cap is the dedicated
+        // Dissolution is usually a 2-in-1-out spend (anchor + wallet
+        // main UTXO rolled into a new main UTXO), or 1-in-1-out when
+        // the wallet has no main UTXO yet; either shape's fee economics
+        // differ from the always-1-in-1-out anchor / re-anchor /
+        // redemption shapes, so the cap is the dedicated
         // `reservationDissolutionTxMaxFee` governance parameter rather
         // than the shared `reservationTxMaxFee`.
         require(
@@ -1115,28 +1150,24 @@ library Reservation {
             "Transaction fee is too high"
         );
 
-        // The dissolution output becomes the wallet's new main UTXO:
-        // the anchor-backed remainder of the reservation rejoins the
-        // pooled supply exactly at `anchorAmount`. The user's gross
-        // claim is `mintedAmount`; when re-anchor fees have shrunk
-        // the anchor (`mintedAmount > anchorAmount`), the in-kind
-        // loss (`mintedAmount - anchorAmount`) is no longer backing
-        // the user's claim and must be burned so the Bank supply
-        // matches the wallet's now-anchor-backed liability. The
-        // `reservationTotalAmount` aggregate is decremented inside
-        // `closeReservation` against the full `mintedAmount` and the
-        // backing that remains is precisely the anchor value rolled
-        // into the new main UTXO.
-        uint64 feeLossDelta = reservation.mintedAmount - reservation.anchorAmount;
-        if (feeLossDelta > 0) {
-            self.bank.decreaseBalance(feeLossDelta);
-        }
+        // The dissolution output becomes the wallet's new main UTXO,
+        // carrying forward exactly `anchorAmount` (the on-chain-backed
+        // remainder after any re-anchor fees). No Bank balance is burned
+        // here: the Bridge itself holds no balance attributable to a
+        // dissolving reservation to burn against -- the owner's full
+        // `mintedAmount` claim was minted out through the reservation
+        // vault at acceptance time and stays with the owner regardless
+        // of later re-anchor fee loss. Reconciling that fee loss against
+        // the pool, if ever desired, requires a separate mechanism that
+        // first obtains the shortfall from the owner; it is not handled
+        // here. The `reservationTotalAmount` aggregate is decremented
+        // inside `closeReservation` against the full `mintedAmount`.
 
         wallet.mainUtxoHash = keccak256(
             abi.encodePacked(dissolutionTxHash, uint32(0), outputValue)
         );
 
-        closeReservation(self, reservation);
+        closeReservation(self, reservation, reservationKey);
 
         emit ReservationDissolved(
             reservationKey,
@@ -1149,9 +1180,10 @@ library Reservation {
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as reserved deposits.
     /// @param reservationDissolutionTxMaxFee New value of the dedicated
-    ///        cap on the BTC transaction fee for the 2-in-1-out
-    ///        dissolution shape; distinct from `reservationTxMaxFee`
-    ///        which caps the 1-in-1-out anchor / re-anchor / redemption
+    ///        cap on the BTC transaction fee for the dissolution shape
+    ///        (usually 2-in-1-out; 1-in-1-out when the wallet has no
+    ///        main UTXO yet); distinct from `reservationTxMaxFee` which
+    ///        caps the always-1-in-1-out anchor / re-anchor / redemption
     ///        shapes.
     /// @param maxCumulativeReanchorFee New value of the per-reservation
     ///        cap on the total satoshi that may be lost across all
@@ -1182,12 +1214,20 @@ library Reservation {
             "Reservation transaction max fee must be greater than zero"
         );
         require(
+            reservationDissolutionTxMaxFee > 0,
+            "Reservation dissolution transaction max fee must be greater than zero"
+        );
+        require(
             reservationMinAmount > reservationTxMaxFee,
             "Reservation minimum amount must be greater than the reservation TX max fee"
         );
         require(
             reservationTermSeconds > 0,
             "Reservation term must be greater than zero"
+        );
+        require(
+            maxCumulativeReanchorFee > 0,
+            "Max cumulative re-anchor fee must be greater than zero"
         );
 
         if (reservationVault != self.reservationVault) {
@@ -1383,25 +1423,24 @@ library Reservation {
     }
 
     /// @notice Closes a reservation: adjusts the wallet reservation count
-    ///         and the total reserved amount, and marks the reservation as
-    ///         Closed.
+    ///         and the total reserved amount, marks the reservation as
+    ///         Closed, and clears any terminal settlement record left by
+    ///         a prior timeout or veto so it cannot outlive the request
+    ///         generation that created it.
     /// @dev `reservationTotalAmount` aggregates the sum of gross
     ///      `mintedAmount` over Active reservations -- not the shrinking
     ///      per-reservation `anchorAmount` -- so the cap tracks the
     ///      bridge's true gross liability.
     function closeReservation(
         BridgeState.Storage storage self,
-        ReservationRequest storage reservation
+        ReservationRequest storage reservation,
+        uint256 reservationKey
     ) internal {
-        // Cache the wallet identity and the gross claim at first
-        // read: `mintedAmount` is the value the aggregate
-        // `reservationTotalAmount` is decremented by -- it
-        // represents the reservation's gross claim on the bridge
-        // supply, which is constant across re-anchor hops.
         bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
         uint64 mintedAmount = reservation.mintedAmount;
         self.walletReservationsCount[walletPubKeyHash] -= 1;
         self.reservationTotalAmount -= mintedAmount;
         reservation.state = ReservationState.Closed;
+        delete self.reservedRedemptionSettlements[reservationKey];
     }
 }

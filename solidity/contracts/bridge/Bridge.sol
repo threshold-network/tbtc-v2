@@ -2269,9 +2269,10 @@ contract Bridge is
     ///        transaction fee that can be incurred by a single reservation
     ///        lifecycle transaction.
     /// @param reservationDissolutionTxMaxFee New value of the dedicated
-    ///        cap on the BTC transaction fee for the 2-in-1-out
-    ///        dissolution shape; distinct from `reservationTxMaxFee`
-    ///        which caps the 1-in-1-out anchor / re-anchor / redemption
+    ///        cap on the BTC transaction fee for the dissolution shape
+    ///        (usually 2-in-1-out; 1-in-1-out when the wallet has no
+    ///        main UTXO yet); distinct from `reservationTxMaxFee` which
+    ///        caps the always-1-in-1-out anchor / re-anchor / redemption
     ///        shapes.
     /// @param reservationTermSeconds New value of the reservation custody
     ///        term length in seconds.
@@ -2331,20 +2332,24 @@ contract Bridge is
             address reservationVault,
             uint64 reservationMinAmount,
             uint64 reservationTxMaxFee,
+            uint64 reservationDissolutionTxMaxFee,
             uint32 reservationTermSeconds,
             uint32 reservationGracePeriod,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet
+            uint32 maxReservationsPerWallet,
+            uint64 maxCumulativeReanchorFee
         )
     {
         reservationVault = self.reservationVault;
         reservationMinAmount = self.reservationMinAmount;
         reservationTxMaxFee = self.reservationTxMaxFee;
+        reservationDissolutionTxMaxFee = self.reservationDissolutionTxMaxFee;
         reservationTermSeconds = self.reservationTermSeconds;
         reservationGracePeriod = self.reservationGracePeriod;
         reservationMaxTotalAmount = self.reservationMaxTotalAmount;
         reservationTotalAmount = self.reservationTotalAmount;
         maxReservationsPerWallet = self.maxReservationsPerWallet;
+        maxCumulativeReanchorFee = self.maxCumulativeReanchorFee;
     }
 }

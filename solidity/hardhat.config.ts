@@ -86,8 +86,7 @@ const config: HardhatUserConfig = {
       // hot paths is 0-8 gas (noise); runs=100-vs-90 is smaller still.
       // DRAFT NOTE: the durable alternative is a router-style refactor
       // moving entry points out of the Bridge (as done on the P2TR
-      // activation track) -- see the blocking-dependency note on
-      // `Bridge.submitReservationProof`.
+      // activation track).
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {

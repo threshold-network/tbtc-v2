@@ -32,7 +32,14 @@ library BridgeState {
     /// @notice Reveal-time fact for a deposit routed to the reservation
     ///         vault: whether it was classified as a reserved deposit at
     ///         reveal time. This classification is permanent and does not
-    ///         track any later reservation-vault or wallet changes.
+    ///         track any later reservation-vault or wallet changes. Note
+    ///         this only governs sweep eligibility: if the reservation
+    ///         vault address is later changed by governance before this
+    ///         deposit's anchor is accepted, `Reservation
+    ///         .submitReservationAcceptanceProof` still credits the
+    ///         owner's balance through the *current* reservation vault at
+    ///         acceptance time, not the vault set when the deposit was
+    ///         revealed.
     struct PendingReservedDeposit {
         // Immutable reveal-time reservation classification.
         bool isReserved;
@@ -46,14 +53,23 @@ library BridgeState {
     ///         marked spent) without moving any further balance. Mirrors
     ///         the pooled redemption path's `timedOutRedemptions` record.
     struct ReservedRedemptionSettlement {
-        // Whether a settlement is currently pending for this reservation.
-        bool pending;
         // Hash of the Bitcoin transaction holding the anchor output that
         // was pending redemption when the settlement was recorded. The
         // anchor output index is always 0 (anchor transactions have a
         // single output throughout a reservation's lifecycle) so it is
-        // not separately stored here.
+        // not separately stored here. Zero when no settlement is
+        // pending -- a real anchor transaction's double-SHA256 hash is
+        // never all-zero in practice, so this field doubles as the
+        // "is a settlement pending" sentinel instead of a separate
+        // `bool`.
         bytes32 anchorTxHash;
+        // keccak256 hash of the length-prefixed redeemer output script
+        // the settled redemption must pay to, snapshotted from the
+        // reservation at settlement-record time. A late-arriving proof
+        // must pay this exact script; without this check a wallet could
+        // redirect the settled anchor's spend to an address it controls
+        // and still have the proof accepted as a valid settlement.
+        bytes32 redeemerOutputScriptHash;
     }
 
     struct Storage {
@@ -368,7 +384,9 @@ library BridgeState {
         address reservationVault;
         // Maximum amount of BTC transaction fee in satoshi that can be
         // incurred by a single reservation lifecycle transaction (anchor,
-        // re-anchor, reserved redemption, dissolution).
+        // re-anchor, reserved redemption). Distinct from
+        // `reservationDissolutionTxMaxFee`, which caps the dissolution
+        // transaction's 2-in-1-out fee economics.
         uint64 reservationTxMaxFee;
         // Maximum amount of BTC transaction fee in satoshi that can be
         // incurred by a single reservation dissolution transaction
