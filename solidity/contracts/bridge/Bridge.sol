@@ -162,7 +162,10 @@ contract Bridge is
     event ReservationDissolved(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash
+        bytes32 dissolutionTxHash,
+        uint64 mintedAmount,
+        uint64 anchorAmount,
+        uint64 dissolutionFee
     );
 
     event ReservationParametersUpdated(

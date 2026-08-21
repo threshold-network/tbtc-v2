@@ -36,7 +36,7 @@ const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = BigNumber.from("2100000000000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
-const RESERVATION_DISSOLUTION_TX_MAX_FEE = 2000
+const RESERVATION_DISSOLUTION_TX_MAX_FEE = 1500
 const MAX_CUMULATIVE_REANCHOR_FEE = 100000
 
 const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
@@ -3273,6 +3273,150 @@ describe("Bridge - Reservation", () => {
           [dissolutionTx.txHash, 0, reanchoredAmount.sub(dissolutionFee)]
         )
       )
+    })
+
+    it("dissolves into an existing main UTXO and reports the fee-loss decomposition", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      // Re-anchor once so `anchorAmount` falls below `mintedAmount`: that
+      // gap is the in-kind loss the event has to report.
+      const reanchorFee = 800
+      const reanchoredAmount = anchorAmount.sub(reanchorFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: reanchoredAmount,
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      // Give the custodying wallet a main UTXO so the dissolution takes
+      // the dominant 2-in-1-out shape. Every other test in this suite
+      // dissolves 1-in-1-out, where the anchor value and the combined
+      // input total coincide and cannot be told apart.
+      const mainUtxoTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      const mainUtxoValue = BigNumber.from(1000000)
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32", "uint64"],
+          [mainUtxoTxHash, 0, mainUtxoValue]
+        ),
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      const dissolutionFee = 600
+      const dissolutionTx = buildTx(
+        [
+          { txHash: reanchorTx.txHash, index: 0 },
+          { txHash: mainUtxoTxHash, index: 0 },
+        ],
+        [
+          {
+            valueSat: reanchoredAmount.add(mainUtxoValue).sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+
+      const tx = await bridge.connect(spvMaintainer).submitReservationProof(
+        ProofType.Dissolution,
+        dissolutionTx.info,
+        proofFor(dissolutionTx.txHash),
+        {
+          txHash: mainUtxoTxHash,
+          txOutputIndex: 0,
+          txOutputValue: mainUtxoValue,
+        },
+        reservationKey
+      )
+
+      // The event must report the anchor's own value, not the combined
+      // input total: the unreconciled shortfall is
+      // `mintedAmount - anchorAmount + dissolutionFee`, here
+      // `reanchorFee + dissolutionFee`.
+      await expect(tx)
+        .to.emit(bridge, "ReservationDissolved")
+        .withArgs(
+          reservationKey,
+          walletPubKeyHash,
+          dissolutionTx.txHash,
+          anchorAmount,
+          reanchoredAmount,
+          dissolutionFee
+        )
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(3) // Closed
+
+      // The single output became the wallet's new main UTXO.
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.mainUtxoHash).to.equal(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32", "uint64"],
+          [
+            dissolutionTx.txHash,
+            0,
+            reanchoredAmount.add(mainUtxoValue).sub(dissolutionFee),
+          ]
+        )
+      )
+    })
+
+    it("enforces the dissolution-specific fee cap on the proven transaction", async () => {
+      // Sanity: the two caps must differ or this test cannot discriminate
+      // which one the proof path checks against.
+      expect(RESERVATION_DISSOLUTION_TX_MAX_FEE).to.be.lessThan(
+        RESERVATION_TX_MAX_FEE
+      )
+
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      // Above `reservationDissolutionTxMaxFee` but still within the shared
+      // `reservationTxMaxFee`: this reverts only if the proven fee is
+      // checked against the dissolution-specific cap.
+      const dissolutionFee = RESERVATION_DISSOLUTION_TX_MAX_FEE + 1
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Dissolution,
+            dissolutionTx.info,
+            proofFor(dissolutionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Transaction fee is too high")
     })
   })
 })

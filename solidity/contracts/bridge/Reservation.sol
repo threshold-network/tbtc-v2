@@ -214,10 +214,20 @@ library Reservation {
         uint64 newAnchorAmount
     );
 
+    // Fee-loss decomposition for off-chain accounting: `mintedAmount` is
+    // the gross claim that stays with the owner, `anchorAmount` is the
+    // anchor's value entering this dissolution, and `dissolutionFee` is
+    // the Bitcoin fee this transaction paid. The unreconciled shortfall
+    // is `mintedAmount - anchorAmount + dissolutionFee` -- see the
+    // comment preceding the `closeReservation` call in
+    // `submitReservationDissolutionProof` for why nothing is burned.
     event ReservationDissolved(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash
+        bytes32 dissolutionTxHash,
+        uint64 mintedAmount,
+        uint64 anchorAmount,
+        uint64 dissolutionFee
     );
 
     event ReservationParametersUpdated(
@@ -1091,14 +1101,12 @@ library Reservation {
             "Reservation term or grace period not elapsed"
         );
 
-        // Cache the reservation's wallet identity: it is read here and
-        // again in the dissolution-output require and the
-        // `ReservationDissolved` event. `mintedAmount` and `anchorAmount`
-        // are each read exactly once below (computing the in-kind fee
-        // loss burned to reconcile the gross claim with the
-        // anchor-backed remainder rejoining the wallet's main UTXO) so
-        // they are read directly from storage there instead of adding
-        // more locals to an already stack-deep function.
+        // Cache the reservation's wallet identity: it is read here, again
+        // in the dissolution-output require, and in the
+        // `ReservationDissolved` event. The claim/backing pair
+        // (`mintedAmount`, `anchorAmount`) is read straight from storage
+        // in the event below rather than into locals -- this function is
+        // already at the stack limit.
         bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
 
         Wallets.Wallet storage wallet = self.registeredWallets[
@@ -1141,29 +1149,39 @@ library Reservation {
         );
 
         // The dissolution output becomes the wallet's new main UTXO,
-        // carrying forward exactly `anchorAmount` (the on-chain-backed
-        // remainder after any re-anchor fees). No Bank balance is burned
-        // here: the Bridge itself holds no balance attributable to a
-        // dissolving reservation to burn against -- the owner's full
-        // `mintedAmount` claim was minted out through the reservation
-        // vault at acceptance time and stays with the owner regardless
-        // of later re-anchor fee loss. Reconciling that fee loss against
-        // the pool, if ever desired, requires a separate mechanism that
-        // first obtains the shortfall from the owner; it is not handled
-        // here. The `reservationTotalAmount` aggregate is decremented
-        // inside `closeReservation` against the full `mintedAmount`.
+        // rolling the anchor's remaining value (after any re-anchor fees)
+        // together with the previous main UTXO, less this transaction's
+        // fee. No Bank balance is burned here: the Bridge itself holds no
+        // balance attributable to a dissolving reservation to burn
+        // against -- the owner's full `mintedAmount` claim was minted out
+        // through the reservation vault at acceptance time and stays with
+        // the owner regardless of later re-anchor fee loss. Reconciling
+        // that fee loss against the pool, if ever desired, requires a
+        // separate mechanism that first obtains the shortfall from the
+        // owner; it is not handled here. This mirrors the way
+        // `movingFundsTxMaxTotalFee` leaves wallet-migration fees
+        // pool-socialized rather than charging individual depositors. The
+        // `reservationTotalAmount` aggregate is decremented inside
+        // `closeReservation` against the full `mintedAmount`, and
+        // `ReservationDissolved` emits the fee-loss decomposition so the
+        // shortfall stays observable off-chain.
 
         wallet.mainUtxoHash = keccak256(
             abi.encodePacked(dissolutionTxHash, uint32(0), outputValue)
         );
 
-        closeReservation(self, reservation, reservationKey);
-
+        // Emitted before `closeReservation` so the claim/backing pair is
+        // read while the reservation record is still intact.
         emit ReservationDissolved(
             reservationKey,
             walletPubKeyHash,
-            dissolutionTxHash
+            dissolutionTxHash,
+            reservation.mintedAmount,
+            reservation.anchorAmount,
+            inputsTotalValue - outputValue
         );
+
+        closeReservation(self, reservation, reservationKey);
     }
 
     /// @notice Updates the reservation parameters, including the
