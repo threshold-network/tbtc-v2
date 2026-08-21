@@ -4,67 +4,19 @@ import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 
 import bridgeFixture from "../fixtures/bridge"
 import reservationRouterStorageLayoutSnapshot from "../fixtures/reservation-router-storage-layout.snapshot.json"
-import type { Bridge, BridgeStub, ReservationRouter } from "../../typechain"
-import { getStorageLayout, StorageLayout } from "../helpers/storage-layout"
+import type {
+  Bridge,
+  BridgeGovernance,
+  BridgeStub,
+  ReservationRouter,
+} from "../../typechain"
+import {
+  getStorageLayout,
+  getBridgeStorageLayout,
+  canonicalLayout,
+} from "../helpers/storage-layout"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-
-/**
- * Produces a compilation-independent canonical description of a storage
- * type: solc type identifiers embed AST ids (e.g.
- * `t_struct(Storage)12345_storage`) that differ between compilation units,
- * so the identifiers are normalized and struct members are expanded
- * recursively.
- */
-function canonicalType(
-  typeId: string,
-  types: StorageLayout["types"],
-  seen: Set<string> = new Set()
-): unknown {
-  const normalized = typeId.replace(/\)\d+/g, ")")
-  if (seen.has(typeId)) {
-    return normalized
-  }
-  seen.add(typeId)
-
-  const type = types[typeId]
-  if (!type) {
-    return normalized
-  }
-
-  const result: Record<string, unknown> = {
-    id: normalized,
-    encoding: type.encoding,
-    numberOfBytes: type.numberOfBytes,
-  }
-  if (type.members) {
-    result.members = type.members.map((member) => ({
-      label: member.label,
-      slot: member.slot,
-      offset: member.offset,
-      type: canonicalType(member.type, types, seen),
-    }))
-  }
-  if (type.key) {
-    result.key = canonicalType(type.key, types, seen)
-  }
-  if (type.value) {
-    result.value = canonicalType(type.value, types, seen)
-  }
-  if (type.base) {
-    result.base = canonicalType(type.base, types, seen)
-  }
-  return result
-}
-
-function canonicalLayout(layout: StorageLayout): unknown {
-  return layout.storage.map((entry) => ({
-    label: entry.label,
-    slot: entry.slot,
-    offset: entry.offset,
-    type: canonicalType(entry.type, layout.types),
-  }))
-}
 
 describe("ReservationRouter", () => {
   let governance: SignerWithAddress
@@ -88,10 +40,7 @@ describe("ReservationRouter", () => {
 
   describe("storage layout parity", () => {
     it("should give the router the exact storage layout of the Bridge", async () => {
-      const bridgeLayout = await getStorageLayout(
-        "contracts/bridge/Bridge.sol",
-        "Bridge"
-      )
+      const bridgeLayout = await getBridgeStorageLayout()
       const routerLayout = await getStorageLayout(
         "contracts/bridge/ReservationRouter.sol",
         "ReservationRouter"
@@ -108,10 +57,7 @@ describe("ReservationRouter", () => {
     })
 
     it("should keep the BridgeStub used in tests layout-compatible", async () => {
-      const bridgeLayout = await getStorageLayout(
-        "contracts/bridge/Bridge.sol",
-        "Bridge"
-      )
+      const bridgeLayout = await getBridgeStorageLayout()
       const stubLayout = await getStorageLayout(
         "contracts/test/BridgeStub.sol",
         "BridgeStub"
@@ -389,6 +335,36 @@ describe("ReservationRouter", () => {
       })
     })
 
+    context(
+      "when called with a contract that is not a reservation router",
+      () => {
+        it("should revert without consuming the one-time slot", async () => {
+          // The BridgeStub has deployed code but declares no
+          // `reservationRouter()` view, so the shape probe's call fails and
+          // the guard rejects it (this is the P1 hardening: a wrong
+          // but code-bearing address can no longer be committed, because a
+          // bad wire used to be unrecoverable short of shipping an entire
+          // new Bridge implementation).
+          const [freshBridge] = await deployBridge(1, false)
+
+          await expect(
+            freshBridge
+              .connect(deployer)
+              .setReservationRouter(freshBridge.address)
+          ).to.be.revertedWith(
+            "Reservation router does not implement router ABI"
+          )
+
+          await freshBridge
+            .connect(deployer)
+            .setReservationRouter(routerAddress)
+          expect(
+            await bridge.attach(freshBridge.address).reservationRouter()
+          ).to.equal(routerAddress)
+        })
+      }
+    )
+
     context("when called by the governance on a fresh bridge", () => {
       it("should set the router and emit ReservationRouterSet", async () => {
         const [freshBridge] = await deployBridge(1, false)
@@ -410,6 +386,29 @@ describe("ReservationRouter", () => {
           freshBridge.connect(deployer).setReservationRouter(routerAddress)
         ).to.be.revertedWith("Reservation router already set")
       })
+    })
+  })
+
+  describe("BridgeGovernance has no reservation-router passthrough", () => {
+    it("should not expose setReservationRouter on BridgeGovernance", async () => {
+      // The one-shot-via-governance-then-permanently-unreachable design
+      // (RFC-13 invariant 4) rests on BridgeGovernance NEVER adding a
+      // `setReservationRouter` passthrough, unlike its
+      // `setRedemptionWatchtower`/`setRebateStaking` siblings which do
+      // have one. A future contributor mirroring the existing passthrough
+      // pattern would otherwise silently reopen a second wiring path with
+      // no test failing -- this test guards that absence by construction.
+      const governanceArtifact = await artifacts.readArtifact(
+        "BridgeGovernance"
+      )
+      const governanceInterface = new ethers.utils.Interface(
+        governanceArtifact.abi
+      )
+      expect(
+        Object.values(governanceInterface.functions)
+          .map((fragment) => fragment.name)
+          .filter((name) => name.startsWith("setReservationRouter"))
+      ).to.deep.equal([])
     })
   })
 
@@ -501,6 +500,144 @@ describe("ReservationRouter", () => {
     })
   })
 
+  describe("initializeV7_RepairReservationRouter", () => {
+    let esdm: SignerWithAddress
+
+    before(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-extra-semi
+      ;({ esdm } = await helpers.signers.getNamedSigners())
+    })
+
+    context(
+      "when called directly, not through ProxyAdmin.upgradeAndCall",
+      () => {
+        it("should revert", async () => {
+          const [freshBridge] = await deployBridge(1, false)
+          await expect(
+            freshBridge
+              .connect(thirdParty)
+              .initializeV7_RepairReservationRouter(routerAddress)
+          ).to.be.revertedWith("Caller is not the proxy admin")
+        })
+      }
+    )
+
+    context("when the router is not wired yet", () => {
+      it("should wire it and emit ReservationRouterRepaired", async () => {
+        // Distinct from `initializeV6`: repairs may run whether or not the
+        // router is already set, so this also works on an unwired bridge
+        // (emit `ReservationRouterRepaired(old=0x0, new=routerAddress)`).
+        const [freshBridge, freshDeployment] = await deployBridge(1, false)
+
+        const proxyAdmin = await upgrades.admin.getInstance()
+        const proxyAdminWithUpgrade = await ethers.getContractAt(
+          [
+            "function upgradeAndCall(address proxy, address implementation, bytes data)",
+          ],
+          proxyAdmin.address,
+          esdm
+        )
+
+        const upgradeData = freshBridge.interface.encodeFunctionData(
+          "initializeV7_RepairReservationRouter",
+          [routerAddress]
+        )
+
+        const tx = await proxyAdminWithUpgrade.upgradeAndCall(
+          freshBridge.address,
+          freshDeployment.implementation,
+          upgradeData
+        )
+
+        await expect(tx)
+          .to.emit(freshBridge, "ReservationRouterRepaired")
+          .withArgs(ethers.constants.AddressZero, routerAddress)
+
+        expect(await freshBridge.getReservationRouter()).to.equal(routerAddress)
+      })
+    })
+
+    context("when the router is already wired", () => {
+      it("should allow rebinding to a different router", async () => {
+        // The repair path exists precisely because a one-shot
+        // `setReservationRouter`/`initializeV6` cannot be re-run after a
+        // bad wire. Wire one router via governance, then repair to a
+        // freshly deployed second one via the proxy admin.
+        const [freshBridge, freshDeployment] = await deployBridge(1, false)
+        await freshBridge.connect(deployer).setReservationRouter(routerAddress)
+        expect(await freshBridge.getReservationRouter()).to.equal(routerAddress)
+
+        // A second, independent router deployment (also unwired, i.e.
+        // `reservationRouter()` returns 0x0 on its own empty storage, so
+        // the shape probe accepts it).
+        const Reservation = await helpers.contracts.getContract("Reservation")
+        const RouterFactory = await ethers.getContractFactory(
+          "ReservationRouter",
+          { libraries: { Reservation: Reservation.address } }
+        )
+        const secondRouter = await RouterFactory.deploy()
+        await secondRouter.deployed()
+        expect(await secondRouter.reservationRouter()).to.equal(
+          ethers.constants.AddressZero
+        )
+
+        const proxyAdmin = await upgrades.admin.getInstance()
+        const proxyAdminWithUpgrade = await ethers.getContractAt(
+          [
+            "function upgradeAndCall(address proxy, address implementation, bytes data)",
+          ],
+          proxyAdmin.address,
+          esdm
+        )
+
+        const upgradeData = freshBridge.interface.encodeFunctionData(
+          "initializeV7_RepairReservationRouter",
+          [secondRouter.address]
+        )
+        const tx = await proxyAdminWithUpgrade.upgradeAndCall(
+          freshBridge.address,
+          freshDeployment.implementation,
+          upgradeData
+        )
+
+        await expect(tx)
+          .to.emit(freshBridge, "ReservationRouterRepaired")
+          .withArgs(routerAddress, secondRouter.address)
+        expect(await freshBridge.getReservationRouter()).to.equal(
+          secondRouter.address
+        )
+      })
+
+      it("should revert when the router is unchanged", async () => {
+        const [freshBridge, freshDeployment] = await deployBridge(1)
+        // `wireReservationRouter=true` already wired `routerAddress` via
+        // governance during deployBridge.
+
+        const proxyAdmin = await upgrades.admin.getInstance()
+        const proxyAdminWithUpgrade = await ethers.getContractAt(
+          [
+            "function upgradeAndCall(address proxy, address implementation, bytes data)",
+          ],
+          proxyAdmin.address,
+          esdm
+        )
+
+        const upgradeData = freshBridge.interface.encodeFunctionData(
+          "initializeV7_RepairReservationRouter",
+          [routerAddress]
+        )
+
+        await expect(
+          proxyAdminWithUpgrade.upgradeAndCall(
+            freshBridge.address,
+            freshDeployment.implementation,
+            upgradeData
+          )
+        ).to.be.revertedWith("Reservation router unchanged")
+      })
+    })
+  })
+
   describe("fallback routing", () => {
     context("before the router is set", () => {
       it("should revert reservation calls with a clear error", async () => {
@@ -525,12 +662,17 @@ describe("ReservationRouter", () => {
       it("should revert unknown selectors without executing anything", async () => {
         await createSnapshot()
         try {
+          // Pre-wiring the fallback reverts with "Unknown function"
+          // directly; post-wiring the router has no fallback of its own, so
+          // the delegatecall bubbles up empty returndata -- the fallback
+          // re-encodes the same reason in that case (see Bridge.sol). Both
+          // paths must surface the identical, message-bearing revert.
           await expect(
             thirdParty.sendTransaction({
               to: bridge.address,
               data: "0xdeadbeef",
             })
-          ).to.be.reverted
+          ).to.be.revertedWith("Unknown function")
         } finally {
           await restoreSnapshot()
         }
@@ -551,41 +693,36 @@ describe("ReservationRouter", () => {
         // Quantifies the PR's own "0-8 gas measured hot-path diff" claim,
         // which is scoped to the Bridge's optimizer-runs setting and does
         // NOT measure the new delegatecall hop itself. Before this PR a
-        // reservation call was one delegatecall hop (Bridge -> Reservation
-        // library); after, it's two (Bridge -> ReservationRouter ->
-        // Reservation library). Compares the same view call made directly
-        // on the standalone router (no fallback dispatch) against the
-        // identical call routed through the Bridge fallback -- the delta
-        // isolates the fallback's own dispatch cost (cold SLOAD of the
-        // router slot, cold-address delegatecall surcharge under EIP-2929,
-        // and the extra `calldatacopy`/`returndatacopy` framing), separate
-        // from the deposit/redemption hot-path functions the PR's own
-        // optimizer-runs comparison covers.
-        const standaloneRouterHandle = (await ethers.getContractAt(
-          "ReservationRouter",
-          routerAddress
-        )) as ReservationRouter
-        const directGas =
-          await standaloneRouterHandle.estimateGas.reservationParameters()
+        // reservation call was one delegatecall hop (proxy -> Bridge
+        // implementation); after, it's two (proxy -> Bridge implementation
+        // -> ReservationRouter). Both `treasury()` and
+        // `reservationParameters()` below are called through the same
+        // proxy, so the pre-existing outer proxy hop's cost is present
+        // in, and cancels out of, both measurements; the delta isolates
+        // only the new fallback-dispatch cost (cold SLOAD of the router
+        // slot, cold-address delegatecall surcharge under EIP-2929, and
+        // the extra `calldatacopy`/`returndatacopy` framing) -- not the
+        // proxy's own delegatecall hop, which every Bridge call already
+        // pays today regardless of this PR.
+        const baselineGas = await bridge.estimateGas.treasury()
         const routedGas = await bridge.estimateGas.reservationParameters()
-        const overhead = routedGas.sub(directGas)
+        const overhead = routedGas.sub(baselineGas)
 
         // eslint-disable-next-line no-console
         console.log(
           `      fallback dispatch overhead: ${overhead.toString()} gas ` +
-            `(direct: ${directGas.toString()}, routed: ${routedGas.toString()})`
+            `(baseline: ${baselineGas.toString()}, routed: ${routedGas.toString()})`
         )
 
-        // Bounded around the measured ~12,600 gas (matches
-        // `hardhat.config.ts`'s own citation of this test), not the
-        // previous, considerably lower "analytically-estimated ~5,000 gas"
-        // this test's comment used to claim before that estimate was
-        // checked against an actual run. Tightened from a loose
-        // `within(0, 15000)` so a real regression (e.g. an accidental
-        // extra cold SLOAD added to the dispatch path) or an unexpected
-        // drop (e.g. the router silently not being invoked) both fail,
-        // while still tolerating compiler/EVM-version gas-cost drift.
-        expect(overhead.toNumber()).to.be.within(10000, 15000)
+        // Bounded around the measured overhead of routing through the
+        // ReservationRouter fallback relative to a same-proxy call that
+        // never reaches it (matches `hardhat.config.ts`'s own citation of
+        // this test). Tightened from a loose `within(0, 15000)` so a real
+        // regression (e.g. an accidental extra cold SLOAD added to the
+        // dispatch path) or an unexpected drop (e.g. the router silently
+        // not being invoked) both fail, while still tolerating
+        // compiler/EVM-version gas-cost drift.
+        expect(overhead.toNumber()).to.be.within(5000, 10000)
       })
     })
   })

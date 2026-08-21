@@ -444,9 +444,7 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         external
         onlyGuardian
     {
-Reservation.ReservationRequest memory reservation = IReservationBridge(
-            address(bridge)
-        ).reservations(reservationKey);
+_reservationBridge().reservations(reservationKey);
 
         require(
             reservation.state ==
@@ -508,9 +506,7 @@ Reservation.ReservationRequest memory reservation = IReservationBridge(
             // Notify the Bridge about the veto. As result of this call,
             // this contract receives the surrendered gross amount
             // (as Bank's balance) from the Bridge.
-            IReservationBridge(address(bridge)).notifyReservedRedemptionVeto(
-                reservationKey
-            );
+            _reservationBridge().notifyReservedRedemptionVeto(reservationKey);
             // Burn the penalty fee but leave the claimable amount for the
             // redeemer to withdraw after the freeze period.
             bank.decreaseBalance(penaltyFee);
@@ -567,9 +563,7 @@ Reservation.ReservationRequest memory reservation = IReservationBridge(
         view
         returns (uint32)
     {
-        Reservation.ReservationRequest memory reservation = IReservationBridge(
-            address(bridge)
-        ).reservations(reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge().reservations(reservationKey);
 
         require(
             reservation.state ==
@@ -837,5 +831,16 @@ Reservation.ReservationRequest memory reservation = IReservationBridge(
 
         veto.withdrawableAmount = 0;
         bank.transferBalance(msg.sender, amount);
+    }
+
+    /// @notice Returns the reservation-surface handle to the Bridge so the
+    ///         reservation ABI is reachable without re-deriving
+    ///         `IReservationBridge(address(bridge))` at each call site.
+    function _reservationBridge()
+        internal
+        view
+        returns (IReservationBridge)
+    {
+        return IReservationBridge(address(bridge));
     }
 }

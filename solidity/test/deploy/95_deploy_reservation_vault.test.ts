@@ -10,8 +10,12 @@ describe("Deploy Script 95: ReservationVault", () => {
   const bridge = "0x0000000000000000000000000000000000000003"
   const reservationVault = "0x0000000000000000000000000000000000000004"
 
-  it("does not recursively execute the Bridge deployment", () => {
-    expect(func.dependencies).to.deep.equal(["Bank", "TBTCVault"])
+  it("declares the Bridge as a dependency so it deploys before the vault", () => {
+    // The vault constructor and this script both read the deployed Bridge
+    // address directly, so running `--tags ReservationVault` on a network
+    // without an existing Bridge must resolve it via hardhat-deploy's
+    // dependency-ordering rather than failing inside `deployments.get`.
+    expect(func.dependencies).to.deep.equal(["Bank", "TBTCVault", "Bridge"])
   })
 
   it("reads the existing Bridge address for the vault constructor", async () => {

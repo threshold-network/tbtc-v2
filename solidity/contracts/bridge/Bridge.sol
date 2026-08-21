@@ -255,6 +255,15 @@ event WalletMovingFunds(
     // declared here, not on `ReservationRouter`.
     event ReservationRouterSet(address reservationRouter);
 
+    // Re-declaration of the event emitted by
+    // `BridgeState.repairReservationRouter` (invoked through
+    // `Bridge.initializeV7_RepairReservationRouter`); same ABI-visibility
+    // reasoning as `ReservationRouterSet` above.
+    event ReservationRouterRepaired(
+        address oldReservationRouter,
+        address newReservationRouter
+    );
+
     event RebateStakingSet(address rebateStaking);
     event RebateStakingRepaired(
         address oldRebateStaking,
@@ -464,6 +473,37 @@ event WalletMovingFunds(
             "Caller is not the proxy admin"
         );
         self.setReservationRouter(_reservationRouter);
+    }
+
+    /// @notice Repairs a wrongly-wired reservation router address (wrong
+    ///         network, typo'd address, a contract that turned out not to
+    ///         implement the router ABI) during a proxy implementation
+    ///         upgrade.
+    /// @param _reservationRouter Address of the corrected reservation
+    ///        router.
+    /// @dev Requirements:
+    ///      - The caller must be the proxy's current ERC-1967 admin, same
+    ///        as `initializeV6_SetReservationRouter` above -- see
+    ///        requirements on `BridgeState.repairReservationRouter` for
+    ///        the rest.
+    ///
+    ///      Unlike `setReservationRouter`/`initializeV6_SetReservationRouter`,
+    ///      this may run whether or not the router was already wired, so a
+    ///      bad initial wire does not require shipping an entirely new
+    ///      Bridge implementation to recover from -- only a fresh
+    ///      proxy-admin-gated repair upgrade using this function. Uses
+    ///      `reinitializer(7)` so it can only run once per proxy
+    ///      deployment; a second bad wire needs a further Bridge
+    ///      implementation upgrade with the next reinitializer version.
+    function initializeV7_RepairReservationRouter(address _reservationRouter)
+        external
+        reinitializer(7)
+    {
+        require(
+            msg.sender == StorageSlot.getAddressSlot(_PROXY_ADMIN_SLOT).value,
+            "Caller is not the proxy admin"
+        );
+        self.repairReservationRouter(_reservationRouter);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -2227,6 +2267,21 @@ event WalletMovingFunds(
             returndatacopy(0, 0, returndatasize())
             switch result
             case 0 {
+                if iszero(returndatasize()) {
+                    // The router has no fallback of its own, so a
+                    // genuinely unknown selector reaching it after wiring
+                    // reverts with empty returndata. Re-encode the same
+                    // "Unknown function" reason used pre-wiring instead of
+                    // bubbling up an empty, message-less revert.
+                    mstore(
+                        0x00,
+                        0x08c379a000000000000000000000000000000000000000000000000000000000
+                    )
+                    mstore(0x04, 0x20)
+                    mstore(0x24, 16)
+                    mstore(0x44, "Unknown function")
+                    revert(0x00, 0x64)
+                }
                 revert(0, returndatasize())
             }
             default {

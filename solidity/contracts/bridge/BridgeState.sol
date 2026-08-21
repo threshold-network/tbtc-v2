@@ -28,6 +28,18 @@ import "./MovingFunds.sol";
 
 import "../bank/Bank.sol";
 
+/// @notice Minimal probe used by `BridgeState.setReservationRouter` and
+///         `BridgeState.repairReservationRouter` to confirm a candidate
+///         router address actually exposes the `ReservationRouter` ABI and
+///         is in its pre-wiring state. Declared locally (rather than
+///         imported from `ReservationRouter.sol`) because
+///         `ReservationRouter.sol` already imports this library for its
+///         `BridgeState.Storage` anchor -- importing it back here would be
+///         circular.
+interface IReservationRouterShapeProbe {
+    function reservationRouter() external view returns (address);
+}
+
 library BridgeState {
     /// @notice Reveal-time fact for a deposit routed to the reservation
     ///         vault: whether it was classified as a reserved deposit at
@@ -434,10 +446,16 @@ library BridgeState {
         // Address of the reservation router: the delegatecall extension of
         // the Bridge holding the UTXO-reservation external surface. The
         // Bridge's fallback function routes calls with unmatched selectors
-        // to this address. Set exactly once via governance; changing it
-        // afterwards requires a Bridge implementation upgrade, as pointing
-        // the fallback delegatecall at new code is equivalent to a Bridge
-        // implementation change.
+        // to this address. Set exactly once, either via the
+        // governance-gated `Bridge.setReservationRouter` (fresh deployment,
+        // before governance transfer) or the ERC-1967-proxy-admin-gated
+        // `Bridge.initializeV6_SetReservationRouter` (already-deployed,
+        // governance-transferred Bridge) -- see `docs/rfc/rfc-13.adoc`
+        // invariant 4. A bad initial wire can be corrected once via the
+        // proxy-admin-gated `Bridge.initializeV7_RepairReservationRouter`.
+        // Otherwise, changing it requires a Bridge implementation upgrade,
+        // as pointing the fallback delegatecall at new code is equivalent
+        // to a Bridge implementation change.
         address reservationRouter;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
@@ -502,6 +520,11 @@ uint256[40] __gap;
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
     event ReservationRouterSet(address reservationRouter);
+
+    event ReservationRouterRepaired(
+        address oldReservationRouter,
+        address newReservationRouter
+    );
 
     // Event emitted when the rebate staking address is initialized. Declared
     // in this library as the event is emitted from within `BridgeState` and
@@ -990,13 +1013,16 @@ uint256[40] __gap;
     /// @dev Requirements:
     ///      - Reservation router address must not be already set,
     ///      - Reservation router address must not be 0x0,
-    ///      - Reservation router address must contain deployed code.
+    ///      - Reservation router address must contain deployed code,
+    ///      - Reservation router address must expose the `ReservationRouter`
+    ///        ABI and answer as pre-wiring (see `_validateReservationRouterShape`).
     ///
     ///      This function is designed to support a one-time initialization
     ///      of the reservation router. The router is a `delegatecall`
     ///      extension of the Bridge, so changing it after it is set is
     ///      equivalent to changing the Bridge implementation and requires
-    ///      a dedicated upgrade path.
+    ///      a dedicated upgrade path -- see `repairReservationRouter` for
+    ///      the one-time recovery from a bad initial wire.
     function setReservationRouter(
         Storage storage self,
         address _reservationRouter
@@ -1006,17 +1032,44 @@ uint256[40] __gap;
             "Reservation router already set"
         );
 
-        require(
-            _reservationRouter != address(0),
-            "Reservation router address must not be 0x0"
-        );
-        require(
-            _reservationRouter.code.length > 0,
-            "Reservation router must be a contract"
-        );
+        _validateReservationRouterShape(_reservationRouter);
 
         self.reservationRouter = _reservationRouter;
         emit ReservationRouterSet(_reservationRouter);
+    }
+
+    /// @notice Repairs a wrongly-wired reservation router address (wrong
+    ///         network, typo'd address, a contract that turned out not to
+    ///         implement the router ABI). Unlike `setReservationRouter`,
+    ///         this may run after the router is already set, so a bad
+    ///         initial wire does not require shipping an entirely new
+    ///         Bridge implementation to recover from -- only a fresh
+    ///         proxy-admin-gated repair call. See
+    ///         `Bridge.initializeV7_RepairReservationRouter`.
+    /// @param _reservationRouter Address of the corrected reservation
+    ///        router.
+    /// @dev Requirements:
+    ///      - Reservation router address must differ from the currently
+    ///        wired one,
+    ///      - Reservation router address must not be 0x0,
+    ///      - Reservation router address must contain deployed code,
+    ///      - Reservation router address must expose the `ReservationRouter`
+    ///        ABI and answer as pre-wiring (see `_validateReservationRouterShape`).
+    function repairReservationRouter(
+        Storage storage self,
+        address _reservationRouter
+    ) internal {
+        address oldReservationRouter = self.reservationRouter;
+
+        require(
+            _reservationRouter != oldReservationRouter,
+            "Reservation router unchanged"
+        );
+
+        _validateReservationRouterShape(_reservationRouter);
+
+        self.reservationRouter = _reservationRouter;
+        emit ReservationRouterRepaired(oldReservationRouter, _reservationRouter);
     }
 
     /// @notice Sets the rebate staking address.
@@ -1041,5 +1094,48 @@ uint256[40] __gap;
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Shared validation for `setReservationRouter` and
+    ///         `repairReservationRouter`. Beyond the basic non-zero/
+    ///         has-code checks, this calls the candidate's own
+    ///         `reservationRouter()` getter (the `ReservationRouter` ABI's
+    ///         storage-mirrored accessor, see `ReservationRouter.sol`
+    ///         invariant 3) directly -- not via `delegatecall` -- and
+    ///         requires it to return `address(0)`, the value every
+    ///         genuine, not-yet-wired `ReservationRouter` deployment
+    ///         returns when called this way (confirmed by
+    ///         `ReservationRouter.sol`'s own hardening test). This rejects
+    ///         addresses that are not shaped like a `ReservationRouter` at
+    ///         all -- an EOA-typo'd address, an unrelated contract, or a
+    ///         router that is already wired somewhere else -- though it
+    ///         remains a shape check, not a guarantee of correct behavior;
+    ///         the one-shot/differs-from-current guards above are the
+    ///         actual wiring-integrity boundary.
+    /// @param _reservationRouter Address to validate.
+    function _validateReservationRouterShape(address _reservationRouter)
+        private
+        view
+    {
+        require(
+            _reservationRouter != address(0),
+            "Reservation router address must not be 0x0"
+        );
+        require(
+            _reservationRouter.code.length > 0,
+            "Reservation router must be a contract"
+        );
+
+        try
+            IReservationRouterShapeProbe(_reservationRouter)
+                .reservationRouter()
+        returns (address wiredElsewhere) {
+            require(
+                wiredElsewhere == address(0),
+                "Reservation router does not look unwired"
+            );
+        } catch {
+            revert("Reservation router does not implement router ABI");
+        }
     }
 }

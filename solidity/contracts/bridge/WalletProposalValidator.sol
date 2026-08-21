@@ -132,6 +132,12 @@ contract WalletProposalValidator {
     /// @notice Handle to the Bridge contract.
     Bridge public immutable bridge;
 
+    /// @notice Reservation-surface handle to the same Bridge, typed
+    ///         `IReservationBridge` so the reservation ABI is reachable
+    ///         without re-deriving `IReservationBridge(address(bridge))` at
+    ///         every call site.
+    IReservationBridge internal immutable _reservationBridge;
+
     /// @notice The minimum time that must elapse since the deposit reveal
     ///         before a deposit becomes eligible for a deposit sweep.
     ///
@@ -200,6 +206,7 @@ contract WalletProposalValidator {
 
     constructor(Bridge _bridge) {
         bridge = _bridge;
+        _reservationBridge = IReservationBridge(address(_bridge));
     }
 
     /// @notice View function encapsulating the main rules of a valid deposit
@@ -985,7 +992,7 @@ contract WalletProposalValidator {
             ,
             ,
 
-        ) = IReservationBridge(address(bridge)).reservationParameters();
+        ) = _reservationBridge.reservationParameters();
 
         require(reservationVault != address(0), "Reservations are disabled");
 
@@ -1089,9 +1096,7 @@ contract WalletProposalValidator {
     ) external view returns (bool) {
         requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
 
-        Reservation.ReservationRequest memory reservation = IReservationBridge(
-            address(bridge)
-        ).reservations(proposal.reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge.reservations(proposal.reservationKey);
 
         require(
             reservation.state ==
@@ -1158,9 +1163,7 @@ contract WalletProposalValidator {
     function validateReservationReanchorProposal(
         ReservationReanchorProposal calldata proposal
     ) external view returns (bool) {
-        Reservation.ReservationRequest memory reservation = IReservationBridge(
-            address(bridge)
-        ).reservations(proposal.reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge.reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,
@@ -1177,9 +1180,8 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-(, , uint64 reservationTxMaxFee, , , , , , , ) = IReservationBridge(
-            address(bridge)
-        ).reservationParameters();
+(, , uint64 reservationTxMaxFee, , , , , , , ) = _reservationBridge
+            .reservationParameters();
         require(
             proposal.reanchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
@@ -1224,9 +1226,7 @@ contract WalletProposalValidator {
             "Wallet is not in Live, MovingFunds or Terminated state"
         );
 
-        Reservation.ReservationRequest memory reservation = IReservationBridge(
-            address(bridge)
-        ).reservations(proposal.reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge.reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,
@@ -1248,7 +1248,7 @@ contract WalletProposalValidator {
             ,
             ,
 
-        ) = IReservationBridge(address(bridge)).reservationParameters();
+        ) = _reservationBridge.reservationParameters();
 
         require(
             /* solhint-disable-next-line not-rely-on-time */

@@ -3,7 +3,7 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { utils, constants } from "ethers"
+import { utils, constants, providers } from "ethers"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -33,15 +33,25 @@ export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f"
 export const KNOWN_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
 
 /**
- * Fails loudly if a freshly compiled Bridge implementation includes
- * UTXO-reservation router wiring (`setReservationRouter`/
- * `initializeV6_SetReservationRouter` present in its ABI) and this
- * script's Bridge proxy upgrade would ship it without also wiring the
- * router in the same transaction. The router's own functions (e.g.
- * `reservationRouter()`) are never in the Bridge's own ABI -- the whole
- * point of the delegatecall architecture is that they're reached through
- * the fallback, not declared on Bridge itself -- so this checks for the
- * Bridge-side wiring signal instead.
+ * Fails loudly if this script's actual, already-encoded Bridge proxy
+ * upgrade calldata would leave the reservation router unwired on an
+ * already-governance-transferred Bridge that isn't wired yet. Checks two
+ * things, not the compiled implementation's ABI (which -- from this
+ * commit on -- unconditionally includes the router-wiring functions in
+ * every build, so ABI presence alone can never distinguish "operator
+ * forgot to wire the router" from "router already wired on the target
+ * proxy"):
+ *
+ *   1. Whether `upgradeCalldata` (the exact bytes this script sends to
+ *      `ProxyAdmin`) itself calls `initializeV6_SetReservationRouter` --
+ *      decoded from the `upgradeAndCall` inner-call field, if present.
+ *   2. If not, whether the router is already wired on-chain by querying
+ *      `Bridge.getReservationRouter()` directly against
+ *      `bridgeProxyAddress`. A revert (the current on-chain implementation
+ *      predates that function entirely) is treated as "not wired".
+ *
+ * Only throws when both are false: the upgrade doesn't wire it, and it
+ * isn't wired already.
  *
  * `initializeV6_SetReservationRouter` is gated to the ERC-1967 proxy admin
  * (see `Bridge.sol`), so shipping it unwired is not a hijack risk -- the
@@ -51,40 +61,69 @@ export const KNOWN_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
  *
  * Shared by scripts 85 and 86, whose Bridge proxy upgrades ship the new
  * implementation differently (one via `upgradeAndCall` with an unrelated
- * inner call, the other via a bare `upgrade()`) -- `upgradeShape` must
- * accurately describe THIS script's actual call a few lines below it, since
- * an operator debugging the thrown error reads it as ground truth.
+ * inner call, the other via a bare `upgrade()`).
  *
- * @param bridgeImpl - The freshly deployed Bridge implementation artifact.
- * @param upgradeShape - How this script's Bridge proxy upgrade actually
- *        ships, e.g. "a bare `ProxyAdmin.upgrade()` with no initializer
- *        call" or "a `ProxyAdmin.upgradeAndCall()` whose inner call is
- *        `initializeV5_RepairRebateStaking`, which does not wire the
- *        router either".
+ * @param bridgeProxyAddress - Address of the Bridge proxy being upgraded.
+ * @param ethersProvider - Provider used for the live `getReservationRouter`
+ *        read.
+ * @param upgradeCalldata - The exact calldata this script sends to
+ *        `ProxyAdmin` for the Bridge upgrade (`upgrade()` or
+ *        `upgradeAndCall()`).
+ * @param upgradeShape - Human-readable description of `upgradeCalldata`,
+ *        used only in the thrown error message.
  */
-export function assertReservationRouterNotSilentlyShipped(
-  bridgeImpl: { abi: ReadonlyArray<{ type: string; name: string }> },
+export async function assertReservationRouterNotSilentlyShipped(
+  bridgeProxyAddress: string,
+  ethersProvider: providers.Provider,
+  upgradeCalldata: string,
   upgradeShape: string
-): void {
-  const bridgeIncludesReservationRouter = bridgeImpl.abi.some(
-    (fragment) =>
-      fragment.type === "function" &&
-      (fragment.name === "setReservationRouter" ||
-        fragment.name === "initializeV6_SetReservationRouter")
-  )
+): Promise<void> {
+  let wiresRouterInThisUpgrade = false
+  try {
+    const decoded = proxyAdminInterface.decodeFunctionData(
+      "upgradeAndCall",
+      upgradeCalldata
+    )
+    const innerData = decoded[2] as string
+    wiresRouterInThisUpgrade =
+      innerData !== "0x" &&
+      innerData.slice(0, 10) ===
+        bridgeInterface.getSighash("initializeV6_SetReservationRouter")
+  } catch {
+    // Not an `upgradeAndCall` (e.g. script 86's bare `upgrade()`) -- no
+    // inner call, so it cannot wire the router either.
+  }
+
+  if (wiresRouterInThisUpgrade) {
+    return
+  }
+
+  let currentlyWired = false
+  try {
+    const raw = await ethersProvider.call({
+      to: bridgeProxyAddress,
+      data: bridgeInterface.encodeFunctionData("getReservationRouter"),
+    })
+    currentlyWired =
+      raw !== "0x" &&
+      utils.defaultAbiCoder.decode(["address"], raw)[0] !==
+        constants.AddressZero
+  } catch {
+    // The current on-chain Bridge implementation predates
+    // `getReservationRouter()` entirely (no matching selector, no
+    // fallback) -- that unambiguously means "not wired".
+  }
+
   if (
-    bridgeIncludesReservationRouter &&
+    !currentlyWired &&
     process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER !== "true"
   ) {
     throw new Error(
-      "The compiled Bridge implementation now includes UTXO-reservation " +
-        "router wiring (`setReservationRouter`/" +
-        "`initializeV6_SetReservationRouter` present in its ABI). This " +
-        `script's Bridge proxy upgrade generates ${upgradeShape}, ` +
-        "which would leave the router unwired on this " +
-        "already-governance-transferred Bridge. Either (a) wire the router " +
-        "in the same upgrade via `upgradeAndCall` + " +
-        "`initializeV6_SetReservationRouter`, or (b) set " +
+      "This upgrade would leave the UTXO-reservation router unwired on an " +
+        `already-governance-transferred Bridge (${bridgeProxyAddress}): ` +
+        `it generates ${upgradeShape}, and the router is not wired on-chain ` +
+        "either. Either (a) wire the router in the same upgrade via " +
+        "`upgradeAndCall` + `initializeV6_SetReservationRouter`, or (b) set " +
         "DEPLOY_TIP109_ACK_RESERVATION_ROUTER=true to acknowledge this and " +
         "proceed with the router left unset for now."
     )
@@ -101,6 +140,8 @@ const PROXY_ADMIN_ABI = [
 
 const BRIDGE_ABI = [
   "function initializeV5_RepairRebateStaking(address newRebateStaking)",
+  "function initializeV6_SetReservationRouter(address _reservationRouter)",
+  "function getReservationRouter() view returns (address)",
 ]
 
 const BRIDGE_GOVERNANCE_ABI = [
@@ -185,9 +226,10 @@ export function encodeBeginDepositTreasuryFeeDivisorUpdate(
 
 /**
  * Submits a contract for source verification on Etherscan using the v2 API.
- * Returns the verification GUID for status polling.
+ * Returns the verification GUID for status polling. Exported so script 86
+ * reuses it rather than maintaining a second copy.
  */
-async function etherscanVerifyV2(
+export async function etherscanVerifyV2(
   apiKey: string,
   chainId: number,
   contractAddress: string,
@@ -424,17 +466,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     libraries: bridgeLibraries,
   })
 
-  // --- Step 3b: Guard against silently shipping the reservation router ---
-  // This script's Bridge proxy upgrade actually ships via
-  // `ProxyAdmin.upgradeAndCall` calling `initializeV5_RepairRebateStaking`
-  // (see calldata generation below) -- that inner call does not wire the
-  // reservation router either, so the guard still applies.
-  assertReservationRouterNotSilentlyShipped(
-    bridgeImpl,
-    "a `ProxyAdmin.upgradeAndCall()` whose inner call is " +
-      "`initializeV5_RepairRebateStaking`, which does not wire the router " +
-      "either"
-  )
+  // --- Step 3b: Guard against silently shipping the reservation router
+  //     unwired --- see the actual guard call below, once this script's
+  //     Bridge upgrade calldata has been generated.
 
   // --- Step 4: Deploy RebateStaking implementation ---
   // Implementation-only (NOT a proxy). Uses a distinct artifact name to
@@ -527,6 +561,18 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "New impl": bridgeImpl.address,
       "Inner call": "initializeV5_RepairRebateStaking(address(0))",
     }
+  )
+
+  // --- Step 3b (continued): Guard against silently shipping the
+  //     reservation router unwired --- checked against the actual
+  //     generated calldata and live on-chain state now that both exist.
+  await assertReservationRouterNotSilentlyShipped(
+    Bridge.address,
+    ethers.provider,
+    bridgeUpgradeCalldata,
+    "a `ProxyAdmin.upgradeAndCall()` whose inner call is " +
+      "`initializeV5_RepairRebateStaking`, which does not wire the router " +
+      "either"
   )
 
   // Council Safe direct action: setRebateStaking on BridgeGovernance

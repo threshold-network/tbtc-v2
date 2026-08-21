@@ -46,7 +46,33 @@ backing/fee model and the wallet lifecycle integration.
 
 === Problem
 
-The Bridge implementation on this branch, compiled at the reduced `runs=100` optimizer setting used to keep it under the limit, sits within ~1.6 kB of the EIP-170 deployed-code limit (22,914 B measured; at the mainnet-standard `runs=1000` it is ~695 bytes over the 24,576 B limit, 25,271 B measured). The reservation surface — and any serious rework of it — does not fit.
+Before this refactor, the monolithic Bridge (reservation surface still
+inline) had only ~400 bytes of EIP-170 deployed-code headroom left --
+not enough for the reservation surface, let alone its planned two-phase
+settlement state machine. Moving that surface out to a delegatecall
+`ReservationRouter` is necessary, but on its own it is not sufficient to
+fit within the mainnet-standard optimizer setting:
+
+[cols="2,1,1,1"]
+|===
+|Bridge variant |Optimizer `runs` |Deployed size |vs. EIP-170 limit (24,576 B)
+
+|Post-move (this branch, reservation surface moved to `ReservationRouter`)
+|1000 (mainnet standard)
+|25,271 B
+|~695 B over
+
+|Post-move (this branch, reservation surface moved to `ReservationRouter`)
+|100 (reduced, see below)
+|22,914 B
+|~1.6 kB margin
+|===
+
+Both rows measure the *same*, already-refactored Bridge; there is no
+post-move build that fits at `runs=1000`. The router's value is its own,
+independent 24 kB EIP-170 budget for the reservation surface -- not
+"restored" Bridge headroom, since the Bridge itself still needs the
+reduced `runs=100` setting to fit even after the surface has moved out.
 
 === Considered shapes
 
@@ -78,23 +104,34 @@ re-anchor, dissolution, parameters) move to the router.
    the shared `BridgeState.Storage self`. All new reservation state is
    appended to `BridgeState.Storage` with a matching `__gap` reduction. A
    storage-layout parity test compares the canonicalized solc layouts of
-   `Bridge`, `BridgeStub` (prefix) and `ReservationRouter`.
+   `Bridge`, `BridgeStub` (prefix) and `ReservationRouter`, plus a fourth,
+   frozen-snapshot comparison that pins the layout at deploy time to guard
+   against future `BridgeState.Storage` drift once the router is live.
 2. *No selector shadowing.* A selector declared by the Bridge never reaches
    the router. A test asserts selector disjointness (the `Governable`
    members inherited by both are identical by construction and exempt).
 3. *No standalone authority.* Direct calls to the router execute on its own
    empty storage: no governance, no SPV maintainer, no vault, no Bank
    authority — every state-changing entry point reverts.
-4. *Upgrade model.* `Bridge.setReservationRouter` is one-time and
-   governance-gated; replacing router code afterwards requires a Bridge
-   implementation upgrade. Pointing a delegatecall target at new code *is*
-   an implementation change, so it deliberately carries implementation-
-   upgrade ceremony, not parameter-governance ceremony.
+4. *Upgrade model.* The router address is set exactly once, either via
+   `Bridge.setReservationRouter` (governance-gated, fresh deployment
+   before governance transfer) or `Bridge.initializeV6_SetReservationRouter`
+   (ERC-1967-proxy-admin-gated retrofit path for an already-deployed,
+   governance-transferred Bridge). A bad initial wire can be corrected
+   once more via the proxy-admin-gated
+   `Bridge.initializeV7_RepairReservationRouter`; beyond that, replacing
+   router code requires a Bridge implementation upgrade. Pointing a
+   delegatecall target at new code *is* an implementation change, so it
+   deliberately carries implementation-upgrade ceremony, not
+   parameter-governance ceremony.
 
-The Bridge remains at reduced optimizer `runs` (measured ~0 runtime-gas
-cost: it is a dispatch shell over external libraries that keep `runs=1000`),
-with a ~1.6 kB margin; the router has its own EIP-170 budget for the
-settlement machine below.
+The Bridge remains at a reduced optimizer `runs` setting: it is a thin
+dispatch shell over external libraries that keep `runs=1000`, so the
+runtime-gas cost of the lower `runs` value on hot paths is expected to be
+small, though not backed by a committed gas-diff test as of this writing
+(see `solidity/hardhat.config.ts`'s compiler-override comment); the
+~1.6 kB deployment-size margin itself is measured directly. The router
+has its own, independent EIP-170 budget for the settlement machine below.
 
 == Two-phase settlement machine
 

@@ -84,6 +84,14 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     networkTags?: Record<string, boolean>
     runBehavior?: "resolve" | "reject"
     bridgeAbi?: unknown[]
+    /**
+     * Controls the mock provider's `call` response for the guard's live
+     * `Bridge.getReservationRouter()` read. Defaults to "wired" (a non-zero
+     * address) so tests that merely exercise `func` and are uninterested in
+     * the guard proceed past it; the guard's own throw-tests pass
+     * "notWired" explicitly.
+     */
+    callBehavior?: "wired" | "notWired"
   }): {
     mockHre: any
     deployCalls: DeployCall[]
@@ -106,6 +114,20 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         ...ethers,
         provider: {
           getStorageAt: async () => paddedAdmin,
+          // Used by the reservation-router wiring guard's live
+          // `Bridge.getReservationRouter()` read.
+          call:
+            options?.callBehavior === "notWired"
+              ? async () => {
+                  throw new Error(
+                    "mock: call reverted (implementation predates getReservationRouter)"
+                  )
+                }
+              : async () =>
+                  ethers.utils.defaultAbiCoder.encode(
+                    ["address"],
+                    ["0x3333333333333333333333333333333333333333"]
+                  ),
         },
         utils: ethers.utils,
         constants: ethers.constants,
@@ -416,24 +438,15 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   })
 
   describe("reservation router wiring guard", () => {
-    const bridgeAbiWithSetReservationRouter = [
-      {
-        type: "function",
-        name: "setReservationRouter",
-        inputs: [],
-        outputs: [],
-        stateMutability: "nonpayable",
-      },
-    ]
-    const bridgeAbiWithInitializeV6 = [
-      {
-        type: "function",
-        name: "initializeV6_SetReservationRouter",
-        inputs: [],
-        outputs: [],
-        stateMutability: "nonpayable",
-      },
-    ]
+    // From this commit on the compiled Bridge ABI unconditionally contains
+    // the router-wiring functions, so the guard can no longer key on ABI
+    // presence; it decides on the actual generated calldata (does the
+    // upgrade wire the router?) and live on-chain state (is the router
+    // already wired?). These tests drive those two inputs via the mock
+    // provider (`callBehavior`) and inspect the real `func` end-to-end,
+    // including the script's `upgradeAndCall` inner
+    // `initializeV5_RepairRebateStaking` call (which never wires the
+    // router).
     let originalAckEnv: string | undefined
 
     beforeEach(() => {
@@ -449,34 +462,25 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       }
     })
 
-    it("should throw when the compiled Bridge ABI includes setReservationRouter and no ack env var is set", async () => {
-      const { mockHre } = createMockHre({
-        bridgeAbi: bridgeAbiWithSetReservationRouter,
-      })
+    it("should throw when the upgrade doesn't wire the router, it isn't wired on-chain, and no ack env var is set", async () => {
+      const { mockHre } = createMockHre({ callBehavior: "notWired" })
       await expect(func(mockHre)).to.be.rejectedWith(
-        /UTXO-reservation router wiring/
-      )
-    })
-
-    it("should throw when the compiled Bridge ABI includes initializeV6_SetReservationRouter and no ack env var is set", async () => {
-      const { mockHre } = createMockHre({
-        bridgeAbi: bridgeAbiWithInitializeV6,
-      })
-      await expect(func(mockHre)).to.be.rejectedWith(
-        /UTXO-reservation router wiring/
+        /would leave the UTXO-reservation router unwired/
       )
     })
 
     it("should not throw when the ack env var is set to true", async () => {
       process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = "true"
-      const { mockHre } = createMockHre({
-        bridgeAbi: bridgeAbiWithSetReservationRouter,
-      })
+      const { mockHre } = createMockHre({ callBehavior: "notWired" })
       await expect(func(mockHre)).to.not.be.rejected
     })
 
-    it("should not throw when the compiled Bridge ABI has neither router-wiring function", async () => {
-      const { mockHre } = createMockHre()
+    it("should not throw when the router is already wired on-chain", async () => {
+      // The case the old ABI-presence check could never distinguish: the
+      // compiled implementation always contains the wiring functions, but a
+      // proxy that already has its router wired is safe to upgrade without
+      // rewiring.
+      const { mockHre } = createMockHre({ callBehavior: "wired" })
       await expect(func(mockHre)).to.not.be.rejected
     })
   })

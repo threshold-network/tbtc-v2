@@ -87,21 +87,24 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
 // Preserve the Bridge's EIP-170 deployment margin. Even with the
       // UTXO-reservation surface moved out to the delegatecall
-      // ReservationRouter, the monolithic Bridge sits ~695 bytes over the
+      // ReservationRouter, the post-move Bridge sits ~695 bytes over the
       // limit at runs=1000 (25,271 B measured); runs=100 leaves a ~1.6 kB
-      // margin (22,914 B measured). The runtime-gas cost of the lower runs
-      // value is effectively nil: the Bridge is a thin dispatch shell over
-      // linked libraries (Deposit, DepositSweep, Redemption, ...) that stay
-      // at runs=1000, so a measured runs=1000-vs-100 diff over the
-      // deposit/redemption hot paths is 0-8 gas (noise). New reservation
-      // code goes into the ReservationRouter, which has its own EIP-170
+      // margin (22,914 B measured; both figures are measured directly).
+      // The runtime-gas cost of the lower runs value on the
+      // deposit/redemption hot paths is expected to be small -- the
+      // Bridge is a thin dispatch shell over linked libraries (Deposit,
+      // DepositSweep, Redemption, ...) that stay at runs=1000 -- but is
+      // not currently backed by a committed gas-diff test, so treat it as
+      // an estimate rather than a measured fact. New reservation code
+      // goes into the ReservationRouter, which has its own EIP-170
       // budget. Separately, the fallback's own delegatecall dispatch adds
-      // a measured ~12,600 gas fixed overhead per reservation call over a
-      // direct call on the standalone router (cold SLOAD of the router
-      // slot, cold-address delegatecall surcharge, extra dispatch framing)
-      // -- see the "delegatecall dispatch overhead" test in
-      // ReservationRouter.test.ts. This is unrelated to the runs=1000-vs-100
-      // setting above; it is the cost of the router architecture itself.
+      // a measured fixed overhead per reservation call, isolated by
+      // comparing two calls through the same proxy (one that reaches the
+      // router, one that does not) so the pre-existing proxy hop cancels
+      // out of the comparison -- see the "delegatecall dispatch overhead"
+      // test in ReservationRouter.test.ts for the exact figure and bound.
+      // This is unrelated to the runs=1000-vs-100 setting above; it is
+      // the cost of the router architecture itself.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {

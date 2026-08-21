@@ -41,17 +41,19 @@ import "./Reservation.sol";
 ///         model.
 ///
 ///         Architecture notes (why delegatecall, not an external router):
-///         the P2TR activation track routes *fraud signature checks* through
-///         external router contracts the Bridge calls into. That shape works
-///         for stateless verification, but reservations mutate core Bridge
-///         state (deposits, wallets, spent-UTXO registry) and rely on the
-///         Bank's Bridge-only authority (`increaseBalanceAndCall`,
-///         `transferBalanceFrom`). An external contract would need a wide
-///         set of privileged Bridge mutator callbacks — more new Bridge
-///         bytecode than the refactor removes, and a brand-new authority
-///         surface to audit. The delegatecall extension keeps the current
-///         model: no new trusted party, no Bank changes, no ABI change for
-///         off-chain clients.
+///         reservations mutate core Bridge state (deposits, wallets,
+///         spent-UTXO registry) and rely on the Bank's Bridge-only
+///         authority (`increaseBalanceAndCall`, `transferBalanceFrom`). An
+///         external contract would need a wide set of privileged Bridge
+///         mutator callbacks — more new Bridge bytecode than the refactor
+///         removes, and a brand-new authority surface to audit. The
+///         delegatecall extension keeps the current model: no new trusted
+///         party, no Bank changes, and selectors/log topics observable at
+///         the Bridge address are unchanged at runtime -- though the
+///         published Bridge contract ABI no longer includes the moved
+///         functions/views/events, so off-chain clients need the
+///         `IReservationBridge`/`ReservationRouter` ABI alongside it (see
+///         `docs/rfc/rfc-13.adoc`).
 /// @dev Security invariants, enforced by construction and by tests:
 ///
 ///      1. STORAGE PARITY. The router inherits the same storage-bearing
@@ -328,9 +330,18 @@ contract ReservationRouter is Governable, Initializable {
         maxReservationsPerWallet = self.maxReservationsPerWallet;
     }
 
-    /// @notice Returns the address of the reservation router the Bridge
-    ///         routes unmatched selectors to — i.e. the address of the
-    ///         contract holding this code.
+    /// @notice Reads the `BridgeState.Storage.reservationRouter` slot this
+    ///         contract shares with the Bridge (see invariant 1). When
+    ///         reached through the Bridge's fallback via `delegatecall`,
+    ///         this returns the Bridge's own wired router address -- the
+    ///         same value as `Bridge.getReservationRouter()`. Called
+    ///         directly on a standalone, not-yet-wired router deployment
+    ///         (invariant 3), it instead reads that deployment's own,
+    ///         empty storage and returns `address(0)`; `BridgeState`'s
+    ///         wiring guards use exactly this to confirm a candidate
+    ///         address is shaped like an unwired `ReservationRouter`
+    ///         before accepting it (see `setReservationRouter` and
+    ///         `repairReservationRouter`).
     function reservationRouter() external view returns (address) {
         return self.reservationRouter;
     }

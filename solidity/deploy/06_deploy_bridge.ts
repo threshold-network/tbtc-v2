@@ -1,3 +1,4 @@
+import { constants } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 
@@ -94,9 +95,33 @@ const func: DeployFunction = async function deployBridge(
   // holds the Bridge governance right after initialization (it is
   // transferred to the governance account in a later script), so this
   // one-time wiring can be done here.
-  await (await ethers.getContractAt("Bridge", bridge.address))
-    .connect(await ethers.getSigner(deployer))
-    .setReservationRouter(ReservationRouter.address)
+  //
+  // The write is idempotent: re-running this script against an existing
+  // Bridge that is already wired to the *same* router is a no-op (the
+  // underlying `setReservationRouter` reverts "Reservation router already
+  // set" on a second write, so without this guard a redeploy would abort
+  // the whole script). If the existing Bridge is wired to a *different*
+  // router, throw a named, actionable error rather than surfacing a
+  // generic revert from the governance setter.
+  const bridgeContract = await ethers.getContractAt("Bridge", bridge.address)
+  const wiredRouter = await bridgeContract.getReservationRouter()
+  if (
+    wiredRouter.toLowerCase() !== constants.AddressZero &&
+    wiredRouter.toLowerCase() !== ReservationRouter.address.toLowerCase()
+  ) {
+    throw new Error(
+      "Bridge is already wired to a different reservation router " +
+        `(${wiredRouter}) than this script would deploy (${ReservationRouter.address}); ` +
+        "refusing to overwrite. Re-run with the deployed router address or " +
+        "use the proxy-admin repair path (Bridge.initializeV7_RepairReservationRouter) " +
+        "to recover."
+    )
+  }
+  if (wiredRouter.toLowerCase() === constants.AddressZero) {
+    await bridgeContract
+      .connect(await ethers.getSigner(deployer))
+      .setReservationRouter(ReservationRouter.address)
+  }
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(Deposit)
