@@ -482,7 +482,7 @@ library Reservation {
         // deadline is retained even when reveal-ahead validation is disabled
         // because the wallet validator always enforces its refund margin.
         require(
-            timeoutAt <= reservedDeposit.refundDeadline,
+            timeoutAt < reservedDeposit.refundDeadline,
             "Authorization window would overlap the deposit refund window"
         );
         require(
@@ -1143,6 +1143,10 @@ library Reservation {
             require(
                 self.reservationTotalAmount == 0,
                 "Active reservations exist"
+            );
+            require(
+                self.reservationRouter != address(0),
+                "Router not set"
             );
             self.reservationVault = reservationVault;
             emit ReservationVaultUpdated(reservationVault);

@@ -3099,6 +3099,39 @@ describe("Bridge - Reservation", () => {
       expect(reservation.state).to.equal(ReservationState.Active)
     })
 
+    it("rejects a re-anchor target equal to the source wallet", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      await expect(
+        bridge
+          .connect(bridgeGovernanceSigner)
+          .requestReservationReanchor(reservationKey, walletPubKeyHash)
+      ).to.be.revertedWith("Target wallet must differ from the source wallet")
+    })
+
+    it("rejects a re-anchor target that is not in Live state", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+
+      // secondWalletPubKeyHash is registered but never brought to Live.
+      await bridge.setWallet(secondWalletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      await expect(
+        bridge
+          .connect(bridgeGovernanceSigner)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Target wallet must be in Live state")
+    })
+
     it("rejects a terminated re-anchor target at signing but still settles an already-built transaction", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
       await liveWallet(secondWalletPubKeyHash)
