@@ -140,6 +140,16 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash
     );
 
+    event ReservedRedemptionSettled(
+        uint256 indexed reservationKey,
+        bytes32 redemptionTxHash
+    );
+
+    event ReservedRedemptionTimeoutSlashingSkipped(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash
+    );
+
     event ReservedRedemptionVetoed(uint256 indexed reservationKey);
 
     event ReservationReanchored(
@@ -152,16 +162,21 @@ contract Bridge is
     event ReservationDissolved(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash
+        bytes32 dissolutionTxHash,
+        uint64 mintedAmount,
+        uint64 anchorAmount,
+        uint64 dissolutionFee
     );
 
     event ReservationParametersUpdated(
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
+        uint64 reservationDissolutionTxMaxFee,
         uint32 reservationTermSeconds,
         uint32 reservationGracePeriod,
         uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet
+        uint32 maxReservationsPerWallet,
+        uint64 maxCumulativeReanchorFee
     );
 
     event ReservationVaultUpdated(address reservationVault);
@@ -2256,6 +2271,12 @@ contract Bridge is
     ///        max fee in satoshis. It is the maximum amount of BTC
     ///        transaction fee that can be incurred by a single reservation
     ///        lifecycle transaction.
+    /// @param reservationDissolutionTxMaxFee New value of the dedicated
+    ///        cap on the BTC transaction fee for the dissolution shape
+    ///        (usually 2-in-1-out; 1-in-1-out when the wallet has no
+    ///        main UTXO yet); distinct from `reservationTxMaxFee` which
+    ///        caps the always-1-in-1-out anchor / re-anchor / redemption
+    ///        shapes.
     /// @param reservationTermSeconds New value of the reservation custody
     ///        term length in seconds.
     /// @param reservationGracePeriod New value of the reservation grace
@@ -2264,6 +2285,8 @@ contract Bridge is
     ///        satoshi locked under active reservations.
     /// @param maxReservationsPerWallet New cap on the number of active
     ///        reservations a single wallet can custody.
+    /// @param maxCumulativeReanchorFee New cap on the total satoshi a
+    ///        single reservation may lose across all re-anchor hops.
     /// @dev Requirements:
     ///      - The caller must be the governance,
     ///      - See `Reservation.updateReservationParameters` for parameter
@@ -2272,19 +2295,23 @@ contract Bridge is
         address reservationVault,
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
+        uint64 reservationDissolutionTxMaxFee,
         uint32 reservationTermSeconds,
         uint32 reservationGracePeriod,
         uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet
+        uint32 maxReservationsPerWallet,
+        uint64 maxCumulativeReanchorFee
     ) external onlyGovernance {
         self.updateReservationParameters(
             reservationVault,
             reservationMinAmount,
             reservationTxMaxFee,
+            reservationDissolutionTxMaxFee,
             reservationTermSeconds,
             reservationGracePeriod,
             reservationMaxTotalAmount,
-            maxReservationsPerWallet
+            maxReservationsPerWallet,
+            maxCumulativeReanchorFee
         );
     }
 
@@ -2308,20 +2335,24 @@ contract Bridge is
             address reservationVault,
             uint64 reservationMinAmount,
             uint64 reservationTxMaxFee,
+            uint64 reservationDissolutionTxMaxFee,
             uint32 reservationTermSeconds,
             uint32 reservationGracePeriod,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet
+            uint32 maxReservationsPerWallet,
+            uint64 maxCumulativeReanchorFee
         )
     {
         reservationVault = self.reservationVault;
         reservationMinAmount = self.reservationMinAmount;
         reservationTxMaxFee = self.reservationTxMaxFee;
+        reservationDissolutionTxMaxFee = self.reservationDissolutionTxMaxFee;
         reservationTermSeconds = self.reservationTermSeconds;
         reservationGracePeriod = self.reservationGracePeriod;
         reservationMaxTotalAmount = self.reservationMaxTotalAmount;
         reservationTotalAmount = self.reservationTotalAmount;
         maxReservationsPerWallet = self.maxReservationsPerWallet;
+        maxCumulativeReanchorFee = self.maxCumulativeReanchorFee;
     }
 }

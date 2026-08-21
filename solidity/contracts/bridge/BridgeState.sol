@@ -29,23 +29,47 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
-    /// @notice Reveal-time facts for a deposit routed to the reservation
-    ///         vault. All fields fit in one storage word. `isReserved` is
-    ///         permanent; the remaining fields are used by the reservation
-    ///         action flow and may be cleared after acceptance or staleness.
+    /// @notice Reveal-time fact for a deposit routed to the reservation
+    ///         vault: whether it was classified as a reserved deposit at
+    ///         reveal time. This classification is permanent and does not
+    ///         track any later reservation-vault or wallet changes. Note
+    ///         this only governs sweep eligibility: if the reservation
+    ///         vault address is later changed by governance before this
+    ///         deposit's anchor is accepted, `Reservation
+    ///         .submitReservationAcceptanceProof` still credits the
+    ///         owner's balance through the *current* reservation vault at
+    ///         acceptance time, not the vault set when the deposit was
+    ///         revealed.
     struct PendingReservedDeposit {
         // Immutable reveal-time reservation classification.
         bool isReserved;
-        // Wallet committed by the deposit script and therefore the only
-        // wallet that can be authorized to anchor the deposit.
-        bytes20 walletPubKeyHash;
-        // Exact Bitcoin refund locktime validated at reveal time. Zero is a
-        // valid value when reveal-ahead validation was disabled.
-        uint32 refundDeadline;
-        // Whether the refund deadline was validated against a nonzero
-        // reveal-ahead period. This preserves the disabled validation mode
-        // without overloading a valid zero locktime.
-        bool refundDeadlineValidated;
+    }
+
+    /// @notice Terminal settlement record for a reserved redemption whose
+    ///         request timed out or was vetoed before its Bitcoin
+    ///         transaction could be proven. The redeemer was already
+    ///         refunded when this record was written; a later proof of the
+    ///         exact settled anchor spend is acknowledged (its outpoint
+    ///         marked spent) without moving any further balance. Mirrors
+    ///         the pooled redemption path's `timedOutRedemptions` record.
+    struct ReservedRedemptionSettlement {
+        // Hash of the Bitcoin transaction holding the anchor output that
+        // was pending redemption when the settlement was recorded. The
+        // anchor output index is always 0 (anchor transactions have a
+        // single output throughout a reservation's lifecycle) so it is
+        // not separately stored here. Zero when no settlement is
+        // pending -- a real anchor transaction's double-SHA256 hash is
+        // never all-zero in practice, so this field doubles as the
+        // "is a settlement pending" sentinel instead of a separate
+        // `bool`.
+        bytes32 anchorTxHash;
+        // keccak256 hash of the length-prefixed redeemer output script
+        // the settled redemption must pay to, snapshotted from the
+        // reservation at settlement-record time. A late-arriving proof
+        // must pay this exact script; without this check a wallet could
+        // redirect the settled anchor's spend to an address it controls
+        // and still have the proof accepted as a valid settlement.
+        bytes32 redeemerOutputScriptHash;
     }
 
     struct Storage {
@@ -360,8 +384,16 @@ library BridgeState {
         address reservationVault;
         // Maximum amount of BTC transaction fee in satoshi that can be
         // incurred by a single reservation lifecycle transaction (anchor,
-        // re-anchor, reserved redemption, dissolution).
+        // re-anchor, reserved redemption). Distinct from
+        // `reservationDissolutionTxMaxFee`, which caps the dissolution
+        // transaction's 2-in-1-out fee economics.
         uint64 reservationTxMaxFee;
+        // Maximum amount of BTC transaction fee in satoshi that can be
+        // incurred by a single reservation dissolution transaction
+        // (2-in-1-out shape). Distinct from `reservationTxMaxFee` because
+        // dissolution's fee economics differ from the 1-in-1-out anchor /
+        // re-anchor / redemption shapes that share `reservationTxMaxFee`.
+        uint64 reservationDissolutionTxMaxFee;
         // The grace period in seconds after a reservation's custody term
         // expires during which the reservation can still be extended or
         // redeemed but not yet dissolved.
@@ -370,18 +402,23 @@ library BridgeState {
         // reservations at the same time.
         uint64 reservationMaxTotalAmount;
         // Current total amount in satoshi locked under active reservations
-        // (sum of current anchor output values).
+        // (sum of gross `mintedAmount` over Active reservations, unchanged
+        // by re-anchor hops which only reduce the per-reservation
+        // `anchorAmount`).
         uint64 reservationTotalAmount;
         // Maximum number of active reservations a single wallet can custody.
         uint32 maxReservationsPerWallet;
+        // Per-reservation cumulative re-anchor fee budget in satoshi. Caps
+        // the total satoshi that may be lost across all re-anchor hops for
+        // a single reservation, complementing the per-transaction
+        // `reservationTxMaxFee` bound which only constrains a single hop.
+        // Bounds in-kind grinding of the anchor value over the reservation
+        // lifetime.
+        uint64 maxCumulativeReanchorFee;
         // Collection of all reservations indexed by the deposit key of the
         // underlying reserved deposit, i.e.
         // `keccak256(fundingTxHash | fundingOutputIndex)`.
         mapping(uint256 => Reservation.ReservationRequest) reservations;
-        // Maps the UTXO key of a reservation's current anchor outpoint,
-        // built as `keccak256(anchorTxHash | anchorTxOutputIndex)`, to the
-        // reservation key.
-        mapping(uint256 => uint256) reservationsByAnchorUtxo;
         // The number of active reservations custodied by the given wallet,
         // identified by its 20-byte wallet public key hash.
         mapping(bytes20 => uint32) walletReservationsCount;
@@ -390,6 +427,10 @@ library BridgeState {
         // updates from changing an ordinary deposit into a reservation or
         // making a reserved deposit eligible for an ordinary sweep.
         mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
+        // Terminal settlement records for reserved redemptions whose
+        // request timed out or was vetoed before their Bitcoin transaction
+        // could be proven, keyed by reservation key.
+        mapping(uint256 => ReservedRedemptionSettlement) reservedRedemptionSettlements;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -397,7 +438,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[42] __gap;
+        uint256[41] __gap;
     }
 
     event DepositParametersUpdated(

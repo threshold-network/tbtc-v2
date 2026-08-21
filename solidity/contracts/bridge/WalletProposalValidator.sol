@@ -980,6 +980,8 @@ contract WalletProposalValidator {
             ,
             ,
             ,
+            ,
+            ,
 
         ) = bridge.reservationParameters();
 
@@ -1166,7 +1168,7 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-        (, , uint64 reservationTxMaxFee, , , , , ) = bridge
+        (, , uint64 reservationTxMaxFee, , , , , , , ) = bridge
             .reservationParameters();
         require(
             proposal.reanchorTxFee > 0,
@@ -1211,9 +1213,11 @@ contract WalletProposalValidator {
         (
             ,
             ,
-            uint64 reservationTxMaxFee,
+            ,
+            uint64 reservationDissolutionTxMaxFee,
             ,
             uint32 reservationGracePeriod,
+            ,
             ,
             ,
 
@@ -1231,7 +1235,7 @@ contract WalletProposalValidator {
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.dissolutionTxFee <= reservationTxMaxFee,
+            proposal.dissolutionTxFee <= reservationDissolutionTxMaxFee,
             "Proposed transaction fee is too high"
         );
 

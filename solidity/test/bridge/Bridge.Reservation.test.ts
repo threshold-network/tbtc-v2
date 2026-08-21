@@ -12,6 +12,7 @@ import type {
   BridgeGovernance,
   BridgeStub,
   IRelay,
+  IWalletRegistry,
   ReservationVault,
   TBTCVault,
   TBTC,
@@ -35,6 +36,8 @@ const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
 const RESERVATION_MAX_TOTAL = BigNumber.from("2100000000000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
+const RESERVATION_DISSOLUTION_TX_MAX_FEE = 1500
+const MAX_CUMULATIVE_REANCHOR_FEE = 100000
 
 const SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 
@@ -47,12 +50,15 @@ describe("Bridge - Reservation", () => {
 
   let bank: Bank & BankStub
   let relay: FakeContract<IRelay>
+  let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let tbtc: TBTC & Contract
   let tbtcVault: TBTCVault & Contract
   let bridgeGovernance: BridgeGovernance
   let reservationVault: ReservationVault
   let bridgeGovernanceSigner: SignerWithAddress
+  let redemptionTimeoutSlashingAmount: BigNumber
+  let redemptionTimeoutNotifierRewardMultiplier: number
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -64,11 +70,16 @@ describe("Bridge - Reservation", () => {
       treasury,
       bank,
       relay,
+      walletRegistry,
       bridge,
       bridgeGovernance,
       tbtc,
       tbtcVault,
     } = await waffle.loadFixture(bridgeFixture))
+    ;({
+      redemptionTimeoutSlashingAmount,
+      redemptionTimeoutNotifierRewardMultiplier,
+    } = await bridge.redemptionParameters())
 
     reservationVault = await helpers.contracts.getContract("ReservationVault")
 
@@ -106,10 +117,12 @@ describe("Bridge - Reservation", () => {
         reservationVault.address,
         RESERVATION_MIN_AMOUNT,
         RESERVATION_TX_MAX_FEE,
+        RESERVATION_DISSOLUTION_TX_MAX_FEE,
         RESERVATION_TERM,
         RESERVATION_GRACE,
         RESERVATION_MAX_TOTAL,
-        MAX_RESERVATIONS_PER_WALLET
+        MAX_RESERVATIONS_PER_WALLET,
+        MAX_CUMULATIVE_REANCHOR_FEE
       )
   }
 
@@ -134,6 +147,8 @@ describe("Bridge - Reservation", () => {
       redemptionTxMaxFee: 0,
       redeemer: ZERO_ADDRESS,
       redeemerOutputScriptHash: ZERO_BYTES32,
+      cumulativeReanchorFee: 0,
+      lastTimeoutWasWalletFault: false,
     }
   }
 
@@ -272,10 +287,12 @@ describe("Bridge - Reservation", () => {
               reservationVault.address,
               RESERVATION_MIN_AMOUNT,
               RESERVATION_TX_MAX_FEE,
+              RESERVATION_DISSOLUTION_TX_MAX_FEE,
               RESERVATION_TERM,
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
-              MAX_RESERVATIONS_PER_WALLET
+              MAX_RESERVATIONS_PER_WALLET,
+              MAX_CUMULATIVE_REANCHOR_FEE
             )
         ).to.be.revertedWith("Caller is not the governance")
       })
@@ -289,10 +306,12 @@ describe("Bridge - Reservation", () => {
             reservationVault.address,
             RESERVATION_MIN_AMOUNT,
             RESERVATION_TX_MAX_FEE,
+            RESERVATION_DISSOLUTION_TX_MAX_FEE,
             RESERVATION_TERM,
             RESERVATION_GRACE,
             RESERVATION_MAX_TOTAL,
-            MAX_RESERVATIONS_PER_WALLET
+            MAX_RESERVATIONS_PER_WALLET,
+            MAX_CUMULATIVE_REANCHOR_FEE
           )
 
         await expect(tx)
@@ -303,10 +322,12 @@ describe("Bridge - Reservation", () => {
           .withArgs(
             RESERVATION_MIN_AMOUNT,
             RESERVATION_TX_MAX_FEE,
+            RESERVATION_DISSOLUTION_TX_MAX_FEE,
             RESERVATION_TERM,
             RESERVATION_GRACE,
             RESERVATION_MAX_TOTAL,
-            MAX_RESERVATIONS_PER_WALLET
+            MAX_RESERVATIONS_PER_WALLET,
+            MAX_CUMULATIVE_REANCHOR_FEE
           )
       })
 
@@ -318,14 +339,52 @@ describe("Bridge - Reservation", () => {
               reservationVault.address,
               RESERVATION_MIN_AMOUNT,
               0,
+              RESERVATION_DISSOLUTION_TX_MAX_FEE,
               RESERVATION_TERM,
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
-              MAX_RESERVATIONS_PER_WALLET
+              MAX_RESERVATIONS_PER_WALLET,
+              MAX_CUMULATIVE_REANCHOR_FEE
             )
         ).to.be.revertedWith(
           "Reservation transaction max fee must be greater than zero"
         )
+      })
+
+      it("should revert when the minimum amount is not greater than the tx max fee", async () => {
+        await expect(
+          bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+            reservationVault.address,
+            RESERVATION_TX_MAX_FEE, // equal, not greater
+            RESERVATION_TX_MAX_FEE,
+            RESERVATION_DISSOLUTION_TX_MAX_FEE,
+            RESERVATION_TERM,
+            RESERVATION_GRACE,
+            RESERVATION_MAX_TOTAL,
+            MAX_RESERVATIONS_PER_WALLET,
+            MAX_CUMULATIVE_REANCHOR_FEE
+          )
+        ).to.be.revertedWith(
+          "Reservation minimum amount must be greater than the reservation TX max fee"
+        )
+      })
+
+      it("should revert for a zero reservation term", async () => {
+        await expect(
+          bridge
+            .connect(bridgeGovernanceSigner)
+            .updateReservationParameters(
+              reservationVault.address,
+              RESERVATION_MIN_AMOUNT,
+              RESERVATION_TX_MAX_FEE,
+              RESERVATION_DISSOLUTION_TX_MAX_FEE,
+              0,
+              RESERVATION_GRACE,
+              RESERVATION_MAX_TOTAL,
+              MAX_RESERVATIONS_PER_WALLET,
+              MAX_CUMULATIVE_REANCHOR_FEE
+            )
+        ).to.be.revertedWith("Reservation term must be greater than zero")
       })
 
       it("should revert when changing the vault with active reservations", async () => {
@@ -346,10 +405,12 @@ describe("Bridge - Reservation", () => {
               thirdParty.address,
               RESERVATION_MIN_AMOUNT,
               RESERVATION_TX_MAX_FEE,
+              RESERVATION_DISSOLUTION_TX_MAX_FEE,
               RESERVATION_TERM,
               RESERVATION_GRACE,
               RESERVATION_MAX_TOTAL,
-              MAX_RESERVATIONS_PER_WALLET
+              MAX_RESERVATIONS_PER_WALLET,
+              MAX_CUMULATIVE_REANCHOR_FEE
             )
         ).to.be.revertedWith("Active reservations exist")
       })
@@ -414,10 +475,12 @@ describe("Bridge - Reservation", () => {
           tbtcVault.address,
           RESERVATION_MIN_AMOUNT,
           RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
         )
       expect(await bridge.isReservedDeposit(depositKey)).to.be.true
 
@@ -526,10 +589,12 @@ describe("Bridge - Reservation", () => {
           tbtcVault.address,
           RESERVATION_MIN_AMOUNT,
           RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
         )
 
       // Classification is a reveal-time fact, not a live vault-address
@@ -625,6 +690,25 @@ describe("Bridge - Reservation", () => {
         await expect(tx)
           .to.emit(bridge, "ReservationExtended")
           .withArgs(reservationKey, after_.expiresAt)
+      })
+    })
+
+    context("when the reservation is not active", () => {
+      it("should revert", async () => {
+        const pendingKey = 778
+        await bridge.setReservation(pendingKey, {
+          ...(await activeReservation(
+            thirdParty.address,
+            walletPubKeyHash,
+            BigNumber.from(100000000)
+          )),
+          state: 2, // RedemptionRequested
+        })
+
+        const vaultSigner = await impersonateContract(reservationVault.address)
+        await expect(
+          bridge.connect(vaultSigner).extendReservation(pendingKey)
+        ).to.be.revertedWith("Reservation is not active")
       })
     })
   })
@@ -733,9 +817,143 @@ describe("Bridge - Reservation", () => {
       await expect(timeoutTx)
         .to.emit(bridge, "ReservedRedemptionTimedOut")
         .withArgs(reservationKey, walletPubKeyHash)
+      await expect(timeoutTx)
+        .to.emit(bridge, "ReservedRedemptionTimeoutSlashingSkipped")
+        .withArgs(reservationKey, walletPubKeyHash)
+      expect(
+        (await bridge.reservations(reservationKey)).lastTimeoutWasWalletFault
+      ).to.be.false
+      expect(walletRegistry.seize).to.not.have.been.called
 
       expect(await bank.balanceOf(thirdParty.address)).to.equal(amountSat)
       expect((await bridge.reservations(reservationKey)).state).to.equal(1) // Active
+    })
+
+    it("slashes the wallet operators on timeout when the wallet is Live", async () => {
+      const liveReservationKey = 889
+      const liveWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
+      const walletMembersIDs = [1, 2, 3, 4, 5]
+
+      await bridge.setWallet(liveWalletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+      await bridge.setActiveWallet(liveWalletPubKeyHash)
+      await bridge.setReservation(
+        liveReservationKey,
+        await activeReservation(
+          thirdParty.address,
+          liveWalletPubKeyHash,
+          amountSat
+        )
+      )
+
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, amountSat)
+
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
+      await bridge
+        .connect(vaultSigner)
+        .requestReservedRedemption(
+          liveReservationKey,
+          thirdParty.address,
+          redeemerOutputScript
+        )
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+
+      const wallet = await bridge.wallets(liveWalletPubKeyHash)
+      const tx = await bridge
+        .connect(thirdParty)
+        .notifyReservedRedemptionTimeout(liveReservationKey, walletMembersIDs)
+
+      await expect(tx)
+        .to.emit(bridge, "ReservedRedemptionTimedOut")
+        .withArgs(liveReservationKey, liveWalletPubKeyHash)
+      expect(walletRegistry.seize).to.have.been.calledOnceWith(
+        redemptionTimeoutSlashingAmount,
+        redemptionTimeoutNotifierRewardMultiplier,
+        await thirdParty.getAddress(),
+        wallet.ecdsaWalletID,
+        walletMembersIDs
+      )
+
+      walletRegistry.seize.reset()
+    })
+
+    it("should revert when the redeemer output script points to the wallet public key hash", async () => {
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      const bridgeSigner = await impersonateContract(bridge.address)
+
+      const guardKey = 890
+      await bridge.setReservation(
+        guardKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, amountSat)
+
+      // Wallet public key hash hidden under P2WPKH.
+      await expect(
+        bridge
+          .connect(vaultSigner)
+          .requestReservedRedemption(
+            guardKey,
+            thirdParty.address,
+            `0x160014${walletPubKeyHash.substring(2)}`
+          )
+      ).to.be.revertedWith(
+        "Redeemer output script must not point to the wallet PKH"
+      )
+
+      // Wallet public key hash hidden under P2PKH.
+      await expect(
+        bridge
+          .connect(vaultSigner)
+          .requestReservedRedemption(
+            guardKey,
+            thirdParty.address,
+            `0x1976a914${walletPubKeyHash.substring(2)}88ac`
+          )
+      ).to.be.revertedWith(
+        "Redeemer output script must not point to the wallet PKH"
+      )
+    })
+
+    it("should revert when the redeemer output script is not a standard type", async () => {
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      const bridgeSigner = await impersonateContract(bridge.address)
+
+      const guardKey = 891
+      await bridge.setReservation(
+        guardKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, amountSat)
+
+      await expect(
+        bridge
+          .connect(vaultSigner)
+          .requestReservedRedemption(
+            guardKey,
+            thirdParty.address,
+            "0x1988a914f4eedc8f40d4b8e30771f792b065ebec0abaddef88ac"
+          )
+      ).to.be.revertedWith("Redeemer output script must be a standard type")
     })
   })
 
@@ -784,6 +1002,54 @@ describe("Bridge - Reservation", () => {
           grossTbtc.sub(expectedFee)
         )
         expect(await tbtc.balanceOf(treasury.address)).to.equal(expectedFee)
+      })
+
+      it("should revert when no depositors are specified", async () => {
+        const bridgeSigner = await impersonateContract(bridge.address)
+        await expect(
+          bank
+            .connect(bridgeSigner)
+            .increaseBalanceAndCall(reservationVault.address, [], [])
+        ).to.be.revertedWith("No depositors specified")
+      })
+
+      it("should mint gross TBTC and split the initiation fee across multiple depositors", async () => {
+        const bridgeSigner = await impersonateContract(bridge.address)
+        const secondDepositor = governance.address
+        const firstAmount = amountSat
+        const secondAmount = amountSat.mul(3)
+
+        const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
+        const firstBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+        const secondBalanceBefore = await tbtc.balanceOf(secondDepositor)
+
+        await bank
+          .connect(bridgeSigner)
+          .increaseBalanceAndCall(
+            reservationVault.address,
+            [thirdParty.address, secondDepositor],
+            [firstAmount, secondAmount]
+          )
+
+        const firstFee = firstAmount.mul(SATOSHI_MULTIPLIER).mul(40).div(10000)
+        const secondFee = secondAmount
+          .mul(SATOSHI_MULTIPLIER)
+          .mul(40)
+          .div(10000)
+
+        expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+          firstBalanceBefore.add(
+            firstAmount.mul(SATOSHI_MULTIPLIER).sub(firstFee)
+          )
+        )
+        expect(await tbtc.balanceOf(secondDepositor)).to.equal(
+          secondBalanceBefore.add(
+            secondAmount.mul(SATOSHI_MULTIPLIER).sub(secondFee)
+          )
+        )
+        expect(await tbtc.balanceOf(treasury.address)).to.equal(
+          treasuryBalanceBefore.add(firstFee).add(secondFee)
+        )
       })
     })
 
@@ -924,6 +1190,85 @@ describe("Bridge - Reservation", () => {
         await reservationVault.connect(deployer).updateFees(40, 20, 20)
       })
     })
+
+    describe("extendCustody", () => {
+      const reservationKey = 997
+      const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+
+      before(async () => {
+        await bridge.setReservation(
+          reservationKey,
+          await activeReservation(
+            thirdParty.address,
+            walletPubKeyHash,
+            amountSat
+          )
+        )
+
+        // Fund the owner with TBTC for the extension fee via an
+        // acceptance-sized credit.
+        const bridgeSigner = await impersonateContract(bridge.address)
+        await bank
+          .connect(bridgeSigner)
+          .increaseBalanceAndCall(
+            reservationVault.address,
+            [thirdParty.address],
+            [amountSat]
+          )
+        await tbtc
+          .connect(thirdParty)
+          .approve(reservationVault.address, ethers.constants.MaxUint256)
+      })
+
+      it("should revert when the fee exceeds the caller's bound", async () => {
+        const fee = grossTbtc.mul(20).div(10000)
+        await expect(
+          reservationVault
+            .connect(thirdParty)
+            .extendCustody(reservationKey, fee.sub(1))
+        ).to.be.revertedWith("Fee exceeds the caller's bound")
+      })
+
+      it("should transfer the extension fee to the treasury and advance expiresAt through the real vault path", async () => {
+        const fee = grossTbtc.mul(20).div(10000) // 20 bps extensionFeeBps
+        const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
+        const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
+        const expiresAtBefore = (await bridge.reservations(reservationKey))
+          .expiresAt
+
+        const tx = await reservationVault
+          .connect(thirdParty)
+          .extendCustody(reservationKey, fee)
+
+        await expect(tx)
+          .to.emit(reservationVault, "CustodyExtended")
+          .withArgs(reservationKey, thirdParty.address, fee)
+
+        expect(await tbtc.balanceOf(treasury.address)).to.equal(
+          treasuryBalanceBefore.add(fee)
+        )
+        expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+          ownerBalanceBefore.sub(fee)
+        )
+        expect((await bridge.reservations(reservationKey)).expiresAt).to.equal(
+          expiresAtBefore + RESERVATION_TERM
+        )
+      })
+    })
+
+    describe("updateFees", () => {
+      it("should revert when a fee parameter exceeds the maximum", async () => {
+        await expect(
+          reservationVault.connect(deployer).updateFees(501, 20, 20)
+        ).to.be.revertedWith("Fee exceeds the maximum")
+        await expect(
+          reservationVault.connect(deployer).updateFees(40, 501, 20)
+        ).to.be.revertedWith("Fee exceeds the maximum")
+        await expect(
+          reservationVault.connect(deployer).updateFees(40, 20, 501)
+        ).to.be.revertedWith("Fee exceeds the maximum")
+      })
+    })
   })
 
   describe("notifyReservedRedemptionVeto", () => {
@@ -1024,10 +1369,14 @@ describe("Bridge - Reservation", () => {
         state: walletState.Terminated,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
-      await bridge.setReservation(
-        reservationKey,
-        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
-      )
+      await bridge.setReservation(reservationKey, {
+        ...(await activeReservation(
+          thirdParty.address,
+          walletPubKeyHash,
+          amountSat
+        )),
+        lastTimeoutWasWalletFault: true,
+      })
 
       // Simulate the state a redemption timeout leaves the owner in: the
       // gross amount refunded as Bank balance. The fee is paid in TBTC,
@@ -1067,6 +1416,34 @@ describe("Bridge - Reservation", () => {
         treasuryBalanceBefore
       )
     })
+
+    it("reverts when the previous request did not time out through wallet fault", async () => {
+      const otherReservationKey = 445
+      await bridge.setReservation(otherReservationKey, {
+        ...(await activeReservation(
+          thirdParty.address,
+          walletPubKeyHash,
+          amountSat
+        )),
+        lastTimeoutWasWalletFault: false,
+      })
+
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(thirdParty.address, amountSat)
+      await bank
+        .connect(thirdParty)
+        .approveBalance(reservationVault.address, amountSat)
+
+      await expect(
+        reservationVault
+          .connect(thirdParty)
+          .retryRedeemReservation(otherReservationKey, redeemerOutputScript)
+      ).to.be.revertedWith(
+        "Previous request did not time out through wallet fault"
+      )
+    })
   })
 
   describe("governance-delayed reservation parameters update", () => {
@@ -1085,10 +1462,12 @@ describe("Bridge - Reservation", () => {
           reservationVault.address,
           RESERVATION_MIN_AMOUNT,
           RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
         )
 
       const beginReceipt = await beginTx.wait()
@@ -1102,10 +1481,12 @@ describe("Bridge - Reservation", () => {
           reservationVault.address,
           RESERVATION_MIN_AMOUNT,
           RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
           MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE,
           beginBlock.timestamp
         )
 
@@ -1131,10 +1512,12 @@ describe("Bridge - Reservation", () => {
         .withArgs(
           RESERVATION_MIN_AMOUNT,
           RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
         )
     })
   })
@@ -1224,6 +1607,14 @@ describe("Bridge - Reservation", () => {
     })
 
     it("vetoes a reserved redemption after three guardian objections", async () => {
+      const { redemptionRequestedAt } = await bridge.reservations(
+        reservationKey
+      )
+      const vetoKey = ethers.utils.solidityKeccak256(
+        ["uint256", "uint32"],
+        [reservationKey, redemptionRequestedAt]
+      )
+
       await redemptionWatchtower
         .connect(guardianSigners[0])
         .raiseReservedObjection(reservationKey)
@@ -1237,7 +1628,7 @@ describe("Bridge - Reservation", () => {
 
       await expect(tx)
         .to.emit(redemptionWatchtower, "VetoFinalized")
-        .withArgs(reservationKey)
+        .withArgs(vetoKey)
       await expect(tx)
         .to.emit(bridge, "ReservedRedemptionVetoed")
         .withArgs(reservationKey)
@@ -1249,7 +1640,7 @@ describe("Bridge - Reservation", () => {
       expect((await bridge.reservations(reservationKey)).state).to.equal(1)
 
       // Default penalty is 100%: the whole detained amount is burned.
-      const veto = await redemptionWatchtower.vetoProposals(reservationKey)
+      const veto = await redemptionWatchtower.vetoProposals(vetoKey)
       expect(veto.withdrawableAmount).to.equal(0)
       expect(await bank.balanceOf(redemptionWatchtower.address)).to.equal(0)
 
@@ -1265,6 +1656,151 @@ describe("Bridge - Reservation", () => {
             redeemerOutputScript
           )
       ).to.be.revertedWith("Redemption request rejected by the watchtower")
+    })
+
+    it("should revert when the reserved redemption does not exist", async () => {
+      const freshKey = 667
+      await bridge.setReservation(
+        freshKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+
+      await expect(
+        redemptionWatchtower
+          .connect(guardianSigners[0])
+          .raiseReservedObjection(freshKey)
+      ).to.be.revertedWith("Reserved redemption does not exist")
+    })
+
+    it("should revert when a guardian already objected", async () => {
+      const freshKey = 668
+      // thirdParty was banned by the earlier veto test above; use a
+      // different, unbanned owner/redeemer for this reservation.
+      await bridge.setReservation(
+        freshKey,
+        await activeReservation(governance.address, walletPubKeyHash, amountSat)
+      )
+
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, amountSat)
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
+      await bridge
+        .connect(vaultSigner)
+        .requestReservedRedemption(
+          freshKey,
+          governance.address,
+          redeemerOutputScript
+        )
+
+      await redemptionWatchtower
+        .connect(guardianSigners[0])
+        .raiseReservedObjection(freshKey)
+
+      await expect(
+        redemptionWatchtower
+          .connect(guardianSigners[0])
+          .raiseReservedObjection(freshKey)
+      ).to.be.revertedWith("Guardian already objected")
+    })
+
+    it("should emit VetoPeriodCheckOmitted for a redemption requested before the watchtower was enabled", async () => {
+      const freshKey = 669
+      const grandfatheredRequestedAt = 1 // long before watchtowerEnabledAt
+
+      await bridge.setReservation(freshKey, {
+        ...(await activeReservation(
+          thirdParty.address,
+          walletPubKeyHash,
+          amountSat
+        )),
+        state: 2, // RedemptionRequested
+        redeemer: thirdParty.address,
+        redeemerOutputScriptHash: ethers.utils.keccak256(redeemerOutputScript),
+        redemptionRequestedAt: grandfatheredRequestedAt,
+        redemptionTxMaxFee: RESERVATION_TX_MAX_FEE,
+      })
+
+      const vetoKey = ethers.utils.solidityKeccak256(
+        ["uint256", "uint32"],
+        [freshKey, grandfatheredRequestedAt]
+      )
+
+      await expect(
+        redemptionWatchtower
+          .connect(guardianSigners[0])
+          .raiseReservedObjection(freshKey)
+      )
+        .to.emit(redemptionWatchtower, "VetoPeriodCheckOmitted")
+        .withArgs(vetoKey)
+    })
+
+    it("lets a new request generation start clean after an earlier generation is resolved", async () => {
+      const freshKey = 670
+      const owner = governance.address
+
+      await bridge.setReservation(
+        freshKey,
+        await activeReservation(owner, walletPubKeyHash, amountSat)
+      )
+
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, amountSat)
+      const vaultSigner = await impersonateContract(reservationVault.address)
+      await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
+      await bridge
+        .connect(vaultSigner)
+        .requestReservedRedemption(freshKey, owner, redeemerOutputScript)
+
+      // First generation: one guardian objects, below the 3-objection
+      // veto threshold, then the request times out without being
+      // vetoed.
+      await redemptionWatchtower
+        .connect(guardianSigners[0])
+        .raiseReservedObjection(freshKey)
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservedRedemptionTimeout(freshKey, [])
+
+      expect((await bridge.reservations(freshKey)).state).to.equal(1) // Active
+
+      // Second generation: re-request. The guardian who objected against
+      // generation 1 must be able to object again, and the new
+      // generation must start with zero objections -- a stale
+      // `objectionsCount` from the resolved generation 1 must not carry
+      // over and bias or block generation 2.
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(reservationVault.address, amountSat)
+      await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
+      await bridge
+        .connect(vaultSigner)
+        .requestReservedRedemption(freshKey, owner, redeemerOutputScript)
+
+      const { redemptionRequestedAt } = await bridge.reservations(freshKey)
+      const secondGenVetoKey = ethers.utils.solidityKeccak256(
+        ["uint256", "uint32"],
+        [freshKey, redemptionRequestedAt]
+      )
+      expect(
+        (await redemptionWatchtower.vetoProposals(secondGenVetoKey))
+          .objectionsCount
+      ).to.equal(0)
+
+      await expect(
+        redemptionWatchtower
+          .connect(guardianSigners[0])
+          .raiseReservedObjection(freshKey)
+      )
+        .to.emit(redemptionWatchtower, "ObjectionRaised")
+        .withArgs(secondGenVetoKey, guardianSigners[0].address)
     })
   })
 
@@ -1466,6 +2002,51 @@ describe("Bridge - Reservation", () => {
           redemptionTxFee: 1500,
         })
       ).to.be.revertedWith("Reservation custodied by different wallet")
+    })
+
+    it("enforces the dissolution-specific fee cap, not the reservation tx max fee", async () => {
+      // Regression test: validateReservationDissolutionProposal must check
+      // proposal.dissolutionTxFee against reservationDissolutionTxMaxFee,
+      // not reservationTxMaxFee. Configure the two caps to differ so a fee
+      // that would pass the wrong cap is caught by the right one.
+      const reservationKey = 54321
+      await bridge.setReservation(
+        reservationKey,
+        await activeReservation(thirdParty.address, walletPubKeyHash, amountSat)
+      )
+
+      await bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+        reservationVault.address,
+        RESERVATION_MIN_AMOUNT,
+        RESERVATION_TX_MAX_FEE,
+        500, // reservationDissolutionTxMaxFee, deliberately below RESERVATION_TX_MAX_FEE
+        RESERVATION_TERM,
+        RESERVATION_GRACE,
+        RESERVATION_MAX_TOTAL,
+        MAX_RESERVATIONS_PER_WALLET,
+        MAX_CUMULATIVE_REANCHOR_FEE
+      )
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      // Within RESERVATION_TX_MAX_FEE (2000) but above the dissolution cap
+      // (500): must revert if the fee is checked against the right cap.
+      await expect(
+        validator.validateReservationDissolutionProposal({
+          walletPubKeyHash,
+          reservationKey,
+          dissolutionTxFee: 1000,
+        })
+      ).to.be.revertedWith("Proposed transaction fee is too high")
+
+      // Exactly at the dissolution cap: must be accepted.
+      expect(
+        await validator.validateReservationDissolutionProposal({
+          walletPubKeyHash,
+          reservationKey,
+          dissolutionTxFee: 500,
+        })
+      ).to.be.true
     })
   })
 
@@ -1686,10 +2267,12 @@ describe("Bridge - Reservation", () => {
           tbtcVault.address,
           RESERVATION_MIN_AMOUNT,
           RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
         )
 
       const anchorTx = buildTx(
@@ -1710,10 +2293,166 @@ describe("Bridge - Reservation", () => {
       ).to.be.revertedWith("Deposit was not revealed as reserved")
     })
 
+    it("accepts a pre-swap reserved deposit after the vault changes, crediting the current vault", async () => {
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: depositAmount,
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                refundLocktime
+              )
+            ),
+          },
+        ]
+      )
+
+      // Revealed while `reservationVault` is still the reservation vault:
+      // classified as reserved at reveal time.
+      await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor,
+        walletPubKeyHash,
+        refundPubKeyHash,
+        refundLocktime,
+        vault: reservationVault.address,
+      })
+
+      const reservationKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [fundingTx.txHash, 0]
+      )
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
+
+      // Governance repurposes the reservation vault before the anchor is
+      // proven. The reveal-time classification survives unchanged.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          tbtcVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
+        )
+      expect(await bridge.isReservedDeposit(reservationKey)).to.be.true
+
+      const anchorTx = buildTx(
+        [{ txHash: fundingTx.txHash, index: 0 }],
+        [{ valueSat: anchorAmount, script: p2wpkhScript(walletPubKeyHash) }]
+      )
+
+      const supplyBefore = await tbtc.totalSupply()
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Acceptance,
+          anchorTx.info,
+          proofFor(anchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          0
+        )
+
+      // Accepted despite the vault swap: the reservation record exists,
+      // which only the reservation path (not an ordinary sweep) creates.
+      expect((await bridge.reservations(reservationKey)).state).to.equal(1) // Active
+
+      // The credit routed through the *current* vault (`tbtcVault`, a
+      // 1:1 ordinary mint with no reservation-vault initiation fee
+      // split), not the vault configured at reveal time.
+      expect(await tbtc.totalSupply()).to.equal(
+        supplyBefore.add(anchorAmount.mul(SATOSHI_MULTIPLIER))
+      )
+      expect(await tbtc.balanceOf(thirdParty.address)).to.equal(
+        anchorAmount.mul(SATOSHI_MULTIPLIER)
+      )
+    })
+
     it("rejects an anchor paying an excessive miner fee", async () => {
       await expect(
         makeAcceptedReservation(depositAmount.sub(RESERVATION_TX_MAX_FEE + 1))
       ).to.be.revertedWith("Transaction fee is too high")
+    })
+
+    it("rejects an acceptance proof when reservations are disabled", async () => {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          ZERO_ADDRESS,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
+        )
+
+      await expect(makeAcceptedReservation()).to.be.revertedWith(
+        "Reservations are disabled"
+      )
+    })
+
+    it("rejects an anchor below the reservation minimum amount", async () => {
+      await expect(
+        makeAcceptedReservation(BigNumber.from(RESERVATION_MIN_AMOUNT - 1))
+      ).to.be.revertedWith("Reservation amount too small")
+    })
+
+    it("rejects an acceptance that would exceed the total reserved amount cap", async () => {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          anchorAmount.sub(1),
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
+        )
+
+      await expect(makeAcceptedReservation()).to.be.revertedWith(
+        "Total reserved amount cap exceeded"
+      )
+    })
+
+    it("rejects an acceptance that would exceed the per-wallet reservations cap", async () => {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          RESERVATION_MIN_AMOUNT,
+          RESERVATION_TX_MAX_FEE,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          1,
+          MAX_CUMULATIVE_REANCHOR_FEE
+        )
+
+      await makeAcceptedReservation()
+      await expect(makeAcceptedReservation()).to.be.revertedWith(
+        "Wallet reservations cap exceeded"
+      )
     })
 
     it("completes an in-kind reserved redemption", async () => {
@@ -1768,6 +2507,280 @@ describe("Bridge - Reservation", () => {
       expect(await tbtc.totalSupply()).to.equal(supplyBefore.sub(grossTbtc))
     })
 
+    it("acknowledges a late redemption proof for a reservation that already timed out", async () => {
+      // The wallet may have already broadcast the redemption transaction
+      // before the redeemer noticed the timeout. Once
+      // `notifyReservedRedemptionTimeout` records the terminal settlement
+      // and refunds the redeemer, the SPV proof for that exact anchor
+      // spend must still be acknowledgeable -- and must not move any
+      // further balance or allow the outpoint to be reused.
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation() // funds the owner with extra TBTC
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      const redemptionFee = grossTbtc.mul(20).div(10000)
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, grossTbtc.add(redemptionFee))
+      await reservationVault
+        .connect(thirdParty)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+
+      const redeemerBalanceBeforeTimeout = await bank.balanceOf(
+        thirdParty.address
+      )
+      await bridge
+        .connect(thirdParty)
+        .notifyReservedRedemptionTimeout(reservationKey, [1, 2, 3, 4, 5])
+      walletRegistry.seize.reset()
+
+      // The gross amount was refunded as Bank balance on timeout.
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        redeemerBalanceBeforeTimeout.add(anchorAmount)
+      )
+      expect((await bridge.reservations(reservationKey)).state).to.equal(1) // Active
+
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+
+      const bankBalanceBeforeProof = await bank.balanceOf(thirdParty.address)
+      const supplyBeforeProof = await tbtc.totalSupply()
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Redemption,
+          redemptionTx.info,
+          proofFor(redemptionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservedRedemptionSettled")
+        .withArgs(reservationKey, redemptionTx.txHash)
+
+      // No further balance movement: the redeemer was already made whole
+      // by the timeout refund above, and the reservation stays Active.
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        bankBalanceBeforeProof
+      )
+      expect(await tbtc.totalSupply()).to.equal(supplyBeforeProof)
+      expect((await bridge.reservations(reservationKey)).state).to.equal(3) // Closed
+
+      // The settlement record is consumed and the reservation is now
+      // Closed: a repeat submission of the same proof cannot reuse the
+      // anchor outpoint.
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            redemptionTx.info,
+            proofFor(redemptionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("No settled reserved redemption")
+    })
+
+    it("rejects a late redemption proof pointing at the wrong settled outpoint", async () => {
+      const { reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation() // funds the owner with extra TBTC
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      const redemptionFee = grossTbtc.mul(20).div(10000)
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, grossTbtc.add(redemptionFee))
+      await reservationVault
+        .connect(thirdParty)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservedRedemptionTimeout(reservationKey, [1, 2, 3, 4, 5])
+      walletRegistry.seize.reset()
+
+      // A proof whose input spends a different outpoint than the one
+      // recorded in the settlement must not be acknowledged.
+      const wrongOutpointTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            wrongOutpointTx.info,
+            proofFor(wrongOutpointTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Wrong settled anchor outpoint")
+    })
+
+    it("rejects a late redemption proof once the reservation has been re-anchored since settlement", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation() // funds the owner with extra TBTC
+      await liveWallet(secondWalletPubKeyHash)
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      const redemptionFee = grossTbtc.mul(20).div(10000)
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, grossTbtc.add(redemptionFee))
+      await reservationVault
+        .connect(thirdParty)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
+
+      const { redemptionTimeout } = await bridge.redemptionParameters()
+      await increaseTime(redemptionTimeout + 1)
+      await bridge
+        .connect(thirdParty)
+        .notifyReservedRedemptionTimeout(reservationKey, [1, 2, 3, 4, 5])
+      walletRegistry.seize.reset()
+
+      // The reservation returns to Active on timeout and is legitimately
+      // re-anchored to a fresh outpoint before the settled anchor's late
+      // proof ever arrives.
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(anchorFee),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      // A late proof against the now-superseded settled anchor must not
+      // be able to force-close a reservation that has since moved on to
+      // a live, unsettled anchor.
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Redemption,
+            redemptionTx.info,
+            proofFor(redemptionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith(
+        "Reservation anchor no longer matches the settlement"
+      )
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(1) // Active
+      expect((await bridge.reservations(reservationKey)).anchorTxHash).to.equal(
+        reanchorTx.txHash
+      )
+    })
+
+    it("acknowledges a late redemption proof for a reservation that was vetoed", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await makeAcceptedReservation() // funds the owner with extra TBTC
+
+      const redeemerScript = `0x16${p2wpkhScript(
+        ethers.utils.hexlify(ethers.utils.randomBytes(20))
+      )}`
+      const redemptionFee = grossTbtc.mul(20).div(10000)
+      await tbtc
+        .connect(thirdParty)
+        .approve(reservationVault.address, grossTbtc.add(redemptionFee))
+      await reservationVault
+        .connect(thirdParty)
+        .redeemReservation(reservationKey, redeemerScript, redemptionFee)
+
+      // Treat `deployer` as the redemption watchtower, mirroring the
+      // dedicated `notifyReservedRedemptionVeto` unit tests.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .setRedemptionWatchtower(deployer.address)
+      await bridge
+        .connect(deployer)
+        .notifyReservedRedemptionVeto(reservationKey)
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(1) // Active
+
+      const redemptionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: redeemerScript.slice(4),
+          },
+        ]
+      )
+
+      const supplyBeforeProof = await tbtc.totalSupply()
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Redemption,
+          redemptionTx.info,
+          proofFor(redemptionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "ReservedRedemptionSettled")
+        .withArgs(reservationKey, redemptionTx.txHash)
+
+      expect(await tbtc.totalSupply()).to.equal(supplyBeforeProof)
+      expect((await bridge.reservations(reservationKey)).state).to.equal(3) // Closed
+    })
+
     it("keeps redemption provable when txMaxFee exceeds the anchor (underflow guard)", async () => {
       // Regression: redemptionTxMaxFee is a governable parameter, not a
       // tx-derived value, so a governance increase can push it above an
@@ -1785,10 +2798,12 @@ describe("Bridge - Reservation", () => {
           reservationVault.address,
           anchorAmount.add(2),
           anchorAmount.add(1),
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
           RESERVATION_TERM,
           RESERVATION_GRACE,
           RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
         )
 
       const redeemerScript = `0x16${p2wpkhScript(
@@ -1908,6 +2923,223 @@ describe("Bridge - Reservation", () => {
         )
     })
 
+    it("rejects a re-anchor paying an excessive fee", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(RESERVATION_TX_MAX_FEE + 1),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            reanchorTx.info,
+            proofFor(reanchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Transaction fee is too high")
+    })
+
+    it("rejects a re-anchor landing at or below the dust floor", async () => {
+      // Lower the governance parameters so a single hop can carry an
+      // above-minimum anchor down to at-or-below the dust floor while
+      // staying within the per-transaction fee bound (minAmount must
+      // stay above txMaxFee by construction, so minAmount <= 2*txMaxFee
+      // is required to reach the floor in one hop). Build a small custom
+      // deposit/anchor pair instead of `makeAcceptedReservation`, whose
+      // fixed deposit size would blow the lowered fee bound.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          150,
+          100,
+          RESERVATION_DISSOLUTION_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          MAX_CUMULATIVE_REANCHOR_FEE
+        )
+      await bridge.setDepositDustThreshold(50)
+
+      const fundingTx = buildTx(
+        [
+          {
+            txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+            index: 0,
+          },
+        ],
+        [
+          {
+            valueSat: 200, // 150 anchor + 50 acceptance-time fee
+            script: p2wshScript(
+              buildDepositScript(
+                thirdParty.address,
+                blindingFactor,
+                walletPubKeyHash,
+                refundPubKeyHash,
+                refundLocktime
+              )
+            ),
+          },
+        ]
+      )
+      await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+        fundingOutputIndex: 0,
+        blindingFactor,
+        walletPubKeyHash,
+        refundPubKeyHash,
+        refundLocktime,
+        vault: reservationVault.address,
+      })
+      const anchorTx = buildTx(
+        [{ txHash: fundingTx.txHash, index: 0 }],
+        [{ valueSat: 150, script: p2wpkhScript(walletPubKeyHash) }]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Acceptance,
+          anchorTx.info,
+          proofFor(anchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          0
+        )
+      const reservationKey = BigNumber.from(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [fundingTx.txHash, 0]
+        )
+      )
+
+      await liveWallet(secondWalletPubKeyHash)
+
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [{ valueSat: 100, script: p2wpkhScript(secondWalletPubKeyHash) }]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            reanchorTx.info,
+            proofFor(reanchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Re-anchor amount below the dust floor")
+    })
+
+    it("rejects a re-anchor once the cumulative fee budget is exceeded", async () => {
+      // Lower the cumulative budget so two ordinary-fee re-anchor hops
+      // exceed it on the second hop.
+      await bridge.connect(bridgeGovernanceSigner).updateReservationParameters(
+        reservationVault.address,
+        RESERVATION_MIN_AMOUNT,
+        RESERVATION_TX_MAX_FEE,
+        RESERVATION_DISSOLUTION_TX_MAX_FEE,
+        RESERVATION_TERM,
+        RESERVATION_GRACE,
+        RESERVATION_MAX_TOTAL,
+        MAX_RESERVATIONS_PER_WALLET,
+        anchorFee // budget == exactly one hop's fee
+      )
+
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      const firstHop = anchorAmount.sub(anchorFee)
+      const reanchorTx1 = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: firstHop,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      const tx1 = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx1.info,
+          proofFor(reanchorTx1.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+      await expect(tx1).to.emit(bridge, "ReservationReanchored")
+      expect(
+        (await bridge.reservations(reservationKey)).cumulativeReanchorFee
+      ).to.equal(anchorFee)
+
+      // Second hop: any positive fee now exceeds the exhausted budget.
+      const reanchorTx2 = buildTx(
+        [{ txHash: reanchorTx1.txHash, index: 0 }],
+        [
+          {
+            valueSat: firstHop.sub(1),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            reanchorTx2.info,
+            proofFor(reanchorTx2.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Cumulative re-anchor fee budget exceeded")
+    })
+
+    it("rejects a dissolution output that does not pay the custodying wallet", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      const dissolutionFee = 500
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(dissolutionFee),
+            // Pays a different wallet than the custodying one.
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Dissolution,
+            dissolutionTx.info,
+            proofFor(dissolutionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith(
+        "Dissolution output must pay to the custodying wallet"
+      )
+    })
+
     it("dissolves an expired reservation into the wallet main UTXO", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
 
@@ -1959,6 +3191,460 @@ describe("Bridge - Reservation", () => {
           [dissolutionTx.txHash, 0, anchorAmount.sub(dissolutionFee)]
         )
       )
+    })
+
+    it("dissolves a re-anchored reservation without burning unrelated Bank balance", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      // Re-anchor once, incurring a miner fee: `anchorAmount` shrinks
+      // below `mintedAmount`.
+      const reanchoredAmount = anchorAmount.sub(anchorFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: reanchoredAmount,
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      const reservationBefore = await bridge.reservations(reservationKey)
+      expect(reservationBefore.mintedAmount).to.equal(anchorAmount)
+      expect(reservationBefore.anchorAmount).to.equal(reanchoredAmount)
+
+      // A second, unrelated reservation's escrow, held by the Bridge as
+      // an ordinary Bank balance, must survive dissolution untouched --
+      // mirroring the balance shape the Bridge actually holds while a
+      // pooled or reserved redemption is in flight.
+      const unrelatedBalance = BigNumber.from(500000)
+      const bridgeSigner = await impersonateContract(bridge.address)
+      await bank
+        .connect(bridgeSigner)
+        .increaseBalance(bridge.address, unrelatedBalance)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      const dissolutionFee = 200
+      const dissolutionTx = buildTx(
+        [{ txHash: reanchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: reanchoredAmount.sub(dissolutionFee),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+
+      const tx = await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Dissolution,
+          dissolutionTx.info,
+          proofFor(dissolutionTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      await expect(tx).to.emit(bridge, "ReservationDissolved")
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(3) // Closed
+
+      // No Bank balance was burned: the unrelated escrow survives
+      // untouched.
+      expect(await bank.balanceOf(bridge.address)).to.equal(unrelatedBalance)
+
+      // The dissolution output carries forward exactly the shrunk
+      // `anchorAmount`, not the original gross `mintedAmount`.
+      const wallet = await bridge.wallets(secondWalletPubKeyHash)
+      expect(wallet.mainUtxoHash).to.equal(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32", "uint64"],
+          [dissolutionTx.txHash, 0, reanchoredAmount.sub(dissolutionFee)]
+        )
+      )
+    })
+
+    it("dissolves into an existing main UTXO and reports the fee-loss decomposition", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      // Re-anchor once so `anchorAmount` falls below `mintedAmount`: that
+      // gap is the in-kind loss the event has to report.
+      const reanchorFee = 800
+      const reanchoredAmount = anchorAmount.sub(reanchorFee)
+      const reanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: reanchoredAmount,
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          reanchorTx.info,
+          proofFor(reanchorTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey
+        )
+
+      // Give the custodying wallet a main UTXO so the dissolution takes
+      // the dominant 2-in-1-out shape. Every other test in this suite
+      // dissolves 1-in-1-out, where the anchor value and the combined
+      // input total coincide and cannot be told apart.
+      const mainUtxoTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      const mainUtxoValue = BigNumber.from(1000000)
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32", "uint64"],
+          [mainUtxoTxHash, 0, mainUtxoValue]
+        ),
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      const dissolutionFee = 600
+      const dissolutionTx = buildTx(
+        [
+          { txHash: reanchorTx.txHash, index: 0 },
+          { txHash: mainUtxoTxHash, index: 0 },
+        ],
+        [
+          {
+            valueSat: reanchoredAmount.add(mainUtxoValue).sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+
+      const tx = await bridge.connect(spvMaintainer).submitReservationProof(
+        ProofType.Dissolution,
+        dissolutionTx.info,
+        proofFor(dissolutionTx.txHash),
+        {
+          txHash: mainUtxoTxHash,
+          txOutputIndex: 0,
+          txOutputValue: mainUtxoValue,
+        },
+        reservationKey
+      )
+
+      // The event must report the anchor's own value, not the combined
+      // input total: the unreconciled shortfall is
+      // `mintedAmount - anchorAmount + dissolutionFee`, here
+      // `reanchorFee + dissolutionFee`.
+      await expect(tx)
+        .to.emit(bridge, "ReservationDissolved")
+        .withArgs(
+          reservationKey,
+          walletPubKeyHash,
+          dissolutionTx.txHash,
+          anchorAmount,
+          reanchoredAmount,
+          dissolutionFee
+        )
+
+      expect((await bridge.reservations(reservationKey)).state).to.equal(3) // Closed
+
+      // The single output became the wallet's new main UTXO.
+      const wallet = await bridge.wallets(walletPubKeyHash)
+      expect(wallet.mainUtxoHash).to.equal(
+        ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32", "uint64"],
+          [
+            dissolutionTx.txHash,
+            0,
+            reanchoredAmount.add(mainUtxoValue).sub(dissolutionFee),
+          ]
+        )
+      )
+    })
+
+    it("leaves residual backing independent of claim size after maximal grinding", async () => {
+      // Characterization of the accepted underbacking risk (follow-up item 7
+      // in the reservation review notes). It pins the *shape* of the risk so
+      // any later change to the dust floor, the dissolution cap, the
+      // cumulative budget, or the `mintedAmount` accounting has to restate it
+      // rather than move it silently.
+      //
+      // The finding: the dust floor is absolute (`> reservationTxMaxFee`),
+      // so the satoshi left backing a fully-ground reservation is the
+      // constant `reservationTxMaxFee + 1 - reservationDissolutionTxMaxFee`
+      // no matter how large the claim was. Fractional underbacking therefore
+      // grows with position size, and peaks where the cumulative budget and
+      // the dust floor bind at the same time -- NOT on a minimum-sized
+      // reservation, which is the intuitive but wrong guess.
+      //
+      // The parameters below are scaled down from the suite fixture purely to
+      // keep the grind to a handful of hops: reaching the floor under the
+      // fixture's 2000/100000 pair would take 50 re-anchor proofs. The
+      // invariant is parameter-independent, so the scaled regime tests the
+      // same mechanism -- but note this test does NOT measure the fixture's
+      // own worst case, which is arithmetic from the invariant, not a
+      // measured result.
+      const txMaxFee = 100
+      const dissolutionCap = 60
+      const cumulativeCap = 400
+      const minAmount = 150
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          minAmount,
+          txMaxFee,
+          dissolutionCap,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          cumulativeCap
+        )
+      await bridge.setDepositDustThreshold(50)
+
+      const floor = txMaxFee + 1
+      // Residual backing is claim-independent, hence a single constant.
+      const residualBacking = floor - dissolutionCap
+
+      // Reveals and accepts a reservation of exactly `claim` satoshi, paying
+      // a 1-satoshi acceptance fee so the deposit stays within `txMaxFee`.
+      async function acceptClaim(claim: number) {
+        const fundingTx = buildTx(
+          [
+            {
+              txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+              index: 0,
+            },
+          ],
+          [
+            {
+              valueSat: claim + 1,
+              script: p2wshScript(
+                buildDepositScript(
+                  thirdParty.address,
+                  blindingFactor,
+                  walletPubKeyHash,
+                  refundPubKeyHash,
+                  refundLocktime
+                )
+              ),
+            },
+          ]
+        )
+        await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+          fundingOutputIndex: 0,
+          blindingFactor,
+          walletPubKeyHash,
+          refundPubKeyHash,
+          refundLocktime,
+          vault: reservationVault.address,
+        })
+        const anchorTx = buildTx(
+          [{ txHash: fundingTx.txHash, index: 0 }],
+          [{ valueSat: claim, script: p2wpkhScript(walletPubKeyHash) }]
+        )
+        const acceptTx = await bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proofFor(anchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            0
+          )
+        const receipt = await acceptTx.wait()
+        const accepted = receipt.events.find(
+          (e) => e.event === "ReservationAccepted"
+        )
+        return { anchorTx, reservationKey: accepted.args.reservationKey }
+      }
+
+      // Grinds the anchor down to the dust floor in maximum-fee hops.
+      async function grindToFloor(
+        startTx: { txHash: string },
+        startValue: number,
+        reservationKey: BigNumber
+      ) {
+        let prevTx = startTx
+        let value = startValue
+        while (value > floor) {
+          const next = Math.max(floor, value - txMaxFee)
+          const hop = buildTx(
+            [{ txHash: prevTx.txHash, index: 0 }],
+            [{ valueSat: next, script: p2wpkhScript(walletPubKeyHash) }]
+          )
+          // Sequential on purpose: each hop spends the previous hop's output,
+          // so the proofs cannot be submitted concurrently.
+          // eslint-disable-next-line no-await-in-loop
+          await bridge
+            .connect(spvMaintainer)
+            .submitReservationProof(
+              ProofType.Reanchor,
+              hop.info,
+              proofFor(hop.txHash),
+              NO_MAIN_UTXO_PARAM,
+              reservationKey
+            )
+          prevTx = hop
+          value = next
+        }
+        return prevTx
+      }
+
+      // Dissolves 1-in-1-out at the maximum permitted fee and returns the
+      // decomposition the event reports.
+      async function dissolveAtMaxFee(
+        anchorTxToSpend: { txHash: string },
+        reservationKey: BigNumber
+      ) {
+        const dissolutionTx = buildTx(
+          [{ txHash: anchorTxToSpend.txHash, index: 0 }],
+          [
+            {
+              valueSat: residualBacking,
+              script: p2wpkhScript(walletPubKeyHash),
+            },
+          ]
+        )
+        const tx = await bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Dissolution,
+            dissolutionTx.info,
+            proofFor(dissolutionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+        const receipt = await tx.wait()
+        const dissolved = receipt.events.find(
+          (e) => e.event === "ReservationDissolved"
+        )
+        return dissolved.args
+      }
+
+      // Case A: a minimum-sized reservation. One hop reaches the floor, so
+      // the cumulative budget never binds.
+      const small = await acceptClaim(minAmount)
+      const smallFinal = await grindToFloor(
+        small.anchorTx,
+        minAmount,
+        small.reservationKey
+      )
+
+      // Case B: the peak-loss position -- sized so grinding to the floor
+      // consumes the cumulative budget EXACTLY. Any larger claim is better
+      // off proportionally, because the budget stops the grind early.
+      const peakClaim = cumulativeCap + floor
+      const peak = await acceptClaim(peakClaim)
+      const peakFinal = await grindToFloor(
+        peak.anchorTx,
+        peakClaim,
+        peak.reservationKey
+      )
+      expect(
+        (await bridge.reservations(peak.reservationKey)).cumulativeReanchorFee
+      ).to.equal(cumulativeCap)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      const smallArgs = await dissolveAtMaxFee(smallFinal, small.reservationKey)
+
+      // The first dissolution's output became the wallet's new main UTXO,
+      // which would force the second into the 2-in-1-out shape. Clear it so
+      // both cases dissolve 1-in-1-out and only the claim size differs --
+      // the 2-in-1-out shape is covered by the decomposition test above.
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      const peakArgs = await dissolveAtMaxFee(peakFinal, peak.reservationKey)
+
+      // The claim differs by more than 3x; the backing left behind does not
+      // differ at all. That constant is the finding.
+      expect(smallArgs.mintedAmount).to.equal(minAmount)
+      expect(peakArgs.mintedAmount).to.equal(peakClaim)
+      expect(smallArgs.anchorAmount).to.equal(floor)
+      expect(peakArgs.anchorAmount).to.equal(floor)
+      expect(smallArgs.anchorAmount.sub(smallArgs.dissolutionFee)).to.equal(
+        residualBacking
+      )
+      expect(peakArgs.anchorAmount.sub(peakArgs.dissolutionFee)).to.equal(
+        residualBacking
+      )
+
+      // Fractional underbacking is therefore worse for the larger claim --
+      // the direction a reader would not predict, and the reason a bound
+      // relative to `reservationMinAmount` alone does not close this.
+      const smallLoss = minAmount - residualBacking
+      const peakLoss = peakClaim - residualBacking
+      expect(peakLoss / peakClaim).to.be.greaterThan(smallLoss / minAmount)
+    })
+
+    it("enforces the dissolution-specific fee cap on the proven transaction", async () => {
+      // Sanity: the two caps must differ or this test cannot discriminate
+      // which one the proof path checks against.
+      expect(RESERVATION_DISSOLUTION_TX_MAX_FEE).to.be.lessThan(
+        RESERVATION_TX_MAX_FEE
+      )
+
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      // Above `reservationDissolutionTxMaxFee` but still within the shared
+      // `reservationTxMaxFee`: this reverts only if the proven fee is
+      // checked against the dissolution-specific cap.
+      const dissolutionFee = RESERVATION_DISSOLUTION_TX_MAX_FEE + 1
+      const dissolutionTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(dissolutionFee),
+            script: p2wpkhScript(walletPubKeyHash),
+          },
+        ]
+      )
+
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Dissolution,
+            dissolutionTx.info,
+            proofFor(dissolutionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+      ).to.be.revertedWith("Transaction fee is too high")
     })
   })
 })
