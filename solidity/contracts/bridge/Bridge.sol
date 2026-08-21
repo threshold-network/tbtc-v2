@@ -21,13 +21,13 @@ import {IWalletOwner as EcdsaWalletOwner} from "@keep-network/ecdsa/contracts/ap
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
+import "@openzeppelin/contracts/utils/StorageSlot.sol";
 
 import "./IRelay.sol";
 import "./BridgeState.sol";
 import "./Deposit.sol";
 import "./DepositSweep.sol";
 import "./Redemption.sol";
-import "./Reservation.sol";
 import "./BitcoinTx.sol";
 import "./EcdsaLib.sol";
 import "./Wallets.sol";
@@ -68,12 +68,18 @@ contract Bridge is
     using Deposit for BridgeState.Storage;
     using DepositSweep for BridgeState.Storage;
     using Redemption for BridgeState.Storage;
-    using Reservation for BridgeState.Storage;
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
     using Fraud for BridgeState.Storage;
 
     BridgeState.Storage internal self;
+
+    /// @dev EIP-1967 proxy admin storage slot
+    ///      (`bytes32(uint256(keccak256("eip1967.proxy.admin")) - 1)`), used
+    ///      by `initializeV6_SetReservationRouter` to authorize its caller.
+    ///      Matches OpenZeppelin's `ERC1967Upgrade._ADMIN_SLOT`.
+    bytes32 private constant _PROXY_ADMIN_SLOT =
+        0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
 
     event DepositRevealed(
         bytes32 fundingTxHash,
@@ -107,79 +113,6 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash,
         bytes redeemerOutputScript
     );
-
-    event ReservationAccepted(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash,
-        address indexed owner,
-        bytes32 anchorTxHash,
-        uint64 anchorAmount,
-        uint32 expiresAt
-    );
-
-    event ReservationExtended(
-        uint256 indexed reservationKey,
-        uint32 newExpiresAt
-    );
-
-    event ReservedRedemptionRequested(
-        uint256 indexed reservationKey,
-        address indexed redeemer,
-        bytes redeemerOutputScript,
-        uint64 mintedAmount,
-        uint64 txMaxFee
-    );
-
-    event ReservedRedemptionCompleted(
-        uint256 indexed reservationKey,
-        bytes32 redemptionTxHash
-    );
-
-    event ReservedRedemptionTimedOut(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash
-    );
-
-    event ReservedRedemptionSettled(
-        uint256 indexed reservationKey,
-        bytes32 redemptionTxHash
-    );
-
-    event ReservedRedemptionTimeoutSlashingSkipped(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash
-    );
-
-    event ReservedRedemptionVetoed(uint256 indexed reservationKey);
-
-    event ReservationReanchored(
-        uint256 indexed reservationKey,
-        bytes20 indexed newWalletPubKeyHash,
-        bytes32 newAnchorTxHash,
-        uint64 newAnchorAmount
-    );
-
-    event ReservationDissolved(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash,
-        uint64 mintedAmount,
-        uint64 anchorAmount,
-        uint64 dissolutionFee
-    );
-
-    event ReservationParametersUpdated(
-        uint64 reservationMinAmount,
-        uint64 reservationTxMaxFee,
-        uint64 reservationDissolutionTxMaxFee,
-        uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
-        uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet,
-        uint64 maxCumulativeReanchorFee
-    );
-
-    event ReservationVaultUpdated(address reservationVault);
 
     event WalletMovingFunds(
         bytes32 indexed ecdsaWalletID,
@@ -312,6 +245,24 @@ contract Bridge is
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    // Re-declaration of the event emitted by
+    // `BridgeState.setReservationRouter` (invoked through
+    // `Bridge.setReservationRouter` / `Bridge.initializeV6_SetReservationRouter`).
+    // Library events are not part of any contract ABI under solc 0.8.17;
+    // both wiring entry points are Bridge-side, so -- mirroring
+    // `RedemptionWatchtowerSet`/`RebateStakingSet` above -- the event is
+    // declared here, not on `ReservationRouter`.
+    event ReservationRouterSet(address reservationRouter);
+
+    // Re-declaration of the event emitted by
+    // `BridgeState.repairReservationRouter` (invoked through
+    // `Bridge.initializeV7_RepairReservationRouter`); same ABI-visibility
+    // reasoning as `ReservationRouterSet` above.
+    event ReservationRouterRepaired(
+        address oldReservationRouter,
+        address newReservationRouter
+    );
 
     event RebateStakingSet(address rebateStaking);
     event RebateStakingRepaired(
@@ -480,6 +431,79 @@ contract Bridge is
         self.rebateStaking = newRebateStaking;
 
         emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
+    }
+
+    /// @notice Wires the reservation router into an already-deployed,
+    ///         governance-transferred Bridge during a proxy implementation
+    ///         upgrade.
+    /// @param _reservationRouter Address of the reservation router.
+    /// @dev Requirements:
+    ///      - The caller must be the proxy's current ERC-1967 admin (the
+    ///        `ProxyAdmin` contract, as seen via `msg.sender` preserved
+    ///        through `ProxyAdmin.upgradeAndCall`'s inner delegatecall) --
+    ///        see requirements on `BridgeState.setReservationRouter` for
+    ///        the rest.
+    ///
+    ///      Uses `reinitializer(6)` so this can only run once, but a
+    ///      version gate alone does not restrict the caller: without the
+    ///      admin check above, any address could call this the moment a
+    ///      router-capable implementation is live, regardless of whether
+    ///      it was reached through `ProxyAdmin.upgradeAndCall` or a plain
+    ///      call to the proxy. A fresh Bridge deployment instead wires the
+    ///      router directly via `setReservationRouter` while the deployer
+    ///      still holds governance, before it is transferred to
+    ///      `BridgeGovernance` (see `06_deploy_bridge.ts`). Once governance
+    ///      is transferred, `setReservationRouter` is unreachable --
+    ///      `BridgeGovernance` provides no passthrough for it, by design
+    ///      (unlike `setRedemptionWatchtower`/`setRebateStaking`): keeping
+    ///      the only reachable wiring path behind the proxy-admin upgrade
+    ///      ceremony, rather than adding a plain governance passthrough,
+    ///      is what keeps the router's code-change authority with the
+    ///      proxy admin as documented (see `docs/rfc/rfc-13.adoc`). A
+    ///      proxy-admin upgrade that ships this function without also
+    ///      calling it (a bare `ProxyAdmin.upgrade()`) is safe -- the
+    ///      router just stays unset until a deliberate follow-up
+    ///      `ProxyAdmin.upgradeAndCall` wires it.
+    function initializeV6_SetReservationRouter(address _reservationRouter)
+        external
+        reinitializer(6)
+    {
+        require(
+            msg.sender == StorageSlot.getAddressSlot(_PROXY_ADMIN_SLOT).value,
+            "Caller is not the proxy admin"
+        );
+        self.setReservationRouter(_reservationRouter);
+    }
+
+    /// @notice Repairs a wrongly-wired reservation router address (wrong
+    ///         network, typo'd address, a contract that turned out not to
+    ///         implement the router ABI) during a proxy implementation
+    ///         upgrade.
+    /// @param _reservationRouter Address of the corrected reservation
+    ///        router.
+    /// @dev Requirements:
+    ///      - The caller must be the proxy's current ERC-1967 admin, same
+    ///        as `initializeV6_SetReservationRouter` above -- see
+    ///        requirements on `BridgeState.repairReservationRouter` for
+    ///        the rest.
+    ///
+    ///      Unlike `setReservationRouter`/`initializeV6_SetReservationRouter`,
+    ///      this may run whether or not the router was already wired, so a
+    ///      bad initial wire does not require shipping an entirely new
+    ///      Bridge implementation to recover from -- only a fresh
+    ///      proxy-admin-gated repair upgrade using this function. Uses
+    ///      `reinitializer(7)` so it can only run once per proxy
+    ///      deployment; a second bad wire needs a further Bridge
+    ///      implementation upgrade with the next reinitializer version.
+    function initializeV7_RepairReservationRouter(address _reservationRouter)
+        external
+        reinitializer(7)
+    {
+        require(
+            msg.sender == StorageSlot.getAddressSlot(_PROXY_ADMIN_SLOT).value,
+            "Caller is not the proxy admin"
+        );
+        self.repairReservationRouter(_reservationRouter);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -839,104 +863,6 @@ contract Bridge is
             walletMembersIDs,
             redeemerOutputScript
         );
-    }
-
-    /// @notice Single entry point for all reservation lifecycle SPV proofs:
-    ///         anchor acceptance, in-kind reserved redemption, re-anchoring
-    ///         and dissolution. Consolidated into one external function to
-    ///         preserve the Bridge's EIP-170 deployment size margin. See
-    ///         `Reservation.submitReservationProof` and the individual
-    ///         handlers in the `Reservation` library for detailed
-    ///         requirements.
-    /// @param proofType The type of the submitted proof, see
-    ///        `Reservation.ProofType`.
-    /// @param txInfo Bitcoin transaction data.
-    /// @param proof Bitcoin proof data.
-    /// @param mainUtxo Data of the wallet's main UTXO; only used for
-    ///        `Dissolution` proofs and ignored otherwise.
-    /// @param reservationKey The key of the target reservation; ignored for
-    ///        `Acceptance` proofs where the key is derived from the spent
-    ///        deposit outpoint.
-    function submitReservationProof(
-        uint8 proofType,
-        BitcoinTx.Info calldata txInfo,
-        BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
-        uint256 reservationKey
-    ) external onlySpvMaintainer {
-        self.submitReservationProof(
-            proofType,
-            txInfo,
-            proof,
-            mainUtxo,
-            reservationKey
-        );
-    }
-
-    /// @notice Extends the custody term of a reservation by the current
-    ///         reservation term length. Can only be called by the
-    ///         reservation vault, which collects the custody fee for the
-    ///         extension. See `Reservation.extendReservation`.
-    /// @param reservationKey The key of the reservation to extend.
-    function extendReservation(uint256 reservationKey) external {
-        // The caller is checked in the library function.
-        self.extendReservation(reservationKey);
-    }
-
-    /// @notice Requests an in-kind redemption of a reservation: the wallet
-    ///         is expected to spend exactly the reservation's current anchor
-    ///         outpoint to the redeemer output script in a 1-input-1-output
-    ///         transaction. Can only be called by the reservation vault,
-    ///         which must have approved the Bridge in the Bank for the gross
-    ///         minted amount. See `Reservation.requestReservedRedemption`.
-    /// @param reservationKey The key of the reservation to redeem.
-    /// @param redeemer The address able to claim the surrendered balance
-    ///        back if the redemption times out.
-    /// @param redeemerOutputScript The redeemer's length-prefixed output
-    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
-    /// @param isRetry True for a fee-free retry via
-    ///        `ReservationVault.retryRedeemReservation`; false for a fresh
-    ///        `redeemReservation` call.
-    function requestReservedRedemption(
-        uint256 reservationKey,
-        address redeemer,
-        bytes calldata redeemerOutputScript,
-        bool isRetry
-    ) external {
-        // The caller is checked in the library function.
-        self.requestReservedRedemption(
-            reservationKey,
-            redeemer,
-            redeemerOutputScript,
-            isRetry
-        );
-    }
-
-    /// @notice Notifies that a pending reserved redemption has timed out.
-    ///         Returns the surrendered balance to the redeemer, slashes the
-    ///         wallet operators like a regular redemption timeout, and
-    ///         returns the reservation to the Active state. See
-    ///         `Reservation.notifyReservedRedemptionTimeout`.
-    /// @param reservationKey The key of the reservation with the timed out
-    ///        redemption.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members.
-    function notifyReservedRedemptionTimeout(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservedRedemptionTimeout(reservationKey, walletMembersIDs);
-    }
-
-    /// @notice Notifies that a pending reserved redemption was vetoed in the
-    ///         redemption watchtower. Detains the surrendered balance to the
-    ///         watchtower and returns the reservation to the Active state.
-    ///         See `Reservation.notifyReservedRedemptionVeto`.
-    /// @param reservationKey The key of the reservation with the vetoed
-    ///        redemption.
-    function notifyReservedRedemptionVeto(uint256 reservationKey) external {
-        // The caller is checked in the library function.
-        self.notifyReservedRedemptionVeto(reservationKey);
     }
 
     /// @notice Submits the moving funds target wallets commitment.
@@ -2264,100 +2190,104 @@ contract Bridge is
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
     }
 
-    /// @notice Updates parameters of reservations, including the
-    ///         reservation vault address. Deposits revealed with the
-    ///         reservation vault address are treated as UTXO reservations.
-    /// @param reservationVault Address of the reservation vault. Can only be
-    ///        changed while there are no active reservations.
-    /// @param reservationMinAmount New value of the reservation minimum
-    ///        amount in satoshis. It is the minimal anchor output amount
-    ///        accepted for a reservation.
-    /// @param reservationTxMaxFee New value of the reservation transaction
-    ///        max fee in satoshis. It is the maximum amount of BTC
-    ///        transaction fee that can be incurred by a single reservation
-    ///        lifecycle transaction.
-    /// @param reservationDissolutionTxMaxFee New value of the dedicated
-    ///        cap on the BTC transaction fee for the dissolution shape
-    ///        (usually 2-in-1-out; 1-in-1-out when the wallet has no
-    ///        main UTXO yet); distinct from `reservationTxMaxFee` which
-    ///        caps the always-1-in-1-out anchor / re-anchor / redemption
-    ///        shapes.
-    /// @param reservationTermSeconds New value of the reservation custody
-    ///        term length in seconds.
-    /// @param reservationGracePeriod New value of the reservation grace
-    ///        period in seconds.
-    /// @param reservationMaxTotalAmount New cap on the total amount in
-    ///        satoshi locked under active reservations.
-    /// @param maxReservationsPerWallet New cap on the number of active
-    ///        reservations a single wallet can custody.
-    /// @param maxCumulativeReanchorFee New cap on the total satoshi a
-    ///        single reservation may lose across all re-anchor hops.
+    /// @notice Sets the reservation router: the contract holding the
+    ///         Bridge's UTXO-reservation external surface, reached through
+    ///         the fallback function below via `delegatecall`. See
+    ///         `ReservationRouter` for the architecture and its security
+    ///         invariants.
+    /// @param _reservationRouter Address of the reservation router.
     /// @dev Requirements:
     ///      - The caller must be the governance,
-    ///      - See `Reservation.updateReservationParameters` for parameter
-    ///        requirements.
-    function updateReservationParameters(
-        address reservationVault,
-        uint64 reservationMinAmount,
-        uint64 reservationTxMaxFee,
-        uint64 reservationDissolutionTxMaxFee,
-        uint32 reservationTermSeconds,
-        uint32 reservationGracePeriod,
-        uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet,
-        uint64 maxCumulativeReanchorFee
-    ) external onlyGovernance {
-        self.updateReservationParameters(
-            reservationVault,
-            reservationMinAmount,
-            reservationTxMaxFee,
-            reservationDissolutionTxMaxFee,
-            reservationTermSeconds,
-            reservationGracePeriod,
-            reservationMaxTotalAmount,
-            maxReservationsPerWallet,
-            maxCumulativeReanchorFee
-        );
+    ///      - The reservation router must not be already set,
+    ///      - The reservation router address must not be 0x0,
+    ///      - The reservation router address must contain deployed code.
+    ///
+    ///      This function supports a one-time initialization of the router.
+    ///      Since the router executes via `delegatecall` on the Bridge
+    ///      storage, pointing it at new code is equivalent to a Bridge
+    ///      implementation change — replacing the router therefore
+    ///      deliberately requires a Bridge implementation upgrade (the
+    ///      proxy-admin ceremony), not a governance parameter update.
+    function setReservationRouter(address _reservationRouter)
+        external
+        onlyGovernance
+    {
+        self.setReservationRouter(_reservationRouter);
     }
 
-    /// @notice Collection of all reservations indexed by the deposit key of
-    ///         the underlying reserved deposit, i.e.
-    ///         `keccak256(fundingTxHash | fundingOutputIndex)`.
-    /// @param reservationKey The key of the reservation.
-    function reservations(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationRequest memory)
-    {
-        return self.reservations[reservationKey];
+    /// @notice Returns the address of the reservation router, or 0x0 if not
+    ///         yet wired.
+    /// @dev Declared directly on Bridge (like `getRebateStaking`/
+    ///      `getRedemptionWatchtower` above) rather than relying on
+    ///      `ReservationRouter.reservationRouter()` reached through the
+    ///      fallback: before wiring, the fallback's own
+    ///      `require(reservationRouter != address(0), ...)` guard means
+    ///      the delegatecall path always reverts, so wiring state could
+    ///      not otherwise be read from the Bridge ABI at all.
+    function getReservationRouter() external view returns (address) {
+        return self.reservationRouter;
     }
 
-    /// @notice Returns the current values of Bridge reservation parameters.
-    function reservationParameters()
-        external
-        view
-        returns (
-            address reservationVault,
-            uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee,
-            uint64 reservationDissolutionTxMaxFee,
-            uint32 reservationTermSeconds,
-            uint32 reservationGracePeriod,
-            uint64 reservationMaxTotalAmount,
-            uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet,
-            uint64 maxCumulativeReanchorFee
-        )
-    {
-        reservationVault = self.reservationVault;
-        reservationMinAmount = self.reservationMinAmount;
-        reservationTxMaxFee = self.reservationTxMaxFee;
-        reservationDissolutionTxMaxFee = self.reservationDissolutionTxMaxFee;
-        reservationTermSeconds = self.reservationTermSeconds;
-        reservationGracePeriod = self.reservationGracePeriod;
-        reservationMaxTotalAmount = self.reservationMaxTotalAmount;
-        reservationTotalAmount = self.reservationTotalAmount;
-        maxReservationsPerWallet = self.maxReservationsPerWallet;
-        maxCumulativeReanchorFee = self.maxCumulativeReanchorFee;
+    /// @notice Routes calls with unmatched function selectors to the
+    ///         reservation router via `delegatecall`, executing them on the
+    ///         Bridge storage at the Bridge address. This is how the
+    ///         UTXO-reservation surface (see `ReservationRouter`) is exposed
+    ///         without growing the Bridge implementation past the EIP-170
+    ///         size limit.
+    /// @dev The router address can only be set once, by the governance, via
+    ///      `setReservationRouter`; replacing it requires a Bridge
+    ///      implementation upgrade. Calls made before the router is set
+    ///      revert. The fallback dispatch path itself accepts no value
+    ///      (unrelated Bridge functions such as `submitFraudChallenge`
+    ///      handle ETH deposits separately -- the Bridge as a whole does
+    ///      accept and custody ETH).
+    /* solhint-disable payable-fallback, no-complex-fallback */
+    fallback() external {
+        address reservationRouter = self.reservationRouter;
+        require(reservationRouter != address(0), "Unknown function");
+
+        // slither-disable-next-line assembly
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            // The router address is written exactly once by the governance
+            // via `setReservationRouter` and afterwards changeable only
+            // through a Bridge implementation upgrade, so this delegatecall
+            // target is as trusted as the Bridge implementation itself.
+            // slither-disable-next-line controlled-delegatecall
+            /// @custom:oz-upgrades-unsafe-allow delegatecall
+            let result := delegatecall(
+                gas(),
+                reservationRouter,
+                0,
+                calldatasize(),
+                0,
+                0
+            )
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 {
+                if iszero(returndatasize()) {
+                    // The router has no fallback of its own, so a
+                    // genuinely unknown selector reaching it after wiring
+                    // reverts with empty returndata. Re-encode the same
+                    // "Unknown function" reason used pre-wiring instead of
+                    // bubbling up an empty, message-less revert.
+                    mstore(
+                        0x00,
+                        0x08c379a000000000000000000000000000000000000000000000000000000000
+                    )
+                    mstore(0x04, 0x20)
+                    mstore(0x24, 16)
+                    mstore(0x44, "Unknown function")
+                    revert(0x00, 0x64)
+                }
+                revert(0, returndatasize())
+            }
+            default {
+                return(0, returndatasize())
+            }
+        }
     }
+    /* solhint-enable payable-fallback, no-complex-fallback */
 }

@@ -19,6 +19,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
+import "./IReservationBridge.sol";
 
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
@@ -1859,16 +1860,17 @@ contract BridgeGovernance is Ownable {
         BridgeGovernanceParameters.ReservationData
             memory staged = reservationData;
         reservationData.finalizeReservationParametersUpdate(governanceDelay());
-        bridge.updateReservationParameters(
-            staged.newReservationVault,
-            staged.newReservationMinAmount,
-            staged.newReservationTxMaxFee,
-            staged.newReservationDissolutionTxMaxFee,
-            staged.newReservationTermSeconds,
-            staged.newReservationGracePeriod,
-            staged.newReservationMaxTotalAmount,
-            staged.newMaxReservationsPerWallet,
-            staged.newMaxCumulativeReanchorFee
-        );
+        IReservationBridgeGovernance(address(bridge))
+            .updateReservationParameters(
+                staged.newReservationVault,
+                staged.newReservationMinAmount,
+                staged.newReservationTxMaxFee,
+                staged.newReservationDissolutionTxMaxFee,
+                staged.newReservationTermSeconds,
+                staged.newReservationGracePeriod,
+                staged.newReservationMaxTotalAmount,
+                staged.newMaxReservationsPerWallet,
+                staged.newMaxCumulativeReanchorFee
+            );
     }
 }

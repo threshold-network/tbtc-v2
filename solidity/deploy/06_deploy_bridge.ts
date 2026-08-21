@@ -1,3 +1,4 @@
+import { constants } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 
@@ -41,6 +42,17 @@ const func: DeployFunction = async function deployBridge(
   const MovingFunds = await deploy("MovingFunds", deployOptions)
   const Reservation = await deploy("Reservation", deployOptions)
 
+  // The reservation router holds the Bridge's UTXO-reservation external
+  // surface and is reached through the Bridge's fallback via delegatecall.
+  // It is stateless code (all storage lives in the Bridge), so a single
+  // instance can serve any number of Bridge deployments.
+  const ReservationRouter = await deploy("ReservationRouter", {
+    ...deployOptions,
+    libraries: {
+      Reservation: Reservation.address,
+    },
+  })
+
   const [bridge, proxyDeployment] = await helpers.upgrades.deployProxy(
     "Bridge",
     {
@@ -63,7 +75,6 @@ const func: DeployFunction = async function deployBridge(
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
-          Reservation: Reservation.address,
         },
       },
       proxyOpts: {
@@ -72,10 +83,45 @@ const func: DeployFunction = async function deployBridge(
         // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.
         // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-        unsafeAllow: ["external-library-linking"],
+        // The Bridge's fallback delegatecalls into the ReservationRouter
+        // (see docs/rfc/rfc-13.adoc); this is guarded so it can only be
+        // triggered through the proxy, not on the implementation itself.
+        unsafeAllow: ["external-library-linking", "delegatecall"],
       },
     }
   )
+
+  // Point the Bridge's fallback at the reservation router. The deployer
+  // holds the Bridge governance right after initialization (it is
+  // transferred to the governance account in a later script), so this
+  // one-time wiring can be done here.
+  //
+  // The write is idempotent: re-running this script against an existing
+  // Bridge that is already wired to the *same* router is a no-op (the
+  // underlying `setReservationRouter` reverts "Reservation router already
+  // set" on a second write, so without this guard a redeploy would abort
+  // the whole script). If the existing Bridge is wired to a *different*
+  // router, throw a named, actionable error rather than surfacing a
+  // generic revert from the governance setter.
+  const bridgeContract = await ethers.getContractAt("Bridge", bridge.address)
+  const wiredRouter = await bridgeContract.getReservationRouter()
+  if (
+    wiredRouter.toLowerCase() !== constants.AddressZero &&
+    wiredRouter.toLowerCase() !== ReservationRouter.address.toLowerCase()
+  ) {
+    throw new Error(
+      "Bridge is already wired to a different reservation router " +
+        `(${wiredRouter}) than this script would deploy (${ReservationRouter.address}); ` +
+        "refusing to overwrite. Re-run with the deployed router address or " +
+        "use the proxy-admin repair path (Bridge.initializeV7_RepairReservationRouter) " +
+        "to recover."
+    )
+  }
+  if (wiredRouter.toLowerCase() === constants.AddressZero) {
+    await bridgeContract
+      .connect(await ethers.getSigner(deployer))
+      .setReservationRouter(ReservationRouter.address)
+  }
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(Deposit)
@@ -85,6 +131,7 @@ const func: DeployFunction = async function deployBridge(
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
     await helpers.etherscan.verify(Reservation)
+    await helpers.etherscan.verify(ReservationRouter)
 
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
     // in "@openzeppelin/hardhat-upgrades" to perform Etherscan verification

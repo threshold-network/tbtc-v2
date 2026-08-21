@@ -2,7 +2,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { expect } from "chai"
+import chai, { expect } from "chai"
+import chaiAsPromised from "chai-as-promised"
 import hre, { ethers, deployments } from "hardhat"
 import fs from "fs"
 import path from "path"
@@ -14,6 +15,8 @@ import func, {
   KNOWN_PROXY_ADMIN,
   KNOWN_T_TOKEN,
 } from "../../deploy/85_deploy_tip109_governance_upgrade"
+
+chai.use(chaiAsPromised)
 
 describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   // Shared test addresses used across multiple describe blocks.
@@ -80,6 +83,15 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   function createMockHre(options?: {
     networkTags?: Record<string, boolean>
     runBehavior?: "resolve" | "reject"
+    bridgeAbi?: unknown[]
+    /**
+     * Controls the mock provider's `call` response for the guard's live
+     * `Bridge.getReservationRouter()` read. Defaults to "wired" (a non-zero
+     * address) so tests that merely exercise `func` and are uninterested in
+     * the guard proceed past it; the guard's own throw-tests pass
+     * "notWired" explicitly.
+     */
+    callBehavior?: "wired" | "notWired"
   }): {
     mockHre: any
     deployCalls: DeployCall[]
@@ -102,6 +114,20 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         ...ethers,
         provider: {
           getStorageAt: async () => paddedAdmin,
+          // Used by the reservation-router wiring guard's live
+          // `Bridge.getReservationRouter()` read.
+          call:
+            options?.callBehavior === "notWired"
+              ? async () => {
+                  throw new Error(
+                    "mock: call reverted (implementation predates getReservationRouter)"
+                  )
+                }
+              : async () =>
+                  ethers.utils.defaultAbiCoder.encode(
+                    ["address"],
+                    ["0x3333333333333333333333333333333333333333"]
+                  ),
         },
         utils: ethers.utils,
         constants: ethers.constants,
@@ -110,7 +136,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         deploy: async (name: string, opts: any) => {
           deployCalls.push({ name, options: opts })
           const address = deployAddressMap[name] || ethers.constants.AddressZero
-          return { address, newlyDeployed: true }
+          const abi =
+            name === "BridgeTIP109Implementation"
+              ? options?.bridgeAbi ?? []
+              : []
+          return { address, newlyDeployed: true, abi }
         },
         get: async (name: string) => {
           getCalls.push({ name })
@@ -260,7 +290,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(directBridgeCall).to.be.undefined
       })
 
-      it("should define all 7 required libraries for Bridge implementation deployment", async () => {
+      it("should define all 6 required libraries for Bridge implementation deployment", async () => {
         await func(mockHre)
 
         const bridgeCall = deployCalls.find(
@@ -278,10 +308,9 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           "Wallets",
           "Fraud",
           "MovingFunds",
-          "Reservation",
         ]
         const actualKeys = Object.keys(libraries)
-        expect(actualKeys).to.have.lengthOf(7)
+        expect(actualKeys).to.have.lengthOf(6)
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
@@ -295,7 +324,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(libraries.Wallets).to.equal(WALLETS_ADDRESS)
         expect(libraries.Fraud).to.equal(FRAUD_ADDRESS)
         expect(libraries.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
-        expect(libraries.Reservation).to.equal(RESERVATION_ADDRESS)
       })
 
       it("should deploy RebateStaking implementation with distinct artifact name", async () => {
@@ -318,10 +346,20 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
     describe("integration: deployment on hardhat network", () => {
       let originalEnv: string | undefined
+      let originalAckEnv: string | undefined
 
       before(async () => {
         originalEnv = process.env.DEPLOY_TIP109
         process.env.DEPLOY_TIP109 = "true"
+        // The current Bridge source includes the UTXO-reservation router
+        // wiring surface (`setReservationRouter` /
+        // `initializeV6_SetReservationRouter`), which this script's guard
+        // (see "Step 3b") would otherwise reject deploying via a bare
+        // `ProxyAdmin.upgrade()`. This integration test exercises the
+        // deployment mechanics only, not the router-wiring safety
+        // guard -- that guard has its own dedicated test below.
+        originalAckEnv = process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+        process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = "true"
         await deployments.fixture()
       })
 
@@ -330,6 +368,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           delete process.env.DEPLOY_TIP109
         } else {
           process.env.DEPLOY_TIP109 = originalEnv
+        }
+        if (originalAckEnv === undefined) {
+          delete process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+        } else {
+          process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = originalAckEnv
         }
       })
 
@@ -391,6 +434,54 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           console.log = originalLog
         }
       })
+    })
+  })
+
+  describe("reservation router wiring guard", () => {
+    // From this commit on the compiled Bridge ABI unconditionally contains
+    // the router-wiring functions, so the guard can no longer key on ABI
+    // presence; it decides on the actual generated calldata (does the
+    // upgrade wire the router?) and live on-chain state (is the router
+    // already wired?). These tests drive those two inputs via the mock
+    // provider (`callBehavior`) and inspect the real `func` end-to-end,
+    // including the script's `upgradeAndCall` inner
+    // `initializeV5_RepairRebateStaking` call (which never wires the
+    // router).
+    let originalAckEnv: string | undefined
+
+    beforeEach(() => {
+      originalAckEnv = process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+      delete process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+    })
+
+    afterEach(() => {
+      if (originalAckEnv === undefined) {
+        delete process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER
+      } else {
+        process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = originalAckEnv
+      }
+    })
+
+    it("should throw when the upgrade doesn't wire the router, it isn't wired on-chain, and no ack env var is set", async () => {
+      const { mockHre } = createMockHre({ callBehavior: "notWired" })
+      await expect(func(mockHre)).to.be.rejectedWith(
+        /would leave the UTXO-reservation router unwired/
+      )
+    })
+
+    it("should not throw when the ack env var is set to true", async () => {
+      process.env.DEPLOY_TIP109_ACK_RESERVATION_ROUTER = "true"
+      const { mockHre } = createMockHre({ callBehavior: "notWired" })
+      await expect(func(mockHre)).to.not.be.rejected
+    })
+
+    it("should not throw when the router is already wired on-chain", async () => {
+      // The case the old ABI-presence check could never distinguish: the
+      // compiled implementation always contains the wiring functions, but a
+      // proxy that already has its router wired is safe to upgrade without
+      // rewiring.
+      const { mockHre } = createMockHre({ callBehavior: "wired" })
+      await expect(func(mockHre)).to.not.be.rejected
     })
   })
 
@@ -777,11 +868,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    it("should have libraries with all 7 entries", () => {
+    it("should have libraries with all 6 entries", () => {
       expect(summary).to.not.be.null
       const libs = summary.libraries
 
-      expect(Object.keys(libs)).to.have.lengthOf(7)
+      expect(Object.keys(libs)).to.have.lengthOf(6)
 
       const requiredKeys = [
         "Deposit",
@@ -790,7 +881,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         "Wallets",
         "Fraud",
         "MovingFunds",
-        "Reservation",
       ]
 
       requiredKeys.forEach((key) => {

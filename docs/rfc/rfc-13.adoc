@@ -1,0 +1,426 @@
+:toc: macro
+
+= RFC 13: UTXO reservation settlement architecture
+
+:icons: font
+:numbered:
+toc::[]
+
+== Background
+
+The UTXO reservation feature (PR #1088) lets a depositor reserve their
+deposited UTXO: the coins are custodied by a tBTC wallet without ever being
+commingled with the pooled supply and are returned in-kind — with an unbroken
+1-input-1-output lineage — upon redemption. The initial implementation
+shipped a *single-phase* lifecycle: every Bitcoin action (anchor acceptance,
+reserved redemption, re-anchor, dissolution) was requested and then proven,
+with all validity checks performed at proof time against live state.
+
+An external review of that implementation surfaced a class of settlement
+races sharing one root cause: *a long-lived, per-position Bitcoin UTXO
+lifecycle needs a two-phase, nonce-bound state machine with terminal
+settlement records* — the same shape the pooled redemption path already has
+(`pendingRedemptions` / `timedOutRedemptions`), generalized to every
+reservation action. Without it:
+
+* a timeout or veto can race a confirmed Bitcoin redemption, refunding the
+  claim on Ethereum after the BTC has irrevocably left custody, while the
+  late proof reverts and leaves the honest wallet exposed to an
+  undefeatable fraud challenge (claim double-spend);
+* re-anchor and dissolution transactions exist on Bitcoin with no on-chain
+  authorization naming their generation, action type, source/target wallet
+  and fee bound — and a same-wallet re-anchor is byte-identical to a
+  dissolution, with the interpretation chosen by the proof submitter;
+* capacity and lifecycle checks performed only at proof time can make an
+  already-confirmed Bitcoin spend unprovable;
+* the watchtower veto delay is enforced only by the advisory proposal
+  validator, not by the Bridge proof path.
+
+This RFC specifies the target architecture: the *reservation router* (how
+the surface fits the Bridge under EIP-170) and the *two-phase
+authorize-then-prove settlement machine* (how every reservation action is
+requested, authorized, proven and settled), together with the corrected
+backing/fee model and the wallet lifecycle integration.
+
+== Reservation router
+
+=== Problem
+
+Before this refactor, the monolithic Bridge (reservation surface still
+inline) had only ~400 bytes of EIP-170 deployed-code headroom left --
+not enough for the reservation surface, let alone its planned two-phase
+settlement state machine. Moving that surface out to a delegatecall
+`ReservationRouter` is necessary, but on its own it is not sufficient to
+fit within the mainnet-standard optimizer setting:
+
+[cols="2,1,1,1"]
+|===
+|Bridge variant |Optimizer `runs` |Deployed size |vs. EIP-170 limit (24,576 B)
+
+|Post-move (this branch, with the rebased core reservation model)
+|1000 (mainnet standard)
+|26,248 B
+|~1,672 B over
+
+|Post-move (this branch, with the rebased core reservation model)
+|90 (reduced, see `solidity/hardhat.config.ts`)
+|23,733 B
+|843 B margin
+|===
+
+Both rows measure the *same*, already-refactored Bridge (23,733 B at the
+shipped `runs=90` setting); there is no post-move build that fits at
+`runs=1000`. The router's value is its own, independent 24 kB EIP-170
+budget for the reservation surface -- not "restored" Bridge headroom,
+since the Bridge itself still needs the reduced `runs=90` setting to fit
+even after the surface has moved out.
+
+=== Considered shapes
+
+*External router with privileged callbacks*: works for stateless
+verification, but reservations mutate core Bridge state (`deposits`,
+`registeredWallets`, `spentMainUTXOs`) and exercise Bank authority reserved
+for the Bridge address (`increaseBalanceAndCall`, `transferBalanceFrom`,
+`decreaseBalance`). An external contract would need a wide set of new
+privileged Bridge mutators — more new Bridge bytecode than the refactor
+removes, plus a brand-new trusted-party surface.
+
+*Delegatecall extension (chosen)*: the Bridge keeps a single storage slot
+with the address of a `ReservationRouter` contract and routes every call
+with an unmatched function selector to it via `delegatecall` from its
+fallback. Router code executes at the Bridge address, on Bridge storage,
+with Bridge Bank authority. Selectors and log topics observable at the Bridge address are unchanged at runtime; however the published Bridge contract ABI no longer includes the moved functions/views/events, so off-chain consumers use the `IReservationBridge`/`ReservationRouter` ABI alongside the Bridge ABI to reach the full surface.
+
+*Placement rule*: not every reservation-adjacent read moves to the router.
+`Bridge.deposits`/`Bridge.isReservedDeposit` stay Bridge-side because they
+are deposit-classification state owned by the `Deposit` library, not
+reservation-lifecycle state -- only functions whose logic *is* the
+reservation lifecycle itself (anchor acceptance, in-kind redemption,
+re-anchor, dissolution, parameters) move to the router.
+
+=== Invariants
+
+1. *Storage parity.* The router inherits the same storage-bearing bases as
+   the Bridge in the same order and declares exactly one storage variable,
+   the shared `BridgeState.Storage self`. All new reservation state is
+   appended to `BridgeState.Storage` with a matching `__gap` reduction. A
+   storage-layout parity test compares the canonicalized solc layouts of
+   `Bridge`, `BridgeStub` (prefix) and `ReservationRouter`, plus a fourth,
+   frozen-snapshot comparison that pins the layout at deploy time to guard
+   against future `BridgeState.Storage` drift once the router is live.
+2. *No selector shadowing.* A selector declared by the Bridge never reaches
+   the router. A test asserts selector disjointness (the `Governable`
+   members inherited by both are identical by construction and exempt).
+3. *No standalone authority.* Direct calls to the router execute on its own
+   empty storage: no governance, no SPV maintainer, no vault, no Bank
+   authority — every state-changing entry point reverts.
+4. *Upgrade model.* The router address is set exactly once, either via
+   `Bridge.setReservationRouter` (governance-gated, fresh deployment
+   before governance transfer) or `Bridge.initializeV6_SetReservationRouter`
+   (ERC-1967-proxy-admin-gated retrofit path for an already-deployed,
+   governance-transferred Bridge). A bad initial wire can be corrected
+   once more via the proxy-admin-gated
+   `Bridge.initializeV7_RepairReservationRouter`; beyond that, replacing
+   router code requires a Bridge implementation upgrade. Pointing a
+   delegatecall target at new code *is* an implementation change, so it
+   deliberately carries implementation-upgrade ceremony, not
+   parameter-governance ceremony.
+
+The Bridge remains at a reduced optimizer `runs` setting: it is a thin
+dispatch shell over external libraries that keep `runs=1000`, so the
+runtime-gas cost of the lower `runs` value on hot paths is expected to be
+small, though not backed by a committed gas-diff test as of this writing
+(see `solidity/hardhat.config.ts`'s compiler-override comment); the
+843 B deployment-size margin at the shipped `runs=90` setting is
+measured directly (23,733 B; see the Problem section). The router has
+its own, independent EIP-170 budget for the settlement machine below.
+
+== Two-phase settlement machine
+
+=== Model
+
+Every Bitcoin action of a reservation's life is one of four *action types*:
+
+[cols="1,2,2"]
+|===
+|Action |Bitcoin transaction |Ethereum effect at settlement
+
+|Acceptance
+|1-in (revealed reserved deposit) → 1-out (wallet P2(W)PKH anchor)
+|Position created; gross anchor value credited via vault (mint)
+
+|Redemption
+|1-in (anchor) → 1-out (redeemer script)
+|Claim burned; position closed
+
+|Re-anchor
+|1-in (anchor) → 1-out (target wallet P2(W)PKH)
+|Anchor moved to target wallet; claim reduced by the financed miner fee
+
+|Dissolution
+|1-in (anchor) [+ 2nd in: wallet main UTXO] → 1-out (wallet P2(W)PKH)
+|Anchor merged into pooled main UTXO; position closed; miner fee financed
+|===
+
+Each action goes through the same *two-phase* lifecycle:
+
+----
+                    request (checks + capacity reserved + snapshot + nonce)
+                       │
+                       ▼
+                 ┌───────────┐   watchtower delay elapses (redemptions)
+                 │ Requested │ ──────────────────────────────┐
+                 └───────────┘                               ▼
+                       │ veto (redemptions only,       [authorized —
+                       │ within delay window)           wallet may sign]
+                       ▼                                     │
+                 ┌───────────┐                     proof     │   timeout
+                 │  Vetoed   │ (terminal;        ┌───────────┴──────────┐
+                 └───────────┘  proof rejected   ▼                      ▼
+                                forever)   ┌──────────┐          ┌───────────┐
+                                           │ Settled  │          │ TimedOut  │
+                                           └──────────┘          └───────────┘
+                                                                       │
+                                                     late proof settles the
+                                                     generation: anchor marked
+                                                     spent, lineage closed,
+                                                     no second refund
+----
+
+*Request.* A reservation action is created by an explicit request that:
+
+* increments the position's monotonic *request nonce* — all subsequent
+  state, proofs and settlement for this action are keyed by
+  `(reservationKey, nonce)`; a stale generation can never be confused with
+  a newer one;
+* performs *all* capacity and lifecycle checks and *reserves* what it
+  checks (global reserved total, per-wallet count/amount, target wallet
+  liveness, post-fee dust floor, the per-wallet main-UTXO action lock) —
+  a wallet that signs an authorized action must never find the action
+  unprovable because state moved after signing;
+* *snapshots* every proof- and settlement-critical parameter (tx max fee,
+  redeemer script hash, target wallet, expected main-UTXO hash, fee-paid
+  flag) — later governance changes never affect an in-flight generation.
+
+*Authorization.* For reserved redemptions, the request is
+authorized-for-signing only after the applicable watchtower delay elapses
+without a veto. The *Bridge proof path itself* enforces this: a proof for a
+redemption generation is rejected until
+`requestedAt + watchtowerDelay(generation) <= now` and the generation is not
+vetoed. A Byzantine wallet that broadcasts early gains nothing: its spend
+cannot finalize before the guardians' window closes, and if the generation
+is vetoed the spend is unprovable forever — leaving the signature exposed
+to the fraud machinery, which is the intended punishment for signing an
+unauthorized action. Re-anchor and dissolution requests are authorized
+immediately at request time (their authorization conditions are the request
+preconditions; no watchtower window applies).
+
+*Settlement.* Exactly one of:
+
+* *Proof* (`Settled`): the SPV proof names `(reservationKey, nonce)`; the
+  transaction must match the generation's snapshot (inputs = the recorded
+  anchor [+ recorded main UTXO], output script/target = the recorded
+  commitment, miner fee within the snapshot bound). Consumed outpoints are
+  recorded in `spentMainUTXOs` so the honest signature defeats any fraud
+  challenge.
+* *Timeout* (`TimedOut`, terminal record): permissionless notification
+  after the generation's timeout. Releases reserved capacity and the
+  main-UTXO lock, refunds the escrowed claim (redemptions), slashes the
+  wallet like a pooled redemption timeout (redemptions), mints the
+  single-use fee-free *retry entitlement* if the generation had paid the
+  redemption fee, and returns the position to `Active`. The terminal
+  record persists.
+* *Veto* (`Vetoed`, terminal record): the watchtower detains the escrowed
+  claim (penalty/freeze/ban per pooled-parity policy). The position
+  returns to `Active` (the anchor was not spent; the in-kind claim
+  survives, though a banned owner cannot re-request).
+
+*Late proofs.* A proof arriving after a timeout settles against the
+`TimedOut` record of its generation — mirroring
+`timedOutRedemptions` on the pooled path:
+
+* the transaction is validated against the *record's* snapshot, never live
+  parameters;
+* consumed outpoints are marked in `spentMainUTXOs` (the honest-but-late
+  signature defeats fraud challenges) and the anchor lineage is closed;
+* *no second refund and no burn*: the timeout already refunded the claim
+  and slashed the wallet. As on the pooled path, the residual double-pay
+  (refunded claim + delivered BTC) is a wallet-fault cost deterred by
+  slashing, not an owner entitlement;
+* if the position has a *newer pending generation whose snapshot also
+  matches the transaction*, the proof must settle against the pending
+  generation (normal settlement, escrow burned) — the late-settlement path
+  refuses it. This makes the choice of generation deterministic and always
+  picks the economically correct settlement;
+* if a newer pending generation exists but does *not* match the
+  transaction (different redeemer script), late settlement additionally
+  unwinds the pending generation: its escrow is refunded, because its
+  anchor no longer exists.
+* a proof against a `Vetoed` generation is rejected forever: only a wallet
+  that signed before authorization can be in this position.
+
+*Late dissolution proofs and main-UTXO drift.* A dissolution authorized
+when the wallet had no main UTXO can race a deposit sweep that lands first
+and registers a new main UTXO. The confirmed dissolution (1-input, per its
+snapshot) is then proven against its record; since its output can no longer
+become the wallet's main UTXO, it is registered as a *moved-funds sweep
+request* — the existing machinery for wallet-held UTXOs pending
+consolidation — keeping backing tracked and the lineage closed. When the
+snapshot recorded a specific main UTXO, drift is impossible: that UTXO can
+only be consumed by proving a transaction that spends it, and the only such
+transaction the honest wallet signs is the dissolution itself.
+
+=== Acceptance as a two-phase action
+
+Acceptance follows the same model with reveal-time integration:
+
+* At *reveal*, a deposit routed to the reservation vault records its
+  designated wallet (the `walletPubKeyHash` proven by the reveal's script
+  commitment) and increments the pending-reserved-deposit counter (used by
+  the vault-migration guard).
+* `requestReservationAcceptance` (permissionless) authorizes the anchor:
+  checks deposit routing, designated-wallet liveness, minimum amount and
+  post-fee floor, reserves capacity against the designated wallet,
+  snapshots the fee bound, and sets the authorization's validity window
+  ending safely before the deposit refund locktime (the wallet must never
+  sign an anchor that can race the depositor's refund).
+* The acceptance proof requires the authorization record and requires the
+  anchor output to pay the *designated* wallet.
+* If the wallet never anchors, the authorization times out (capacity
+  released; re-requestable while the locktime margin allows). After the
+  refund locktime, a stale reserved deposit with no live authorization can
+  be permissionlessly marked stale, decrementing the pending counter.
+
+=== Explicit re-anchor and dissolution authorization
+
+*Re-anchor* (`requestReservationReanchor(key, targetWallet)`): allowed only
+in a migration or approved-rotation context — the source wallet is in
+`MovingFunds` state, or the caller is governance (rotation of a Live
+wallet). Target must be Live, different from the source, and have capacity
+(reserved at request). The proof requires the single output to pay the
+*recorded* target. Same-wallet re-anchors no longer exist, which — together
+with the action-typed generation records — removes the re-anchor/dissolution
+byte-ambiguity: a proof settles only against the single outstanding
+generation of its recorded action type, and repeated Byzantine self-re-
+anchoring is impossible because each hop needs a fresh authorization
+context.
+
+*Dissolution* (`requestReservationDissolution(key)`): permissionless once
+`now > expiresAt + gracePeriod` (the system's cleanup right), wallet in
+Live or MovingFunds state. Acquires the *per-wallet main-UTXO action lock*:
+at most one dissolution per wallet may be in flight, which (with the
+snapshot of the expected main-UTXO hash) removes the concurrent-dissolution
+race entirely. Snapshots the fee bound and expected main UTXO.
+
+=== Precedence and the stranding bound
+
+Reserved redemption requests are accepted only while
+`now <= expiresAt + gracePeriod` (and the position is Active, the wallet is
+Live or MovingFunds, and the owner passes the reservation-scoped watchtower
+safety check). After grace, only dissolution may be requested — so an owner
+cannot cycle request/timeout to hold a wallet hostage past the custody
+term: *term + grace + one action timeout* is a hard stranding bound. One
+carve-out: a timeout-minted retry entitlement may be used after grace until
+a dissolution is requested; requesting dissolution voids outstanding
+entitlements (the claim simply remains pooled TBTC).
+
+=== Watchtower integration (per-generation)
+
+Veto and objection state is keyed by `keccak256(reservationKey, nonce)`:
+objections never accumulate across generations, and a once-vetoed
+reservation (owner later unbanned) starts every new generation with a clean
+objection count. The watchtower exposes the applicable delay per generation
+(2h/8h/24h ladder shared with the pooled path); the Bridge proof path
+consults it (H-03), and the request path uses a reservation-scoped safety
+check (owner/redeemer ban state) rather than the pooled redemption-key
+check.
+
+== Backing integrity
+
+=== The rule
+
+*The claim always equals the current anchor.* `mintedAmount` (the gross
+claim surrendered at redemption) tracks `anchorAmount` exactly, at every
+instant, for every position:
+
+* *Acceptance*: mint = anchor output value (the acceptance miner fee is
+  borne by the depositor, exactly like a pooled sweep fee share).
+* *Redemption*: owner surrenders the claim (= anchor), receives
+  anchor − miner fee on Bitcoin; the fee is the owner's exit cost; supply
+  and backing reconcile exactly with no compensation needed.
+* *Re-anchor*: the anchor shrinks by the miner fee; the vault *finances*
+  the fee from its custody-fee revenue — it unmints TBTC equal to the fee
+  and burns the corresponding Bank balance — so supply shrinks in lockstep
+  with backing and the claim is written down to the new anchor value.
+  Rotation costs are thereby borne by the custody fee that was priced for
+  them, not by the owner and not by the peg.
+* *Dissolution*: the pool absorbs anchor − miner fee while the owner's
+  claim (= anchor) remains outstanding as ordinary TBTC; the vault finances
+  the dissolution miner fee the same way. Reconciliation is atomic with
+  the proof.
+
+If the vault's fee revenue cannot cover an in-kind fee, settlement still
+proceeds (a confirmed Bitcoin spend must never fail to settle); the
+uncovered remainder is recorded as a public *in-kind fee debt* with a
+governance top-up path, and the global-accounting invariant test asserts
+debt is zero across normal lifecycles.
+
+=== Caps on liability
+
+Because claim ≡ anchor, one number — the sum of anchors — is both the
+asset- and liability-side total. Caps: global reserved total (absolute),
+reserved fraction of total Bank-tracked backing (relative), per-wallet
+count *and* per-wallet satoshi amount, and per-position maximum. All are
+checked and reserved at request/authorization time, never at proof time.
+
+== Wallet lifecycle integration
+
+* A wallet holding reservation anchors (or pending reservation actions)
+  cannot *begin* closing: moving-funds completion requires the reservation
+  count to be zero — anchors are funds, and "funds moved" is false while
+  they remain. (The existing finalize-closing guard stays as defense in
+  depth.)
+* Reserved redemption requests require the wallet to be Live or
+  MovingFunds; every settlement path (timeout, veto, proof) works in any
+  wallet state.
+* A *terminated* wallet's reservations can be permissionlessly marked
+  `Stranded` (per position): pending escrow unwinds to its redeemer,
+  counters release, and the owner's minted TBTC simply remains a fungible
+  pooled claim — the backing shortfall is socialized exactly like a
+  terminated wallet's main UTXO today. A governance-insurance hook is
+  stubbed for a future compensation module.
+
+== Economic policy (governed defaults)
+
+Mechanics implemented now; *parameter values are explicit governance
+decisions* surfaced for sign-off:
+
+* term bounds: minimum 3 months, maximum 2 years *(default, flagged)*;
+* extension fee prorated to the extension length (20 bps/yr base);
+* renewal horizon cap: `expiresAt <= now + 2 × term` *(default, flagged)*
+  — prepaid extensions cannot push expiry out indefinitely;
+* grace-period penalty: none *(default 0, flagged — decision pending)*;
+* pricing of the embedded senior-liquidity option: financial-modeling task,
+  out of scope for the contracts, tracked as an open economics item;
+* `ReservationVault` ownership transferred to governance/timelock at
+  deploy; `updateFees` behind the protocol governance delay; per-position
+  fee terms snapshotted at acceptance; user-supplied fee-slippage bound on
+  mint/redeem paths. Fee schedule stays 40 bps initiation / 20 bps/yr
+  extension / 20 bps redemption.
+
+== Storage layout policy
+
+`BridgeState.Storage` is append-only: every new field decrements `__gap`
+(43 at the start of this track) by exactly the slots added; mappings append
+freely; nothing is ever reordered. The same discipline applies to the
+`RedemptionWatchtower` (upgradeable) — its reservation-generation keying
+reuses the existing veto mappings under generation-scoped keys, adding no
+new storage prefix requirements.
+
+== Deployment sequencing
+
+Reservations activate only on the router architecture: the vault is
+deployed inert (`reservationVault == 0` in Bridge parameters), the router
+ships with the Bridge implementation upgrade, and governance enables the
+vault last. No live reservation state ever exists on the pre-router
+layout, so there is no live-state migration.

@@ -1,6 +1,5 @@
 import fs from "fs"
 import path from "path"
-import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 import { providers, utils } from "ethers"
@@ -10,6 +9,8 @@ import {
   KNOWN_PROXY_ADMIN,
   KNOWN_TIMELOCK,
   KNOWN_COUNCIL_SAFE,
+  assertReservationRouterNotSilentlyShipped,
+  etherscanVerifyV2,
 } from "./85_deploy_tip109_governance_upgrade"
 
 const PROXY_ADMIN_ABI = [
@@ -20,70 +21,6 @@ const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
 
 function encodeUpgrade(proxy: string, newImpl: string): string {
   return proxyAdminInterface.encodeFunctionData("upgrade", [proxy, newImpl])
-}
-
-/**
- * Submits a contract for source verification on Etherscan using the v2 API.
- * The legacy v1 API used by @nomiclabs/hardhat-etherscan is deprecated.
- */
-async function etherscanVerifyV2(
-  apiKey: string,
-  chainId: number,
-  contractAddress: string,
-  contractName: string,
-  compilerVersion: string,
-  solcInputJson: string
-): Promise<string> {
-  const queryString = `chainid=${chainId}`
-  const postData = new URLSearchParams({
-    apikey: apiKey,
-    module: "contract",
-    action: "verifysourcecode",
-    contractaddress: contractAddress,
-    sourceCode: solcInputJson,
-    codeformat: "solidity-standard-json-input",
-    contractname: contractName,
-    compilerversion: compilerVersion,
-    optimizationUsed: "1",
-    runs: "1000",
-  }).toString()
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: "api.etherscan.io",
-        path: `/v2/api?${queryString}`,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      },
-      (res) => {
-        let data = ""
-        res.on("data", (chunk) => {
-          data += chunk
-        })
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.status === "1" && parsed.result) {
-              resolve(parsed.result)
-            } else {
-              reject(
-                new Error(parsed.result || parsed.message || "Unknown error")
-              )
-            }
-          } catch {
-            reject(new Error(`Invalid response: ${data.substring(0, 200)}`))
-          }
-        })
-      }
-    )
-    req.on("error", reject)
-    req.write(postData)
-    req.end()
-  })
 }
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
@@ -148,7 +85,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
-    Reservation: Reservation.address,
   }
 
   const bridgeImpl = await deploy("BridgeTIP109HotfixImplementation", {
@@ -157,6 +93,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     skipIfAlreadyDeployed: false,
     libraries: bridgeLibraries,
   })
+
+  // --- Step 4b: Guard against silently shipping the reservation router
+  //     unwired --- see the actual guard call below, once this script's
+  //     Bridge upgrade calldata has been generated.
 
   // --- Step 5: Deploy new RebateStaking implementation (PR #939) ---
   console.log("\n--- Deploying RebateStaking implementation ---")
@@ -238,6 +178,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`    Selector: ${bridgeUpgradeCalldata.slice(0, 10)}`)
   console.log(`    Proxy: ${Bridge.address}`)
   console.log(`    New impl: ${bridgeImpl.address}`)
+
+  // --- Step 4b (continued): Guard against silently shipping the
+  //     reservation router unwired --- checked against the actual
+  //     generated calldata and live on-chain state now that both exist.
+  await assertReservationRouterNotSilentlyShipped(
+    Bridge.address,
+    ethers.provider,
+    bridgeUpgradeCalldata,
+    "a bare `ProxyAdmin.upgrade()` with no initializer call"
+  )
 
   // --- Step 8: Save deployment summary JSON ---
   const chainId = await hre.getChainId()
