@@ -293,8 +293,7 @@ library ReservationProofs {
                     )
                 ];
             if (
-                newerAction.actionType ==
-                Reservation.ActionType.Acceptance &&
+                newerAction.actionType == Reservation.ActionType.Acceptance &&
                 newerAction.state == Reservation.ActionState.Pending
             ) {
                 unwindPendingAction(self, reservation, reservationKey, false);
@@ -400,9 +399,9 @@ library ReservationProofs {
             reservationKey
         ];
 
-        bool walletTerminated =
-            self.registeredWallets[targetWalletPubKeyHash].state ==
-            Wallets.WalletState.Terminated;
+        bool walletTerminated = self
+            .registeredWallets[targetWalletPubKeyHash]
+            .state == Wallets.WalletState.Terminated;
 
         if (late) {
             if (walletTerminated) {
@@ -703,9 +702,9 @@ library ReservationProofs {
             "Re-anchor amount below the dust floor"
         );
 
-        bool targetWalletTerminated =
-            self.registeredWallets[newWalletPubKeyHash].state ==
-            Wallets.WalletState.Terminated;
+        bool targetWalletTerminated = self
+            .registeredWallets[newWalletPubKeyHash]
+            .state == Wallets.WalletState.Terminated;
 
         if (late) {
             if (targetWalletTerminated) {
@@ -724,8 +723,7 @@ library ReservationProofs {
                 // could still settle (the newer generation's anchor is the
                 // source anchor this transaction provably consumed, so it
                 // is unwound via the normal late-settle path instead).
-                self.walletReservationsCount[reservation.walletPubKeyHash] -=
-                    1;
+                self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
                 self.reservationTotalAmount -= reservation.anchorAmount;
 
                 reservation.walletPubKeyHash = newWalletPubKeyHash;
@@ -1145,8 +1143,7 @@ library ReservationProofs {
             pendingAction.actionType == Reservation.ActionType.Reanchor &&
             pendingAction.targetWalletPubKeyHash ==
             action.targetWalletPubKeyHash &&
-            reservation.anchorAmount - newAnchorAmount <=
-            pendingAction.txMaxFee
+            reservation.anchorAmount - newAnchorAmount <= pendingAction.txMaxFee
         ) {
             revert("Must settle the pending generation");
         }

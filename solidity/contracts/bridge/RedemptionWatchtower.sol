@@ -145,10 +145,7 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     // Collision between the two key spaces is cryptographically
     // infeasible (different preimage lengths); indexers distinguish them
     // by cross-referencing whichever Bridge event accompanies them.
-    event ObjectionRaised(
-        uint256 indexed vetoKey,
-        address indexed guardian
-    );
+    event ObjectionRaised(uint256 indexed vetoKey, address indexed guardian);
 
     event VetoPeriodCheckOmitted(uint256 indexed vetoKey);
 

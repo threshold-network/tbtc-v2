@@ -1955,10 +1955,9 @@ describe("Bridge - Reservation settlement", () => {
       // The redemption generation is pending with its timeout in the
       // future; notifying the timeout now must revert.
       await expect(
-        bridge.connect(thirdParty).notifyReservationActionTimeout(
-          reservationKey,
-          []
-        )
+        bridge
+          .connect(thirdParty)
+          .notifyReservationActionTimeout(reservationKey, [])
       ).to.be.revertedWith("Action has not timed out")
 
       // And the pending generation is untouched.
@@ -1981,10 +1980,9 @@ describe("Bridge - Reservation settlement", () => {
       // A second notification against the same generation must revert:
       // no double capacity-release / double refund.
       await expect(
-        bridge.connect(thirdParty).notifyReservationActionTimeout(
-          reservationKey,
-          []
-        )
+        bridge
+          .connect(thirdParty)
+          .notifyReservationActionTimeout(reservationKey, [])
       ).to.be.revertedWith("No pending action")
     })
   })
@@ -2109,9 +2107,9 @@ describe("Bridge - Reservation settlement", () => {
       // its reserved deposit.amount capacity; the late proof re-took only
       // the actual anchorAmount. In this fixture depositAmount and
       // anchorAmount differ by the anchorFee, so net total is anchorAmount.
-      expect((await bridge.reservationActions(reservationKey, 2)).state).to.equal(
-        ActionState.Superseded
-      )
+      expect(
+        (await bridge.reservationActions(reservationKey, 2)).state
+      ).to.equal(ActionState.Superseded)
       expect(
         (await bridge.reservationParameters()).reservationTotalAmount
       ).to.equal(BigNumber.from(anchorAmount))
@@ -2143,7 +2141,9 @@ describe("Bridge - Reservation settlement", () => {
       // already released the target wallet's reserved count).
       const reanchorTx = await requestAndTimeoutReanchor(
         reservationKey,
-        (await bridge.reservations(reservationKey)).anchorTxHash
+        (
+          await bridge.reservations(reservationKey)
+        ).anchorTxHash
       )
 
       // The target wallet terminates before the late proof lands.
@@ -2449,6 +2449,7 @@ describe("Bridge - Reservation settlement", () => {
             },
           ]
         )
+        // eslint-disable-next-line no-await-in-loop
         await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
           fundingOutputIndex: 0,
           blindingFactor,
@@ -2457,6 +2458,7 @@ describe("Bridge - Reservation settlement", () => {
           refundLocktime,
           vault: reservationVault.address,
         })
+        // eslint-disable-next-line no-await-in-loop
         await bridge
           .connect(thirdParty)
           .requestReservationAcceptance(

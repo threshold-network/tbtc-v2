@@ -1144,10 +1144,7 @@ library Reservation {
                 self.reservationTotalAmount == 0,
                 "Active reservations exist"
             );
-            require(
-                self.reservationRouter != address(0),
-                "Router not set"
-            );
+            require(self.reservationRouter != address(0), "Router not set");
             self.reservationVault = reservationVault;
             emit ReservationVaultUpdated(reservationVault);
         }
