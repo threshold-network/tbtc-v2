@@ -230,6 +230,12 @@ transaction the honest wallet signs is the dissolution itself.
 
 === Acceptance as a two-phase action
 
+NOTE: The pending-reserved-deposit counter and its permissionless
+stale-marking function described below are not yet implemented as of the
+settlement PR in this stack; the vault-migration guard currently checks
+only `reservationTotalAmount == 0`. Tracked as deferred follow-up scope
+(M-04/M-05).
+
 Acceptance follows the same model with reveal-time integration:
 
 * At *reveal*, a deposit routed to the reservation vault records its
@@ -279,9 +285,13 @@ Reserved redemption requests are accepted only while
 Live or MovingFunds, and the owner passes the reservation-scoped watchtower
 safety check). After grace, only dissolution may be requested — so an owner
 cannot cycle request/timeout to hold a wallet hostage past the custody
-term: *term + grace + one action timeout* is a hard stranding bound. One
-carve-out: a timeout-minted retry entitlement may be used after grace until
-a dissolution is requested; requesting dissolution voids outstanding
+term: *term + grace + one action timeout* is a hard stranding bound absent
+the retry carve-out below. One carve-out: a timeout-minted retry
+entitlement may be used after grace until a dissolution is requested, and
+because the entitlement itself is minted by a fee-paid redemption
+timeout, a request placed just before grace expiry can yield a bound of
+*term + grace + 2 x redemptionTimeout* (each of the two timeouts slashes
+the custodying wallet); requesting dissolution voids outstanding
 entitlements (the claim simply remains pooled TBTC).
 
 === Watchtower integration (per-generation)
@@ -298,6 +308,14 @@ check.
 == Backing integrity
 
 === The rule
+
+NOTE: The vault fee-financing mechanism described below (unminting TBTC
+and burning the corresponding Bank balance to finance the re-anchor and
+dissolution miner fee, plus the in-kind fee-debt fallback) is not yet
+implemented as of the settlement PR in this stack. Merging that PR alone
+is safe because it leaves `reservationVault` inert; this mechanism is
+required before vault activation. Tracked as deferred follow-up scope
+(H-04/M-06).
 
 *The claim always equals the current anchor.* `mintedAmount` (the gross
 claim surrendered at redemption) tracks `anchorAmount` exactly, at every
@@ -349,6 +367,14 @@ checked and reserved at request/authorization time, never at proof time.
   pooled claim — the backing shortfall is socialized exactly like a
   terminated wallet's main UTXO today. A governance-insurance hook is
   stubbed for a future compensation module.
+  +
+  NOTE: This permissionless general-termination marking is not yet
+  implemented as of the settlement PR in this stack. Today `Stranded` is
+  reachable only as a side effect of a late acceptance, re-anchor or
+  dissolution proof settling against an already-terminated wallet; a
+  reservation `Active` (or mid-action) when its wallet terminates outside
+  those paths has no code path to reach `Stranded`. Tracked as deferred
+  follow-up scope (H-06).
 
 == Economic policy (governed defaults)
 
@@ -371,8 +397,9 @@ decisions* surfaced for sign-off:
 == Storage layout policy
 
 `BridgeState.Storage` is append-only: every new field decrements `__gap`
-(43 at the start of this track) by exactly the slots added; mappings append
-freely; nothing is ever reordered. The same discipline applies to the
+(41 at the start of this track, decremented to 39 by this PR's two new
+mappings) by exactly the slots added; mappings append freely; nothing is
+ever reordered. The same discipline applies to the
 `RedemptionWatchtower` (upgradeable) — its reservation-generation keying
 reuses the existing veto mappings under generation-scoped keys, adding no
 new storage prefix requirements.
