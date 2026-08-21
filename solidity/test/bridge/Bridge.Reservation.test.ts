@@ -725,8 +725,12 @@ describe("Bridge - Reservation", () => {
       await createSnapshot()
       await wireReservations()
 
-      // A Terminated wallet lets the timeout path skip slashing and state
-      // transitions, isolating the reservation bookkeeping under test.
+      // Live at request time, since `requestReservedRedemption` now
+      // requires a Live wallet (matching the pooled redemption path).
+      // The "should register the redemption..." test below transitions
+      // this wallet to Terminated between the request and the timeout
+      // call, to exercise the timeout path's "skip slashing" branch for
+      // a wallet that died while a redemption was in flight.
       await bridge.setWallet(walletPubKeyHash, {
         ecdsaWalletID: ethers.utils.randomBytes(32),
         mainUtxoHash: ZERO_BYTES32,
@@ -735,7 +739,7 @@ describe("Bridge - Reservation", () => {
         movingFundsRequestedAt: 0,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
-        state: walletState.Terminated,
+        state: walletState.Live,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
 
@@ -764,7 +768,8 @@ describe("Bridge - Reservation", () => {
             reservationKey,
             thirdParty.address,
             redeemerOutputScript
-          )
+          ,
+            false)
       ).to.be.revertedWith("Caller is not the reservation vault")
     })
 
@@ -779,7 +784,8 @@ describe("Bridge - Reservation", () => {
           reservationKey,
           thirdParty.address,
           redeemerOutputScript
-        )
+        ,
+          false)
 
       await expect(tx)
         .to.emit(bridge, "ReservedRedemptionRequested")
@@ -802,8 +808,26 @@ describe("Bridge - Reservation", () => {
             reservationKey,
             thirdParty.address,
             redeemerOutputScript
-          )
+          ,
+            false)
       ).to.be.revertedWith("Reservation is not active")
+
+      // The wallet dies (Terminated) while the redemption is in flight --
+      // this is what actually exercises the timeout path's "skip
+      // slashing" branch, since a wallet can no longer be Live/MovingFunds
+      // by the time this fires yet the redemption was validly requested
+      // against it earlier while it was still Live.
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Terminated,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
 
       // Timeout: the redeemer gets the balance back and the reservation
       // survives as Active.
@@ -868,7 +892,8 @@ describe("Bridge - Reservation", () => {
           liveReservationKey,
           thirdParty.address,
           redeemerOutputScript
-        )
+        ,
+          false)
 
       const { redemptionTimeout } = await bridge.redemptionParameters()
       await increaseTime(redemptionTimeout + 1)
@@ -896,6 +921,21 @@ describe("Bridge - Reservation", () => {
       const vaultSigner = await impersonateContract(reservationVault.address)
       const bridgeSigner = await impersonateContract(bridge.address)
 
+      // The prior test transitions this wallet to Terminated mid-flight;
+      // restore it to Live since only output-script validation is under
+      // test here.
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
       const guardKey = 890
       await bridge.setReservation(
         guardKey,
@@ -913,7 +953,8 @@ describe("Bridge - Reservation", () => {
             guardKey,
             thirdParty.address,
             `0x160014${walletPubKeyHash.substring(2)}`
-          )
+          ,
+            false)
       ).to.be.revertedWith(
         "Redeemer output script must not point to the wallet PKH"
       )
@@ -926,7 +967,8 @@ describe("Bridge - Reservation", () => {
             guardKey,
             thirdParty.address,
             `0x1976a914${walletPubKeyHash.substring(2)}88ac`
-          )
+          ,
+            false)
       ).to.be.revertedWith(
         "Redeemer output script must not point to the wallet PKH"
       )
@@ -935,6 +977,20 @@ describe("Bridge - Reservation", () => {
     it("should revert when the redeemer output script is not a standard type", async () => {
       const vaultSigner = await impersonateContract(reservationVault.address)
       const bridgeSigner = await impersonateContract(bridge.address)
+
+      // See the previous test: this wallet was left Terminated by the
+      // earlier timeout test in this describe.
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
 
       const guardKey = 891
       await bridge.setReservation(
@@ -952,7 +1008,8 @@ describe("Bridge - Reservation", () => {
             guardKey,
             thirdParty.address,
             "0x1988a914f4eedc8f40d4b8e30771f792b065ebec0abaddef88ac"
-          )
+          ,
+            false)
       ).to.be.revertedWith("Redeemer output script must be a standard type")
     })
   })
@@ -1060,6 +1117,18 @@ describe("Bridge - Reservation", () => {
         "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
 
       before(async () => {
+        // `requestReservedRedemption` requires a Live wallet.
+        await bridge.setWallet(walletPubKeyHash, {
+          ecdsaWalletID: ethers.utils.randomBytes(32),
+          mainUtxoHash: ZERO_BYTES32,
+          pendingRedemptionsValue: 0,
+          createdAt: await lastBlockTime(),
+          movingFundsRequestedAt: 0,
+          closingStartedAt: 0,
+          pendingMovedFundsSweepRequestsCount: 0,
+          state: walletState.Live,
+          movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+        })
         await bridge.setReservation(
           reservationKey,
           await activeReservation(
@@ -1142,7 +1211,7 @@ describe("Bridge - Reservation", () => {
         const ownerBalanceBefore = await tbtc.balanceOf(thirdParty.address)
         const treasuryBalanceBefore = await tbtc.balanceOf(treasury.address)
 
-        await reservationVault.connect(deployer).updateFees(40, 20, 500)
+        await reservationVault.connect(governance).updateFees(40, 20, 500)
 
         await expect(
           reservationVault
@@ -1187,7 +1256,7 @@ describe("Bridge - Reservation", () => {
           (await bridge.reservations(exposedReservationKey)).state
         ).to.equal(2)
 
-        await reservationVault.connect(deployer).updateFees(40, 20, 20)
+        await reservationVault.connect(governance).updateFees(40, 20, 20)
       })
     })
 
@@ -1259,13 +1328,13 @@ describe("Bridge - Reservation", () => {
     describe("updateFees", () => {
       it("should revert when a fee parameter exceeds the maximum", async () => {
         await expect(
-          reservationVault.connect(deployer).updateFees(501, 20, 20)
+          reservationVault.connect(governance).updateFees(501, 20, 20)
         ).to.be.revertedWith("Fee exceeds the maximum")
         await expect(
-          reservationVault.connect(deployer).updateFees(40, 501, 20)
+          reservationVault.connect(governance).updateFees(40, 501, 20)
         ).to.be.revertedWith("Fee exceeds the maximum")
         await expect(
-          reservationVault.connect(deployer).updateFees(40, 20, 501)
+          reservationVault.connect(governance).updateFees(40, 20, 501)
         ).to.be.revertedWith("Fee exceeds the maximum")
       })
     })
@@ -1290,7 +1359,7 @@ describe("Bridge - Reservation", () => {
         movingFundsRequestedAt: 0,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
-        state: walletState.Terminated,
+        state: walletState.Live,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
       await bridge.setReservation(
@@ -1310,7 +1379,8 @@ describe("Bridge - Reservation", () => {
           reservationKey,
           thirdParty.address,
           redeemerOutputScript
-        )
+        ,
+          false)
 
       // Wire the watchtower only after the request so the
       // isSafeRedemption gate does not call an EOA.
@@ -1366,7 +1436,7 @@ describe("Bridge - Reservation", () => {
         movingFundsRequestedAt: 0,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
-        state: walletState.Terminated,
+        state: walletState.Live,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
       await bridge.setReservation(reservationKey, {
@@ -1579,7 +1649,7 @@ describe("Bridge - Reservation", () => {
         movingFundsRequestedAt: 0,
         closingStartedAt: 0,
         pendingMovedFundsSweepRequestsCount: 0,
-        state: walletState.Terminated,
+        state: walletState.Live,
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
       await bridge.setReservation(
@@ -1599,7 +1669,8 @@ describe("Bridge - Reservation", () => {
           reservationKey,
           thirdParty.address,
           redeemerOutputScript
-        )
+        ,
+          false)
     })
 
     after(async () => {
@@ -1644,8 +1715,12 @@ describe("Bridge - Reservation", () => {
       expect(veto.withdrawableAmount).to.equal(0)
       expect(await bank.balanceOf(redemptionWatchtower.address)).to.equal(0)
 
-      // The banned owner cannot re-request through the vault: the
-      // isSafeRedemption gate now rejects them.
+      // The banned owner cannot re-request through the vault. The
+      // settlement-overwrite guard fires first here (this same anchor
+      // still carries the unresolved settlement the veto just recorded);
+      // the watchtower's own ban is separately confirmed above via the
+      // "Banned" event and would independently reject this same owner
+      // once the reservation is re-anchored to a fresh, unsettled anchor.
       const vaultSigner = await impersonateContract(reservationVault.address)
       await expect(
         bridge
@@ -1654,8 +1729,9 @@ describe("Bridge - Reservation", () => {
             reservationKey,
             thirdParty.address,
             redeemerOutputScript
-          )
-      ).to.be.revertedWith("Redemption request rejected by the watchtower")
+          ,
+            false)
+      ).to.be.revertedWith("Unresolved settlement exists for the current anchor")
     })
 
     it("should revert when the reserved redemption does not exist", async () => {
@@ -1693,7 +1769,8 @@ describe("Bridge - Reservation", () => {
           freshKey,
           governance.address,
           redeemerOutputScript
-        )
+        ,
+          false)
 
       await redemptionWatchtower
         .connect(guardianSigners[0])
@@ -1754,7 +1831,7 @@ describe("Bridge - Reservation", () => {
       await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
       await bridge
         .connect(vaultSigner)
-        .requestReservedRedemption(freshKey, owner, redeemerOutputScript)
+        .requestReservedRedemption(freshKey, owner, redeemerOutputScript, false)
 
       // First generation: one guardian objects, below the 3-objection
       // veto threshold, then the request times out without being
@@ -1771,18 +1848,40 @@ describe("Bridge - Reservation", () => {
 
       expect((await bridge.reservations(freshKey)).state).to.equal(1) // Active
 
-      // Second generation: re-request. The guardian who objected against
-      // generation 1 must be able to object again, and the new
-      // generation must start with zero objections -- a stale
-      // `objectionsCount` from the resolved generation 1 must not carry
-      // over and bias or block generation 2.
+      // The timeout moved the wallet from Live to MovingFunds (the same
+      // `moveFunds` transition the pooled redemption path triggers on a
+      // wallet's first missed deadline) -- `requestReservedRedemption`
+      // now requires Live, so generation 2 must first move to a healthy
+      // wallet. Simulate the contractual effect of a re-anchor (a full
+      // SPV proof is exercised elsewhere) by pointing the reservation at
+      // a fresh Live wallet directly via the stub setter, preserving the
+      // same `reservationKey` -- what actually matters for this test is
+      // that the watchtower's per-generation state is isolated by
+      // `(reservationKey, redemptionRequestedAt)`, not by the wallet.
+      const secondGenWalletPubKeyHash =
+        "0xa1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+      await bridge.setWallet(secondGenWalletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+      await bridge.setReservation(freshKey, {
+        ...(await activeReservation(owner, secondGenWalletPubKeyHash, amountSat)),
+      })
+
       await bank
         .connect(bridgeSigner)
         .increaseBalance(reservationVault.address, amountSat)
       await bank.connect(vaultSigner).approveBalance(bridge.address, amountSat)
       await bridge
         .connect(vaultSigner)
-        .requestReservedRedemption(freshKey, owner, redeemerOutputScript)
+        .requestReservedRedemption(freshKey, owner, redeemerOutputScript, false)
 
       const { redemptionRequestedAt } = await bridge.reservations(freshKey)
       const secondGenVetoKey = ethers.utils.solidityKeccak256(
@@ -1983,7 +2082,8 @@ describe("Bridge - Reservation", () => {
           reservationKey,
           thirdParty.address,
           "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
-        )
+        ,
+          false)
 
       await increaseTime(601)
 

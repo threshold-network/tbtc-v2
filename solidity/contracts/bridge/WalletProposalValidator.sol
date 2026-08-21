@@ -1030,9 +1030,16 @@ contract WalletProposalValidator {
             proposal.anchorTxFee <= reservationTxMaxFee,
             "Proposed transaction fee is too high"
         );
+        // Addition-based formulation avoids `depositRequest.amount -
+        // proposal.anchorTxFee` underflowing (and reverting with an
+        // unreadable Panic(0x11)) when the proposed fee exceeds a small
+        // deposit's amount; this is mathematically equivalent for every
+        // case that does not underflow, and correctly evaluates to false
+        // (yielding the clear message below) for every case that would
+        // have underflowed.
         require(
-            depositRequest.amount - proposal.anchorTxFee >=
-                reservationMinAmount,
+            depositRequest.amount >=
+                reservationMinAmount + proposal.anchorTxFee,
             "Anchor amount below the reservation minimum"
         );
 
@@ -1187,15 +1194,32 @@ contract WalletProposalValidator {
     /// @param proposal The dissolution proposal to validate.
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
-    ///      - The wallet must be in the Live or MovingFunds state,
+    ///      - The wallet must be in the Live, MovingFunds, or Terminated
+    ///        state -- Terminated is included alongside `Reservation`
+    ///        library's dissolution wallet-state check so a reservation
+    ///        that predates the wallet's termination is not permanently
+    ///        stranded (see `Reservation.submitReservationDissolutionProof`),
     ///      - The reservation must be Active, custodied by the proposal
     ///        wallet, and past its custody term plus grace period,
     ///      - The proposed fee must be positive and within the reservation
-    ///        transaction max fee.
+    ///        dissolution transaction max fee (`reservationDissolutionTxMaxFee`).
     function validateReservationDissolutionProposal(
         ReservationDissolutionProposal calldata proposal
     ) external view returns (bool) {
-        requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
+        // Deliberately not `requireWalletLiveOrMovingFunds`: dissolution
+        // must also be provable for a Terminated wallet so a reservation
+        // it still custodies is not permanently unable to close. See
+        // `Reservation.submitReservationDissolutionProof`'s matching
+        // wallet-state check for the full rationale.
+        Wallets.WalletState dissolutionWalletState = bridge
+            .wallets(proposal.walletPubKeyHash)
+            .state;
+        require(
+            dissolutionWalletState == Wallets.WalletState.Live ||
+                dissolutionWalletState == Wallets.WalletState.MovingFunds ||
+                dissolutionWalletState == Wallets.WalletState.Terminated,
+            "Wallet is not in Live, MovingFunds or Terminated state"
+        );
 
         Reservation.ReservationRequest memory reservation = bridge.reservations(
             proposal.reservationKey

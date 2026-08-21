@@ -35,7 +35,8 @@ interface IReservationBridge {
     function requestReservedRedemption(
         uint256 reservationKey,
         address redeemer,
-        bytes calldata redeemerOutputScript
+        bytes calldata redeemerOutputScript,
+        bool isRetry
     ) external;
 
     function extendReservation(uint256 reservationKey) external;
@@ -310,7 +311,8 @@ contract ReservationVault is IVault, Ownable {
         bridge.requestReservedRedemption(
             reservationKey,
             msg.sender,
-            redeemerOutputScript
+            redeemerOutputScript,
+            false
         );
     }
 
@@ -353,7 +355,10 @@ contract ReservationVault is IVault, Ownable {
     ///         balance -- the state a timed-out reserved redemption leaves
     ///         the owner in (the Bridge refunds the surrendered amount as
     ///         Bank balance). The caller surrenders the gross minted amount
-    ///         as Bank balance and pays the redemption fee in TBTC.
+    ///         as Bank balance; no TBTC fee is charged on this call -- it
+    ///         was already collected by the original `redeemReservation`
+    ///         call, and this retry exists only because that prior request
+    ///         timed out through the wallet's fault.
     /// @param reservationKey The key of the reservation to redeem.
     /// @param redeemerOutputScript The redeemer's length-prefixed output
     ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
@@ -363,16 +368,18 @@ contract ReservationVault is IVault, Ownable {
     ///        must specifically have been caused by wallet fault (the
     ///        Bridge's `lastTimeoutWasWalletFault` marker) -- otherwise
     ///        this path would let an owner use it as an ordinary
-    ///        fee-free first redemption, or grief wallet operators for
-    ///        free by repeatedly requesting, waiting out the timeout
-    ///        (slashing the wallet), and retrying,
+    ///        fee-free first redemption,
     ///      - The caller must have approved this vault in the Bank for the
     ///        gross minted amount (`Bank.approveBalance`).
     ///
-    ///      The redemption fee is not re-charged: it was collected by the
-    ///      original `redeemReservation` call and the retry only exists
-    ///      because the previous request timed out through the wallet's
-    ///      fault.
+    ///      This grants at most one fee-free retry per paid redemption
+    ///      fee: the Bridge consumes `lastTimeoutWasWalletFault` when this
+    ///      call's own request is registered, and does not re-grant it if
+    ///      that request also times out through wallet fault -- a second
+    ///      retry requires a fresh `redeemReservation` fee payment. Without
+    ///      this, an owner could loop request -> timeout -> retry
+    ///      indefinitely, slashing wallet operators for free on every
+    ///      iteration after paying only the first redemption fee.
     function retryRedeemReservation(
         uint256 reservationKey,
         bytes calldata redeemerOutputScript
@@ -411,7 +418,8 @@ contract ReservationVault is IVault, Ownable {
         bridge.requestReservedRedemption(
             reservationKey,
             msg.sender,
-            redeemerOutputScript
+            redeemerOutputScript,
+            true
         );
     }
 

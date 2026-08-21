@@ -533,6 +533,27 @@ contract RedemptionWatchtower is OwnableUpgradeable {
             );
     }
 
+    /// @notice Public wrapper for `_reservedVetoKey`, letting a redeemer (or
+    ///         anyone) compute the exact `withdrawVetoedFunds` key for a
+    ///         reserved redemption generation without needing to consult
+    ///         event logs. `reservationKey` is known to the redeemer since
+    ///         they initiated the request; `redemptionRequestedAt` is the
+    ///         block timestamp of that request transaction, itself a
+    ///         permanent, publicly queryable fact independent of the
+    ///         Bridge's current (and, after resolution, cleared) storage.
+    /// @param reservationKey The key of the reservation the redemption
+    ///        request belonged to.
+    /// @param redemptionRequestedAt UNIX timestamp the reserved redemption
+    ///        request was made at (the block timestamp of the
+    ///        `redeemReservation`/`retryRedeemReservation` call).
+    /// @return The generation-scoped key to pass to `withdrawVetoedFunds`.
+    function reservedVetoKey(
+        uint256 reservationKey,
+        uint32 redemptionRequestedAt
+    ) external pure returns (uint256) {
+        return _reservedVetoKey(reservationKey, redemptionRequestedAt);
+    }
+
     /// @notice Returns the applicable veto delay for a pending reserved
     ///         redemption identified by the given reservation key.
     /// @param reservationKey The key of the reservation.
@@ -783,8 +804,10 @@ contract RedemptionWatchtower is OwnableUpgradeable {
 
     /// @notice Withdraws funds from a vetoed redemption request, identified
     ///         by the given redemption key.
-    /// @param redemptionKey Redemption key built as
-    ///        `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
+    /// @param redemptionKey For a pooled redemption veto, built as
+    ///        `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`;
+    ///        for a reserved redemption veto, `reservedVetoKey(reservationKey,
+    ///        redemptionRequestedAt)`.
     /// @dev Requirements:
     ///      - The veto must be finalized,
     ///      - The caller must be the redeemer of the vetoed redemption request,

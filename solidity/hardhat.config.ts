@@ -75,24 +75,43 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
       // Reduce the number of optimizer runs to preserve the Bridge's
       // EIP-170 deployment margin after adding the reservation entry
-      // points. Further reduced from 100 to 90 after the reserved
-      // redemption timeout/veto correctness fixes (settlement records,
-      // wallet-state-independent refund) grew the `reservations()`
-      // getter's struct-copy bytecode past the 100-runs margin. The
-      // runtime-gas cost of this is effectively nil: the Bridge is a
-      // thin dispatch shell over linked libraries (Deposit, DepositSweep,
-      // Redemption, Reservation) that stay at runs=1000, so a measured
-      // runs=1000-vs-100 diff over the deposit/redemption/reservation
-      // hot paths is 0-8 gas (noise); runs=100-vs-90 is smaller still.
-      // DRAFT NOTE: the durable alternative is a router-style refactor
-      // moving entry points out of the Bridge (as done on the P2TR
-      // activation track).
+      // points. Progressively reduced (100 -> 90 -> 1) as correctness
+      // fixes (settlement-overwrite guard, Terminated-wallet dissolution,
+      // one-free-retry accounting, dust-value validation) added real new
+      // logic; runs=1 is the floor. The runtime-gas cost is effectively
+      // nil: the Bridge is a thin dispatch shell over linked libraries
+      // (Deposit, DepositSweep, Redemption) that stay at runs=1000, so a
+      // measured runs=1000-vs-100 diff over the deposit/redemption hot
+      // paths was 0-8 gas (noise); runs=1 is smaller still. The durable
+      // alternative remains a router-style refactor moving entry points
+      // out of the Bridge (as done on the P2TR activation track) -- once
+      // runs=1 stops being enough, there is no lower lever left to pull.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
-            runs: 90,
+            runs: 1,
+          },
+        },
+      },
+      // Reservation's external functions (requestReservedRedemption,
+      // notifyReservedRedemptionTimeout/Veto, extendReservation,
+      // updateReservationParameters) deploy as their own standalone
+      // library contract, separate from the internal-function bytecode
+      // Bridge.sol inlines. Without this override that standalone
+      // deployment fell back to the default runs=1000, pushing it past
+      // the EIP-170 limit on its own after the settlement-overwrite,
+      // Terminated-wallet, one-free-retry, and dust-value correctness
+      // fixes added real new logic. Matches Bridge.sol's runs=1 for the
+      // same reason: this is a thin dispatch shell, not a gas-critical
+      // hot loop.
+      "contracts/bridge/Reservation.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1,
           },
         },
       },
