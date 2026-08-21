@@ -771,7 +771,12 @@ describe("ReservationRouter", () => {
       await expect(
         standaloneRouter
           .connect(thirdParty)
-          .requestReservedRedemption(1, thirdParty.address, "0x1600144b47c798")
+          .requestReservedRedemption(
+            1,
+            thirdParty.address,
+            "0x1600144b47c798",
+            false
+          )
       ).to.be.revertedWith("Caller is not the reservation vault")
 
       await expect(

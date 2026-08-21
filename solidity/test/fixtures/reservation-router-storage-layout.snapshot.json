@@ -862,6 +862,12 @@
                   "slot": "6",
                   "offset": 8,
                   "type": "t_bool"
+                },
+                {
+                  "label": "currentRequestIsRetry",
+                  "slot": "6",
+                  "offset": 9,
+                  "type": "t_bool"
                 }
               ]
             }

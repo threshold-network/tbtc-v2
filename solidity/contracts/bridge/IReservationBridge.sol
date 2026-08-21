@@ -36,7 +36,8 @@ interface IReservationBridge {
     function requestReservedRedemption(
         uint256 reservationKey,
         address redeemer,
-        bytes calldata redeemerOutputScript
+        bytes calldata redeemerOutputScript,
+        bool isRetry
     ) external;
 
     /// @notice See `ReservationRouter.extendReservation`.

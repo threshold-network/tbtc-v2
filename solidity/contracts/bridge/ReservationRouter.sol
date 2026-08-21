@@ -236,16 +236,21 @@ contract ReservationRouter is
     ///        back if the redemption times out.
     /// @param redeemerOutputScript The redeemer's length-prefixed output
     ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    /// @param isRetry True for a fee-free retry via
+    ///        `ReservationVault.retryRedeemReservation`; false for a fresh
+    ///        `redeemReservation` call.
     function requestReservedRedemption(
         uint256 reservationKey,
         address redeemer,
-        bytes calldata redeemerOutputScript
+        bytes calldata redeemerOutputScript,
+        bool isRetry
     ) external {
         // The caller is checked in the library function.
         self.requestReservedRedemption(
             reservationKey,
             redeemer,
-            redeemerOutputScript
+            redeemerOutputScript,
+            isRetry
         );
     }
 
