@@ -1451,9 +1451,7 @@ library Reservation {
         // anchor in `spentMainUTXOs` -- the existing registry of honestly
         // spent wallet UTXOs -- makes the spend recognized by
         // `Fraud.defeatFraudChallenge` without modifying the fraud library.
-        self.spentMainUTXOs[
-            _outpointKey(outpointTxHash, outpointIndex)
-        ] = true;
+        self.spentMainUTXOs[_outpointKey(outpointTxHash, outpointIndex)] = true;
     }
 
     /// @notice Asserts the given input vector contains exactly one input
@@ -1469,7 +1467,12 @@ library Reservation {
         (bytes32 outpointTxHash, uint32 outpointIndex) = OutboundTx
             .parseWalletOutboundTxInput(inputVector);
 
-        _consumeAnchorOutpoint(self, reservation, outpointTxHash, outpointIndex);
+        _consumeAnchorOutpoint(
+            self,
+            reservation,
+            outpointTxHash,
+            outpointIndex
+        );
     }
 
     /// @notice Extracts the outpoint (transaction hash and output index) of
@@ -1478,11 +1481,10 @@ library Reservation {
     ///         caller must inspect an outpoint before deciding what it is
     ///         expected to be (see `processDissolutionInputs`, which cannot
     ///         assume a fixed input order).
-    function _peekOutpointAt(bytes memory inputVector, uint256 inputStartingIndex)
-        internal
-        pure
-        returns (bytes32 outpointTxHash, uint32 outpointIndex)
-    {
+    function _peekOutpointAt(
+        bytes memory inputVector,
+        uint256 inputStartingIndex
+    ) internal pure returns (bytes32 outpointTxHash, uint32 outpointIndex) {
         outpointTxHash = inputVector.extractInputTxIdLeAt(inputStartingIndex);
         outpointIndex = BTCUtils.reverseUint32(
             uint32(inputVector.extractTxIndexLeAt(inputStartingIndex))
@@ -1543,7 +1545,12 @@ library Reservation {
         if (!mainUtxoExpected) {
             // Single-input case: the sole input must be the anchor: no
             // ordering ambiguity is possible.
-            consumeAnchorInputAt(self, reservation, inputVector, firstInputIndex);
+            consumeAnchorInputAt(
+                self,
+                reservation,
+                inputVector,
+                firstInputIndex
+            );
             return reservation.anchorAmount;
         }
 
@@ -1565,27 +1572,31 @@ library Reservation {
         uint256 secondInputIndex = firstInputIndex +
             inputVector.determineInputLengthAt(firstInputIndex);
 
+        // `_peekOutpointAt` is pure; peek the second input once up front so
+        // the two branches below do not each declare a same-named local.
+        (bytes32 secondTxHash, uint32 secondIndex) = _peekOutpointAt(
+            inputVector,
+            secondInputIndex
+        );
+
         if (
             firstTxHash == reservation.anchorTxHash &&
             firstIndex == reservation.anchorTxOutputIndex
         ) {
             // First input is the anchor; second must be the main UTXO.
             _consumeAnchorOutpoint(self, reservation, firstTxHash, firstIndex);
-            (bytes32 secondTxHash, uint32 secondIndex) = _peekOutpointAt(
-                inputVector,
-                secondInputIndex
-            );
             _consumeMainUtxoOutpoint(self, mainUtxo, secondTxHash, secondIndex);
         } else {
             // First input must be the main UTXO instead; second must be
             // the anchor. `_consumeMainUtxoOutpoint`/`_consumeAnchorOutpoint`
             // still revert with a clear message if neither matches.
             _consumeMainUtxoOutpoint(self, mainUtxo, firstTxHash, firstIndex);
-            (bytes32 secondTxHash, uint32 secondIndex) = _peekOutpointAt(
-                inputVector,
-                secondInputIndex
+            _consumeAnchorOutpoint(
+                self,
+                reservation,
+                secondTxHash,
+                secondIndex
             );
-            _consumeAnchorOutpoint(self, reservation, secondTxHash, secondIndex);
         }
 
         inputsTotalValue = reservation.anchorAmount + mainUtxo.txOutputValue;
@@ -1608,7 +1619,12 @@ library Reservation {
             uint32(inputVector.extractTxIndexLeAt(inputStartingIndex))
         );
 
-        _consumeAnchorOutpoint(self, reservation, outpointTxHash, outpointIndex);
+        _consumeAnchorOutpoint(
+            self,
+            reservation,
+            outpointTxHash,
+            outpointIndex
+        );
 
         nextInputIndex =
             inputStartingIndex +

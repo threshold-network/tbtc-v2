@@ -767,9 +767,9 @@ describe("Bridge - Reservation", () => {
           .requestReservedRedemption(
             reservationKey,
             thirdParty.address,
-            redeemerOutputScript
-          ,
-            false)
+            redeemerOutputScript,
+            false
+          )
       ).to.be.revertedWith("Caller is not the reservation vault")
     })
 
@@ -783,9 +783,9 @@ describe("Bridge - Reservation", () => {
         .requestReservedRedemption(
           reservationKey,
           thirdParty.address,
-          redeemerOutputScript
-        ,
-          false)
+          redeemerOutputScript,
+          false
+        )
 
       await expect(tx)
         .to.emit(bridge, "ReservedRedemptionRequested")
@@ -807,9 +807,9 @@ describe("Bridge - Reservation", () => {
           .requestReservedRedemption(
             reservationKey,
             thirdParty.address,
-            redeemerOutputScript
-          ,
-            false)
+            redeemerOutputScript,
+            false
+          )
       ).to.be.revertedWith("Reservation is not active")
 
       // The wallet dies (Terminated) while the redemption is in flight --
@@ -891,9 +891,9 @@ describe("Bridge - Reservation", () => {
         .requestReservedRedemption(
           liveReservationKey,
           thirdParty.address,
-          redeemerOutputScript
-        ,
-          false)
+          redeemerOutputScript,
+          false
+        )
 
       const { redemptionTimeout } = await bridge.redemptionParameters()
       await increaseTime(redemptionTimeout + 1)
@@ -952,9 +952,9 @@ describe("Bridge - Reservation", () => {
           .requestReservedRedemption(
             guardKey,
             thirdParty.address,
-            `0x160014${walletPubKeyHash.substring(2)}`
-          ,
-            false)
+            `0x160014${walletPubKeyHash.substring(2)}`,
+            false
+          )
       ).to.be.revertedWith(
         "Redeemer output script must not point to the wallet PKH"
       )
@@ -966,9 +966,9 @@ describe("Bridge - Reservation", () => {
           .requestReservedRedemption(
             guardKey,
             thirdParty.address,
-            `0x1976a914${walletPubKeyHash.substring(2)}88ac`
-          ,
-            false)
+            `0x1976a914${walletPubKeyHash.substring(2)}88ac`,
+            false
+          )
       ).to.be.revertedWith(
         "Redeemer output script must not point to the wallet PKH"
       )
@@ -1007,9 +1007,9 @@ describe("Bridge - Reservation", () => {
           .requestReservedRedemption(
             guardKey,
             thirdParty.address,
-            "0x1988a914f4eedc8f40d4b8e30771f792b065ebec0abaddef88ac"
-          ,
-            false)
+            "0x1988a914f4eedc8f40d4b8e30771f792b065ebec0abaddef88ac",
+            false
+          )
       ).to.be.revertedWith("Redeemer output script must be a standard type")
     })
   })
@@ -1378,9 +1378,9 @@ describe("Bridge - Reservation", () => {
         .requestReservedRedemption(
           reservationKey,
           thirdParty.address,
-          redeemerOutputScript
-        ,
-          false)
+          redeemerOutputScript,
+          false
+        )
 
       // Wire the watchtower only after the request so the
       // isSafeRedemption gate does not call an EOA.
@@ -1668,9 +1668,9 @@ describe("Bridge - Reservation", () => {
         .requestReservedRedemption(
           reservationKey,
           thirdParty.address,
-          redeemerOutputScript
-        ,
-          false)
+          redeemerOutputScript,
+          false
+        )
     })
 
     after(async () => {
@@ -1728,10 +1728,12 @@ describe("Bridge - Reservation", () => {
           .requestReservedRedemption(
             reservationKey,
             thirdParty.address,
-            redeemerOutputScript
-          ,
-            false)
-      ).to.be.revertedWith("Unresolved settlement exists for the current anchor")
+            redeemerOutputScript,
+            false
+          )
+      ).to.be.revertedWith(
+        "Unresolved settlement exists for the current anchor"
+      )
     })
 
     it("should revert when the reserved redemption does not exist", async () => {
@@ -1768,9 +1770,9 @@ describe("Bridge - Reservation", () => {
         .requestReservedRedemption(
           freshKey,
           governance.address,
-          redeemerOutputScript
-        ,
-          false)
+          redeemerOutputScript,
+          false
+        )
 
       await redemptionWatchtower
         .connect(guardianSigners[0])
@@ -1872,7 +1874,11 @@ describe("Bridge - Reservation", () => {
         movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
       })
       await bridge.setReservation(freshKey, {
-        ...(await activeReservation(owner, secondGenWalletPubKeyHash, amountSat)),
+        ...(await activeReservation(
+          owner,
+          secondGenWalletPubKeyHash,
+          amountSat
+        )),
       })
 
       await bank
@@ -2081,9 +2087,9 @@ describe("Bridge - Reservation", () => {
         .requestReservedRedemption(
           reservationKey,
           thirdParty.address,
-          "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
-        ,
-          false)
+          "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef",
+          false
+        )
 
       await increaseTime(601)
 
