@@ -317,13 +317,12 @@ library Deposit {
             )
             .hash256View();
 
-        DepositRequest storage deposit = self.deposits[
-            uint256(
-                keccak256(
-                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
-                )
+        uint256 depositKey = uint256(
+            keccak256(
+                abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
             )
-        ];
+        );
+        DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.revealedAt == 0, "Deposit already revealed");
 
         uint64 fundingOutputAmount = fundingOutput.extractValue();
@@ -343,7 +342,26 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
-        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+        bool isReserved = reveal.vault != address(0) &&
+            reveal.vault == self.reservationVault;
+        if (isReserved) {
+            self.pendingReservedDeposit[depositKey].isReserved = true;
+        }
+
+        // Skip the rebate for reserved deposits: `deposit.treasuryFee` is
+        // never actually charged for a reservation (acceptance mints the
+        // gross anchored amount and ignores this field entirely -- see
+        // `Reservation.submitReservationAcceptanceProof`). Calling
+        // `applyForRebate` anyway would still permanently consume the
+        // depositor's limited rolling-window rebate budget for a fee that
+        // was never going to be charged, silently wasting it for zero
+        // benefit and reducing the budget available to the depositor's
+        // other (pooled) deposits.
+        if (
+            !isReserved &&
+            deposit.treasuryFee > 0 &&
+            self.rebateStaking != address(0)
+        ) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
                     deposit.depositor,

@@ -53,6 +53,28 @@ interface IRedemptionWatchtower {
         address redeemer
     ) external view returns (bool);
 
+    /// @notice Determines whether a reserved redemption request is
+    ///         considered safe. Distinct from `isSafeRedemption` because a
+    ///         reserved redemption's veto history is keyed per reservation
+    ///         and per request generation (`reservationKey` +
+    ///         `redemptionRequestedAt`), not per wallet/output-script pair.
+    /// @param reservationKey The key of the reservation being redeemed.
+    /// @param redemptionRequestedAt UNIX timestamp the reserved redemption
+    ///        request is being made at (the value about to be written to
+    ///        the reservation's `redemptionRequestedAt` field).
+    /// @param balanceOwner The address of the Bank balance owner whose
+    ///        balance is getting redeemed.
+    /// @param redeemer The address that requested the redemption.
+    /// @return True if the reserved redemption request is safe, false
+    ///         otherwise. Specific safety criteria depend on the
+    ///         implementation.
+    function isSafeReservedRedemption(
+        uint256 reservationKey,
+        uint32 redemptionRequestedAt,
+        address balanceOwner,
+        address redeemer
+    ) external view returns (bool);
+
     /// @notice Returns the applicable redemption delay for a redemption
     ///         request identified by the given redemption key.
     /// @param redemptionKey Redemption key built as
@@ -62,12 +84,57 @@ interface IRedemptionWatchtower {
         external
         view
         returns (uint32);
+
+    /// @notice Returns the applicable veto delay for a pending reserved
+    ///         redemption identified by the given reservation key.
+    /// @param reservationKey The key of the reservation.
+    /// @return Reserved redemption veto delay.
+    function getReservedRedemptionDelay(uint256 reservationKey)
+        external
+        view
+        returns (uint32);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof
 ///         validation and to the moving funds transaction proof validation.
 library OutboundTx {
     using BTCUtils for bytes;
+    using BytesLib for bytes;
+
+    /// @notice Validates a redeemer output script: checks it decodes as a
+    ///         standard type (P2PKH, P2WPKH, P2SH or P2WSH) and, when its
+    ///         payload is 20 bytes, that it does not point to the given
+    ///         wallet's own public key hash. Reverts otherwise. Shared by
+    ///         both the pooled redemption and reserved redemption request
+    ///         paths, which apply the identical check.
+    /// @param redeemerOutputScript The redeemer output script to validate.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet the
+    ///        redemption is requested against.
+    function validateRedeemerOutputScript(
+        bytes memory redeemerOutputScript,
+        bytes20 walletPubKeyHash
+    ) internal pure {
+        // Validate if redeemer output script is a correct standard type
+        // (P2PKH, P2WPKH, P2SH or P2WSH). This is done by using
+        // `BTCUtils.extractHashAt` on it. Such a function extracts the
+        // payload properly only from standard outputs so if it succeeds, we
+        // have a guarantee the redeemer output script is proper. The
+        // underlying way of validation is the same as in tBTC v1.
+        bytes memory redeemerOutputScriptPayload = redeemerOutputScript
+            .extractHashAt(0, redeemerOutputScript.length);
+
+        require(
+            redeemerOutputScriptPayload.length > 0,
+            "Redeemer output script must be a standard type"
+        );
+        // Check if the redeemer output script payload does not point to the
+        // wallet public key hash.
+        require(
+            redeemerOutputScriptPayload.length != 20 ||
+                walletPubKeyHash != redeemerOutputScriptPayload.slice20(0),
+            "Redeemer output script must not point to the wallet PKH"
+        );
+    }
 
     /// @notice Checks whether an outbound Bitcoin transaction performed from
     ///         the given wallet has an input vector that contains a single
@@ -533,25 +600,9 @@ library Redemption {
             "Invalid main UTXO data"
         );
 
-        // Validate if redeemer output script is a correct standard type
-        // (P2PKH, P2WPKH, P2SH or P2WSH). This is done by using
-        // `BTCUtils.extractHashAt` on it. Such a function extracts the payload
-        // properly only from standard outputs so if it succeeds, we have a
-        // guarantee the redeemer output script is proper. The underlying way
-        // of validation is the same as in tBTC v1.
-        bytes memory redeemerOutputScriptPayload = redeemerOutputScript
-            .extractHashAt(0, redeemerOutputScript.length);
-
-        require(
-            redeemerOutputScriptPayload.length > 0,
-            "Redeemer output script must be a standard type"
-        );
-        // Check if the redeemer output script payload does not point to the
-        // wallet public key hash.
-        require(
-            redeemerOutputScriptPayload.length != 20 ||
-                walletPubKeyHash != redeemerOutputScriptPayload.slice20(0),
-            "Redeemer output script must not point to the wallet PKH"
+        OutboundTx.validateRedeemerOutputScript(
+            redeemerOutputScript,
+            walletPubKeyHash
         );
 
         require(

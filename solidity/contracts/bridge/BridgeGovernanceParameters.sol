@@ -1571,4 +1571,98 @@ library BridgeGovernanceParameters {
         self.newTreasury = address(0);
         self.treasuryChangeInitiated = 0;
     }
+
+    struct ReservationData {
+        address newReservationVault;
+        uint64 newReservationMinAmount;
+        uint64 newReservationTxMaxFee;
+        uint64 newReservationDissolutionTxMaxFee;
+        uint32 newReservationTermSeconds;
+        uint32 newReservationGracePeriod;
+        uint64 newReservationMaxTotalAmount;
+        uint32 newMaxReservationsPerWallet;
+        uint64 newMaxCumulativeReanchorFee;
+        uint256 reservationParametersChangeInitiated;
+    }
+
+    event ReservationParametersUpdateStarted(
+        address newReservationVault,
+        uint64 newReservationMinAmount,
+        uint64 newReservationTxMaxFee,
+        uint64 newReservationDissolutionTxMaxFee,
+        uint32 newReservationTermSeconds,
+        uint32 newReservationGracePeriod,
+        uint64 newReservationMaxTotalAmount,
+        uint32 newMaxReservationsPerWallet,
+        uint64 newMaxCumulativeReanchorFee,
+        uint256 timestamp
+    );
+
+    /// @notice Begins the reservation parameters update process. All
+    ///         reservation parameters are staged together since they are
+    ///         applied atomically via a single Bridge call.
+    function beginReservationParametersUpdate(
+        ReservationData storage self,
+        address _newReservationVault,
+        uint64 _newReservationMinAmount,
+        uint64 _newReservationTxMaxFee,
+        uint64 _newReservationDissolutionTxMaxFee,
+        uint32 _newReservationTermSeconds,
+        uint32 _newReservationGracePeriod,
+        uint64 _newReservationMaxTotalAmount,
+        uint32 _newMaxReservationsPerWallet,
+        uint64 _newMaxCumulativeReanchorFee
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        self.newReservationVault = _newReservationVault;
+        self.newReservationMinAmount = _newReservationMinAmount;
+        self.newReservationTxMaxFee = _newReservationTxMaxFee;
+        self
+            .newReservationDissolutionTxMaxFee = _newReservationDissolutionTxMaxFee;
+        self.newReservationTermSeconds = _newReservationTermSeconds;
+        self.newReservationGracePeriod = _newReservationGracePeriod;
+        self.newReservationMaxTotalAmount = _newReservationMaxTotalAmount;
+        self.newMaxReservationsPerWallet = _newMaxReservationsPerWallet;
+        self.newMaxCumulativeReanchorFee = _newMaxCumulativeReanchorFee;
+        self.reservationParametersChangeInitiated = block.timestamp;
+        emit ReservationParametersUpdateStarted(
+            _newReservationVault,
+            _newReservationMinAmount,
+            _newReservationTxMaxFee,
+            _newReservationDissolutionTxMaxFee,
+            _newReservationTermSeconds,
+            _newReservationGracePeriod,
+            _newReservationMaxTotalAmount,
+            _newMaxReservationsPerWallet,
+            _newMaxCumulativeReanchorFee,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the reservation parameters update process.
+    /// @dev The staged values are read by the caller before this call; this
+    ///      function only enforces the governance delay and clears the
+    ///      staged change along with all staged reservation parameters.
+    function finalizeReservationParametersUpdate(
+        ReservationData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.reservationParametersChangeInitiated,
+            governanceDelay
+        )
+    {
+        self.newReservationVault = address(0);
+        self.newReservationMinAmount = 0;
+        self.newReservationTxMaxFee = 0;
+        self.newReservationDissolutionTxMaxFee = 0;
+        self.newReservationTermSeconds = 0;
+        self.newReservationGracePeriod = 0;
+        self.newReservationMaxTotalAmount = 0;
+        self.newMaxReservationsPerWallet = 0;
+        self.newMaxCumulativeReanchorFee = 0;
+        self.reservationParametersChangeInitiated = 0;
+    }
 }
