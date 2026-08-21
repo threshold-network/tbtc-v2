@@ -271,6 +271,36 @@ library ReservationProofs {
             "Deposit was not revealed as reserved"
         );
 
+        Reservation.ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+
+        if (late && reservation.requestNonce != requestNonce) {
+            // A newer pending acceptance generation exists. Its anchor can
+            // never confirm: the deposit this late proof consumes is the
+            // only input it was authorized to spend, and the deposit is
+            // irrevocably swept below. Release its reserved capacity and
+            // mark it Superseded so the capacity and per-wallet count do
+            // not leak permanently. Guard on it being Pending; a newer
+            // generation that already timed out or settled needs no unwind
+            // here (its capacity was already released or its own proof
+            // settled it).
+            Reservation.ReservationAction storage newerAction = self
+                .reservationActions[
+                    Reservation.actionKey(
+                        reservationKey,
+                        reservation.requestNonce
+                    )
+                ];
+            if (
+                newerAction.actionType ==
+                Reservation.ActionType.Acceptance &&
+                newerAction.state == Reservation.ActionState.Pending
+            ) {
+                unwindPendingAction(self, reservation, reservationKey, false);
+            }
+        }
+
         bytes32 anchorTxHash = self.validateProof(anchorTx, anchorProof);
 
         consumeAcceptedDeposit(self, anchorTx.inputVector, reservationKey);
@@ -363,13 +393,48 @@ library ReservationProofs {
     ) internal {
         action.state = Reservation.ActionState.Settled;
 
+        address depositor = self.deposits[reservationKey].depositor;
+        bytes20 targetWalletPubKeyHash = action.targetWalletPubKeyHash;
+
+        Reservation.ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+
+        bool walletTerminated =
+            self.registeredWallets[targetWalletPubKeyHash].state ==
+            Wallets.WalletState.Terminated;
+
         if (late) {
+            if (walletTerminated) {
+                // The wallet was terminated while this timed-out acceptance
+                // generation's anchor may already have confirmed on
+                // Bitcoin. Minting here would create unbacked TBTC: the
+                // dissolving signing group that holds the anchor can never
+                // unwind it through the tracked settlement paths (mirrors
+                // the terminated-wallet branch of `settleDissolution`).
+                // Record the position as Stranded for off-chain recovery
+                // and emit the event; no Bank movement is performed.
+                reservation.owner = depositor;
+                reservation.walletPubKeyHash = targetWalletPubKeyHash;
+                reservation.anchorAmount = anchorAmount;
+                reservation.anchorTxHash = anchorTxHash;
+                reservation.state = Reservation.ReservationState.Stranded;
+
+                // slither-disable-next-line reentrancy-events
+                emit ReservationLateSettled(
+                    reservationKey,
+                    requestNonce,
+                    Reservation.ActionType.Acceptance
+                );
+                return;
+            }
+
             // The timeout released the capacity reserved at request time;
             // re-take it for the actual anchor value. Deliberately no cap
             // check: caps are request-time throttles and the anchor is
             // already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
-            self.walletReservationsCount[action.targetWalletPubKeyHash] += 1;
+            self.walletReservationsCount[targetWalletPubKeyHash] += 1;
             emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
@@ -380,12 +445,6 @@ library ReservationProofs {
             // (deposit value) and the actual anchor value (miner fee).
             self.reservationTotalAmount -= (action.amount - anchorAmount);
         }
-
-        address depositor = self.deposits[reservationKey].depositor;
-
-        Reservation.ReservationRequest storage reservation = self.reservations[
-            reservationKey
-        ];
 
         /* solhint-disable-next-line not-rely-on-time */
         uint32 expiresAt = uint32(block.timestamp) +
@@ -644,18 +703,61 @@ library ReservationProofs {
             "Re-anchor amount below the dust floor"
         );
 
+        bool targetWalletTerminated =
+            self.registeredWallets[newWalletPubKeyHash].state ==
+            Wallets.WalletState.Terminated;
+
         if (late) {
+            if (targetWalletTerminated) {
+                // The target wallet was terminated while this timed-out
+                // re-anchor generation's transaction may already have
+                // confirmed. Re-anchoring onto a terminated wallet's count
+                // would re-take capacity against a dead wallet that can
+                // never unwind it (mirrors the terminated-wallet branch of
+                // `settleDissolution`). Release the source wallet's count,
+                // remove the anchor's full value from the tracked reserved
+                // amount (the position is no longer an in-kind claim: the
+                // owner's minted balance is ordinary pooled backing), and
+                // strand the position for off-chain recovery. No newer
+                // pending generation is unwound here -- a late re-anchor
+                // that strands never consumes an anchor a newer generation
+                // could still settle (the newer generation's anchor is the
+                // source anchor this transaction provably consumed, so it
+                // is unwound via the normal late-settle path instead).
+                self.walletReservationsCount[reservation.walletPubKeyHash] -=
+                    1;
+                self.reservationTotalAmount -= reservation.anchorAmount;
+
+                reservation.walletPubKeyHash = newWalletPubKeyHash;
+                reservation.state = Reservation.ReservationState.Stranded;
+
+                action.state = Reservation.ActionState.Settled;
+
+                // slither-disable-next-line reentrancy-events
+                emit ReservationLateSettled(
+                    reservationKey,
+                    requestNonce,
+                    Reservation.ActionType.Reanchor
+                );
+                return;
+            }
+
             // The timeout released the target wallet's reserved count;
             // re-take it. Deliberately no cap check (see acceptance).
             self.walletReservationsCount[newWalletPubKeyHash] += 1;
 
             // A newer pending generation references an anchor this
-            // transaction just consumed; unwind it.
-            if (
-                reservation.state == Reservation.ReservationState.ActionPending
-            ) {
-                unwindPendingAction(self, reservation, reservationKey, true);
-            }
+            // transaction just consumed; unless it also matches the
+            // transaction (same target wallet within fee bound -- the
+            // wallet could have signed either generation's authorization
+            // for this exact spend), unwind it.
+            resolveLateReanchorAgainstPending(
+                self,
+                reservation,
+                reservationKey,
+                action,
+                newAnchorAmount
+            );
 
             // slither-disable-next-line reentrancy-events
             emit ReservationLateSettled(
@@ -1015,6 +1117,45 @@ library ReservationProofs {
         unwindPendingAction(self, reservation, reservationKey, false);
     }
 
+    /// @notice Resolves a late re-anchor settlement against the position's
+    ///         current pending generation. If the pending generation is
+    ///         also a re-anchor authorizing the same target wallet within
+    ///         its own fee bound, the proof must settle against it instead
+    ///         (the wallet could have signed either generation's
+    ///         authorization for this exact spend, and attributing the
+    ///         re-taken capacity to the wrong generation's bookkeeping
+    ///         would be incorrect); otherwise the pending generation's
+    ///         anchor is provably gone and it is unwound.
+    function resolveLateReanchorAgainstPending(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        Reservation.ReservationAction storage action,
+        uint64 newAnchorAmount
+    ) internal {
+        if (reservation.state != Reservation.ReservationState.ActionPending) {
+            return;
+        }
+
+        Reservation.ReservationAction storage pendingAction = self
+            .reservationActions[
+                Reservation.actionKey(reservationKey, reservation.requestNonce)
+            ];
+        if (
+            pendingAction.actionType == Reservation.ActionType.Reanchor &&
+            pendingAction.targetWalletPubKeyHash ==
+            action.targetWalletPubKeyHash &&
+            reservation.anchorAmount - newAnchorAmount <=
+            pendingAction.txMaxFee
+        ) {
+            revert("Must settle the pending generation");
+        }
+
+        // The pending generation cannot claim the transaction; its anchor
+        // is gone, so unwind it.
+        unwindPendingAction(self, reservation, reservationKey, true);
+    }
+
     /// @notice Unwinds the position's current pending generation during a
     ///         late settlement of an older generation: the anchor the
     ///         pending generation was authorized to spend has provably been
@@ -1054,6 +1195,17 @@ library ReservationProofs {
                 pendingAction.redeemer,
                 pendingAction.amount
             );
+        } else if (
+            pendingAction.actionType == Reservation.ActionType.Acceptance
+        ) {
+            // Release the capacity reserved by the superseded acceptance
+            // request. The generation it was authorized to settle was
+            // provably consumed by the late settlement that superseded it
+            // (the deposit it would accept is already swept).
+            self.reservationTotalAmount -= pendingAction.amount;
+            self.walletReservationsCount[
+                pendingAction.targetWalletPubKeyHash
+            ] -= 1;
         } else if (
             pendingAction.actionType == Reservation.ActionType.Reanchor
         ) {
