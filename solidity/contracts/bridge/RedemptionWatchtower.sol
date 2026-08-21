@@ -138,14 +138,21 @@ contract RedemptionWatchtower is OwnableUpgradeable {
 
     event GuardianRemoved(address indexed guardian);
 
+    // `vetoKey` is either the pooled redemption key
+    // (`keccak256(keccak256(redeemerOutputScript), walletPubKeyHash)`) or
+    // the reserved veto key (`reservedVetoKey(reservationKey,
+    // requestNonce)`), depending on which path raised the objection.
+    // Collision between the two key spaces is cryptographically
+    // infeasible (different preimage lengths); indexers distinguish them
+    // by cross-referencing whichever Bridge event accompanies them.
     event ObjectionRaised(
-        uint256 indexed redemptionKey,
+        uint256 indexed vetoKey,
         address indexed guardian
     );
 
-    event VetoPeriodCheckOmitted(uint256 indexed redemptionKey);
+    event VetoPeriodCheckOmitted(uint256 indexed vetoKey);
 
-    event VetoFinalized(uint256 indexed redemptionKey);
+    event VetoFinalized(uint256 indexed vetoKey);
 
     event WatchtowerParametersUpdated(
         uint32 watchtowerLifetime,
@@ -444,6 +451,13 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     ///      - The generation must be within the veto delay snapshotted for
     ///        its current objection level; a permanently disabled watchtower
     ///        makes the effective delay zero.
+    ///      Deliberate divergence from the pooled path: a generation
+    ///      requested before the watchtower was ever enabled snapshots an
+    ///      all-zero delay schedule and can therefore never be objected to
+    ///      (there is no `VetoPeriodCheckOmitted` escape hatch here).
+    ///      Harmless under the deployment sequencing this stack assumes
+    ///      (the watchtower is enabled before any reserved redemption is
+    ///      requested).
     function raiseReservedObjection(uint256 reservationKey, uint64 requestNonce)
         external
         onlyGuardian

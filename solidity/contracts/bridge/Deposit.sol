@@ -443,6 +443,10 @@ library Deposit {
     ///         earlier than the moment when the deposit refund locktime is
     ///         reached, i.e. the deposit become refundable. Reverts otherwise.
     /// @param refundLocktime The deposit refund locktime as 4-byte LE.
+    /// @return depositRefundableTimestamp The decoded refund locktime as a
+    ///         Unix timestamp (the moment the deposit becomes refundable),
+    ///         reused by the reserved-deposit acceptance flow as the
+    ///         authorization upper bound.
     /// @dev Requirements:
     ///      - `refundLocktime` as integer must be >= 500M
     ///      - `refundLocktime` must denote a timestamp that is at least

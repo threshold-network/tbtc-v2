@@ -44,8 +44,10 @@ library BridgeState {
         // because acceptance must enforce the validator's refund margin.
         uint32 refundDeadline;
         // True if the global reveal-ahead policy validated the deadline.
-        // Later stale cleanup uses this bit to preserve the disabled policy's
-        // historical behavior; acceptance always uses the exact deadline.
+        // Reserved for the planned stale-deposit marking path (RFC 13),
+        // which will use this bit to preserve the disabled policy's
+        // historical behavior; currently stored but not consulted by the
+        // acceptance path, which always uses the exact deadline.
         bool refundDeadlineValidated;
     }
 
