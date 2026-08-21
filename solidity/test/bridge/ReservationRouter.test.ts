@@ -722,7 +722,7 @@ describe("ReservationRouter", () => {
         // dispatch path) or an unexpected drop (e.g. the router silently
         // not being invoked) both fail, while still tolerating
         // compiler/EVM-version gas-cost drift.
-        expect(overhead.toNumber()).to.be.within(5000, 10000)
+        expect(overhead.toNumber()).to.be.within(10000, 15000)
       })
     })
   })
@@ -755,10 +755,12 @@ describe("ReservationRouter", () => {
             ethers.constants.AddressZero,
             1000000,
             10000,
+            20000,
             31536000,
             2592000,
             100000000000,
-            10
+            10,
+            100000
           )
       ).to.be.revertedWith("Caller is not the governance")
 

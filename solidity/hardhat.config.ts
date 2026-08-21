@@ -85,11 +85,13 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-// Preserve the Bridge's EIP-170 deployment margin. Even with the
+      // Preserve the Bridge's EIP-170 deployment margin. Even with the
       // UTXO-reservation surface moved out to the delegatecall
-      // ReservationRouter, the post-move Bridge sits ~695 bytes over the
-      // limit at runs=1000 (25,271 B measured); runs=100 leaves a ~1.6 kB
-      // margin (22,914 B measured; both figures are measured directly).
+      // ReservationRouter (and the rebased core reservation model on top),
+      // the post-move Bridge sits ~1,672 bytes over the limit at
+      // runs=1000 (26,248 B measured); the runs=90 setting used below
+      // leaves an 843 B margin (23,733 B measured; both figures are
+      // measured on this branch).
       // The runtime-gas cost of the lower runs value on the
       // deposit/redemption hot paths is expected to be small -- the
       // Bridge is a thin dispatch shell over linked libraries (Deposit,
@@ -103,7 +105,7 @@ const config: HardhatUserConfig = {
       // router, one that does not) so the pre-existing proxy hop cancels
       // out of the comparison -- see the "delegatecall dispatch overhead"
       // test in ReservationRouter.test.ts for the exact figure and bound.
-      // This is unrelated to the runs=1000-vs-100 setting above; it is
+      // This is unrelated to the runs=1000-vs-90 setting above; it is
       // the cost of the router architecture itself.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",

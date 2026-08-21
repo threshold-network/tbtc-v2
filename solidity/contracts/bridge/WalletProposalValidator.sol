@@ -277,7 +277,6 @@ contract WalletProposalValidator {
 
         address proposalVault = address(0);
 
-
         uint256[] memory processedDepositKeys = new uint256[](
             proposal.depositsKeys.length
         );
@@ -1096,7 +1095,8 @@ contract WalletProposalValidator {
     ) external view returns (bool) {
         requireWalletLiveOrMovingFunds(proposal.walletPubKeyHash);
 
-        Reservation.ReservationRequest memory reservation = _reservationBridge.reservations(proposal.reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge
+            .reservations(proposal.reservationKey);
 
         require(
             reservation.state ==
@@ -1163,7 +1163,8 @@ contract WalletProposalValidator {
     function validateReservationReanchorProposal(
         ReservationReanchorProposal calldata proposal
     ) external view returns (bool) {
-        Reservation.ReservationRequest memory reservation = _reservationBridge.reservations(proposal.reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge
+            .reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,
@@ -1180,7 +1181,7 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-(, , uint64 reservationTxMaxFee, , , , , , , ) = _reservationBridge
+        (, , uint64 reservationTxMaxFee, , , , , , , ) = _reservationBridge
             .reservationParameters();
         require(
             proposal.reanchorTxFee > 0,
@@ -1226,7 +1227,8 @@ contract WalletProposalValidator {
             "Wallet is not in Live, MovingFunds or Terminated state"
         );
 
-        Reservation.ReservationRequest memory reservation = _reservationBridge.reservations(proposal.reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge
+            .reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,

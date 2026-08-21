@@ -720,32 +720,44 @@
           "type": "t_uint64"
         },
         {
-          "label": "reservationGracePeriod",
-          "slot": "30",
-          "offset": 28,
-          "type": "t_uint32"
-        },
-        {
-          "label": "reservationMaxTotalAmount",
+          "label": "reservationDissolutionTxMaxFee",
           "slot": "31",
           "offset": 0,
           "type": "t_uint64"
         },
         {
-          "label": "reservationTotalAmount",
+          "label": "reservationGracePeriod",
           "slot": "31",
           "offset": 8,
+          "type": "t_uint32"
+        },
+        {
+          "label": "reservationMaxTotalAmount",
+          "slot": "31",
+          "offset": 12,
+          "type": "t_uint64"
+        },
+        {
+          "label": "reservationTotalAmount",
+          "slot": "31",
+          "offset": 20,
           "type": "t_uint64"
         },
         {
           "label": "maxReservationsPerWallet",
           "slot": "31",
-          "offset": 16,
+          "offset": 28,
           "type": "t_uint32"
         },
         {
-          "label": "reservations",
+          "label": "maxCumulativeReanchorFee",
           "slot": "32",
+          "offset": 0,
+          "type": "t_uint64"
+        },
+        {
+          "label": "reservations",
+          "slot": "33",
           "offset": 0,
           "type": {
             "id": "t_mapping(t_uint256,t_struct(ReservationRequest)_storage)",
@@ -755,7 +767,7 @@
             "value": {
               "id": "t_struct(ReservationRequest)_storage",
               "encoding": "inplace",
-              "numberOfBytes": "192",
+              "numberOfBytes": "224",
               "members": [
                 {
                   "label": "owner",
@@ -838,21 +850,21 @@
                   "slot": "5",
                   "offset": 0,
                   "type": "t_bytes32"
+                },
+                {
+                  "label": "cumulativeReanchorFee",
+                  "slot": "6",
+                  "offset": 0,
+                  "type": "t_uint64"
+                },
+                {
+                  "label": "lastTimeoutWasWalletFault",
+                  "slot": "6",
+                  "offset": 8,
+                  "type": "t_bool"
                 }
               ]
             }
-          }
-        },
-        {
-          "label": "reservationsByAnchorUtxo",
-          "slot": "33",
-          "offset": 0,
-          "type": {
-            "id": "t_mapping(t_uint256,t_uint256)",
-            "encoding": "mapping",
-            "numberOfBytes": "32",
-            "key": "t_uint256",
-            "value": "t_uint256"
           }
         },
         {
@@ -886,24 +898,36 @@
                   "slot": "0",
                   "offset": 0,
                   "type": "t_bool"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "label": "reservedRedemptionSettlements",
+          "slot": "36",
+          "offset": 0,
+          "type": {
+            "id": "t_mapping(t_uint256,t_struct(ReservedRedemptionSettlement)_storage)",
+            "encoding": "mapping",
+            "numberOfBytes": "32",
+            "key": "t_uint256",
+            "value": {
+              "id": "t_struct(ReservedRedemptionSettlement)_storage",
+              "encoding": "inplace",
+              "numberOfBytes": "64",
+              "members": [
+                {
+                  "label": "anchorTxHash",
+                  "slot": "0",
+                  "offset": 0,
+                  "type": "t_bytes32"
                 },
                 {
-                  "label": "walletPubKeyHash",
-                  "slot": "0",
-                  "offset": 1,
-                  "type": "t_bytes20"
-                },
-                {
-                  "label": "refundDeadline",
-                  "slot": "0",
-                  "offset": 21,
-                  "type": "t_uint32"
-                },
-                {
-                  "label": "refundDeadlineValidated",
-                  "slot": "0",
-                  "offset": 25,
-                  "type": "t_bool"
+                  "label": "redeemerOutputScriptHash",
+                  "slot": "1",
+                  "offset": 0,
+                  "type": "t_bytes32"
                 }
               ]
             }
@@ -911,18 +935,18 @@
         },
         {
           "label": "reservationRouter",
-          "slot": "36",
+          "slot": "37",
           "offset": 0,
           "type": "t_address"
         },
         {
           "label": "__gap",
-          "slot": "37",
+          "slot": "38",
           "offset": 0,
           "type": {
             "id": "t_array(t_uint256)_storage",
             "encoding": "inplace",
-            "numberOfBytes": "1312",
+            "numberOfBytes": "1280",
             "base": "t_uint256"
           }
         }

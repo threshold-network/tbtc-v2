@@ -114,7 +114,7 @@ contract Bridge is
         bytes redeemerOutputScript
     );
 
-event WalletMovingFunds(
+    event WalletMovingFunds(
         bytes32 indexed ecdsaWalletID,
         bytes20 indexed walletPubKeyHash
     );
@@ -2190,7 +2190,7 @@ event WalletMovingFunds(
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
     }
 
-/// @notice Sets the reservation router: the contract holding the
+    /// @notice Sets the reservation router: the contract holding the
     ///         Bridge's UTXO-reservation external surface, reached through
     ///         the fallback function below via `delegatecall`. See
     ///         `ReservationRouter` for the architecture and its security
@@ -2246,7 +2246,7 @@ event WalletMovingFunds(
         address reservationRouter = self.reservationRouter;
         require(reservationRouter != address(0), "Unknown function");
 
-// slither-disable-next-line assembly
+        // slither-disable-next-line assembly
         // solhint-disable-next-line no-inline-assembly
         assembly {
             calldatacopy(0, 0, calldatasize())

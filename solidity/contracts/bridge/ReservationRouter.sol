@@ -84,7 +84,11 @@ import "./Reservation.sol";
 ///         ceremony as any Bridge logic change), keeping code-change
 ///         authority exactly where it is today: with the proxy admin, not
 ///         with the parameter governance.
-contract ReservationRouter is Governable, Initializable {
+contract ReservationRouter is
+    Governable,
+    Initializable,
+    IReservationRouterShapeProbe
+{
     using Reservation for BridgeState.Storage;
 
     // Mirror of the Bridge's storage anchor. `Governable` contributes slots
@@ -126,6 +130,24 @@ contract ReservationRouter is Governable, Initializable {
 
     event ReservedRedemptionVetoed(uint256 indexed reservationKey);
 
+    // Emitted when a reserved redemption proof lands after the request
+    // already timed out or was vetoed; the redeemer was already refunded
+    // and no further balance movement occurs. Re-declared here mirroring
+    // the `Reservation` library (see the event-parity test).
+    event ReservedRedemptionSettled(
+        uint256 indexed reservationKey,
+        bytes32 redemptionTxHash
+    );
+
+    // Emitted when a reserved redemption timeout occurs but the custodying
+    // wallet has already reached Closing or Closed state, so wallet-fault
+    // slashing is skipped (the redeemer is still refunded). Re-declared
+    // here mirroring the `Reservation` library.
+    event ReservedRedemptionTimeoutSlashingSkipped(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash
+    );
+
     event ReservationReanchored(
         uint256 indexed reservationKey,
         bytes20 indexed newWalletPubKeyHash,
@@ -136,16 +158,21 @@ contract ReservationRouter is Governable, Initializable {
     event ReservationDissolved(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
-        bytes32 dissolutionTxHash
+        bytes32 dissolutionTxHash,
+        uint64 mintedAmount,
+        uint64 anchorAmount,
+        uint64 dissolutionFee
     );
 
     event ReservationParametersUpdated(
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
+        uint64 reservationDissolutionTxMaxFee,
         uint32 reservationTermSeconds,
         uint32 reservationGracePeriod,
         uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet
+        uint32 maxReservationsPerWallet,
+        uint64 maxCumulativeReanchorFee
     );
 
     event ReservationVaultUpdated(address reservationVault);
@@ -277,19 +304,23 @@ contract ReservationRouter is Governable, Initializable {
         address reservationVault,
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
+        uint64 reservationDissolutionTxMaxFee,
         uint32 reservationTermSeconds,
         uint32 reservationGracePeriod,
         uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet
+        uint32 maxReservationsPerWallet,
+        uint64 maxCumulativeReanchorFee
     ) external onlyGovernance {
         self.updateReservationParameters(
             reservationVault,
             reservationMinAmount,
             reservationTxMaxFee,
+            reservationDissolutionTxMaxFee,
             reservationTermSeconds,
             reservationGracePeriod,
             reservationMaxTotalAmount,
-            maxReservationsPerWallet
+            maxReservationsPerWallet,
+            maxCumulativeReanchorFee
         );
     }
 
@@ -313,21 +344,25 @@ contract ReservationRouter is Governable, Initializable {
             address reservationVault,
             uint64 reservationMinAmount,
             uint64 reservationTxMaxFee,
+            uint64 reservationDissolutionTxMaxFee,
             uint32 reservationTermSeconds,
             uint32 reservationGracePeriod,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet
+            uint32 maxReservationsPerWallet,
+            uint64 maxCumulativeReanchorFee
         )
     {
         reservationVault = self.reservationVault;
         reservationMinAmount = self.reservationMinAmount;
         reservationTxMaxFee = self.reservationTxMaxFee;
+        reservationDissolutionTxMaxFee = self.reservationDissolutionTxMaxFee;
         reservationTermSeconds = self.reservationTermSeconds;
         reservationGracePeriod = self.reservationGracePeriod;
         reservationMaxTotalAmount = self.reservationMaxTotalAmount;
         reservationTotalAmount = self.reservationTotalAmount;
         maxReservationsPerWallet = self.maxReservationsPerWallet;
+        maxCumulativeReanchorFee = self.maxCumulativeReanchorFee;
     }
 
     /// @notice Reads the `BridgeState.Storage.reservationRouter` slot this

@@ -65,11 +65,13 @@ interface IReservationBridge {
             address reservationVault,
             uint64 reservationMinAmount,
             uint64 reservationTxMaxFee,
+            uint64 reservationDissolutionTxMaxFee,
             uint32 reservationTermSeconds,
             uint32 reservationGracePeriod,
             uint64 reservationMaxTotalAmount,
             uint64 reservationTotalAmount,
-            uint32 maxReservationsPerWallet
+            uint32 maxReservationsPerWallet,
+            uint64 maxCumulativeReanchorFee
         );
 }
 
@@ -85,9 +87,11 @@ interface IReservationBridgeGovernance is IReservationBridge {
         address reservationVault,
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
+        uint64 reservationDissolutionTxMaxFee,
         uint32 reservationTermSeconds,
         uint32 reservationGracePeriod,
         uint64 reservationMaxTotalAmount,
-        uint32 maxReservationsPerWallet
+        uint32 maxReservationsPerWallet,
+        uint64 maxCumulativeReanchorFee
     ) external;
 }

@@ -57,22 +57,23 @@ fit within the mainnet-standard optimizer setting:
 |===
 |Bridge variant |Optimizer `runs` |Deployed size |vs. EIP-170 limit (24,576 B)
 
-|Post-move (this branch, reservation surface moved to `ReservationRouter`)
+|Post-move (this branch, with the rebased core reservation model)
 |1000 (mainnet standard)
-|25,271 B
-|~695 B over
+|26,248 B
+|~1,672 B over
 
-|Post-move (this branch, reservation surface moved to `ReservationRouter`)
-|100 (reduced, see below)
-|22,914 B
-|~1.6 kB margin
+|Post-move (this branch, with the rebased core reservation model)
+|90 (reduced, see `solidity/hardhat.config.ts`)
+|23,733 B
+|843 B margin
 |===
 
-Both rows measure the *same*, already-refactored Bridge; there is no
-post-move build that fits at `runs=1000`. The router's value is its own,
-independent 24 kB EIP-170 budget for the reservation surface -- not
-"restored" Bridge headroom, since the Bridge itself still needs the
-reduced `runs=100` setting to fit even after the surface has moved out.
+Both rows measure the *same*, already-refactored Bridge (23,733 B at the
+shipped `runs=90` setting); there is no post-move build that fits at
+`runs=1000`. The router's value is its own, independent 24 kB EIP-170
+budget for the reservation surface -- not "restored" Bridge headroom,
+since the Bridge itself still needs the reduced `runs=90` setting to fit
+even after the surface has moved out.
 
 === Considered shapes
 
@@ -130,8 +131,9 @@ dispatch shell over external libraries that keep `runs=1000`, so the
 runtime-gas cost of the lower `runs` value on hot paths is expected to be
 small, though not backed by a committed gas-diff test as of this writing
 (see `solidity/hardhat.config.ts`'s compiler-override comment); the
-~1.6 kB deployment-size margin itself is measured directly. The router
-has its own, independent EIP-170 budget for the settlement machine below.
+843 B deployment-size margin at the shipped `runs=90` setting is
+measured directly (23,733 B; see the Problem section). The router has
+its own, independent EIP-170 budget for the settlement machine below.
 
 == Two-phase settlement machine
 

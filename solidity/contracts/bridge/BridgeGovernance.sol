@@ -1860,7 +1860,7 @@ contract BridgeGovernance is Ownable {
         BridgeGovernanceParameters.ReservationData
             memory staged = reservationData;
         reservationData.finalizeReservationParametersUpdate(governanceDelay());
-IReservationBridgeGovernance(address(bridge))
+        IReservationBridgeGovernance(address(bridge))
             .updateReservationParameters(
                 staged.newReservationVault,
                 staged.newReservationMinAmount,

@@ -444,7 +444,8 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         external
         onlyGuardian
     {
-_reservationBridge().reservations(reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge()
+            .reservations(reservationKey);
 
         require(
             reservation.state ==
@@ -563,7 +564,8 @@ _reservationBridge().reservations(reservationKey);
         view
         returns (uint32)
     {
-        Reservation.ReservationRequest memory reservation = _reservationBridge().reservations(reservationKey);
+        Reservation.ReservationRequest memory reservation = _reservationBridge()
+            .reservations(reservationKey);
 
         require(
             reservation.state ==
@@ -836,11 +838,7 @@ _reservationBridge().reservations(reservationKey);
     /// @notice Returns the reservation-surface handle to the Bridge so the
     ///         reservation ABI is reachable without re-deriving
     ///         `IReservationBridge(address(bridge))` at each call site.
-    function _reservationBridge()
-        internal
-        view
-        returns (IReservationBridge)
-    {
+    function _reservationBridge() internal view returns (IReservationBridge) {
         return IReservationBridge(address(bridge));
     }
 }

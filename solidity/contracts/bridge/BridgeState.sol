@@ -434,7 +434,7 @@ library BridgeState {
         // The number of active reservations custodied by the given wallet,
         // identified by its 20-byte wallet public key hash.
         mapping(bytes20 => uint32) walletReservationsCount;
-// Reveal-time facts for deposits routed to the reservation vault.
+        // Reveal-time facts for deposits routed to the reservation vault.
         // The permanent classification prevents later reservation-vault
         // updates from changing an ordinary deposit into a reservation or
         // making a reserved deposit eligible for an ordinary sweep.
@@ -464,7 +464,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-uint256[40] __gap;
+        uint256[40] __gap;
     }
 
     event DepositParametersUpdated(
@@ -1069,7 +1069,10 @@ uint256[40] __gap;
         _validateReservationRouterShape(_reservationRouter);
 
         self.reservationRouter = _reservationRouter;
-        emit ReservationRouterRepaired(oldReservationRouter, _reservationRouter);
+        emit ReservationRouterRepaired(
+            oldReservationRouter,
+            _reservationRouter
+        );
     }
 
     /// @notice Sets the rebate staking address.
@@ -1126,16 +1129,22 @@ uint256[40] __gap;
             "Reservation router must be a contract"
         );
 
-        try
-            IReservationRouterShapeProbe(_reservationRouter)
-                .reservationRouter()
-        returns (address wiredElsewhere) {
-            require(
-                wiredElsewhere == address(0),
-                "Reservation router does not look unwired"
-            );
-        } catch {
+        IReservationRouterShapeProbe probe = IReservationRouterShapeProbe(
+            _reservationRouter
+        );
+        // slither-disable-next-line low-level-calls
+        (bool ok, bytes memory returnData) = address(probe).staticcall(
+            abi.encodeWithSelector(
+                IReservationRouterShapeProbe.reservationRouter.selector
+            )
+        );
+        if (!ok || returnData.length != 32) {
             revert("Reservation router does not implement router ABI");
         }
+        address wiredElsewhere = abi.decode(returnData, (address));
+        require(
+            wiredElsewhere == address(0),
+            "Reservation router does not look unwired"
+        );
     }
 }
