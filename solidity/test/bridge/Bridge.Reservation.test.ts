@@ -3381,6 +3381,234 @@ describe("Bridge - Reservation", () => {
       )
     })
 
+    it("leaves residual backing independent of claim size after maximal grinding", async () => {
+      // Characterization of the accepted underbacking risk (follow-up item 7
+      // in the reservation review notes). It pins the *shape* of the risk so
+      // any later change to the dust floor, the dissolution cap, the
+      // cumulative budget, or the `mintedAmount` accounting has to restate it
+      // rather than move it silently.
+      //
+      // The finding: the dust floor is absolute (`> reservationTxMaxFee`),
+      // so the satoshi left backing a fully-ground reservation is the
+      // constant `reservationTxMaxFee + 1 - reservationDissolutionTxMaxFee`
+      // no matter how large the claim was. Fractional underbacking therefore
+      // grows with position size, and peaks where the cumulative budget and
+      // the dust floor bind at the same time -- NOT on a minimum-sized
+      // reservation, which is the intuitive but wrong guess.
+      //
+      // The parameters below are scaled down from the suite fixture purely to
+      // keep the grind to a handful of hops: reaching the floor under the
+      // fixture's 2000/100000 pair would take 50 re-anchor proofs. The
+      // invariant is parameter-independent, so the scaled regime tests the
+      // same mechanism -- but note this test does NOT measure the fixture's
+      // own worst case, which is arithmetic from the invariant, not a
+      // measured result.
+      const txMaxFee = 100
+      const dissolutionCap = 60
+      const cumulativeCap = 400
+      const minAmount = 150
+
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          minAmount,
+          txMaxFee,
+          dissolutionCap,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          cumulativeCap
+        )
+      await bridge.setDepositDustThreshold(50)
+
+      const floor = txMaxFee + 1
+      // Residual backing is claim-independent, hence a single constant.
+      const residualBacking = floor - dissolutionCap
+
+      // Reveals and accepts a reservation of exactly `claim` satoshi, paying
+      // a 1-satoshi acceptance fee so the deposit stays within `txMaxFee`.
+      async function acceptClaim(claim: number) {
+        const fundingTx = buildTx(
+          [
+            {
+              txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+              index: 0,
+            },
+          ],
+          [
+            {
+              valueSat: claim + 1,
+              script: p2wshScript(
+                buildDepositScript(
+                  thirdParty.address,
+                  blindingFactor,
+                  walletPubKeyHash,
+                  refundPubKeyHash,
+                  refundLocktime
+                )
+              ),
+            },
+          ]
+        )
+        await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+          fundingOutputIndex: 0,
+          blindingFactor,
+          walletPubKeyHash,
+          refundPubKeyHash,
+          refundLocktime,
+          vault: reservationVault.address,
+        })
+        const anchorTx = buildTx(
+          [{ txHash: fundingTx.txHash, index: 0 }],
+          [{ valueSat: claim, script: p2wpkhScript(walletPubKeyHash) }]
+        )
+        const acceptTx = await bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Acceptance,
+            anchorTx.info,
+            proofFor(anchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            0
+          )
+        const receipt = await acceptTx.wait()
+        const accepted = receipt.events.find(
+          (e) => e.event === "ReservationAccepted"
+        )
+        return { anchorTx, reservationKey: accepted.args.reservationKey }
+      }
+
+      // Grinds the anchor down to the dust floor in maximum-fee hops.
+      async function grindToFloor(
+        startTx: { txHash: string },
+        startValue: number,
+        reservationKey: BigNumber
+      ) {
+        let prevTx = startTx
+        let value = startValue
+        while (value > floor) {
+          const next = Math.max(floor, value - txMaxFee)
+          const hop = buildTx(
+            [{ txHash: prevTx.txHash, index: 0 }],
+            [{ valueSat: next, script: p2wpkhScript(walletPubKeyHash) }]
+          )
+          // Sequential on purpose: each hop spends the previous hop's output,
+          // so the proofs cannot be submitted concurrently.
+          // eslint-disable-next-line no-await-in-loop
+          await bridge
+            .connect(spvMaintainer)
+            .submitReservationProof(
+              ProofType.Reanchor,
+              hop.info,
+              proofFor(hop.txHash),
+              NO_MAIN_UTXO_PARAM,
+              reservationKey
+            )
+          prevTx = hop
+          value = next
+        }
+        return prevTx
+      }
+
+      // Dissolves 1-in-1-out at the maximum permitted fee and returns the
+      // decomposition the event reports.
+      async function dissolveAtMaxFee(
+        anchorTxToSpend: { txHash: string },
+        reservationKey: BigNumber
+      ) {
+        const dissolutionTx = buildTx(
+          [{ txHash: anchorTxToSpend.txHash, index: 0 }],
+          [
+            {
+              valueSat: residualBacking,
+              script: p2wpkhScript(walletPubKeyHash),
+            },
+          ]
+        )
+        const tx = await bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Dissolution,
+            dissolutionTx.info,
+            proofFor(dissolutionTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey
+          )
+        const receipt = await tx.wait()
+        const dissolved = receipt.events.find(
+          (e) => e.event === "ReservationDissolved"
+        )
+        return dissolved.args
+      }
+
+      // Case A: a minimum-sized reservation. One hop reaches the floor, so
+      // the cumulative budget never binds.
+      const small = await acceptClaim(minAmount)
+      const smallFinal = await grindToFloor(
+        small.anchorTx,
+        minAmount,
+        small.reservationKey
+      )
+
+      // Case B: the peak-loss position -- sized so grinding to the floor
+      // consumes the cumulative budget EXACTLY. Any larger claim is better
+      // off proportionally, because the budget stops the grind early.
+      const peakClaim = cumulativeCap + floor
+      const peak = await acceptClaim(peakClaim)
+      const peakFinal = await grindToFloor(
+        peak.anchorTx,
+        peakClaim,
+        peak.reservationKey
+      )
+      expect(
+        (await bridge.reservations(peak.reservationKey)).cumulativeReanchorFee
+      ).to.equal(cumulativeCap)
+
+      await increaseTime(RESERVATION_TERM + RESERVATION_GRACE + 60)
+
+      const smallArgs = await dissolveAtMaxFee(smallFinal, small.reservationKey)
+
+      // The first dissolution's output became the wallet's new main UTXO,
+      // which would force the second into the 2-in-1-out shape. Clear it so
+      // both cases dissolve 1-in-1-out and only the claim size differs --
+      // the 2-in-1-out shape is covered by the decomposition test above.
+      await bridge.setWallet(walletPubKeyHash, {
+        ecdsaWalletID: ethers.utils.randomBytes(32),
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      const peakArgs = await dissolveAtMaxFee(peakFinal, peak.reservationKey)
+
+      // The claim differs by more than 3x; the backing left behind does not
+      // differ at all. That constant is the finding.
+      expect(smallArgs.mintedAmount).to.equal(minAmount)
+      expect(peakArgs.mintedAmount).to.equal(peakClaim)
+      expect(smallArgs.anchorAmount).to.equal(floor)
+      expect(peakArgs.anchorAmount).to.equal(floor)
+      expect(smallArgs.anchorAmount.sub(smallArgs.dissolutionFee)).to.equal(
+        residualBacking
+      )
+      expect(peakArgs.anchorAmount.sub(peakArgs.dissolutionFee)).to.equal(
+        residualBacking
+      )
+
+      // Fractional underbacking is therefore worse for the larger claim --
+      // the direction a reader would not predict, and the reason a bound
+      // relative to `reservationMinAmount` alone does not close this.
+      const smallLoss = minAmount - residualBacking
+      const peakLoss = peakClaim - residualBacking
+      expect(peakLoss / peakClaim).to.be.greaterThan(smallLoss / minAmount)
+    })
+
     it("enforces the dissolution-specific fee cap on the proven transaction", async () => {
       // Sanity: the two caps must differ or this test cannot discriminate
       // which one the proof path checks against.
