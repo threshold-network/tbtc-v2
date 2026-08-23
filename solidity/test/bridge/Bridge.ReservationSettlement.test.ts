@@ -2494,8 +2494,24 @@ describe("Bridge - Reservation settlement", () => {
   // claim instead of being capped at a small governance-set constant.
   // Milestone 1 accepts that (see `docs/spec/reservations/pr-review-followups.md`
   // item 7, lever 4, and the accompanying deferral note), and these tests
-  // exist so the accepted exposure is executable rather than asserted, and
-  // so the assumption it rests on cannot be relaxed silently.
+  // exist so the accepted exposure is executable rather than asserted.
+  //
+  // Two limits, for whoever edits this next:
+  //
+  // 1. The assertions below are deliberately BOUNDS (`gt`, `gte`), not exact
+  //    figures, so a fixture change cannot fail them spuriously. The exact
+  //    measured numbers (2,598,499 sat, 86.7%, 7 hops) live in the spec prose
+  //    instead, which means the prose can drift away from reality without
+  //    anything here going red. If these bounds are edited, re-check that
+  //    prose too.
+  // 2. The second test pins the governance gate this acceptance rests on, but
+  //    it can only catch the gate being REMOVED. It cannot catch `privileged`
+  //    being BROADENED, e.g. a second authorized role added alongside
+  //    `governance` in `ReservationRouter.sol`, which would reopen the grind
+  //    to a non-governance caller with every test here still green. Anyone
+  //    touching how `privileged` is derived is changing the assumption this
+  //    whole block documents, and voids the acceptance regardless of whether
+  //    CI complains.
   describe("cumulative re-anchor fee exposure (accepted regression)", () => {
     // A scaled parameter regime, the same technique `#1102`'s own
     // characterization test used: at the default 2,000 sat `txMaxFee` a
@@ -2585,6 +2601,9 @@ describe("Bridge - Reservation settlement", () => {
 
       while (currentAnchor.sub(GRIND_TX_MAX_FEE).gt(GRIND_TX_MAX_FEE)) {
         const nextAnchor = currentAnchor.sub(GRIND_TX_MAX_FEE)
+        // Sequential on purpose: each hop spends the previous hop's output,
+        // so these cannot be batched or parallelised.
+        // eslint-disable-next-line no-await-in-loop
         currentTx = await grindOneHop(
           reservationKey,
           currentTx,
@@ -2687,6 +2706,11 @@ describe("Bridge - Reservation settlement", () => {
       // custodying wallet operator alone, which is the threat model
       // `pr-review-followups.md` item 7 scored as the severity-driving
       // case. This test is the tripwire for that change.
+      //
+      // Scope, per limit 2 in this block's header: this catches the gate
+      // being removed, not `privileged` being widened to admit a second
+      // caller. A green run here is not evidence the assumption still
+      // holds; it is only evidence this particular gate still exists.
       const { reservationKey } = await makeAcceptedReservation()
       await liveWallet(secondWalletPubKeyHash)
 
