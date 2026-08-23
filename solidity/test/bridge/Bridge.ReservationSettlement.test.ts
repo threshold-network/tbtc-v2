@@ -2486,4 +2486,215 @@ describe("Bridge - Reservation settlement", () => {
       expect(walletRegistry.closeWallet).not.to.have.been.called
     })
   })
+
+  // Characterization of an ACCEPTED, DOCUMENTED regression, not a bug
+  // report. `#1093` has no equivalent of `#1102`'s
+  // `maxCumulativeReanchorFee`, so cumulative re-anchor fee loss on one
+  // reservation is bounded only by the dust floor, which scales with the
+  // claim instead of being capped at a small governance-set constant.
+  // Milestone 1 accepts that (see `docs/spec/reservations/pr-review-followups.md`
+  // item 7, lever 4, and the accompanying deferral note), and these tests
+  // exist so the accepted exposure is executable rather than asserted, and
+  // so the assumption it rests on cannot be relaxed silently.
+  describe("cumulative re-anchor fee exposure (accepted regression)", () => {
+    // A scaled parameter regime, the same technique `#1102`'s own
+    // characterization test used: at the default 2,000 sat `txMaxFee` a
+    // full grind of this fixture's 2,998,500 sat anchor would take ~1,498
+    // hops. Raising the fee bound compresses it to 7 without changing the
+    // mechanism under test. `reservationMinAmount` has to move with it to
+    // satisfy `reservationMinAmount > reservationTxMaxFee`.
+    const GRIND_TX_MAX_FEE = 400000
+    const GRIND_MIN_AMOUNT = 500000
+
+    // `#1102`'s fixture ceiling, for the comparison assertion below.
+    const PR1102_CAP = 100000
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    async function raiseFeeBound() {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .updateReservationParameters(
+          reservationVault.address,
+          GRIND_MIN_AMOUNT,
+          GRIND_TX_MAX_FEE,
+          RESERVATION_TERM,
+          RESERVATION_GRACE,
+          RESERVATION_MAX_TOTAL,
+          MAX_RESERVATIONS_PER_WALLET,
+          RESERVATION_ACTION_TIMEOUT,
+          RESERVATION_RENEWAL_WINDOW
+        )
+    }
+
+    // One governance-authorized hop, ping-ponging between two Live
+    // wallets. Returns the settled transaction so the next hop can spend
+    // its output.
+    async function grindOneHop(
+      reservationKey: BigNumber,
+      sourceTx: { txHash: string },
+      target: string,
+      newAnchorValue: BigNumber,
+      nonce: number
+    ) {
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, target)
+
+      const hopTx = buildTx(
+        [{ txHash: sourceTx.txHash, index: 0 }],
+        [{ valueSat: newAnchorValue, script: p2wpkhScript(target) }]
+      )
+
+      await bridge
+        .connect(spvMaintainer)
+        .submitReservationProof(
+          ProofType.Reanchor,
+          hopTx.info,
+          proofFor(hopTx.txHash),
+          NO_MAIN_UTXO_PARAM,
+          reservationKey,
+          nonce
+        )
+
+      return hopTx
+    }
+
+    it("lets most of a claim evaporate into miner fees, with no absolute ceiling", async () => {
+      const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+      await raiseFeeBound()
+
+      const reserveBefore = await tbtc.balanceOf(reservationVault.address)
+      const debtBefore = await reservationVault.inKindFeeDebtSat()
+
+      // Grind at the maximum permitted fee per hop until the next full-fee
+      // hop would breach the dust floor. The hop count is derived, never
+      // hardcoded: that is the point, since it scales with the claim.
+      let currentTx = anchorTx
+      let currentAnchor = anchorAmount
+      let target = secondWalletPubKeyHash
+      let nonce = 2
+      let hops = 0
+
+      while (currentAnchor.sub(GRIND_TX_MAX_FEE).gt(GRIND_TX_MAX_FEE)) {
+        const nextAnchor = currentAnchor.sub(GRIND_TX_MAX_FEE)
+        currentTx = await grindOneHop(
+          reservationKey,
+          currentTx,
+          target,
+          nextAnchor,
+          nonce
+        )
+        currentAnchor = nextAnchor
+        target =
+          target === secondWalletPubKeyHash
+            ? walletPubKeyHash
+            : secondWalletPubKeyHash
+        nonce += 1
+        hops += 1
+      }
+
+      // One final partial-fee hop lands the anchor exactly on the dust
+      // floor's boundary, `txMaxFee + 1`, which is the true worst case.
+      const floorBoundary = BigNumber.from(GRIND_TX_MAX_FEE + 1)
+      if (currentAnchor.gt(floorBoundary)) {
+        currentTx = await grindOneHop(
+          reservationKey,
+          currentTx,
+          target,
+          floorBoundary,
+          nonce
+        )
+        currentAnchor = floorBoundary
+        nonce += 1
+        hops += 1
+        // The reservation now sits on `target`, so the terminal attempt
+        // below has to name the other wallet. Inside the loop this flip
+        // happens on every iteration; here it has to happen explicitly.
+        target =
+          target === secondWalletPubKeyHash
+            ? walletPubKeyHash
+            : secondWalletPubKeyHash
+      }
+
+      const reservation = await bridge.reservations(reservationKey)
+      const cumulativeFee = anchorAmount.sub(currentAnchor)
+
+      // The claim is written down to the surviving anchor: the owner's
+      // redemption right shrinks by the full grind.
+      expect(reservation.anchorAmount).to.equal(currentAnchor)
+      expect(reservation.mintedAmount).to.equal(currentAnchor)
+
+      // Every satoshi of the grind is financed in kind: burned from the
+      // vault's reserve where it could cover, recorded as global debt
+      // where it could not. Nothing is left unaccounted.
+      const reserveAfter = await tbtc.balanceOf(reservationVault.address)
+      const debtAfter = await reservationVault.inKindFeeDebtSat()
+      const burnedSat = reserveBefore.sub(reserveAfter).div(SATOSHI_MULTIPLIER)
+      expect(burnedSat.add(debtAfter.sub(debtBefore))).to.equal(cumulativeFee)
+
+      // The characterization itself. Both assertions would FAIL if an
+      // absolute per-reservation ceiling were ported, which is exactly
+      // what makes the accepted regression executable rather than a claim
+      // in a document.
+      expect(cumulativeFee).to.be.gt(PR1102_CAP)
+      expect(cumulativeFee.mul(100).div(anchorAmount)).to.be.gte(86)
+
+      // And the grind is genuinely terminal: one more full-fee hop cannot
+      // settle, because the dust floor is the only thing that ever stopped
+      // it.
+      await bridge
+        .connect(bridgeGovernanceSigner)
+        .requestReservationReanchor(reservationKey, target)
+      const belowFloorTx = buildTx(
+        [{ txHash: currentTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: BigNumber.from(GRIND_TX_MAX_FEE),
+            script: p2wpkhScript(target),
+          },
+        ]
+      )
+      await expect(
+        bridge
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            belowFloorTx.info,
+            proofFor(belowFloorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            nonce
+          )
+      ).to.be.revertedWith("Re-anchor amount below the dust floor")
+
+      // Recorded for the deferral note: the hop count scales with the
+      // claim, so this figure is regime-specific, not a constant bound.
+      expect(hops).to.be.gte(7)
+    })
+
+    it("depends on the governance gate: a Live wallet's anchor cannot be rotated permissionlessly", async () => {
+      // The accepted regression above is only tolerable because reaching
+      // it requires governance to authorize every hop. If this gate is
+      // ever relaxed, the unbounded exposure becomes reachable by the
+      // custodying wallet operator alone, which is the threat model
+      // `pr-review-followups.md` item 7 scored as the severity-driving
+      // case. This test is the tripwire for that change.
+      const { reservationKey } = await makeAcceptedReservation()
+      await liveWallet(secondWalletPubKeyHash)
+
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
+    })
+  })
 })
