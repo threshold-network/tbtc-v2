@@ -267,6 +267,7 @@ library ReservationProofs {
         self.walletReservationsAmount[
             reservation.walletPubKeyHash
         ] += reservation.anchorAmount;
+        self.activeReservationsCount += 1;
         Reservation.addWalletReservationKey(
             self,
             reservation.walletPubKeyHash,
@@ -475,6 +476,7 @@ library ReservationProofs {
             self.walletReservationsAmount[
                 action.targetWalletPubKeyHash
             ] += anchorAmount;
+            self.activeReservationsCount += 1;
             emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
@@ -816,6 +818,7 @@ library ReservationProofs {
             self.walletReservationsAmount[
                 pendingAction.targetWalletPubKeyHash
             ] -= pendingAction.amount;
+            self.activeReservationsCount -= 1;
         }
 
         // The Bank is a trusted protocol contract; the refund above cannot

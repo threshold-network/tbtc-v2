@@ -310,6 +310,25 @@ library Reservation {
         uint64 anchorAmount
     );
 
+    event ReservationParametersUpdated(
+        uint64 reservationMinAmount,
+        uint64 reservationTxMaxFee,
+        uint32 reservationTermSeconds,
+        uint32 reservationDissolutionDelay,
+        uint64 reservationMaxTotalAmount,
+        uint32 maxReservationsPerWallet,
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
+    );
+
+    event ReservationVaultUpdated(address reservationVault);
+
+    event ReservationCapsUpdated(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount,
+        uint32 maxActiveReservations
+    );
+
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
     function actionKey(uint256 reservationKey, uint64 requestNonce)
@@ -549,6 +568,15 @@ library Reservation {
         );
         self.walletReservationsAmount[walletPubKeyHash] = walletAmount;
 
+        // Global open-position occupancy, reserved at request time the same
+        // way `walletReservationsCount` is. Converts variant B's silent
+        // saturation cliff into a revert (`m1-b-implementation.md` §4.1).
+        require(
+            self.activeReservationsCount < self.maxActiveReservations,
+            "Active reservations cap exceeded"
+        );
+        self.activeReservationsCount += 1;
+
         uint64 requestNonce = ++reservation.requestNonce;
 
         ReservationAction storage action = getAction(
@@ -746,6 +774,7 @@ library Reservation {
             self.walletReservationsAmount[
                 action.targetWalletPubKeyHash
             ] -= action.amount;
+            self.activeReservationsCount -= 1;
         } else if (actionType == ActionType.Redemption) {
             reservation.state = ReservationState.Active;
 
@@ -891,6 +920,129 @@ library Reservation {
     }
 
     /// @notice Appends a reservation key to a wallet's enumeration list.
+    /// @notice Updates parameters of reservations, including the
+    ///         reservation vault address. Deposits revealed with the
+    ///         reservation vault address are treated as UTXO reservations.
+    /// @dev Requirements:
+    ///      - `reservationTxMaxFee` must be greater than zero,
+    ///      - `reservationMinAmount` must be greater than
+    ///        `reservationTxMaxFee`,
+    ///      - `reservationTermSeconds` must stay within
+    ///        [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM],
+    ///      - `reservationRenewalWindowSeconds` must be greater than zero
+    ///        and strictly shorter than the term (written in milestone 1
+    ///        for storage completeness; unread until renewal lands),
+    ///      - `reservationActionTimeout` must exceed the wallet
+    ///        validator's final signing safety margin,
+    ///      - The reservation vault can only be changed while there are no
+    ///        active reservations (total reserved amount is zero).
+    ///
+    ///      Term, dissolution delay and fee bounds are snapshotted into
+    ///      positions and action records when terms are granted or actions
+    ///      requested; updates apply prospectively only.
+    function updateReservationParameters(
+        BridgeState.Storage storage self,
+        address reservationVault,
+        uint64 reservationMinAmount,
+        uint64 reservationTxMaxFee,
+        uint32 reservationTermSeconds,
+        uint32 reservationDissolutionDelay,
+        uint64 reservationMaxTotalAmount,
+        uint32 maxReservationsPerWallet,
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
+    ) external {
+        require(
+            reservationTxMaxFee > 0,
+            "Reservation transaction max fee must be greater than zero"
+        );
+        require(
+            reservationMinAmount > reservationTxMaxFee,
+            "Reservation minimum amount must be greater than the reservation TX max fee"
+        );
+        require(
+            reservationTermSeconds >= MIN_RESERVATION_TERM &&
+                reservationTermSeconds <= MAX_RESERVATION_TERM,
+            "Reservation term out of protocol bounds"
+        );
+        require(
+            reservationRenewalWindowSeconds > 0 &&
+                reservationRenewalWindowSeconds < reservationTermSeconds,
+            "Renewal window must be shorter than the term"
+        );
+        require(
+            reservationActionTimeout >
+                WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Reservation action timeout must exceed the safety margin"
+        );
+
+        if (reservationVault != self.reservationVault) {
+            require(
+                self.reservationTotalAmount == 0,
+                "Active reservations exist"
+            );
+            require(
+                self.pendingReservedDeposits == 0,
+                "Pending reserved deposits exist"
+            );
+            self.reservationVault = reservationVault;
+            emit ReservationVaultUpdated(reservationVault);
+        }
+
+        self.reservationMinAmount = reservationMinAmount;
+        self.reservationTxMaxFee = reservationTxMaxFee;
+        self.reservationTermSeconds = reservationTermSeconds;
+        self.reservationDissolutionDelay = reservationDissolutionDelay;
+        self.reservationMaxTotalAmount = reservationMaxTotalAmount;
+        self.maxReservationsPerWallet = maxReservationsPerWallet;
+        self.reservationActionTimeout = reservationActionTimeout;
+        self.reservationRenewalWindowSeconds = reservationRenewalWindowSeconds;
+
+        emit ReservationParametersUpdated(
+            reservationMinAmount,
+            reservationTxMaxFee,
+            reservationTermSeconds,
+            reservationDissolutionDelay,
+            reservationMaxTotalAmount,
+            maxReservationsPerWallet,
+            reservationActionTimeout,
+            reservationRenewalWindowSeconds
+        );
+    }
+
+    /// @notice Updates the amount-denominated reservation caps and the
+    ///         global open-position occupancy cap. Amount caps are checked
+    ///         and reserved at request/authorization time, never at proof
+    ///         time; a zero amount-cap value disables that amount cap.
+    ///         `maxActiveReservations` must be greater than zero — it is
+    ///         the launch gate that turns variant B's saturation cliff into
+    ///         a revert.
+    /// @dev No on-chain relational check ties `reservationMaxTotalAmount`
+    ///      to slot capacity in milestone 1; that coupling is a runbook
+    ///      gate pending the roadmap owner's Decision 1
+    ///      (`step-04-b-decisions-for-manager.md`).
+    function updateReservationCaps(
+        BridgeState.Storage storage self,
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount,
+        uint32 maxActiveReservations
+    ) external {
+        require(
+            maxActiveReservations > 0,
+            "Active reservations cap must be greater than zero"
+        );
+
+        self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
+        self.reservationMaxSingleAmount = reservationMaxSingleAmount;
+        self.maxActiveReservations = maxActiveReservations;
+
+        emit ReservationCapsUpdated(
+            maxReservationsAmountPerWallet,
+            reservationMaxSingleAmount,
+            maxActiveReservations
+        );
+    }
+
     function addWalletReservationKey(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -941,6 +1093,7 @@ library Reservation {
             reservation.walletPubKeyHash
         ] -= reservation.anchorAmount;
         self.reservationTotalAmount -= reservation.anchorAmount;
+        self.activeReservationsCount -= 1;
         removeWalletReservationKey(
             self,
             reservation.walletPubKeyHash,
