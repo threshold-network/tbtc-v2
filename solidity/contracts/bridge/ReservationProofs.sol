@@ -302,6 +302,7 @@ library ReservationProofs {
             reservation.walletPubKeyHash
         ] += reservation.anchorAmount;
         self.activeReservationsCount += 1;
+
     }
 
     /// @notice Reverts unless the reservation still points at the exact
