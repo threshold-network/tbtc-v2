@@ -1017,6 +1017,14 @@ library Reservation {
         uint32 timeoutAt
     );
 
+    event ReservationReanchorRequested(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes20 indexed sourceWalletPubKeyHash,
+        bytes20 indexed targetWalletPubKeyHash,
+        uint64 txMaxFee
+    );
+
     event ReservationStranded(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
@@ -1068,6 +1076,23 @@ library Reservation {
         uint64 requestNonce
     ) internal view returns (ReservationAction storage) {
         return self.reservationActions[actionKey(reservationKey, requestNonce)];
+    }
+
+    /// @notice Returns the canonical hash of a reservation anchor outpoint.
+    ///         Action generations snapshot this value so a late proof can
+    ///         only consume the exact anchor that generation authorized.
+    function anchorUtxoHash(ReservationRequest storage reservation)
+        internal
+        view
+        returns (bytes32)
+    {
+        return
+            keccak256(
+                abi.encodePacked(
+                    reservation.anchorTxHash,
+                    reservation.anchorTxOutputIndex
+                )
+            );
     }
 
     /// @notice Requests the acceptance of a revealed reserved deposit: the
@@ -1269,6 +1294,125 @@ library Reservation {
             deposit.amount,
             action.txMaxFee,
             timeoutAt
+        );
+    }
+
+    /// @notice Requests the re-anchoring of a reservation to another
+    ///         wallet: the authorization for the source wallet to spend the
+    ///         anchor in a 1-input-1-output transaction paying the target
+    ///         wallet. Used during wallet migration so reservations never
+    ///         pin retiring wallets, and for governance-approved rotations.
+    /// @param reservationKey The key of the reservation to re-anchor.
+    /// @param targetWalletPubKeyHash 20-byte public key hash of the target
+    ///        wallet.
+    /// @param privileged True when the call is made by the governance
+    ///        (checked by the calling contract), which may rotate anchors
+    ///        away from Live wallets.
+    /// @dev Requirements:
+    ///      - The reservation must be Active,
+    ///      - The reservation must not yet be dissolution-eligible,
+    ///      - The source wallet must be in the MovingFunds state (anyone
+    ///        may then request — migration is the system's duty), or Live
+    ///        with the governance as the caller (approved rotation),
+    ///      - The target wallet must be Live and different from the source,
+    ///      - The target wallet's reservation-count capacity must allow the
+    ///        move; the capacity is reserved by this call and released if
+    ///        the authorization times out.
+    function requestReservationReanchor(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash,
+        bool privileged
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        require(
+            reservation.state == ReservationState.Active,
+            "Reservation is not active"
+        );
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp < reservation.dissolutionEligibleAt,
+            "Reservation is dissolution-eligible"
+        );
+        /* solhint-enable not-rely-on-time */
+
+        {
+            Wallets.WalletState sourceState = self
+                .registeredWallets[reservation.walletPubKeyHash]
+                .state;
+            if (sourceState == Wallets.WalletState.Live) {
+                require(
+                    privileged,
+                    "Only governance can rotate a Live wallet's anchor"
+                );
+            } else {
+                require(
+                    sourceState == Wallets.WalletState.MovingFunds,
+                    "Source wallet must be in Live or MovingFunds state"
+                );
+            }
+        }
+
+        require(
+            targetWalletPubKeyHash != reservation.walletPubKeyHash,
+            "Target wallet must differ from the source wallet"
+        );
+        require(
+            self.registeredWallets[targetWalletPubKeyHash].state ==
+                Wallets.WalletState.Live,
+            "Target wallet must be in Live state"
+        );
+
+        // Reserve the target wallet's count and amount capacity; the
+        // source wallet's are released at settlement (or kept on timeout).
+        uint32 targetCount = self.walletReservationsCount[
+            targetWalletPubKeyHash
+        ] + 1;
+        require(
+            targetCount <= self.maxReservationsPerWallet,
+            "Wallet reservations cap exceeded"
+        );
+        self.walletReservationsCount[targetWalletPubKeyHash] = targetCount;
+
+        uint64 targetAmount = self.walletReservationsAmount[
+            targetWalletPubKeyHash
+        ] + reservation.anchorAmount;
+        require(
+            self.maxReservationsAmountPerWallet == 0 ||
+                targetAmount <= self.maxReservationsAmountPerWallet,
+            "Wallet reserved amount cap exceeded"
+        );
+        self.walletReservationsAmount[targetWalletPubKeyHash] = targetAmount;
+
+        reservation.state = ReservationState.ActionPending;
+        uint64 requestNonce = ++reservation.requestNonce;
+
+        ReservationAction storage action = getAction(
+            self,
+            reservationKey,
+            requestNonce
+        );
+        action.actionType = ActionType.Reanchor;
+        action.state = ActionState.Pending;
+        /* solhint-disable not-rely-on-time */
+        action.requestedAt = uint32(block.timestamp);
+        action.timeoutAt =
+            uint32(block.timestamp) +
+            self.reservationActionTimeout;
+        /* solhint-enable not-rely-on-time */
+        action.txMaxFee = self.reservationTxMaxFee;
+        action.targetWalletPubKeyHash = targetWalletPubKeyHash;
+        action.amount = reservation.anchorAmount;
+        action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
+
+        emit ReservationReanchorRequested(
+            reservationKey,
+            requestNonce,
+            reservation.walletPubKeyHash,
+            targetWalletPubKeyHash,
+            action.txMaxFee
         );
     }
 
