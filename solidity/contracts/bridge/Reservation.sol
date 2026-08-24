@@ -919,7 +919,6 @@ library Reservation {
         strandReservation(self, reservation, reservationKey);
     }
 
-    /// @notice Appends a reservation key to a wallet's enumeration list.
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as UTXO reservations.
@@ -935,7 +934,12 @@ library Reservation {
     ///      - `reservationActionTimeout` must exceed the wallet
     ///        validator's final signing safety margin,
     ///      - The reservation vault can only be changed while there are no
-    ///        active reservations (total reserved amount is zero).
+    ///        active reservations (total reserved amount is zero),
+    ///      - `reservationMaxTotalAmount` must not exceed worst-case slot
+    ///        capacity, `maxActiveReservations *
+    ///        reservationMaxSingleAmount`, both owned by
+    ///        `updateReservationCaps`; a zero value on either of those two
+    ///        disables that cap and skips the check.
     ///
     ///      Term, dissolution delay and fee bounds are snapshotted into
     ///      positions and action records when terms are granted or actions
@@ -989,6 +993,26 @@ library Reservation {
             emit ReservationVaultUpdated(reservationVault);
         }
 
+        // Decision 1 (option 2): the total amount cap may not exceed
+        // worst-case slot capacity. `maxActiveReservations` bounds the
+        // number of open positions and `reservationMaxSingleAmount` bounds
+        // any single position's amount, so their product is the most that
+        // can ever be reserved at once; a higher `reservationMaxTotalAmount`
+        // is unreachable dead configuration because the position-count cap
+        // saturates first. Either of those two set to zero means that cap
+        // is disabled, so there is no ceiling to violate and the check is
+        // skipped — this also covers the pre-launch state where
+        // `updateReservationCaps` has not run yet. Mirrored in
+        // `updateReservationCaps`, which owns the two operands read here.
+        require(
+            self.reservationMaxSingleAmount == 0 ||
+                self.maxActiveReservations == 0 ||
+                reservationMaxTotalAmount <=
+                uint256(self.maxActiveReservations) *
+                    self.reservationMaxSingleAmount,
+            "Amount cap exceeds slot capacity"
+        );
+
         self.reservationMinAmount = reservationMinAmount;
         self.reservationTxMaxFee = reservationTxMaxFee;
         self.reservationTermSeconds = reservationTermSeconds;
@@ -1017,10 +1041,13 @@ library Reservation {
     ///         `maxActiveReservations` must be greater than zero — it is
     ///         the launch gate that turns variant B's saturation cliff into
     ///         a revert.
-    /// @dev No on-chain relational check ties `reservationMaxTotalAmount`
-    ///      to slot capacity in milestone 1; that coupling is a runbook
-    ///      gate pending the roadmap owner's Decision 1
-    ///      (`step-04-b-decisions-for-manager.md`).
+    /// @dev `reservationMaxTotalAmount` may not exceed worst-case slot
+    ///      capacity, `maxActiveReservations * reservationMaxSingleAmount`.
+    ///      Enforced here and in `updateReservationParameters`, each from
+    ///      its own new arguments plus a storage read of the field the
+    ///      other setter owns, so no call order can leave the invariant
+    ///      violated. A zero amount cap disables that cap and skips the
+    ///      check.
     function updateReservationCaps(
         BridgeState.Storage storage self,
         uint64 maxReservationsAmountPerWallet,
@@ -1030,6 +1057,18 @@ library Reservation {
         require(
             maxActiveReservations > 0,
             "Active reservations cap must be greater than zero"
+        );
+
+        // Decision 1 (option 2): mirror of the invariant enforced in
+        // `updateReservationParameters`, evaluated from this function's new
+        // operands against the stored `reservationMaxTotalAmount` that the
+        // other setter owns. `maxActiveReservations == 0` needs no disjunct
+        // here — the require above already rejects it.
+        require(
+            reservationMaxSingleAmount == 0 ||
+                self.reservationMaxTotalAmount <=
+                uint256(maxActiveReservations) * reservationMaxSingleAmount,
+            "Amount cap exceeds slot capacity"
         );
 
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
@@ -1043,6 +1082,7 @@ library Reservation {
         );
     }
 
+    /// @notice Appends a reservation key to a wallet's enumeration list.
     function addWalletReservationKey(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
