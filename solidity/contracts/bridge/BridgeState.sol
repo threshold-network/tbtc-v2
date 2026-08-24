@@ -481,6 +481,7 @@ library BridgeState {
         // updates from changing an ordinary deposit into a reservation or
         // making a reserved deposit eligible for an ordinary sweep.
         mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
+
         // Collection of all reservation action generation records indexed
         // by `keccak256(reservationKey | requestNonce)`. Each record
         // snapshots every proof- and settlement-critical parameter of one
@@ -514,6 +515,7 @@ library BridgeState {
         // Index-plus-one of each reservation key inside its wallet's
         // `walletReservationKeys` array (zero means absent).
         mapping(uint256 => uint256) walletReservationKeyIndex;
+
         // Generation that minted a reservation's outstanding retry credit.
         // The terminal action record supplies the exact redemption amount
         // and whole/partial shape the fee-free retry must preserve. Zero

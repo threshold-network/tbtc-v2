@@ -52,6 +52,15 @@ const bridgeGovernanceCompilerConfig = {
     outputSelection: storageLayoutOutputSelection,
   },
 }
+// Solc output selection shared by every compiler-settings block whose build
+// info needs to expose storage layouts to the upgrade-safety test in
+// test/bridge/Bridge.StorageLayout.test.ts. Hoisted so per-contract compiler
+// overrides cannot drift from the main compiler's selection.
+const storageLayoutOutputSelection = {
+  "*": {
+    "*": ["storageLayout"],
+  },
+}
 
 // Configuration for testing environment.
 export const testConfig = {
