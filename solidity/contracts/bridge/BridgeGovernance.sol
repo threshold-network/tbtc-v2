@@ -19,6 +19,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
+import "./IReservationBridge.sol";
 
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
@@ -1853,7 +1854,7 @@ contract BridgeGovernance is Ownable {
         reservationData.finalizeReservationParametersUpdate(
             governanceDelay()
         );
-        bridge.updateReservationParameters(
+        IReservationBridge(address(bridge)).updateReservationParameters(
             staged.newReservationVault,
             staged.newReservationMinAmount,
             staged.newReservationTxMaxFee,
@@ -1893,7 +1894,7 @@ contract BridgeGovernance is Ownable {
         BridgeGovernanceParameters.ReservationCapsData
             memory staged = reservationCapsData;
         reservationCapsData.finalizeReservationCapsUpdate(governanceDelay());
-        bridge.updateReservationCaps(
+        IReservationBridge(address(bridge)).updateReservationCaps(
             staged.newMaxReservationsAmountPerWallet,
             staged.newReservationMaxSingleAmount,
             staged.newMaxActiveReservations

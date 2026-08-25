@@ -32,6 +32,7 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./IReservationBridge.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
@@ -1636,13 +1637,6 @@ contract Bridge is
     }
 
 
-    // Reservation surface additions deferred to follow-up;
-    // Reservation surface additions deferred to follow-up; see
-    // `implementor-to-manager-2026-08-25-pr-G-part2-handoff.md`.
-    // The minimum `isReservedDeposit` view above keeps the bridge's
-    // m1 surface honest about reveal-time classification even though
-    // the full router wiring cannot fit under the EIP-170 limit.
-
     /// @notice Collection of all pending redemption requests indexed by
     ///         redemption key built as
     ///         `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
@@ -2097,5 +2091,55 @@ contract Bridge is
     ) external {
         // The caller is checked in the internal function.
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    /// @notice Sets the reservation router address.
+    ///         UTXO-reservation external surface of the Bridge and is reached
+    ///         via the `fallback` function below using `delegatecall`. The
+    ///         reservation selectors declared on the router stay disjoint
+    ///         from those declared here per `ReservationRouter` invariant 2
+    ///         (selector shadowing forbidden), so this fallback is the
+    ///         single, well-defined entry point for reservation surface
+    ///         calls at the Bridge address.
+    /// @param _reservationRouter Address of the reservation router contract.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Reservation router address must not be already set,
+    ///      - Reservation router address must not be 0x0.
+    function setReservationRouter(address _reservationRouter)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setReservationRouter(_reservationRouter);
+    }
+
+    /// @notice Returns the address of the reservation router, or the zero
+    ///         address if it has not been set yet.
+    function getReservationRouter() external view returns (address) {
+        return self.reservationRouter;
+    }
+
+    /// @notice Fallback entry point for reservation surface calls.
+    ///         `delegatecall`s the incoming `msg.data` to
+    ///         `self.reservationRouter`, executing the router code on the
+    ///         Bridge's own storage. This is what makes the router's
+    ///         reservation selectors reachable at the Bridge address without
+    ///         redeclaring them here (which is forbidden by `ReservationRouter`
+    ///         invariant 2 — NO SELECTOR SHADOWING).
+    /// @dev The router's selectors are disjoint from those declared on this
+    ///      contract by construction (and a selector-disjointness test
+    ///      guards it), so the fallback only ever sees calls that the Bridge
+    ///      itself does not match. If no router has been set, every call
+    ///      reverts.
+    fallback() external payable {
+        address router = self.reservationRouter;
+        require(router != address(0), "Reservation router not set");
+        (bool success, bytes memory result) = router.delegatecall(msg.data);
+        require(success, "Reservation router delegatecall failed");
+        assembly {
+            returndatacopy(0, 0, returndatasize())
+            return(0, returndatasize())
+        }
     }
 }

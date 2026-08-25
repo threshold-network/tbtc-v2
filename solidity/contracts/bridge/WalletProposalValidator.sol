@@ -25,6 +25,7 @@ import "./Redemption.sol";
 import "./Reservation.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
+import "./IReservationBridge.sol";
 
 /// @title Wallet proposal validator.
 /// @notice This contract exposes several view functions allowing to validate
@@ -972,8 +973,7 @@ contract WalletProposalValidator {
             ,
             ,
             ,
-
-        ) = bridge.reservationParameters();
+        ) = IReservationBridge(address(bridge)).reservationParameters();
 
         require(reservationVault != address(0), "Reservations are disabled");
 
@@ -1076,9 +1076,9 @@ contract WalletProposalValidator {
     function validateReservationReanchorProposal(
         ReservationReanchorProposal calldata proposal
     ) external view returns (bool) {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            proposal.reservationKey
-        );
+        Reservation.ReservationRequest memory reservation = IReservationBridge(
+            address(bridge)
+        ).reservations(proposal.reservationKey);
 
         require(
             reservation.state == Reservation.ReservationState.Active,
@@ -1095,8 +1095,9 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-        (, , uint64 reservationTxMaxFee, , , , , , , ) = bridge
-            .reservationParameters();
+        (, , uint64 reservationTxMaxFee, , , , , , , ) = IReservationBridge(
+            address(bridge)
+        ).reservationParameters();
         require(
             proposal.reanchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
