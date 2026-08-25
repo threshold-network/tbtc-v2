@@ -1625,6 +1625,24 @@ contract Bridge is
         return self.deposits[depositKey];
     }
 
+    /// @notice Returns whether the deposit was routed to the reservation
+    ///         vault that was configured at reveal time.
+    function isReservedDeposit(uint256 depositKey)
+        external
+        view
+        returns (bool)
+    {
+        return self.pendingReservedDeposit[depositKey].isReserved;
+    }
+
+
+    // Reservation surface additions deferred to follow-up;
+    // Reservation surface additions deferred to follow-up; see
+    // `implementor-to-manager-2026-08-25-pr-G-part2-handoff.md`.
+    // The minimum `isReservedDeposit` view above keeps the bridge's
+    // m1 surface honest about reveal-time classification even though
+    // the full router wiring cannot fit under the EIP-170 limit.
+
     /// @notice Collection of all pending redemption requests indexed by
     ///         redemption key built as
     ///         `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.

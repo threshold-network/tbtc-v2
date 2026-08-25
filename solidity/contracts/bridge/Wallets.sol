@@ -375,6 +375,14 @@ library Wallets {
             "Closing period has not elapsed yet"
         );
 
+        // A wallet still custodying reservation anchors must not close
+        // ultimately; its reservations must first be re-anchored to other
+        // wallets or dissolved into the main UTXO.
+        require(
+            self.walletReservationsCount[walletPubKeyHash] == 0,
+            "Wallet still custodies reservations"
+        );
+
         finalizeWalletClosing(self, walletPubKeyHash);
     }
 
