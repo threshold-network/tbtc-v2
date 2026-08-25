@@ -404,7 +404,7 @@ library Reservation {
 
         BridgeState.PendingReservedDeposit storage reservedDeposit = self
             .pendingReservedDeposit[reservationKey];
-        // keep: see :424 for rationale (duplicate of the require at :422;
+        // keep: see :418 for rationale (duplicate of the require at :395;
         // #1094-faithful, both copies retained per extraction discipline).
         require(
             reservedDeposit.walletPubKeyHash == walletPubKeyHash,
