@@ -404,14 +404,8 @@ library Reservation {
 
         BridgeState.PendingReservedDeposit storage reservedDeposit = self
             .pendingReservedDeposit[reservationKey];
-        // NOTE: This exact require repeats below, after the reservation
-        // state and pending-action checks. Neither operand is mutated in
-        // between (`walletPubKeyHash` is calldata, `reservedDeposit` is a
-        // storage pointer, and the checks between only read), so the
-        // second copy can never revert when this one passes. The
-        // duplication is inherited verbatim from #1094 and kept
-        // deliberately: this stack's extraction PRs stay faithful to the
-        // audited source. Do not "fix" one copy without the other.
+        // keep: see :424 for rationale (duplicate of the require at :422;
+        // #1094-faithful, both copies retained per extraction discipline).
         require(
             reservedDeposit.walletPubKeyHash == walletPubKeyHash,
             "Wallet is not the deposit's designated wallet"
