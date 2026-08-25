@@ -160,41 +160,64 @@ describe("Reservation - amount cap versus slot capacity", () => {
     })
   })
 
-  // Bootstrap ordering: a launch that wants a non-trivial
-  // `reservationMaxTotalAmount` must call `updateReservationCaps` first
-  // (since the parameters setter is permissive when caps are still
-  // pre-launch-zero). Once caps are set, any later call to
-  // `updateReservationParameters` raising the total past slot capacity
-  // reverts. Without this ordering, nothing on-chain keeps the totals
-  // honest: there is no path from "caps configured" back to "total
-  // amount > slot capacity".
+  // Bootstrap ordering: `updateReservationParameters` is permissive while
+  // caps are pre-launch-zero (both disjuncts in its relational check are
+  // trivially satisfied), so a deploy that calls it first can establish
+  // an arbitrarily large `reservationMaxTotalAmount`. The natural
+  // follow-up `updateReservationCaps` call then reverts: its mirrored
+  // check reads the stored oversized total against the new cap product
+  // and trips. The safe order is caps first (total defaults to 0, so the
+  // mirrored check is `0 <= product`, trivially true), then a total that
+  // fits under the resulting product. Once either cap is non-zero, no
+  // setter can raise the total past slot capacity.
   describe("bootstrap ordering", () => {
-    it("requires caps to be set before a large reservationMaxTotalAmount sticks", async () => {
-      // Pre-launch state: pristine stub, no caps setter has ever run.
+    // Deploy-ordering hazard: parameters first, caps second. The
+    // `updateReservationCaps` call reverts because it reads the
+    // already-oversized `reservationMaxTotalAmount` against the new cap
+    // product. This is the two-sided check working as designed, not a
+    // bug — the test pins it as a regression check.
+    it("reverts when updateReservationCaps follows an oversized parameters write", async () => {
       expect((await stub.caps()).maxActiveReservations).to.equal(0)
       expect((await stub.caps()).reservationMaxSingleAmount).to.equal(0)
 
-      // A launch-time `updateReservationParameters` call can establish a
-      // large total because both disjuncts in the relational check are
-      // still zero. This is the only window where a total can sit above
-      // slot capacity.
       await setTotalAmount(stub, slotCapacity * 1000)
       expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
         slotCapacity * 1000
       )
 
-      // Once caps are configured, any later attempt to raise the total
-      // past slot capacity reverts. The state set in the prior step
-      // cannot go any higher after this point.
+      // This is the call that reverts: the mirrored check in
+      // `updateReservationCaps` reads the stored 4,000,000,000 total
+      // against the new product of 4,000,000 and trips.
+      await expect(
+        stub.updateReservationCaps(
+          maxReservationsAmountPerWallet,
+          reservationMaxSingleAmount,
+          maxActiveReservations
+        )
+      ).to.be.revertedWith(CAPACITY_REVERT)
+    })
+
+    // Safe order: caps first (passes because `reservationMaxTotalAmount`
+    // defaults to 0), then a total within the resulting cap product
+    // (passes), then a follow-up attempt to raise past slot capacity
+    // (reverts). Proves the safe operational path works end to end.
+    it("accepts caps first, then a total within slot capacity", async () => {
+      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(0)
+
       await stub.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
         maxActiveReservations
       )
 
-      await expect(
-        setTotalAmount(stub, slotCapacity * 1000 + 1)
-      ).to.be.revertedWith(CAPACITY_REVERT)
+      await setTotalAmount(stub, slotCapacity)
+      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
+        slotCapacity
+      )
+
+      await expect(setTotalAmount(stub, slotCapacity + 1)).to.be.revertedWith(
+        CAPACITY_REVERT
+      )
     })
   })
 })
