@@ -2135,8 +2135,15 @@ contract Bridge is
     fallback() external payable {
         address router = self.reservationRouter;
         require(router != address(0), "Reservation router not set");
+        // solhint-disable-next-line avoid-low-level-calls
         (bool success, bytes memory result) = router.delegatecall(msg.data);
-        require(success, "Reservation router delegatecall failed");
+        if (!success) {
+            // Bubble up the router's revert reason (including custom errors)
+            // instead of collapsing every failure into one generic string.
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
         assembly {
             returndatacopy(0, 0, returndatasize())
             return(0, returndatasize())
