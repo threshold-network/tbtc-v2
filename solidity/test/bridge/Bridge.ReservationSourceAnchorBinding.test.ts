@@ -5,27 +5,10 @@
  * 2026-08-26. Pruned of m2-only paths (dissolution, redemption, renewal,
  * watchtower veto, retry credit) per roadmap.md §0.7.
  *
- * This file keeps only the cumulative re-anchor fee exposure block (the
- * PR #1104 characterization suite, 2 tests). The other 5 "kept" describes
- * from the original port were split into independent self-contained files,
- * each with its own fixture bootstrap, for clarity and parallel authoring:
+ * Kept describes:
+ *   - action source-anchor binding
  *
- *   - `Bridge.ReservationAcceptanceAuthorization.test.ts` (2/2 passing):
- *     'capacity reserved before signing (fill-then-prove)' +
- *     'acceptance authorization timeout'
- *   - `Bridge.ReservationSourceAnchorBinding.test.ts` (1/1 passing):
- *     'action source-anchor binding' (second original case was m2-only)
- *   - `Bridge.ReservationStranding.test.ts` (10/10 passing, new from
- *     scratch): `notifyReservationStranded` + `notifyStaleReservedDeposit`
- *     coverage. Zero prior coverage anywhere, including original PR #1104.
- *   - 'late proof against a position with a newer pending generation':
- *     carried as an empty scaffold then deleted 2026-08-26; both original
- *     cases depended on m2-only `requestRedemption`/`retryRedemption`.
- *   - 'wallet lifecycle integration': same; carried as an empty scaffold
- *     then deleted 2026-08-26; all 6 original cases depended on m2-only
- *     `requestReservationDissolution`/`completeMovingFundsWhileReservationsRemain`.
- *
- * Pruned describes:
+ * Pruned describes from original source block:
  *   - claim double-spend regression (full block - redemption-racing only)
  *   - retry-credit restoration after a late re-anchor
  *   - watchtower authorization enforcement in the proof path
@@ -36,21 +19,17 @@
  *     contract, no deploy script, not compiled. Porting it is new scope
  *     beyond a test port; dropped rather than faked. Found 2026-08-26.)
  *
- * The characterization block above is the PR D obligation tracked in
- * agent-docs/m1/pr-D-description.md (the "Carry-forward obligation" note).
- * Source PR #1104 already understood this as an accepted regression and
- * bounded the assertions (`gt PR1102_CAP`, `gte 86%`) so they FAIL if a
- * cap is ported. For m1 specifically: see docs/spec/reservations/pr-strategy.md
- * §4.1 (justification section) and pr-review-followups.md item 7 (the four-
- * lever decision deferring the bound to post-m1).
+ * The second `it("rejects an old redemption authorization against a re-anchored output")`
+ * case was dropped: it calls `redeemReservation` on ReservationVault, which is an
+ * m2-only function (does not exist in m1 - no such method in ReservationVault.sol).
+ * The re-anchor binding logic it exercises is already covered by the first case.
  */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-// Adversarial settlement tests for the two-phase reservation state machine:
-// the late-proof settlement matrix, the action source-anchor binding, the
-// capacity-reserved-before-signing guarantee, the acceptance authorization
-// timeout, the wallet lifecycle integration, and the cumulative re-anchor
-// fee exposure characterization (an accepted, documented regression).
+// Adversarial settlement tests for the action source-anchor binding:
+// the re-anchor's source-anchor snapshot correctly rejects proofs against
+// a stale/replaced anchor (via `requireCurrentSourceAnchor` in
+// ReservationProofs.sol).
 
 import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
@@ -131,7 +110,7 @@ const ProofType = {
   Dissolution: 3,
 }
 
-describe("Bridge - Reservation settlement", () => {
+describe("Bridge - Reservation source-anchor binding", () => {
   let governance: SignerWithAddress
   let spvMaintainer: SignerWithAddress
   let thirdParty: SignerWithAddress
@@ -444,19 +423,7 @@ describe("Bridge - Reservation settlement", () => {
     return { fundingTx, anchorTx, reservationKey }
   }
 
-  describe("cumulative re-anchor fee exposure (accepted regression)", () => {
-    // A scaled parameter regime, the same technique `#1102`'s own
-    // characterization test used: at the default 2,000 sat `txMaxFee` a
-    // full grind of this fixture's 2,998,500 sat anchor would take ~1,498
-    // hops. Raising the fee bound compresses it to 7 without changing the
-    // mechanism under test. `reservationMinAmount` has to move with it to
-    // satisfy `reservationMinAmount > reservationTxMaxFee`.
-    const GRIND_TX_MAX_FEE = 400000
-    const GRIND_MIN_AMOUNT = 500000
-
-    // `#1102`'s fixture ceiling, for the comparison assertion below.
-    const PR1102_CAP = 100000
-
+  describe("action source-anchor binding", () => {
     beforeEach(async () => {
       await createSnapshot()
     })
@@ -465,151 +432,92 @@ describe("Bridge - Reservation settlement", () => {
       await restoreSnapshot()
     })
 
-    async function raiseFeeBound() {
-      await reservationRouter
-        .connect(bridgeGovernanceSigner)
-        .updateReservationParameters(
-          reservationVault.address,
-          GRIND_MIN_AMOUNT,
-          GRIND_TX_MAX_FEE,
-          RESERVATION_TERM,
-          RESERVATION_GRACE,
-          RESERVATION_MAX_TOTAL,
-          MAX_RESERVATIONS_PER_WALLET,
-          RESERVATION_ACTION_TIMEOUT,
-          RESERVATION_RENEWAL_WINDOW
-        )
-    }
-
-    // One governance-authorized hop, ping-ponging between two Live
-    // wallets. Returns the settled transaction so the next hop can spend
-    // its output.
-    async function grindOneHop(
-      reservationKey: BigNumber,
-      sourceTx: { txHash: string },
-      target: string,
-      newAnchorValue: BigNumber,
-      nonce: number
-    ) {
-      await reservationRouter
-        .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, target)
-
-      const hopTx = buildTx(
-        [{ txHash: sourceTx.txHash, index: 0 }],
-        [{ valueSat: newAnchorValue, script: p2wpkhScript(target) }]
-      )
-
-      await reservationRouter
-        .connect(spvMaintainer)
-        .submitReservationProof(
-          ProofType.Reanchor,
-          hopTx.info,
-          proofFor(hopTx.txHash),
-          NO_MAIN_UTXO_PARAM,
-          reservationKey,
-          nonce
-        )
-
-      return hopTx
-    }
-
-    it("lets most of a claim evaporate into miner fees, with no absolute ceiling", async () => {
+    it("rejects a timed-out re-anchor replay against a later anchor", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
+      const thirdWalletPubKeyHash = ethers.utils.hexlify(
+        ethers.utils.randomBytes(20)
+      )
       await liveWallet(secondWalletPubKeyHash)
-      await raiseFeeBound()
+      await liveWallet(thirdWalletPubKeyHash)
+      await bridge.setWallet(walletPubKeyHash, {
+        ...(await bridge.wallets(walletPubKeyHash)),
+        state: walletState.MovingFunds,
+        movingFundsRequestedAt: await lastBlockTime(),
+      })
 
-      const reserveBefore = await tbtc.balanceOf(reservationVault.address)
-      const debtBefore = await reservationVault.inKindFeeDebtSat()
-
-      // Grind at the maximum permitted fee per hop until the next full-fee
-      // hop would breach the dust floor. The hop count is derived, never
-      // hardcoded: that is the point, since it scales with the claim.
-      let currentTx = anchorTx
-      let currentAnchor = anchorAmount
-      let target = secondWalletPubKeyHash
-      let nonce = 2
-      let hops = 0
-
-      while (currentAnchor.sub(GRIND_TX_MAX_FEE).gt(GRIND_TX_MAX_FEE)) {
-        const nextAnchor = currentAnchor.sub(GRIND_TX_MAX_FEE)
-        // Sequential on purpose: each hop spends the previous hop's output,
-        // so these cannot be batched or parallelised.
-        // eslint-disable-next-line no-await-in-loop
-        currentTx = await grindOneHop(
-          reservationKey,
-          currentTx,
-          target,
-          nextAnchor,
-          nonce
-        )
-        currentAnchor = nextAnchor
-        target =
-          target === secondWalletPubKeyHash
-            ? walletPubKeyHash
-            : secondWalletPubKeyHash
-        nonce += 1
-        hops += 1
-      }
-
-      // One final partial-fee hop lands the anchor exactly on the dust
-      // floor's boundary, `txMaxFee + 1`, which is the true worst case.
-      const floorBoundary = BigNumber.from(GRIND_TX_MAX_FEE + 1)
-      if (currentAnchor.gt(floorBoundary)) {
-        currentTx = await grindOneHop(
-          reservationKey,
-          currentTx,
-          target,
-          floorBoundary,
-          nonce
-        )
-        currentAnchor = floorBoundary
-        nonce += 1
-        hops += 1
-        // The reservation now sits on `target`, so the terminal attempt
-        // below has to name the other wallet. Inside the loop this flip
-        // happens on every iteration; here it has to happen explicitly.
-        target =
-          target === secondWalletPubKeyHash
-            ? walletPubKeyHash
-            : secondWalletPubKeyHash
-      }
-
-      const reservation = await reservationRouter.reservations(reservationKey)
-      const cumulativeFee = anchorAmount.sub(currentAnchor)
-
-      // The claim is written down to the surviving anchor: the owner's
-      // redemption right shrinks by the full grind.
-      expect(reservation.anchorAmount).to.equal(currentAnchor)
-      expect(reservation.mintedAmount).to.equal(currentAnchor)
-
-      // Every satoshi of the grind is financed in kind: burned from the
-      // vault's reserve where it could cover, recorded as global debt
-      // where it could not. Nothing is left unaccounted.
-      const reserveAfter = await tbtc.balanceOf(reservationVault.address)
-      const debtAfter = await reservationVault.inKindFeeDebtSat()
-      const burnedSat = reserveBefore.sub(reserveAfter).div(SATOSHI_MULTIPLIER)
-      expect(burnedSat.add(debtAfter.sub(debtBefore))).to.equal(cumulativeFee)
-
-      // The characterization itself. Both assertions would FAIL if an
-      // absolute per-reservation ceiling were ported, which is exactly
-      // what makes the accepted regression executable rather than a claim
-      // in a document.
-      expect(cumulativeFee).to.be.gt(PR1102_CAP)
-      expect(cumulativeFee.mul(100).div(anchorAmount)).to.be.gte(86)
-
-      // And the grind is genuinely terminal: one more full-fee hop cannot
-      // settle, because the dust floor is the only thing that ever stopped
-      // it.
+      // Generation 2 authorizes A -> B and times out while its already-
+      // confirmed transaction awaits an SPV proof.
       await reservationRouter
-        .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, target)
-      const belowFloorTx = buildTx(
-        [{ txHash: currentTx.txHash, index: 0 }],
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
+      const firstReanchorTx = buildTx(
+        [{ txHash: anchorTx.txHash, index: 0 }],
         [
           {
-            valueSat: BigNumber.from(GRIND_TX_MAX_FEE),
-            script: p2wpkhScript(target),
+            valueSat: anchorAmount.sub(500),
+            script: p2wpkhScript(secondWalletPubKeyHash),
+          },
+        ]
+      )
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      // Generation 3 authorizes the same source A -> C and also times out.
+      await reservationRouter
+        .connect(thirdParty)
+        .requestReservationReanchor(reservationKey, thirdWalletPubKeyHash)
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+      await reservationRouter
+        .connect(thirdParty)
+        .notifyReservationActionTimeout(reservationKey, [])
+
+      const originalAnchorHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTx.txHash, 0]
+      )
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 2))
+          .sourceAnchorUtxoHash
+      ).to.equal(originalAnchorHash)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 3))
+          .sourceAnchorUtxoHash
+      ).to.equal(originalAnchorHash)
+
+      // The genuine, already-confirmed generation-2 transaction remains
+      // late-settleable and advances the tracked anchor from A to B.
+      await expect(
+        reservationRouter
+          .connect(spvMaintainer)
+          .submitReservationProof(
+            ProofType.Reanchor,
+            firstReanchorTx.info,
+            proofFor(firstReanchorTx.txHash),
+            NO_MAIN_UTXO_PARAM,
+            reservationKey,
+            2
+          )
+      )
+        .to.emit(reservationRouter, "ReservationReanchored")
+        .withArgs(
+          reservationKey,
+          2,
+          secondWalletPubKeyHash,
+          firstReanchorTx.txHash,
+          anchorAmount.sub(500)
+        )
+
+      // A freshly crafted B -> C transaction has generation 3's shape but
+      // spends an anchor that generation never authorized. Without the
+      // source snapshot it would settle as a valid late generation-3 proof.
+      const replayTx = buildTx(
+        [{ txHash: firstReanchorTx.txHash, index: 0 }],
+        [
+          {
+            valueSat: anchorAmount.sub(1000),
+            script: p2wpkhScript(thirdWalletPubKeyHash),
           },
         ]
       )
@@ -618,39 +526,36 @@ describe("Bridge - Reservation settlement", () => {
           .connect(spvMaintainer)
           .submitReservationProof(
             ProofType.Reanchor,
-            belowFloorTx.info,
-            proofFor(belowFloorTx.txHash),
+            replayTx.info,
+            proofFor(replayTx.txHash),
             NO_MAIN_UTXO_PARAM,
             reservationKey,
-            nonce
+            3
           )
-      ).to.be.revertedWith("Re-anchor amount below the dust floor")
+      ).to.be.revertedWith("Action source anchor is no longer current")
 
-      // Recorded for the deferral note: the hop count scales with the
-      // claim, so this figure is regime-specific, not a constant bound.
-      expect(hops).to.be.gte(7)
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Active)
+      expect(reservation.walletPubKeyHash).to.equal(secondWalletPubKeyHash)
+      expect(reservation.anchorTxHash).to.equal(firstReanchorTx.txHash)
+      expect(
+        (await reservationRouter.reservationActions(reservationKey, 3)).state
+      ).to.equal(ActionState.TimedOut)
+      expect(
+        await bridge.spentMainUTXOs(
+          BigNumber.from(
+            ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [firstReanchorTx.txHash, 0]
+            )
+          )
+        )
+      ).to.be.false
     })
 
-    it("depends on the governance gate: a Live wallet's anchor cannot be rotated permissionlessly", async () => {
-      // The accepted regression above is only tolerable because reaching
-      // it requires governance to authorize every hop. If this gate is
-      // ever relaxed, the unbounded exposure becomes reachable by the
-      // custodying wallet operator alone, which is the threat model
-      // `pr-review-followups.md` item 7 scored as the severity-driving
-      // case. This test is the tripwire for that change.
-      //
-      // Scope, per limit 2 in this block's header: this catches the gate
-      // being removed, not `privileged` being widened to admit a second
-      // caller. A green run here is not evidence the assumption still
-      // holds; it is only evidence this particular gate still exists.
-      const { reservationKey } = await makeAcceptedReservation()
-      await liveWallet(secondWalletPubKeyHash)
-
-      await expect(
-        reservationRouter
-          .connect(thirdParty)
-          .requestReservationReanchor(reservationKey, secondWalletPubKeyHash)
-      ).to.be.revertedWith("Only governance can rotate a Live wallet's anchor")
-    })
+    // it("rejects an old redemption authorization against a re-anchored output", async () => {
+    //   // DROPPED: depends on `redeemReservation` on ReservationVault, which
+    //   // is m2-only (does not exist in m1).
+    // })
   })
 })
