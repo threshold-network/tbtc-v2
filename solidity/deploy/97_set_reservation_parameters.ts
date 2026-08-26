@@ -41,12 +41,29 @@ import type { DeployFunction } from "hardhat-deploy/types"
  * after the operator is ready to activate reservations live.
  */
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
-  const { deployments, ethers, getNamedAccounts } = hre
-  const { execute, get } = deployments
-  const { deployer } = await getNamedAccounts()
+  const { deployments, ethers, getNamedAccounts, helpers, network } = hre
+  const { execute, get, read } = deployments
+  const { governance } = await getNamedAccounts()
 
   const ReservationVault = await get("ReservationVault")
   const BridgeGovernance = await get("BridgeGovernance")
+
+  // `BridgeGovernance` is deployed with a 48-hour delay on every network
+  // except Sepolia, so a begin/finalize pair cannot complete in one run
+  // without moving the chain clock. Local development chains can, so this
+  // script keeps its documented "begin and finalize in the same deploy run"
+  // behaviour there. On live networks the finalizers are the operator's job
+  // after the delay elapses, and `func.skip` below already excludes mainnet.
+  const localNetworks = ["hardhat", "localhost", "development", "system_tests"]
+  const isLocalNetwork = localNetworks.includes(network.name)
+
+  const passGovernanceDelay = async () => {
+    if (!isLocalNetwork) {
+      return
+    }
+    const governanceDelay = await read("BridgeGovernance", "governanceDelays", 0)
+    await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
+  }
 
   // ----- Step 1: begin/finalize updateReservationCaps --------------------
   // Settle the setter-ordering hazard. Reservation.sol defaults
@@ -55,16 +72,17 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   deployments.log("[1/3] begin/finalize updateReservationCaps")
   await execute(
     "BridgeGovernance",
-    { from: deployer, log: true, waitConfirmations: 1 },
+    { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationCapsUpdate",
     // values per agent-docs/inventory/reservation-parameters.md
     ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
     ethers.BigNumber.from("100") // maxActiveReservations
   )
+  await passGovernanceDelay()
   await execute(
     "BridgeGovernance",
-    { from: deployer, log: true, waitConfirmations: 1 },
+    { from: governance, log: true, waitConfirmations: 1 },
     "finalizeReservationCapsUpdate"
   )
 
@@ -76,7 +94,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   deployments.log("[2/3] begin/finalize updateReservationParameters")
   await execute(
     "BridgeGovernance",
-    { from: deployer, log: true, waitConfirmations: 1 },
+    { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationParametersUpdate",
     ReservationVault.address, // reservationVault
     ethers.BigNumber.from("10000"), // reservationMinAmount
@@ -88,9 +106,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("86400"), // reservationActionTimeout
     ethers.BigNumber.from("86400") // reservationRenewalWindowSeconds
   )
+  await passGovernanceDelay()
   await execute(
     "BridgeGovernance",
-    { from: deployer, log: true, waitConfirmations: 1 },
+    { from: governance, log: true, waitConfirmations: 1 },
     "finalizeReservationParametersUpdate"
   )
 
@@ -100,7 +119,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   deployments.log("[3/3] Activating vault via setVaultStatus")
   await execute(
     "BridgeGovernance",
-    { from: deployer, log: true, waitConfirmations: 1 },
+    { from: governance, log: true, waitConfirmations: 1 },
     "setVaultStatus",
     ReservationVault.address,
     true
@@ -114,7 +133,33 @@ func.dependencies = [
   "ReservationVault",
   "ReservationVaultOwnership",
   "Bridge",
+  // Every reservation setter below is a router selector reached through
+  // `Bridge.fallback()`; without a router set the fallback reverts.
+  "ReservationRouter",
+  // `BridgeGovernance`'s governance-gated setters call into Bridge, which
+  // checks `onlyGovernance` (Bridge.governance == msg.sender). Bridge's
+  // own governance is only handed to BridgeGovernance by
+  // `21_transfer_bridge_governance.ts`, which is `runAtTheEnd = true` and
+  // therefore always runs after every non-`runAtTheEnd` script regardless
+  // of numeric filename order (hardhat-deploy buckets `runAtTheEnd`
+  // scripts into a separate batch that always runs last). Without this
+  // script also being `runAtTheEnd` (below) and depending on that tag,
+  // every governance-gated call here reverts with "Caller is not the
+  // governance" on every network, not just tests — found 2026-08-26.
+  "TransferBridgeGovernance",
+  // `BridgeGovernance` itself is `Ownable`; ownership transfers from
+  // `deployer` to `governance` in `22_transfer_bridge_governance_ownership.ts`
+  // (also `runAtTheEnd`, and by filename order it registers before this
+  // script within the end batch). Every `execute` call below signs as
+  // `governance`, matching the post-transfer owner — found 2026-08-26.
+  "BridgeGovernanceOwnership",
 ]
+
+// Must run after `TransferBridgeGovernance` (see the dependency comment
+// above); `runAtTheEnd` scripts respect their own dependency graph within
+// the end batch, so this still executes after Bridge's governance is
+// handed to BridgeGovernance and before nothing else depends on it.
+func.runAtTheEnd = true
 
 // Skip on mainnet until the timelock is reviewed for production use.
 // This script is a deploy-time helper for test/development networks.

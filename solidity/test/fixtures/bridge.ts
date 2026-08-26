@@ -143,7 +143,11 @@ export default async function bridgeFixture(): Promise<{
         // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.
         // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-        unsafeAllow: ["external-library-linking"],
+        //
+        // `delegatecall` is allowed for the reservation-router fallback facet
+        // (`Bridge.fallback()`); see the same allowance and its rationale in
+        // `deploy/06_deploy_bridge.ts`.
+        unsafeAllow: ["external-library-linking", "delegatecall"],
       },
     })
 
