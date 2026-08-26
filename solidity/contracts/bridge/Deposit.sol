@@ -207,8 +207,24 @@ library Deposit {
             "Vault is not trusted"
         );
 
+        bool isReserved = reveal.vault != address(0) &&
+            reveal.vault == self.reservationVault;
+        uint32 refundDeadline = 0;
+        bool refundDeadlineValidated = false;
         if (self.depositRevealAheadPeriod > 0) {
-            validateDepositRefundLocktime(self, reveal.refundLocktime);
+            refundDeadline = validateDepositRefundLocktime(
+                self,
+                reveal.refundLocktime
+            );
+            refundDeadlineValidated = true;
+        } else if (isReserved) {
+            // Ordinary deposits preserve the historical disabled-validation
+            // path. Reserved deposits still need the exact script deadline
+            // so a permissionless acceptance request cannot reserve capacity
+            // for an action the wallet validator can never sign.
+            refundDeadline = BTCUtils.reverseUint32(
+                uint32(reveal.refundLocktime)
+            );
         }
 
         bytes memory expectedScript;
@@ -342,10 +358,15 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
-        bool isReserved = reveal.vault != address(0) &&
-            reveal.vault == self.reservationVault;
         if (isReserved) {
-            self.pendingReservedDeposit[depositKey].isReserved = true;
+            self.pendingReservedDeposit[depositKey] = BridgeState
+                .PendingReservedDeposit(
+                    true,
+                    reveal.walletPubKeyHash,
+                    refundDeadline,
+                    refundDeadlineValidated
+                );
+            self.pendingReservedDeposits += 1;
         }
 
         // Skip the rebate for reserved deposits: `deposit.treasuryFee` is
@@ -444,10 +465,10 @@ library Deposit {
     function validateDepositRefundLocktime(
         BridgeState.Storage storage self,
         bytes4 refundLocktime
-    ) internal view {
+    ) internal view returns (uint32 depositRefundableTimestamp) {
         // Convert the refund locktime byte array to a LE integer. This is
         // the moment in time when the deposit become refundable.
-        uint32 depositRefundableTimestamp = BTCUtils.reverseUint32(
+        depositRefundableTimestamp = BTCUtils.reverseUint32(
             uint32(refundLocktime)
         );
         // According to https://developer.bitcoin.org/devguide/transactions.html#locktime-and-sequence-number
