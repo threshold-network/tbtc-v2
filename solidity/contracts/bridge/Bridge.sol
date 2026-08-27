@@ -2131,20 +2131,24 @@ contract Bridge is
     ///      contract by construction (and a selector-disjointness test
     ///      guards it), so the fallback only ever sees calls that the Bridge
     ///      itself does not match. If no router has been set, every call
-    ///      reverts.
+    // solhint-disable-next-line no-complex-fallback
     fallback() external payable {
         address router = self.reservationRouter;
         require(router != address(0), "Reservation router not set");
-        // solhint-disable-next-line avoid-low-level-calls
+        /* solhint-disable avoid-low-level-calls */
         // slither-disable-next-line controlled-delegatecall,low-level-calls
         (bool success, bytes memory result) = router.delegatecall(msg.data);
+        /* solhint-enable avoid-low-level-calls */
         if (!success) {
             // Bubble up the router's revert reason (including custom errors)
+            /* solhint-disable no-inline-assembly */
             // instead of collapsing every failure into one generic string.
             assembly {
                 revert(add(result, 0x20), mload(result))
             }
+            /* solhint-enable no-inline-assembly */
         }
+        /* solhint-disable-next-line no-inline-assembly */
         assembly {
             returndatacopy(0, 0, returndatasize())
             return(0, returndatasize())
