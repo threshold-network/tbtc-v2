@@ -1,7 +1,6 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
@@ -14,8 +13,14 @@ import {
   WormholeBridgeStub,
   MockTBTCVault,
 } from "../../../typechain"
-
-chai.use(smock.matchers)
+import {
+  createMock,
+  expectCalledOnce,
+  expectCalledOnceWith,
+  expectCalledThrice,
+  expectNotCalled,
+} from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -34,9 +39,9 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
   let l1BtcRedeemer: MockL1BTCRedeemerWormhole
   let tbtcToken: L2TBTC
-  let wormholeTokenBridge: FakeContract<IWormholeTokenBridge>
+  let wormholeTokenBridge: Mock<IWormholeTokenBridge>
   let bridge: MockTBTCBridge
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let reimbursementPool: Mock<ReimbursementPool>
   let bank: MockBank
   let tbtcVault: MockTBTCVault
 
@@ -128,10 +133,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     // Set the tbtcToken on the MockTBTCVault
     await _tbtcVault.setTbtcToken(_tbtcToken.address)
 
-    const _wormholeTokenBridge = await smock.fake<IWormholeTokenBridge>(
+    const _wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
-    const _reimbursementPool = await smock.fake<ReimbursementPool>(
+    const _reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )
 
@@ -617,16 +622,18 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
     beforeEach(async () => {
       await createSnapshot()
-      wormholeTokenBridge.completeTransferWithPayload.reset()
-      wormholeTokenBridge.parseTransferWithPayload.reset()
-      reimbursementPool.refund.reset()
+      await wormholeTokenBridge.completeTransferWithPayload.reset()
+      await wormholeTokenBridge.parseTransferWithPayload.reset()
+      await reimbursementPool.refund.reset()
 
       // Set up default mock behavior
       const encodedTransfer = createMockTransferWithPayload(
         exampleRedeemerOutputScript
       )
-      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-      wormholeTokenBridge.parseTransferWithPayload
+      await wormholeTokenBridge.completeTransferWithPayload.returns(
+        encodedTransfer
+      )
+      await wormholeTokenBridge.parseTransferWithPayload
         .whenCalledWith(encodedTransfer)
         .returns({
           payloadID: 1,
@@ -658,8 +665,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           exampleRedeemerOutputScript,
           unauthorizedSender
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -695,8 +704,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           exampleRedeemerOutputScript,
           newSender
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -790,9 +801,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should complete the transfer with Wormhole bridge", async () => {
-        expect(
-          wormholeTokenBridge.completeTransferWithPayload
-        ).to.have.been.calledOnceWith(encodedVm)
+        await expectCalledOnceWith(
+          wormholeTokenBridge.completeTransferWithPayload,
+          [encodedVm]
+        )
       })
 
       it("should call requestRedemption on the Bridge and emit RedemptionRequestedMock", async () => {
@@ -839,10 +851,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleP2WPKHOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          await wormholeTokenBridge.completeTransferWithPayload.returns(
             encodedTransfer
           )
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -896,10 +908,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleP2SHOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          await wormholeTokenBridge.completeTransferWithPayload.returns(
             encodedTransfer
           )
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -953,10 +965,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleP2WSHOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          await wormholeTokenBridge.completeTransferWithPayload.returns(
             encodedTransfer
           )
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -1093,7 +1105,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             exampleMainUtxo,
             encodedVm
           )
-        expect(reimbursementPool.refund).to.have.been.calledOnce
+        await expectCalledOnce(reimbursementPool.refund)
       })
 
       it("should calculate reimbursement with gas offset", async () => {
@@ -1107,7 +1119,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             encodedVm
           )
 
-        const refundCall = reimbursementPool.refund.getCall(0)
+        const refundCall = await reimbursementPool.refund.getCall(0)
         expect(refundCall.args[0]).to.be.gt(gasOffset)
         expect(refundCall.args[1]).to.equal(relayer.address)
       })
@@ -1131,7 +1143,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             exampleMainUtxo,
             encodedVm
           )
-        expect(reimbursementPool.refund).to.not.have.been.called
+        await expectNotCalled(reimbursementPool.refund)
       })
     })
 
@@ -1151,7 +1163,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             exampleMainUtxo,
             encodedVm
           )
-        expect(reimbursementPool.refund).to.not.have.been.called
+        await expectNotCalled(reimbursementPool.refund)
       })
     })
 
@@ -1177,14 +1189,14 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             encodedVm
           )
 
-        const refundCall = reimbursementPool.refund.getCall(0)
+        const refundCall = await reimbursementPool.refund.getCall(0)
         expect(refundCall.args[0]).to.be.gt(100000)
       })
     })
 
     context("when Wormhole bridge transfer fails", () => {
       beforeEach(async () => {
-        wormholeTokenBridge.completeTransferWithPayload.reverts(
+        await wormholeTokenBridge.completeTransferWithPayload.reverts(
           "Wormhole transfer failed"
         )
       })
@@ -1238,10 +1250,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer1 = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm)
           .returns(encodedTransfer1)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer1)
           .returns({
             payloadID: 1,
@@ -1258,10 +1270,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer2 = createMockTransferWithPayload(
           differentOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm2)
           .returns(encodedTransfer2)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer2)
           .returns({
             payloadID: 1,
@@ -1278,10 +1290,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer3 = createMockTransferWithPayload(
           exampleP2WPKHOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm3)
           .returns(encodedTransfer3)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer3)
           .returns({
             payloadID: 1,
@@ -1322,8 +1334,9 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             encodedVm3
           )
 
-        expect(wormholeTokenBridge.completeTransferWithPayload).to.have.been
-          .calledThrice
+        await expectCalledThrice(
+          wormholeTokenBridge.completeTransferWithPayload
+        )
       })
     })
 
@@ -1363,10 +1376,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleRedeemerOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload
+          await wormholeTokenBridge.completeTransferWithPayload
             .whenCalledWith(emptyVm)
             .returns(encodedTransfer)
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -1504,8 +1517,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -1570,8 +1585,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -1652,8 +1669,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       const encodedTransfer = createMockTransferWithPayload(
         exampleRedeemerOutputScript
       )
-      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-      wormholeTokenBridge.parseTransferWithPayload
+      await wormholeTokenBridge.completeTransferWithPayload.returns(
+        encodedTransfer
+      )
+      await wormholeTokenBridge.parseTransferWithPayload
         .whenCalledWith(encodedTransfer)
         .returns({
           payloadID: 1,
@@ -1672,6 +1691,13 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         .updateAllowedSender(defaultSender, true)
 
       await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
+
+      // These tests bound the gas of the contract under test. Recording a call
+      // costs real gas -- smock zeroed gas for faked calls, the replacement
+      // SSTOREs the calldata -- so leaving it on would fold the mock's
+      // bookkeeping into the measurement. Nothing here asserts on calls.
+      await wormholeTokenBridge.setRecording(false)
+      await reimbursementPool.setRecording(false)
     })
 
     afterEach(async () => {

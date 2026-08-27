@@ -1,6 +1,5 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
@@ -15,8 +14,8 @@ import type {
   DepositRevealInfoStruct,
 } from "../../typechain/L2BTCDepositorWormhole"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
-
-chai.use(smock.matchers)
+import { createMock, expectCalledTwice, expectNotCalled } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -79,20 +78,20 @@ describe("AbstractL1BTCDepositor", () => {
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
 
-    const bridge = await smock.fake<IBridge>("IBridge")
+    const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
       await ethers.getContractFactory("TestERC20")
     ).deploy()
-    const tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault", {
+    const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       // The TBTCVault contract address must be known in advance and match
       // the one used in initializeDeposit fixture. This is necessary to
       // pass the vault address check in the initializeDeposit function.
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.address)
 
-    const reimbursementPool = await smock.fake<ReimbursementPool>(
+    const reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )
 
@@ -117,9 +116,9 @@ describe("AbstractL1BTCDepositor", () => {
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
 
-  let bridge: FakeContract<IBridge>
-  let tbtcVault: FakeContract<ITBTCVault>
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let bridge: Mock<IBridge>
+  let tbtcVault: Mock<ITBTCVault>
+  let reimbursementPool: Mock<ReimbursementPool>
   let depositor: TestL1BTCDepositor
 
   before(async () => {
@@ -132,17 +131,19 @@ describe("AbstractL1BTCDepositor", () => {
   // the deposit from the fixture.
   const allowFinalization = async () => {
     // Set Bridge fees. Set only relevant fields.
-    bridge.depositParameters.returns({
+    await bridge.depositParameters.returns({
       depositDustThreshold: 0,
       depositTreasuryFeeDivisor: 0,
       depositTxMaxFee,
       depositRevealAheadPeriod: 0,
     })
-    tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+    await tbtcVault.optimisticMintingFeeDivisor.returns(
+      optimisticMintingFeeDivisor
+    )
 
     const revealedAt = (await lastBlockTime()) - 7200
     const finalizedAt = await lastBlockTime()
-    bridge.deposits
+    await bridge.deposits
       .whenCalledWith(initializeDepositFixture.depositKey)
       .returns({
         depositor: depositor.address,
@@ -153,20 +154,20 @@ describe("AbstractL1BTCDepositor", () => {
         sweptAt: finalizedAt,
         extraData: initializeDepositFixture.destinationChainDepositOwner,
       })
-    tbtcVault.optimisticMintingRequests
+    await tbtcVault.optimisticMintingRequests
       .whenCalledWith(initializeDepositFixture.depositKey)
       .returns([revealedAt, finalizedAt])
   }
 
-  const resetFakes = () => {
-    reimbursementPool.maxGasPrice.reset()
-    reimbursementPool.staticGas.reset()
-    reimbursementPool.refund.reset()
-    bridge.depositParameters.reset()
-    tbtcVault.optimisticMintingFeeDivisor.reset()
-    bridge.revealDepositWithExtraData.reset()
-    bridge.deposits.reset()
-    tbtcVault.optimisticMintingRequests.reset()
+  const resetFakes = async () => {
+    await reimbursementPool.maxGasPrice.reset()
+    await reimbursementPool.staticGas.reset()
+    await reimbursementPool.refund.reset()
+    await bridge.depositParameters.reset()
+    await tbtcVault.optimisticMintingFeeDivisor.reset()
+    await bridge.revealDepositWithExtraData.reset()
+    await bridge.deposits.reset()
+    await tbtcVault.optimisticMintingRequests.reset()
   }
 
   describe("finalizeDeposit", () => {
@@ -182,8 +183,10 @@ describe("AbstractL1BTCDepositor", () => {
           // Use 1Gwei to make sure it's smaller than default gas price
           // used by Hardhat (200 Gwei) and this value will be used
           // for msgValueOffset calculation.
-          reimbursementPool.maxGasPrice.returns(BigNumber.from(1000000000))
-          reimbursementPool.staticGas.returns(10000) // Just an arbitrary value.
+          await reimbursementPool.maxGasPrice.returns(
+            BigNumber.from(1000000000)
+          )
+          await reimbursementPool.staticGas.returns(10000) // Just an arbitrary value.
 
           await depositor
             .connect(governance)
@@ -226,7 +229,7 @@ describe("AbstractL1BTCDepositor", () => {
         })
 
         after(async () => {
-          resetFakes()
+          await resetFakes()
 
           await restoreSnapshot()
         })
@@ -274,16 +277,16 @@ describe("AbstractL1BTCDepositor", () => {
 
         it("should pay out proper reimbursements after the transfer", async () => {
           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-          expect(reimbursementPool.refund).to.have.been.calledTwice
+          await expectCalledTwice(reimbursementPool.refund)
 
           // First call is the deferred gas reimbursement for deposit
           // initialization.
-          const firstCall = reimbursementPool.refund.getCall(0)
+          const firstCall = await reimbursementPool.refund.getCall(0)
           expect(firstCall.args[0]).to.equal(initializeDepositGasSpent)
           expect(firstCall.args[1]).to.equal(relayer.address)
 
           // Second call is the reimbursement for the deposit finalization.
-          const secondCall = reimbursementPool.refund.getCall(1)
+          const secondCall = await reimbursementPool.refund.getCall(1)
           expect(secondCall.args[1]).to.equal(relayer.address)
         })
       }
@@ -322,7 +325,7 @@ describe("AbstractL1BTCDepositor", () => {
       })
 
       after(async () => {
-        resetFakes()
+        await resetFakes()
 
         await restoreSnapshot()
       })
@@ -337,8 +340,7 @@ describe("AbstractL1BTCDepositor", () => {
       })
 
       it("should not call the reimbursement pool", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-        expect(reimbursementPool.refund).to.not.have.been.called
+        await expectNotCalled(reimbursementPool.refund)
       })
     })
   })
