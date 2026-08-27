@@ -61,7 +61,6 @@ async function withoutAdvancingTime<T>(write: () => Promise<T>): Promise<T> {
   await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp])
   return write()
 }
-
 /** A recorded call, decoded against the mocked interface. */
 export interface MockCall {
   /** Decoded arguments, in declaration order. */
@@ -267,7 +266,6 @@ function toPositional(outputs: ParamType[], value: unknown): unknown[] {
 
   return [value]
 }
-
 function encodeReturn(fragment: FunctionFragment, value: unknown): string {
   if (fragment.outputs === null || fragment.outputs.length === 0) {
     return "0x"
@@ -325,7 +323,6 @@ export async function createMock<T>(
     await ethers.provider.send("hardhat_setCode", [options.address, code])
     mockContract = mockContract.attach(options.address)
   }
-
   // Install the response of last resort for every function, so an unstubbed
   // one answers with a correctly sized zero instead of reverting the caller.
   const baseFragments = Object.values(targetInterface.functions)
@@ -603,7 +600,6 @@ export async function expectNotCalled(fn: MockedFunction): Promise<void> {
 export async function expectCalledThrice(fn: MockedFunction): Promise<void> {
   expect(await counted(fn), "expected exactly three calls").to.equal(3)
 }
-
 /** `expect(fake.fn).to.have.been.calledTwice` */
 export async function expectCalledTwice(fn: MockedFunction): Promise<void> {
   expect(await counted(fn), "expected exactly two calls").to.equal(2)
@@ -639,7 +635,6 @@ function normalizeForComparison(value: unknown): unknown {
   }
   return value
 }
-
 export async function expectCalledOnceWith(
   fn: MockedFunction,
   args: unknown[]

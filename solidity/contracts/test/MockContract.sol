@@ -119,7 +119,6 @@ contract MockContract {
     ///      keeps recording genuinely best-effort. Generous enough for any
     ///      realistic calldata.
     uint256 private constant RECORD_GAS_STIPEND = 1_000_000;
-
     bytes32 private constant STATE_SLOT =
         0xdd9627cd601a6555f69239ac336fba8db95c419564b84ebb3ee2c21fed88ae00;
 
@@ -268,7 +267,6 @@ contract MockContract {
     function __mock__setRecording(bool enabled) external {
         _state().recordingDisabled = !enabled;
     }
-
     /// @notice Marks selectors that must never be recorded. The helper calls
     ///         this once with every `view` and `pure` function of the mocked
     ///         ABI.
@@ -367,7 +365,6 @@ contract MockContract {
 
         revert("MockContract: call index out of range");
     }
-
     function __mock__callForSelectorAt(bytes4 selector, uint256 index)
         external
         view
