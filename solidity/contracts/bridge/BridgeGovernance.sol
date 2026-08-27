@@ -1851,9 +1851,7 @@ contract BridgeGovernance is Ownable {
     function finalizeReservationParametersUpdate() external onlyOwner {
         BridgeGovernanceParameters.ReservationData
             memory staged = reservationData;
-        reservationData.finalizeReservationParametersUpdate(
-            governanceDelay()
-        );
+        reservationData.finalizeReservationParametersUpdate(governanceDelay());
         IReservationBridge(address(bridge)).updateReservationParameters(
             staged.newReservationVault,
             staged.newReservationMinAmount,

@@ -973,6 +973,7 @@ contract WalletProposalValidator {
             ,
             ,
             ,
+
         ) = IReservationBridge(address(bridge)).reservationParameters();
 
         require(reservationVault != address(0), "Reservations are disabled");

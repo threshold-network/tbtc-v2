@@ -1636,7 +1636,6 @@ contract Bridge is
         return self.pendingReservedDeposit[depositKey].isReserved;
     }
 
-
     /// @notice Collection of all pending redemption requests indexed by
     ///         redemption key built as
     ///         `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
