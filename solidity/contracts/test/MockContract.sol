@@ -267,6 +267,7 @@ contract MockContract {
     function __mock__setRecording(bool enabled) external {
         _state().recordingDisabled = !enabled;
     }
+
     /// @notice Marks selectors that must never be recorded. The helper calls
     ///         this once with every `view` and `pure` function of the mocked
     ///         ABI.
@@ -365,6 +366,7 @@ contract MockContract {
 
         revert("MockContract: call index out of range");
     }
+
     function __mock__callForSelectorAt(bytes4 selector, uint256 index)
         external
         view
