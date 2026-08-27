@@ -61,7 +61,11 @@ library Reservation {
     ///         governable term must stay within them; they bound the
     ///         maximum owner lookahead (one term plus the renewal window)
     ///         and keep the carry economics of a term meaningful.
+    // Bounds enforced by the governance term-update setter that ships in the
+    // bounded-renewal PR; unused here because this PR only declares storage.
+    // slither-disable-next-line unused-state
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
+    // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
 
     /// @notice Represents the state of a reservation position.
