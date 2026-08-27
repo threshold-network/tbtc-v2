@@ -14,11 +14,7 @@ import type {
   DepositRevealInfoStruct,
 } from "../../typechain/L2BTCDepositorWormhole"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
-import {
-  createMock,
-  expectCalledTwice,
-  expectNotCalled,
-} from "../helpers/mock"
+import { createMock, expectCalledTwice, expectNotCalled } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
