@@ -20,6 +20,17 @@ const { AddressZero, HashZero } = ethers.constants
 const day = 86400
 const depositLocktime = 30 * day
 
+// Anchor for `createTestRedemptionRequest`'s default `requestedAt`. Captured
+// from the chain's own clock (not `Date.now()`) at the start of the
+// `validateRedemptionProposal` describe block below, because local-network
+// deploy scripts (e.g. `97_set_reservation_parameters.ts`'s governance-delay
+// bypass) advance `block.timestamp` via `evm_increaseTime` well past real
+// wall-clock time. Relying on `Date.now()` here made every default-timed
+// redemption request silently drift out of its safety-margin window
+// whenever this file ran after a fixture that had already fast-forwarded
+// the chain.
+let redemptionRequestDefaultAnchorTime = 0
+
 const emptyDepositExtraInfo = {
   fundingTx: {
     version: "0x00000000",
@@ -1292,6 +1303,8 @@ describe("WalletProposalValidator", () => {
 
     before(async () => {
       await createSnapshot()
+
+      redemptionRequestDefaultAnchorTime = await lastBlockTime()
 
       bridge.redemptionParameters.returns([
         0,
@@ -2999,10 +3012,13 @@ const createTestRedemptionRequest = (
   let resolvedRequestedAt = requestedAt
 
   if (!resolvedRequestedAt) {
-    // If the request creation time is not explicitly set, use `now - 1 day` to
-    // ensure request minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
-    resolvedRequestedAt = now - day
+    // If the request creation time is not explicitly set, use
+    // `chainTime - 1 day` to ensure request minimum age is achieved by
+    // default. Anchored to the chain's own clock (captured once per
+    // `validateRedemptionProposal` run), not `Date.now()`, since
+    // `block.timestamp` can be far ahead of real wall-clock time by the
+    // point this file runs.
+    resolvedRequestedAt = redemptionRequestDefaultAnchorTime - day
   }
 
   const redeemer = `0x${crypto.randomBytes(20).toString("hex")}`
