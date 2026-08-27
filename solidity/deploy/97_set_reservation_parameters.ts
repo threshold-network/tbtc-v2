@@ -61,7 +61,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     if (!isLocalNetwork) {
       return
     }
-    const governanceDelay = await read("BridgeGovernance", "governanceDelays", 0)
+    const governanceDelay = await read(
+      "BridgeGovernance",
+      "governanceDelays",
+      0
+    )
     await helpers.time.increaseTime(governanceDelay.toNumber() + 1)
   }
 

@@ -2136,6 +2136,7 @@ contract Bridge is
         address router = self.reservationRouter;
         require(router != address(0), "Reservation router not set");
         // solhint-disable-next-line avoid-low-level-calls
+        // slither-disable-next-line controlled-delegatecall,low-level-calls
         (bool success, bytes memory result) = router.delegatecall(msg.data);
         if (!success) {
             // Bubble up the router's revert reason (including custom errors)
