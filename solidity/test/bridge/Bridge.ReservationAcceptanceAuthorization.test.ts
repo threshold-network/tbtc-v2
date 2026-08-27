@@ -252,10 +252,9 @@ async function liveWallet(pkh: string) {
 // value) guarantees headroom regardless of what any intervening file's
 // tests already reserved. Found 2026-08-27.
 async function establishReservationPreconditions() {
-  // The impersonated governance signer's ETH balance, set once by
-  // `impersonateContract()` in the root `before()`, is zeroed out by
-  // `waffle.loadFixture` reverts in intervening test files (like
-  // RedemptionVaultRebate). Top it back up before spending it here.
+  // Intervening `waffle.loadFixture` reverts can restore the shared
+  // governance account to a snapshot where it has no ETH. Re-fund the
+  // impersonated signer before using it here.
   await ethers.provider.send("hardhat_setBalance", [
     bridgeGovernanceSigner.address,
     "0x8AC7230489E80000",
@@ -297,5 +296,410 @@ async function establishReservationPreconditions() {
   // `BitcoinTx.evaluateProofDifficulty` accepts them. `smock`'s
   // `.returns()` configuration lives in the shared relay mock's own
   // storage, so it is subject to `evm_snapshot`/`evm_revert` boundaries
+  // (including this file's own per-describe `createSnapshot`/
+  // `restoreSnapshot`) and to any other file reconfiguring the same
+  // shared mock instance for its own difficulty-specific tests.
+  relay.getCurrentEpochDifficulty.returns(0)
+  relay.getPrevEpochDifficulty.returns(0)
+}
 
-[Showing lines 1-300 of 708. Use :301 to continue]
+// ---- Bitcoin fixture crafting (regtest-style difficulty) ----
+
+const REGTEST_BITS_LE = "ffff7f20"
+const REGTEST_TARGET = BigNumber.from("0x7fffff").mul(
+  BigNumber.from(2).pow(8 * (0x20 - 3))
+)
+
+const reverseHex = (hex: string): string =>
+  hex.replace(/^0x/, "").match(/../g)!.reverse().join("")
+
+const hash256 = (hexData: string): string =>
+  ethers.utils.sha256(ethers.utils.sha256(hexData))
+
+const toLE = (value: number | BigNumber, byteLength: number): string =>
+  reverseHex(
+    BigNumber.from(value)
+      .toHexString()
+      .slice(2)
+      .padStart(byteLength * 2, "0")
+  )
+
+const compactSize = (n: number): string => {
+  if (n >= 0xfd) {
+    throw new Error("compactSize > 252 not supported in fixtures")
+  }
+  return n.toString(16).padStart(2, "0")
+}
+
+function buildTx(
+  inputs: { txHash: string; index: number }[],
+  outputs: { valueSat: BigNumber | number; script: string }[]
+) {
+  const inputVector = `0x${compactSize(inputs.length)}${inputs
+    .map((i) => `${i.txHash.slice(2)}${toLE(i.index, 4)}00ffffffff`)
+    .join("")}`
+  const outputVector = `0x${compactSize(outputs.length)}${outputs
+    .map(
+      (o) =>
+        `${toLE(BigNumber.from(o.valueSat), 8)}${compactSize(
+          o.script.length / 2
+        )}${o.script}`
+    )
+    .join("")}`
+  const info = {
+    version: "0x01000000",
+    inputVector,
+    outputVector,
+    locktime: "0x00000000",
+  }
+  const txHash = hash256(
+    `0x01000000${inputVector.slice(2)}${outputVector.slice(2)}00000000`
+  )
+  return { info, txHash }
+}
+
+function mineHeader(merkleRoot: string): string {
+  const prevBlock = ethers.utils.hexlify(ethers.utils.randomBytes(32)).slice(2)
+  const base = `20000000${prevBlock}${merkleRoot.slice(
+    2
+  )}662a2c68${REGTEST_BITS_LE}`
+  for (let nonce = 0; ; nonce++) {
+    const header = `0x${base}${toLE(nonce, 4)}`
+    if (
+      BigNumber.from(`0x${reverseHex(hash256(header))}`).lte(REGTEST_TARGET)
+    ) {
+      return header
+    }
+  }
+}
+
+function proofFor(txHash: string) {
+  const coinbasePreimage = ethers.utils.sha256(ethers.utils.randomBytes(32))
+  const coinbaseTxId = ethers.utils.sha256(coinbasePreimage)
+  const merkleRoot = hash256(`0x${coinbaseTxId.slice(2)}${txHash.slice(2)}`)
+  return {
+    merkleProof: coinbaseTxId,
+    txIndexInBlock: 1,
+    bitcoinHeaders: mineHeader(merkleRoot),
+    coinbasePreimage,
+    coinbaseProof: txHash,
+  }
+}
+
+const buildDepositScript = (
+  depositor: string,
+  blinding: string,
+  walletPkh: string,
+  refundPkh: string,
+  locktime: string
+): string =>
+  `14${depositor.slice(2)}7508${blinding.slice(2)}7576a914${walletPkh
+    .slice(2)
+    .toLowerCase()}8763ac6776a914${refundPkh.slice(2)}8804${locktime.slice(
+    2
+  )}b175ac68`
+
+const p2wshScript = (script: string): string =>
+  `0020${ethers.utils.sha256(`0x${script}`).slice(2)}`
+
+const p2wpkhScript = (pkh: string): string => `0014${pkh.slice(2)}`
+
+const randomRedeemerScript = (): string =>
+  `0x16${p2wpkhScript(ethers.utils.hexlify(ethers.utils.randomBytes(20)))}`
+
+// Reveals a fresh reserved deposit and requests acceptance (generation 1).
+async function makeRequestedReservation(custodian = walletPubKeyHash) {
+  const fundingTx = buildTx(
+    [
+      {
+        txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+        index: 0,
+      },
+    ],
+    [
+      {
+        valueSat: depositAmount,
+        script: p2wshScript(
+          buildDepositScript(
+            thirdParty.address,
+            blindingFactor,
+            custodian,
+            refundPubKeyHash,
+            refundLocktime
+          )
+        ),
+      },
+    ]
+  )
+
+  await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+    fundingOutputIndex: 0,
+    blindingFactor,
+    walletPubKeyHash: custodian,
+    refundPubKeyHash,
+    refundLocktime,
+    vault: reservationVault.address,
+  })
+
+  const reservationKey = BigNumber.from(
+    ethers.utils.solidityKeccak256(["bytes32", "uint32"], [fundingTx.txHash, 0])
+  )
+
+  await reservationRouter
+    .connect(thirdParty)
+    .requestReservationAcceptance(reservationKey, custodian)
+
+  const anchorTx = buildTx(
+    [{ txHash: fundingTx.txHash, index: 0 }],
+    [{ valueSat: anchorAmount, script: p2wpkhScript(custodian) }]
+  )
+
+  return { fundingTx, anchorTx, reservationKey }
+}
+
+// Reveals a fresh reserved deposit, requests acceptance (generation 1)
+// and proves the anchor.
+async function makeAcceptedReservation(custodian = walletPubKeyHash) {
+  const { fundingTx, anchorTx, reservationKey } =
+    await makeRequestedReservation(custodian)
+
+  await reservationRouter
+    .connect(spvMaintainer)
+    .submitReservationProof(
+      ProofType.Acceptance,
+      anchorTx.info,
+      proofFor(anchorTx.txHash),
+      NO_MAIN_UTXO_PARAM,
+      reservationKey,
+      1
+    )
+
+  return { fundingTx, anchorTx, reservationKey }
+}
+
+describe("capacity reserved before signing (fill-then-prove)", () => {
+  before(async () => {
+    await establishReservationPreconditions()
+    await createSnapshot()
+  })
+
+  after(async () => {
+    await restoreSnapshot()
+  })
+
+  it("settles an authorized acceptance even after the caps fill up", async () => {
+    // Authorize an acceptance while capacity is available.
+    const fundingTx = buildTx(
+      [
+        {
+          txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+      fundingOutputIndex: 0,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.address,
+    })
+    const reservationKey = BigNumber.from(
+      ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [fundingTx.txHash, 0]
+      )
+    )
+    await reservationRouter
+      .connect(thirdParty)
+      .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+
+    // The caps fill up after the authorization (a governance tightening
+    // to the current usage level models any competing fill).
+    const params = await reservationRouter.reservationParameters()
+    await reservationRouter
+      .connect(bridgeGovernanceSigner)
+      .updateReservationParameters(
+        reservationVault.address,
+        RESERVATION_MIN_AMOUNT,
+        RESERVATION_TX_MAX_FEE,
+        RESERVATION_TERM,
+        RESERVATION_GRACE,
+        params.reservationTotalAmount, // no room beyond what is reserved
+        MAX_RESERVATIONS_PER_WALLET,
+        RESERVATION_ACTION_TIMEOUT,
+        RESERVATION_RENEWAL_WINDOW
+      )
+
+    // A new authorization cannot be created any more...
+    const otherFundingTx = buildTx(
+      [
+        {
+          txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+    await bridge.connect(thirdParty).revealDeposit(otherFundingTx.info, {
+      fundingOutputIndex: 0,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.address,
+    })
+    await expect(
+      reservationRouter
+        .connect(thirdParty)
+        .requestReservationAcceptance(
+          BigNumber.from(
+            ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [otherFundingTx.txHash, 0]
+            )
+          ),
+          walletPubKeyHash
+        )
+    ).to.be.revertedWith("Total reserved amount cap exceeded")
+
+    // ...but the already-authorized (and, on Bitcoin, already signed)
+    // anchor still settles: capacity was reserved before signing.
+    const anchorTx = buildTx(
+      [{ txHash: fundingTx.txHash, index: 0 }],
+      [{ valueSat: anchorAmount, script: p2wpkhScript(walletPubKeyHash) }]
+    )
+    const tx = await reservationRouter
+      .connect(spvMaintainer)
+      .submitReservationProof(
+        ProofType.Acceptance,
+        anchorTx.info,
+        proofFor(anchorTx.txHash),
+        NO_MAIN_UTXO_PARAM,
+        reservationKey,
+        1
+      )
+    await expect(tx).to.emit(reservationRouter, "ReservationAccepted")
+  })
+})
+
+describe("acceptance authorization timeout", () => {
+  before(async () => {
+    await establishReservationPreconditions()
+    await createSnapshot()
+  })
+
+  after(async () => {
+    await restoreSnapshot()
+  })
+
+  it("releases capacity, allows re-authorization, and still settles the late anchor", async () => {
+    const fundingTx = buildTx(
+      [
+        {
+          txHash: ethers.utils.hexlify(ethers.utils.randomBytes(32)),
+          index: 0,
+        },
+      ],
+      [
+        {
+          valueSat: depositAmount,
+          script: p2wshScript(
+            buildDepositScript(
+              thirdParty.address,
+              blindingFactor,
+              walletPubKeyHash,
+              refundPubKeyHash,
+              refundLocktime
+            )
+          ),
+        },
+      ]
+    )
+    await bridge.connect(thirdParty).revealDeposit(fundingTx.info, {
+      fundingOutputIndex: 0,
+      blindingFactor,
+      walletPubKeyHash,
+      refundPubKeyHash,
+      refundLocktime,
+      vault: reservationVault.address,
+    })
+    const reservationKey = BigNumber.from(
+      ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [fundingTx.txHash, 0]
+      )
+    )
+    await reservationRouter
+      .connect(thirdParty)
+      .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+
+    const totalBefore = (await reservationRouter.reservationParameters())
+      .reservationTotalAmount
+
+    await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+    const timeoutTx = await reservationRouter
+      .connect(thirdParty)
+      .notifyReservationActionTimeout(reservationKey, [])
+    await expect(timeoutTx)
+      .to.emit(reservationRouter, "ReservationActionTimedOut")
+      .withArgs(reservationKey, 1, ActionType.Acceptance)
+
+    // The reserved capacity was released.
+    expect(
+      (await reservationRouter.reservationParameters()).reservationTotalAmount
+    ).to.equal(totalBefore.sub(depositAmount))
+
+    // The anchor -- signed while generation 1 was pending -- confirmed
+    // on Bitcoin anyway. Its late proof still settles and re-takes the
+    // capacity.
+    const anchorTx = buildTx(
+      [{ txHash: fundingTx.txHash, index: 0 }],
+      [{ valueSat: anchorAmount, script: p2wpkhScript(walletPubKeyHash) }]
+    )
+    const tx = await reservationRouter
+      .connect(spvMaintainer)
+      .submitReservationProof(
+        ProofType.Acceptance,
+        anchorTx.info,
+        proofFor(anchorTx.txHash),
+        NO_MAIN_UTXO_PARAM,
+        reservationKey,
+        1
+      )
+    await expect(tx)
+      .to.emit(reservationRouter, "ReservationLateSettled")
+      .withArgs(reservationKey, 1, ActionType.Acceptance)
+    expect(
+      (await reservationRouter.reservations(reservationKey)).state
+    ).to.equal(ReservationState.Active)
+  })
+})
