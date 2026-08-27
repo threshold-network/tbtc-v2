@@ -238,6 +238,73 @@ async function liveWallet(pkh: string) {
   })
 }
 
+// Re-establishes this file's reservation preconditions (wallet Live state,
+// vault activation, and reservation caps/total-amount headroom) at the
+// start of each describe below, rather than relying on the file's root
+// `before()` running exactly once at process start. Other test files'
+// suites run between this file's root `before()` and its own describes in
+// Mocha's combined root-suite execution order, and can leave the shared
+// `bridgeFixture`-deployed Bridge/ReservationVault state - the wallet's
+// Live-ness, and the reservation total-amount usage counter, in
+// particular - mutated by the time these describes actually run. Reading
+// the current `reservationTotalAmount` and raising the ceiling by a full
+// `RESERVATION_MAX_TOTAL` above it (rather than resetting to a fixed
+// value) guarantees headroom regardless of what any intervening file's
+// tests already reserved. Found 2026-08-27.
+async function establishReservationPreconditions() {
+  // The impersonated governance signer's ETH balance, set once by
+  // `impersonateContract()` in the root `before()`, is spent down by
+  // every intervening test file's own governance transactions against
+  // the same shared `bridge.governance()` address. Top it back up before
+  // spending more of it here.
+  await ethers.provider.send("hardhat_setBalance", [
+    bridgeGovernanceSigner.address,
+    "0x8AC7230489E80000",
+  ])
+  await liveWallet(walletPubKeyHash)
+  await bridge
+    .connect(bridgeGovernanceSigner)
+    .setVaultStatus(reservationVault.address, true)
+  await reservationRouter
+    .connect(bridgeGovernanceSigner)
+    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 100)
+  const currentTotal = (await reservationRouter.reservationParameters())
+    .reservationTotalAmount
+  await reservationRouter
+    .connect(bridgeGovernanceSigner)
+    .updateReservationParameters(
+      reservationVault.address,
+      RESERVATION_MIN_AMOUNT,
+      RESERVATION_TX_MAX_FEE,
+      RESERVATION_TERM,
+      RESERVATION_GRACE,
+      currentTotal.add(RESERVATION_MAX_TOTAL),
+      MAX_RESERVATIONS_PER_WALLET,
+      RESERVATION_ACTION_TIMEOUT,
+      RESERVATION_RENEWAL_WINDOW
+    )
+  // Re-assert TBTC token ownership by tbtcVault: required for
+  // `TBTCVault.mint` (called via `ReservationVault.receiveBalanceIncrease`
+  // on acceptance settlement) to succeed, and subject to the same
+  // intervening-file drift as everything else established in the root
+  // `before()`.
+  if ((await tbtc.owner()) !== tbtcVault.address) {
+    const currentTbtcOwner = await impersonateContract(await tbtc.owner())
+    await tbtc.connect(currentTbtcOwner).transferOwnership(tbtcVault.address)
+  }
+  // Re-assert the relay's mocked difficulty return values: this file's
+  // Bitcoin proof fixtures are crafted at REGTEST difficulty (see below)
+  // and require the relay to report 0 for both epochs so
+  // `BitcoinTx.evaluateProofDifficulty` accepts them. `smock`'s
+  // `.returns()` configuration lives in the shared relay mock's own
+  // storage, so it is subject to `evm_snapshot`/`evm_revert` boundaries
+  // (including this file's own per-describe `createSnapshot`/
+  // `restoreSnapshot`) and to any other file reconfiguring the same
+  // shared mock instance for its own difficulty-specific tests.
+  relay.getCurrentEpochDifficulty.returns(0)
+  relay.getPrevEpochDifficulty.returns(0)
+}
+
 // ---- Bitcoin fixture crafting (regtest-style difficulty) ----
 
 const REGTEST_BITS_LE = "ffff7f20"
@@ -414,6 +481,7 @@ async function makeAcceptedReservation(custodian = walletPubKeyHash) {
 
 describe("capacity reserved before signing (fill-then-prove)", () => {
   before(async () => {
+    await establishReservationPreconditions()
     await createSnapshot()
   })
 
@@ -547,6 +615,7 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
 
 describe("acceptance authorization timeout", () => {
   before(async () => {
+    await establishReservationPreconditions()
     await createSnapshot()
   })
 
