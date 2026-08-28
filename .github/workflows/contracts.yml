@@ -67,6 +67,17 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # npm-version-bump@v2 builds a shell command using this input.
+      - name: Validate deployment environment
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: |
+          if [[ ! "$ENVIRONMENT" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Environment may contain only letters, numbers, dots, underscores, and hyphens"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.1"
@@ -184,11 +195,15 @@ jobs:
             ecdsa-contracts-version = github.com/keep-network/keep-core/ecdsa#version
 
       - name: Resolve latest contracts
+        env:
+          RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
+          ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn upgrade \
-            @keep-network/random-beacon@${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }} \
-            @keep-network/ecdsa@${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }} \
-            @keep-network/tbtc@${{ github.event.inputs.environment }}
+            "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
+            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
+            "@keep-network/tbtc@${ENVIRONMENT}"
 
       - name: Configure tenderly
         env:
@@ -339,11 +354,15 @@ jobs:
             ecdsa-contracts-version = github.com/keep-network/keep-core/ecdsa#version
 
       - name: Resolve latest contracts
+        env:
+          RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
+          ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn upgrade \
-            @keep-network/random-beacon@${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }} \
-            @keep-network/ecdsa@${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }} \
-            @keep-network/tbtc@${{ github.event.inputs.environment }}
+            "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
+            "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
+            "@keep-network/tbtc@${ENVIRONMENT}"
 
       - name: Deploy contracts
         env:
