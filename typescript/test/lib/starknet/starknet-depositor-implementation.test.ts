@@ -247,9 +247,9 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         relayerUrl: "http://test-relayer.local/api/StarknetMainnet/reveal",
         // Explicit status endpoint so conflict-status verification is
         // exercised. A custom reveal URL no longer implicitly pairs with a
-        // default status URL (see the "custom reveal URL without an explicit
-        // status URL" regression test below), so the status URL must be
-        // supplied to enable verification.
+        // default status URL (see "should not query a default status
+        // endpoint when only a custom reveal URL is configured" below), so
+        // the status URL must be supplied to enable verification.
         relayerStatusUrl:
           "http://test-relayer.local/api/StarknetMainnet/deposit",
       }
@@ -945,14 +945,15 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       // For a recognized chain ID with no overrides, the reveal and status
       // defaults must resolve to the SAME chain segment (never drifting apart)
       // and to the environment-matched base (production under Node/SSR). This
-      // pins the full route for mainnet, Sepolia, and the legacy Goerli
-      // mapping, guarding against silent chain-name/route regressions.
+      // pins the full route for mainnet, Sepolia, legacy Goerli, and Testnet,
+      // guarding against silent chain-name/route regressions.
       const PRODUCTION_BASE =
         "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app"
       const recognizedChainRoutes = [
         { chainId: "0x534e5f4d41494e", chainSegment: "StarknetMainnet" }, // SN_MAIN
         { chainId: "0x534e5f5345504f4c4941", chainSegment: "StarknetTestnet" }, // SN_SEPOLIA
         { chainId: "0x534e5f474f45524c49", chainSegment: "StarknetTestnet" }, // SN_GOERLI (legacy)
+        { chainId: "0x534e5f544553544e4554", chainSegment: "StarknetTestnet" }, // SN_TESTNET
       ]
 
       for (const { chainId, chainSegment } of recognizedChainRoutes) {
@@ -1211,8 +1212,8 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         "0x534e5f4d41494e", // SN_MAIN
         "0x534e5f5345504f4c4941", // SN_SEPOLIA
         "0x534e5f474f45524c49", // SN_GOERLI (legacy)
+        "0x534e5f544553544e4554", // SN_TESTNET
       ]
-
       for (const chainId of recognizedChainIds) {
         expect(
           () =>
