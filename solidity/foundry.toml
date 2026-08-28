@@ -1,0 +1,24 @@
+# Foundry runs alongside Hardhat against the same contracts/ tree. Nothing is
+# migrated: every existing test stays in test/*.test.ts on Hardhat. This exists
+# so new property and fuzz tests can be written in .t.sol where Foundry is
+# clearly better -- Bitcoin script parsing, BIP-340/341 verification, sighash
+# construction, coverage-proof maths.
+#
+# See docs/foundry-evaluation.md for why a wholesale migration is not proposed.
+[profile.default]
+src = "contracts"
+test = "test-foundry"
+out = "forge-artifacts"
+libs = ["node_modules", "lib"]
+# Match hardhat.config.ts exactly, or the two runners compile different code.
+solc_version = "0.8.17"
+optimizer = true
+optimizer_runs = 200
+remappings = [
+    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+    "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
+    "@keep-network/=node_modules/@keep-network/",
+    "@threshold-network/=node_modules/@threshold-network/",
+    "@thesis/=node_modules/@thesis/",
+    "forge-std/=lib/forge-std/src/"
+]
