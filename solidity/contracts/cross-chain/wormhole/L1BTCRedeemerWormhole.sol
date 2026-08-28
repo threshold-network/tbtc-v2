@@ -198,8 +198,8 @@ contract L1BTCRedeemerWormhole is
         if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
         if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
 
-        bank.transferBalance(recipient, amount);
         emit BankBalanceRescued(recipient, amount);
+        bank.transferBalance(recipient, amount);
     }
 
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)

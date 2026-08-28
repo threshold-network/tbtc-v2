@@ -128,8 +128,8 @@ contract MockL1BTCRedeemerWormhole is
         if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
         if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
 
-        bank.transferBalance(recipient, amount);
         emit BankBalanceRescued(recipient, amount);
+        bank.transferBalance(recipient, amount);
     }
 
     // Mock implementation of requestRedemption
