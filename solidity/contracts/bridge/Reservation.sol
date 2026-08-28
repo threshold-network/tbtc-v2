@@ -20,7 +20,8 @@ pragma solidity 0.8.17;
 ///         reservations: deposits custodied without ever being commingled
 ///         with the pooled supply and returned in-kind — with an unbroken
 ///         1-input-1-output lineage — upon redemption. The SPV settlement
-///         side lives in the `ReservationProofs` companion library.
+///         side will live in the future `ReservationProofs` companion
+///         library (not yet implemented).
 /// @dev Every Bitcoin action of a reservation's life — the acceptance
 ///      anchor, an in-kind redemption, a re-anchor to another wallet, and
 ///      the post-term dissolution — follows a *two-phase,
@@ -67,8 +68,9 @@ library Reservation {
         Active,
         /// @dev An action (redemption, re-anchor or dissolution) has been
         ///      requested for the position and is not yet settled. The
-        ///      pending action record is
-        ///      `reservationActions[actionKey(reservationKey, requestNonce)]`.
+        ///      pending action record will be accessible as
+        ///      `reservationActions[actionKey(reservationKey, requestNonce)]`
+        ///      once the future `actionKey` helper exists.
         ActionPending,
         /// @dev The reservation was closed: redeemed in-kind, dissolved
         ///      into the wallet's main UTXO, or settled late after a

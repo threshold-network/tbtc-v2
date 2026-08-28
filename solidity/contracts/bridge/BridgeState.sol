@@ -361,7 +361,8 @@ library BridgeState {
         address reservationVault;
         // Maximum amount of BTC transaction fee in satoshi that can be
         // incurred by a single reservation lifecycle transaction (anchor,
-        // re-anchor, reserved redemption, dissolution).
+        // re-anchor, reserved redemption). Dissolution transactions use
+        // `reservationDissolutionTxMaxFee` instead.
         uint64 reservationTxMaxFee;
         // The dissolution delay in seconds after a reservation's custody
         // term expires and before the reservation becomes dissolvable. The
@@ -459,16 +460,14 @@ library BridgeState {
         // and whole/partial shape the fee-free retry must preserve. Zero
         // means there is no bound source generation.
         mapping(uint256 => uint64) reservationRetryCreditActionNonce;
-        // Per-reservation cumulative re-anchor fee budget in satoshi. Caps
-        // the total satoshi that may be lost across all re-anchor hops for
-        // a single reservation, complementing the per-transaction
-        // `reservationTxMaxFee` bound which only constrains a single hop.
-        // Bounds in-kind grinding of the anchor value over the reservation
-        // lifetime. Declared, never written or read in milestone 1: the
-        // milestone 1 decision left the absolute ceiling unbounded and
-        // deferred a structural bound to post-milestone-1 work. It is
-        // declared anyway because a field a later milestone reads cannot be
-        // added while reservations are live.
+        // Per-reservation cumulative re-anchor fee budget in satoshi, in the
+        // flat-ceiling shape the milestone 1 decision rejected: the absolute
+        // ceiling was left unbounded and a structural bound (proportional to
+        // mintedAmount, hop count, or a rate) was deferred to post-milestone-1
+        // work. That replacement is undesigned and may not even fit a single
+        // uint64. Declared, never written or read in milestone 1 - only
+        // because a field a later milestone reads cannot be added while
+        // reservations are live.
         uint64 maxCumulativeReanchorFee;
         // Maximum amount of BTC transaction fee in satoshi that can be
         // incurred by a single reservation dissolution transaction
@@ -485,12 +484,18 @@ library BridgeState {
         // milestone 1 path frees a wallet slot except wallet termination.
         // Genuinely new in milestone 1 - no extraction source.
         uint32 activeReservationsCount;
-        // Governance cap on `activeReservationsCount`, set below the slot
-        // floor `liveWalletsCount * maxReservationsPerWallet` so acceptance
-        // reverts before occupancy saturates. At saturation a re-anchor has
-        // no target wallet and an anchored wallet cannot retire, because
-        // closing requires a zero reservation count - its MovingFunds clock
-        // then expires and the timeout seizes operator stake. This cap turns
+        // Governance-time cap on `activeReservationsCount`, sized below the
+        // slot capacity `liveWalletsCount * maxReservationsPerWallet` at the
+        // time it is set so acceptance reverts before occupancy saturates.
+        // liveWalletsCount is mutable and falls whenever a Live wallet
+        // retires (an un-anchored one can retire freely), so this sizing
+        // must be re-evaluated by governance whenever liveWalletsCount
+        // falls - a cap correct at set-time can otherwise silently drop
+        // below the shrunk floor later and reopen the saturation cliff this
+        // field exists to prevent. At saturation a re-anchor has no target
+        // wallet and an anchored wallet cannot retire, because closing
+        // requires a zero reservation count - its MovingFunds clock then
+        // expires and the timeout seizes operator stake. This cap turns
         // that silent cliff into a revert. Genuinely new in milestone 1.
         uint32 maxActiveReservations;
         // Reserved storage space in case we need to add more variables.
@@ -499,6 +504,11 @@ library BridgeState {
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+        // This milestone consumed 16 of the original 48 slots (28 reservation
+        // fields plus PendingReservedDeposit) for the reservation feature. The
+        // remaining 32 slots are shared budget for all future Bridge upgrades,
+        // not reserved for reservations specifically - a later unrelated PR
+        // should not assume it can spend the rest.
         // slither-disable-next-line unused-state
         uint256[32] __gap;
     }
