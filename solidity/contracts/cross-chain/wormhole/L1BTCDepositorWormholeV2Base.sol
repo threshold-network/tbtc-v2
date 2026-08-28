@@ -486,13 +486,9 @@ contract L1BTCDepositorWormholeV2Base is
         // executing reimbursements as the last step of the deposit
         // finalization.
         if (address(reimbursementPool) != address(0)) {
-            if (reimbursement.receiver != address(0)) {
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
-                );
-            }
-
+            // Calculate and pay the finalization reimbursement before calling
+            // the untrusted initialization reimbursement receiver. Otherwise,
+            // gas consumed by that receiver would be reimbursed a second time.
             if (reimbursementAuthorizations[msg.sender]) {
                 uint256 msgValueOffset = _refundToGasSpent(msg.value);
                 reimbursementPool.refund(
@@ -500,6 +496,13 @@ contract L1BTCDepositorWormholeV2Base is
                         msgValueOffset +
                         finalizeDepositGasOffset,
                     msg.sender
+                );
+            }
+
+            if (reimbursement.receiver != address(0)) {
+                reimbursementPool.refund(
+                    reimbursement.gasSpent,
+                    reimbursement.receiver
                 );
             }
         }

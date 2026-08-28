@@ -77,6 +77,7 @@ describe("AbstractL1BTCDepositor", () => {
 
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
+    const initializer = await ethers.getSigner(accounts[2])
 
     const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
@@ -106,6 +107,7 @@ describe("AbstractL1BTCDepositor", () => {
     return {
       governance,
       relayer,
+      initializer,
       bridge,
       tbtcVault,
       reimbursementPool,
@@ -115,6 +117,7 @@ describe("AbstractL1BTCDepositor", () => {
 
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
+  let initializer: SignerWithAddress
 
   let bridge: Mock<IBridge>
   let tbtcVault: Mock<ITBTCVault>
@@ -123,8 +126,15 @@ describe("AbstractL1BTCDepositor", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, relayer, bridge, tbtcVault, reimbursementPool, depositor } =
-      await waffle.loadFixture(contractsFixture))
+    ;({
+      governance,
+      relayer,
+      initializer,
+      bridge,
+      tbtcVault,
+      reimbursementPool,
+      depositor,
+    } = await waffle.loadFixture(contractsFixture))
   })
 
   // Sets the Bridge and TBTCVault mocks to a state that allows finalizing
@@ -194,9 +204,12 @@ describe("AbstractL1BTCDepositor", () => {
           await depositor
             .connect(governance)
             .updateReimbursementAuthorization(relayer.address, true)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(initializer.address, true)
 
           await depositor
-            .connect(relayer)
+            .connect(initializer)
             .initializeDeposit(
               initializeDepositFixture.fundingTx,
               initializeDepositFixture.reveal,
@@ -275,19 +288,20 @@ describe("AbstractL1BTCDepositor", () => {
           expect(gasReimbursement.gasSpent).to.equal(0)
         })
 
-        it("should pay out proper reimbursements after the transfer", async () => {
+        it("should reimburse finalization before deferred initialization", async () => {
           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           await expectCalledTwice(reimbursementPool.refund)
 
-          // First call is the deferred gas reimbursement for deposit
-          // initialization.
+          // The finalization reimbursement must be calculated and paid before
+          // the deferred initialization reimbursement. The latter calls an
+          // untrusted receiver, so doing it first would let that receiver burn
+          // gas that is then counted again in the finalization reimbursement.
           const firstCall = await reimbursementPool.refund.getCall(0)
-          expect(firstCall.args[0]).to.equal(initializeDepositGasSpent)
           expect(firstCall.args[1]).to.equal(relayer.address)
 
-          // Second call is the reimbursement for the deposit finalization.
           const secondCall = await reimbursementPool.refund.getCall(1)
-          expect(secondCall.args[1]).to.equal(relayer.address)
+          expect(secondCall.args[0]).to.equal(initializeDepositGasSpent)
+          expect(secondCall.args[1]).to.equal(initializer.address)
         })
       }
     )

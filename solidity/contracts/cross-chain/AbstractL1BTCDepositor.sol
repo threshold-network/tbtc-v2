@@ -457,20 +457,10 @@ abstract contract AbstractL1BTCDepositor is
         // executing reimbursements as the last step of the deposit
         // finalization.
         if (address(reimbursementPool) != address(0)) {
-            // If there is a deferred reimbursement for this deposit
-            // initialization, pay it out now. No need to check reimbursement
-            // authorization for the initialization caller. If the deferred
-            // reimbursement is here, that implies the caller was authorized
-            // to receive it.
-            if (reimbursement.receiver != address(0)) {
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
-                );
-            }
-
-            // Pay out the reimbursement for deposit finalization if the caller
-            // is authorized to receive reimbursements.
+            // Pay out the reimbursement for deposit finalization before the
+            // deferred initialization reimbursement. The latter calls an
+            // untrusted receiver that can consume arbitrary gas. Paying it
+            // first would count that gas again in the finalization refund.
             if (reimbursementAuthorizations[msg.sender]) {
                 // As this call is payable and this transaction carries out a
                 // msg.value that covers the Bridging cost, we need to reimburse
@@ -483,6 +473,18 @@ abstract contract AbstractL1BTCDepositor is
                         msgValueOffset +
                         finalizeDepositGasOffset,
                     msg.sender
+                );
+            }
+
+            // If there is a deferred reimbursement for this deposit
+            // initialization, pay it out now. No need to check reimbursement
+            // authorization for the initialization caller. If the deferred
+            // reimbursement is here, that implies the caller was authorized
+            // to receive it.
+            if (reimbursement.receiver != address(0)) {
+                reimbursementPool.refund(
+                    reimbursement.gasSpent,
+                    reimbursement.receiver
                 );
             }
         }
