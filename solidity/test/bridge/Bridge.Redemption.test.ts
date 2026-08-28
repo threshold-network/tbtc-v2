@@ -3,12 +3,11 @@
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import chai, { expect } from "chai"
+import { expect } from "chai"
 import { BigNumber, BigNumberish, Contract, ContractTransaction } from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
-import type { FakeContract } from "@defi-wonderland/smock"
-import { smock } from "@defi-wonderland/smock"
 import { Deployment } from "hardhat-deploy/types"
+import type { Mock } from "../helpers/mock"
 import type {
   Bank,
   BankStub,
@@ -44,9 +43,11 @@ import { constants, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { RedemptionRequestStructOutput } from "../../typechain/Bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
-import { loadFixture } from "../helpers/fixture"
-
-chai.use(smock.matchers)
+import {
+  createMock,
+  expectCalledOnceWith,
+  expectNotCalled,
+} from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -62,12 +63,12 @@ describe("Bridge - Redemption", () => {
   let treasury: SignerWithAddress
 
   let bank: Bank & BankStub
-  let relay: FakeContract<IRelay>
+  let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let walletRegistry: Mock<IWalletRegistry>
 
   let deployBridge: (
     txProofDifficultyFactor: number
@@ -95,7 +96,7 @@ describe("Bridge - Redemption", () => {
       t,
       rebateStaking,
       deployBridge,
-    } = await loadFixture(bridgeFixture))
+    } = await bridgeFixture())
     ;({
       redemptionTimeout,
       redemptionTimeoutSlashingAmount,
@@ -1104,7 +1105,7 @@ describe("Bridge - Redemption", () => {
       const { redeemerOutputScript, redeemer } = data.redemptionRequests[0]
 
       let redeemerSigner: SignerWithAddress
-      let watchtower: FakeContract<IRedemptionWatchtower>
+      let watchtower: Mock<IRedemptionWatchtower>
 
       before(async () => {
         await createSnapshot()
@@ -1114,7 +1115,7 @@ describe("Bridge - Redemption", () => {
           value: 10,
         })
 
-        watchtower = await smock.fake<IRedemptionWatchtower>(
+        watchtower = await createMock<IRedemptionWatchtower>(
           "IRedemptionWatchtower"
         )
 
@@ -1133,7 +1134,7 @@ describe("Bridge - Redemption", () => {
           before(async () => {
             await createSnapshot()
 
-            watchtower.isSafeRedemption
+            await watchtower.isSafeRedemption
               .whenCalledWith(
                 walletPubKeyHash,
                 redeemerOutputScript,
@@ -1144,7 +1145,7 @@ describe("Bridge - Redemption", () => {
           })
 
           after(async () => {
-            watchtower.isSafeRedemption.reset()
+            await watchtower.isSafeRedemption.reset()
 
             await restoreSnapshot()
           })
@@ -1189,7 +1190,7 @@ describe("Bridge - Redemption", () => {
               data.redemptionRequests[0].amount
             )
 
-            watchtower.isSafeRedemption
+            await watchtower.isSafeRedemption
               .whenCalledWith(
                 walletPubKeyHash,
                 redeemerOutputScript,
@@ -1200,7 +1201,7 @@ describe("Bridge - Redemption", () => {
           })
 
           after(async () => {
-            watchtower.isSafeRedemption.reset()
+            await watchtower.isSafeRedemption.reset()
 
             await restoreSnapshot()
           })
@@ -1767,7 +1768,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -1790,7 +1791,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -1971,7 +1972,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -1987,7 +1988,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -2496,7 +2497,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the requests
                               // timed out and then report the timeouts.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 for (
                                   let i = 0;
@@ -2527,7 +2528,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -2671,7 +2672,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the requests
                               // timed out and then report the timeouts.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 for (
                                   let i = 0;
@@ -2702,7 +2703,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -2856,7 +2857,7 @@ describe("Bridge - Redemption", () => {
                               // timed out but report timeout only the two first
                               // requests.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
@@ -2886,7 +2887,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -3066,7 +3067,7 @@ describe("Bridge - Redemption", () => {
                               // timed out but report timeout only the two first
                               // requests.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
@@ -3096,7 +3097,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -3346,7 +3347,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the last request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -3362,7 +3363,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              await walletRegistry.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -3757,8 +3758,8 @@ describe("Bridge - Redemption", () => {
             await createSnapshot()
 
             // Required for a successful SPV proof.
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
             // Wallet main UTXO must be set on the Bridge side to make
             // that scenario happen.
@@ -3804,8 +3805,8 @@ describe("Bridge - Redemption", () => {
           await createSnapshot()
 
           // Required for a successful SPV proof.
-          relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
-          relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+          await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+          await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
         })
 
         after(async () => {
@@ -4093,8 +4094,8 @@ describe("Bridge - Redemption", () => {
             await createSnapshot()
 
             // Necessary to pass the first part of proof validation.
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
             // Deploy another bridge which has higher `txProofDifficultyFactor`
             // than the original bridge. That means it will need 12 confirmations
@@ -4247,7 +4248,7 @@ describe("Bridge - Redemption", () => {
                     data.redemptionRequests[0].amount
                   )
 
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout + 1)
 
                 initialPendingRedemptionsValue = (
                   await bridge.wallets(data.wallet.pubKeyHash)
@@ -4276,7 +4277,7 @@ describe("Bridge - Redemption", () => {
               })
 
               after(async () => {
-                walletRegistry.seize.reset()
+                await walletRegistry.seize.reset()
 
                 await restoreSnapshot()
               })
@@ -4368,13 +4369,13 @@ describe("Bridge - Redemption", () => {
               })
 
               it("should call the ECDSA wallet registry's seize function", async () => {
-                expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                await expectCalledOnceWith(walletRegistry.seize, [
                   redemptionTimeoutSlashingAmount,
                   redemptionTimeoutNotifierRewardMultiplier,
                   await thirdParty.getAddress(),
                   data.wallet.ecdsaWalletID,
-                  walletMembersIDs
-                )
+                  walletMembersIDs,
+                ])
               })
 
               it("should emit RedemptionTimedOut event", async () => {
@@ -4468,7 +4469,7 @@ describe("Bridge - Redemption", () => {
                     )
                   ).toNumber()
 
-                  await increaseTime(redemptionTimeout)
+                  await increaseTime(redemptionTimeout + 1)
 
                   initialPendingRedemptionsValue = (
                     await bridge.wallets(data.wallet.pubKeyHash)
@@ -4497,7 +4498,7 @@ describe("Bridge - Redemption", () => {
                 })
 
                 after(async () => {
-                  walletRegistry.seize.reset()
+                  await walletRegistry.seize.reset()
 
                   await restoreSnapshot()
                 })
@@ -4589,13 +4590,13 @@ describe("Bridge - Redemption", () => {
                 })
 
                 it("should call the ECDSA wallet registry's seize function", async () => {
-                  expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                  await expectCalledOnceWith(walletRegistry.seize, [
                     redemptionTimeoutSlashingAmount,
                     redemptionTimeoutNotifierRewardMultiplier,
                     await thirdParty.getAddress(),
                     data.wallet.ecdsaWalletID,
-                    walletMembersIDs
-                  )
+                    walletMembersIDs,
+                  ])
                 })
 
                 it("should emit RedemptionTimedOut event", async () => {
@@ -4673,7 +4674,7 @@ describe("Bridge - Redemption", () => {
                   data.redemptionRequests[0].amount
                 )
 
-              await increaseTime(redemptionTimeout)
+              await increaseTime(redemptionTimeout + 1)
 
               await bridge
                 .connect(thirdParty)
@@ -4685,7 +4686,7 @@ describe("Bridge - Redemption", () => {
             })
 
             after(async () => {
-              walletRegistry.seize.reset()
+              await walletRegistry.seize.reset()
 
               await restoreSnapshot()
             })
@@ -4775,7 +4776,7 @@ describe("Bridge - Redemption", () => {
               movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
             })
 
-            await increaseTime(redemptionTimeout)
+            await increaseTime(redemptionTimeout + 1)
 
             initialPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -4802,7 +4803,7 @@ describe("Bridge - Redemption", () => {
           })
 
           after(async () => {
-            walletRegistry.seize.reset()
+            await walletRegistry.seize.reset()
 
             await restoreSnapshot()
           })
@@ -4874,13 +4875,13 @@ describe("Bridge - Redemption", () => {
           })
 
           it("should call the ECDSA wallet registry's seize function", async () => {
-            expect(walletRegistry.seize).to.have.been.calledOnceWith(
+            await expectCalledOnceWith(walletRegistry.seize, [
               redemptionTimeoutSlashingAmount,
               redemptionTimeoutNotifierRewardMultiplier,
               await thirdParty.getAddress(),
               data.wallet.ecdsaWalletID,
-              walletMembersIDs
-            )
+              walletMembersIDs,
+            ])
           })
 
           it("should emit RedemptionTimedOut event", async () => {
@@ -4964,7 +4965,7 @@ describe("Bridge - Redemption", () => {
               movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
             })
 
-            await increaseTime(redemptionTimeout)
+            await increaseTime(redemptionTimeout + 1)
 
             initialPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -5070,7 +5071,7 @@ describe("Bridge - Redemption", () => {
           })
 
           it("should not call the ECDSA wallet registry's seize function", async () => {
-            expect(walletRegistry.seize).not.to.have.been.called
+            await expectNotCalled(walletRegistry.seize)
           })
         })
 
@@ -5156,7 +5157,7 @@ describe("Bridge - Redemption", () => {
                       ethers.constants.HashZero,
                   })
 
-                  await increaseTime(redemptionTimeout)
+                  await increaseTime(redemptionTimeout + 1)
                 })
 
                 after(async () => {
@@ -5286,17 +5287,17 @@ describe("Bridge - Redemption", () => {
     })
 
     context("when the caller is the redemption watchtower", () => {
-      let watchtower: FakeContract<IRedemptionWatchtower>
+      let watchtower: Mock<IRedemptionWatchtower>
       let watchtowerSigner: SignerWithAddress
 
       before(async () => {
         await createSnapshot()
 
-        watchtower = await smock.fake<IRedemptionWatchtower>(
+        watchtower = await createMock<IRedemptionWatchtower>(
           "IRedemptionWatchtower"
         )
 
-        watchtower.isSafeRedemption.returns(true)
+        await watchtower.isSafeRedemption.returns(true)
 
         watchtowerSigner = await impersonateAccount(watchtower.address, {
           from: governance,
@@ -5309,7 +5310,7 @@ describe("Bridge - Redemption", () => {
       })
 
       after(async () => {
-        watchtower.isSafeRedemption.reset()
+        await watchtower.isSafeRedemption.reset()
 
         await restoreSnapshot()
       })
@@ -5456,8 +5457,8 @@ describe("Bridge - Redemption", () => {
     data: RedemptionTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<RedemptionScenarioOutcome> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {

@@ -1,11 +1,10 @@
-import { ethers, helpers, getUnnamedAccounts } from "hardhat"
+import { ethers, waffle, helpers, getUnnamedAccounts } from "hardhat"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { ContractTransaction } from "ethers"
 import bridgeFixture from "../fixtures/bridge"
 
 import type { TestERC20, TBTC, VendingMachineV3 } from "../../typechain"
-import { loadFixture } from "../helpers/fixture"
 
 const { to1e18 } = helpers.number
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -28,7 +27,7 @@ describe("VendingMachineV3", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer } = await loadFixture(bridgeFixture))
+    ;({ deployer } = await bridgeFixture())
     tbtcV1 = await helpers.contracts.getContract("TBTCToken")
     tbtcV2 = await helpers.contracts.getContract("TBTC")
     vendingMachineV3 = await helpers.contracts.getContract("VendingMachineV3")

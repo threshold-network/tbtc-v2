@@ -1,11 +1,11 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers, waffle } from "hardhat"
-import type { FakeContract } from "@defi-wonderland/smock"
 import type { BigNumberish } from "ethers"
 import { utils } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
+import type { Mock } from "../helpers/mock"
 import type {
   TBTC,
   Bridge,
@@ -47,8 +47,8 @@ describeFn("Integration Test - Full flow", async () => {
   let bank: Bank
   let tbtcVault: TBTCVault
   let walletRegistry: WalletRegistry
-  let randomBeacon: FakeContract<IRandomBeacon>
-  let relay: FakeContract<IRelay>
+  let randomBeacon: Mock<IRandomBeacon>
+  let relay: Mock<IRelay>
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
   let spvMaintainer: SignerWithAddress
@@ -169,10 +169,12 @@ describeFn("Integration Test - Full flow", async () => {
 
       describe("when the deposit sweep proof is submitted", async () => {
         before(async () => {
-          relay.getCurrentEpochDifficulty.returns(
+          await relay.getCurrentEpochDifficulty.returns(
             depositSweepData.chainDifficulty
           )
-          relay.getPrevEpochDifficulty.returns(depositSweepData.chainDifficulty)
+          await relay.getPrevEpochDifficulty.returns(
+            depositSweepData.chainDifficulty
+          )
 
           await bridge
             .connect(spvMaintainer)

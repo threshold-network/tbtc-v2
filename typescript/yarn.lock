@@ -1517,7 +1517,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@keep-network/ecdsa@npm:2.1.0-dev.19, @keep-network/ecdsa@npm:development":
+"@keep-network/ecdsa@npm:2.1.0-dev.19":
   version: 2.1.0-dev.19
   resolution: "@keep-network/ecdsa@npm:2.1.0-dev.19"
   dependencies:
@@ -1609,9 +1609,9 @@ __metadata:
     "@bitcoinerlab/secp256k1": "npm:^1.0.5"
     "@coral-xyz/anchor": "npm:0.28.0"
     "@ethersproject/providers": "npm:^5.7.2"
-    "@keep-network/ecdsa": "npm:development"
+    "@keep-network/ecdsa": "npm:2.1.0-dev.19"
     "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep"
-    "@keep-network/tbtc-v2": "npm:development"
+    "@keep-network/tbtc-v2": "npm:1.8.0-dev.1"
     "@mysten/sui": "npm:1.34.0"
     "@solana/spl-token": "npm:0.3.9"
     "@solana/web3.js": "npm:~1.97.0"
@@ -1653,7 +1653,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@keep-network/tbtc-v2@npm:development":
+"@keep-network/tbtc-v2@npm:1.8.0-dev.1":
   version: 1.8.0-dev.1
   resolution: "@keep-network/tbtc-v2@npm:1.8.0-dev.1"
   dependencies:
@@ -4611,10 +4611,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"crypto-js@npm:^3.1.9-1":
-  version: 3.3.0
-  resolution: "crypto-js@npm:3.3.0"
-  checksum: 10c0/10b5d91bdc85095df9be01f9d0d954b8a3aba6202f143efa6215b8b3d5dd984e0883e10aeff792ef4a51b77cd4442320242b496acf6dce5069d0e0fc2e1d75d2
+"crypto-js@npm:4.2.0":
+  version: 4.2.0
+  resolution: "crypto-js@npm:4.2.0"
+  checksum: 10c0/8fbdf9d56f47aea0794ab87b0eb9833baf80b01a7c5c1b0edc7faf25f662fb69ab18dc2199e2afcac54670ff0cd9607a9045a3f7a80336cccd18d77a55b9fdf0
   languageName: node
   linkType: hard
 

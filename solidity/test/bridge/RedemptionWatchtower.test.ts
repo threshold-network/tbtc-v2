@@ -1,4 +1,4 @@
-import { helpers, ethers } from "hardhat"
+import { helpers, waffle, ethers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { BigNumber, BigNumberish, BytesLike, ContractTransaction } from "ethers"
@@ -15,7 +15,6 @@ import {
   RedemptionTestData,
   SinglePendingRequestedRedemption,
 } from "../data/redemption"
-import { loadFixture } from "../helpers/fixture"
 
 const { impersonateAccount } = helpers.account
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -64,7 +63,7 @@ describe("RedemptionWatchtower", () => {
       bridge,
       bank,
       redemptionWatchtower,
-    } = await loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     await bridgeGovernance
       .connect(governance)
@@ -232,7 +231,7 @@ describe("RedemptionWatchtower", () => {
           // Increase time to the moment the watchtower lifetime expires.
           // The `disableWatchtower` transaction should be mined exactly one
           // second after the lifetime expires.
-          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) + 1)
 
           // Disable the watchtower for the first time.
           await redemptionWatchtower.connect(thirdParty).disableWatchtower()
@@ -289,7 +288,7 @@ describe("RedemptionWatchtower", () => {
             // Increase time to the moment the watchtower lifetime expires.
             // The `disableWatchtower` transaction should be mined exactly one
             // second after the lifetime expires.
-            await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+            await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) + 1)
 
             tx = await redemptionWatchtower
               .connect(thirdParty)
@@ -484,6 +483,12 @@ describe("RedemptionWatchtower", () => {
       await createSnapshot()
 
       legacyRedemption = await createLegacyRedemption()
+
+      // `allowBlocksWithSameTimestamp` lets consecutive blocks share a
+      // timestamp, so `enableWatchtower` could land in the same second as the
+      // legacy redemption request and make `requestedAt >= watchtowerEnabledAt`
+      // true. Advance the clock so the request is strictly pre-watchtower.
+      await increaseTime(1)
 
       await redemptionWatchtower.connect(governance).enableWatchtower(
         redemptionWatchtowerManager.address,
@@ -704,7 +709,9 @@ describe("RedemptionWatchtower", () => {
                 // Increase time to the moment the watchtower lifetime expires.
                 // The `disableWatchtower` transaction should be mined exactly one
                 // second after the lifetime expires.
-                await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+                await increaseTime(
+                  lifetimeExpiresAt - (await lastBlockTime()) + 1
+                )
 
                 // Disable the watchtower.
                 await redemptionWatchtower
@@ -759,13 +766,12 @@ describe("RedemptionWatchtower", () => {
                     await createSnapshot()
 
                     // Set time to the first possible moment the first objection
-                    // can no longer be raised. We need to subtract 1 seconds
-                    // to make sure the `raiseObjection` transaction
-                    // is mined exactly at the timestamp the delay expires.
+                    // can no longer be raised. Blocks may share a timestamp
+                    // (`allowBlocksWithSameTimestamp`), so the `raiseObjection`
+                    // transaction is mined at the timestamp the delay expires,
+                    // not one second later.
                     const delayExpiresAt = redemption.requestedAt + defaultDelay
-                    await increaseTime(
-                      delayExpiresAt - (await lastBlockTime()) - 1
-                    )
+                    await increaseTime(delayExpiresAt - (await lastBlockTime()))
                   })
 
                   after(async () => {
@@ -797,14 +803,13 @@ describe("RedemptionWatchtower", () => {
                       )
 
                     // Set time to the first possible moment the second objection
-                    // can no longer be raised. We need to subtract 1 seconds
-                    // to make sure the `raiseObjection` transaction
-                    // is mined exactly at the timestamp the delay expires.
+                    // can no longer be raised. Blocks may share a timestamp
+                    // (`allowBlocksWithSameTimestamp`), so the `raiseObjection`
+                    // transaction is mined at the timestamp the delay expires,
+                    // not one second later.
                     const delayExpiresAt =
                       redemption.requestedAt + levelOneDelay
-                    await increaseTime(
-                      delayExpiresAt - (await lastBlockTime()) - 1
-                    )
+                    await increaseTime(delayExpiresAt - (await lastBlockTime()))
                   })
 
                   after(async () => {
@@ -844,14 +849,13 @@ describe("RedemptionWatchtower", () => {
                       )
 
                     // Set time to the first possible moment the third objection
-                    // can no longer be raised. We need to subtract 1 seconds
-                    // to make sure the `raiseObjection` transaction
-                    // is mined exactly at the timestamp the delay expires.
+                    // can no longer be raised. Blocks may share a timestamp
+                    // (`allowBlocksWithSameTimestamp`), so the `raiseObjection`
+                    // transaction is mined at the timestamp the delay expires,
+                    // not one second later.
                     const delayExpiresAt =
                       redemption.requestedAt + levelTwoDelay
-                    await increaseTime(
-                      delayExpiresAt - (await lastBlockTime()) - 1
-                    )
+                    await increaseTime(delayExpiresAt - (await lastBlockTime()))
                   })
 
                   after(async () => {
@@ -1625,7 +1629,7 @@ describe("RedemptionWatchtower", () => {
           // Increase time to the moment the watchtower lifetime expires.
           // The `disableWatchtower` transaction should be mined exactly one
           // second after the lifetime expires.
-          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()))
+          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) + 1)
 
           // Disable the watchtower.
           await redemptionWatchtower.connect(thirdParty).disableWatchtower()
@@ -2528,7 +2532,7 @@ describe("RedemptionWatchtower", () => {
               // The `withdrawVetoedFunds` transaction should be mined exactly one
               // second after the freeze period expiration.
               await increaseTime(
-                freezePeriodExpiresAt - (await lastBlockTime())
+                freezePeriodExpiresAt - (await lastBlockTime()) + 1
               )
             })
 
@@ -2735,7 +2739,9 @@ describe("RedemptionWatchtower", () => {
             // Increase time to the moment the freeze period expires.
             // The `withdrawVetoedFunds` transaction should be mined exactly one
             // second after the freeze period expiration.
-            await increaseTime(freezePeriodExpiresAt - (await lastBlockTime()))
+            await increaseTime(
+              freezePeriodExpiresAt - (await lastBlockTime()) + 1
+            )
           })
 
           after(async () => {

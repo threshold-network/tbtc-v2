@@ -4,8 +4,7 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { Deployment } from "hardhat-deploy/types"
 import type {
   Bank,
@@ -34,9 +33,8 @@ import {
   SingleP2WSHDeposit,
 } from "../data/deposit-sweep"
 import { to1e18 } from "../helpers/contract-test-helpers"
-import { loadFixture } from "../helpers/fixture"
-
-chai.use(smock.matchers)
+import { createMock, expectCalledOnceWith } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -51,7 +49,7 @@ describe("Bridge - Deposit", () => {
   let treasury: SignerWithAddress
 
   let bank: Bank & BankStub
-  let relay: FakeContract<IRelay>
+  let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let t: Contract
@@ -76,7 +74,7 @@ describe("Bridge - Deposit", () => {
       t,
       rebateStaking,
       deployBridge,
-    } = await loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -2185,7 +2183,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when the single input is a revealed unswept deposit with a trusted vault",
                         async () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const data: DepositSweepTestData = SingleP2WSHDeposit
@@ -2205,7 +2203,7 @@ describe("Bridge - Deposit", () => {
                             })
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2221,7 +2219,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           after(async () => {
-                            vault.receiveBalanceIncrease.reset()
+                            await vault.receiveBalanceIncrease.reset()
 
                             await restoreSnapshot()
                           })
@@ -2285,11 +2283,9 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should call the vault's receiveBalanceIncrease function", async () => {
-                            expect(
-                              vault.receiveBalanceIncrease
-                            ).to.have.been.calledOnceWith(
-                              [data.deposits[0].depositor],
-                              [77960]
+                            await expectCalledOnceWith(
+                              vault.receiveBalanceIncrease,
+                              [[data.deposits[0].depositor], [77960]]
                             )
                           })
 
@@ -2368,7 +2364,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when the single input is a revealed unswept deposit with a non-trusted vault",
                         async () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const data: DepositSweepTestData = SingleP2WSHDeposit
@@ -2388,7 +2384,7 @@ describe("Bridge - Deposit", () => {
                             })
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2482,7 +2478,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when the single input is a revealed unswept deposit with a trusted vault but non-equal to the vault passed via function parameter",
                         async () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: Promise<ContractTransaction>
 
                           const data: DepositSweepTestData = SingleP2WSHDeposit
@@ -2502,7 +2498,7 @@ describe("Bridge - Deposit", () => {
                             })
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2642,10 +2638,10 @@ describe("Bridge - Deposit", () => {
                           })
 
                           // Necessary to pass the proof validation.
-                          relay.getPrevEpochDifficulty.returns(
+                          await relay.getPrevEpochDifficulty.returns(
                             data.chainDifficulty
                           )
-                          relay.getCurrentEpochDifficulty.returns(
+                          await relay.getCurrentEpochDifficulty.returns(
                             data.chainDifficulty
                           )
                         })
@@ -2824,7 +2820,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when input vector consists only of revealed unswept deposits with a trusted vault and the expected main UTXO",
                         () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const previousData: DepositSweepTestData =
@@ -2851,7 +2847,7 @@ describe("Bridge - Deposit", () => {
                             await runDepositSweepScenario(previousData)
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2875,7 +2871,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           after(async () => {
-                            vault.receiveBalanceIncrease.reset()
+                            await vault.receiveBalanceIncrease.reset()
 
                             await restoreSnapshot()
                           })
@@ -2964,17 +2960,18 @@ describe("Bridge - Deposit", () => {
                             // The order of deposits is different that
                             // the order of inputs that refers them in
                             // the transaction.
-                            expect(
-                              vault.receiveBalanceIncrease
-                            ).to.have.been.calledOnceWith(
+                            await expectCalledOnceWith(
+                              vault.receiveBalanceIncrease,
                               [
-                                data.deposits[2].depositor,
-                                data.deposits[3].depositor,
-                                data.deposits[1].depositor,
-                                data.deposits[4].depositor,
-                                data.deposits[0].depositor,
-                              ],
-                              [938931, 878961, 759021, 289256, 219287]
+                                [
+                                  data.deposits[2].depositor,
+                                  data.deposits[3].depositor,
+                                  data.deposits[1].depositor,
+                                  data.deposits[4].depositor,
+                                  data.deposits[0].depositor,
+                                ],
+                                [938931, 878961, 759021, 289256, 219287],
+                              ]
                             )
                           })
 
@@ -3008,7 +3005,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when input vector consists only of revealed unswept deposits with a non-trusted vault and the expected main UTXO",
                         () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const previousData: DepositSweepTestData =
@@ -3035,7 +3032,7 @@ describe("Bridge - Deposit", () => {
                             await runDepositSweepScenario(previousData)
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -3188,8 +3185,8 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when input vector consists only of revealed unswept deposits with different trusted vaults and the expected main UTXO",
                         () => {
-                          let vaultA: FakeContract<IVault>
-                          let vaultB: FakeContract<IVault>
+                          let vaultA: Mock<IVault>
+                          let vaultB: Mock<IVault>
                           let tx: Promise<ContractTransaction>
 
                           const previousData: DepositSweepTestData =
@@ -3216,8 +3213,8 @@ describe("Bridge - Deposit", () => {
                             await runDepositSweepScenario(previousData)
 
                             // Deploy two fake vaults and mark them as trusted.
-                            vaultA = await smock.fake<IVault>("IVault")
-                            vaultB = await smock.fake<IVault>("IVault")
+                            vaultA = await createMock<IVault>("IVault")
+                            vaultB = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vaultA.address, true)
@@ -3612,8 +3609,8 @@ describe("Bridge - Deposit", () => {
               await createSnapshot()
 
               // Necessary to pass the proof validation.
-              relay.getPrevEpochDifficulty.returns(20870012)
-              relay.getCurrentEpochDifficulty.returns(20870012)
+              await relay.getPrevEpochDifficulty.returns(20870012)
+              await relay.getCurrentEpochDifficulty.returns(20870012)
             })
 
             after(async () => {
@@ -3686,8 +3683,8 @@ describe("Bridge - Deposit", () => {
             await createSnapshot()
 
             // Necessary to pass the proof validation.
-            relay.getCurrentEpochDifficulty.returns(1)
-            relay.getPrevEpochDifficulty.returns(1)
+            await relay.getCurrentEpochDifficulty.returns(1)
+            await relay.getPrevEpochDifficulty.returns(1)
           })
 
           after(async () => {
@@ -4136,8 +4133,10 @@ describe("Bridge - Deposit", () => {
               })
 
               // Necessary to pass the first part of proof validation.
-              relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-              relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+              await relay.getCurrentEpochDifficulty.returns(
+                data.chainDifficulty
+              )
+              await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
               // Deploy another bridge which has higher `txProofDifficultyFactor`
               // than the original bridge. That means it will need 12 confirmations
@@ -4248,8 +4247,8 @@ describe("Bridge - Deposit", () => {
           state: walletState.Live,
         })
 
-        relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-        relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+        await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+        await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
@@ -4317,8 +4316,8 @@ describe("Bridge - Deposit", () => {
               state: walletState.Live,
             })
 
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
             const depositorSigner = await impersonateAccount(depositor, {
               from: governance,
@@ -4361,8 +4360,8 @@ describe("Bridge - Deposit", () => {
     data: DepositSweepTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     for (let i = 0; i < data.deposits.length; i++) {
       const { fundingTx, depositor, reveal } = data.deposits[i]

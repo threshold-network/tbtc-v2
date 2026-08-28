@@ -9,7 +9,6 @@ import type {
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
-import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -21,9 +20,8 @@ describe("Bridge - Governance", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, bridgeGovernance, bridge } = await loadFixture(
-      bridgeFixture
-    ))
+    ;({ governance, thirdParty, bridgeGovernance, bridge } =
+      await bridgeFixture())
   })
 
   describe("beginGovernanceDelayUpdate", () => {
@@ -109,7 +107,7 @@ describe("Bridge - Governance", () => {
             .connect(governance)
             .beginGovernanceDelayUpdate(7331)
 
-          await helpers.time.increaseTime(constants.governanceDelay)
+          await helpers.time.increaseTime(constants.governanceDelay + 1)
 
           tx = await bridgeGovernance
             .connect(governance)

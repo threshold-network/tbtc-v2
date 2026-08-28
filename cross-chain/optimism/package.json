@@ -37,7 +37,7 @@
     "test": "hardhat test"
   },
   "dependencies": {
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/tbtc-v2": "1.4.0-dev.0",
     "@openzeppelin/contracts": "^4.8.1",
     "@openzeppelin/contracts-upgradeable": "^4.8.1"
   },
@@ -71,6 +71,9 @@
     "ts-node": "^10.4.0",
     "typechain": "^6.1.0",
     "typescript": "^4.5.4"
+  },
+  "resolutions": {
+    "crypto-js": "4.2.0"
   },
   "engines": {
     "node": ">=14"
