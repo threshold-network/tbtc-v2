@@ -665,7 +665,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L153)
+[src/lib/starknet/starknet-depositor.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L162)
 
 ___
 
@@ -1017,7 +1017,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1031](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1031)
+[src/lib/starknet/starknet-depositor.ts:1037](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1037)
 
 ___
 
@@ -1639,7 +1639,7 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/starknet/index.ts:117](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L117)
+[src/lib/starknet/index.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L139)
 
 ___
 
@@ -1657,7 +1657,7 @@ Now supports balance queries with deployed tBTC contracts and enhanced configura
 | `walletAddress` | `string` | `undefined` | The StarkNet wallet address to use as deposit owner |
 | `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for blockchain interactions |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` | Optional chain ID (defaults to Sepolia) |
-| `relayerStatusUrl?` | `string` | `undefined` | Optional override for the relayer's deposit-status endpoint, used to verify 409 conflicts. Falls back to `STARKNET_RELAYER_STATUS_URL` when not supplied. Without either, conflict-status verification is enabled only when `relayerUrl` is also left unset (see `StarkNetBitcoinDepositor`'s constructor). |
+| `relayerStatusUrl?` | `string` | `undefined` | Optional override for the relayer's deposit-status endpoint, used to verify 409 conflicts. Falls back to `STARKNET_RELAYER_STATUS_URL` when not supplied. |
 
 #### Returns
 
@@ -1665,9 +1665,13 @@ Now supports balance queries with deployed tBTC contracts and enhanced configura
 
 Handle to the contracts
 
+**`Throws`**
+
+Error if the chain ID is unrecognized and no URL overrides are provided.
+
 #### Defined in
 
-[src/lib/starknet/index.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L48)
+[src/lib/starknet/index.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L52)
 
 ___
 
