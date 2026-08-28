@@ -32,7 +32,7 @@ import "./WalletProposalValidatorConstants.sol";
 /// @dev Every Bitcoin action of a reservation's life — the acceptance
 ///      anchor, an in-kind redemption, a re-anchor to another wallet, and
 ///      the post-term dissolution — follows a *two-phase,
-///      authorize-then-prove* model (see RFC 13):
+///      authorize-then-prove* model (see RFC 13, which ships with a later milestone PR and is not yet in this branch's docs/rfc/):
 ///
 ///      1. An explicit *request* increments the position's monotonic
 ///         request nonce, performs every capacity and lifecycle check and
@@ -62,7 +62,7 @@ library Reservation {
     ///         maximum owner lookahead (one term plus the renewal window)
     ///         and keep the carry economics of a term meaningful.
     // Bounds enforced by the governance term-update setter that ships in the
-    // bounded-renewal PR; unused here because this PR only declares storage.
+    // bounded-renewal PR; unused in milestone 1.
     // slither-disable-next-line unused-state
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
     // slither-disable-next-line unused-state
@@ -193,10 +193,10 @@ library Reservation {
         // expiresAt's own margin.
         uint32 dissolutionEligibleAt;
         // Cumulative satoshi lost to Bitcoin miner fees across all
-        // re-anchor hops of this reservation. Written on every re-anchor
-        // settlement but never read in milestone 1: no ceiling is enforced
-        // yet, and a structural bound is deferred to post-milestone-1
-        // work. It is written from milestone 1 because the re-anchor
+        // re-anchor hops of this reservation. Will be written on every
+        // re-anchor settlement; not read in milestone 1 because the
+        // re-anchor path lands with a later milestone. It will be written
+        // from the first re-anchor hop onward because the re-anchor
         // settlement path writes the claim down on every hop, so the
         // original anchor value is not recoverable afterwards and this
         // total cannot be reconstructed from later state — the
@@ -321,9 +321,9 @@ library Reservation {
 
     /// @notice Single entry point for all reservation lifecycle SPV proofs.
     ///         Forwards to the `ReservationProofs` settlement library. The
-    ///         forwarding hop exists so the `ReservationRouter` links
-    ///         exactly one external library; see the router for the
-    ///         architecture.
+    ///         forwarding hop exists so the `ReservationRouter` links exactly
+    ///         one external library; the router itself ships with a later
+    ///         milestone PR.
     function submitReservationProof(
         BridgeState.Storage storage self,
         uint8 proofType,
@@ -369,18 +369,24 @@ library Reservation {
     ///      - The reservation vault must be set,
     ///      - The deposit must be revealed to the reservation vault and not
     ///        swept,
+    ///      - Caller is not the deposit's depositor,
     ///      - No acceptance authorization for the deposit may be pending,
+    ///      - Wallet is not the deposit's designated wallet,
+    ///      - Reservation already exists,
     ///      - The wallet must be Live,
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
+    ///      - Reservation exceeds the single-reservation cap,
+    ///      - Wallet reserved amount cap exceeded,
+    ///      - Max active reservations reached,
     ///      - At least one integer timestamp must remain after the deposit
     ///        minimum age and before both the action-timeout and exact
     ///        reveal-time refund safety margins, so every created action has
     ///        a proposal the wallet validator can sign,
-    ///      - The authorization window (now + action timeout) must end before
-    ///        the exact refund deadline, so an authorized anchor can never
-    ///        race the depositor's refund,
+    ///      - The authorization window (now + action timeout) must end at least
+    ///        DEPOSIT_REFUND_SAFETY_MARGIN (24h) before the refund deadline, so
+    ///        an authorized anchor can never race the depositor's refund,
     ///      - Reservation capacity (total amount, per-wallet count) must
     ///        allow the deposit; both are reserved by this call and
     ///        released if the authorization times out.
@@ -396,6 +402,10 @@ library Reservation {
 
         Deposit.DepositRequest storage deposit = self.deposits[reservationKey];
         require(deposit.revealedAt != 0, "Deposit not revealed");
+        require(
+            msg.sender == deposit.depositor,
+            "Caller is not the deposit's depositor"
+        );
         require(deposit.sweptAt == 0, "Deposit already swept");
         require(
             self.pendingReservedDeposit[reservationKey].isReserved,
@@ -408,12 +418,6 @@ library Reservation {
 
         BridgeState.PendingReservedDeposit storage reservedDeposit = self
             .pendingReservedDeposit[reservationKey];
-        // keep: see :418 for rationale (duplicate of the require at :395;
-        // #1094-faithful, both copies retained per extraction discipline).
-        require(
-            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
-            "Wallet is not the deposit's designated wallet"
-        );
 
         ReservationRequest storage reservation = self.reservations[
             reservationKey
@@ -478,9 +482,10 @@ library Reservation {
         // governance update of `depositRevealAheadPeriod` must neither
         // extend nor shorten this deposit's authorization window. The raw
         // deadline is retained even when reveal-ahead validation is disabled
-        // because the wallet validator always enforces its refund margin.
+        // because the margin is enforced on-chain.
         require(
-            timeoutAt <= reservedDeposit.refundDeadline,
+            uint256(timeoutAt) +
+                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN <= uint256(reservedDeposit.refundDeadline),
             "Authorization window would overlap the deposit refund window"
         );
         require(
@@ -523,6 +528,16 @@ library Reservation {
             "Wallet reserved amount cap exceeded"
         );
         self.walletReservationsAmount[walletPubKeyHash] = walletAmount;
+
+        // Occupancy: number of open reservation positions across all
+        // wallets. Zero disables the cap until governance sets it.
+        if (self.maxActiveReservations > 0) {
+            require(
+                self.activeReservationsCount < self.maxActiveReservations,
+                "Max active reservations reached"
+            );
+        }
+        self.activeReservationsCount += 1;
 
         uint64 requestNonce = ++reservation.requestNonce;
 
@@ -607,6 +622,7 @@ library Reservation {
             reservationKey
         );
         reservation.state = ReservationState.Stranded;
+        self.activeReservationsCount -= 1; // The stranded reservation was counted at request time.
 
         delete self.reservationsByAnchorUtxo[
             uint256(

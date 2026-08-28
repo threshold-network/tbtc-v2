@@ -29,12 +29,12 @@ import "../bank/Bank.sol";
 /// @title Bridge UTXO reservations — settlement
 /// @notice SPV settlement side of the two-phase reservation model (see
 ///         `Reservation` for the request/authorization side and RFC 13 for
-///         the architecture). Every proof settles one requested
+///         the architecture, whose document ships with a later milestone PR (not yet in this branch's docs/rfc/)). Every proof settles one requested
 ///         *generation*, named explicitly by `(reservationKey,
 ///         requestNonce)`, and is validated exclusively against that
 ///         generation's snapshotted action record — never against live
 ///         parameters.
-/// @dev Settlement rules shared by all action types:
+/// @dev Settlement rules shared by all action types (Milestone 1 wires only the acceptance branch; the redemption, re-anchor and dissolution rules described below land with later milestones.):
 ///
 ///      - A `Pending` generation settles normally. For redemptions the
 ///        proof additionally requires the watchtower delay of the
@@ -117,6 +117,10 @@ library ReservationProofs {
         uint256 reservationKey,
         uint64 requestNonce
     ) external {
+        require(
+            proofType < uint8(type(ProofType).max) + 1,
+            "Unsupported reservation proof type"
+        );
         ProofType parsedProofType = ProofType(proofType);
 
         if (parsedProofType == ProofType.Acceptance) {
@@ -128,9 +132,7 @@ library ReservationProofs {
                 requestNonce
             );
             // Milestone 1 accepts only acceptance proofs. Redemption and
-            // dissolution stay rejected for the entirety of m1; re-anchor
-            // arrives with PR #D as a new branch placed ahead of this
-            // `else`.
+            // dissolution stay rejected for the entirety of m1; The re-anchor branch lands with the re-anchor milestone PR, placed ahead of this `else`; not present in this branch.
         } else {
             revert("Unsupported reservation proof type");
         }
@@ -168,8 +170,8 @@ library ReservationProofs {
     ///         newly settled anchor.
     /// @dev Live and MovingFunds wallets can still manage the anchor.
     ///      Closing and Closed wallets are stranded immediately. Terminated
-    ///      wallets retain the permissionless `notifyReservationStranded`
-    ///      cleanup path unless this lineage was already stranded before the
+    ///      wallets retain the permissionless cleanup path (the `notifyReservationStranded` function lands with a later milestone PR and does not exist in this branch)
+    ///      unless this lineage was already stranded before the
     ///      proof. In that case, restore the Stranded state latch before
     ///      cleanup so the reconstructed accounting is released without
     ///      emitting duplicate recovery evidence.
@@ -278,9 +280,9 @@ library ReservationProofs {
     ///         deposit outpoint becomes recognized by the fraud challenge
     ///         defeat path.
     /// @dev The deposit was validated against the reservation vault at
-    ///      request time; the routing cannot change while the total
-    ///      reserved amount (which includes this authorization's reserved
-    ///      capacity) is non-zero.
+    ///      request time; the routing-change gate is NOT yet
+    ///      enforceable (no setter exists in this branch). The
+    ///      governance setter lands later.
     function consumeAcceptedDeposit(
         BridgeState.Storage storage self,
         bytes memory inputVector,
@@ -354,7 +356,7 @@ library ReservationProofs {
             // A newer acceptance generation may have been authorized after
             // this one timed out: the position stayed Unknown, so
             // re-authorization was possible. Only the position's current
-            // generation is ever reachable by notifyReservationActionTimeout
+            // generation is ever reachable by the timeout-notify milestone PR (which does not exist in this branch)
             // and this deposit is now consumed, so a still-pending newer
             // generation's reserved capacity would leak permanently. Unwind
             // it. (A newer generation that already timed out released its
@@ -546,6 +548,7 @@ library ReservationProofs {
             self.walletReservationsAmount[
                 pendingAction.targetWalletPubKeyHash
             ] -= pendingAction.amount;
+            self.activeReservationsCount -= 1; // The superseded generation was counted at request time.
         }
 
         // The Bank is a trusted protocol contract; the refund above cannot

@@ -375,10 +375,11 @@ library BridgeState {
         // reservations at the same time.
         uint64 reservationMaxTotalAmount;
         // Current total amount in satoshi locked under active reservations
-        // (sum of current anchor output values).
+        // (reserved capacity of pending acceptance generations plus anchor output values of active reservations).
         uint64 reservationTotalAmount;
-        // Maximum number of active reservations a single wallet can custody.
+        // Maximum number of reservations (active or acceptance-pending) a single wallet can custody.
         uint32 maxReservationsPerWallet;
+
         // Address of the reservation router: the delegatecall extension of
         // the Bridge holding the UTXO-reservation external surface. The
         // Bridge's fallback function routes calls with unmatched selectors
@@ -481,10 +482,7 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
-        // Total satoshi amount of reservation anchors (and reserved
-        // capacity of pending reservation actions) custodied by the given
-        // wallet. Because the claim always equals the anchor, this is both
-        // the asset- and the liability-side per-wallet figure.
+        // per-wallet custody exposure: reserved capacity of pending generations plus anchor values of active reservations.
         mapping(bytes20 => uint64) walletReservationsAmount;
         // Per-wallet enumeration of custodied reservation keys, maintained
         // for monitoring and audit evidence. Entries are appended on
@@ -504,19 +502,25 @@ library BridgeState {
         // and whole/partial shape the fee-free retry must preserve. Zero
         // means there is no bound source generation.
         mapping(uint256 => uint64) reservationRetryCreditActionNonce;
+        // Maximum fraction (basis points, low 16 bits) of total Bank-tracked
+        // backing that can be locked under reservations (RFC 13 relative
+        // cap). Declared, unused until the reservation-vault PR wires the
+        // backing total. Declared as a full slot so the __gap shrink below
+        // is accounted for by the storage-layout safety check.
+        uint256 reservationMaxBackingFractionBps;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-        // This milestone consumed 15 of the original 48 slots (28 reservation
+        // This milestone consumed 16 of the original 48 slots (29 reservation
         // fields plus PendingReservedDeposit) for the reservation feature. The
-        // remaining 33 slots are shared budget for all future Bridge upgrades,
+        // remaining 32 slots are shared budget for all future Bridge upgrades,
         // not reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest.
         // slither-disable-next-line unused-state
-        uint256[33] __gap;
+        uint256[32] __gap;
     }
 
     event DepositParametersUpdated(
