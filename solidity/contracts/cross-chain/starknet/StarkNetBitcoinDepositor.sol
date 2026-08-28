@@ -93,8 +93,20 @@ contract StarkNetBitcoinDepositor is AbstractL1BTCDepositor {
 
     /// @notice Get the estimated fee for a deposit from the StarkGate bridge
     /// @return The estimated fee in wei
+    /// @dev `finalizeDeposit` requires `msg.value` to equal this value exactly.
+    ///      This assumes StarkGate's `estimateDepositFeeWei` stays constant; it
+    ///      is typed `view`, not `pure`, so a future StarkGate upgrade that
+    ///      makes the fee dynamic would cause in-flight finalizations to
+    ///      revert and require relayer re-quoting. Do not revert to `>=`.
     function estimateFee() public view returns (uint256) {
         return starkGateBridge.estimateDepositFeeWei();
+    }
+
+    /// @notice Get the estimated fee for a deposit from the StarkGate bridge.
+    /// @return cost The cost of the `finalizeDeposit` function call in WEI.
+    /// @dev Provided for interface consistency with sibling depositors.
+    function quoteFinalizeDeposit() external view returns (uint256 cost) {
+        cost = estimateFee();
     }
 
     // ========== Internal Functions ==========

@@ -286,6 +286,17 @@ describe("StarkNetBitcoinDepositor", () => {
       ).to.be.revertedWith("Incorrect L1->L2 message fee")
     })
 
+    it("should revert when the fee drifts after the caller's quote", async () => {
+      const quotedFee = INITIAL_MESSAGE_FEE
+      await starkGateBridge.setEstimateDepositFeeWeiReturn(
+        INITIAL_MESSAGE_FEE.add(1)
+      )
+
+      await expect(
+        depositor.finalizeDeposit(depositKey, { value: quotedFee })
+      ).to.be.revertedWith("Incorrect L1->L2 message fee")
+    })
+
     it("should call StarkGate bridge with correct parameters", async () => {
       await depositor.finalizeDeposit(depositKey, {
         value: INITIAL_MESSAGE_FEE,
