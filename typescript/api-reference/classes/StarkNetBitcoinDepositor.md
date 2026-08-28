@@ -167,7 +167,7 @@ A descriptive error message
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:872](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L872)
+[src/lib/starknet/starknet-depositor.ts:877](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L877)
 
 ___
 
@@ -191,7 +191,7 @@ Formatted error message
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:940](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L940)
+[src/lib/starknet/starknet-depositor.ts:945](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L945)
 
 ___
 
@@ -219,7 +219,7 @@ Error if the address is invalid
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1010](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1010)
+[src/lib/starknet/starknet-depositor.ts:1015](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1015)
 
 ___
 
@@ -323,7 +323,7 @@ from the relayer, so the caller can poll or otherwise recover.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `error` | `unknown` | The Axios error produced by the 409 response |
-| `locallyDerivedDepositId?` | `string` | The deposit ID the SDK independently derived from the funding transaction, if available. Used only to warn on a mismatch with the relayer's reported ID - never to replace it or gate the status query, since only the relayer's reported ID is meaningful to query the relayer's own endpoint. |
+| `locallyDerivedDepositId?` | `string` | The deposit ID the SDK independently derived from the funding transaction, if available. Used to query the relayer's status endpoint when the relayer's reported ID is missing or non-canonical, and to detect a mismatch against a canonical relayer-reported ID - in which case an otherwise- verified status is downgraded to unverified, since the relayer only corroborated its own claim, not the SDK's independent derivation from the funding transaction. |
 
 #### Returns
 
@@ -338,7 +338,7 @@ StarkNetRelayerDepositConflictError always; carries the deposit ID and
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:762](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L762)
+[src/lib/starknet/starknet-depositor.ts:767](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L767)
 
 ___
 
@@ -354,12 +354,14 @@ receipt.
 
 If the relayer reports that the deposit already exists (HTTP 409), this
 method attempts to verify the deposit's real status through the relayer's
-deposit-status endpoint (only when relayerStatusUrl is configured and the
-relayer reported a canonical deposit ID), then always throws a
-StarkNetRelayerDepositConflictError carrying the deposit ID and any verified
-status so the caller can poll or otherwise recover. The relayer's
-deposit-status endpoint cannot supply a real TransactionReceipt (it has
-no `to`, `from`, `gasUsed`, `logs`, `blockHash`, etc.), so a conflict never
+deposit-status endpoint - only when relayerStatusUrl is configured, and
+using the relayer's reported deposit ID when it is canonical, falling
+back to the SDK's independently-derived ID when it is not - then always
+throws a StarkNetRelayerDepositConflictError carrying the deposit ID and
+any verified status so the caller can poll or otherwise recover. The
+relayer's deposit-status endpoint cannot supply a real TransactionReceipt
+(it has no `to`, `from`, `gasUsed`, `logs`, `blockHash`, etc.), so a
+conflict never
 resolves to a fabricated success value, even when the relayer confirms the
 deposit reached a terminal state.
 
@@ -393,7 +395,7 @@ StarkNetRelayerDepositConflictError if the relayer reports the deposit
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:565](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L565)
+[src/lib/starknet/starknet-depositor.ts:567](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L567)
 
 ___
 
@@ -420,7 +422,7 @@ True if the error is retryable
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:917](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L917)
+[src/lib/starknet/starknet-depositor.ts:922](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L922)
 
 ___
 
@@ -446,7 +448,7 @@ The parsed status response, or undefined if the relayer did
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:835](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L835)
+[src/lib/starknet/starknet-depositor.ts:840](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L840)
 
 ___
 

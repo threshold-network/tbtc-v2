@@ -543,12 +543,14 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    *
    * If the relayer reports that the deposit already exists (HTTP 409), this
    * method attempts to verify the deposit's real status through the relayer's
-   * deposit-status endpoint (only when relayerStatusUrl is configured and the
-   * relayer reported a canonical deposit ID), then always throws a
-   * StarkNetRelayerDepositConflictError carrying the deposit ID and any verified
-   * status so the caller can poll or otherwise recover. The relayer's
-   * deposit-status endpoint cannot supply a real TransactionReceipt (it has
-   * no `to`, `from`, `gasUsed`, `logs`, `blockHash`, etc.), so a conflict never
+   * deposit-status endpoint - only when relayerStatusUrl is configured, and
+   * using the relayer's reported deposit ID when it is canonical, falling
+   * back to the SDK's independently-derived ID when it is not - then always
+   * throws a StarkNetRelayerDepositConflictError carrying the deposit ID and
+   * any verified status so the caller can poll or otherwise recover. The
+   * relayer's deposit-status endpoint cannot supply a real TransactionReceipt
+   * (it has no `to`, `from`, `gasUsed`, `logs`, `blockHash`, etc.), so a
+   * conflict never
    * resolves to a fabricated success value, even when the relayer confirms the
    * deposit reached a terminal state.
    *
@@ -751,10 +753,13 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * from the relayer, so the caller can poll or otherwise recover.
    * @param error The Axios error produced by the 409 response
    * @param locallyDerivedDepositId The deposit ID the SDK independently
-   *        derived from the funding transaction, if available. Used only to
-   *        warn on a mismatch with the relayer's reported ID - never to
-   *        replace it or gate the status query, since only the relayer's
-   *        reported ID is meaningful to query the relayer's own endpoint.
+   *        derived from the funding transaction, if available. Used to
+   *        query the relayer's status endpoint when the relayer's reported
+   *        ID is missing or non-canonical, and to detect a mismatch against
+   *        a canonical relayer-reported ID - in which case an otherwise-
+   *        verified status is downgraded to unverified, since the relayer
+   *        only corroborated its own claim, not the SDK's independent
+   *        derivation from the funding transaction.
    * @throws StarkNetRelayerDepositConflictError always; carries the deposit ID and
    *         verified status (if any) recovered from the relayer
    * @returns Promise that never resolves; always throws StarkNetRelayerDepositConflictError.
