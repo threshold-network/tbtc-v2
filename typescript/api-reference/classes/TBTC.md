@@ -215,13 +215,13 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[src/services/tbtc.ts:382](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L382)
+[src/services/tbtc.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L391)
 
 ___
 
 ### initializeCrossChain
 
-▸ **initializeCrossChain**(`l2ChainName`, `signerOrEthereumSigner`): `Promise`\<`void`\>
+▸ **initializeCrossChain**(`l2ChainName`, `signerOrEthereumSigner`, `options?`): `Promise`\<`void`\>
 
 Initializes cross-chain contracts for the given L2 chain.
 
@@ -251,6 +251,8 @@ await tbtc.initializeCrossChain("Base", ethereumSigner)
 | :------ | :------ | :------ |
 | `l2ChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain |
 | `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| `SuiSignerWithAddress` \| [`StarkNetProvider`](../README.md#starknetprovider) \| `AnchorProvider` | For StarkNet: StarkNet provider/account. For SUI: SUI signer/wallet. For Solana: Solana provider. For other L2s: Ethereum signer. |
+| `options?` | `Object` | Optional chain-specific settings. |
+| `options.relayerStatusUrl?` | `string` | StarkNet only: overrides the relayer's deposit-status endpoint used to verify HTTP 409 conflicts. Falls back to the `STARKNET_RELAYER_STATUS_URL` environment variable, then to the chain-matched default (see `StarkNetBitcoinDepositor`'s constructor). Ignored for all other L2 chains. |
 
 #### Returns
 
@@ -267,7 +269,7 @@ Throws an error if:
 
 #### Defined in
 
-[src/services/tbtc.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L239)
+[src/services/tbtc.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L246)
 
 ___
 

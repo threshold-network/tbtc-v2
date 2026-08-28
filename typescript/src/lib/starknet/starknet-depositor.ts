@@ -550,9 +550,8 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * any verified status so the caller can poll or otherwise recover. The
    * relayer's deposit-status endpoint cannot supply a real TransactionReceipt
    * (it has no `to`, `from`, `gasUsed`, `logs`, `blockHash`, etc.), so a
-   * conflict never
-   * resolves to a fabricated success value, even when the relayer confirms the
-   * deposit reached a terminal state.
+   * conflict never resolves to a fabricated success value, even when the
+   * relayer confirms the deposit reached a terminal state.
    *
    * @param depositTx - The Bitcoin transaction data
    * @param depositOutputIndex - The output index of the deposit
