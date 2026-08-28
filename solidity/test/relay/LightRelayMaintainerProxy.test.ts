@@ -14,7 +14,7 @@ import { concatenateHexStrings } from "../helpers/contract-test-helpers"
 import longHeaders from "./longHeaders.json"
 import { loadFixture } from "../helpers/fixture"
 
-const { provider } = waffle
+const { provider } = ethers
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 

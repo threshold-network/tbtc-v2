@@ -1,12 +1,12 @@
 import type { BytesLike } from "@ethersproject/bytes"
 import { ethers, getUnnamedAccounts, helpers, upgrades } from "hardhat"
-import { loadFixture } from "../../helpers/fixture"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import * as fs from "fs"
 import * as path from "path"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   IWormholeGateway,

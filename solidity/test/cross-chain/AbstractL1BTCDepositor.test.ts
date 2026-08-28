@@ -1,8 +1,8 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
-import { loadFixture } from "../helpers/fixture"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,

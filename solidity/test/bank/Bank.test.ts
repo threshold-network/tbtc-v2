@@ -1,9 +1,9 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
-import { loadFixture } from "../helpers/fixture"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 
 import { ContractTransaction, Signature, Wallet } from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import type { Bank, IVault } from "../../typechain"
 import { to1e18, toSatoshis } from "../helpers/contract-test-helpers"
 import { createMock, expectCalledOnceWith } from "../helpers/mock"
