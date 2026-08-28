@@ -580,6 +580,142 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
   })
 
+  describe("bank balance rescue", () => {
+    const rescueAmount = exampleAmountInSatoshis
+
+    context("when setting the recovery address", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer.connect(relayer).setRecoveryAddress(treasury.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject the zero address", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(ethers.constants.AddressZero)
+        ).to.be.revertedWith("ZeroAddress")
+      })
+
+      context("when called by the owner", () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+          tx = await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should update the recovery address", async () => {
+          expect(await l1BtcRedeemer.recoveryAddress()).to.equal(
+            treasury.address
+          )
+        })
+
+        it("should emit RecoveryAddressUpdated", async () => {
+          await expect(tx)
+            .to.emit(l1BtcRedeemer, "RecoveryAddressUpdated")
+            .withArgs(treasury.address)
+        })
+      })
+    })
+
+    context("when rescuing Bank balance", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject rescue before a recovery address is set", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("RecoveryAddressNotSet")
+      })
+
+      context("when a recovery address is set", () => {
+        before(async () => {
+          await createSnapshot()
+          await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should reject a different recipient", async () => {
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(thirdParty.address, rescueAmount)
+          ).to.be.revertedWith("RecipientNotRecoveryAddress")
+        })
+
+        it("should reject an amount above the available balance", async () => {
+          const availableBalance = await bank.balanceAvailable(
+            l1BtcRedeemer.address
+          )
+
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, availableBalance.add(1))
+          ).to.be.revertedWith("MockBank: insufficient balance")
+        })
+
+        context("when the recipient and amount are valid", () => {
+          let tx: ContractTransaction
+          let redeemerBalanceBefore: BigNumber
+          let recoveryBalanceBefore: BigNumber
+
+          before(async () => {
+            await createSnapshot()
+            redeemerBalanceBefore = await bank.balanceAvailable(
+              l1BtcRedeemer.address
+            )
+            recoveryBalanceBefore = await bank.balanceAvailable(
+              treasury.address
+            )
+            tx = await l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, rescueAmount)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should transfer the requested Bank balance", async () => {
+            expect(await bank.balanceAvailable(l1BtcRedeemer.address)).to.equal(
+              redeemerBalanceBefore.sub(rescueAmount)
+            )
+            expect(await bank.balanceAvailable(treasury.address)).to.equal(
+              recoveryBalanceBefore.add(rescueAmount)
+            )
+          })
+
+          it("should emit BankBalanceRescued", async () => {
+            await expect(tx)
+              .to.emit(l1BtcRedeemer, "BankBalanceRescued")
+              .withArgs(treasury.address, rescueAmount)
+          })
+        })
+      })
+    })
+  })
+
   describe("requestRedemption", () => {
     const encodedVm = "0x1234567890"
     const calculatedRedemptionKey = ethers.utils.solidityKeccak256(

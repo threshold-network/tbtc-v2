@@ -15,12 +15,15 @@ contract MockL1BTCRedeemerWormhole is
 {
     // Custom errors
     error SourceAddressNotAuthorized();
+    error RecoveryAddressNotSet();
+    error RecipientNotRecoveryAddress();
 
     // State variables from L1BTCRedeemerWormhole
     IWormholeTokenBridge public wormholeTokenBridge;
     uint256 public requestRedemptionGasOffset;
     mapping(address => bool) public reimbursementAuthorizations;
     mapping(bytes32 => bool) public allowedSenders;
+    address public recoveryAddress;
 
     // Mock-specific state
     uint256 public mockRedemptionAmountTBTC;
@@ -42,6 +45,10 @@ contract MockL1BTCRedeemerWormhole is
     );
 
     event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
+    event RecoveryAddressUpdated(address indexed recoveryAddress);
+
+    event BankBalanceRescued(address indexed recipient, uint256 amount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -105,6 +112,24 @@ contract MockL1BTCRedeemerWormhole is
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+    }
+
+    function setRecoveryAddress(address _recoveryAddress) external onlyOwner {
+        if (_recoveryAddress == address(0)) revert ZeroAddress();
+
+        recoveryAddress = _recoveryAddress;
+        emit RecoveryAddressUpdated(_recoveryAddress);
+    }
+
+    function rescueBankBalance(address recipient, uint256 amount)
+        external
+        onlyOwner
+    {
+        if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
+        if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
+
+        bank.transferBalance(recipient, amount);
+        emit BankBalanceRescued(recipient, amount);
     }
 
     // Mock implementation of requestRedemption
