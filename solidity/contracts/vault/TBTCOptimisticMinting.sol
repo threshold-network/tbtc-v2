@@ -969,11 +969,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
                 uint256 credit = (uint256(valueCap) * elapsed) / 24 hours;
                 if (credit != 0) {
                     uint256 value = uint256(allowance.valueRemaining) + credit;
-                    allowance.valueRemaining = value >= valueCap
-                        ? valueCap
-                        : uint64(value);
-                    /* solhint-disable-next-line not-rely-on-time */
-                    allowance.valueRefilledAt = uint64(block.timestamp);
+                    if (value >= valueCap) {
+                        allowance.valueRemaining = valueCap;
+                        /* solhint-disable-next-line not-rely-on-time */
+                        allowance.valueRefilledAt = uint64(block.timestamp);
+                    } else {
+                        allowance.valueRemaining = uint64(value);
+                        allowance.valueRefilledAt += _refillTimeForCredit(
+                            credit,
+                            valueCap
+                        );
+                    }
                 }
             }
             // Clamp in case the cap was lowered since the last touch.
@@ -996,11 +1002,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
                 if (credit != 0) {
                     uint256 requests = uint256(allowance.requestsRemaining) +
                         credit;
-                    allowance.requestsRemaining = requests >= requestLimit
-                        ? requestLimit
-                        : uint32(requests);
-                    /* solhint-disable-next-line not-rely-on-time */
-                    allowance.requestsRefilledAt = uint64(block.timestamp);
+                    if (requests >= requestLimit) {
+                        allowance.requestsRemaining = requestLimit;
+                        /* solhint-disable-next-line not-rely-on-time */
+                        allowance.requestsRefilledAt = uint64(block.timestamp);
+                    } else {
+                        allowance.requestsRemaining = uint32(requests);
+                        allowance.requestsRefilledAt += _refillTimeForCredit(
+                            credit,
+                            requestLimit
+                        );
+                    }
                 }
             }
             // Clamp in case the limit was lowered since the last touch.
@@ -1010,5 +1022,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
         }
 
         return allowance;
+    }
+
+    /// @dev Returns the whole seconds represented by an integer refill credit.
+    ///      Rounding up preserves every whole second of fractional accrual
+    ///      without making the next token available early for limits that do
+    ///      not divide 24 hours evenly.
+    function _refillTimeForCredit(uint256 credit, uint256 limit)
+        private
+        pure
+        returns (uint64)
+    {
+        return uint64((credit * 24 hours + limit - 1) / limit);
     }
 }
