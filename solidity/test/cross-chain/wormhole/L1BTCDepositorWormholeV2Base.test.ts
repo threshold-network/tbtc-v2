@@ -1,7 +1,7 @@
+import type { BytesLike } from "@ethersproject/bytes"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
@@ -20,8 +20,8 @@ import {
   initializeDepositFixture,
   toWormholeAddress,
 } from "./L1BTCDepositorWormhole.test"
-
-chai.use(smock.matchers)
+import { createMock } from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -39,29 +39,29 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
 
-    const bridge = await smock.fake<IBridge>("IBridge")
+    const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
       await ethers.getContractFactory("TestERC20")
     ).deploy()
-    const tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault", {
+    const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       address: tbtcVaultAddress,
     })
-    tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.address)
 
-    const wormhole = await smock.fake<IWormhole>("IWormhole")
-    wormhole.chainId.returns(l1ChainId)
+    const wormhole = await createMock<IWormhole>("IWormhole")
+    await wormhole.chainId.returns(l1ChainId)
 
-    const wormholeRelayer = await smock.fake<IWormholeRelayer>(
+    const wormholeRelayer = await createMock<IWormholeRelayer>(
       "IWormholeRelayer"
     )
-    const wormholeTokenBridge = await smock.fake<IWormholeTokenBridge>(
+    const wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
-    const l2WormholeGateway = await smock.fake<IWormholeGateway>(
+    const l2WormholeGateway = await createMock<IWormholeGateway>(
       "IWormholeGateway"
     )
     const l2BitcoinDepositor = "0xeE6F5f69860f310114185677D017576aed0dEC83"
-    const reimbursementPool = await smock.fake<ReimbursementPool>(
+    const reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )
 
@@ -110,12 +110,12 @@ describe("L1BTCDepositorWormholeV2Base", () => {
   // (the first hardhat account). That account owns the token and can mint.
   let tokenOwner: SignerWithAddress
 
-  let bridge: FakeContract<IBridge>
+  let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
-  let tbtcVault: FakeContract<ITBTCVault>
-  let wormhole: FakeContract<IWormhole>
-  let wormholeTokenBridge: FakeContract<IWormholeTokenBridge>
-  let l2WormholeGateway: FakeContract<IWormholeGateway>
+  let tbtcVault: Mock<ITBTCVault>
+  let wormhole: Mock<IWormhole>
+  let wormholeTokenBridge: Mock<IWormholeTokenBridge>
+  let l2WormholeGateway: Mock<IWormholeGateway>
   let l2BitcoinDepositor: string
   let l1BtcDepositor: L1BTCDepositorWormholeV2Base
 
@@ -182,17 +182,19 @@ describe("L1BTCDepositorWormholeV2Base", () => {
           initializeDepositFixture.destinationChainDepositOwner
         )
 
-      bridge.depositParameters.returns({
+      await bridge.depositParameters.returns({
         depositDustThreshold: 0,
         depositTreasuryFeeDivisor: 0,
         depositTxMaxFee,
         depositRevealAheadPeriod: 0,
       })
-      tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+      await tbtcVault.optimisticMintingFeeDivisor.returns(
+        optimisticMintingFeeDivisor
+      )
 
       const revealedAt = (await lastBlockTime()) - 7200
       const finalizedAt = await lastBlockTime()
-      bridge.deposits
+      await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
           depositor: l1BtcDepositor.address,
@@ -204,22 +206,24 @@ describe("L1BTCDepositorWormholeV2Base", () => {
           extraData: initializeDepositFixture.destinationChainDepositOwner,
         })
 
-      tbtcVault.optimisticMintingRequests
+      await tbtcVault.optimisticMintingRequests
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns([revealedAt, finalizedAt])
 
-      wormhole.messageFee.returns(messageFee)
-      wormholeTokenBridge.transferTokensWithPayload.returns(transferSequence)
+      await wormhole.messageFee.returns(messageFee)
+      await wormholeTokenBridge.transferTokensWithPayload.returns(
+        transferSequence
+      )
     }
 
-    const resetMocks = () => {
-      bridge.depositParameters.reset()
-      tbtcVault.optimisticMintingFeeDivisor.reset()
-      bridge.revealDepositWithExtraData.reset()
-      bridge.deposits.reset()
-      tbtcVault.optimisticMintingRequests.reset()
-      wormhole.messageFee.reset()
-      wormholeTokenBridge.transferTokensWithPayload.reset()
+    const resetMocks = async () => {
+      await bridge.depositParameters.reset()
+      await tbtcVault.optimisticMintingFeeDivisor.reset()
+      await bridge.revealDepositWithExtraData.reset()
+      await bridge.deposits.reset()
+      await tbtcVault.optimisticMintingRequests.reset()
+      await wormhole.messageFee.reset()
+      await wormholeTokenBridge.transferTokensWithPayload.reset()
     }
 
     context("when reimburseTxMaxFee is false", () => {
@@ -453,10 +457,11 @@ describe("L1BTCDepositorWormholeV2Base", () => {
         })
 
         it("should preserve the L2 receiver payload through the skip branch", async () => {
-          const call = wormholeTokenBridge.transferTokensWithPayload.getCall(0)
+          const call =
+            await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
           const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
             ["bytes32"],
-            call.args[5]
+            call.args[5] as BytesLike
           )
           expect(l2Receiver.toLowerCase()).to.equal(
             initializeDepositFixture.destinationChainDepositOwner.toLowerCase()

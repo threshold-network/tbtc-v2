@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
@@ -89,6 +89,9 @@ jobs:
 
       - name: Build contracts
         run: yarn build
+
+      - name: Typecheck
+        run: yarn typecheck
 
       # We don't want to execute the tests for dapp-friendly contracts (either
       # when deploying from `dapp-development` or during PR checks on that branch).
@@ -114,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
@@ -150,7 +153,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
           registry-url: "https://registry.npmjs.org"
 
       - name: Enable Corepack (Yarn from lockfile)
@@ -227,7 +230,7 @@ jobs:
           version: ${{ steps.npm-version-bump.outputs.version }}
 
       - name: Upload files needed for etherscan verification
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Artifacts for etherscan verification
           path: |
@@ -245,14 +248,14 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Download files needed for etherscan verification
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: Artifacts for etherscan verification
           path: ./solidity
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
@@ -305,7 +308,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
           registry-url: "https://registry.npmjs.org"
 
       - name: Enable Corepack (Yarn from lockfile)
@@ -378,7 +381,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
 
       # IMPORTANT: Keep this root `yarn install` **before** `corepack prepare
       # yarn@4`. The repo root uses Yarn Classic (Frozen v1 lockfile); `solidity/`
@@ -430,7 +433,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.1"
+          node-version: "24.11.1"
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |

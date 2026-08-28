@@ -499,19 +499,19 @@ wallet.
 
 == Wallet Lifecycle Diagrams
 
-==== Handling Fraud
+=== Handling Fraud
 
 image::diagrams/wallet-lifecycle/wallet-lifecycle-1-handling-frauds.png[Handling Fraud]
 This diagram covers the aspects of fraud: how to notify the system of fraudulent
 operator behavior, and how operators defend themselves from false charges.
 
-==== Entering The Moving Funds State
+=== Entering The Moving Funds State
 
 image::diagrams/wallet-lifecycle/wallet-lifecycle-2-entering-moving-funds-state.png[Entering The Moving Funds State]
 This diagram maps out the different ways a wallet can enter the `MOVING_FUNDS`
 state, along with the necessary conditions to do so.
 
-==== Responding To The Moving Funds State
+=== Responding To The Moving Funds State
 
 image::diagrams/wallet-lifecycle/wallet-lifecycle-3-responding-to-moving-funds-state.png[Responding To The Moving Funds State]
 This diagram maps out the ways that a wallet in the `MOVING_FUNDS` state can
@@ -519,19 +519,19 @@ respond: by asking for more time, by committing to move its funds to other
 wallet(s), or by letting the system know that it has insufficient funds to
 continue.
 
-==== Resolving Moving Funds
+=== Resolving Moving Funds
 
 image::diagrams/wallet-lifecycle/wallet-lifecycle-4-resolving-moving-funds.png[Resolving Moving Funds]
 This diagram maps out the ways that a wallet in the `MOVING_FUNDS` state can
 complete the process.
 
-==== Handling Moved Funds
+=== Handling Moved Funds
 
 image::diagrams/wallet-lifecycle/wallet-lifecycle-5-handling-moved-funds.png[Handling Moved Funds]
 This diagram maps out the ways that the recipient signing group of moved funds
 can handle those funds.
 
-==== Transitioning From Closing To Closed
+=== Transitioning From Closing To Closed
 
 image::diagrams/wallet-lifecycle/wallet-lifecycle-6-going-from-closing-to-closed-state.png[Transitioning From Closing To Closed]
 This diagram maps out how the `CLOSING` state transitions to the `CLOSED` state.
