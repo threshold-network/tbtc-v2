@@ -16,7 +16,7 @@ import {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
@@ -70,9 +70,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -94,7 +94,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Test quotes for different chains - will fail because we're using mock addresses
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       ).to.be.reverted
 
       await expect(
@@ -303,7 +303,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Quote for supported chain will also fail because we're using mock addresses
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       ).to.be.reverted
     })
   })

@@ -41,10 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18"
-          cache: "yarn"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -52,8 +51,17 @@ jobs:
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install dependencies
         run: yarn install
+
+      # Build the solidity package so the post-compile task can copy the
+      # L1BTCDepositorWormholeV2 artifact into this package's build directory.
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
 
       - name: Build contracts
         run: yarn build
@@ -73,10 +81,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18"
-          cache: "yarn"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -84,8 +91,15 @@ jobs:
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
 
       - name: Deploy contracts
         run: yarn deploy
@@ -102,10 +116,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18"
-          cache: "yarn"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -113,8 +126,15 @@ jobs:
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install dependencies
         run: yarn install
+
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
 
       - name: Build
         run: yarn build
@@ -134,10 +154,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18"
-          cache: "yarn"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       - uses: actions/setup-python@v4
@@ -161,6 +180,9 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         run: yarn install

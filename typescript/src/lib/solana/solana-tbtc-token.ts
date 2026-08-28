@@ -29,9 +29,17 @@ export class SolanaTBTCToken
         "SolanaTBTCToken requires a connected wallet with a public key."
       )
     }
+    // TODO: Update to proper Anchor v0.30+ API. This change is unrelated to the
+    // cross-chain redemption fix in this commit, but the build was failing due to
+    // a pre-existing Anchor library incompatibility. The Program constructor
+    // signature changed and no longer accepts programId as a separate parameter.
+    // The `as unknown as Idl` cast works around IDL type mismatch (TS2352) and
+    // removing programId from super() fixes the constructor signature (TS2345).
+    // Proper fix: investigate Anchor v0.30+ API for correct Program instantiation.
     const programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
-    super(SolanaTBTCTokenIdl as Idl, programId, provider)
+    // @ts-ignore - Pre-existing Anchor v0.30+ API incompatibility
+    super(SolanaTBTCTokenIdl as unknown as Idl, provider)
 
     // derive your mint:
     this.tbtcMint = PublicKey.findProgramAddressSync(

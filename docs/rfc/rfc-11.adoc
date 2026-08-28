@@ -171,12 +171,14 @@ relayer's responsibility will be:
 
 - Deliver Wormhole VAA to `SolanaDepositor` contract once the deposit was
   revealed on Solana.
-- Request bridging tBTC from Ethereum to Solana once the tBTC for the deposit
-  has been optimistically minted or the deposit was swept on Bitcoin and the
-  SPV sweep proof was submitted to Ethereum.
-- Redeem bridged tBTC on Solana from the Wormhole Token Bridge contract to the
-  depositor address once the tBTC minted on Ethereum has been successfully
-  bridged to Solana.
+- Observe `TokensTransferredWithPayload` emitted by the L1 depositor after it
+  submits `transferTokensWithPayload` to the Wormhole Token Bridge. The relayer
+  uses the transfer sequence from that event to fetch the signed Wormhole VAA
+  and complete delivery on the destination chain.
+- Submit the fetched Wormhole VAA to the destination `WormholeGateway` so the
+  gateway can mint canonical tBTC for the depositor address carried in the
+  payload. This replaces the older flow that relied on separate Wormhole
+  Standard Relaying steps after the L1 transfer.
 - Redeem bridged tBTC on Ethereum from the Wormhole Token Bridge contract to the
   `SolanaRedeemer` contract once the redemption was requested on Solana and
   tBTC was bridged back via the Wormhole Token Bridge.
@@ -216,14 +218,17 @@ With smart contract interactions:
 7. `SolanaDepositor` contract reveals the deposit to the `Bridge`
 8. tBTC is optimistically minted to `SolanaDepositor` contract address.
 9. Relayer bot notifies `SolanaDepositor` contract the deposit was
-   optimistically minted. `SolanaDepositor` inspects `TBTCVault.optimisticMintingRequests`
-   to confirm the amount and requests bridging tBTC from its own balance to the
-   Solana depositor address associated with the given deposit using Wormhole
-   Token Bridge. The same happens when the deposit was not optimistically minted
-   but swept.
-10. Relayer bot redeems the tBTC bridged to Solana from the Wormhole Token Bridge
-    contract to the depositor's Solana address.
-11. The user reveals their tBTC under the Solana address.
+   optimistically minted. `SolanaDepositor` inspects
+   `TBTCVault.optimisticMintingRequests` to confirm the amount and submits
+   `transferTokensWithPayload` to the Wormhole Token Bridge using the
+   destination gateway as the recipient and the depositor address as payload.
+   The same happens when the deposit was not optimistically minted but swept.
+10. `SolanaDepositor` emits `TokensTransferredWithPayload`. The relayer bot
+    uses the emitted transfer sequence to fetch the signed Wormhole VAA and
+    submit it on Solana.
+11. `SolanaGateway` verifies the VAA, mints canonical tBTC for the depositor
+    address carried in the payload, and completes the transfer on Solana.
+12. The user receives their tBTC under the Solana address.
 
 ==== Redemption flow
 

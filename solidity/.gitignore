@@ -1,3 +1,6 @@
+# Yarn 4 local state (not for zero-installs)
+.yarn/install-state.gz
+
 # Hardhat
 /build/
 /cache/
@@ -11,6 +14,9 @@
 /artifacts/
 /deployments/*
 !/deployments/mainnet/
+!/deployments/sepolia/
 
 # OpenZeppelin
 /.openzeppelin/unknown-*.json
+solcInputs/
+gasReporterOutput.json

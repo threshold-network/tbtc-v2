@@ -328,8 +328,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       const TBTCClass = TBTC as any
       const tbtcNoCrossChain = new TBTCClass(
         mockTBTCContracts,
-        mockBitcoinClient,
-        undefined // No cross-chain loader
+        mockBitcoinClient
       )
       const account = new Account(
         new RpcProvider({

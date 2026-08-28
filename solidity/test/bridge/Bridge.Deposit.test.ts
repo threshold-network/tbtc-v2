@@ -1,11 +1,10 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { Deployment } from "hardhat-deploy/types"
 import type {
   Bank,
@@ -15,6 +14,7 @@ import type {
   IRelay,
   IVault,
   BridgeGovernance,
+  RebateStaking,
 } from "../../typechain"
 import type {
   DepositRevealInfoStruct,
@@ -32,14 +32,16 @@ import {
   SingleP2SHDeposit,
   SingleP2WSHDeposit,
 } from "../data/deposit-sweep"
-
-chai.use(smock.matchers)
+import { to1e18 } from "../helpers/contract-test-helpers"
+import { createMock, expectCalledOnceWith } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
 const { impersonateAccount } = helpers.account
 
 const ZERO_ADDRESS = ethers.constants.AddressZero
+const redemptionOnlyRebateTreasuryFeeMode = 2
 
 describe("Bridge - Deposit", () => {
   let governance: SignerWithAddress
@@ -47,16 +49,21 @@ describe("Bridge - Deposit", () => {
   let treasury: SignerWithAddress
 
   let bank: Bank & BankStub
-  let relay: FakeContract<IRelay>
+  let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
+  let t: Contract
+  let rebateStaking: RebateStaking
   let deployBridge: (
     txProofDifficultyFactor: number
   ) => Promise<[Contract, Deployment]>
 
+  let deployer: SignerWithAddress
+
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
+      deployer,
       governance,
       spvMaintainer,
       treasury,
@@ -64,8 +71,10 @@ describe("Bridge - Deposit", () => {
       relay,
       bridge,
       bridgeGovernance,
+      t,
+      rebateStaking,
       deployBridge,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -75,6 +84,10 @@ describe("Bridge - Deposit", () => {
     // Disable the reveal ahead period since refund locktimes are fixed
     // within transactions used in this test suite.
     await bridge.setDepositRevealAheadPeriod(0)
+
+    await bridgeGovernance
+      .connect(governance)
+      .setRebateStaking(rebateStaking.address)
   })
 
   type RevealDepositFixture = {
@@ -221,73 +234,244 @@ describe("Bridge - Deposit", () => {
             context("when deposit was not revealed yet", () => {
               context("when amount is not below the dust threshold", () => {
                 context("when deposit is routed to a trusted vault", () => {
-                  let tx: ContractTransaction
+                  context(
+                    "when nothing staked in rebate staking contract",
+                    () => {
+                      let tx: ContractTransaction
 
-                  before(async () => {
-                    await createSnapshot()
-                    tx = await bridge
-                      .connect(depositor)
-                      .revealDeposit(P2SHFundingTx, reveal)
-                  })
+                      before(async () => {
+                        await createSnapshot()
+                        tx = await bridge
+                          .connect(depositor)
+                          .revealDeposit(P2SHFundingTx, reveal)
+                      })
 
-                  after(async () => {
-                    await restoreSnapshot()
-                  })
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
 
-                  it("should store proper deposit data", async () => {
-                    // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                    const depositKey = ethers.utils.solidityKeccak256(
-                      ["bytes32", "uint32"],
-                      [
-                        "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
-                        reveal.fundingOutputIndex,
-                      ]
-                    )
+                      it("should store proper deposit data", async () => {
+                        // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
+                        const depositKey = ethers.utils.solidityKeccak256(
+                          ["bytes32", "uint32"],
+                          [
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                          ]
+                        )
 
-                    const deposit = await bridge.deposits(depositKey)
+                        const deposit = await bridge.deposits(depositKey)
 
-                    // Depositor address, same as in `reveal.depositor`.
-                    expect(deposit.depositor).to.be.equal(
-                      "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637"
-                    )
-                    // Deposit amount in satoshi. In this case it's 10000 satoshi
-                    // because the P2SH deposit transaction set this value for the
-                    // funding output.
-                    expect(deposit.amount).to.be.equal(10000)
-                    // Revealed time should be set.
-                    expect(deposit.revealedAt).to.be.equal(
-                      await lastBlockTime()
-                    )
-                    // Deposit vault, same as in `reveal.vault`.
-                    expect(deposit.vault).to.be.equal(
-                      "0x594cfd89700040163727828AE20B52099C58F02C"
-                    )
-                    // Treasury fee should be computed according to the current
-                    // value of the `depositTreasuryFeeDivisor`.
-                    expect(deposit.treasuryFee).to.be.equal(5)
-                    // Swept time should be unset.
-                    expect(deposit.sweptAt).to.be.equal(0)
-                    // Extra data must not be set.
-                    expect(deposit.extraData).to.be.equal(
-                      ethers.constants.HashZero
-                    )
-                  })
+                        // Depositor address, same as in `reveal.depositor`.
+                        expect(deposit.depositor).to.be.equal(
+                          "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637"
+                        )
+                        // Deposit amount in satoshi. In this case it's 10000 satoshi
+                        // because the P2SH deposit transaction set this value for the
+                        // funding output.
+                        expect(deposit.amount).to.be.equal(10000)
+                        // Revealed time should be set.
+                        expect(deposit.revealedAt).to.be.equal(
+                          await lastBlockTime()
+                        )
+                        // Deposit vault, same as in `reveal.vault`.
+                        expect(deposit.vault).to.be.equal(
+                          "0x594cfd89700040163727828AE20B52099C58F02C"
+                        )
+                        // Treasury fee should be computed according to the current
+                        // value of the `depositTreasuryFeeDivisor`.
+                        expect(deposit.treasuryFee).to.be.equal(5)
+                        // Swept time should be unset.
+                        expect(deposit.sweptAt).to.be.equal(0)
+                        // Extra data must not be set.
+                        expect(deposit.extraData).to.be.equal(
+                          ethers.constants.HashZero
+                        )
+                      })
 
-                  it("should emit DepositRevealed event", async () => {
-                    await expect(tx)
-                      .to.emit(bridge, "DepositRevealed")
-                      .withArgs(
-                        "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
-                        reveal.fundingOutputIndex,
-                        "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637",
-                        10000,
-                        "0xf9f0c90d00039523",
-                        "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-                        "0x28e081f285138ccbe389c1eb8985716230129f89",
-                        "0x60bcea61",
-                        reveal.vault
-                      )
-                  })
+                      it("should emit DepositRevealed event", async () => {
+                        await expect(tx)
+                          .to.emit(bridge, "DepositRevealed")
+                          .withArgs(
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                            "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637",
+                            10000,
+                            "0xf9f0c90d00039523",
+                            "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+                            "0x28e081f285138ccbe389c1eb8985716230129f89",
+                            "0x60bcea61",
+                            reveal.vault
+                          )
+                      })
+                    }
+                  )
+                  context(
+                    "when depositor has stake in rebate staking contract",
+                    () => {
+                      let tx: ContractTransaction
+
+                      const stakeAmount = to1e18(5)
+                      let availableRebate: number
+
+                      before(async () => {
+                        await createSnapshot()
+
+                        await t
+                          .connect(deployer)
+                          .mint(depositor.address, stakeAmount)
+                        await t
+                          .connect(depositor)
+                          .approve(rebateStaking.address, stakeAmount)
+                        await rebateStaking
+                          .connect(depositor)
+                          .stake(stakeAmount)
+                        availableRebate = (
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        ).toNumber()
+
+                        tx = await bridge
+                          .connect(depositor)
+                          .revealDeposit(P2SHFundingTx, reveal)
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should store proper deposit data", async () => {
+                        // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
+                        const depositKey = ethers.utils.solidityKeccak256(
+                          ["bytes32", "uint32"],
+                          [
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                          ]
+                        )
+
+                        const deposit = await bridge.deposits(depositKey)
+
+                        // Depositor address, same as in `reveal.depositor`.
+                        expect(deposit.depositor).to.be.equal(
+                          "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637"
+                        )
+                        // Deposit amount in satoshi. In this case it's 10000 satoshi
+                        // because the P2SH deposit transaction set this value for the
+                        // funding output.
+                        expect(deposit.amount).to.be.equal(10000)
+                        // Revealed time should be set.
+                        expect(deposit.revealedAt).to.be.equal(
+                          await lastBlockTime()
+                        )
+                        // Deposit vault, same as in `reveal.vault`.
+                        expect(deposit.vault).to.be.equal(
+                          "0x594cfd89700040163727828AE20B52099C58F02C"
+                        )
+                        // Treasury fee should be computed according to the current
+                        // value of the `depositTreasuryFeeDivisor`.
+                        expect(deposit.treasuryFee).to.be.equal(0)
+                        // Swept time should be unset.
+                        expect(deposit.sweptAt).to.be.equal(0)
+                        // Extra data must not be set.
+                        expect(deposit.extraData).to.be.equal(
+                          ethers.constants.HashZero
+                        )
+                      })
+
+                      it("should emit DepositRevealed event", async () => {
+                        await expect(tx)
+                          .to.emit(bridge, "DepositRevealed")
+                          .withArgs(
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                            "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637",
+                            10000,
+                            "0xf9f0c90d00039523",
+                            "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+                            "0x28e081f285138ccbe389c1eb8985716230129f89",
+                            "0x60bcea61",
+                            reveal.vault
+                          )
+                      })
+
+                      it("should decrease available rebate", async () => {
+                        expect(
+                          (
+                            await rebateStaking.getAvailableRebate(
+                              depositor.address
+                            )
+                          ).toNumber()
+                        ).to.be.lessThan(availableRebate)
+                      })
+                    }
+                  )
+
+                  context(
+                    "when depositor has stake in rebate staking contract and deposit rebates are disabled",
+                    () => {
+                      const stakeAmount = to1e18(5)
+                      let availableRebate: number
+
+                      before(async () => {
+                        await createSnapshot()
+
+                        await t
+                          .connect(deployer)
+                          .mint(depositor.address, stakeAmount)
+                        await t
+                          .connect(depositor)
+                          .approve(rebateStaking.address, stakeAmount)
+                        await rebateStaking
+                          .connect(depositor)
+                          .stake(stakeAmount)
+                        availableRebate = (
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        ).toNumber()
+
+                        await rebateStaking
+                          .connect(depositor)
+                          .setRebateTreasuryFeeMode(
+                            redemptionOnlyRebateTreasuryFeeMode
+                          )
+
+                        await bridge
+                          .connect(depositor)
+                          .revealDeposit(P2SHFundingTx, reveal)
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should keep deposit treasury fee unchanged", async () => {
+                        const depositKey = ethers.utils.solidityKeccak256(
+                          ["bytes32", "uint32"],
+                          [
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                          ]
+                        )
+
+                        const deposit = await bridge.deposits(depositKey)
+
+                        expect(deposit.treasuryFee).to.be.equal(5)
+                      })
+
+                      it("should not decrease available rebate", async () => {
+                        expect(
+                          (
+                            await rebateStaking.getAvailableRebate(
+                              depositor.address
+                            )
+                          ).toNumber()
+                        ).to.be.equal(availableRebate)
+                      })
+                    }
+                  )
                 })
 
                 context("when deposit is not routed to a vault", () => {
@@ -704,6 +888,76 @@ describe("Bridge - Deposit", () => {
             })
           })
         })
+
+        context(
+          "when funding transaction is P2PKH but contains a valid P2SH deposit script injected as public key hash",
+          () => {
+            const walletPubKeyHash =
+              "0x7abdee3c88cba8a890537e8d1417df87a7271f9d"
+            const vault = "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD"
+            let depositorLocal
+
+            before(async () => {
+              await createSnapshot()
+
+              await bridgeGovernance
+                .connect(governance)
+                .setVaultStatus(vault, true)
+
+              // Simulate the wallet is a Live one and is known in the system.
+              await bridge.setWallet(walletPubKeyHash, {
+                ecdsaWalletID: ethers.constants.HashZero,
+                mainUtxoHash: ethers.constants.HashZero,
+                pendingRedemptionsValue: 0,
+                createdAt: await lastBlockTime(),
+                movingFundsRequestedAt: 0,
+                closingStartedAt: 0,
+                pendingMovedFundsSweepRequestsCount: 0,
+                state: walletState.Live,
+                movingFundsTargetWalletsCommitmentHash:
+                  ethers.constants.HashZero,
+              })
+
+              depositorLocal = await impersonateAccount(
+                "0x9dF0C6b0066D5317aA5b38B36850548DaCCa6B4e",
+                {
+                  from: governance,
+                  value: 10,
+                }
+              )
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should revert", async () => {
+              // A transaction where a valid P2SH deposit script is wrapped in P2PKH output
+              // (i.e. it is injected at the place of the public key hash).
+              const tx = {
+                version: "0x02000000",
+                inputVector:
+                  "0x017c5a47a1ea7a13fde409f8a62f5143dfcde3ca3c47717b1e73b45c2a3621a8200100000000fdffffff",
+                outputVector:
+                  "0x01c09ee605000000001976a9141a9957d085b0cb7ad53dde3fa090f6e88131de8a88ac",
+                locktime: "0xb0020e00",
+              }
+
+              const revealLocal = {
+                fundingOutputIndex: 0,
+                blindingFactor: "0x42fac6f696fad1fd",
+                walletPubKeyHash,
+                refundPubKeyHash: "0xf398bf26d270acab5c237402707e1b3f108ca84b",
+                refundLocktime: "0x525f4a6a",
+                vault,
+              }
+
+              await expect(
+                bridge.connect(depositorLocal).revealDeposit(tx, revealLocal)
+              ).to.be.revertedWith("Output must be P2SH")
+            })
+          }
+        )
 
         context("when funding transaction is neither P2SH nor P2WSH", () => {
           it("should revert", async () => {
@@ -1929,7 +2183,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when the single input is a revealed unswept deposit with a trusted vault",
                         async () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const data: DepositSweepTestData = SingleP2WSHDeposit
@@ -1949,7 +2203,7 @@ describe("Bridge - Deposit", () => {
                             })
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -1965,7 +2219,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           after(async () => {
-                            vault.receiveBalanceIncrease.reset()
+                            await vault.receiveBalanceIncrease.reset()
 
                             await restoreSnapshot()
                           })
@@ -2029,11 +2283,9 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should call the vault's receiveBalanceIncrease function", async () => {
-                            expect(
-                              vault.receiveBalanceIncrease
-                            ).to.have.been.calledOnceWith(
-                              [data.deposits[0].depositor],
-                              [77960]
+                            await expectCalledOnceWith(
+                              vault.receiveBalanceIncrease,
+                              [[data.deposits[0].depositor], [77960]]
                             )
                           })
 
@@ -2112,7 +2364,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when the single input is a revealed unswept deposit with a non-trusted vault",
                         async () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const data: DepositSweepTestData = SingleP2WSHDeposit
@@ -2132,7 +2384,7 @@ describe("Bridge - Deposit", () => {
                             })
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2226,7 +2478,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when the single input is a revealed unswept deposit with a trusted vault but non-equal to the vault passed via function parameter",
                         async () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: Promise<ContractTransaction>
 
                           const data: DepositSweepTestData = SingleP2WSHDeposit
@@ -2246,7 +2498,7 @@ describe("Bridge - Deposit", () => {
                             })
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2386,10 +2638,10 @@ describe("Bridge - Deposit", () => {
                           })
 
                           // Necessary to pass the proof validation.
-                          relay.getPrevEpochDifficulty.returns(
+                          await relay.getPrevEpochDifficulty.returns(
                             data.chainDifficulty
                           )
-                          relay.getCurrentEpochDifficulty.returns(
+                          await relay.getCurrentEpochDifficulty.returns(
                             data.chainDifficulty
                           )
                         })
@@ -2568,7 +2820,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when input vector consists only of revealed unswept deposits with a trusted vault and the expected main UTXO",
                         () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const previousData: DepositSweepTestData =
@@ -2595,7 +2847,7 @@ describe("Bridge - Deposit", () => {
                             await runDepositSweepScenario(previousData)
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2619,7 +2871,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           after(async () => {
-                            vault.receiveBalanceIncrease.reset()
+                            await vault.receiveBalanceIncrease.reset()
 
                             await restoreSnapshot()
                           })
@@ -2708,17 +2960,18 @@ describe("Bridge - Deposit", () => {
                             // The order of deposits is different that
                             // the order of inputs that refers them in
                             // the transaction.
-                            expect(
-                              vault.receiveBalanceIncrease
-                            ).to.have.been.calledOnceWith(
+                            await expectCalledOnceWith(
+                              vault.receiveBalanceIncrease,
                               [
-                                data.deposits[2].depositor,
-                                data.deposits[3].depositor,
-                                data.deposits[1].depositor,
-                                data.deposits[4].depositor,
-                                data.deposits[0].depositor,
-                              ],
-                              [938931, 878961, 759021, 289256, 219287]
+                                [
+                                  data.deposits[2].depositor,
+                                  data.deposits[3].depositor,
+                                  data.deposits[1].depositor,
+                                  data.deposits[4].depositor,
+                                  data.deposits[0].depositor,
+                                ],
+                                [938931, 878961, 759021, 289256, 219287],
+                              ]
                             )
                           })
 
@@ -2752,7 +3005,7 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when input vector consists only of revealed unswept deposits with a non-trusted vault and the expected main UTXO",
                         () => {
-                          let vault: FakeContract<IVault>
+                          let vault: Mock<IVault>
                           let tx: ContractTransaction
 
                           const previousData: DepositSweepTestData =
@@ -2779,7 +3032,7 @@ describe("Bridge - Deposit", () => {
                             await runDepositSweepScenario(previousData)
 
                             // Deploy a fake vault and mark it as trusted.
-                            vault = await smock.fake<IVault>("IVault")
+                            vault = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vault.address, true)
@@ -2932,8 +3185,8 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when input vector consists only of revealed unswept deposits with different trusted vaults and the expected main UTXO",
                         () => {
-                          let vaultA: FakeContract<IVault>
-                          let vaultB: FakeContract<IVault>
+                          let vaultA: Mock<IVault>
+                          let vaultB: Mock<IVault>
                           let tx: Promise<ContractTransaction>
 
                           const previousData: DepositSweepTestData =
@@ -2960,8 +3213,8 @@ describe("Bridge - Deposit", () => {
                             await runDepositSweepScenario(previousData)
 
                             // Deploy two fake vaults and mark them as trusted.
-                            vaultA = await smock.fake<IVault>("IVault")
-                            vaultB = await smock.fake<IVault>("IVault")
+                            vaultA = await createMock<IVault>("IVault")
+                            vaultB = await createMock<IVault>("IVault")
                             await bridgeGovernance
                               .connect(governance)
                               .setVaultStatus(vaultA.address, true)
@@ -3356,8 +3609,8 @@ describe("Bridge - Deposit", () => {
               await createSnapshot()
 
               // Necessary to pass the proof validation.
-              relay.getPrevEpochDifficulty.returns(20870012)
-              relay.getCurrentEpochDifficulty.returns(20870012)
+              await relay.getPrevEpochDifficulty.returns(20870012)
+              await relay.getCurrentEpochDifficulty.returns(20870012)
             })
 
             after(async () => {
@@ -3430,8 +3683,8 @@ describe("Bridge - Deposit", () => {
             await createSnapshot()
 
             // Necessary to pass the proof validation.
-            relay.getCurrentEpochDifficulty.returns(1)
-            relay.getPrevEpochDifficulty.returns(1)
+            await relay.getCurrentEpochDifficulty.returns(1)
+            await relay.getPrevEpochDifficulty.returns(1)
           })
 
           after(async () => {
@@ -3880,8 +4133,10 @@ describe("Bridge - Deposit", () => {
               })
 
               // Necessary to pass the first part of proof validation.
-              relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-              relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+              await relay.getCurrentEpochDifficulty.returns(
+                data.chainDifficulty
+              )
+              await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
               // Deploy another bridge which has higher `txProofDifficultyFactor`
               // than the original bridge. That means it will need 12 confirmations
@@ -3992,8 +4247,8 @@ describe("Bridge - Deposit", () => {
           state: walletState.Live,
         })
 
-        relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-        relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+        await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+        await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
@@ -4061,8 +4316,8 @@ describe("Bridge - Deposit", () => {
               state: walletState.Live,
             })
 
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
             const depositorSigner = await impersonateAccount(depositor, {
               from: governance,
@@ -4105,8 +4360,8 @@ describe("Bridge - Deposit", () => {
     data: DepositSweepTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     for (let i = 0; i < data.deposits.length; i++) {
       const { fundingTx, depositor, reveal } = data.deposits[i]

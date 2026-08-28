@@ -1,4 +1,7 @@
 import { HardhatUserConfig } from "hardhat/config"
+import path from "path"
+import { config as loadEnv } from "dotenv"
+
 import "./tasks"
 
 import "@keep-network/hardhat-helpers"
@@ -12,6 +15,9 @@ import "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+
+// Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
+loadEnv({ path: path.join(__dirname, "..", ".env") })
 
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
@@ -58,7 +64,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
+            runs: 1000,
           },
         },
       },
@@ -85,6 +91,23 @@ const config: HardhatUserConfig = {
 
   networks: {
     hardhat: {
+      // Configuration of a test mock is a transaction, and Hardhat advances
+      // the clock one second per block. smock configured fakes in-process and
+      // advanced it not at all, so suites asserting on a boundary cannot
+      // absorb the difference — WalletProposalValidator stubs a 7200s delay,
+      // advances time by exactly 7200 and requires
+      // `block.timestamp > requestedAt + minAge` to be false.
+      //
+      // With this on, `test/helpers/mock.ts` pins the next block's timestamp
+      // to the current one before each configuration write, so configuring a
+      // mock does not move the clock.
+      allowBlocksWithSameTimestamp: true,
+      // Recording a mocked call SSTOREs its calldata, which smock did not have
+      // to pay for — it kept the call log in JavaScript. Deposit finalization
+      // fans out to several mocked contracts in one transaction, and the
+      // default limit leaves no room for that bookkeeping on top of the work
+      // being measured.
+      blockGasLimit: 100_000_000,
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
@@ -124,7 +147,26 @@ const config: HardhatUserConfig = {
       accounts: process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
         : undefined,
-      tags: ["tenderly"],
+      tags: ["allowStubs", "tenderly"],
+      // Hardhat passes this to undici headersTimeout (default 20s). Slow public RPCs often exceed
+      // that during deploy → HeadersTimeoutError / UND_ERR_HEADERS_TIMEOUT.
+      // postinstall runs scripts/patch-hardhat-undici-connect-timeout.sh so undici Pool connectTimeout
+      // matches this value too (default Pool connect is 10s → ConnectTimeoutError on cold RPC).
+      timeout: (() => {
+        // parseInt accepts partial strings ("120_000" -> 120, "60s" -> 60),
+        // which would silently collapse the timeout to milliseconds and put
+        // deploys back on the timeout path this value is meant to fix. Require
+        // a full positive integer, otherwise fall back to the default.
+        const timeoutMs = Number(process.env.CHAIN_HTTP_TIMEOUT_MS)
+        return Number.isInteger(timeoutMs) && timeoutMs > 0
+          ? timeoutMs
+          : 120_000
+      })(),
+      // Avoid "replacement fee too low" when many txs are sent in quick succession
+      gasPrice: (() => {
+        const gwei = Number(process.env.GAS_PRICE_GWEI)
+        return Number.isFinite(gwei) && gwei > 0 ? gwei * 1e9 : 5e9 // 5 gwei default
+      })(),
     },
     mainnet: {
       url: process.env.CHAIN_API_URL || "",
@@ -133,6 +175,8 @@ const config: HardhatUserConfig = {
         ? [process.env.CONTRACT_OWNER_ACCOUNT_PRIVATE_KEY]
         : undefined,
       tags: ["etherscan", "tenderly"],
+      timeout: 300000, // 5 minutes
+      httpHeaders: {},
     },
   },
 
@@ -176,11 +220,16 @@ const config: HardhatUserConfig = {
         "node_modules/@keep-network/random-beacon/deployments/development",
         "node_modules/@keep-network/ecdsa/deployments/development",
       ],
-      sepolia: [
-        "node_modules/@keep-network/tbtc/artifacts",
-        "node_modules/@keep-network/random-beacon/artifacts",
-        "node_modules/@keep-network/ecdsa/artifacts",
-      ],
+      // tbtc/artifacts contains build artifacts (no addresses), not deployment records.
+      // Loading it causes Deposit, VendingMachine, TBTCToken to have address: undefined.
+      // Exclude @keep-network/ecdsa/artifacts: it has WalletRegistry at 0x8613...
+      // (no code on Sepolia). Use only local deployments (0x5D05...).
+      //
+      // Do NOT add node_modules/@keep-network/random-beacon/artifacts here: hardhat-deploy
+      // merges external folders *after* ./deployments/sepolia and overwrites T.json,
+      // NuCypherToken.json, etc. with published npm snapshots. Those stale tx hashes then
+      // fail fetchIfDifferent ("cannot get the transaction for T's previous deployment").
+      sepolia: [],
       mainnet: ["./external/mainnet"],
     },
   },
@@ -255,16 +304,6 @@ const config: HardhatUserConfig = {
     apiKey: {
       mainnet: process.env.ETHERSCAN_API_KEY,
     },
-    customChains: [
-      {
-        network: "mainnet",
-        chainId: 1,
-        urls: {
-          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
-          browserURL: "https://etherscan.io",
-        },
-      },
-    ],
   },
   contractSizer: {
     alphaSort: true,

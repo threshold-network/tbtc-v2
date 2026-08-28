@@ -1,4 +1,6 @@
 import type { HardhatUserConfig } from "hardhat/config"
+import { task } from "hardhat/config"
+import { TASK_COMPILE } from "hardhat/builtin-tasks/task-names"
 
 import "@nomiclabs/hardhat-etherscan"
 import "@keep-network/hardhat-helpers"
@@ -8,6 +10,12 @@ import "hardhat-contract-sizer"
 import "hardhat-deploy"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
+import { copyWormholeV2Artifact } from "../common/copyWormholeV2Artifact"
+
+task(TASK_COMPILE).setAction(async (args, hre, runSuper) => {
+  await runSuper(args)
+  await copyWormholeV2Artifact(hre, __dirname)
+})
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -30,6 +38,16 @@ const config: HardhatUserConfig = {
 
   networks: {
     hardhat: {
+      // Mainnet fork is enabled only when `FORKING_URL` is provided, so the
+      // package's non-fork tests keep running against an in-memory chain.
+      forking: {
+        enabled: !!process.env.FORKING_URL,
+        url: process.env.FORKING_URL || "",
+        blockNumber:
+          process.env.FORKING_BLOCK !== undefined
+            ? parseInt(process.env.FORKING_BLOCK, 10)
+            : undefined,
+      },
       deploy: [
         // "deploy_l1",
         "deploy_l2",
@@ -64,6 +82,14 @@ const config: HardhatUserConfig = {
         ? process.env.L1_ACCOUNTS_PRIVATE_KEYS.split(",")
         : undefined,
       tags: ["etherscan"],
+    },
+    // Local mainnet-fork node (anvil) used by the upgrade fork regression tests.
+    // Hardhat's built-in forking cannot initialize against the project RPC
+    // (reth omits `totalDifficulty`); pointing at an external anvil fork node
+    // sidesteps that. Run: `anvil --fork-url <RPC> --port 8545 --chain-id 1`.
+    system_tests: {
+      url: "http://127.0.0.1:8545",
+      chainId: 1,
     },
     baseGoerli: {
       url: process.env.L2_CHAIN_API_URL || "",
@@ -117,6 +143,10 @@ const config: HardhatUserConfig = {
       goerli: ["./external/goerli"],
       sepolia: ["./external/sepolia"],
       mainnet: ["./external/mainnet"],
+      // Fork tests run under `--network system_tests` (chainId 1) and read the
+      // committed mainnet deployment so deployments resolve the live proxy on
+      // the anvil fork.
+      system_tests: ["deployments/mainnet", "./external/mainnet"],
       baseGoerli: ["./external/baseGoerli"],
       baseSepolia: ["./external/baseSepolia"],
       base: ["./external/base"],
@@ -176,8 +206,8 @@ const config: HardhatUserConfig = {
       sepolia: 0,
       baseGoerli: 0,
       baseSepolia: 0,
-      mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      base: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      mainnet: "0x716089154304f22a2F9c8d2f8C45815183BF3532",
+      base: "0x716089154304f22a2F9c8d2f8C45815183BF3532",
     },
     governance: {
       default: 2,

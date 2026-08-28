@@ -108,9 +108,10 @@ abstract contract AbstractL1BTCDepositor is
     ///         granted by the contract owner.
     mapping(address => bool) public reimbursementAuthorizations;
 
-    /// @notice **Feature Flag** controlling whether the deposit transaction max fee
-    ///         is **reimbursed** (added to the user’s tBTC) or **deducted**.
-    ///         - `true`  => Add `txMaxFee` to the minted tBTC amount
+    /// @notice Feature flag controlling whether the deposit transaction max fee
+    ///         is reimbursed (added to the user's tBTC) or deducted.
+    ///         - `true`  => Add `txMaxFee` on a best-effort basis when the
+    ///                      contract balance covers it
     ///         - `false` => Subtract `txMaxFee` from the minted tBTC amount
     bool public reimburseTxMaxFee;
 
@@ -141,6 +142,14 @@ abstract contract AbstractL1BTCDepositor is
     /// @notice Emitted whenever the owner toggles the reimbursement of the deposit
     ///         transaction max fee.
     event ReimburseTxMaxFeeUpdated(bool reimburseTxMaxFee);
+
+    /// @notice Emitted when the deposit transaction max fee reimbursement is
+    ///         skipped because the depositor contract balance cannot cover it.
+    event DepositTxMaxFeeReimbursementSkipped(
+        uint256 indexed depositKey,
+        uint256 txMaxFee,
+        uint256 availableBalance
+    );
 
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
@@ -195,8 +204,9 @@ abstract contract AbstractL1BTCDepositor is
 
     /// @notice Toggles whether the deposit transaction max fee is reimbursed
     ///         or deducted. Only callable by the contract owner.
-    /// @param _reimburseTxMaxFee `true` => reimburse (add) the deposit tx max fee,
-    ///                        `false` => deduct the deposit tx max fee.
+    /// @param _reimburseTxMaxFee `true` => reimburse the deposit tx max fee
+    ///        on a best-effort basis when the contract balance covers it,
+    ///        `false` => deduct the deposit tx max fee.
     function setReimburseTxMaxFee(bool _reimburseTxMaxFee) external onlyOwner {
         reimburseTxMaxFee = _reimburseTxMaxFee;
         emit ReimburseTxMaxFeeUpdated(_reimburseTxMaxFee);
@@ -206,7 +216,7 @@ abstract contract AbstractL1BTCDepositor is
     ///         data (funding transaction and components of the P2(W)SH deposit
     ///         address) to the tBTC Bridge. Once tBTC minting is completed,
     ///         this call should be followed by a call to `finalizeDeposit`.
-    ///         Callers of `initializeDeposit` are eligible for a gas dgasd
+    ///         Callers of `initializeDeposit` are eligible for a gas refund
     ///         that is paid out upon deposit finalization (only if the
     ///         reimbursement pool is attached and the given caller is
     ///         authorized for refunds).
@@ -230,7 +240,7 @@ abstract contract AbstractL1BTCDepositor is
     ///         Where:
     ///
     ///         <depositor-address> 20-byte L1 address of the
-    ///         `` contract.
+    ///         `AbstractL1BTCDepositor` contract.
     ///
     ///         <depositor-extra-data> destination chain deposit owner address in
     ///         the Bytes32 format.
@@ -358,10 +368,16 @@ abstract contract AbstractL1BTCDepositor is
     ///      - `initializeDeposit` was called for the given deposit before,
     ///      - ERC20 L1 tBTC was minted by tBTC Bridge to this contract,
     ///      - The function was not called for the given deposit before,
-    ///      - The call must carry a payment for the briding system that
+    ///      - The call must carry a payment for the bridging system that
     ///        is responsible for executing the deposit finalization on the
-    ///        corresponding destination chain. The payment must be greater than or
-    ///        equal to the value returned by the `quoteFinalizeDeposit` function.
+    ///        corresponding destination chain. The exact payment requirement
+    ///        (a minimum vs. an exact amount, and whether `quoteFinalizeDeposit`
+    ///        is even exposed) is defined by each concrete depositor.
+    /// @dev When `reimburseTxMaxFee` is true, the deposit transaction max fee
+    ///      reimbursement is applied only if this contract's tBTC balance can
+    ///      cover the base deposit amount plus the reimbursement. Otherwise,
+    ///      only the base deposit amount is transferred and a
+    ///      `DepositTxMaxFeeReimbursementSkipped` event is emitted.
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();
 
@@ -387,8 +403,23 @@ abstract contract AbstractL1BTCDepositor is
             // Retrieve deposit tx max fee in 1e8 sat precision -> scale it to 1e18.
             (, , uint64 depositTxMaxFee, ) = bridge.depositParameters();
             uint256 txMaxFee = depositTxMaxFee * SATOSHI_MULTIPLIER;
-            // The DAO is "refunding" it by adding it to the tBTC minted.
-            tbtcAmount += txMaxFee;
+            uint256 reimbursedAmount = tbtcAmount + txMaxFee;
+
+            // The DAO is "refunding" the deposit tx max fee by adding it to
+            // the tBTC minted. This is best-effort: if earlier finalizations
+            // have consumed the shared contract balance, skip the reimbursement
+            // instead of blocking this deposit until later deposits top up the
+            // contract.
+            uint256 availableBalance = tbtcToken.balanceOf(address(this));
+            if (availableBalance >= reimbursedAmount) {
+                tbtcAmount = reimbursedAmount;
+            } else {
+                emit DepositTxMaxFeeReimbursementSkipped(
+                    depositKey,
+                    txMaxFee,
+                    availableBalance
+                );
+            }
         }
 
         // slither-disable-next-line reentrancy-events
@@ -400,25 +431,38 @@ abstract contract AbstractL1BTCDepositor is
             tbtcAmount
         );
 
+        // Following the checks-effects-interactions pattern, the deferred
+        // gas reimbursement is read and deleted from storage before the
+        // external `_transferTbtc` call. The actual reimbursement payout
+        // happens after that call, as the last step of the deposit
+        // finalization.
+        // slither-disable-next-line uninitialized-local
+        GasReimbursement memory reimbursement;
+        if (address(reimbursementPool) != address(0)) {
+            reimbursement = gasReimbursements[depositKey];
+
+            if (reimbursement.receiver != address(0)) {
+                // slither-disable-next-line reentrancy-benign
+                delete gasReimbursements[depositKey];
+            }
+        }
+
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
-        // `ReimbursementPool.refund` is a non-reentrant function and executing
-        // reimbursements as the last step of the deposit finalization.
+        // `ReimbursementPool.refund` is a non-reentrant function, by deleting
+        // the deferred reimbursement from storage before the external
+        // `_transferTbtc` call (checks-effects-interactions), and by
+        // executing reimbursements as the last step of the deposit
+        // finalization.
         if (address(reimbursementPool) != address(0)) {
             // If there is a deferred reimbursement for this deposit
             // initialization, pay it out now. No need to check reimbursement
             // authorization for the initialization caller. If the deferred
             // reimbursement is here, that implies the caller was authorized
             // to receive it.
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
             if (reimbursement.receiver != address(0)) {
-                // slither-disable-next-line reentrancy-benign
-                delete gasReimbursements[depositKey];
-
                 reimbursementPool.refund(
                     reimbursement.gasSpent,
                     reimbursement.receiver

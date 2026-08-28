@@ -23,58 +23,51 @@ import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/Arb
 import MainnetSolanaL1BitcoinDepositorDeployment from "./artifacts/mainnet/SolanaL1BitcoinDepositor.json"
 import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
 import MainnetSuiBTCDepositorWormholeDeployment from "./artifacts/mainnet/SuiBTCDepositorWormhole.json"
-import MainnetSeiL1BitcoinDepositorDeployment from "./artifacts/mainnet/SeiL1BitcoinDepositor.json"
 
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
 import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
 import SepoliaSuiBTCDepositorWormholeDeployment from "./artifacts/sepolia/SuiBTCDepositorWormhole.json"
-import SepoliaSeiL1BitcoinDepositorDeployment from "./artifacts/sepolia/SeiL1BitcoinDepositor.json"
 
 import SepoliaSolanaL1BitcoinDepositorDeployment from "./artifacts/sepolia/SolanaL1BitcoinDepositor.json"
 import { SuiExtraDataEncoder } from "../sui"
 import { StarkNetExtraDataEncoder } from "../starknet"
 import { SolanaExtraDataEncoder } from "../solana"
-import { SeiExtraDataEncoder } from "../sei"
 
-const artifactLoader = {
-  getMainnet: (destinationChainName: DestinationChainName) => {
-    switch (destinationChainName) {
-      case "Base":
-        return MainnetBaseL1BitcoinDepositorDeployment
-      case "Arbitrum":
-        return MainnetArbitrumL1BitcoinDepositorDeployment
-      case "Solana":
-        return MainnetSolanaL1BitcoinDepositorDeployment
-      case "StarkNet":
-        return MainnetStarkNetL1BitcoinDepositorDeployment
-      case "Sui":
-        return MainnetSuiBTCDepositorWormholeDeployment
-      case "Sei":
-        return MainnetSeiL1BitcoinDepositorDeployment
-      default:
-        throw new Error("Unsupported destination chain")
-    }
-  },
+const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> =
+  {
+    Base: MainnetBaseL1BitcoinDepositorDeployment,
+    Arbitrum: MainnetArbitrumL1BitcoinDepositorDeployment,
+    Solana: MainnetSolanaL1BitcoinDepositorDeployment,
+    StarkNet: MainnetStarkNetL1BitcoinDepositorDeployment,
+    Sui: MainnetSuiBTCDepositorWormholeDeployment,
+  }
 
-  getSepolia: (destinationChainName: DestinationChainName) => {
-    switch (destinationChainName) {
-      case "Base":
-        return SepoliaBaseL1BitcoinDepositorDeployment
-      case "Arbitrum":
-        return SepoliaArbitrumL1BitcoinDepositorDeployment
-      case "Solana":
-        return SepoliaSolanaL1BitcoinDepositorDeployment
-      case "StarkNet":
-        return SepoliaStarkNetL1BitcoinDepositorDeployment
-      case "Sui":
-        return SepoliaSuiBTCDepositorWormholeDeployment
-      case "Sei":
-        return SepoliaSeiL1BitcoinDepositorDeployment
-      default:
-        throw new Error("Unsupported destination chain")
-    }
-  },
+const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
+  {
+    Base: SepoliaBaseL1BitcoinDepositorDeployment,
+    Arbitrum: SepoliaArbitrumL1BitcoinDepositorDeployment,
+    Solana: SepoliaSolanaL1BitcoinDepositorDeployment,
+    StarkNet: SepoliaStarkNetL1BitcoinDepositorDeployment,
+    Sui: SepoliaSuiBTCDepositorWormholeDeployment,
+  }
+
+const artifactLoaders: Partial<
+  Record<
+    Chains.Ethereum,
+    Record<DestinationChainName, EthersContractDeployment>
+  >
+> = {
+  [Chains.Ethereum.Mainnet]: mainnetArtifacts,
+  [Chains.Ethereum.Sepolia]: sepoliaArtifacts,
+}
+
+const extraDataEncoders: Partial<
+  Record<DestinationChainName, new () => ExtraDataEncoder>
+> = {
+  Solana: SolanaExtraDataEncoder,
+  StarkNet: StarkNetExtraDataEncoder,
+  Sui: SuiExtraDataEncoder,
 }
 
 /**
@@ -94,38 +87,20 @@ export class EthereumL1BitcoinDepositor
     chainId: Chains.Ethereum,
     destinationChainName: DestinationChainName
   ) {
-    let deployment: EthersContractDeployment
-
-    switch (chainId) {
-      case Chains.Ethereum.Sepolia:
-        deployment = artifactLoader.getSepolia(destinationChainName)
-        break
-      case Chains.Ethereum.Mainnet:
-        deployment = artifactLoader.getMainnet(destinationChainName)
-        break
-      default:
-        throw new Error("Unsupported deployment type")
+    const deploymentArtifacts = artifactLoaders[chainId]
+    if (!deploymentArtifacts) {
+      throw new Error("Unsupported deployment type")
+    }
+    const deployment = deploymentArtifacts[destinationChainName]
+    if (!deployment) {
+      throw new Error("Unsupported destination chain")
     }
 
     super(config, deployment)
 
-    switch (destinationChainName) {
-      case "StarkNet":
-        this.#extraDataEncoder = new StarkNetExtraDataEncoder()
-        break
-      case "Sui":
-        this.#extraDataEncoder = new SuiExtraDataEncoder()
-        break
-      case "Solana":
-        this.#extraDataEncoder = new SolanaExtraDataEncoder()
-        break
-      case "Sei":
-        this.#extraDataEncoder = new SeiExtraDataEncoder()
-        break
-      default:
-        this.#extraDataEncoder = new EthereumExtraDataEncoder()
-        break
-    }
+    const ExtraDataEncoderConstructor =
+      extraDataEncoders[destinationChainName] ?? EthereumExtraDataEncoder
+    this.#extraDataEncoder = new ExtraDataEncoderConstructor()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -188,14 +163,10 @@ export class EthereumL1BitcoinDepositor
       throw new Error("Extra data is required")
     }
 
-    const l2DepositOwner = this.extraDataEncoder().decodeDepositOwner(
-      deposit.extraData
-    )
-
     const tx = await this._instance.initializeDeposit(
       fundingTx,
       reveal,
-      `0x${l2DepositOwner.identifierHex}`
+      deposit.extraData.toPrefixedString()
     )
 
     return Hex.from(tx.hash)

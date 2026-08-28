@@ -533,8 +533,13 @@ export class EthereumBridge
     const walletRegistry = await this.walletRegistry()
 
     try {
+      // Skip retries when the wallet is not registered: this path iterates
+      // over closed/terminated wallets during redemption wallet lookup, and
+      // retrying a wallet that is gone from the contract state only slows
+      // the process down.
       const uncompressedPublicKey = await walletRegistry.getWalletPublicKey(
-        ecdsaWalletID
+        ecdsaWalletID,
+        true
       )
 
       return Hex.from(

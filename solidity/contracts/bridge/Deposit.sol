@@ -20,6 +20,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./RebateStaking.sol";
 import "./Wallets.sol";
 
 /// @title Bridge deposit
@@ -284,11 +285,13 @@ library Deposit {
             // A 20-byte output hash is used by P2SH. That hash is constructed
             // by applying OP_HASH160 on the locking script. A 20-byte output
             // hash is used as well by P2PKH and P2WPKH (OP_HASH160 on the
-            // public key). However, since we compare the actual output hash
-            // with an expected locking script hash, this check will succeed only
-            // for P2SH transaction type with expected script hash value. For
-            // P2PKH and P2WPKH, it will fail on the output hash comparison with
-            // the expected locking script hash.
+            // public key). That said, we need to additionally check
+            // whether the hash prefix corresponds to P2SH. To do so,
+            // we need to omit the 8 value bytes from the output and compare
+            // the 3 prefix bytes of the hash with the expected P2SH prefix.
+            bool isP2SH = fundingOutput.slice3(8) == hex"17a914";
+            require(isP2SH, "Output must be P2SH");
+
             require(
                 fundingOutputHash.slice20(0) == expectedScript.hash160View(),
                 "Wrong 20-byte script hash"
@@ -339,6 +342,15 @@ library Deposit {
             ? fundingOutputAmount / self.depositTreasuryFeeDivisor
             : 0;
         deposit.extraData = extraData;
+
+        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+            deposit.treasuryFee = RebateStaking(self.rebateStaking)
+                .applyForRebate(
+                    deposit.depositor,
+                    deposit.treasuryFee,
+                    RebateStaking.TreasuryFeeType.Deposit
+                );
+        }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);
     }

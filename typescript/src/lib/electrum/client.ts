@@ -21,6 +21,7 @@ import { backoffRetrier, Hex, RetrierFn } from "../utils"
 
 import MainnetElectrumUrls from "./urls/mainnet.json"
 import TestnetElectrumUrls from "./urls/testnet.json"
+import Testnet4ElectrumUrls from "./urls/testnet4.json"
 
 const browserURL = typeof window !== "undefined" && window.URL
 const URL = nodeURL ?? (browserURL || URLParse)
@@ -41,6 +42,10 @@ export interface ElectrumCredentials {
    * Protocol used by the Electrum server.
    */
   protocol: "tcp" | "tls" | "ssl" | "ws" | "wss"
+  /**
+   * Optional URL path (e.g. for authenticated WebSocket endpoints).
+   */
+  path?: string
 }
 
 /**
@@ -90,16 +95,17 @@ export class ElectrumClient implements BitcoinClient {
    * @param options - Additional options used by the Electrum server.
    * @param totalRetryAttempts - Number of retries for requests sent to Electrum
    *        server.
-   * @param retryBackoffStep - Initial backoff step in milliseconds that will
-   *        be increased exponentially for subsequent retry attempts.
-   * @param connectionTimeout - Timeout for a single try of connection establishment.
+   * @param retryBackoffStep - Initial backoff duration in milliseconds; increases
+   *        exponentially for subsequent retry attempts (default 1000). The
+   *        instance constructor defaults this to 10000 ms when not using {@link fromUrl}.
+   * @param connectionTimeout - Timeout in milliseconds for connection establishment per try.
    * @returns Electrum client instance.
    */
   static fromUrl(
     url: string | string[],
     options?: ElectrumClientOptions,
     totalRetryAttempts = 3,
-    retryBackoffStep = 1000, // 10 seconds
+    retryBackoffStep = 1000,
     connectionTimeout = 20000 // 20 seconds
   ): ElectrumClient {
     let credentials: ElectrumCredentials[]
@@ -125,16 +131,14 @@ export class ElectrumClient implements BitcoinClient {
    * @returns Electrum client instance.
    */
   static fromDefaultConfig(network: BitcoinNetwork): ElectrumClient {
-    let file
-    switch (network) {
-      case BitcoinNetwork.Mainnet:
-        file = MainnetElectrumUrls
-        break
-      case BitcoinNetwork.Testnet:
-        file = TestnetElectrumUrls
-        break
-      default:
-        throw new Error("No default Electrum for given network")
+    const configs: Partial<Record<BitcoinNetwork, { urls: string[] }>> = {
+      [BitcoinNetwork.Mainnet]: MainnetElectrumUrls,
+      [BitcoinNetwork.Testnet]: TestnetElectrumUrls,
+      [BitcoinNetwork.Testnet4]: Testnet4ElectrumUrls,
+    }
+    const file = configs[network]
+    if (!file) {
+      throw new Error("No default Electrum for given network")
     }
 
     return ElectrumClient.fromUrl(file.urls)
@@ -148,15 +152,36 @@ export class ElectrumClient implements BitcoinClient {
   private static parseElectrumCredentials(url: string): ElectrumCredentials {
     const urlObj = new URL(url)
 
+    // URL.port is empty when the port matches the protocol default
+    // (e.g. 443 for wss://, 80 for ws://). Fall back to the default
+    // port for the given protocol.
+    const defaultPorts: Record<string, number> = {
+      "wss:": 443,
+      "ws:": 80,
+      "ssl:": 443,
+      "tls:": 443,
+      "tcp:": 50001,
+    }
+    const port = urlObj.port
+      ? Number.parseInt(urlObj.port, 10)
+      : defaultPorts[urlObj.protocol]
+    if (!port || Number.isNaN(port)) {
+      throw new Error(`missing or invalid port in Electrum URL: ${url}`)
+    }
+
     return {
       host: urlObj.hostname,
-      port: Number.parseInt(urlObj.port, 10),
+      port,
       protocol: urlObj.protocol.replace(":", "") as
         | "tcp"
         | "tls"
         | "ssl"
         | "ws"
         | "wss",
+      path:
+        urlObj.pathname && urlObj.pathname !== "/"
+          ? urlObj.pathname
+          : undefined,
     }
   }
 
@@ -174,29 +199,40 @@ export class ElectrumClient implements BitcoinClient {
         credentials.host,
         credentials.port,
         credentials.protocol,
-        this.options
+        this.options,
+        credentials.path
       )
 
-      await this.withBackoffRetrier()(async () => {
-        // FIXME: Connection timeout should be a property of the Electrum client.
-        // Since it's not configurable in `electrum-client-js` we add timeout
-        // as a workaround here.
-        return pTimeout(
-          (async () => {
-            try {
-              await electrum.connect("tbtc-v2", "1.4.2")
-              await electrum.server_ping()
-              return
-            } catch (error) {
-              throw new Error(`Electrum server connection failure: [${error}]`)
-            }
-          })(),
-          this.connectionTimeout,
-          `timed out on electrum connect after ${this.connectionTimeout} ms`
-        )
-      })
-
-      return electrum
+      try {
+        await this.withBackoffRetrier()(async () => {
+          // Connection timeout should be a property of the Electrum client.
+          // Since it's not configurable in `electrum-client-js` we add timeout
+          // as a workaround here.
+          return pTimeout(
+            (async () => {
+              try {
+                await electrum.connect("tbtc-v2", "1.4.2")
+                await electrum.server_ping()
+                return
+              } catch (error) {
+                throw new Error(
+                  `Electrum server connection failure: [${error}]`
+                )
+              }
+            })(),
+            this.connectionTimeout,
+            `timed out on electrum connect after ${this.connectionTimeout} ms`
+          )
+        })
+        return electrum
+      } catch (err) {
+        try {
+          electrum.close()
+        } catch {
+          // Ignore close errors (e.g. Node TLS destroySSL race)
+        }
+        throw err
+      }
     }
 
     let electrum: Electrum | undefined = undefined
@@ -206,7 +242,9 @@ export class ElectrumClient implements BitcoinClient {
         break
       } catch (err) {
         console.warn(
-          `failed to connect to electrum server: [${credentials.protocol}://${credentials.host}:${credentials.port}]: ${err}`
+          `failed to connect to electrum server: [${credentials.protocol}://${
+            credentials.host
+          }:${credentials.port}${credentials.path ?? ""}]: ${err}`
         )
       }
     }
@@ -220,7 +258,11 @@ export class ElectrumClient implements BitcoinClient {
     } catch (error) {
       throw new Error(`Electrum action failure: [${error}]`)
     } finally {
-      electrum.close()
+      try {
+        electrum.close()
+      } catch {
+        // Ignore close errors (Node TLS destroySSL race, see nodejs/node#53660)
+      }
     }
   }
 
@@ -232,26 +274,69 @@ export class ElectrumClient implements BitcoinClient {
     return backoffRetrier<T>(this.totalRetryAttempts, this.retryBackoffStep)
   }
 
+  /**
+   * Resolves Bitcoin network from an existing Electrum connection.
+   * Use this when already inside withElectrum to avoid nested connections.
+   * @param electrum Connected Electrum client.
+   * @returns Promise resolving to the Bitcoin network.
+   */
+  private async getNetworkFromElectrum(
+    electrum: Electrum
+  ): Promise<BitcoinNetwork> {
+    let genesisHash: string | undefined
+
+    try {
+      const features = await electrum.server_features()
+      genesisHash = features?.genesis_hash
+    } catch (err) {
+      // Electrs (e.g. mempool.space) does not implement server.features.
+      // We only swallow JSON-RPC "method not found" errors for this specific
+      // method. Any other error (connection failure, protocol error, etc.)
+      // propagates so callers see genuine failures.
+      const msg = err instanceof Error ? err.message : String(err)
+      const isMethodNotFound =
+        msg.includes("server.features") ||
+        msg.toLowerCase().includes("method not found") ||
+        msg.includes("-32601")
+      if (!isMethodNotFound) {
+        throw err
+      }
+    }
+
+    if (!genesisHash) {
+      // Fallback: derive genesis hash from block 0 header (Electrs-compatible)
+      const headerHex = await this.withBackoffRetrier<
+        string | { hex: string }
+      >()(async () => {
+        return await electrum.blockchain_block_header(0)
+      })
+      const rawHeader =
+        typeof headerHex === "string" ? headerHex : headerHex?.hex
+      if (!rawHeader) {
+        throw new Error(
+          "could not get genesis block header for network detection"
+        )
+      }
+      const headerBuf = Buffer.from(rawHeader, "hex")
+      const hash = BitcoinHashUtils.computeHash256(Hex.from(headerBuf))
+      // computeHash256 returns the raw double-SHA256; block hashes are
+      // displayed byte-reversed, which is what fromGenesisHash expects.
+      genesisHash = Buffer.from(hash.toString().replace(/^0x/, ""), "hex")
+        .reverse()
+        .toString("hex")
+    }
+
+    return BitcoinNetwork.fromGenesisHash(Hex.from(genesisHash))
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {BitcoinClient#getNetwork}
    */
   getNetwork(): Promise<BitcoinNetwork> {
-    return this.withElectrum<BitcoinNetwork>(async (electrum: Electrum) => {
-      const { genesis_hash: genesisHash } = await this.withBackoffRetrier<{
-        // eslint-disable-next-line camelcase
-        genesis_hash: string
-      }>()(async () => {
-        return await electrum.server_features()
-      })
-      if (!genesisHash) {
-        throw new Error(
-          "server didn't return the 'genesis_hash' property from `server.features` request"
-        )
-      }
-
-      return BitcoinNetwork.fromGenesisHash(Hex.from(genesisHash))
-    })
+    return this.withElectrum<BitcoinNetwork>((electrum) =>
+      this.getNetworkFromElectrum(electrum)
+    )
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -260,7 +345,7 @@ export class ElectrumClient implements BitcoinClient {
    */
   findAllUnspentTransactionOutputs(address: string): Promise<BitcoinUtxo[]> {
     return this.withElectrum<BitcoinUtxo[]>(async (electrum: Electrum) => {
-      const bitcoinNetwork = await this.getNetwork()
+      const bitcoinNetwork = await this.getNetworkFromElectrum(electrum)
 
       const script = BitcoinAddressConverter.addressToOutputScript(
         address,
@@ -291,7 +376,7 @@ export class ElectrumClient implements BitcoinClient {
    */
   getTransactionHistory(address: string, limit?: number): Promise<BitcoinTx[]> {
     return this.withElectrum<BitcoinTx[]>(async (electrum: Electrum) => {
-      const bitcoinNetwork = await this.getNetwork()
+      const bitcoinNetwork = await this.getNetworkFromElectrum(electrum)
 
       const script = BitcoinAddressConverter.addressToOutputScript(
         address,
@@ -335,7 +420,10 @@ export class ElectrumClient implements BitcoinClient {
         this.getTransaction(BitcoinTxHash.from(item.tx_hash))
       )
 
-      return Promise.all(transactions)
+      const results = await Promise.allSettled(transactions)
+      const rejected = results.find((r) => r.status === "rejected")
+      if (rejected) throw (rejected as PromiseRejectedResult).reason
+      return results.map((r) => (r as PromiseFulfilledResult<BitcoinTx>).value)
     })
   }
 
@@ -508,7 +596,7 @@ export class ElectrumClient implements BitcoinClient {
    */
   getTxHashesForPublicKeyHash(publicKeyHash: Hex): Promise<BitcoinTxHash[]> {
     return this.withElectrum<BitcoinTxHash[]>(async (electrum: Electrum) => {
-      const bitcoinNetwork = await this.getNetwork()
+      const bitcoinNetwork = await this.getNetworkFromElectrum(electrum)
 
       // eslint-disable-next-line camelcase
       type HistoryItem = { height: number; tx_hash: string }

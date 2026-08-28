@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployBridge(
+  hre: HardhatRuntimeEnvironment
+) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { deploy } = deployments
   const { deployer, treasury } = await getNamedAccounts()
@@ -11,11 +13,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const WalletRegistry = await deployments.get("WalletRegistry")
   const ReimbursementPool = await deployments.get("ReimbursementPool")
 
-  // For local tests use `1`.
+  // Local tests and Sepolia (testnet4 Bitcoin): use `1` to ease SPV proofs.
+  // Other live networks use mainnet-style `6`.
+  const network = deployments.getNetworkName()
   const txProofDifficultyFactor =
-    deployments.getNetworkName() === "hardhat" ||
-    deployments.getNetworkName() === "development" ||
-    deployments.getNetworkName() === "system_tests"
+    network === "hardhat" ||
+    network === "development" ||
+    network === "system_tests" ||
+    network === "sepolia"
       ? 1
       : 6
 

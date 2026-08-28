@@ -1,13 +1,12 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
-import chai, { expect } from "chai"
+import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
-import { FakeContract, smock } from "@defi-wonderland/smock"
 import type { IWalletRegistry, Bridge, BridgeStub } from "../../typechain"
 import {
   wallet as fraudWallet,
@@ -20,8 +19,8 @@ import {
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { ecdsaWalletTestData } from "../data/ecdsa"
-
-chai.use(smock.matchers)
+import { expectCalledOnceWith, expectNotCalled } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -30,11 +29,24 @@ const { keccak256, sha256 } = ethers.utils
 const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
   fraudWallet
 
+/** For `changeEtherBalance`: plain addresses have no `provider`; a v5 `Contract`
+ *  may not match waffle's `instanceof Contract` (duplicate ethers), breaking `getAddressOf`.
+ */
+function etherBalanceAccount(
+  address: string,
+  provider: typeof ethers.provider
+) {
+  return {
+    provider,
+    getAddress: async () => address,
+  }
+}
+
 describe("Bridge - Fraud", () => {
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
 
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
 
   let fraudChallengeDepositAmount: BigNumber
@@ -44,8 +56,7 @@ describe("Bridge - Fraud", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ thirdParty, treasury, walletRegistry, bridge } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ thirdParty, treasury, walletRegistry, bridge } = await bridgeFixture())
     ;({
       fraudChallengeDepositAmount,
       fraudChallengeDefeatTimeout,
@@ -103,7 +114,7 @@ describe("Bridge - Fraud", () => {
                   fraudChallengeDepositAmount.mul(-1)
                 )
                 await expect(tx).to.changeEtherBalance(
-                  bridge,
+                  etherBalanceAccount(bridge.address, ethers.provider),
                   fraudChallengeDepositAmount
                 )
               })
@@ -627,7 +638,7 @@ describe("Bridge - Fraud", () => {
 
           it("should send the ether deposited by the challenger to the treasury", async () => {
             await expect(tx).to.changeEtherBalance(
-              bridge,
+              etherBalanceAccount(bridge.address, ethers.provider),
               fraudChallengeDepositAmount.mul(-1)
             )
             await expect(tx).to.changeEtherBalance(
@@ -893,7 +904,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1031,7 +1042,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1171,7 +1182,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1309,7 +1320,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1535,8 +1546,8 @@ describe("Bridge - Fraud", () => {
         })
 
         after(async () => {
-          walletRegistry.closeWallet.reset()
-          walletRegistry.seize.reset()
+          await walletRegistry.closeWallet.reset()
+          await walletRegistry.seize.reset()
 
           await restoreSnapshot()
         })
@@ -1694,8 +1705,8 @@ describe("Bridge - Fraud", () => {
                   })
 
                   after(async () => {
-                    walletRegistry.closeWallet.reset()
-                    walletRegistry.seize.reset()
+                    await walletRegistry.closeWallet.reset()
+                    await walletRegistry.seize.reset()
 
                     await restoreSnapshot()
                   })
@@ -1715,7 +1726,7 @@ describe("Bridge - Fraud", () => {
 
                   it("should return the deposited ether to the challenger", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      bridge,
+                      etherBalanceAccount(bridge.address, ethers.provider),
                       fraudChallengeDepositAmount.mul(-1)
                     )
                     await expect(tx).to.changeEtherBalance(
@@ -1743,19 +1754,19 @@ describe("Bridge - Fraud", () => {
                   })
 
                   it("should call the ECDSA wallet registry's closeWallet function", async () => {
-                    expect(
-                      walletRegistry.closeWallet
-                    ).to.have.been.calledOnceWith(walletDraft.ecdsaWalletID)
+                    await expectCalledOnceWith(walletRegistry.closeWallet, [
+                      walletDraft.ecdsaWalletID,
+                    ])
                   })
 
                   it("should call the ECDSA wallet registry's seize function", async () => {
-                    expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                    await expectCalledOnceWith(walletRegistry.seize, [
                       fraudSlashingAmount,
                       fraudNotifierRewardMultiplier,
                       await thirdParty.getAddress(),
                       ecdsaWalletTestData.walletID,
-                      walletMembersIDs
-                    )
+                      walletMembersIDs,
+                    ])
                   })
 
                   // TODO: Check if the gas consumption of functions calling `seize`
@@ -1827,7 +1838,7 @@ describe("Bridge - Fraud", () => {
 
             it("should return the deposited ether to the challenger", async () => {
               await expect(tx).to.changeEtherBalance(
-                bridge,
+                etherBalanceAccount(bridge.address, ethers.provider),
                 fraudChallengeDepositAmount.mul(-1)
               )
               await expect(tx).to.changeEtherBalance(
@@ -1849,7 +1860,7 @@ describe("Bridge - Fraud", () => {
             })
 
             it("should not call the ECDSA wallet registry's seize function", async () => {
-              expect(walletRegistry.seize).not.to.have.been.called
+              await expectNotCalled(walletRegistry.seize)
             })
           })
 
