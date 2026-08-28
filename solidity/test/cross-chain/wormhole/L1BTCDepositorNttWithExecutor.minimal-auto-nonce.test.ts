@@ -7,6 +7,8 @@ import type {
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -20,6 +22,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
+  let underlyingNttManager: MockNttManager
   let owner: SignerWithAddress
   let user1: SignerWithAddress
   let user2: SignerWithAddress
@@ -38,13 +42,22 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.address)
 
-    // Mock NTT managers with simple objects (following working pattern)
-    const nttManagerWithExecutor = {
-      address: ethers.Wallet.createRandom().address,
-    }
-    const underlyingNttManager = {
-      address: ethers.Wallet.createRandom().address,
-    }
+    // Deploy proper mock NTT managers
+    const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
+      "MockNttManagerWithExecutor"
+    )
+    nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
+
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
+
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -99,8 +112,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000) // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // User 1 sets parameters
@@ -156,8 +169,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // User 1 sets parameters multiple times (clearing between calls)
@@ -195,8 +208,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // Initially no workflow
@@ -232,8 +245,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // Set parameters

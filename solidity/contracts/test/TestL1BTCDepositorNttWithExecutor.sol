@@ -12,11 +12,26 @@ contract TestL1BTCDepositorNttWithExecutor is L1BTCDepositorNttWithExecutor {
         FeeArgs memory feeArgs,
         bytes32 nonce
     ) external payable {
+        uint16 stageChain = _getDefaultSupportedChain();
+        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(
+            underlyingNttManager,
+            stageChain,
+            "",
+            executorArgs,
+            feeArgs
+        );
         _transferTbtcWithExecutor(
             amount,
             destinationChainReceiver,
-            executorArgs,
-            feeArgs,
+            ExecutorParameterSet({
+                executorArgs: executorArgs,
+                feeArgs: feeArgs,
+                user: msg.sender,
+                timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
+                cachedRequiredPayment: requiredPayment,
+                cachedDestinationChain: stageChain,
+                exists: true
+            }),
             nonce
         );
     }

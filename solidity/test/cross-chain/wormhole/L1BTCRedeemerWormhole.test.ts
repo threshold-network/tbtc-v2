@@ -31,6 +31,40 @@ const toSatoshis = (tbtcAmount: BigNumber) => tbtcAmount.div(SATOSHI_MULTIPLIER)
 const toTBTC = (satoshiAmount: BigNumber) =>
   satoshiAmount.mul(SATOSHI_MULTIPLIER)
 
+// Assert a no-argument custom error revert without depending on hardhat's
+// error-decode state (proxies can surface the error as raw selector data).
+const expectRevertWithCustomError = async (
+  promise: Promise<unknown>,
+  contract: ethers.Contract,
+  errorName: string
+) => {
+  const selector = contract.interface.getSighash(`${errorName}()`)
+  try {
+    await promise
+  } catch (error: unknown) {
+    const err = error as {
+      data?: string | { data?: string }
+      message?: string
+      error?: { data?: string | { data?: string }; message?: string }
+    } | null
+    const rawData = err?.error?.data ?? err?.data
+    const data = typeof rawData === "string" ? rawData : rawData?.data ?? ""
+    const message = (err?.error?.message ?? err?.message ?? "").toString()
+    const fullErrorStr = `${data} ${message}`
+
+    if (
+      fullErrorStr.toLowerCase().includes(selector.toLowerCase()) ||
+      fullErrorStr.includes(errorName)
+    ) {
+      return
+    }
+    throw error
+  }
+  throw new Error(
+    `Expected revert with ${errorName}, but the transaction succeeded`
+  )
+}
+
 describe("L1BTCRedeemerWormhole (using Mock)", () => {
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
@@ -683,15 +717,17 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should revert with unauthorized error", async () => {
-        await expect(
+        await expectRevertWithCustomError(
           l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
               exampleWalletPubKeyHash,
               exampleMainUtxo,
               encodedVm
-            )
-        ).to.be.revertedWith("SourceAddressNotAuthorized")
+            ),
+          l1BtcRedeemer,
+          "SourceAddressNotAuthorized"
+        )
       })
     })
 
@@ -722,15 +758,17 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should reject before authorization", async () => {
-        await expect(
+        await expectRevertWithCustomError(
           l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
               exampleWalletPubKeyHash,
               exampleMainUtxo,
               encodedVm
-            )
-        ).to.be.revertedWith("SourceAddressNotAuthorized")
+            ),
+          l1BtcRedeemer,
+          "SourceAddressNotAuthorized"
+        )
       })
 
       it("should accept after authorization", async () => {
@@ -775,15 +813,17 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           .updateAllowedSender(newSender, false)
 
         // Should now fail
-        await expect(
+        await expectRevertWithCustomError(
           l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
               exampleWalletPubKeyHash,
               exampleMainUtxo,
               encodedVm
-            )
-        ).to.be.revertedWith("SourceAddressNotAuthorized")
+            ),
+          l1BtcRedeemer,
+          "SourceAddressNotAuthorized"
+        )
       })
     })
 

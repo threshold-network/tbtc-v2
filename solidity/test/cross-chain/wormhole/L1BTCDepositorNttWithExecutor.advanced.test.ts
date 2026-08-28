@@ -85,6 +85,15 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       true
     )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
+
+    // Set default parameters to match test fee args
+    await depositor.setDefaultParameters(
+      600000,
+      100,
+      owner.address,
+      0,
+      ethers.constants.AddressZero
+    )
   })
 
   beforeEach(async () => {

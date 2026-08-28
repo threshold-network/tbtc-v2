@@ -81,6 +81,15 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
     // Set parameter expiration time to 1 hour for testing
     await depositor.setParameterExpirationTime(3600)
+
+    // Set default parameters to match test fee args
+    await depositor.setDefaultParameters(
+      600000,
+      100,
+      owner.address,
+      0,
+      ethers.constants.AddressZero
+    )
   })
 
   beforeEach(async () => {

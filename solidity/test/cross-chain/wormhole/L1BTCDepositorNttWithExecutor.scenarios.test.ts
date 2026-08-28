@@ -6,6 +6,8 @@ import type {
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 import {
   REAL_SIGNED_QUOTE,
@@ -24,6 +26,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
+  let underlyingNttManager: MockNttManager
 
   before(async () => {
     // Deploy mock contracts following working pattern
@@ -39,13 +43,22 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.address)
 
-    // Mock NTT managers with simple objects (following working pattern)
-    const nttManagerWithExecutor = {
-      address: ethers.Wallet.createRandom().address,
-    }
-    const underlyingNttManager = {
-      address: ethers.Wallet.createRandom().address,
-    }
+    // Deploy proper mock NTT managers
+    const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
+      "MockNttManagerWithExecutor"
+    )
+    nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
+
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
+
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -95,14 +108,21 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
           FEE_ARGS_ZERO
         )
 
-      // Test quotes for different chains - will fail because we're using mock addresses
-      await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
-      ).to.be.reverted
+      // Test quotes for different supported chains
+      const quoteDest = await depositor
+        .connect(user)
+        ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
+      expect(quoteDest).to.be.gt(0)
 
+      const quoteBase = await depositor
+        .connect(user)
+        ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_BASE)
+      expect(quoteBase).to.be.gt(0)
+
+      // Test quote for unsupported chain
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_BASE)
-      ).to.be.reverted
+        depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
+      ).to.be.revertedWith("Destination chain not supported")
     })
 
     it("should handle chain configuration changes", async () => {
@@ -148,7 +168,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
 
-      // Test high fee
+      // Test high fee (update default parameters first)
+      await depositor.setDefaultParameters(
+        600000,
+        1000,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       const highFeeArgs = {
         dbps: 1000, // 1% (1000/100000)
         payee: user.address,
@@ -160,7 +188,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet2).to.be.true
 
-      // Test maximum fee
+      // Test maximum fee (update default parameters first)
+      await depositor.setDefaultParameters(
+        600000,
+        10000,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       const maxFeeArgs = {
         dbps: 10000, // 10% (10000/100000)
         payee: user.address,
@@ -183,7 +219,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         instructions: `0x${"2".repeat(64)}`,
       }
 
-      // Test with different fee recipients
+      // Configure default for fee recipient 1
+      await depositor.setDefaultParameters(
+        600000,
+        100,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       const feeArgs1 = {
         dbps: 100, // 0.1% (100/100000)
         payee: user.address,
@@ -192,6 +236,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs, feeArgs1)
+
+      // Update default for fee recipient 2
+      await depositor.setDefaultParameters(
+        600000,
+        100,
+        feeRecipient.address,
+        0,
+        ethers.constants.AddressZero
+      )
 
       const feeArgs2 = {
         dbps: 100, // 0.1% (100/100000)
@@ -220,15 +273,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
           instructions: `0x${"2".repeat(64)}`,
         }
 
-        const feeArgs = {
-          dbps: 100 + i * 10,
-          payee: user.address,
-        }
-
         // eslint-disable-next-line no-await-in-loop
         await depositor
           .connect(user)
-          .setExecutorParameters(executorArgs, feeArgs)
+          .setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
 
         // eslint-disable-next-line no-await-in-loop
         const [isSet] = await depositor.connect(user).areExecutorParametersSet()
@@ -251,12 +299,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         instructions: `0x${"2".repeat(64)}`,
       }
 
-      const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
-      }
-
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
 
@@ -266,7 +311,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       expect(isSet2).to.be.false
 
       // Reset parameters
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
       const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet3).to.be.true
     })
@@ -277,9 +324,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [, , user] = await ethers.getSigners()
 
       // Try to quote without parameters (should fail)
-      // Note: This test is simplified to avoid proxy connection issues
-      const [isSet1] = await depositor.areExecutorParametersSet()
-      expect(isSet1).to.be.false
+      await expect(
+        depositor.connect(user)["quoteFinalizeDeposit()"]()
+      ).to.be.revertedWith("Executor parameters not set")
 
       // Set valid parameters using real signed quote
       await depositor
@@ -306,14 +353,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         )
 
       // Try to quote for unsupported chain (should fail)
-      // Note: This will fail with CALL_EXCEPTION because we're using mock addresses
-      await expect(depositor["quoteFinalizeDeposit(uint16)"](999)).to.be
-        .reverted
-
-      // Quote for supported chain will also fail because we're using mock addresses
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
-      ).to.be.reverted
+        depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
+      ).to.be.revertedWith("Destination chain not supported")
+
+      // Quote for supported chain should succeed
+      const quote = await depositor
+        .connect(user)
+        ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
+      expect(quote).to.be.gt(0)
     })
   })
 })

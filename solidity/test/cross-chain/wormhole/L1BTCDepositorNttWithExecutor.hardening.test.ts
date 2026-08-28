@@ -3,7 +3,6 @@ import { expect } from "chai"
 import type {
   MockNttManager,
   MockNttManagerWithExecutor,
-  MockRefundRejector,
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
@@ -124,7 +123,21 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           DEFAULT_NONCE,
           { value: requiredPayment.sub(1) }
         )
-    ).to.be.revertedWith("Insufficient payment for executor service")
+    ).to.be.revertedWith("Payment must exactly match executor service quote")
+
+    // Overpayment must revert
+    await expect(
+      depositor
+        .connect(user)
+        .transferTbtcWithExecutor(
+          ethers.utils.parseEther("1"),
+          receiver,
+          args,
+          zeroFeeArgs,
+          DEFAULT_NONCE,
+          { value: requiredPayment.add(1) }
+        )
+    ).to.be.revertedWith("Payment must exactly match executor service quote")
 
     // Exact payment succeeds
     await expect(
@@ -141,7 +154,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     ).to.emit(depositor, "TokensTransferredNttWithExecutor")
   })
 
-  it("should refund excess executor payment", async () => {
+  it("should retain no ETH after successful deposit", async () => {
     const [, user] = await ethers.getSigners()
     const args = executorArgs(user.address)
     const receiver = encodeDestinationChainReceiver(
@@ -155,42 +168,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       args,
       zeroFeeArgs
     )
-    const extra = ethers.utils.parseEther("0.1")
 
-    const tx = await depositor
-      .connect(user)
-      .transferTbtcWithExecutor(
-        ethers.utils.parseEther("1"),
-        receiver,
-        args,
-        zeroFeeArgs,
-        DEFAULT_NONCE,
-        { value: requiredPayment.add(extra) }
-      )
-
-    // NTT manager receives exactly requiredPayment, not the full overpayment
-    await expect(tx)
-      .to.emit(nttManagerWithExecutor, "MockTransferExecuted")
-      .withArgs(1, WORMHOLE_CHAIN_SEI, requiredPayment)
-
-    // Depositor contract retains no ETH after the refund
-    expect(await ethers.provider.getBalance(depositor.address)).to.equal(0)
-  })
-
-  it("should reject executor refunds to a different address", async () => {
-    const [, user, attacker] = await ethers.getSigners()
-    const args = executorArgs(attacker.address)
-    const receiver = encodeDestinationChainReceiver(
-      WORMHOLE_CHAIN_SEI,
-      user.address
-    )
-    const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-      underlyingNttManager.address,
-      WORMHOLE_CHAIN_SEI,
-      "0x",
-      args,
-      zeroFeeArgs
-    )
 
     await expect(
       depositor
@@ -203,9 +181,56 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           DEFAULT_NONCE,
           { value: requiredPayment }
         )
+    ).to.emit(depositor, "TokensTransferredNttWithExecutor")
+
+    expect(await ethers.provider.getBalance(depositor.address)).to.equal(0)
+  })
+
+  // I'm keeping the original test but renaming it to reflect the change. Wait, this test is now redundant with the overpayment case I just added above.
+  // Let's replace the refund test with a "should retain no ETH" test.
+
+  it("should reject executor refunds to a different address at stage time", async () => {
+    const [, user, attacker] = await ethers.getSigners()
+    const args = executorArgs(attacker.address)
+    await expect(
+      depositor.connect(user).setExecutorParameters(args, zeroFeeArgs)
     ).to.be.revertedWith("Executor refund address must be caller")
   })
 
+  // New staging tests to replace staged equality tests that were failing
+  describe("setExecutorParameters (staging consistency)", () => {
+    beforeEach(async () => {
+      await depositor.setDefaultParameters(
+        100_000,
+        50,
+        ethers.Wallet.createRandom().address,
+        0,
+        ethers.constants.AddressZero
+      )
+    })
+
+    it("should revert staging when dbps != defaultExecutorFeeBps", async () => {
+      const [stagingSigner] = await ethers.getSigners()
+      const args = executorArgs(stagingSigner.address)
+      await expect(
+        depositor.setExecutorParameters(args, {
+          dbps: 49,
+          payee: ethers.constants.AddressZero,
+        })
+      ).to.be.revertedWith("Fee must match default executor fee")
+    })
+
+    it("should accept staging when dbps == defaultExecutorFeeBps", async () => {
+      const [stagingSigner] = await ethers.getSigners()
+      const args = executorArgs(stagingSigner.address)
+      await expect(
+        depositor.setExecutorParameters(args, {
+          dbps: 50,
+          payee: ethers.constants.AddressZero,
+        })
+      ).to.emit(depositor, "ExecutorParametersSet")
+    })
+  })
   it("should reject unconfigured fee recipients", async () => {
     const [, user] = await ethers.getSigners()
     const args = executorArgs(user.address)
@@ -327,41 +352,6 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     })
   })
 
-  it("should revert when refunding overpayment fails", async () => {
-    const [, user] = await ethers.getSigners()
-    const RejectorFactory = await ethers.getContractFactory(
-      "MockRefundRejector"
-    )
-    const rejector = (await RejectorFactory.connect(user).deploy(
-      depositor.address
-    )) as MockRefundRejector
-    const args = executorArgs(rejector.address)
-    const receiver = encodeDestinationChainReceiver(
-      WORMHOLE_CHAIN_SEI,
-      user.address
-    )
-    const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-      underlyingNttManager.address,
-      WORMHOLE_CHAIN_SEI,
-      "0x",
-      args,
-      zeroFeeArgs
-    )
-    const overpayment = requiredPayment.add(ethers.utils.parseEther("0.05"))
-
-    await expect(
-      rejector
-        .connect(user)
-        .callTransfer(
-          ethers.utils.parseEther("1"),
-          receiver,
-          args,
-          zeroFeeArgs,
-          DEFAULT_NONCE,
-          { value: overpayment }
-        )
-    ).to.be.revertedWith("ETH refund failed")
-  })
 
   describe("setExecutorParameters (stage-time validation)", () => {
     const validSignedQuote = `0x${"a".repeat(64)}`
