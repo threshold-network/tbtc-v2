@@ -2,7 +2,6 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, BigNumberish } from "ethers"
-import { FakeContract, smock } from "@defi-wonderland/smock"
 
 import {
   Bank,
@@ -11,6 +10,8 @@ import {
   TBTCVault,
   TBTCVaultThrottleExemptStub,
 } from "../../typechain"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
@@ -41,8 +42,8 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
   let treasury: SignerWithAddress
   let thirdParty: SignerWithAddress
 
-  let bridge: FakeContract<Bridge>
-  let bank: FakeContract<Bank>
+  let bridge: Mock<Bridge>
+  let bank: Mock<Bank>
   let tbtc: TBTC
   let tbtcVault: TBTCVault
 
@@ -52,10 +53,10 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
   // Fabricates a revealed deposit of the given amount in the fake Bridge,
   // targeted at the given vault. Returns the funding transaction coordinates
   // to be used with requestOptimisticMint.
-  function fabricateDeposit(
+  async function fabricateDeposit(
     amountSat: BigNumberish,
     vaultAddress: string
-  ): { fundingTxHash: string; fundingOutputIndex: number } {
+  ): Promise<{ fundingTxHash: string; fundingOutputIndex: number }> {
     depositNonce += 1
     const fundingTxHash = ethers.utils.hexZeroPad(
       BigNumber.from(depositNonce).toHexString(),
@@ -66,7 +67,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       ["bytes32", "uint32"],
       [fundingTxHash, fundingOutputIndex]
     )
-    bridge.deposits.whenCalledWith(BigNumber.from(depositKey)).returns({
+    await bridge.deposits.whenCalledWith(BigNumber.from(depositKey)).returns({
       depositor: depositorSigner.address,
       amount: amountSat,
       revealedAt: 1,
@@ -109,9 +110,9 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       thirdParty,
     ] = await ethers.getSigners()
 
-    bridge = await smock.fake<Bridge>("Bridge")
-    bank = await smock.fake<Bank>("Bank")
-    bridge.treasury.returns(treasury.address)
+    bridge = await createMock<Bridge>("Bridge")
+    bank = await createMock<Bank>("Bank")
+    await bridge.treasury.returns(treasury.address)
 
     const TBTCFactory = await ethers.getContractFactory("TBTC")
     tbtc = await TBTCFactory.connect(governance).deploy()
@@ -282,7 +283,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should reject a deposit exceeding the maximum size", async () => {
-      const deposit = fabricateDeposit(
+      const deposit = await fabricateDeposit(
         DEFAULT_MAX_DEPOSIT_SIZE + 1,
         tbtcVault.address
       )
@@ -297,7 +298,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should accept a deposit of exactly the maximum size", async () => {
-      const deposit = fabricateDeposit(
+      const deposit = await fabricateDeposit(
         DEFAULT_MAX_DEPOSIT_SIZE,
         tbtcVault.address
       )
@@ -324,7 +325,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should consume the minter allowance and emit an event", async () => {
-      const deposit = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(3 * BTC, tbtcVault.address)
       const tx = await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -341,7 +342,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should reject a request exceeding the remaining allowance", async () => {
-      const deposit = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -353,7 +354,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should track other minters' allowances independently", async () => {
-      const deposit = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minterTwo)
@@ -378,7 +379,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     let first: { fundingTxHash: string; fundingOutputIndex: number }
 
     it("should bind across minters", async () => {
-      first = fabricateDeposit(4 * BTC, tbtcVault.address)
+      first = await fabricateDeposit(4 * BTC, tbtcVault.address)
       const tx = await tbtcVault
         .connect(minter)
         .requestOptimisticMint(first.fundingTxHash, first.fundingOutputIndex)
@@ -390,7 +391,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
       // The second minter's own bucket has room (4 < 5 BTC) but only
       // 2 BTC of debt cap headroom is left.
-      const second = fabricateDeposit(4 * BTC, tbtcVault.address)
+      const second = await fabricateDeposit(4 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minterTwo)
@@ -412,7 +413,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
       // The full 6 BTC headroom is available again; the second minter can
       // request now.
-      const second = fabricateDeposit(4 * BTC, tbtcVault.address)
+      const second = await fabricateDeposit(4 * BTC, tbtcVault.address)
       const tx = await tbtcVault
         .connect(minterTwo)
         .requestOptimisticMint(second.fundingTxHash, second.fundingOutputIndex)
@@ -422,7 +423,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
       // The first minter's own bucket allowance was not restored by the
       // cancellation: ~1 BTC left of the 5 BTC per-minter cap.
-      const third = fabricateDeposit(2 * BTC, tbtcVault.address)
+      const third = await fabricateDeposit(2 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -444,7 +445,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     let deposit: { fundingTxHash: string; fundingOutputIndex: number }
 
     it("should count in-flight requests against the cap", async () => {
-      deposit = fabricateDeposit(4 * BTC, tbtcVault.address)
+      deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -453,7 +454,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         )
       expect(await tbtcVault.optimisticMintingPendingTotal()).to.equal(4 * BTC)
 
-      const blocked = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const blocked = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -481,7 +482,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       )
 
       // The outstanding debt still consumes the cap.
-      const blocked = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const blocked = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -505,7 +506,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
       expect(await tbtcVault.optimisticMintingDebtTotal()).to.equal(0)
 
-      const unblocked = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const unblocked = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -522,7 +523,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       await createSnapshot()
       await updateCaps(6 * BTC, 0, 0, 0)
 
-      const deposit = fabricateDeposit(5 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(5 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -545,7 +546,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should reject new requests", async () => {
-      const deposit = fabricateDeposit(1 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(1 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -563,7 +564,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       await updateCaps(0, 4 * BTC, 0, 0)
 
       // Exhaust the minter's bucket.
-      const deposit = fabricateDeposit(4 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -577,7 +578,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should reject a request right after the bucket exhausts", async () => {
-      const deposit = fabricateDeposit(1 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(1 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -600,7 +601,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         0.1 * BTC
       )
 
-      const deposit = fabricateDeposit(1.5 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(1.5 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -632,17 +633,17 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should bound the number of requests in the window", async () => {
-      const first = fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      const first = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(first.fundingTxHash, first.fundingOutputIndex)
 
-      const second = fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      const second = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(second.fundingTxHash, second.fundingOutputIndex)
 
-      const third = fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      const third = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -654,12 +655,12 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       // Half a window refills exactly limit/2 = 1 request token.
       await increaseTime(DAY / 2)
 
-      const first = fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      const first = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(first.fundingTxHash, first.fundingOutputIndex)
 
-      const second = fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      const second = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -673,7 +674,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     it("should allow requests again after the window refills", async () => {
       await increaseTime(DAY)
 
-      const deposit = fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -693,8 +694,9 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
         // Exhaust both two-token buckets.
         for (let i = 0; i < 2; i++) {
-          const deposit = fabricateDeposit(1, tbtcVault.address)
-          // Requests must be mined sequentially to consume the shared bucket.
+          // Mock setup and requests must be mined sequentially.
+          // eslint-disable-next-line no-await-in-loop
+          const deposit = await fabricateDeposit(1, tbtcVault.address)
           // eslint-disable-next-line no-await-in-loop
           await tbtcVault
             .connect(minter)
@@ -714,12 +716,12 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         const checkpoint = rawAllowance.requestsRefilledAt.toNumber()
         expect(rawAllowance.valueRefilledAt).to.equal(checkpoint)
 
+        const first = await fabricateDeposit(1, tbtcVault.address)
         // At a rate of two tokens per day, 23 hours accrues one token and
         // leaves 11 hours of fractional refill time.
         await ethers.provider.send("evm_setNextBlockTimestamp", [
           BigNumber.from(checkpoint + (23 * DAY) / 24).toHexString(),
         ])
-        const first = fabricateDeposit(1, tbtcVault.address)
         await expect(
           tbtcVault
             .connect(minter)
@@ -729,11 +731,11 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
             )
         ).to.emit(tbtcVault, "OptimisticMintingRequested")
 
+        const second = await fabricateDeposit(1, tbtcVault.address)
         // The retained remainder plus one more hour completes the next token.
         await ethers.provider.send("evm_setNextBlockTimestamp", [
           BigNumber.from(checkpoint + DAY).toHexString(),
         ])
-        const second = fabricateDeposit(1, tbtcVault.address)
         await expect(
           tbtcVault
             .connect(minter)
@@ -751,8 +753,9 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         await updateCaps(0, 0, 0, 7)
 
         for (let i = 0; i < 7; i++) {
-          const deposit = fabricateDeposit(1, tbtcVault.address)
-          // Requests must be mined sequentially to consume the shared bucket.
+          // Mock setup and requests must be mined sequentially.
+          // eslint-disable-next-line no-await-in-loop
+          const deposit = await fabricateDeposit(1, tbtcVault.address)
           // eslint-disable-next-line no-await-in-loop
           await tbtcVault
             .connect(minter)
@@ -773,10 +776,10 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         const firstTokenAt = checkpoint + Math.ceil(DAY / 7)
         const secondTokenAt = checkpoint + Math.ceil((2 * DAY) / 7)
 
+        const deposit = await fabricateDeposit(1, tbtcVault.address)
         await ethers.provider.send("evm_setNextBlockTimestamp", [
           BigNumber.from(firstTokenAt).toHexString(),
         ])
-        const deposit = fabricateDeposit(1, tbtcVault.address)
         await tbtcVault
           .connect(minter)
           .requestOptimisticMint(
@@ -812,11 +815,11 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       // be poisoned by activity happening while it is off.
       await updateCaps(0, 0, 0, 5)
 
-      const first = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const first = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(first.fundingTxHash, first.fundingOutputIndex)
-      const second = fabricateDeposit(3 * BTC, tbtcVault.address)
+      const second = await fabricateDeposit(3 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(second.fundingTxHash, second.fundingOutputIndex)
@@ -833,7 +836,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       // The minter was active while the value cap was disabled; the newly
       // enabled 5 BTC bucket starts full, so an exact-boundary request
       // consuming the whole bucket succeeds.
-      const deposit = fabricateDeposit(5 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(5 * BTC, tbtcVault.address)
       const tx = await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -845,7 +848,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         .withArgs(minter.address, 5 * BTC, 0, MAX_UINT64)
 
       // The bucket is exhausted by the exact-boundary request.
-      const blocked = fabricateDeposit(1 * BTC, tbtcVault.address)
+      const blocked = await fabricateDeposit(1 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -868,7 +871,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should not restore the consumed allowance", async () => {
-      const deposit = fabricateDeposit(4 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -895,7 +898,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     it("should allow requesting the cancelled deposit after a refill", async () => {
       await increaseTime(DAY)
 
-      const deposit = fabricateDeposit(4 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
       await expect(
         tbtcVault
           .connect(minter)
@@ -918,7 +921,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should not limit requests", async () => {
-      const deposit = fabricateDeposit(200 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(200 * BTC, tbtcVault.address)
       const tx = await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -958,7 +961,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should not consume any additional allowance", async () => {
-      const deposit = fabricateDeposit(2 * BTC, tbtcVault.address)
+      const deposit = await fabricateDeposit(2 * BTC, tbtcVault.address)
       const tx = await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -1015,7 +1018,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
 
     it("should enforce the limits for non-exempt requesters", async () => {
-      const deposit = fabricateDeposit(20 * BTC, stubVault.address)
+      const deposit = await fabricateDeposit(20 * BTC, stubVault.address)
       await expect(
         stubVault
           .connect(minter)
@@ -1029,7 +1032,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     it("should bypass the limits for exempt requesters", async () => {
       await stubVault.setThrottleExempt(minter.address, true)
 
-      const deposit = fabricateDeposit(20 * BTC, stubVault.address)
+      const deposit = await fabricateDeposit(20 * BTC, stubVault.address)
       await expect(
         stubVault
           .connect(minter)
