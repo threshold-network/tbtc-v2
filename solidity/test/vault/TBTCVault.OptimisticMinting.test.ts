@@ -1,8 +1,7 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import { FakeContract, smock } from "@defi-wonderland/smock"
 
 import { walletState, constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -17,6 +16,8 @@ import {
   IRelay,
 } from "../../typechain"
 import { DepositSweepTestData, SingleP2SHDeposit } from "../data/deposit-sweep"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
@@ -27,7 +28,7 @@ describe("TBTCVault - OptimisticMinting", () => {
   let bridgeGovernance: BridgeGovernance
   let tbtcVault: TBTCVault
   let tbtc: TBTC
-  let relay: FakeContract<IRelay>
+  let relay: Mock<IRelay>
 
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
@@ -70,7 +71,7 @@ describe("TBTCVault - OptimisticMinting", () => {
       bridgeGovernance,
       tbtcVault,
       tbtc,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.
@@ -222,8 +223,8 @@ describe("TBTCVault - OptimisticMinting", () => {
               .revealDeposit(fundingTx, depositRevealInfo)
 
             // Setting mocks to make the sweeping SPV proof validation pass.
-            relay.getPrevEpochDifficulty.returns(chainDifficulty)
-            relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(chainDifficulty)
             await bridge
               .connect(spvMaintainer)
               .submitDepositSweepProof(
@@ -235,8 +236,6 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           after(async () => {
-            relay.getPrevEpochDifficulty.reset()
-            relay.getCurrentEpochDifficulty.reset()
             await restoreSnapshot()
           })
 
@@ -415,7 +414,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -447,11 +446,11 @@ describe("TBTCVault - OptimisticMinting", () => {
           await tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
 
           // Setting mocks to make the sweeping SPV proof validation pass.
-          relay.getPrevEpochDifficulty.returns(chainDifficulty)
-          relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+          await relay.getPrevEpochDifficulty.returns(chainDifficulty)
+          await relay.getCurrentEpochDifficulty.returns(chainDifficulty)
           await bridge
             .connect(spvMaintainer)
             .submitDepositSweepProof(
@@ -463,8 +462,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         after(async () => {
-          relay.getPrevEpochDifficulty.reset()
-          relay.getCurrentEpochDifficulty.reset()
           await restoreSnapshot()
         })
 
@@ -491,7 +488,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
             tx = await tbtcVault
               .connect(minter)
               .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -582,7 +579,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
             tx = await tbtcVault
               .connect(minter)
               .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -670,7 +667,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
 
             tx = await tbtcVault
               .connect(minter)
@@ -765,7 +762,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
             tx = await tbtcVault
               .connect(minter)
               .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -858,7 +855,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -1652,15 +1649,15 @@ describe("TBTCVault - OptimisticMinting", () => {
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
 
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
 
           await tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
 
           // Setting mocks to make the sweeping SPV proof validation pass.
-          relay.getPrevEpochDifficulty.returns(chainDifficulty)
-          relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+          await relay.getPrevEpochDifficulty.returns(chainDifficulty)
+          await relay.getCurrentEpochDifficulty.returns(chainDifficulty)
           tx = await bridge
             .connect(spvMaintainer)
             .submitDepositSweepProof(
@@ -1672,8 +1669,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         after(async () => {
-          relay.getPrevEpochDifficulty.reset()
-          relay.getCurrentEpochDifficulty.reset()
           await restoreSnapshot()
         })
 
@@ -1714,8 +1709,8 @@ describe("TBTCVault - OptimisticMinting", () => {
 
     context("when multiple deposits gets swept after finalization", () => {
       interface Fixture {
-        mockBank: FakeContract<Bank>
-        mockBridge: FakeContract<Bridge>
+        mockBank: Mock<Bank>
+        mockBridge: Mock<Bridge>
         tbtc: TBTC
         tbtcVault: TBTCVault
       }
@@ -1730,10 +1725,10 @@ describe("TBTCVault - OptimisticMinting", () => {
       // This function prepares a fixture separate from the main test setup's
       // fixture, just for testing multiple-deposits scenarios.
       const prepareFixture = async function (): Promise<Fixture> {
-        const mockBank = await smock.fake<Bank>("Bank")
-        const mockBridge = await smock.fake<Bridge>("Bridge")
+        const mockBank = await createMock<Bank>("Bank")
+        const mockBridge = await createMock<Bridge>("Bridge")
 
-        mockBridge.treasury.returns(treasuryAddress)
+        await mockBridge.treasury.returns(treasuryAddress)
 
         const TBTCFactory = await ethers.getContractFactory("TBTC")
         // eslint-disable-next-line @typescript-eslint/no-shadow
@@ -1807,7 +1802,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await f.tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, 2)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await f.tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, 1)
@@ -1903,7 +1898,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await f.tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, 1)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await f.tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, 1)

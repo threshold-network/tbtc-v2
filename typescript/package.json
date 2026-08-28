@@ -59,8 +59,8 @@
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
     "@coral-xyz/anchor": "0.28.0",
-    "@keep-network/ecdsa": "development",
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/ecdsa": "2.1.0-dev.19",
+    "@keep-network/tbtc-v2": "1.8.0-dev.1",
     "@mysten/sui": "1.34.0",
     "@solana/spl-token": "0.3.9",
     "@solana/web3.js": "~1.97.0",
@@ -105,6 +105,7 @@
     "typescript": "^5.0.0"
   },
   "resolutions": {
+    "crypto-js": "4.2.0",
     "secp256k1": "4.0.3",
     "@solana/web3.js": "1.97.0"
   },
@@ -113,7 +114,7 @@
     "@solana/web3.js": "1.97.0"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=22.0.0"
   },
   "packageManager": "yarn@4.12.0",
   "repository": {
