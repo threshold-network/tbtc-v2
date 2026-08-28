@@ -102,7 +102,10 @@ contract L2BTCRedeemerWormhole is
 
     event MinimumRedemptionAmountUpdated(uint256 newMinimumAmount);
 
-    event L1BtcRedeemerWormholeChainUpdated(uint16 newChain);
+    event L1BtcRedeemerUpdated(
+        bytes32 l1BtcRedeemerWormholeAddress,
+        uint16 l1BtcRedeemerWormholeChain
+    );
 
     function initialize(
         address _tbtc,
@@ -125,6 +128,25 @@ contract L2BTCRedeemerWormhole is
         minimumRedemptionAmount = 1e16; // 0.01 tBTC
     }
 
+    /// @notice Initializes the contract for the upgraded proxy, setting the
+    ///         L1 Bitcoin redeemer chain.
+    /// @dev This function is the upgrade path for already-deployed proxies
+    ///      where the chain slot reads 0. It must be called atomically with the
+    ///      upgrade. Emits L1BtcRedeemerUpdated with the unchanged address and
+    ///      the new chain.
+    function initializeV2(uint16 _l1BtcRedeemerWormholeChain)
+        external
+        onlyOwner
+        reinitializer(2)
+    {
+        if (_l1BtcRedeemerWormholeChain == 0) revert InvalidRecipientChain();
+        l1BtcRedeemerWormholeChain = _l1BtcRedeemerWormholeChain;
+        emit L1BtcRedeemerUpdated(
+            l1BtcRedeemerWormholeAddress,
+            _l1BtcRedeemerWormholeChain
+        );
+    }
+
     /// @notice This function is called when the user sends their token from L2
     ///         to redeem for BTC on L1. The contract first takes custody of the
     ///         user's canonical tBTC, then instructs the L2WormholeGateway to
@@ -137,8 +159,9 @@ contract L2BTCRedeemerWormhole is
     ///      - The `redeemerOutputScript` must be a standard Bitcoin script type.
     ///      - The `amount` must meet the `minimumRedemptionAmount`.
     ///      - The `amount` after normalization must not be 0.
+    ///      - The recipientChain must equal l1BtcRedeemerWormholeChain.
     /// @param amount The amount of tBTC to be redeemed.
-    /// @param recipientChain The Wormhole chain ID of the recipient chain.
+    /// @param recipientChain The assertion of the configured chain (checked then forwarded).
     /// @param redeemerOutputScript The Bitcoin output script for the L1 BTC recipient.
     /// @param nonce The Wormhole nonce (unique identifier for the transaction).
     /// @return The Wormhole sequence number.
@@ -148,6 +171,11 @@ contract L2BTCRedeemerWormhole is
         bytes calldata redeemerOutputScript,
         uint32 nonce
     ) external payable nonReentrant returns (uint64) {
+        uint16 l1Chain = l1BtcRedeemerWormholeChain;
+        if (l1Chain == 0 || recipientChain != l1Chain) {
+            revert InvalidRecipientChain();
+        }
+
         // Validate if redeemer output script is a correct standard type
         // (P2PKH, P2WPKH, P2SH or P2WSH). This is done by using
         // `BTCUtils.extractHashAt` on it. Such a function extracts the payload
@@ -160,10 +188,6 @@ contract L2BTCRedeemerWormhole is
 
         if (redeemerOutputScriptPayload.length == 0) {
             revert InvalidRedeemerOutputScript();
-        }
-
-        if (recipientChain != l1BtcRedeemerWormholeChain) {
-            revert InvalidRecipientChain();
         }
 
         // Normalize the amount to bridge. The dust can not be bridged due to
@@ -188,7 +212,7 @@ contract L2BTCRedeemerWormhole is
         return
             gateway.sendTbtcWithPayloadToNativeChain{value: msg.value}(
                 amount,
-                l1BtcRedeemerWormholeChain,
+                l1Chain,
                 l1BtcRedeemerWormholeAddress,
                 nonce,
                 redeemerOutputScript
@@ -208,17 +232,28 @@ contract L2BTCRedeemerWormhole is
         emit MinimumRedemptionAmountUpdated(_newMinimumRedemptionAmount);
     }
 
-    /// @notice Lets the governance update the L1 BTC redeemer Wormhole chain ID.
-    /// @param _l1BtcRedeemerWormholeChain The new Wormhole chain ID.
-    function setL1BtcRedeemerWormholeChain(uint16 _l1BtcRedeemerWormholeChain)
-        external
-        onlyOwner
-    {
+    function updateL1BtcRedeemer(
+        bytes32 _l1BtcRedeemerWormholeAddress,
+        uint16 _l1BtcRedeemerWormholeChain
+    ) external onlyOwner {
+        if (_l1BtcRedeemerWormholeAddress == 0) revert ZeroAddress();
         if (_l1BtcRedeemerWormholeChain == 0) revert InvalidRecipientChain();
+
+        l1BtcRedeemerWormholeAddress = _l1BtcRedeemerWormholeAddress;
         l1BtcRedeemerWormholeChain = _l1BtcRedeemerWormholeChain;
-        emit L1BtcRedeemerWormholeChainUpdated(_l1BtcRedeemerWormholeChain);
+
+        emit L1BtcRedeemerUpdated(
+            _l1BtcRedeemerWormholeAddress,
+            _l1BtcRedeemerWormholeChain
+        );
     }
 
     // slither-disable-next-line unused-state
-    uint256[49] private __gap;
+    // Reserved storage space that allows adding more variables without affecting
+    // the storage layout of the child contracts. The convention from OpenZeppelin
+    // suggests the storage space should add up to 50 slots. If more variables are
+    // added in the upcoming versions one need to reduce the array size accordingly.
+    // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+    // slither-disable-next-line unused-state
+    uint256[44] private __gap;
 }
