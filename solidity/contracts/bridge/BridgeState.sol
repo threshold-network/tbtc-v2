@@ -361,8 +361,12 @@ library BridgeState {
         address reservationVault;
         // Maximum amount of BTC transaction fee in satoshi that can be
         // incurred by a single reservation lifecycle transaction (anchor,
-        // re-anchor, reserved redemption). Dissolution transactions use
-        // `reservationDissolutionTxMaxFee` instead.
+        // re-anchor, reserved redemption). Dissolution's fee economics
+        // differ (2-in-1-out shape) and are not yet covered by any cap: a
+        // dedicated field was proposed and dropped from this PR, since
+        // unlike `cumulativeReanchorFee` it has no historical-data
+        // constraint and can be added via `__gap` whenever the milestone
+        // that implements dissolution lands, live reservations or not.
         uint64 reservationTxMaxFee;
         // The dissolution delay in seconds after a reservation's custody
         // term expires and before the reservation becomes dissolvable. The
@@ -411,23 +415,6 @@ library BridgeState {
         // to the old vault would otherwise become pool-sweepable while
         // still minting through the old vault's callback.
         uint64 pendingReservedDeposits;
-        // Per-reservation cumulative re-anchor fee budget in satoshi, in the
-        // flat-ceiling shape the milestone 1 decision rejected: the absolute
-        // ceiling was left unbounded and a structural bound (proportional to
-        // mintedAmount, hop count, or a rate) was deferred to post-milestone-1
-        // work. That replacement is undesigned and may not even fit a single
-        // uint64. Declared, never written or read in milestone 1 - only
-        // because a field a later milestone reads cannot be added while
-        // reservations are live.
-        uint64 maxCumulativeReanchorFee;
-        // Maximum amount of BTC transaction fee in satoshi that can be
-        // incurred by a single reservation dissolution transaction
-        // (2-in-1-out shape). Distinct from `reservationTxMaxFee` because
-        // dissolution's fee economics differ from the 1-in-1-out anchor /
-        // re-anchor / redemption shapes that share `reservationTxMaxFee`.
-        // Declared, never written or read in milestone 1: dissolution is a
-        // later milestone.
-        uint64 reservationDissolutionTxMaxFee;
         // Global count of open reservation positions. Distinct from the
         // per-wallet `walletReservationsCount` and from the global amount
         // `reservationTotalAmount`: neither bounds how many positions exist
@@ -510,13 +497,13 @@ library BridgeState {
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-        // This milestone consumed 15 of the original 48 slots (28 reservation
+        // This milestone consumed 14 of the original 48 slots (26 reservation
         // fields plus PendingReservedDeposit) for the reservation feature. The
-        // remaining 33 slots are shared budget for all future Bridge upgrades,
+        // remaining 34 slots are shared budget for all future Bridge upgrades,
         // not reserved for reservations specifically - a later unrelated PR
         // should not assume it can spend the rest.
         // slither-disable-next-line unused-state
-        uint256[33] __gap;
+        uint256[34] __gap;
     }
 
     event DepositParametersUpdated(
