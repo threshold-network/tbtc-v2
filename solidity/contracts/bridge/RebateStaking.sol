@@ -88,6 +88,16 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     mapping(address => Stake) public stakes;
     mapping(address => address) public delegates;
+
+    /// @notice Per-redeemer authorization for callback-path rebate
+    ///         application. A staker authorizes a specific Bank balance owner
+    ///         to trigger a rebate application crediting that staker's stake
+    ///         on callback redemptions where `balanceOwner != redeemer`.
+    ///         Many-to-one: many stakers may authorize the same balance owner
+    ///         independently. Independent of `delegates` (which redirects
+    ///         rebate accounting to a different staker rather than authorizing
+    ///         a Bank balance owner).
+    mapping(address => mapping(address => bool)) public rebateAuthorizations;
     bool public deprecated;
 
     // Reserved storage space in case we need to add more variables.
@@ -96,8 +106,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // planned upgrades of the Bridge contract. If more entires are added to
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+    // Upgrade note: `rebateAuthorizations` and `deprecated` consumed two
+    // reserved slots, reducing `__gap` from 49 to 47 for storage-layout
+    // compatibility.
     // slither-disable-next-line unused-state
-    uint256[48] private __gap;
+    uint256[47] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -115,6 +128,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event DelegateeSet(address staker, address delegatee);
     event TransferFinished(address oldStaker, address newStaker);
     event RebateStakingDeprecated();
+    event RebateAuthorizationSet(
+        address indexed redeemer,
+        address indexed balanceOwner,
+        bool authorized
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -251,6 +269,49 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         stakeInfo.delegatee = _delegatee;
         delegates[_delegatee] = msg.sender;
         emit DelegateeSet(msg.sender, _delegatee);
+    }
+
+    /// @notice Authorizes or revokes a Bank balance owner to trigger rebate
+    ///         application against the caller's stake on callback-path
+    ///         redemptions. The caller must be a staker. Authorization is a
+    ///         per-pair boolean; many stakers may authorize the same balance
+    ///         owner concurrently. Independent of `setDelegatee`.
+    /// @param balanceOwner The Bank balance owner authorized to be the
+    ///        balance owner on a callback-path redemption that credits the
+    ///        caller's stake. Must not be the zero address.
+    /// @param authorized True to authorize, false to revoke.
+    function setRebateAuthorization(address balanceOwner, bool authorized)
+        external
+    {
+        Stake storage stakeInfo = stakes[msg.sender];
+        if (stakeInfo.stakedAmount == 0) {
+            revert NotAStaker();
+        }
+        if (balanceOwner == address(0)) revert ZeroAddress();
+        rebateAuthorizations[msg.sender][balanceOwner] = authorized;
+        emit RebateAuthorizationSet(msg.sender, balanceOwner, authorized);
+    }
+
+    /// @notice Returns true if `redeemer` currently has stake and has
+    ///         authorized `balanceOwner` to trigger callback-path rebate
+    ///         application crediting the `redeemer`'s stake.
+    /// @dev Stale authorizations left by fully unstaked or force-transferred
+    ///      addresses are inert. Callback-path delegation is a no-op by
+    ///      construction: a zero-stake delegatee fails the `getStake > 0`
+    ///      check before `applyForRebate` ever runs.
+    /// @param redeemer The current staker address that would be credited with
+    ///        the rebate.
+    /// @param balanceOwner The Bank balance owner being checked.
+    function isRebateAuthorized(address redeemer, address balanceOwner)
+        external
+        view
+        returns (bool)
+    {
+        if (getStake(redeemer) == 0) {
+            return false;
+        }
+
+        return rebateAuthorizations[redeemer][balanceOwner];
     }
 
     /// @notice Calculates cap for rebate for the specified user.
@@ -418,7 +479,19 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param user Address of depositor or redeemer
     /// @param requestedAt Timestamp when redeem was requested
     /// @dev Requirements:
-    ///      - The caller must be the bridge contract
+    ///      - The caller must be the bridge contract.
+    ///
+    ///      Known limitation (pre-existing, not introduced by the rebate
+    ///      authorization gate): the loop matches at most one rebate per
+    ///      `requestedAt`. If a single staker has two or more rebates pushed
+    ///      in the same block (e.g., as the resolved staker via `getStaker`
+    ///      for two callback redemptions to different `redeemerOutputScript`s
+    ///      in one transaction), only the first matching entry is zeroed.
+    ///      Subsequent cancels for the same `requestedAt` re-zero the already
+    ///      zeroed entry and break, leaving the other same-timestamp entries
+    ///      in the rolling window until they age out. Effect is temporary
+    ///      rolling-window cap denial, not permanent loss. Tracked as a
+    ///      follow-up.
     function cancelRebate(address user, uint256 requestedAt)
         external
         onlyBridge
@@ -570,11 +643,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Returns information about stake
     /// @param user Address of depositor or redeemer
     /// @return stakedAmount Amount of stake
-    function getStake(address user)
-        external
-        view
-        returns (uint96 stakedAmount)
-    {
+    function getStake(address user) public view returns (uint96 stakedAmount) {
         Stake storage stakeInfo = stakes[user];
         stakedAmount = stakeInfo.stakedAmount;
     }

@@ -145,8 +145,10 @@ module l2_tbtc::TBTC {
 
         vector::remove(&mut state.minters, index);
 
-        // Note: We cannot delete the MinterCap that was previously transferred,
-        // but it will no longer be valid as we've removed the minter from the state
+        // Note: This removes the minter from TokenState bookkeeping but does
+        // not destroy any previously issued MinterCap. Live minting still
+        // requires the TreasuryCap, and governance can stop gateway minting by
+        // pausing the gateway/token path.
 
         event::emit(MinterRemoved { minter });
     }

@@ -1,6 +1,5 @@
 /* eslint-disable no-await-in-loop */
 
-import { FakeContract, smock } from "@defi-wonderland/smock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { Contract } from "ethers"
 import hre, { deployments, ethers, helpers } from "hardhat"
@@ -17,6 +16,8 @@ import { Bank } from "../../../typechain/Bank"
 import { registerOperator } from "./ecdsa-wallet-registry"
 import { fakeRandomBeacon } from "./fake-random-beacon"
 import { authorizeApplication, stake } from "./staking"
+import { createMock } from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { to1e18 } = helpers.number
 
@@ -39,8 +40,8 @@ export const fixture = deployments.createFixture(
     tbtcVault: TBTCVault
     walletRegistry: WalletRegistry
     staking: Contract
-    randomBeacon: FakeContract<IRandomBeacon>
-    relay: FakeContract<IRelay>
+    randomBeacon: Mock<IRandomBeacon>
+    relay: Mock<IRelay>
   }> => {
     await deployments.fixture()
     const { deployer, governance, chaosnetOwner, spvMaintainer } =
@@ -72,7 +73,7 @@ export const fixture = deployments.createFixture(
     await sortitionPool.connect(chaosnetOwner).deactivateChaosnet()
 
     // TODO: INTEGRATE WITH THE REAL LIGHT RELAY
-    const relay = await smock.fake<IRelay>("IRelay", {
+    const relay = await createMock<IRelay>("IRelay", {
       address: await (await bridge.contractReferences()).relay,
     })
 

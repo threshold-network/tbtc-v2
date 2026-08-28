@@ -1,10 +1,9 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import chai, { expect } from "chai"
-import { smock } from "@defi-wonderland/smock"
-import type { FakeContract } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { ContractTransaction } from "ethers"
+import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
   BridgeGovernance,
@@ -15,8 +14,7 @@ import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { constants, ecdsaDkgState, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
-
-chai.use(smock.matchers)
+import { expectCalledOnce, expectCalledOnceWith } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -25,14 +23,14 @@ describe("Bridge - Wallets", () => {
   let governance: SignerWithAddress
   let thirdParty: SignerWithAddress
 
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+      await bridgeFixture())
   })
 
   describe("requestNewWallet", () => {
@@ -41,7 +39,7 @@ describe("Bridge - Wallets", () => {
     })
 
     after(async () => {
-      walletRegistry.requestNewWallet.reset()
+      await walletRegistry.requestNewWallet.reset()
 
       await restoreSnapshot()
     })
@@ -51,11 +49,13 @@ describe("Bridge - Wallets", () => {
         before(async () => {
           await createSnapshot()
 
-          walletRegistry.getWalletCreationState.returns(ecdsaDkgState.IDLE)
+          await walletRegistry.getWalletCreationState.returns(
+            ecdsaDkgState.IDLE
+          )
         })
 
         after(async () => {
-          walletRegistry.getWalletCreationState.reset()
+          await walletRegistry.getWalletCreationState.reset()
 
           await restoreSnapshot()
         })
@@ -70,7 +70,7 @@ describe("Bridge - Wallets", () => {
           })
 
           after(async () => {
-            walletRegistry.requestNewWallet.reset()
+            await walletRegistry.requestNewWallet.reset()
 
             await restoreSnapshot()
           })
@@ -81,7 +81,7 @@ describe("Bridge - Wallets", () => {
 
           it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
             // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-            expect(walletRegistry.requestNewWallet).to.have.been.calledOnce
+            await expectCalledOnce(walletRegistry.requestNewWallet)
           })
         })
 
@@ -141,7 +141,7 @@ describe("Bridge - Wallets", () => {
                     })
 
                     after(async () => {
-                      walletRegistry.requestNewWallet.reset()
+                      await walletRegistry.requestNewWallet.reset()
 
                       await restoreSnapshot()
                     })
@@ -152,8 +152,7 @@ describe("Bridge - Wallets", () => {
 
                     it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
                       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                      expect(walletRegistry.requestNewWallet).to.have.been
-                        .calledOnce
+                      await expectCalledOnce(walletRegistry.requestNewWallet)
                     })
                   }
                 )
@@ -187,7 +186,7 @@ describe("Bridge - Wallets", () => {
                     })
 
                     after(async () => {
-                      walletRegistry.requestNewWallet.reset()
+                      await walletRegistry.requestNewWallet.reset()
 
                       await restoreSnapshot()
                     })
@@ -198,8 +197,7 @@ describe("Bridge - Wallets", () => {
 
                     it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
                       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                      expect(walletRegistry.requestNewWallet).to.have.been
-                        .calledOnce
+                      await expectCalledOnce(walletRegistry.requestNewWallet)
                     })
                   }
                 )
@@ -386,7 +384,7 @@ describe("Bridge - Wallets", () => {
                 })
 
                 after(async () => {
-                  walletRegistry.requestNewWallet.reset()
+                  await walletRegistry.requestNewWallet.reset()
 
                   await restoreSnapshot()
                 })
@@ -397,8 +395,7 @@ describe("Bridge - Wallets", () => {
 
                 it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
                   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                  expect(walletRegistry.requestNewWallet).to.have.been
-                    .calledOnce
+                  await expectCalledOnce(walletRegistry.requestNewWallet)
                 })
               })
             })
@@ -427,13 +424,13 @@ describe("Bridge - Wallets", () => {
             before(async () => {
               await createSnapshot()
 
-              walletRegistry.getWalletCreationState.returns(
+              await walletRegistry.getWalletCreationState.returns(
                 test.walletCreationState
               )
             })
 
             after(async () => {
-              walletRegistry.getWalletCreationState.reset()
+              await walletRegistry.getWalletCreationState.reset()
 
               await restoreSnapshot()
             })
@@ -1462,9 +1459,7 @@ describe("Bridge - Wallets", () => {
           await createSnapshot()
 
           await increaseTime(
-            (
-              await bridge.walletParameters()
-            ).walletClosingPeriod
+            (await bridge.walletParameters()).walletClosingPeriod + 1
           )
 
           tx = await bridge.notifyWalletClosingPeriodElapsed(
@@ -1494,9 +1489,9 @@ describe("Bridge - Wallets", () => {
         })
 
         it("should call the ECDSA wallet registry's closeWallet function", async () => {
-          expect(walletRegistry.closeWallet).to.have.been.calledOnceWith(
-            walletDraft.ecdsaWalletID
-          )
+          await expectCalledOnceWith(walletRegistry.closeWallet, [
+            walletDraft.ecdsaWalletID,
+          ])
         })
       })
 
