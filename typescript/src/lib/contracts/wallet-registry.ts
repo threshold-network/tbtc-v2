@@ -15,9 +15,18 @@ export interface WalletRegistry {
   /**
    * Gets the public key for the given wallet.
    * @param walletID ID of the wallet.
+   * @param skipRetryWhenNotRegistered When set to true, the underlying
+   *        contract call is not retried if it reverts because the wallet with
+   *        the given ID is not registered (e.g. the wallet was closed or
+   *        terminated). Defaults to false so that callers that may race a
+   *        not-yet-synced chain endpoint right after wallet creation keep the
+   *        retry behavior.
    * @returns Uncompressed public key without the 04 prefix.
    */
-  getWalletPublicKey(walletID: Hex): Promise<Hex>
+  getWalletPublicKey(
+    walletID: Hex,
+    skipRetryWhenNotRegistered?: boolean
+  ): Promise<Hex>
 
   /**
    * Get emitted DkgResultSubmittedEvent events.

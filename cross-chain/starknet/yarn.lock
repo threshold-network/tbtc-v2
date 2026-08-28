@@ -741,7 +741,7 @@
   resolved "https://registry.yarnpkg.com/@keep-network/bitcoin-spv-sol/-/bitcoin-spv-sol-3.4.0-solc-0.8.tgz#8b44c246ffab8ea993efe196f6bf385b1a3b84dc"
   integrity sha512-KlpY9BbasyLvYXSS7dsJktgRChu/yjdFLOX8ldGA/pltLicCm/l0F4oqxL8wSws9XD12vq9x0B5qzPygVLB2TQ==
 
-"@keep-network/ecdsa@2.1.0-dev.19", "@keep-network/ecdsa@development":
+"@keep-network/ecdsa@2.1.0-dev.19":
   version "2.1.0-dev.19"
   resolved "https://registry.yarnpkg.com/@keep-network/ecdsa/-/ecdsa-2.1.0-dev.19.tgz#749af8bd65f70135d1734f7c5f9bff82ae308fdb"
   integrity sha512-cyqRqK/sOqyaXZWY/O9ij6EINQuJ+bHLMiuufOFyP5YCj4GCuNqOcCytGAZPT+mED/0J/xn0vm+fgiCBq/uJkQ==
@@ -791,7 +791,7 @@
     "@openzeppelin/upgrades" "^2.7.2"
     openzeppelin-solidity "2.3.0"
 
-"@keep-network/random-beacon@2.1.0-dev.18", "@keep-network/random-beacon@development":
+"@keep-network/random-beacon@2.1.0-dev.18":
   version "2.1.0-dev.18"
   resolved "https://registry.yarnpkg.com/@keep-network/random-beacon/-/random-beacon-2.1.0-dev.18.tgz#2647731eea35f931afb565988cc8d8cf6a34f6b7"
   integrity sha512-UrVq///+jqOLQ5k8/aFvD1ZUMvVe49iS81U8mDoi9A005FiQzKUK9QFKv3Z0h6joG4prF/hlABRTEQ1UA7tgRA==
@@ -816,7 +816,7 @@
     "@openzeppelin/contracts" "^4.3.2"
     "@thesis/solidity-contracts" "github:thesis/solidity-contracts#4985bcf"
 
-"@keep-network/tbtc-v2@development":
+"@keep-network/tbtc-v2@1.8.0-dev.1":
   version "1.8.0-dev.1"
   resolved "https://registry.yarnpkg.com/@keep-network/tbtc-v2/-/tbtc-v2-1.8.0-dev.1.tgz#e1c4903cb7f08532f4fec29891db30f1ff1cfb8d"
   integrity sha512-44bc3mkDBYuW2y/GfSIeiymxU/k5rheYMQ08HjjD0i9haqgHOOcjdutmKkKS2xU0Qge3OI4jAZ2VdCVG2a8wtA==
@@ -4093,10 +4093,10 @@ crypto-browserify@3.12.0:
     randombytes "^2.0.0"
     randomfill "^1.0.3"
 
-crypto-js@^3.1.9-1:
-  version "3.3.0"
-  resolved "https://registry.yarnpkg.com/crypto-js/-/crypto-js-3.3.0.tgz#846dd1cce2f68aacfa156c8578f926a609b7976b"
-  integrity sha512-DIT51nX0dCfKltpRiXV+/TVZq+Qq2NgF4644+K7Ttnla7zEzqc+kjJyiB96BHNyUTBxyjzRcZYpUdZa+QAqi6Q==
+crypto-js@4.2.0, crypto-js@^3.1.9-1:
+  version "4.2.0"
+  resolved "https://registry.yarnpkg.com/crypto-js/-/crypto-js-4.2.0.tgz#4d931639ecdfd12ff80e8186dba6af2c2e856631"
+  integrity sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==
 
 currency-symbol-map@~2:
   version "2.2.0"
