@@ -277,8 +277,7 @@ library Reservation {
         // (redeemer output + re-anchored remainder) and leaves the
         // reservation open with a reduced anchor. False for a whole
         // redemption (1-input-1-output, closes the reservation) and for
-        // every non-redemption action. Appended to the end of the struct so
-        // the existing field layout is unchanged.
+        // every non-redemption action.
         bool isPartial;
     }
 }
