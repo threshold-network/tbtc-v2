@@ -56,14 +56,16 @@ interface RelayerRevealResponse {
  * Status of a deposit as reported by the relayer's deposit-status endpoint.
  *
  * These are the three on-chain states the Starknet deposit-status endpoint can
- * return. The endpoint derives its value from the L1 depositor contract's
- * `deposits` mapping (`Unknown`/`Initialized`/`Finalized`), which has exactly
- * these three states. This enum intentionally does NOT mirror every value of
- * the relayer's internal cross-chain lifecycle enum (which additionally has
- * `AWAITING_WORMHOLE_VAA` and `BRIDGED`): those internal lifecycle values are
- * never surfaced by the status endpoint, so trusting them here would widen the
- * accepted input beyond what the endpoint can actually report and weaken the
- * fail-closed validation in {@link StarkNetBitcoinDepositor.handleDepositConflict}.
+ * return. QUEUED=0 is the on-chain Unknown slot (the contract's deposits mapping
+ * stores 0 for not-initialized). The endpoint derives its value from the L1
+ * depositor contract's `deposits` mapping (`Unknown`/`Initialized`/`Finalized`),
+ * which has exactly these three states. This enum intentionally does NOT mirror
+ * every value of the relayer's internal cross-chain lifecycle enum (which
+ * additionally has `AWAITING_WORMHOLE_VAA` and `BRIDGED`): those internal
+ * lifecycle values are never surfaced by the status endpoint, so trusting them
+ * here would widen the accepted input beyond what the endpoint can actually
+ * report and weaken the fail-closed validation in
+ * {@link StarkNetBitcoinDepositor.handleDepositConflict}.
  */
 export enum StarkNetRelayerDepositStatus {
   // eslint-disable-next-line no-unused-vars
@@ -108,20 +110,27 @@ interface RelayerDepositStatusResponse {
     status?: number
   }
 }
-
 /**
  * Thrown when the relayer reports that a deposit reveal already exists
- * (HTTP 409) instead of confirming a new, successful initialization.
- *
- * A 409 alone is not proof that L1 initialization succeeded, so it is never
- * converted into a fabricated Hex or TransactionReceipt. This error
- * preserves whatever deposit ID and verified status could be recovered from
+ * but its status/deposit-ID does not align with the local derivation.
+ * Preserves whatever deposit ID and verified status could be recovered from
  * the relayer so the caller can poll the relayer or otherwise recover.
+ *
+ * @property {string|undefined} depositId The deposit ID reported by the relayer,
+ * or undefined if the relayer's reported ID was non-canonical or missing.
+ * @property {string|undefined} locallyDerivedDepositId The deposit ID
+ * independently derived by the SDK from the funding transaction, if available.
+ * @property {boolean} statusVerified Whether the relayer's reported status is
+ * trustable. False if no status endpoint was configured, the deposit ID was
+ * non-canonical, the query failed, the relayer's success response was false, the
+ * relayer's echoed ID did not match the locally derived one, or the relayer
+ * reported an unrecognized status.
  */
 export class StarkNetRelayerDepositConflictError extends Error {
   constructor(
     message: string,
     public readonly depositId: string | undefined,
+    public readonly locallyDerivedDepositId: string | undefined,
     public readonly status: StarkNetRelayerDepositStatus | undefined,
     public readonly statusVerified: boolean
   ) {
@@ -190,8 +199,8 @@ function hasDefaultStarkNetRelayerRoute(chainId: string): boolean {
 
 /**
  * Resolves the relayer URL chain-name segment for a recognized StarkNet chain
- * ID. Only the chain IDs in {@link STARKNET_RELAYER_CHAIN_NAMES} (mainnet,
- * Sepolia, and legacy Goerli) have a default relayer route. An unknown or
+ * ID. Only the chain IDs in {@link STARKNET_RELAYER_CHAIN_NAMES} (SN_MAIN,
+ * SN_SEPOLIA, SN_GOERLI, SN_TESTNET) have a default relayer route. An unknown or
  * mistyped chain ID has no default route and must fail loudly instead of being
  * silently coerced to a testnet segment, which could misroute a reveal after
  * Bitcoin funding.
@@ -233,16 +242,18 @@ function isLocalhostBrowserOrigin(): boolean {
 
 /**
  * Resolves the default relayer reveal URL for a StarkNet chain when no
- * explicit relayerUrl override is configured.
+ * explicit relayerUrl override is configured. Mainnet always uses the
+ * production relayer, even when running on localhost.
  * @param chainId The StarkNet chain ID.
  * @returns The relayer reveal URL for the given chain.
  * @throws Error if the chain ID has no recognized default relayer route.
  */
 function getDefaultStarkNetRelayerUrl(chainId: string): string {
   const chainName = resolveStarkNetRelayerChainName(chainId)
-  const baseUrl = isLocalhostBrowserOrigin()
-    ? LOCAL_RELAYER_URL_BASE
-    : PRODUCTION_RELAYER_URL_BASE
+  const baseUrl =
+    isLocalhostBrowserOrigin() && chainId !== "0x534e5f4d41494e"
+      ? LOCAL_RELAYER_URL_BASE
+      : PRODUCTION_RELAYER_URL_BASE
   return `${baseUrl}/api/${chainName}/reveal`
 }
 
@@ -251,16 +262,18 @@ function getDefaultStarkNetRelayerUrl(chainId: string): string {
  * no explicit relayerStatusUrl override is configured. Sibling of
  * {@link getDefaultStarkNetRelayerUrl}, sharing the same environment/chain
  * resolution so local vs. production and chain-name mapping never drift
- * between the two endpoints.
+ * between the two endpoints. Mainnet always uses the production relayer,
+ * even when running on localhost.
  * @param chainId The StarkNet chain ID.
  * @returns The relayer deposit-status URL for the given chain.
  * @throws Error if the chain ID has no recognized default relayer route.
  */
 function getDefaultStarkNetRelayerStatusUrl(chainId: string): string {
   const chainName = resolveStarkNetRelayerChainName(chainId)
-  const baseUrl = isLocalhostBrowserOrigin()
-    ? LOCAL_RELAYER_URL_BASE
-    : PRODUCTION_RELAYER_URL_BASE
+  const baseUrl =
+    isLocalhostBrowserOrigin() && chainId !== "0x534e5f4d41494e"
+      ? LOCAL_RELAYER_URL_BASE
+      : PRODUCTION_RELAYER_URL_BASE
   return `${baseUrl}/api/${chainName}/deposit`
 }
 
@@ -386,10 +399,11 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
 
   /**
    * Creates a new StarkNetBitcoinDepositor instance.
-   * @param config Configuration containing chainId and other chain-specific settings
+   * @param config Configuration containing chainId and other chain-specific settings.
+   * Note: If an unrecognized chain ID is provided, relayerUrl must be supplied.
    * @param chainName Name of the chain (should be "StarkNet")
    * @param provider StarkNet provider for blockchain interactions (Provider or Account)
-   * @throws Error if provider is not provided
+   * @throws Error if provider is not provided or if chain-ID/relayerUrl requirements are unmet.
    */
   constructor(
     config: StarkNetBitcoinDepositorConfig,
@@ -405,24 +419,19 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     const enhancedConfig = { ...config }
 
     // A custom or unsupported StarkNet network - one whose chain ID has no
-    // default relayer route - is supported only when the caller supplies BOTH
-    // the reveal and status endpoints explicitly. If either endpoint would
-    // otherwise have to be synthesized from an unrecognized chain ID, fail
-    // loudly at construction instead of silently misrouting a reveal after
-    // Bitcoin funding. A recognized chain ID keeps its documented defaulting
-    // behavior below, including the case where a caller supplies only a custom
-    // reveal URL and the status endpoint is intentionally left unset rather
-    // than paired with an unrelated default. Empty strings are treated as
-    // absent, matching the defaulting checks below.
+    // default relayer route - is supported only when the caller supplies the
+    // reveal endpoint explicitly. If the reveal endpoint would otherwise have to
+    // be synthesized from an unrecognized chain ID, fail loudly at construction
+    // instead of silently misrouting a reveal after Bitcoin funding. A
+    // recognized chain ID keeps its documented defaulting behavior below.
+    // Empty strings are treated as absent, matching the defaulting checks below.
     const hasDefaultRelayerRoute = hasDefaultStarkNetRelayerRoute(
       config.chainId
     )
-    if (
-      !hasDefaultRelayerRoute &&
-      (!enhancedConfig.relayerUrl || !enhancedConfig.relayerStatusUrl)
-    ) {
+    if (!hasDefaultRelayerRoute && !enhancedConfig.relayerUrl) {
       // resolveStarkNetRelayerChainName throws for an unrecognized chain ID;
-      // only its throw is needed here, not its return value.
+      // only its throw is needed here, not its return value. This throw
+      // serves as defense-in-depth.
       resolveStarkNetRelayerChainName(config.chainId)
     }
 
@@ -529,24 +538,25 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * Initializes a cross-chain deposit by calling the external relayer service.
    *
    * This method calls the external service to trigger the deposit transaction
-   * via a relayer off-chain process. It returns the transaction hash as a Hex
-   * or a full transaction receipt.
+   * via a relayer off-chain process. It resolves with the full transaction
+   * receipt.
    *
    * If the relayer reports that the deposit already exists (HTTP 409), this
-   * method verifies the deposit's real status through the relayer's
-   * deposit-status endpoint, then always throws a StarkNetRelayerDepositConflictError
-   * carrying the deposit ID and any verified status so the caller can poll
-   * or otherwise recover. The relayer's deposit-status endpoint cannot
-   * supply a real TransactionReceipt (it has no `to`, `from`, `gasUsed`,
-   * `logs`, `blockHash`, etc.), so a conflict never resolves to a
-   * fabricated success value, even when the relayer confirms the deposit
-   * reached a terminal state.
+   * method attempts to verify the deposit's real status through the relayer's
+   * deposit-status endpoint (only when relayerStatusUrl is configured and the
+   * relayer reported a canonical deposit ID), then always throws a
+   * StarkNetRelayerDepositConflictError carrying the deposit ID and any verified
+   * status so the caller can poll or otherwise recover. The relayer's
+   * deposit-status endpoint cannot supply a real TransactionReceipt (it has
+   * no `to`, `from`, `gasUsed`, `logs`, `blockHash`, etc.), so a conflict never
+   * resolves to a fabricated success value, even when the relayer confirms the
+   * deposit reached a terminal state.
    *
    * @param depositTx - The Bitcoin transaction data
    * @param depositOutputIndex - The output index of the deposit
    * @param deposit - The deposit receipt containing all deposit parameters
    * @param vault - Optional vault address
-   * @returns The transaction hash or full transaction receipt from the relayer response
+   * @returns The full transaction receipt from the relayer response
    * @throws Error if deposit owner not set or relayer returns unexpected response
    * @throws StarkNetRelayerDepositConflictError if the relayer reports the deposit
    *         already exists
@@ -667,6 +677,20 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
             )}`
           )
         }
+        // Mirror the success-path strictness used for `data.success`: a truthy
+        // non-string or non-hex value (number, object, array, signed hex,
+        // arbitrary text) must not be cast to a TransactionReceipt. The real
+        // relayer always emits a 0x-prefixed hex hash of the expected length,
+        // but the check here is shape-only - length is enforced upstream by
+        // the bytes32 contract field.
+        if (
+          typeof data.receipt.transactionHash !== "string" ||
+          !/^0x[0-9a-fA-F]+$/.test(data.receipt.transactionHash)
+        ) {
+          throw new Error(
+            "Invalid response from relayer: receipt.transactionHash must be a 0x-prefixed hex string."
+          )
+        }
 
         // Log deposit ID if available
         if (locallyDerivedDepositId) {
@@ -733,71 +757,56 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    *        reported ID is meaningful to query the relayer's own endpoint.
    * @throws StarkNetRelayerDepositConflictError always; carries the deposit ID and
    *         verified status (if any) recovered from the relayer
+   * @returns Promise that never resolves; always throws StarkNetRelayerDepositConflictError.
    */
-  // eslint-disable-next-line valid-jsdoc
   private async handleDepositConflict(
-    error: any,
+    error: unknown,
     locallyDerivedDepositId?: string
   ): Promise<never> {
-    const errorData = error.response?.data
+    // Unchecked cast for Axios error response
+    const errorResponse = error as {
+      response?: { data?: { depositId?: string } }
+    }
+    const errorData = errorResponse.response?.data
     const rawDepositId = errorData?.depositId
-    const depositId: string | undefined = isCanonicalDepositId(rawDepositId)
+    const depositIdFromRelayer: string | undefined = isCanonicalDepositId(
+      rawDepositId
+    )
       ? rawDepositId
       : undefined
 
-    if (rawDepositId !== undefined && depositId === undefined) {
-      console.warn(
-        "Relayer reported a deposit conflict with a non-canonical deposit " +
-          "ID; discarding it instead of treating it as trustworthy:",
-        { rawDepositId }
-      )
-    }
-
-    // The relayer's reported ID is expected to match the ID the SDK
-    // independently derives from the same funding transaction. A mismatch
-    // is logged as a warning - a signal worth surfacing to operators - but
-    // does NOT gate or downgrade the status query below: the relayer's
-    // reported ID is still what gets queried and, if the relayer's own
-    // status response corroborates it (same ID echoed back, known status
-    // value), that corroboration stands on its own. This does not replace
-    // depositId with the locally-derived one: only the relayer's reported ID
-    // is meaningful to query the relayer's own status endpoint.
-    if (
-      depositId !== undefined &&
-      locallyDerivedDepositId !== undefined &&
-      depositId !== locallyDerivedDepositId
-    ) {
-      console.warn(
-        "Relayer-reported deposit ID does not match the ID independently " +
-          "derived from the funding transaction:",
-        { relayerDepositId: depositId, locallyDerivedDepositId }
-      )
-    }
-
-    console.warn(
-      "Relayer reported a deposit conflict (409); verifying its status " +
-        "before treating it as an outcome:",
-      { depositId }
-    )
+    // F3: When rawDepositId is absent/non-canonical AND locallyDerivedDepositId is available, query status using locallyDerivedDepositId instead
+    const depositIdToQuery = depositIdFromRelayer || locallyDerivedDepositId
 
     let status: StarkNetRelayerDepositStatus | undefined
     let statusVerified = false
 
-    if (depositId) {
+    if (depositIdToQuery) {
       try {
-        const statusResponse = await this.queryRelayerDepositStatus(depositId)
+        const statusResponse = await this.queryRelayerDepositStatus(
+          depositIdToQuery
+        )
         if (
           statusResponse &&
           // The status response must confirm the same canonical deposit ID
           // that was queried - a mismatched ID means the response cannot be
           // trusted to describe this conflict.
-          statusResponse.depositId === depositId &&
+          statusResponse.depositId === depositIdToQuery &&
           // Accept only the recognized on-chain status values the endpoint can
           // actually report (see StarkNetRelayerDepositStatus).
           isKnownRelayerDepositStatus(statusResponse.status)
         ) {
           status = statusResponse.status
           statusVerified = true
+
+          // F3: When relayer's echoed ID does not match locallyDerivedDepositId (mismatch case), DOWNGRADE statusVerified to false
+          if (
+            locallyDerivedDepositId !== undefined &&
+            depositIdFromRelayer !== undefined &&
+            depositIdFromRelayer !== locallyDerivedDepositId
+          ) {
+            statusVerified = false
+          }
         }
       } catch (statusError) {
         console.warn(
@@ -807,13 +816,10 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       }
     }
 
-    // Never resolve a conflict to a success value. The relayer's
-    // deposit-status endpoint only ever confirms a status enum, not a real
-    // TransactionReceipt, so even a verified INITIALIZED/FINALIZED status
-    // is surfaced as a typed conflict rather than a fabricated success.
     throw new StarkNetRelayerDepositConflictError(
-      this.formatConflictMessage(depositId, status, statusVerified),
-      depositId,
+      this.formatConflictMessage(depositIdFromRelayer, status, statusVerified),
+      depositIdFromRelayer,
+      locallyDerivedDepositId,
       status,
       statusVerified
     )
@@ -872,9 +878,9 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
 
     if (statusVerified && status === StarkNetRelayerDepositStatus.QUEUED) {
       return (
-        `This deposit${idSuffix} is already queued at the relayer but has ` +
-        "not yet been initialized on L1. It has not failed - check its " +
-        "status again shortly or use the deposit ID to recover."
+        `the L1 depositor contract has no record of this deposit${idSuffix} yet (status 0); ` +
+        "the deposit may still be pending initialization, or the relayer may be " +
+        "reporting a stale conflict. Poll again or use the deposit ID to recover."
       )
     }
 

@@ -32,6 +32,11 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
 }
 
 /**
+ * Guard to ensure we only emit the relayer status warning once.
+ */
+let relayerStatusWarningEmitted = false
+
+/**
  * Loads StarkNet implementation of tBTC cross-chain contracts.
  * Now supports balance queries with deployed tBTC contracts and enhanced configuration.
  *
@@ -40,10 +45,9 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
  * @param chainId Optional chain ID (defaults to Sepolia)
  * @param relayerStatusUrl Optional override for the relayer's deposit-status
  *        endpoint, used to verify 409 conflicts. Falls back to
- *        `STARKNET_RELAYER_STATUS_URL` when not supplied. Without either,
- *        conflict-status verification is enabled only when `relayerUrl` is
- *        also left unset (see `StarkNetBitcoinDepositor`'s constructor).
+ *        `STARKNET_RELAYER_STATUS_URL` when not supplied.
  * @returns Handle to the contracts
+ * @throws Error if the chain ID is unrecognized and no URL overrides are provided.
  */
 export async function loadStarkNetCrossChainInterfaces(
   walletAddress: string,
@@ -69,6 +73,19 @@ export async function loadStarkNetCrossChainInterfaces(
     "StarkNet",
     actualProvider
   )
+  if (
+    !relayerStatusWarningEmitted &&
+    process.env.STARKNET_RELAYER_URL &&
+    !process.env.STARKNET_RELAYER_STATUS_URL &&
+    !relayerStatusUrl
+  ) {
+    console.warn(
+      "STARKNET_RELAYER_URL is set without a corresponding status URL. " +
+        "Conflict-status verification will be disabled. Set " +
+        "STARKNET_RELAYER_STATUS_URL or pass relayerStatusUrl to enable it."
+    )
+    relayerStatusWarningEmitted = true
+  }
 
   // Set the deposit owner
   starkNetBitcoinDepositor.setDepositOwner(StarkNetAddress.from(walletAddress))
@@ -78,7 +95,12 @@ export async function loadStarkNetCrossChainInterfaces(
 
   if (provider) {
     // Provider available - create full implementation with balance queries
-    const tokenContract = TBTC_CONTRACT_ADDRESSES[chainId]
+    const tokenContract = Object.prototype.hasOwnProperty.call(
+      TBTC_CONTRACT_ADDRESSES,
+      chainId
+    )
+      ? TBTC_CONTRACT_ADDRESSES[chainId]
+      : undefined
     if (!tokenContract) {
       throw new Error(`No tBTC contract address for chain ${chainId}`)
     }
@@ -100,7 +122,7 @@ export async function loadStarkNetCrossChainInterfaces(
     // Create a mock provider that throws errors
     const mockProvider = {
       getChainId: () => Promise.resolve(chainId),
-    } as any
+    } as unknown as StarkNetProvider
 
     starkNetTbtcToken = new StarkNetTBTCToken(mockConfig, mockProvider)
   }
@@ -124,5 +146,5 @@ function createMockProvider(): StarkNetProvider {
   return {
     getChainId: () => Promise.resolve("0x534e5f5345504f4c4941"),
     // Add minimal provider interface for testing
-  } as any
+  } as StarkNetProvider
 }

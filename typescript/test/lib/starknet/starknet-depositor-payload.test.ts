@@ -1,13 +1,19 @@
 import { expect } from "chai"
 import { StarkNetBitcoinDepositor } from "../../../src/lib/starknet/starknet-depositor"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
-import { BitcoinRawTxVectors } from "../../../src/lib/bitcoin"
+import {
+  BitcoinRawTxVectors,
+  BitcoinTxHash,
+  BitcoinHashUtils,
+} from "../../../src/lib/bitcoin"
 import { DepositReceipt } from "../../../src/lib/contracts/bridge"
 import { Hex } from "../../../src/lib/utils"
 import { EthereumAddress } from "../../../src/lib/ethereum"
+import { EthereumBridge } from "../../../src/lib/ethereum/bridge"
 import { createMockDepositTx, createMockDeposit } from "./test-helpers"
 import sinon from "sinon"
 import axios from "axios"
+import { ethers } from "ethers"
 
 describe("StarkNetDepositor Payload Format", () => {
   let depositor: StarkNetBitcoinDepositor
@@ -29,7 +35,7 @@ describe("StarkNetDepositor Payload Format", () => {
   })
 
   afterEach(() => {
-    axiosStub.restore()
+    sinon.restore()
   })
 
   it("should include destinationChainDepositOwner in payload", async () => {
@@ -247,7 +253,8 @@ describe("StarkNetDepositor Payload Format", () => {
 
     // Verify the exact deposit ID was logged. The ID is derived with Bitcoin
     // SHA-256d over the serialized funding transaction (digest used directly,
-    // NOT reversed) packed with the uint32 output index, matching the relayer.
+    // NOT reversed) packed with the uint32 output index, matching the on-chain
+    // deposit-key formula (EthereumBridge.buildDepositKey).
     const depositIdLogCall = consoleLogStub
       .getCalls()
       .find((call) => call.args[0]?.includes("Deposit initialized with ID:"))
@@ -256,8 +263,6 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(depositIdLogCall!.args[0]).to.equal(
       "Deposit initialized with ID: 84327574594609900513771153583252034476167624431248952116381071070685377716504"
     )
-
-    consoleLogStub.restore()
   })
 
   it("should derive the canonical deposit ID for the standard mock vectors (output index 0)", async () => {
@@ -286,8 +291,6 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(depositIdLogCall!.args[0]).to.equal(
       "Deposit initialized with ID: 52847317767373198432771341860755114399097173875446941334774910450063200677754"
     )
-
-    consoleLogStub.restore()
   })
 
   it("should pack the output index as uint32 when deriving the deposit ID (non-zero index)", async () => {
@@ -315,7 +318,65 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(depositIdLogCall!.args[0]).to.equal(
       "Deposit initialized with ID: 9808213022425870350059927235286989383750284896017613751947258983338977818301"
     )
+  })
+  it("should derive the same deposit ID as EthereumBridge.buildDepositKey", async () => {
+    // EthereumBridge.buildDepositKey reverses its BitcoinTxHash input back to
+    // internal byte order before keccak-hashing it, so we feed it the funding
+    // hash in DISPLAY (reversed) byte order to undo that internal reversal
+    // and compare the result against the SDK's derivation, which hashes the
+    // raw funding bytes fresh in internal byte order.
+    const mockTx = createMockDepositTx()
+    const fundingTxComponents =
+      mockTx.version.toString() +
+      mockTx.inputs.toString() +
+      mockTx.outputs.toString() +
+      mockTx.locktime.toString()
+    const fundingTxHash = BitcoinHashUtils.computeHash256(
+      Hex.from(fundingTxComponents)
+    )
+    const displayOrderHex = fundingTxHash.reverse().toString()
+    const txHash = BitcoinTxHash.from(displayOrderHex)
 
-    consoleLogStub.restore()
+    const keyHex = await EthereumBridge.buildDepositKey(txHash, 0)
+    const derivedDecimal = ethers.BigNumber.from(keyHex).toString()
+
+    // Capture the deposit ID the SDK actually logs from initializeDeposit
+    // for the same funding tx, and assert the two agree.
+    const consoleLogStub = sinon.stub(console, "log")
+    axiosStub.resolves({
+      data: {
+        success: true,
+        receipt: {
+          transactionHash:
+            "0x366220f9853aa8ad83376bcb3fd9377da7b55f03fc3a3aa4aed7b57f7cc60745",
+          blockNumber: 8486402,
+        },
+      },
+    })
+
+    const deposit: DepositReceipt = {
+      depositor: EthereumAddress.from("0x" + "0".repeat(40)),
+      walletPublicKeyHash: Hex.from("ef5a2946f294f1742a779c9ac034bc3fa5d417b8"),
+      refundPublicKeyHash: Hex.from("b4f19a044feea3aa4a7d3f494433a11d0f1c400e"),
+      blindingFactor: Hex.from("b3460f26eda61ad1"),
+      refundLocktime: Hex.from("a1faa569"),
+      extraData: Hex.from(testAddress),
+    }
+
+    await depositor.initializeDeposit(mockTx, 0, deposit)
+
+    const depositIdLogCall = consoleLogStub
+      .getCalls()
+      .find((call) => call.args[0]?.includes("Deposit initialized with ID:"))
+
+    expect(depositIdLogCall, "deposit ID should be logged").to.exist
+    const loggedId = depositIdLogCall!.args[0].replace(
+      "Deposit initialized with ID: ",
+      ""
+    )
+    expect(
+      loggedId,
+      "SDK derivation must match EthereumBridge.buildDepositKey"
+    ).to.equal(derivedDecimal)
   })
 })
