@@ -102,13 +102,6 @@ contract StarkNetBitcoinDepositor is AbstractL1BTCDepositor {
         return starkGateBridge.estimateDepositFeeWei();
     }
 
-    /// @notice Get the estimated fee for a deposit from the StarkGate bridge.
-    /// @return cost The cost of the `finalizeDeposit` function call in WEI.
-    /// @dev Provided for interface consistency with sibling depositors.
-    function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        cost = estimateFee();
-    }
-
     // ========== Internal Functions ==========
 
     /// @notice Transfers tBTC to StarkNet L2 using StarkGate bridge
