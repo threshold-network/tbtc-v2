@@ -685,6 +685,126 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
     })
   })
 
+  describe("fractional allowance refill", () => {
+    describe("when a whole token leaves a fractional remainder", () => {
+      before(async () => {
+        await createSnapshot()
+        await updateCaps(0, 2, 0, 2)
+
+        // Exhaust both two-token buckets.
+        for (let i = 0; i < 2; i++) {
+          const deposit = fabricateDeposit(1, tbtcVault.address)
+          // Requests must be mined sequentially to consume the shared bucket.
+          // eslint-disable-next-line no-await-in-loop
+          await tbtcVault
+            .connect(minter)
+            .requestOptimisticMint(
+              deposit.fundingTxHash,
+              deposit.fundingOutputIndex
+            )
+        }
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should preserve the remainder for value and request tokens", async () => {
+        const rawAllowance = await tbtcVault.minterAllowances(minter.address)
+        const checkpoint = rawAllowance.requestsRefilledAt.toNumber()
+        expect(rawAllowance.valueRefilledAt).to.equal(checkpoint)
+
+        // At a rate of two tokens per day, 23 hours accrues one token and
+        // leaves 11 hours of fractional refill time.
+        await ethers.provider.send("evm_setNextBlockTimestamp", [
+          BigNumber.from(checkpoint + (23 * DAY) / 24).toHexString(),
+        ])
+        const first = fabricateDeposit(1, tbtcVault.address)
+        await expect(
+          tbtcVault
+            .connect(minter)
+            .requestOptimisticMint(
+              first.fundingTxHash,
+              first.fundingOutputIndex
+            )
+        ).to.emit(tbtcVault, "OptimisticMintingRequested")
+
+        // The retained remainder plus one more hour completes the next token.
+        await ethers.provider.send("evm_setNextBlockTimestamp", [
+          BigNumber.from(checkpoint + DAY).toHexString(),
+        ])
+        const second = fabricateDeposit(1, tbtcVault.address)
+        await expect(
+          tbtcVault
+            .connect(minter)
+            .requestOptimisticMint(
+              second.fundingTxHash,
+              second.fundingOutputIndex
+            )
+        ).to.emit(tbtcVault, "OptimisticMintingRequested")
+      })
+    })
+
+    describe("when the daily limit does not divide a day", () => {
+      before(async () => {
+        await createSnapshot()
+        await updateCaps(0, 0, 0, 7)
+
+        for (let i = 0; i < 7; i++) {
+          const deposit = fabricateDeposit(1, tbtcVault.address)
+          // Requests must be mined sequentially to consume the shared bucket.
+          // eslint-disable-next-line no-await-in-loop
+          await tbtcVault
+            .connect(minter)
+            .requestOptimisticMint(
+              deposit.fundingTxHash,
+              deposit.fundingOutputIndex
+            )
+        }
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should not credit the next request token early", async () => {
+        const rawAllowance = await tbtcVault.minterAllowances(minter.address)
+        const checkpoint = rawAllowance.requestsRefilledAt.toNumber()
+        const firstTokenAt = checkpoint + Math.ceil(DAY / 7)
+        const secondTokenAt = checkpoint + Math.ceil((2 * DAY) / 7)
+
+        await ethers.provider.send("evm_setNextBlockTimestamp", [
+          BigNumber.from(firstTokenAt).toHexString(),
+        ])
+        const deposit = fabricateDeposit(1, tbtcVault.address)
+        await tbtcVault
+          .connect(minter)
+          .requestOptimisticMint(
+            deposit.fundingTxHash,
+            deposit.fundingOutputIndex
+          )
+
+        await ethers.provider.send("evm_setNextBlockTimestamp", [
+          BigNumber.from(secondTokenAt - 1).toHexString(),
+        ])
+        await ethers.provider.send("evm_mine", [])
+        let allowance = await tbtcVault.getOptimisticMintingAllowance(
+          minter.address
+        )
+        expect(allowance.minterRequestsRemaining).to.equal(0)
+
+        await ethers.provider.send("evm_setNextBlockTimestamp", [
+          BigNumber.from(secondTokenAt).toHexString(),
+        ])
+        await ethers.provider.send("evm_mine", [])
+        allowance = await tbtcVault.getOptimisticMintingAllowance(
+          minter.address
+        )
+        expect(allowance.minterRequestsRemaining).to.equal(1)
+      })
+    })
+  })
+
   describe("enabling a previously-disabled limit", () => {
     before(async () => {
       await createSnapshot()
