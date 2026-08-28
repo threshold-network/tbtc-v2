@@ -165,5 +165,38 @@ describe("Bridge storage layout", () => {
         "MovedFundsSweepRequestState"
       )
     ).to.deep.equal(["Unknown", "Pending", "Processed", "TimedOut"])
+
+    // This PR's own three new enums (ReservationState, ActionType,
+    // ActionState) hit the exact same solc 0.8.17 blind spot: pin their
+    // declared order too, for the same reason as WalletState and
+    // MovedFundsSweepRequestState above.
+    expect(
+      readEnumMemberOrder("bridge/Reservation.sol", "ReservationState")
+    ).to.deep.equal([
+      "Unknown",
+      "Active",
+      "ActionPending",
+      "Closed",
+      "Stranded",
+    ])
+    expect(
+      readEnumMemberOrder("bridge/Reservation.sol", "ActionType")
+    ).to.deep.equal([
+      "None",
+      "Acceptance",
+      "Redemption",
+      "Reanchor",
+      "Dissolution",
+    ])
+    expect(
+      readEnumMemberOrder("bridge/Reservation.sol", "ActionState")
+    ).to.deep.equal([
+      "Unknown",
+      "Pending",
+      "Settled",
+      "TimedOut",
+      "Vetoed",
+      "Superseded",
+    ])
   })
 })

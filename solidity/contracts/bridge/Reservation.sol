@@ -140,7 +140,11 @@ library Reservation {
         uint64 anchorAmount;
         // UNIX timestamp the custody term expires at. Purely a contract
         // layer fact -- the anchor output carries no timelock.
-        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
+        // XXX: Unsigned 32-bit int unix seconds. Computed as `acceptedAt +
+        // reservationTermSeconds`; Solidity's checked arithmetic reverts
+        // this addition (rather than silently wrapping) once the sum would
+        // exceed the uint32 ceiling - starting up to MAX_RESERVATION_TERM
+        // (730 days) before the raw February 7th 2106 date, not at it.
         uint32 expiresAt;
         // Hash of the Bitcoin transaction holding the current anchor output.
         bytes32 anchorTxHash;
@@ -170,7 +174,12 @@ library Reservation {
         // granted (acceptance and each renewal), using the delay value
         // current at that moment — later governance changes never move
         // the eligibility time of a term already granted.
-        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
+        // XXX: Unsigned 32-bit int unix seconds. Computed as `expiresAt +
+        // reservationDissolutionDelay`; Solidity's checked arithmetic
+        // reverts this addition (rather than silently wrapping) once the
+        // sum would exceed the uint32 ceiling - starting somewhat before
+        // February 7th 2106, proportional to the delay applied on top of
+        // expiresAt's own margin.
         uint32 dissolutionEligibleAt;
         // Cumulative satoshi lost to Bitcoin miner fees across all
         // re-anchor hops of this reservation. Written on every re-anchor
@@ -204,8 +213,14 @@ library Reservation {
         // custodying wallet itself for dissolutions. Zero for redemptions.
         bytes20 targetWalletPubKeyHash;
         // UNIX timestamp the action was requested at.
+        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
         uint32 requestedAt;
         // UNIX timestamp after which the action can be reported timed out.
+        // XXX: Unsigned 32-bit int unix seconds. Computed by adding a
+        // timeout duration to requestedAt; Solidity's checked arithmetic
+        // reverts this addition (rather than silently wrapping) once the
+        // sum would exceed the uint32 ceiling - starting somewhat before
+        // February 7th 2106, proportional to the timeout applied.
         uint32 timeoutAt;
         // Snapshotted maximum Bitcoin miner fee for the action transaction.
         uint64 txMaxFee;
@@ -220,12 +235,6 @@ library Reservation {
         // The address able to claim the escrowed balance back should a
         // redemption generation time out. Zero for other action types.
         address redeemer;
-        // Amount in satoshi associated with the generation: the escrowed
-        // gross claim for redemptions (the full claim for a whole
-        // redemption, the redeemed portion for a partial), the
-        // capacity-reserved deposit value for acceptances, the anchor
-        // value at request time otherwise.
-        uint64 amount;
         // Action-specific authorization data: the keccak256 hash of the
         // length-prefixed redeemer output script for redemptions, or the
         // wallet main UTXO hash snapshotted for dissolutions. Zero for
@@ -236,6 +245,12 @@ library Reservation {
         // authorized to spend. Zero only for acceptance generations, which
         // spend the revealed deposit rather than an existing anchor.
         bytes32 sourceAnchorUtxoHash;
+        // Amount in satoshi associated with the generation: the escrowed
+        // gross claim for redemptions (the full claim for a whole
+        // redemption, the redeemed portion for a partial), the
+        // capacity-reserved deposit value for acceptances, the anchor
+        // value at request time otherwise.
+        uint64 amount;
         // True when this redemption generation consumed the reservation's
         // single-use retry entitlement. Needed to return the entitlement if
         // a late action consumes the expected anchor while leaving the
@@ -252,6 +267,11 @@ library Reservation {
         // Reserved-redemption veto delay after two guardian objections,
         // snapshotted from the watchtower policy at request time.
         uint32 watchtowerLevelTwoDelay;
+        // Fee-paid redemption generation that originated the retry credit
+        // consumed by this action. Zero when `usedRetryCredit` is false.
+        // Kept on the action so a late re-anchor or partial redemption can
+        // restore the exact amount/shape binding after superseding the retry.
+        uint64 retryCreditSourceNonce;
         // True when a redemption generation is partial: it redeems only
         // `amount` of the reservation's claim in a 1-input-2-output spend
         // (redeemer output + re-anchored remainder) and leaves the
@@ -260,10 +280,5 @@ library Reservation {
         // every non-redemption action. Appended to the end of the struct so
         // the existing field layout is unchanged.
         bool isPartial;
-        // Fee-paid redemption generation that originated the retry credit
-        // consumed by this action. Zero when `usedRetryCredit` is false.
-        // Kept on the action so a late re-anchor or partial redemption can
-        // restore the exact amount/shape binding after superseding the retry.
-        uint64 retryCreditSourceNonce;
     }
 }
