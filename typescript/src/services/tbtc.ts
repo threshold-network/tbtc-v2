@@ -230,6 +230,13 @@ export class TBTC extends TBTCCore {
    *                               For SUI: SUI signer/wallet.
    *                               For Solana: Solana provider.
    *                               For other L2s: Ethereum signer.
+   * @param options Optional chain-specific settings.
+   * @param options.relayerStatusUrl StarkNet only: overrides the relayer's
+   *        deposit-status endpoint used to verify HTTP 409 conflicts. Falls
+   *        back to the `STARKNET_RELAYER_STATUS_URL` environment variable,
+   *        then to the chain-matched default (see
+   *        `StarkNetBitcoinDepositor`'s constructor). Ignored for all other
+   *        L2 chains.
    * @returns Void promise
    * @throws Throws an error if:
    *         - Cross-chain contracts loader not available
@@ -242,7 +249,8 @@ export class TBTC extends TBTCCore {
       | EthereumSigner
       | StarkNetProvider
       | SuiSignerWithAddress
-      | AnchorProvider
+      | AnchorProvider,
+    options?: { relayerStatusUrl?: string }
   ): Promise<void> {
     if (!this._crossChainContractsLoader) {
       throw new Error(
@@ -327,7 +335,8 @@ export class TBTC extends TBTCCore {
         l2CrossChainContracts = await loadStarkNetCrossChainInterfaces(
           walletAddressHex,
           starknetProvider,
-          starknetChainId
+          starknetChainId,
+          options?.relayerStatusUrl
         )
         // prettier-ignore
         break;
