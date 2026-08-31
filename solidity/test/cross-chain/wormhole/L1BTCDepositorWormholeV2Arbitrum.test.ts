@@ -5,7 +5,6 @@ import {
   getUnnamedAccounts,
   helpers,
   upgrades,
-  waffle,
 } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -13,6 +12,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import * as fs from "fs"
 import * as path from "path"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   IWormholeGateway,
@@ -332,7 +332,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       l2BitcoinDepositor,
       reimbursementPool,
       l1BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("storage layout invariants", () => {

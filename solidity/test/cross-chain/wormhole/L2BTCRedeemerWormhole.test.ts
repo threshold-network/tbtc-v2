@@ -539,7 +539,8 @@ describe("L2BTCRedeemerWormhole", () => {
         // Deploy implementation directly, without initializing.
         // All state variables, including l1BtcRedeemerWormholeChain, are zero.
         const factory = await ethers.getContractFactory("L2BTCRedeemerWormhole")
-        l2BtcRedeemerImplementation = (await factory.deploy()) as L2BTCRedeemerWormhole
+        l2BtcRedeemerImplementation =
+          (await factory.deploy()) as L2BTCRedeemerWormhole
       })
 
       it("should revert with InvalidRecipientChain", async () => {

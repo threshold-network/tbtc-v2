@@ -34,7 +34,8 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
   let underlyingNttManager: MockNttManager
 
   before(async () => {
-    [owner] = await ethers.getSigners()
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;[owner] = await ethers.getSigners()
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
     tbtcToken = await TestERC20Factory.deploy()
 
@@ -188,7 +189,6 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     expect(await ethers.provider.getBalance(depositor.address)).to.equal(0)
   })
 
-
   describe("setExecutorParameters (staging consistency)", () => {
     beforeEach(async () => {
       await depositor.setDefaultParameters(
@@ -204,10 +204,14 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       const [stagingSigner] = await ethers.getSigners()
       const args = executorArgs(stagingSigner.address)
       await expect(
-        depositor.setExecutorParameters(args, {
-          dbps: 49,
-          payee: owner.address,
-        }, WORMHOLE_CHAIN_SEI)
+        depositor.setExecutorParameters(
+          args,
+          {
+            dbps: 49,
+            payee: owner.address,
+          },
+          WORMHOLE_CHAIN_SEI
+        )
       ).to.be.revertedWith("Fee must match default executor fee")
     })
 
@@ -215,10 +219,14 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       const [stagingSigner] = await ethers.getSigners()
       const args = executorArgs(stagingSigner.address)
       await expect(
-        depositor.setExecutorParameters(args, {
-          dbps: 50,
-          payee: owner.address,
-        }, WORMHOLE_CHAIN_SEI)
+        depositor.setExecutorParameters(
+          args,
+          {
+            dbps: 50,
+            payee: owner.address,
+          },
+          WORMHOLE_CHAIN_SEI
+        )
       ).to.emit(depositor, "ExecutorParametersSet")
     })
   })

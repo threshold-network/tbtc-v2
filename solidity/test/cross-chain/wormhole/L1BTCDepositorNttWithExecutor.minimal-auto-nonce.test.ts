@@ -119,7 +119,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // User 1 sets parameters
       const tx1 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs1,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const receipt1 = await tx1.wait()
       const nonce1 = receipt1.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -128,7 +132,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // User 2 sets parameters (should not interfere with user 1)
       const tx2 = await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs2, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs2,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const receipt2 = await tx2.wait()
       const nonce2 = receipt2.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -176,7 +184,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // User 1 sets parameters multiple times (clearing between calls)
       await depositor
         .connect(user1)
-        .setExecutorParameters(user1ExecutorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          user1ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // getUserNonceSequence was removed to reduce contract size
       // Nonce tracking is still internal, just not exposed via getter
@@ -185,12 +197,20 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       await depositor.connect(user1).clearExecutorParameters()
       await depositor
         .connect(user1)
-        .setExecutorParameters(user1ExecutorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          user1ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // User 2's sequence should be independent
       await depositor
         .connect(user2)
-        .setExecutorParameters(user2ExecutorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          user2ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify parameters were set successfully by checking from each user's context
       const [isSet1] = await depositor.connect(user1).areExecutorParametersSet()
@@ -222,7 +242,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // Set parameters
       const tx = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const receipt = await tx.wait()
       const expectedNonce = receipt.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -252,7 +276,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // Set parameters
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify parameters are set
       const [isSetBefore] = await depositor

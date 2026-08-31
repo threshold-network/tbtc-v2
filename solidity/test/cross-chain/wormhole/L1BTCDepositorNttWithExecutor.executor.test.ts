@@ -242,7 +242,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = createExecutorArgs({ signedQuote: "0x" })
 
       await expect(
-        depositor.setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
+        depositor.setExecutorParameters(
+          executorArgs,
+          FEE_ARGS_ZERO,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -271,7 +275,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Should succeed with valid mock signed quote
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify parameters are set
@@ -389,8 +399,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: owner.address,
       }
 
-      await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs, WORMHOLE_CHAIN_DESTINATION))
-        .to.not.be.reverted
+      await expect(
+        depositor.setExecutorParameters(
+          executorArgs,
+          validFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.not.be.reverted
     })
 
     it("should reject fee basis points exceeding 10000 in setDefaultParameters", async () => {
@@ -452,7 +467,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       }
 
       await expect(
-        depositor.setExecutorParameters(executorArgs, invalidFeeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor.setExecutorParameters(
+          executorArgs,
+          invalidFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       ).to.be.revertedWith("Fee must match default executor fee")
     })
 
@@ -472,8 +491,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: owner.address,
       }
 
-      await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs, WORMHOLE_CHAIN_DESTINATION))
-        .to.not.be.reverted
+      await expect(
+        depositor.setExecutorParameters(
+          executorArgs,
+          validFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.not.be.reverted
     })
 
     it("should reject setting platform fee above executor fee in setDefaultParameters", async () => {
@@ -510,8 +534,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: ethers.constants.AddressZero,
       }
 
-      await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs, WORMHOLE_CHAIN_DESTINATION))
-        .to.not.be.reverted
+      await expect(
+        depositor.setExecutorParameters(
+          executorArgs,
+          validFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.not.be.reverted
     })
 
     it("should have MAX_BPS constant set to 10000", async () => {
@@ -850,7 +879,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Call the new quote function
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
@@ -895,7 +930,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Get quotes for different chains
       const [destinationNttPrice, destinationExecutorCost, destinationTotal] =
@@ -967,7 +1008,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       await expect(
         depositor.connect(user).quoteFinalizedDeposit(999) // Unsupported chain
@@ -999,7 +1046,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
@@ -1042,7 +1095,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
@@ -1086,7 +1145,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user1.address,
       }
 
-      await depositor.connect(user1).setExecutorParameters(executorArgs1, feeArgs1, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user1)
+        .setExecutorParameters(
+          executorArgs1,
+          feeArgs1,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // User 2 sets different parameters
       const executorArgs2 = {
@@ -1101,7 +1166,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user1.address,
       }
 
-      await depositor.connect(user2).setExecutorParameters(executorArgs2, feeArgs2, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user2)
+        .setExecutorParameters(
+          executorArgs2,
+          feeArgs2,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Get quotes for both users
       const [user1Ntt, user1Executor, user1Total] = await depositor
@@ -1164,7 +1235,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         ethers.constants.AddressZero
       )
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Simulate frontend getting cost breakdown
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
@@ -1221,7 +1298,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         ethers.constants.AddressZero
       )
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Get cost breakdown
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
@@ -1268,7 +1351,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Should accept the relay instructions with gas limit
       await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify the instructions are properly stored and used
@@ -1317,11 +1406,23 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Both should be accepted
       await expect(
-        depositor.connect(user).setExecutorParameters(emptyExecutorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            emptyExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       await expect(
-        depositor.connect(user).setExecutorParameters(encodedExecutorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            encodedExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       console.log(
@@ -1348,7 +1449,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
       const executorArgs = createExecutorArgs({ refundAddress: user.address })
       const feeArgs = FEE_ARGS_STANDARD
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const requiredPayment = (
         await depositor
@@ -1419,7 +1526,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
       const executorArgs = createExecutorArgs({ refundAddress: user.address })
       const feeArgs = FEE_ARGS_STANDARD
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const requiredPayment = (
         await depositor
@@ -1467,7 +1580,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
       const executorArgs = createExecutorArgs({ refundAddress: user.address })
       const feeArgs = FEE_ARGS_STANDARD
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const requiredPayment = (
         await depositor
@@ -1521,7 +1640,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: owner.address,
       }
       await expect(
-        depositor.setExecutorParameters(executorArgs, invalidFeeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor.setExecutorParameters(
+          executorArgs,
+          invalidFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       ).to.be.revertedWith("Fee must match default executor fee")
     })
 
@@ -1541,7 +1664,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         })
         const feeArgs = { dbps: FEE_ARGS_STANDARD.dbps, payee: owner.address }
         await expect(
-          depositor.setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+          depositor.setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
         ).to.be.revertedWith("Insufficient payment for executor service")
       } finally {
         await nttManagerWithExecutor.setUndervalueQuote(false)

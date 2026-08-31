@@ -170,7 +170,11 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       await expect(
         depositor
           .connect(user)
-          .setExecutorParameters(invalidExecutorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+          .setExecutorParameters(
+            invalidExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -191,7 +195,13 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Try to quote for unsupported chain
       await expect(
@@ -222,7 +232,13 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Check state
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
@@ -261,7 +277,11 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         // eslint-disable-next-line no-await-in-loop
         await depositor
           .connect(user)
-          .setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
 
         // eslint-disable-next-line no-await-in-loop
         const [isSet] = await depositor.connect(user).areExecutorParametersSet()
@@ -304,7 +324,13 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
@@ -328,7 +354,13 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(0)

@@ -165,7 +165,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, zeroFeeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          zeroFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
 
@@ -185,7 +189,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, highFeeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          highFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet2).to.be.true
 
@@ -205,7 +213,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, maxFeeArgs, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          maxFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet3).to.be.true
     })
@@ -236,7 +248,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, feeArgs1, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs1,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Update default for fee recipient 2
       await depositor.setDefaultParameters(
@@ -254,7 +270,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, feeArgs2, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs2,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const [isSet] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet).to.be.true
     })
@@ -277,7 +297,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         // eslint-disable-next-line no-await-in-loop
         await depositor
           .connect(user)
-          .setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
+          .setExecutorParameters(
+            executorArgs,
+            FEE_ARGS_ZERO,
+            WORMHOLE_CHAIN_DESTINATION
+          )
 
         // eslint-disable-next-line no-await-in-loop
         const [isSet] = await depositor.connect(user).areExecutorParametersSet()
@@ -302,7 +326,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          FEE_ARGS_ZERO,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
 
@@ -314,7 +342,11 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Reset parameters
       await depositor
         .connect(user)
-        .setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
+        .setExecutorParameters(
+          executorArgs,
+          FEE_ARGS_ZERO,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet3).to.be.true
     })

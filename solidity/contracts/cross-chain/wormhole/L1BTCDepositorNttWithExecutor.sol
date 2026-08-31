@@ -555,7 +555,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             executorArgs: executorArgs,
             feeArgs: feeArgs,
             user: msg.sender,
-            timestamp: block.timestamp,
+            timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
             exists: true,
             cachedRequiredPayment: requiredPayment,
             cachedDestinationChain: destinationChain
