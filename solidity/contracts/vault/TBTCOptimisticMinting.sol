@@ -73,7 +73,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
     uint256 public constant GOVERNANCE_DELAY = 24 hours;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
 
     Bridge public immutable bridge;
 
@@ -641,7 +641,9 @@ abstract contract TBTCOptimisticMinting is Ownable {
     /// @return globalHeadroomRemaining Remaining value (in satoshi) that a
     ///         non-exempt request can add before the total outstanding and
     ///         in-flight exposure reaches `optimisticMintingDebtCap`.
-    function getOptimisticMintingAllowance(address minter)
+    function getOptimisticMintingAllowance(
+        address minter
+    )
         external
         view
         returns (
@@ -868,10 +870,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
     /// @param amount The balance increase amount for the depositor received.
     /// @return The TBTC amount that should be minted after paying off the
     ///         optimistic minting debt.
-    function repayOptimisticMintingDebt(address depositor, uint256 amount)
-        internal
-        returns (uint256)
-    {
+    function repayOptimisticMintingDebt(
+        address depositor,
+        uint256 amount
+    ) internal returns (uint256) {
         uint256 debt = optimisticMintingDebt[depositor];
         if (debt == 0) {
             return amount;
@@ -943,7 +945,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
         uint64 debtCap = optimisticMintingDebtCap;
         if (debtCap != 0) {
             require(
-                _globalExposure(amount) <= uint256(debtCap) * SATOSHI_MULTIPLIER,
+                _globalExposure(amount) <=
+                    uint256(debtCap) * SATOSHI_MULTIPLIER,
                 "Optimistic minting debt cap exceeded"
             );
             globalHeadroomRemaining = _globalHeadroomRemaining(amount);
@@ -969,12 +972,9 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///      `optimisticMintingPendingTotal` and `optimisticMintingDebtTotal`
     ///      measurements, reducing the headroom available to non-exempt
     ///      Minters; overriding contracts must account for this overlap.
-    function _isOptimisticMintingThrottleExempt(address)
-        internal
-        view
-        virtual
-        returns (bool)
-    {
+    function _isOptimisticMintingThrottleExempt(
+        address
+    ) internal view virtual returns (bool) {
         return false;
     }
 
@@ -984,26 +984,22 @@ abstract contract TBTCOptimisticMinting is Ownable {
         return excluded >= total ? 0 : total - excluded;
     }
 
-    function _globalExposure(uint64 additionalPendingSat)
-        internal
-        view
-        returns (uint256)
-    {
-        return (uint256(optimisticMintingPendingTotal) + additionalPendingSat) *
+    function _globalExposure(
+        uint64 additionalPendingSat
+    ) internal view returns (uint256) {
+        return
+            (uint256(optimisticMintingPendingTotal) + additionalPendingSat) *
             SATOSHI_MULTIPLIER +
             _capRelevantDebtTotal();
     }
 
-    function _globalHeadroomRemaining(uint64 additionalPendingSat)
-        internal
-        view
-        returns (uint64)
-    {
+    function _globalHeadroomRemaining(
+        uint64 additionalPendingSat
+    ) internal view returns (uint64) {
         uint256 cap = uint256(optimisticMintingDebtCap) * SATOSHI_MULTIPLIER;
         uint256 exposure = _globalExposure(additionalPendingSat);
-        return exposure >= cap
-            ? 0
-            : uint64((cap - exposure) / SATOSHI_MULTIPLIER);
+        return
+            exposure >= cap ? 0 : uint64((cap - exposure) / SATOSHI_MULTIPLIER);
     }
 
     function _markOptimisticMintingDebtExcludedFromCap(
@@ -1012,17 +1008,20 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ) internal {
         uint256 previous = optimisticMintingDebtCapExcluded[depositor];
         if (amount > previous) {
+            // slither-disable-next-line costly-loop
             optimisticMintingDebtCapExcludedTotal += amount - previous;
             optimisticMintingDebtCapExcluded[depositor] = amount;
         }
     }
 
-    function _clearOptimisticMintingDebtCapExclusion(address depositor)
-        internal
-    {
+    function _clearOptimisticMintingDebtCapExclusion(
+        address depositor
+    ) internal {
         uint256 excluded = optimisticMintingDebtCapExcluded[depositor];
         if (excluded > 0) {
+            // slither-disable-next-line costly-loop
             optimisticMintingDebtCapExcludedTotal -= excluded;
+            // slither-disable-next-line costly-loop
             delete optimisticMintingDebtCapExcluded[depositor];
         }
     }
@@ -1056,12 +1055,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
         uint256 remaining,
         uint64 refilledAt,
         uint256 limit
-    ) private view returns (uint256 updatedRemaining, uint64 updatedRefilledAt) {
+    )
+        private
+        view
+        returns (uint256 updatedRemaining, uint64 updatedRefilledAt)
+    {
         if (limit == 0) {
             return (remaining, refilledAt);
         }
 
         // slither-disable-next-line incorrect-equality
+        /* solhint-disable-next-line not-rely-on-time */
         if (refilledAt == 0) {
             return (limit, uint64(block.timestamp));
         }
@@ -1069,11 +1073,12 @@ abstract contract TBTCOptimisticMinting is Ownable {
         /* solhint-disable-next-line not-rely-on-time */
         uint256 elapsed = block.timestamp - refilledAt;
         uint256 credit = (limit * elapsed) / 24 hours;
+        // slither-disable-next-line incorrect-equality
         if (credit == 0) {
             return (remaining, refilledAt);
         }
-
         uint256 updated = remaining + credit;
+        /* solhint-disable-next-line not-rely-on-time */
         if (updated >= limit) {
             return (limit, uint64(block.timestamp));
         }
@@ -1119,8 +1124,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
         }
 
         if (requestLimit != 0) {
-            (uint256 requestsRemaining, uint64 requestsRefilledAt) =
-                _refillBucket(
+            (
+                uint256 requestsRemaining,
+                uint64 requestsRefilledAt
+            ) = _refillBucket(
                     allowance.requestsRemaining,
                     allowance.requestsRefilledAt,
                     requestLimit
@@ -1139,11 +1146,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///      Rounding up preserves every whole second of fractional accrual
     ///      without making the next token available early for limits that do
     ///      not divide 24 hours evenly.
-    function _refillTimeForCredit(uint256 credit, uint256 limit)
-        private
-        pure
-        returns (uint64)
-    {
+    function _refillTimeForCredit(
+        uint256 credit,
+        uint256 limit
+    ) private pure returns (uint64) {
         return uint64((credit * 24 hours + limit - 1) / limit);
     }
 }
