@@ -152,10 +152,20 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         ethers.constants.AddressZero
       )
     })
+    beforeEach(async () => {
+      await depositor.setDefaultParameters(
+        100_000,
+        100,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
+    })
 
-    it("should allow owner to set default platform fee", async () => {
-      const newFeeBps = 50 // 0.05% (50/100000)
+    it("should allow owner to set default platform fee <= executor fee", async () => {
+      const newFeeBps = 100 // 0.1% (100/100000), equal to default executor fee
       const newRecipient = owner.address
+      await depositor.setDefaultPlatformFeeRecipient(newRecipient)
 
       await expect(depositor.setDefaultPlatformFeeBps(newFeeBps))
         .to.emit(depositor, "DefaultPlatformFeeBpsUpdated")
@@ -232,7 +242,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = createExecutorArgs({ signedQuote: "0x" })
 
       await expect(
-        depositor.setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
+        depositor.setExecutorParameters(
+          executorArgs,
+          FEE_ARGS_ZERO,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -251,9 +265,23 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: owner.address,
       }
 
+      await depositor.setDefaultParameters(
+        100_000,
+        100,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       // Should succeed with valid mock signed quote
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify parameters are set
@@ -344,30 +372,40 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   })
 
   describe("Basis Points Validation", () => {
-    it("should reject fee basis points exceeding 10000 in setExecutorParameters", async () => {
-      const executorArgs = createExecutorArgs()
-      const invalidFeeArgs = {
-        dbps: 10001, // Exceeds 10% (10001/100000)
-        payee: ethers.Wallet.createRandom().address,
-      }
-
+    it("should reject fee basis points exceeding MAX_BPS in setExecutorParameters", async () => {
       await expect(
-        depositor.setExecutorParameters(executorArgs, invalidFeeArgs)
+        depositor.setDefaultParameters(
+          500000,
+          10001,
+          owner.address,
+          0,
+          ethers.constants.AddressZero
+        )
       ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setExecutorParameters", async () => {
-      const executorArgs = createExecutorArgs()
+      // Ensure default executor fee is 10000
+      await depositor.setDefaultParameters(
+        500000, // gasLimit
+        10000, // feeBps 100%
+        owner.address, // feeRecipient
+        0, // platformFeeBps 0%
+        ethers.constants.AddressZero // platformFeeRecipient
+      )
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const validFeeArgs = {
-        dbps: 10000, // Exactly 10% (10000/100000)
-        payee: ethers.Wallet.createRandom().address,
+        dbps: 10000, // 10% (10000/100000)
+        payee: owner.address,
       }
 
-      // This should not revert (but will likely revert on quote validation)
-      // We're testing that the BPS validation passes
       await expect(
-        depositor.setExecutorParameters(executorArgs, validFeeArgs)
-      ).to.not.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+        depositor.setExecutorParameters(
+          executorArgs,
+          validFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.not.be.reverted
     })
 
     it("should reject fee basis points exceeding 10000 in setDefaultParameters", async () => {
@@ -412,61 +450,97 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       ).to.not.be.reverted
     })
 
-    it("should reject fee below default platform fee", async () => {
-      // Set a default platform fee
-      await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+    it("should revert staging when dbps != defaultExecutorFeeBps", async () => {
+      // Configure default fee: 50
+      await depositor.setDefaultParameters(
+        100_000,
+        50,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const invalidFeeArgs = {
-        dbps: 50, // 0.05% (50/100000) - below default of 0.1%
-        payee: ethers.Wallet.createRandom().address,
+        dbps: 49, // != 50
+        payee: owner.address,
       }
 
       await expect(
-        depositor.setExecutorParameters(executorArgs, invalidFeeArgs)
-      ).to.be.revertedWith("Fee must be at least the default platform fee")
+        depositor.setExecutorParameters(
+          executorArgs,
+          invalidFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.be.revertedWith("Fee must match default executor fee")
     })
 
-    it("should accept fee equal to default platform fee", async () => {
-      // Set a default platform fee
-      await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+    it("should stage successfully when dbps == defaultExecutorFeeBps", async () => {
+      // Configure default fee: 50
+      await depositor.setDefaultParameters(
+        100_000,
+        50,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const validFeeArgs = {
-        dbps: 100, // 0.1% (100/100000) - equal to default
-        payee: ethers.Wallet.createRandom().address,
+        dbps: 50, // == 50
+        payee: owner.address,
       }
 
-      await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs))
-        .to.not.be.reverted
+      await expect(
+        depositor.setExecutorParameters(
+          executorArgs,
+          validFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.not.be.reverted
     })
 
-    it("should accept fee above default platform fee", async () => {
-      // Set a default platform fee
-      await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+    it("should reject setting platform fee above executor fee in setDefaultParameters", async () => {
+      await depositor.setDefaultParameters(
+        100_000,
+        50,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
+      await expect(depositor.setDefaultPlatformFeeBps(51)).to.be.revertedWith(
+        "Platform fee cannot exceed executor fee"
+      )
+    })
 
-      const executorArgs = createExecutorArgs()
-      const validFeeArgs = {
-        dbps: 200, // 0.2% (200/100000) - above default
-        payee: ethers.Wallet.createRandom().address,
-      }
-
-      await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs))
-        .to.not.be.reverted
+    it("should accept setting platform fee equal to executor fee in setDefaultParameters", async () => {
+      await depositor.setDefaultParameters(
+        100_000,
+        50,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
+      await expect(depositor.setDefaultPlatformFeeBps(50)).to.not.be.reverted
     })
 
     it("should work with zero default platform fee", async () => {
       // Ensure default platform fee is 0
       await depositor.setDefaultPlatformFeeBps(0)
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const validFeeArgs = {
         dbps: 0, // 0% - should work when default is also 0
         payee: ethers.constants.AddressZero,
       }
 
-      await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs))
-        .to.not.be.reverted
+      await expect(
+        depositor.setExecutorParameters(
+          executorArgs,
+          validFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.not.be.reverted
     })
 
     it("should have MAX_BPS constant set to 10000", async () => {
@@ -784,6 +858,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should return detailed cost breakdown for supported chain", async () => {
       const [, , user] = await ethers.getSigners()
 
+      await depositor.setDefaultParameters(
+        100_000,
+        100,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       // Set up executor parameters first
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"), // 0.01 ETH executor cost
@@ -797,7 +879,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Call the new quote function
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
@@ -821,6 +909,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should return different costs for different chains", async () => {
       const [, , user] = await ethers.getSigners()
 
+      // Fix: Configure default parameters
+      await depositor.setDefaultParameters(
+        100_000,
+        50,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       const executorArgs = {
         value: ethers.utils.parseEther("0.005"), // 0.005 ETH executor cost
         refundAddress: user.address,
@@ -833,7 +930,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Get quotes for different chains
       const [destinationNttPrice, destinationExecutorCost, destinationTotal] =
@@ -891,12 +994,27 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         instructions: `0x${"f".repeat(32)}`,
       }
 
+      // Fix: Configure default parameters
+      await depositor.setDefaultParameters(
+        100_000,
+        0,
+        ethers.constants.AddressZero,
+        0,
+        ethers.constants.AddressZero
+      )
+
       const feeArgs = {
         dbps: 0,
         payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       await expect(
         depositor.connect(user).quoteFinalizedDeposit(999) // Unsupported chain
@@ -905,6 +1023,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should handle zero executor cost", async () => {
       const [, , user] = await ethers.getSigners()
+
+      // Fix: Configure default parameters
+      await depositor.setDefaultParameters(
+        100_000,
+        0,
+        ethers.constants.AddressZero,
+        0,
+        ethers.constants.AddressZero
+      )
 
       const executorArgs = {
         value: 0, // Zero executor cost
@@ -919,7 +1046,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
@@ -939,6 +1072,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should handle high executor cost", async () => {
       const [, , user] = await ethers.getSigners()
 
+      // Fix: Configure default parameters
+      await depositor.setDefaultParameters(
+        100_000,
+        1000,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       const highExecutorCost = ethers.utils.parseEther("0.1") // 0.1 ETH executor cost
 
       const executorArgs = {
@@ -953,7 +1095,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
@@ -975,6 +1123,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should work with different users independently", async () => {
       const [, , user1, user2] = await ethers.getSigners()
 
+      // Fix: Configure default parameters
+      await depositor.setDefaultParameters(
+        100_000,
+        200,
+        user1.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
       // User 1 sets parameters
       const executorArgs1 = {
         value: ethers.utils.parseEther("0.02"),
@@ -990,7 +1147,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs1)
+        .setExecutorParameters(
+          executorArgs1,
+          feeArgs1,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // User 2 sets different parameters
       const executorArgs2 = {
@@ -1001,13 +1162,17 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       }
 
       const feeArgs2 = {
-        dbps: 300, // 0.3% (300/100000)
-        payee: user2.address,
+        dbps: 200,
+        payee: user1.address,
       }
 
       await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs2, feeArgs2)
+        .setExecutorParameters(
+          executorArgs2,
+          feeArgs2,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Get quotes for both users
       const [user1Ntt, user1Executor, user1Total] = await depositor
@@ -1062,7 +1227,21 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor.setDefaultParameters(
+        100_000,
+        500,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Simulate frontend getting cost breakdown
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
@@ -1111,7 +1290,21 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor.setDefaultParameters(
+        100_000,
+        1000,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Get cost breakdown
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
@@ -1158,7 +1351,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Should accept the relay instructions with gas limit
       await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify the instructions are properly stored and used
@@ -1209,18 +1408,271 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await expect(
         depositor
           .connect(user)
-          .setExecutorParameters(emptyExecutorArgs, feeArgs)
+          .setExecutorParameters(
+            emptyExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       await expect(
         depositor
           .connect(user)
-          .setExecutorParameters(encodedExecutorArgs, feeArgs)
+          .setExecutorParameters(
+            encodedExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       console.log(
         "✅ Both empty and gas-encoded relay instructions work correctly"
       )
+    })
+  })
+  describe("New Contract Requirements", () => {
+    const fundingTx = {
+      version: "0x01000000",
+      inputVector: "0x01",
+      outputVector: "0x02",
+      locktime: "0x00000000",
+    }
+
+    it("F4: should finalize deposit only with correct payment and destination chain", async () => {
+      const [, user] = await ethers.getSigners()
+      await depositor.setDefaultParameters(
+        100_000,
+        FEE_ARGS_STANDARD.dbps,
+        FEE_ARGS_STANDARD.payee,
+        0,
+        ethers.constants.AddressZero
+      )
+      const executorArgs = createExecutorArgs({ refundAddress: user.address })
+      const feeArgs = FEE_ARGS_STANDARD
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+
+      const requiredPayment = (
+        await depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
+      )[2]
+      const receiver = ethers.utils.hexConcat([
+        ethers.utils.hexZeroPad(
+          ethers.utils.hexlify(WORMHOLE_CHAIN_DESTINATION),
+          2
+        ),
+        ethers.utils.hexZeroPad(user.address, 30),
+      ])
+
+      const reveal = {
+        fundingOutputIndex: 0,
+        blindingFactor: "0xba863847d2d0fee3",
+        walletPubKeyHash: "0xf997563fee8610ca28f99ac05bd8a29506800d4d",
+        refundPubKeyHash: "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
+        refundLocktime: "0xde2b4c67",
+        vault: tbtcVault.address,
+      }
+
+      const tx = await depositor
+        .connect(user)
+        .initializeDeposit(fundingTx, reveal, receiver)
+      const receipt = await tx.wait()
+      const depositKey = receipt.events?.find(
+        (e) => e.event === "DepositInitialized"
+      )?.args?.depositKey
+
+      // Exact payment succeeds
+      await expect(
+        depositor
+          .connect(user)
+          .finalizeDeposit(depositKey, { value: requiredPayment })
+      ).to.emit(depositor, "TokensTransferredNttWithExecutor")
+
+      // Staged parameters are cleared
+      const [isSet] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet).to.be.false
+
+      // Second finalize of another initialized deposit without staged params reverts
+      const reveal2 = { ...reveal, fundingOutputIndex: 1 }
+      const tx2 = await depositor
+        .connect(user)
+        .initializeDeposit(fundingTx, reveal2, receiver)
+      const receipt2 = await tx2.wait()
+      const depositKey2 = receipt2.events?.find(
+        (e) => e.event === "DepositInitialized"
+      )?.args?.depositKey
+
+      await expect(
+        depositor
+          .connect(user)
+          .finalizeDeposit(depositKey2, { value: requiredPayment })
+      ).to.be.revertedWith("Executor parameters not set")
+    })
+
+    it("F4: should revert when encoded destination chain differs", async () => {
+      const [, user] = await ethers.getSigners()
+      await depositor.setDefaultParameters(
+        100_000,
+        FEE_ARGS_STANDARD.dbps,
+        FEE_ARGS_STANDARD.payee,
+        0,
+        ethers.constants.AddressZero
+      )
+      const executorArgs = createExecutorArgs({ refundAddress: user.address })
+      const feeArgs = FEE_ARGS_STANDARD
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+
+      const requiredPayment = (
+        await depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
+      )[2]
+      // Use base chain (30) instead of destination (32)
+      const receiver = ethers.utils.hexConcat([
+        ethers.utils.hexZeroPad(ethers.utils.hexlify(WORMHOLE_CHAIN_BASE), 2),
+        ethers.utils.hexZeroPad(user.address, 30),
+      ])
+
+      const reveal = {
+        fundingOutputIndex: 0,
+        blindingFactor: "0xba863847d2d0fee3",
+        walletPubKeyHash: "0xf997563fee8610ca28f99ac05bd8a29506800d4d",
+        refundPubKeyHash: "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
+        refundLocktime: "0xde2b4c67",
+        vault: tbtcVault.address,
+      }
+
+      const tx = await depositor
+        .connect(user)
+        .initializeDeposit(fundingTx, reveal, receiver)
+      const receipt = await tx.wait()
+      const depositKey = receipt.events?.find(
+        (e) => e.event === "DepositInitialized"
+      )?.args?.depositKey
+
+      await expect(
+        depositor
+          .connect(user)
+          .finalizeDeposit(depositKey, { value: requiredPayment })
+      ).to.be.revertedWith("Executor parameters bound to default chain")
+    })
+
+    it("F4: should revert on overpayment", async () => {
+      const [, user] = await ethers.getSigners()
+      await depositor.setDefaultParameters(
+        100_000,
+        FEE_ARGS_STANDARD.dbps,
+        FEE_ARGS_STANDARD.payee,
+        0,
+        ethers.constants.AddressZero
+      )
+      const executorArgs = createExecutorArgs({ refundAddress: user.address })
+      const feeArgs = FEE_ARGS_STANDARD
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+
+      const requiredPayment = (
+        await depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
+      )[2]
+      const receiver = ethers.utils.hexConcat([
+        ethers.utils.hexZeroPad(
+          ethers.utils.hexlify(WORMHOLE_CHAIN_DESTINATION),
+          2
+        ),
+        ethers.utils.hexZeroPad(user.address, 30),
+      ])
+
+      const reveal = {
+        fundingOutputIndex: 0,
+        blindingFactor: "0xba863847d2d0fee3",
+        walletPubKeyHash: "0xf997563fee8610ca28f99ac05bd8a29506800d4d",
+        refundPubKeyHash: "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
+        refundLocktime: "0xde2b4c67",
+        vault: tbtcVault.address,
+      }
+
+      const tx = await depositor
+        .connect(user)
+        .initializeDeposit(fundingTx, reveal, receiver)
+      const receipt = await tx.wait()
+      const depositKey = receipt.events?.find(
+        (e) => e.event === "DepositInitialized"
+      )?.args?.depositKey
+
+      await expect(
+        depositor
+          .connect(user)
+          .finalizeDeposit(depositKey, { value: requiredPayment.add(1) })
+      ).to.be.revertedWith("Payment must exactly match executor service quote")
+    })
+
+    it("F12: should revert when executor fee != default executor fee", async () => {
+      // Ensure default fee is set
+      await depositor.setDefaultParameters(
+        500000,
+        200,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
+      const invalidFeeArgs = {
+        dbps: 100, // 100 != 200
+        payee: owner.address,
+      }
+      await expect(
+        depositor.setExecutorParameters(
+          executorArgs,
+          invalidFeeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.be.revertedWith("Fee must match default executor fee")
+    })
+
+    it("F10b: should revert when quote < executorArgs.value", async () => {
+      await depositor.setDefaultParameters(
+        100_000,
+        FEE_ARGS_STANDARD.dbps,
+        owner.address,
+        0,
+        ethers.constants.AddressZero
+      )
+      await nttManagerWithExecutor.setUndervalueQuote(true)
+      try {
+        const executorArgs = createExecutorArgs({
+          value: ethers.utils.parseEther("1"),
+          refundAddress: owner.address,
+        })
+        const feeArgs = { dbps: FEE_ARGS_STANDARD.dbps, payee: owner.address }
+        await expect(
+          depositor.setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
+        ).to.be.revertedWith("Insufficient payment for executor service")
+      } finally {
+        await nttManagerWithExecutor.setUndervalueQuote(false)
+      }
     })
   })
 })

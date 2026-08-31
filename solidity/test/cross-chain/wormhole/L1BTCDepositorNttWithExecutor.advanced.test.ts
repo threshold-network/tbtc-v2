@@ -85,6 +85,15 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       true
     )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
+
+    // Set default parameters to match test fee args
+    await depositor.setDefaultParameters(
+      600000,
+      100,
+      owner.address,
+      0,
+      ethers.constants.AddressZero
+    )
   })
 
   beforeEach(async () => {
@@ -197,7 +206,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Step 1: Set executor parameters
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Step 2: Verify parameters are set
@@ -220,7 +235,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Should allow refresh
       await expect(
-        depositor.connect(owner).setExecutorParameters(newExecutorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            newExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify updated value
@@ -245,7 +266,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Step 1: Set executor parameters
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Step 2: Verify parameters are set
@@ -288,7 +315,11 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       // Set executor parameters
       await depositor
         .connect(owner)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify fee calculation works
       const [isSet] = await depositor.connect(owner).areExecutorParametersSet()

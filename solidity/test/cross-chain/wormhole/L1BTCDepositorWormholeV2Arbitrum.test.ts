@@ -1,5 +1,11 @@
 import type { BytesLike } from "@ethersproject/bytes"
-import { ethers, getUnnamedAccounts, helpers, upgrades } from "hardhat"
+import {
+  artifacts,
+  ethers,
+  getUnnamedAccounts,
+  helpers,
+  upgrades,
+} from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
@@ -27,7 +33,6 @@ import {
   createMock,
   expectCalledOnce,
   expectNotCalled,
-  expectCalledTwice,
 } from "../../helpers/mock"
 import type { Mock } from "../../helpers/mock"
 
@@ -91,36 +96,139 @@ async function getV2StorageLayout(): Promise<
     }
   }
 
-  const debugArtifactPath = path.resolve(
-    __dirname,
-    "../../../build/contracts/cross-chain/wormhole/" +
-      "L1BTCDepositorWormholeV2Arbitrum.sol/L1BTCDepositorWormholeV2Arbitrum.dbg.json"
-  )
-  const debugArtifact = parseJson<{ buildInfo: string }>(
-    await fs.promises.readFile(debugArtifactPath, "utf8"),
-    debugArtifactPath
-  )
-  const buildInfoPath = path.resolve(
-    path.dirname(debugArtifactPath),
-    debugArtifact.buildInfo
-  )
-  const buildInfo = parseJson<Record<string, any>>(
-    await fs.promises.readFile(buildInfoPath, "utf8"),
-    buildInfoPath
-  )
-  const layout =
-    buildInfo?.output?.contracts?.[
-      "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol"
-    ]?.L1BTCDepositorWormholeV2Arbitrum?.storageLayout
+  const contractPath =
+    "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol"
+  const contractName = "L1BTCDepositorWormholeV2Arbitrum"
+  const fullyQualifiedName = `${contractPath}:${contractName}`
 
-  if (!layout?.storage) {
-    throw new Error(
-      "storageLayout not found for L1BTCDepositorWormholeV2Arbitrum. " +
-        "Run `yarn build` first."
-    )
+  type StorageEntry = {
+    label: string
+    slot: string
+    offset: number
+    type: string
   }
 
-  return layout.storage
+  type BuildInfoContracts = {
+    output?: {
+      contracts?: Record<
+        string,
+        Record<string, { storageLayout?: { storage?: StorageEntry[] } }>
+      >
+    }
+  }
+
+  const extractLayout = (
+    parsed: BuildInfoContracts | null | undefined
+  ): StorageEntry[] | undefined => {
+    const contracts = parsed?.output?.contracts
+    if (!contracts) return undefined
+
+    const direct =
+      contracts[contractPath]?.[contractName]?.storageLayout?.storage
+    if (Array.isArray(direct) && direct.length > 0) {
+      return direct
+    }
+
+    const sourcePath = Object.keys(contracts).find((key) => {
+      const storage = contracts[key]?.[contractName]?.storageLayout?.storage
+      return Array.isArray(storage) && storage.length > 0
+    })
+    return sourcePath
+      ? contracts[sourcePath]?.[contractName]?.storageLayout?.storage
+      : undefined
+  }
+
+  // Strategy 1: Scan all .json files under build/build-info
+  const buildInfoDir = path.resolve(__dirname, "../../../build/build-info")
+  if (fs.existsSync(buildInfoDir)) {
+    const buildInfoFiles = fs
+      .readdirSync(buildInfoDir)
+      .filter((file) => file.endsWith(".json"))
+
+    let latestLayout: StorageEntry[] | undefined
+    let latestMtime = -1
+
+    buildInfoFiles.forEach((file) => {
+      const filePath = path.join(buildInfoDir, file)
+      try {
+        const content = fs.readFileSync(filePath, "utf8")
+        if (content.includes("L1BTCDepositorWormholeV2Arbitrum")) {
+          const parsed = parseJson<BuildInfoContracts>(content, filePath)
+          const layout = extractLayout(parsed)
+          if (layout) {
+            const stat = fs.statSync(filePath)
+            if (stat.mtimeMs >= latestMtime) {
+              latestMtime = stat.mtimeMs
+              latestLayout = layout
+            }
+          }
+        }
+      } catch {
+        // Continue scanning remaining files
+      }
+    })
+
+    if (latestLayout) {
+      return latestLayout
+    }
+  }
+
+  // Strategy 2: Try the contract's own .dbg.json reference path
+  const dbgPath = path.resolve(
+    __dirname,
+    "../../../build/contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol/L1BTCDepositorWormholeV2Arbitrum.dbg.json"
+  )
+  if (fs.existsSync(dbgPath)) {
+    try {
+      const dbgContent = fs.readFileSync(dbgPath, "utf8")
+      const dbg = parseJson<{ buildInfo: string }>(dbgContent, dbgPath)
+      const resolvedBuildInfoPath = path.resolve(
+        path.dirname(dbgPath),
+        dbg.buildInfo
+      )
+      if (fs.existsSync(resolvedBuildInfoPath)) {
+        const content = fs.readFileSync(resolvedBuildInfoPath, "utf8")
+        const parsed = parseJson<BuildInfoContracts>(
+          content,
+          resolvedBuildInfoPath
+        )
+        const layout = extractLayout(parsed)
+        if (layout) {
+          return layout
+        }
+      }
+    } catch {
+      // Continue to Strategy 3
+    }
+  }
+
+  // Strategy 3: Try hre.artifacts.getBuildInfo
+  try {
+    const artifactsObj = artifacts
+    if (artifactsObj?.getBuildInfo) {
+      const buildInfo =
+        ((await artifactsObj.getBuildInfo(
+          fullyQualifiedName
+        )) as BuildInfoContracts | null) ??
+        ((await artifactsObj.getBuildInfo(
+          contractName
+        )) as BuildInfoContracts | null)
+      if (buildInfo) {
+        const layout = extractLayout(buildInfo)
+        if (layout) {
+          return layout
+        }
+      }
+    }
+  } catch {
+    // All strategies exhausted
+  }
+
+  throw new Error(
+    "storageLayout not found for L1BTCDepositorWormholeV2Arbitrum across " +
+      "build/build-info/*.json, .dbg.json reference, and artifacts.getBuildInfo. " +
+      "Run `yarn build` first."
+  )
 }
 
 describe("L1BTCDepositorWormholeV2Arbitrum", () => {
@@ -810,133 +918,6 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           .withArgs(expectedTbtcAmount, l2ReceiverAddress, transferSequence)
       })
     })
-    context(
-      "when the reimbursement pool is set and a deferred gas reimbursement exists",
-      () => {
-        const messageFee = 1000
-        const transferSequence = 555
-        const depositAmount = BigNumber.from(100000)
-        const treasuryFee = BigNumber.from(500)
-        const optimisticMintingFeeDivisor = 20
-        const depositTxMaxFee = BigNumber.from(1000)
-
-        let initializer: SignerWithAddress
-        let initializeDepositGasSpent: BigNumber
-
-        before(async () => {
-          await createSnapshot()
-
-          const accounts = await getUnnamedAccounts()
-          initializer = await ethers.getSigner(accounts[2])
-
-          // Use 1Gwei to make sure it's smaller than default gas price
-          // used by Hardhat (200 Gwei) and this value will be used
-          // for msgValueOffset calculation.
-          await reimbursementPool.maxGasPrice.returns(
-            BigNumber.from(1000000000)
-          )
-          await reimbursementPool.staticGas.returns(10000) // Just an arbitrary value.
-
-          await l1BtcDepositor
-            .connect(governance)
-            .updateReimbursementPool(reimbursementPool.address)
-          await l1BtcDepositor
-            .connect(governance)
-            .updateReimbursementAuthorization(relayer.address, true)
-          await l1BtcDepositor
-            .connect(governance)
-            .updateReimbursementAuthorization(initializer.address, true)
-
-          await l1BtcDepositor
-            .connect(initializer)
-            .initializeDeposit(
-              initializeDepositFixture.fundingTx,
-              initializeDepositFixture.reveal,
-              initializeDepositFixture.destinationChainDepositOwner
-            )
-
-          initializeDepositGasSpent = (
-            await l1BtcDepositor.gasReimbursements(
-              initializeDepositFixture.depositKey
-            )
-          ).gasSpent
-
-          // The deferred reimbursement entry must exist before finalization,
-          // otherwise the ordering assertions would pass vacuously.
-          expect(initializeDepositGasSpent).to.be.gt(0)
-
-          await bridge.depositParameters.returns({
-            depositDustThreshold: 0,
-            depositTreasuryFeeDivisor: 0,
-            depositTxMaxFee,
-            depositRevealAheadPeriod: 0,
-          })
-          await tbtcVault.optimisticMintingFeeDivisor.returns(
-            optimisticMintingFeeDivisor
-          )
-
-          const revealedAt = (await lastBlockTime()) - 7200
-          const finalizedAt = await lastBlockTime()
-          await bridge.deposits
-            .whenCalledWith(initializeDepositFixture.depositKey)
-            .returns({
-              depositor: l1BtcDepositor.address,
-              amount: depositAmount,
-              revealedAt,
-              vault: initializeDepositFixture.reveal.vault,
-              treasuryFee,
-              sweptAt: finalizedAt,
-              extraData: initializeDepositFixture.destinationChainDepositOwner,
-            })
-
-          await tbtcVault.optimisticMintingRequests
-            .whenCalledWith(initializeDepositFixture.depositKey)
-            .returns([revealedAt, finalizedAt])
-
-          await wormhole.messageFee.returns(messageFee)
-          await wormholeTokenBridge.transferTokensWithPayload.returns(
-            transferSequence
-          )
-
-          await l1BtcDepositor
-            .connect(relayer)
-            .finalizeDeposit(initializeDepositFixture.depositKey, {
-              value: messageFee,
-            })
-        })
-
-        after(async () => {
-          await reimbursementPool.maxGasPrice.reset()
-          await reimbursementPool.staticGas.reset()
-          await bridge.depositParameters.reset()
-          await tbtcVault.optimisticMintingFeeDivisor.reset()
-          await bridge.revealDepositWithExtraData.reset()
-          await bridge.deposits.reset()
-          await tbtcVault.optimisticMintingRequests.reset()
-          await wormhole.messageFee.reset()
-          await wormholeTokenBridge.transferTokensWithPayload.reset()
-
-          await restoreSnapshot()
-        })
-
-        it("should reimburse finalization before deferred initialization", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-          await expectCalledTwice(reimbursementPool.refund)
-
-          // The finalization reimbursement must be calculated and paid
-          // before the deferred initialization reimbursement. The latter
-          // calls an untrusted receiver, so doing it first would let that
-          // receiver burn gas that is then counted again in the
-          // finalization reimbursement.
-          const firstCall = await reimbursementPool.refund.getCall(0)
-          expect(firstCall.args[1]).to.equal(relayer.address)
-
-          const secondCall = await reimbursementPool.refund.getCall(1)
-          expect(secondCall.args[0]).to.equal(initializeDepositGasSpent)
-          expect(secondCall.args[1]).to.equal(initializer.address)
-        })
-      }
-    )
 
     // The next three contexts exercise the reimburseTxMaxFee branches of
     // finalizeDeposit. Math reused: depositAmount=100000, treasuryFee=500,

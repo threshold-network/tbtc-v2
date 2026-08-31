@@ -6,6 +6,8 @@ import type {
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -19,6 +21,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
+  let underlyingNttManager: MockNttManager
 
   before(async () => {
     // Deploy mock contracts following working pattern
@@ -34,13 +38,22 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.address)
 
-    // Mock NTT managers with simple objects (following working pattern)
-    const nttManagerWithExecutor = {
-      address: ethers.Wallet.createRandom().address,
-    }
-    const underlyingNttManager = {
-      address: ethers.Wallet.createRandom().address,
-    }
+    // Deploy proper mock NTT managers
+    const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
+      "MockNttManagerWithExecutor"
+    )
+    nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
+
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
+
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -58,6 +71,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       underlyingNttManager.address,
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    await proxy.deployed()
 
     depositor = L1BTCDepositorFactory.attach(
       proxy.address
@@ -149,14 +163,18 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       await expect(
         depositor
           .connect(user)
-          .setExecutorParameters(invalidExecutorArgs, feeArgs)
+          .setExecutorParameters(
+            invalidExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -173,11 +191,17 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Try to quote for unsupported chain
       await expect(
@@ -204,11 +228,17 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Check state
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
@@ -229,6 +259,11 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     it("should handle rapid parameter updates correctly", async () => {
       const [, , user] = await ethers.getSigners()
 
+      const feeArgs = {
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
+      }
+
       // Perform multiple rapid updates
       // eslint-disable-next-line no-plusplus
       for (let i = 0; i < 3; i++) {
@@ -239,15 +274,14 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
           instructions: `0x${"2".repeat(64)}`,
         }
 
-        const feeArgs = {
-          dbps: 100 + i * 10,
-          payee: user.address,
-        }
-
         // eslint-disable-next-line no-await-in-loop
         await depositor
           .connect(user)
-          .setExecutorParameters(executorArgs, feeArgs)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
 
         // eslint-disable-next-line no-await-in-loop
         const [isSet] = await depositor.connect(user).areExecutorParametersSet()
@@ -264,8 +298,19 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     it("should handle maximum values correctly", async () => {
       const [, , user] = await ethers.getSigners()
 
-      // Test with maximum possible amount
-      const maxAmount = BigNumber.from(2).pow(256).sub(1)
+      // Set default parameters to allow max fee
+      await depositor.setDefaultParameters(
+        600000,
+        10000,
+        user.address,
+        0,
+        ethers.constants.AddressZero
+      )
+
+      // Test with maximum safe amount (MaxUint256 minus 1 ETH to avoid overflow when adding mock base fee)
+      const maxAmount = ethers.constants.MaxUint256.sub(
+        ethers.utils.parseEther("1")
+      )
       const executorArgs = {
         value: maxAmount,
         refundAddress: user.address,
@@ -274,12 +319,18 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 10000, // 10% fee (10000/100000)
+        dbps: 10000, // 100% fee in basis points
         payee: user.address,
       }
 
       await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
@@ -303,10 +354,16 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(user)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
-      expect(await depositor.getStoredExecutorValue()).to.equal(0)
+      expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(0)
     })
   })
 })
