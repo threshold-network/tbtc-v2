@@ -66,7 +66,7 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
-[src/services/tbtc.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L40)
+[src/services/tbtc.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L41)
 
 ## Properties
 
@@ -76,7 +76,7 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
-[src/services/tbtc.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L35)
+[src/services/tbtc.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L36)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 #### Defined in
 
-[src/services/tbtc.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L33)
+[src/services/tbtc.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L34)
 
 ___
 
@@ -102,7 +102,7 @@ Will be removed in next major version.
 
 #### Defined in
 
-[src/services/tbtc.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L199)
+[src/services/tbtc.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L210)
 
 ___
 
@@ -215,7 +215,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[src/services/tbtc.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L391)
+[src/services/tbtc.ts:402](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L402)
 
 ___
 
@@ -269,7 +269,7 @@ Throws an error if:
 
 #### Defined in
 
-[src/services/tbtc.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L246)
+[src/services/tbtc.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L257)
 
 ___
 
@@ -297,7 +297,7 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
-[src/services/tbtc.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L153)
+[src/services/tbtc.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L164)
 
 ___
 
@@ -339,7 +339,7 @@ ___
 
 ### initializeEthereum
 
-▸ **initializeEthereum**(`ethereumSignerOrProvider`, `ethereumChainId`, `bitcoinNetwork`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeEthereum**(`ethereumSignerOrProvider`, `ethereumChainId`, `bitcoinNetwork`, `crossChainSupport?`, `nativeBTCDepositor?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for the given Ethereum network and Bitcoin network.
 The initialized instance uses default Electrum servers to interact
@@ -353,6 +353,7 @@ with Bitcoin network.
 | `ethereumChainId` | [`Ethereum`](../enums/Chains.Ethereum.md) | `undefined` | Ethereum chain ID. |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | `undefined` | Bitcoin network. |
 | `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
+| `nativeBTCDepositor?` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | `undefined` | NativeBTCDepositor address. Required for L1 gasless deposits. |
 
 #### Returns
 
@@ -371,17 +372,16 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[src/services/tbtc.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L113)
+[src/services/tbtc.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L120)
 
 ___
 
 ### initializeMainnet
 
-▸ **initializeMainnet**(`ethereumSignerOrProvider`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeMainnet**(`ethereumSignerOrProvider`, `crossChainSupport?`, `nativeBTCDepositor?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for Ethereum and Bitcoin mainnets.
 The initialized instance uses default Electrum servers to interact
-with Bitcoin mainnet
 
 #### Parameters
 
@@ -389,6 +389,7 @@ with Bitcoin mainnet
 | :------ | :------ | :------ | :------ |
 | `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
 | `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
+| `nativeBTCDepositor?` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | `undefined` | NativeBTCDepositor address. Required for L1 gasless deposits. |
 
 #### Returns
 
@@ -407,13 +408,13 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[src/services/tbtc.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L59)
+[src/services/tbtc.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L60)
 
 ___
 
 ### initializeSepolia
 
-▸ **initializeSepolia**(`ethereumSignerOrProvider`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeSepolia**(`ethereumSignerOrProvider`, `crossChainSupport?`, `nativeBTCDepositor?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
 The initialized instance uses default Electrum servers to interact
@@ -433,6 +434,7 @@ upgrading this SDK.
 | :------ | :------ | :------ | :------ |
 | `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
 | `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
+| `nativeBTCDepositor?` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | `undefined` | NativeBTCDepositor address. Required for L1 gasless deposits. |
 
 #### Returns
 
@@ -451,4 +453,4 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[src/services/tbtc.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L89)
+[src/services/tbtc.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L93)

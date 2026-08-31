@@ -10,24 +10,30 @@
 
 - [#crossChainContracts](DepositsService.md##crosschaincontracts)
 - [#defaultDepositor](DepositsService.md##defaultdepositor)
+- [#nativeBTCDepositor](DepositsService.md##nativebtcdepositor)
 - [bitcoinClient](DepositsService.md#bitcoinclient)
 - [depositRefundLocktimeDuration](DepositsService.md#depositrefundlocktimeduration)
 - [tbtcContracts](DepositsService.md#tbtccontracts)
 
 ### Methods
 
+- [buildGaslessRelayPayload](DepositsService.md#buildgaslessrelaypayload)
 - [generateDepositReceipt](DepositsService.md#generatedepositreceipt)
 - [initiateCrossChainDeposit](DepositsService.md#initiatecrosschaindeposit)
 - [initiateDeposit](DepositsService.md#initiatedeposit)
 - [initiateDepositWithProxy](DepositsService.md#initiatedepositwithproxy)
+- [initiateGaslessDeposit](DepositsService.md#initiategaslessdeposit)
+- [initiateL1GaslessDeposit](DepositsService.md#initiatel1gaslessdeposit)
+- [initiateL2GaslessDeposit](DepositsService.md#initiatel2gaslessdeposit)
 - [setCrossChainContractsResolver](DepositsService.md#setcrosschaincontractsresolver)
 - [setDefaultDepositor](DepositsService.md#setdefaultdepositor)
+- [setNativeBTCDepositor](DepositsService.md#setnativebtcdepositor)
 
 ## Constructors
 
 ### constructor
 
-• **new DepositsService**(`tbtcContracts`, `bitcoinClient`, `crossChainContracts?`): [`DepositsService`](DepositsService.md)
+• **new DepositsService**(`tbtcContracts`, `bitcoinClient`, `crossChainContracts?`, `nativeBTCDepositor?`): [`DepositsService`](DepositsService.md)
 
 #### Parameters
 
@@ -36,6 +42,7 @@
 | `tbtcContracts` | [`TBTCContracts`](../README.md#tbtccontracts) |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) |
 | `crossChainContracts?` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) |
+| `nativeBTCDepositor?` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) |
 
 #### Returns
 
@@ -43,7 +50,7 @@
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L60)
+[src/services/deposits/deposits-service.ts:225](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L225)
 
 ## Properties
 
@@ -69,7 +76,7 @@ Gets cross-chain contracts for the given supported L2 chain.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L56)
+[src/services/deposits/deposits-service.ts:216](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L216)
 
 ___
 
@@ -82,7 +89,20 @@ initiated by this service.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L49)
+[src/services/deposits/deposits-service.ts:209](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L209)
+
+___
+
+### #nativeBTCDepositor
+
+• `Private` **#nativeBTCDepositor**: `undefined` \| [`ChainIdentifier`](../interfaces/ChainIdentifier.md)
+
+Chain-specific identifier of the NativeBTCDepositor contract used for
+L1 gasless deposits.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:223](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L223)
 
 ___
 
@@ -94,7 +114,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L44)
+[src/services/deposits/deposits-service.ts:204](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L204)
 
 ___
 
@@ -107,7 +127,7 @@ This is 180 days (6 months assuming 1 month = 30 days).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L35)
+[src/services/deposits/deposits-service.ts:194](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L194)
 
 ___
 
@@ -119,9 +139,57 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L40)
+[src/services/deposits/deposits-service.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L200)
 
 ## Methods
+
+### buildGaslessRelayPayload
+
+▸ **buildGaslessRelayPayload**(`receipt`, `fundingTxHash`, `fundingOutputIndex`, `destinationChainName`): `Promise`\<[`GaslessRevealPayload`](../interfaces/GaslessRevealPayload.md)\>
+
+Builds the payload for backend gasless reveal endpoint.
+
+ THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+              IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+              PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+              CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
+
+The payload carries the Bitcoin funding transaction (decomposed into
+version / inputVector / outputVector / locktime), the reveal parameters
+from the receipt, the destination-chain deposit owner (32-byte extraData
+passed through unchanged; the relayer or on-chain contract decodes per
+chain type — see `EthereumExtraDataEncoder.decodeDepositOwner` and the
+per-chain encoders under `typescript/src/lib/contracts/cross-chain.ts`),
+and the destination chain name (lowercased for backend routing, except
+"L1" which is preserved).
+
+NOTE: The backend recovers the funding txid by `hash256` over the supplied
+vectors, then computes
+`depositKey = keccak256(abi.encodePacked(reversedTxHash, fundingOutputIndex))`
+— see `EthereumBridge.buildDepositKey` at
+`typescript/src/lib/ethereum/bridge.ts:478-481`. The SDK does not compute
+the depositKey directly.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `receipt` | [`DepositReceipt`](../interfaces/DepositReceipt.md) | Deposit receipt from `initiateGaslessDeposit`. `receipt.extraData` MUST be present. |
+| `fundingTxHash` | [`BitcoinTxHash`](BitcoinTxHash.md) | Bitcoin transaction hash of the funding transaction. |
+| `fundingOutputIndex` | `number` | Zero-based index of the deposit output in the funding transaction (non-negative integer). |
+| `destinationChainName` | ``"Base"`` \| ``"Arbitrum"`` \| ``"StarkNet"`` \| ``"Sui"`` \| ``"L1"`` | One of `SUPPORTED_GASLESS_CHAINS`. The wire format lowercases L2 chain names. |
+
+#### Returns
+
+`Promise`\<[`GaslessRevealPayload`](../interfaces/GaslessRevealPayload.md)\>
+
+Payload ready for submission to the backend gasless-reveal endpoint.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:574](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L574)
+
+___
 
 ### generateDepositReceipt
 
@@ -141,7 +209,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:209](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L209)
+[src/services/deposits/deposits-service.ts:667](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L667)
 
 ___
 
@@ -195,7 +263,7 @@ This is actually a call to initiateDepositWithProxy with a built-in
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:189](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L189)
+[src/services/deposits/deposits-service.ts:356](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L356)
 
 ___
 
@@ -229,7 +297,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L102)
+[src/services/deposits/deposits-service.ts:269](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L269)
 
 ___
 
@@ -271,7 +339,111 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L141)
+[src/services/deposits/deposits-service.ts:308](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L308)
+
+___
+
+### initiateGaslessDeposit
+
+▸ **initiateGaslessDeposit**(`bitcoinRecoveryAddress`, `depositOwner`, `destinationChainName`): `Promise`\<[`GaslessDepositResult`](../interfaces/GaslessDepositResult.md)\>
+
+Initiates a gasless tBTC v2 deposit where the backend relayer pays all gas fees.
+
+ THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+              IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+              PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+              CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
+
+For L1 destinations the `depositOwner` is encoded as bytes32 in extraData.
+For L2 destinations the SDK throws if `depositOwner` does not match the
+L2 signer's resolved owner (the resolved owner is authoritative — the
+caller cannot override it).
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin recovery address. |
+| `depositOwner` | `string` | Ethereum address that will receive the minted tBTC. |
+| `destinationChainName` | ``"Base"`` \| ``"Arbitrum"`` \| ``"StarkNet"`` \| ``"Sui"`` \| ``"L1"`` | Target chain name (one of `SUPPORTED_GASLESS_CHAINS`). |
+
+#### Returns
+
+`Promise`\<[`GaslessDepositResult`](../interfaces/GaslessDepositResult.md)\>
+
+GaslessDepositResult containing deposit, receipt, and chain name.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:394](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L394)
+
+___
+
+### initiateL1GaslessDeposit
+
+▸ **initiateL1GaslessDeposit**(`bitcoinRecoveryAddress`, `depositOwner`): `Promise`\<[`GaslessDepositResult`](../interfaces/GaslessDepositResult.md)\>
+
+Internal helper for L1 gasless deposits using the NativeBTCDepositor contract
+configured via the constructor or `setNativeBTCDepositor`.
+
+ THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+              IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+              PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+              CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin recovery address. |
+| `depositOwner` | `string` | Ethereum address that will receive the minted tBTC on L1. Validated and encoded as bytes32 in extraData. |
+
+#### Returns
+
+`Promise`\<[`GaslessDepositResult`](../interfaces/GaslessDepositResult.md)\>
+
+Promise resolving to the GaslessDepositResult for the L1 deposit.
+
+**`Throws`**
+
+Error if `depositOwner` is not a valid 20-byte Ethereum address or
+        if no NativeBTCDepositor address has been configured.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:432](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L432)
+
+___
+
+### initiateL2GaslessDeposit
+
+▸ **initiateL2GaslessDeposit**(`bitcoinRecoveryAddress`, `destinationChainName`, `depositOwner`): `Promise`\<[`GaslessDepositResult`](../interfaces/GaslessDepositResult.md)\>
+
+Internal helper for L2 gasless deposits using L1BitcoinDepositor with
+L1-transaction reveal mode.
+
+ THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+              IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+              PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+              CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin recovery address. |
+| `destinationChainName` | ``"Base"`` \| ``"Arbitrum"`` \| ``"StarkNet"`` \| ``"Sui"`` | L2 destination chain. |
+| `depositOwner` | `string` | Ethereum address that the caller wants to receive the minted tBTC. Must match the resolved L2 signer owner; otherwise throws (the resolved owner is authoritative — callers cannot override). |
+
+#### Returns
+
+`Promise`\<[`GaslessDepositResult`](../interfaces/GaslessDepositResult.md)\>
+
+Promise resolving to the GaslessDepositResult for the L2 deposit.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:486](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L486)
 
 ___
 
@@ -295,7 +467,7 @@ once the loader is ready.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L81)
+[src/services/deposits/deposits-service.ts:248](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L248)
 
 ___
 
@@ -324,4 +496,35 @@ Typically, there is no need to use this method when DepositsService
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:287](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L287)
+[src/services/deposits/deposits-service.ts:745](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L745)
+
+___
+
+### setNativeBTCDepositor
+
+▸ **setNativeBTCDepositor**(`nativeBTCDepositor`): `void`
+
+Sets the NativeBTCDepositor address used for L1 gasless deposits.
+
+Required for any gasless L1 deposit. There is no auto-resolve from
+`BitcoinNetwork` anymore — the SDK cannot verify a deployed contract
+address, so the caller is responsible for supplying the canonical
+NativeBTCDepositor contract address for the target Ethereum network.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `nativeBTCDepositor` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | Chain identifier of the NativeBTCDepositor contract. Must be a valid Ethereum address (40 hex chars, non-zero). Solana/StarkNet/Sui/other identifiers are rejected. |
+
+#### Returns
+
+`void`
+
+**`Throws`**
+
+If the identifier is not a valid Ethereum address.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:651](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L651)

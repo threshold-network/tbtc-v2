@@ -82,6 +82,8 @@
 - [ElectrumCredentials](interfaces/ElectrumCredentials.md)
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
 - [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
+- [GaslessDepositResult](interfaces/GaslessDepositResult.md)
+- [GaslessRevealPayload](interfaces/GaslessRevealPayload.md)
 - [L1BitcoinRedeemer](interfaces/L1BitcoinRedeemer.md)
 - [L2BitcoinRedeemer](interfaces/L2BitcoinRedeemer.md)
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
@@ -115,6 +117,7 @@
 - [ErrorMatcherFn](README.md#errormatcherfn)
 - [EthereumSigner](README.md#ethereumsigner)
 - [ExecutionLoggerFn](README.md#executionloggerfn)
+- [GaslessDestination](README.md#gaslessdestination)
 - [L1BitcoinDepositor](README.md#l1bitcoindepositor)
 - [L1CrossChainContracts](README.md#l1crosschaincontracts)
 - [L2BitcoinDepositor](README.md#l2bitcoindepositor)
@@ -151,6 +154,7 @@
 - [ChainMappings](README.md#chainmappings)
 - [DEPOSIT\_REFUND\_LOCKTIME\_DURATION\_SECONDS](README.md#deposit_refund_locktime_duration_seconds)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [SUPPORTED\_GASLESS\_CHAINS](README.md#supported_gasless_chains)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
@@ -452,6 +456,19 @@ A function that is called with execution status messages.
 #### Defined in
 
 [src/lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
+
+___
+
+### GaslessDestination
+
+Ƭ **GaslessDestination**: typeof [`SUPPORTED_GASLESS_CHAINS`](README.md#supported_gasless_chains)[`number`]
+
+Destination chain name accepted by `initiateGaslessDeposit` and
+`buildGaslessRelayPayload`. Derived from `SUPPORTED_GASLESS_CHAINS`.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L42)
 
 ___
 
@@ -975,7 +992,7 @@ This is 180 days (6 months assuming 1 month = 30 days).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L28)
+[src/services/deposits/deposits-service.ts:187](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L187)
 
 ___
 
@@ -990,6 +1007,20 @@ Use EthereumExtraDataEncoder instead
 #### Defined in
 
 [src/lib/ethereum/l1-bitcoin-depositor.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L215)
+
+___
+
+### SUPPORTED\_GASLESS\_CHAINS
+
+• `Const` **SUPPORTED\_GASLESS\_CHAINS**: readonly [``"L1"``, ``"Arbitrum"``, ``"Base"``, ``"Sui"``, ``"StarkNet"``]
+
+Canonical list of destination chains supported by the gasless deposit flow.
+Literal source of truth; `GaslessDestination` is derived from it so the
+type and runtime list cannot drift.
+
+#### Defined in
+
+[src/services/deposits/deposits-service.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L30)
 
 ___
 
