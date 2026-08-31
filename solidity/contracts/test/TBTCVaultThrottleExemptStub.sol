@@ -23,9 +23,12 @@ contract TBTCVaultThrottleExemptStub is TBTCVault {
         throttleExempt[requester] = exempt;
     }
 
-    function _isOptimisticMintingThrottleExempt(
-        address requester
-    ) internal view override returns (bool) {
+    function _isOptimisticMintingThrottleExempt(address requester)
+        internal
+        view
+        override
+        returns (bool)
+    {
         return throttleExempt[requester];
     }
 }
