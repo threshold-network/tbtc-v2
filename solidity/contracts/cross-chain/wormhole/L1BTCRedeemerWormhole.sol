@@ -26,9 +26,12 @@ import "../../integrator/AbstractBTCRedeemer.sol";
 ///         exposing only the function used to claim vetoed redemption
 ///         funds. Declared locally (rather than importing from the
 ///         `bridge` subpackage) to keep this integrator contract's
-///         dependency graph self-contained.
+///         dependency graph self-contained. Named distinctly from the
+///         `IRedemptionWatchtower` interface in `bridge/Redemption.sol`
+///         (which exposes `isSafeRedemption`/`getRedemptionDelay`) to
+///         avoid a TypeChain type-name collision between the two.
 /// @dev See bridge/RedemptionWatchtower.sol#withdrawVetoedFunds
-interface IRedemptionWatchtower {
+interface IWatchtowerWithdrawal {
     function withdrawVetoedFunds(uint256 redemptionKey) external;
 }
 
@@ -228,7 +231,7 @@ contract L1BTCRedeemerWormhole is
         address watchtower = thresholdBridge.getRedemptionWatchtower();
         if (watchtower == address(0)) revert RedemptionWatchtowerNotSet();
 
-        IRedemptionWatchtower(watchtower).withdrawVetoedFunds(redemptionKey);
+        IWatchtowerWithdrawal(watchtower).withdrawVetoedFunds(redemptionKey);
     }
 
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)

@@ -2004,7 +2004,7 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
       bank,
       bridge,
       watchtower,
-    } = await waffle.loadFixture(realContractFixture))
+    } = await loadFixture(realContractFixture))
   })
 
   describe("bank balance rescue (real contract)", () => {
