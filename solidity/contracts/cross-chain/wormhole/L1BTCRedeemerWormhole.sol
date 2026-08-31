@@ -22,6 +22,19 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./Wormhole.sol";
 import "../../integrator/AbstractBTCRedeemer.sol";
 
+/// @notice Minimal interface of the `RedemptionWatchtower` contract,
+///         exposing only the function used to claim vetoed redemption
+///         funds. Declared locally (rather than importing from the
+///         `bridge` subpackage) to keep this integrator contract's
+///         dependency graph self-contained. Named distinctly from the
+///         `IRedemptionWatchtower` interface in `bridge/Redemption.sol`
+///         (which exposes `isSafeRedemption`/`getRedemptionDelay`) to
+///         avoid a TypeChain type-name collision between the two.
+/// @dev See bridge/RedemptionWatchtower.sol#withdrawVetoedFunds
+interface IWatchtowerWithdrawal {
+    function withdrawVetoedFunds(uint256 redemptionKey) external;
+}
+
 /// @title L1BTCRedeemerWormhole
 /// @notice This contract is part of the direct bridging mechanism allowing
 ///         users to redeem ERC20 tBTC from a supported chain (L2) back to
@@ -46,6 +59,7 @@ import "../../integrator/AbstractBTCRedeemer.sol";
 ///         5. Relayers (or other authorized entities) might be involved in facilitating
 ///            the cross-chain communication and L1 transaction submissions, potentially
 ///            eligible for gas reimbursement.
+// slither-disable-next-line missing-inheritance
 contract L1BTCRedeemerWormhole is
     AbstractBTCRedeemer,
     Reimbursable,
@@ -55,6 +69,9 @@ contract L1BTCRedeemerWormhole is
     error CallerNotOwner();
     error SourceAddressNotAuthorized();
     error WormholeTokenBridgeAlreadySet();
+    error RecoveryAddressNotSet();
+    error RecipientNotRecoveryAddress();
+    error RedemptionWatchtowerNotSet();
 
     /// @notice Reference to the Wormhole Token Bridge contract.
     IWormholeTokenBridge public wormholeTokenBridge;
@@ -69,6 +86,10 @@ contract L1BTCRedeemerWormhole is
     ///         from authorized senders will be accepted. The addresses are stored
     ///         in Wormhole format (bytes32).
     mapping(bytes32 => bool) public allowedSenders;
+
+    /// @notice Address that receives rescued Bank balances (e.g. a recovery/ops address)
+    ///         used to return funds for failed cross-chain redemptions.
+    address public recoveryAddress;
 
     event RedemptionRequested(
         uint256 indexed redemptionKey,
@@ -86,6 +107,10 @@ contract L1BTCRedeemerWormhole is
     );
 
     event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
+    event RecoveryAddressUpdated(address indexed recoveryAddress);
+
+    event BankBalanceRescued(address indexed recipient, uint256 amount);
 
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
@@ -163,6 +188,51 @@ contract L1BTCRedeemerWormhole is
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+    }
+
+    /// @notice Updates the recovery address used by `rescueBankBalance`.
+    /// @dev Can be called only by the contract owner.
+    /// @param _recoveryAddress New recovery address.
+    function setRecoveryAddress(address _recoveryAddress) external onlyOwner {
+        if (_recoveryAddress == address(0)) revert ZeroAddress();
+
+        recoveryAddress = _recoveryAddress;
+        emit RecoveryAddressUpdated(_recoveryAddress);
+    }
+
+    /// @notice Transfers this contract's Bank balance to the configured recovery address.
+    /// @dev Can be called only by the contract owner.
+    ///      This is intended to recover funds returned to this contract as part of
+    ///      failed cross-chain redemption flows.
+    /// @param recipient Must match the configured `recoveryAddress`.
+    /// @param amount Amount of Bank balance to transfer.
+    function rescueBankBalance(address recipient, uint256 amount)
+        external
+        onlyOwner
+    {
+        if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
+        if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
+
+        emit BankBalanceRescued(recipient, amount);
+        bank.transferBalance(recipient, amount);
+    }
+
+    /// @notice Claims this contract's share of vetoed redemption funds from
+    ///         the tBTC `RedemptionWatchtower` and credits them to this
+    ///         contract's Bank balance, where they become rescuable via
+    ///         `rescueBankBalance`.
+    /// @dev Can be called only by the contract owner. The `RedemptionWatchtower`
+    ///      itself enforces that the veto is finalized, the freeze period has
+    ///      expired, and a withdrawable balance exists for `redemptionKey`;
+    ///      this call reverts with the watchtower's own revert reason if any
+    ///      of those conditions are not met.
+    /// @param redemptionKey Redemption key of the vetoed redemption request,
+    ///        as returned by `_requestRedemption`.
+    function withdrawVetoedFunds(uint256 redemptionKey) external onlyOwner {
+        address watchtower = thresholdBridge.getRedemptionWatchtower();
+        if (watchtower == address(0)) revert RedemptionWatchtowerNotSet();
+
+        IWatchtowerWithdrawal(watchtower).withdrawVetoedFunds(redemptionKey);
     }
 
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)
