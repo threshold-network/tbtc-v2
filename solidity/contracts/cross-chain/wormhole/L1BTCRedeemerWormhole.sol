@@ -59,6 +59,7 @@ interface IWatchtowerWithdrawal {
 ///         5. Relayers (or other authorized entities) might be involved in facilitating
 ///            the cross-chain communication and L1 transaction submissions, potentially
 ///            eligible for gas reimbursement.
+// slither-disable-next-line missing-inheritance
 contract L1BTCRedeemerWormhole is
     AbstractBTCRedeemer,
     Reimbursable,
