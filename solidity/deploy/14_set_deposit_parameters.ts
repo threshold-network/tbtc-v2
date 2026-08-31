@@ -1,6 +1,6 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { BigNumber, utils } from "ethers"
+import { BigNumber, Contract, Event, EventFilter, utils } from "ethers"
 
 // We set the deposit reveal ahead period to 150 days. Paired with the SDK's
 // 180-day refund locktime, this leaves 30 days to fund and reveal a deposit.
@@ -11,6 +11,42 @@ const bridgeGovernanceInterface = new utils.Interface([
   "function beginDepositRevealAheadPeriodUpdate(uint32 newDepositRevealAheadPeriod)",
   "function finalizeDepositRevealAheadPeriodUpdate()",
 ])
+
+// eth_getLogs block ranges are capped by most RPC providers (commonly
+// 2,000-10,000 blocks per call); an unbounded fromBlock=0 scan would be
+// rejected on mainnet. Chunk queries and bound the lookback to at most
+// FALLBACK_LOOKBACK_BLOCKS, never earlier than the BridgeGovernance
+// deployment block when known (the contract cannot have emitted events
+// before it existed) - whichever bound is more recent wins, so an old
+// deployment doesn't force a years-long, thousands-of-chunks scan.
+const EVENT_QUERY_CHUNK_BLOCKS = 5000
+const FALLBACK_LOOKBACK_BLOCKS = 200_000 // ~27 days at 12s/block
+
+async function queryEventsInChunks(
+  contract: Contract,
+  filter: EventFilter,
+  fromBlock: number,
+  toBlock: number
+): Promise<Event[]> {
+  const chunkStarts: number[] = []
+  for (
+    let chunkStart = fromBlock;
+    chunkStart <= toBlock;
+    chunkStart += EVENT_QUERY_CHUNK_BLOCKS
+  ) {
+    chunkStarts.push(chunkStart)
+  }
+  const chunkResults = await Promise.all(
+    chunkStarts.map((chunkStart) =>
+      contract.queryFilter(
+        filter,
+        chunkStart,
+        Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock)
+      )
+    )
+  )
+  return chunkResults.flat()
+}
 
 interface GovernanceAction {
   to: string
@@ -99,15 +135,27 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       "BridgeGovernance",
       bridgeGovernanceDeployment.address
     )
+    const latestBlock = await ethers.provider.getBlockNumber()
+    const fromBlock = Math.max(
+      bridgeGovernanceDeployment.receipt?.blockNumber ?? 0,
+      latestBlock - FALLBACK_LOOKBACK_BLOCKS,
+      0
+    )
     const filterStarted =
       bridgeGovernanceContract.filters.DepositRevealAheadPeriodUpdateStarted()
     const filterUpdated =
       bridgeGovernanceContract.filters.DepositRevealAheadPeriodUpdated()
-    const logsStarted = await bridgeGovernanceContract.queryFilter(
-      filterStarted
+    const logsStarted = await queryEventsInChunks(
+      bridgeGovernanceContract,
+      filterStarted,
+      fromBlock,
+      latestBlock
     )
-    const logsUpdated = await bridgeGovernanceContract.queryFilter(
-      filterUpdated
+    const logsUpdated = await queryEventsInChunks(
+      bridgeGovernanceContract,
+      filterUpdated,
+      fromBlock,
+      latestBlock
     )
 
     const lastStarted = logsStarted[logsStarted.length - 1]

@@ -75,7 +75,14 @@ describe("Deploy Script 14: deposit parameters", () => {
             DepositRevealAheadPeriodUpdateStarted: () => "started",
             DepositRevealAheadPeriodUpdated: () => "updated",
           },
-          queryFilter: async (filter: any) => {
+          queryFilter: async (
+            filter: any,
+            fromBlock: number,
+            toBlock: number
+          ) => {
+            if (fromBlock > toBlock) {
+              throw new Error(`Invalid block range: ${fromBlock} > ${toBlock}`)
+            }
             if (filter === "started") {
               return options.pendingUpdate
                 ? [
@@ -92,6 +99,9 @@ describe("Deploy Script 14: deposit parameters", () => {
             return []
           },
         }),
+        provider: {
+          getBlockNumber: async () => 1000,
+        },
       },
       getNamedAccounts: async () => ({ deployer }),
       network: { name: "mainnet" },
