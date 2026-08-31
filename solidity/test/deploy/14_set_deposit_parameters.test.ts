@@ -20,6 +20,10 @@ describe("Deploy Script 14: deposit parameters", () => {
     bridgeGovernance: string
     depositRevealAheadPeriod: BigNumber
     bridgeGovernanceDeployment?: string | null
+    pendingUpdate?: {
+      newDepositRevealAheadPeriod: BigNumber
+      timestamp: BigNumber
+    } | null
   }) {
     const executeCalls: any[][] = []
     const getCalls: string[] = []
@@ -39,7 +43,7 @@ describe("Deploy Script 14: deposit parameters", () => {
           }
         },
         log: (message: string) => logs.push(message),
-        read: async (name: string, method: string) => {
+        read: async (name: string, method: string, ...args: any[]) => {
           if (name === "Bridge" && method === "depositParameters") {
             return {
               depositDustThreshold,
@@ -54,13 +58,41 @@ describe("Deploy Script 14: deposit parameters", () => {
           }
 
           if (name === "BridgeGovernance" && method === "governanceDelays") {
-            return governanceDelay
+            const index = args[0]
+            if (BigNumber.from(index).eq(0)) {
+              return governanceDelay
+            }
+            throw new Error(`Unexpected read: ${name}.${method}(${index})`)
           }
 
           throw new Error(`Unexpected read: ${name}.${method}`)
         },
       },
-      ethers: { BigNumber },
+      ethers: {
+        BigNumber,
+        getContractAt: async (name: string, address: string) => ({
+          filters: {
+            DepositRevealAheadPeriodUpdateStarted: () => "started",
+            DepositRevealAheadPeriodUpdated: () => "updated",
+          },
+          queryFilter: async (filter: any) => {
+            if (filter === "started") {
+              return options.pendingUpdate
+                ? [
+                    {
+                      args: [
+                        options.pendingUpdate.newDepositRevealAheadPeriod,
+                        options.pendingUpdate.timestamp,
+                      ],
+                      blockNumber: 100,
+                    },
+                  ]
+                : []
+            }
+            return []
+          },
+        }),
+      },
       getNamedAccounts: async () => ({ deployer }),
       network: { name: "mainnet" },
     } as unknown as HardhatRuntimeEnvironment
@@ -159,7 +191,7 @@ describe("Deploy Script 14: deposit parameters", () => {
     }
 
     expect(error?.message).to.equal(
-      `Bridge is governed by unexpected address ${unexpectedGovernor}`
+      `Bridge is governed by unexpected address ${unexpectedGovernor}, expected deployer ${deployer}`
     )
     expect(executeCalls).to.be.empty
   })
@@ -191,6 +223,28 @@ describe("Deploy Script 14: deposit parameters", () => {
         actions.finalize.data
       )
     ).to.have.lengthOf(0)
+  })
+
+  it("throws when a pending deposit reveal-ahead period update exists", async () => {
+    const { mockHre } = createMockHre({
+      bridgeGovernance,
+      depositRevealAheadPeriod: BigNumber.from("12960000").add(1),
+      pendingUpdate: {
+        newDepositRevealAheadPeriod: BigNumber.from("100"),
+        timestamp: BigNumber.from("1000"),
+      },
+    })
+
+    let error: Error | undefined
+    try {
+      await func(mockHre)
+    } catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error?.message).to.equal(
+      "Deposit reveal-ahead period update is already pending"
+    )
   })
 
   it("runs only on mainnet", async () => {

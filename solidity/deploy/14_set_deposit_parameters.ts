@@ -2,6 +2,9 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 import { BigNumber, utils } from "ethers"
 
+// We set the deposit reveal ahead period to 150 days. Paired with the SDK's
+// 180-day refund locktime, this leaves 30 days to fund and reveal a deposit.
+// 150 * 24 * 60 * 60 = 12960000 seconds
 export const DEPOSIT_REVEAL_AHEAD_PERIOD = BigNumber.from("12960000")
 
 const bridgeGovernanceInterface = new utils.Interface([
@@ -33,8 +36,9 @@ export function buildDepositRevealAheadPeriodGovernanceActions(
         "beginDepositRevealAheadPeriodUpdate",
         [DEPOSIT_REVEAL_AHEAD_PERIOD]
       ),
-      description:
-        "Begin the Bridge deposit reveal-ahead period update to 150 days",
+      description: `Begin the Bridge deposit reveal-ahead period update to ${DEPOSIT_REVEAL_AHEAD_PERIOD.div(
+        86400
+      ).toString()} days`,
     },
     finalize: {
       to: bridgeGovernance,
@@ -43,8 +47,7 @@ export function buildDepositRevealAheadPeriodGovernanceActions(
         "finalizeDepositRevealAheadPeriodUpdate"
       ),
       executeAfterSeconds: governanceDelay.toString(),
-      description:
-        "Finalize the Bridge deposit reveal-ahead period update after the governance delay",
+      description: `Finalize the Bridge deposit reveal-ahead period update after the governance delay (${governanceDelay.toString()} seconds after the begin transaction is mined; the delay is re-read on-chain at execution)`,
     },
   }
 }
@@ -55,10 +58,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const depositTreasuryFeeDivisor = ethers.BigNumber.from("0")
 
-  // We set the deposit reveal ahead period to 150 days. Paired with the SDK's
-  // 180-day refund locktime, this leaves 30 days to fund and reveal a deposit.
-  // 150 * 24 * 60 * 60 = 12960000 seconds
-  // Fetch the current values of other deposit parameters to keep them unchanged.
+  // Fetch the current values of other deposit parameters to keep them unchanged,
+  // and to compare the live reveal-ahead period against the governance target below.
   const depositParameters = await read("Bridge", "depositParameters")
   const bridgeGovernance = await read("Bridge", "governance")
 
@@ -87,6 +88,37 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     const governanceDelay = BigNumber.from(
       await read("BridgeGovernance", "governanceDelays", 0)
     )
+    const bridgeGovernanceContract = await ethers.getContractAt(
+      "BridgeGovernance",
+      bridgeGovernanceDeployment.address
+    )
+    const filterStarted =
+      bridgeGovernanceContract.filters.DepositRevealAheadPeriodUpdateStarted()
+    const filterUpdated =
+      bridgeGovernanceContract.filters.DepositRevealAheadPeriodUpdated()
+    const logsStarted = await bridgeGovernanceContract.queryFilter(
+      filterStarted
+    )
+    const logsUpdated = await bridgeGovernanceContract.queryFilter(
+      filterUpdated
+    )
+
+    const lastStarted = logsStarted[logsStarted.length - 1]
+    const lastUpdated = logsUpdated[logsUpdated.length - 1]
+
+    if (
+      lastStarted &&
+      (!lastUpdated || lastStarted.blockNumber > lastUpdated.blockNumber)
+    ) {
+      const newPeriod = lastStarted.args[0]
+      const timestamp = lastStarted.args[1]
+      const eta = timestamp.add(governanceDelay)
+      log(
+        `Pending deposit reveal-ahead period update: new value ${newPeriod}, start timestamp ${timestamp}, ETA ${eta}`
+      )
+      throw new Error("Deposit reveal-ahead period update is already pending")
+    }
+
     const governanceActions = buildDepositRevealAheadPeriodGovernanceActions(
       bridgeGovernanceDeployment.address,
       governanceDelay
@@ -103,9 +135,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   }
 
   const { deployer } = await getNamedAccounts()
-  if (!deployer || bridgeGovernance.toLowerCase() !== deployer.toLowerCase()) {
+  if (!deployer) {
+    throw new Error("Named account 'deployer' is not configured")
+  } else if (bridgeGovernance.toLowerCase() !== deployer.toLowerCase()) {
     throw new Error(
-      `Bridge is governed by unexpected address ${bridgeGovernance}`
+      `Bridge is governed by unexpected address ${bridgeGovernance}, expected deployer ${deployer}`
     )
   }
 
