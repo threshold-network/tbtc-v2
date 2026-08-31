@@ -154,6 +154,7 @@
 - [BitcoinScriptUtils](README.md#bitcoinscriptutils)
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
+- [DEPOSIT\_REFUND\_LOCKTIME\_DURATION\_SECONDS](README.md#deposit_refund_locktime_duration_seconds)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
 - [SeiL2TBTCToken](README.md#seil2tbtctoken)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
@@ -993,6 +994,19 @@ List of chain mappings supported by tBTC v2 contracts.
 #### Defined in
 
 [lib/contracts/chain.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L124)
+
+___
+
+### DEPOSIT\_REFUND\_LOCKTIME\_DURATION\_SECONDS
+
+• `Const` **DEPOSIT\_REFUND\_LOCKTIME\_DURATION\_SECONDS**: ``15552000``
+
+Deposit refund locktime duration in seconds.
+This is 180 days (6 months assuming 1 month = 30 days).
+
+#### Defined in
+
+[services/deposits/deposits-service.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L28)
 
 ___
 
