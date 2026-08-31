@@ -255,6 +255,9 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol",
       "@keep-network/tbtc-v2/contracts/bridge/Bridge.sol",
       "@keep-network/tbtc-v2/contracts/vault/TBTCVault.sol",
+      // Mintable ERC20 used by the depositor regression tests to back the
+      // SafeERC20 allowance/transfer plumbing with a real token.
+      "@keep-network/tbtc-v2/contracts/test/TestERC20.sol",
     ],
     keep: true,
   },

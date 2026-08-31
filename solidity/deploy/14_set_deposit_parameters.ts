@@ -56,6 +56,13 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, ethers, getNamedAccounts } = hre
   const { execute, getOrNull, log, read } = deployments
 
+  // HISTORICAL NOTE: This mainnet-only script already ran at deployment time
+  // and set the deposit treasury fee divisor to 0 (fee disabled back then).
+  // It has since been superseded by governance actions and will not re-run
+  // on mainnet. Do not read the value below as the current configuration:
+  // as of TIP-109, the mainnet deposit and redemption treasury fee divisors
+  // are both 500 (20 bps). Always query Bridge.depositParameters() and
+  // Bridge.redemptionParameters() on-chain for current values.
   const depositTreasuryFeeDivisor = ethers.BigNumber.from("0")
 
   // Fetch the current values of other deposit parameters to keep them unchanged,
