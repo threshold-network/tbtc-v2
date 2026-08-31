@@ -4,10 +4,7 @@ import chai from "chai"
 import sinon from "sinon"
 import axios from "axios"
 import { SolanaDepositorInterface } from "../../../src/lib/solana/solana-depositor-interface"
-import {
-  SolanaAddress,
-  SolanaExtraDataEncoder,
-} from "../../../src/lib/solana"
+import { SolanaAddress, SolanaExtraDataEncoder } from "../../../src/lib/solana"
 import { BitcoinRawTxVectors } from "../../../src/lib/bitcoin"
 import { DepositReceipt } from "../../../src/lib/contracts"
 import { Hex } from "../../../src/lib/utils"

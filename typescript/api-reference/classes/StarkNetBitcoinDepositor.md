@@ -167,7 +167,7 @@ A descriptive error message
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:863](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L863)
+[src/lib/starknet/starknet-depositor.ts:866](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L866)
 
 ___
 
@@ -191,7 +191,7 @@ Formatted error message
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:931](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L931)
+[src/lib/starknet/starknet-depositor.ts:934](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L934)
 
 ___
 
@@ -219,7 +219,7 @@ Error if the address is invalid
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1001](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1001)
+[src/lib/starknet/starknet-depositor.ts:1004](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1004)
 
 ___
 
@@ -338,7 +338,7 @@ StarkNetRelayerDepositConflictError always; carries the deposit ID and
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:753](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L753)
+[src/lib/starknet/starknet-depositor.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L756)
 
 ___
 
@@ -421,7 +421,7 @@ True if the error is retryable
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:908](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L908)
+[src/lib/starknet/starknet-depositor.ts:911](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L911)
 
 ___
 
@@ -447,7 +447,7 @@ The parsed status response, or undefined if the relayer did
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:826](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L826)
+[src/lib/starknet/starknet-depositor.ts:829](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L829)
 
 ___
 
