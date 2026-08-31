@@ -20,8 +20,7 @@ import {
   initializeDepositFixture,
   toWormholeAddress,
 } from "./L1BTCDepositorWormhole.test"
-import { createMock } from "../../helpers/mock"
-import type { Mock } from "../../helpers/mock"
+import { createMock, expectCalledTwice } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -118,6 +117,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
   let l2WormholeGateway: Mock<IWormholeGateway>
   let l2BitcoinDepositor: string
   let l1BtcDepositor: L1BTCDepositorWormholeV2Base
+  let reimbursementPool: Mock<ReimbursementPool>
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -132,6 +132,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
       l2WormholeGateway,
       l2BitcoinDepositor,
       l1BtcDepositor,
+      reimbursementPool,
     } = await waffle.loadFixture(contractsFixture))
     ;[tokenOwner] = await ethers.getSigners()
   })
@@ -469,6 +470,119 @@ describe("L1BTCDepositorWormholeV2Base", () => {
           expect(call.args[3]).to.equal(
             toWormholeAddress(l2WormholeGateway.address.toLowerCase())
           )
+        })
+      }
+    )
+    context(
+      "when the reimbursement pool is set and a deferred gas reimbursement exists",
+      () => {
+        let initializer: SignerWithAddress
+        let initializeDepositGasSpent: BigNumber
+
+        before(async () => {
+          await createSnapshot()
+
+          const accounts = await getUnnamedAccounts()
+          initializer = await ethers.getSigner(accounts[2])
+
+          // Use 1Gwei to make sure it's smaller than default gas price
+          // used by Hardhat (200 Gwei) and this value will be used
+          // for msgValueOffset calculation.
+          await reimbursementPool.maxGasPrice.returns(
+            BigNumber.from(1000000000)
+          )
+          await reimbursementPool.staticGas.returns(10000) // Just an arbitrary value.
+
+          await l1BtcDepositor
+            .connect(governance)
+            .updateReimbursementPool(reimbursementPool.address)
+          await l1BtcDepositor
+            .connect(governance)
+            .updateReimbursementAuthorization(relayer.address, true)
+          await l1BtcDepositor
+            .connect(governance)
+            .updateReimbursementAuthorization(initializer.address, true)
+
+          await l1BtcDepositor
+            .connect(initializer)
+            .initializeDeposit(
+              initializeDepositFixture.fundingTx,
+              initializeDepositFixture.reveal,
+              initializeDepositFixture.destinationChainDepositOwner
+            )
+
+          initializeDepositGasSpent = (
+            await l1BtcDepositor.gasReimbursements(
+              initializeDepositFixture.depositKey
+            )
+          ).gasSpent
+
+          // The deferred reimbursement entry must exist before finalization,
+          // otherwise the ordering assertions would pass vacuously.
+          expect(initializeDepositGasSpent).to.be.gt(0)
+
+          await bridge.depositParameters.returns({
+            depositDustThreshold: 0,
+            depositTreasuryFeeDivisor: 0,
+            depositTxMaxFee,
+            depositRevealAheadPeriod: 0,
+          })
+          await tbtcVault.optimisticMintingFeeDivisor.returns(
+            optimisticMintingFeeDivisor
+          )
+
+          const revealedAt = (await lastBlockTime()) - 7200
+          const finalizedAt = await lastBlockTime()
+          await bridge.deposits
+            .whenCalledWith(initializeDepositFixture.depositKey)
+            .returns({
+              depositor: l1BtcDepositor.address,
+              amount: depositAmount,
+              revealedAt,
+              vault: initializeDepositFixture.reveal.vault,
+              treasuryFee,
+              sweptAt: finalizedAt,
+              extraData: initializeDepositFixture.destinationChainDepositOwner,
+            })
+
+          await tbtcVault.optimisticMintingRequests
+            .whenCalledWith(initializeDepositFixture.depositKey)
+            .returns([revealedAt, finalizedAt])
+
+          await wormhole.messageFee.returns(messageFee)
+          await wormholeTokenBridge.transferTokensWithPayload.returns(
+            transferSequence
+          )
+
+          await l1BtcDepositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey, {
+              value: messageFee,
+            })
+        })
+
+        after(async () => {
+          await reimbursementPool.maxGasPrice.reset()
+          await reimbursementPool.staticGas.reset()
+          resetMocks()
+          await restoreSnapshot()
+        })
+
+        it("should reimburse finalization before deferred initialization", async () => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          await expectCalledTwice(reimbursementPool.refund)
+
+          // The finalization reimbursement must be calculated and paid
+          // before the deferred initialization reimbursement. The latter
+          // calls an untrusted receiver, so doing it first would let that
+          // receiver burn gas that is then counted again in the
+          // finalization reimbursement.
+          const firstCall = await reimbursementPool.refund.getCall(0)
+          expect(firstCall.args[1]).to.equal(relayer.address)
+
+          const secondCall = await reimbursementPool.refund.getCall(1)
+          expect(secondCall.args[0]).to.equal(initializeDepositGasSpent)
+          expect(secondCall.args[1]).to.equal(initializer.address)
         })
       }
     )

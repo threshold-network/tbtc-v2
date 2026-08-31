@@ -493,6 +493,15 @@ contract L1BTCDepositorWormholeV2Arbitrum is
             // Calculate and pay the finalization reimbursement before calling
             // the untrusted initialization reimbursement receiver. Otherwise,
             // gas consumed by that receiver would be reimbursed a second time.
+            //
+            // Two consequences of this order worth knowing:
+            // - The deferred call's own execution cost (previously inside
+            //   the finalizer's gas window) is no longer reimbursed to
+            //   anyone; `finalizeDepositGasOffset` may need retuning to
+            //   account for it.
+            // - If `reimbursementPool`'s balance cannot cover both refunds,
+            //   the finalizer now has first claim on it; the deferred
+            //   receiver absorbs the shortfall instead.
             if (reimbursementAuthorizations[msg.sender]) {
                 uint256 msgValueOffset = _refundToGasSpent(msg.value);
                 reimbursementPool.refund(

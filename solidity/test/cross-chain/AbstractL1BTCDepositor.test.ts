@@ -1,7 +1,12 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import {
+  BigNumber,
+  ContractTransaction,
+  Contract,
+  ContractReceipt,
+} from "ethers"
 import {
   IBridge,
   ITBTCVault,
@@ -298,10 +303,104 @@ describe("AbstractL1BTCDepositor", () => {
           // gas that is then counted again in the finalization reimbursement.
           const firstCall = await reimbursementPool.refund.getCall(0)
           expect(firstCall.args[1]).to.equal(relayer.address)
+          expect(
+            BigNumber.from(firstCall.args[0]).toNumber()
+          ).to.be.greaterThan(0)
 
           const secondCall = await reimbursementPool.refund.getCall(1)
           expect(secondCall.args[0]).to.equal(initializeDepositGasSpent)
           expect(secondCall.args[1]).to.equal(initializer.address)
+        })
+      }
+    )
+    context(
+      "when the deferred initialization receiver burns gas on receipt",
+      () => {
+        const gasPrice = ethers.utils.parseUnits("1", "gwei")
+
+        let realReimbursementPool: ReimbursementPool
+        let gasBurningReceiver: Contract
+        let relayerBalanceBefore: BigNumber
+        let relayerBalanceAfter: BigNumber
+        let receipt: ContractReceipt
+
+        before(async () => {
+          await createSnapshot()
+
+          const [funder] = await ethers.getSigners()
+
+          realReimbursementPool = (await (
+            await ethers.getContractFactory("ReimbursementPool")
+          ).deploy(10000, gasPrice)) as ReimbursementPool
+          await realReimbursementPool.authorize(depositor.address)
+          await funder.sendTransaction({
+            to: realReimbursementPool.address,
+            value: ethers.utils.parseEther("1"),
+          })
+
+          // Burns far more gas in `receive` than a plain EOA ever would.
+          gasBurningReceiver = await (
+            await ethers.getContractFactory("GasBurningReceiver")
+          ).deploy(50)
+
+          await depositor
+            .connect(governance)
+            .updateReimbursementPool(realReimbursementPool.address)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(relayer.address, true)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(gasBurningReceiver.address, true)
+
+          await gasBurningReceiver.callInitializeDeposit(
+            depositor.address,
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+          const deferredReimbursement = await depositor.gasReimbursements(
+            initializeDepositFixture.depositKey
+          )
+          expect(deferredReimbursement.receiver).to.equal(
+            gasBurningReceiver.address
+          )
+          expect(deferredReimbursement.gasSpent).to.be.gt(0)
+
+          await allowFinalization()
+
+          relayerBalanceBefore = await relayer.getBalance()
+
+          const tx = await depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey, {
+              gasPrice,
+            })
+          receipt = await tx.wait()
+
+          relayerBalanceAfter = await relayer.getBalance()
+        })
+
+        after(async () => {
+          await resetFakes()
+
+          await restoreSnapshot()
+        })
+
+        it("should pay the gas-burning receiver its deferred reimbursement without reverting finalization", async () => {
+          expect(
+            await ethers.provider.getBalance(gasBurningReceiver.address)
+          ).to.be.gt(0)
+        })
+
+        it("should still reimburse the finalizer despite the receiver's real gas burn", async () => {
+          const txCost = receipt.gasUsed.mul(gasPrice)
+          const netReimbursement = relayerBalanceAfter
+            .sub(relayerBalanceBefore)
+            .add(txCost)
+
+          expect(netReimbursement).to.be.gt(0)
         })
       }
     )

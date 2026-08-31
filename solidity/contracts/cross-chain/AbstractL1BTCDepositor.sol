@@ -461,6 +461,15 @@ abstract contract AbstractL1BTCDepositor is
             // deferred initialization reimbursement. The latter calls an
             // untrusted receiver that can consume arbitrary gas. Paying it
             // first would count that gas again in the finalization refund.
+            //
+            // Two consequences of this order worth knowing:
+            // - The deferred call's own execution cost (previously inside
+            //   the finalizer's gas window) is no longer reimbursed to
+            //   anyone; `finalizeDepositGasOffset` may need retuning to
+            //   account for it.
+            // - If `reimbursementPool`'s balance cannot cover both refunds,
+            //   the finalizer now has first claim on it; the deferred
+            //   receiver absorbs the shortfall instead.
             if (reimbursementAuthorizations[msg.sender]) {
                 // As this call is payable and this transaction carries out a
                 // msg.value that covers the Bridging cost, we need to reimburse
