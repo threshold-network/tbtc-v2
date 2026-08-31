@@ -10,6 +10,7 @@ dist-test/
 yarn-error.log
 CLAUDE.md
 .claude/
+agent-docs/
 .ralph/
 __pycache__/
 *.pyc

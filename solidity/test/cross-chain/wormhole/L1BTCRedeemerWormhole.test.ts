@@ -1,8 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IWormholeTokenBridge,
   MockL1BTCRedeemerWormhole,
@@ -245,7 +246,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       bank,
       tbtcToken,
       tbtcVault,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("initialization", () => {
