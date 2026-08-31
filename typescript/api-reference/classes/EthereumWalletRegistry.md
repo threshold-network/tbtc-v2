@@ -61,7 +61,7 @@ EthersContractHandle\&lt;WalletRegistryTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L33)
+[src/lib/ethereum/wallet-registry.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L33)
 
 ## Properties
 
@@ -79,7 +79,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
+[src/lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -95,7 +95,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
+[src/lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -111,7 +111,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
+[src/lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
@@ -133,7 +133,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
+[src/lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -153,7 +153,7 @@ ___
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L60)
+[src/lib/ethereum/wallet-registry.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L60)
 
 ___
 
@@ -180,7 +180,7 @@ WalletRegistry.getDkgResultApprovedEvents
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L136)
+[src/lib/ethereum/wallet-registry.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L136)
 
 ___
 
@@ -207,7 +207,7 @@ WalletRegistry.getDkgResultChallengedEvents
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:161](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L161)
+[src/lib/ethereum/wallet-registry.ts:161](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L161)
 
 ___
 
@@ -234,7 +234,7 @@ WalletRegistry.getDkgResultSubmittedEvents
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L93)
+[src/lib/ethereum/wallet-registry.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L93)
 
 ___
 
@@ -268,7 +268,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
+[src/lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -295,4 +295,4 @@ ___
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L68)
+[src/lib/ethereum/wallet-registry.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L68)

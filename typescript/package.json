@@ -36,6 +36,7 @@
   },
   "scripts": {
     "postinstall": "patch-package",
+    "check:mainnet-deposit-parameters": "ts-node --files ./scripts/check-mainnet-deposit-parameters.ts",
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
     "format:fix": "yarn run lint:fix && prettier --write .",

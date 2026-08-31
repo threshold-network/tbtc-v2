@@ -1,6 +1,6 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
-import hre, { ethers, helpers, waffle } from "hardhat"
+import hre, { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import type {
@@ -77,7 +77,7 @@ describeFn("Integration Test - Slashing", async () => {
       relay,
       randomBeacon,
       bridgeGovernance,
-    } = await waffle.loadFixture(fixture))
+    } = await fixture())
     ;[thirdParty] = await helpers.signers.getUnnamedSigners()
 
     // Update only the parameters that are crucial for this test.

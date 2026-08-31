@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-extra-semi */
-import hre, { ethers, waffle } from "hardhat"
+import hre, { ethers } from "hardhat"
 import { expect } from "chai"
 
 import type { ContractTransaction } from "ethers"
@@ -41,8 +41,7 @@ describeFn("Integration Test - Wallet Creation", async () => {
   const walletPubKeyHash = ecdsaWalletTestData.pubKeyHash160
 
   before(async () => {
-    ;({ governance, bridge, walletRegistry, randomBeacon } =
-      await waffle.loadFixture(fixture))
+    ;({ governance, bridge, walletRegistry, randomBeacon } = await fixture())
 
     // Update only the parameters that are crucial for this test.
     await updateWalletRegistryDkgResultChallengePeriodLength(
