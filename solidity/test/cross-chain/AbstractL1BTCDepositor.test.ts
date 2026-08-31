@@ -1,7 +1,8 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -124,7 +125,7 @@ describe("AbstractL1BTCDepositor", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, relayer, bridge, tbtcVault, reimbursementPool, depositor } =
-      await waffle.loadFixture(contractsFixture))
+      await loadFixture(contractsFixture))
   })
 
   // Sets the Bridge and TBTCVault mocks to a state that allows finalizing

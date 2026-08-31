@@ -188,9 +188,11 @@ decoded. No port needed.
 it. `helpers.signers` and `helpers.contracts.getContract` do not: both return
 ethers objects. Their replacement is `getNamedAccounts()` plus
 `viem.getWalletClient`, and `deployments.get(name).address` plus
-`viem.getContractAt(name, address)`. `waffle.loadFixture`, 55 sites across the
-suite, has no viem equivalent either; this file calls its fixture directly
-because it calls it once, but that does not generalise.
+`viem.getContractAt(name, address)`. `waffle.loadFixture` -- formerly used at 55
+sites across the suite with no viem equivalent -- has since been replaced
+project-wide by a project-owned loader (`solidity/test/helpers/fixture.ts`) that
+fixes a separate correctness bug in waffle's implementation; see that file's
+docstring for the full history.
 
 **Not the codegen step.** `hardhat-viem` is itself a code generator. Compiling
 with the plugin loaded emitted **368** `.d.ts` files into `paths.artifacts`

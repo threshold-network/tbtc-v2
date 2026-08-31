@@ -1,7 +1,8 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import { constants } from "../fixtures"
 import { toSatoshis } from "../helpers/contract-test-helpers"
 
@@ -79,9 +80,7 @@ describe("TBTCVault", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, governance, bank, vault, tbtc } = await waffle.loadFixture(
-      fixture
-    ))
+    ;({ bridge, governance, bank, vault, tbtc } = await loadFixture(fixture))
 
     const accounts = await getUnnamedAccounts()
     account1 = await ethers.getSigner(accounts[0])
