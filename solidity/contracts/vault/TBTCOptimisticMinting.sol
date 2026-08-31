@@ -1065,8 +1065,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
         }
 
         // slither-disable-next-line incorrect-equality
-        /* solhint-disable-next-line not-rely-on-time */
         if (refilledAt == 0) {
+            /* solhint-disable-next-line not-rely-on-time */
             return (limit, uint64(block.timestamp));
         }
 
@@ -1078,8 +1078,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
             return (remaining, refilledAt);
         }
         uint256 updated = remaining + credit;
-        /* solhint-disable-next-line not-rely-on-time */
         if (updated >= limit) {
+            /* solhint-disable-next-line not-rely-on-time */
             return (limit, uint64(block.timestamp));
         }
 
