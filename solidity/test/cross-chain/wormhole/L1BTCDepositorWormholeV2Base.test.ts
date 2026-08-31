@@ -21,6 +21,7 @@ import {
   toWormholeAddress,
 } from "./L1BTCDepositorWormhole.test"
 import { createMock, expectCalledTwice } from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
