@@ -22,7 +22,7 @@ contract artifact.
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L53)
+[src/lib/ethereum/adapter.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L53)
 
 ___
 
@@ -36,7 +36,7 @@ contract artifact.
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L64)
+[src/lib/ethereum/adapter.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L64)
 
 ___
 
@@ -49,4 +49,4 @@ Provider - will return a downgraded Contract which only has read-only access (i.
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:58](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L58)
+[src/lib/ethereum/adapter.ts:58](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L58)

@@ -1,8 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IL2WormholeGateway,
   L2TBTC,
@@ -130,7 +131,7 @@ describe("L2BTCRedeemerWormhole", () => {
       tbtc,
       gateway,
       testBTCUtilsHelper,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
 
     // Debug BTCUtils.extractHashAt
     const payload = await testBTCUtilsHelper.getScriptPayload(

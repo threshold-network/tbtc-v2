@@ -9,6 +9,7 @@ import {
 import { MockBitcoinClient } from "../../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../../utils/mock-tbtc-contracts"
 import { MockCrossChainContractsLoader } from "../../utils/mock-cross-chain-contracts-loader"
+import { Chains } from "../../../src/lib/contracts/chain"
 import { BigNumber } from "ethers"
 
 describe("StarkNet Provider Integration", () => {
@@ -194,7 +195,7 @@ describe("StarkNet Provider Integration", () => {
       mockProvider = {
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       }
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: Chains.StarkNet.Mainnet }
       depositor = new StarkNetBitcoinDepositor(config, "StarkNet", mockProvider)
     })
 
@@ -264,7 +265,7 @@ describe("StarkNet Provider Integration", () => {
 
   describe("Error handling", () => {
     it("should provide clear error when provider is missing", async () => {
-      const config = { chainId: "SN_MAIN" }
+      const config = { chainId: Chains.StarkNet.Mainnet }
 
       expect(
         () => new StarkNetBitcoinDepositor(config, "StarkNet", undefined as any)

@@ -116,7 +116,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
         arbitrumOne: 42161,
         optimism: 10,
         polygon: 137,
-        starknet: "0x534e5f544553544e4554", // Use testnet chain ID for tests
+        starknet: "0x534e5f5345504f4c4941", // SN_SEPOLIA - a recognized testnet chain ID
       }),
       loadL1Contracts: async (l2ChainName: string) => ({
         l1BitcoinDepositor: {
