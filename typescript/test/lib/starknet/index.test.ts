@@ -154,6 +154,21 @@ describe("StarkNet Module", () => {
         loadStarkNetCrossChainInterfaces("0x111", wrongProvider as any)
       ).to.be.rejectedWith("StarkNet provider chain mismatch")
     })
+
+    it("should resolve SN_SEPOLIA alias for contract lookup", async () => {
+      const sepoliaProvider = {
+        getChainId: async () => "SN_SEPOLIA",
+      }
+
+      const contracts = await loadStarkNetCrossChainInterfaces(
+        "0x1234567890abcdef",
+        sepoliaProvider as any,
+        "SN_SEPOLIA"
+      )
+
+      expect(contracts.destinationChainTbtcToken).to.exist
+      expect(contracts.destinationChainBitcoinDepositor).to.exist
+    })
   })
 
   describe("module exports", () => {

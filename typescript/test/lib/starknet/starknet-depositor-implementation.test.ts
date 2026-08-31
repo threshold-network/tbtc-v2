@@ -84,7 +84,8 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         mockReceipt.extraData.toPrefixedString()
       )
       expect(stub.getCall(0).args[1].l2Sender).to.equal(
-        mockReceipt.extraData.toPrefixedString()
+        // @ts-ignore - accessing private method for testing
+        depositor["formatStarkNetAddressAsBytes32"](depositOwner.toString())
       )
     })
 
@@ -96,6 +97,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       const mockDepositTx = createMockDepositTx()
       const mockReceipt = createMockDeposit()
+      mockReceipt.extraData = undefined
 
       // Act & Assert
       try {

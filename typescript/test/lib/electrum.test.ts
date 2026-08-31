@@ -225,6 +225,63 @@ describe("Electrum", () => {
         client.getRawTransaction(wrongTransactionHash)
       ).to.be.rejectedWith("Transaction hash mismatch")
     })
+
+    it("should reject getTransaction when raw hex does not match the requested hash", async () => {
+      const client = new ElectrumClient([])
+      const wrongTransactionHash = BitcoinTxHash.from(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      )
+
+      const clientWithMockedElectrum = client as any
+      clientWithMockedElectrum.withElectrum = async (action: any) =>
+        action({
+          blockchain_transaction_get: async () =>
+            testnetRawTransaction.transactionHex,
+        })
+
+      await expect(
+        client.getTransaction(wrongTransactionHash)
+      ).to.be.rejectedWith("Transaction hash mismatch")
+    })
+
+    it("should reject getTransactionConfirmations when raw hex does not match the requested hash", async () => {
+      const client = new ElectrumClient([])
+      const wrongTransactionHash = BitcoinTxHash.from(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      )
+
+      const clientWithMockedElectrum = client as any
+      clientWithMockedElectrum.withElectrum = async (action: any) =>
+        action({
+          blockchain_transaction_get: async () =>
+            testnetRawTransaction.transactionHex,
+        })
+
+      await expect(
+        client.getTransactionConfirmations(wrongTransactionHash)
+      ).to.be.rejectedWith("Transaction hash mismatch")
+    })
+
+    it("should reject merkle proofs whose block_height does not match the request", async () => {
+      const client = new ElectrumClient([])
+
+      const clientWithMockedElectrum = client as any
+      clientWithMockedElectrum.withElectrum = async (action: any) =>
+        action({
+          blockchain_transaction_getMerkle: async () => ({
+            block_height: 999999,
+            merkle: ["abc"],
+            pos: 0,
+          }),
+        })
+
+      await expect(
+        client.getTransactionMerkle(
+          testnetTransaction.transactionHash,
+          testnetTransactionMerkleBranch.blockHeight
+        )
+      ).to.be.rejectedWith("Merkle proof block height mismatch")
+    })
   })
 
   /**

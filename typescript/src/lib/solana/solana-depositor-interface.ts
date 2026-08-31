@@ -66,34 +66,37 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
       throw new Error("Extra data is required.")
     }
 
-    if (!this.#depositOwner) {
+    const depositOwner = deposit.extraData
+      ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
+      : this.#depositOwner
+
+    if (!depositOwner) {
       throw new Error("Deposit owner is required.")
     }
 
-    try {
-      const response = await axios.post(
-        "https://relayer.tbtcscan.com/api/reveal",
-        {
-          fundingTx,
-          reveal,
-          l2DepositOwner: extraData,
-          l2Sender: `0x${this.#depositOwner.identifierHex}`,
-        }
+    const sender = this.#depositOwner ?? depositOwner
+    const formattedOwner = `0x${depositOwner.identifierHex}`
+    const formattedSender = `0x${sender.identifierHex}`
+
+    const response = await axios.post(
+      "https://relayer.tbtcscan.com/api/reveal",
+      {
+        fundingTx,
+        reveal,
+        l2DepositOwner: formattedOwner,
+        l2Sender: formattedSender,
+      },
+      { timeout: 90000 }
+    )
+
+    const { data } = response
+    if (!isTransactionReceipt(data.receipt)) {
+      throw new Error(
+        `Unexpected response from /api/reveal: ${JSON.stringify(data)}`
       )
-
-      const { data } = response
-      if (!isTransactionReceipt(data.receipt)) {
-        throw new Error(
-          `Unexpected response from /api/reveal: ${JSON.stringify(data)}`
-        )
-      }
-
-      return data.receipt
-    } catch (error) {
-      // You can add logging, rethrow, etc.
-      console.error("Error calling /api/reveal endpoint:", error)
-      throw error
     }
+
+    return data.receipt
   }
 }
 

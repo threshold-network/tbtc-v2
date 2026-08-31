@@ -56,7 +56,7 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
   /**
    * @see {BitcoinDepositor#setDepositOwner}
    */
-  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+  setDepositOwner(depositOwner: ChainIdentifier | null | undefined): void {
     if (depositOwner === undefined || depositOwner === null) {
       this.#depositOwner = undefined
       return
@@ -87,9 +87,17 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier // Ignored for SUI - no vault support
   ): Promise<Hex | any> {
-    const depositOwner = deposit.extraData
-      ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
-      : this.#depositOwner
+    let depositOwner: ChainIdentifier | undefined
+    try {
+      depositOwner = deposit.extraData
+        ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
+        : this.#depositOwner
+    } catch (error) {
+      throw new SuiError(
+        "Failed to decode SUI deposit owner from extra data",
+        error
+      )
+    }
 
     if (!depositOwner) {
       throw new SuiError(

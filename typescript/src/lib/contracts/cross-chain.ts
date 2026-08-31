@@ -90,7 +90,7 @@ export interface BitcoinDepositor {
    * issued by this contract.
    * @param depositOwner Identifier of the deposit owner or undefined to clear.
    */
-  setDepositOwner(depositOwner: ChainIdentifier): void
+  setDepositOwner(depositOwner: ChainIdentifier | null | undefined): void
 
   /**
    * @returns Extra data encoder for this contract. The encoder is used to

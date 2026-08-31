@@ -276,5 +276,22 @@ describe("SUI Bitcoin Depositor", () => {
         "SUI deposit owner must be set before initializing deposit"
       )
     })
+
+    it("should reject transactions missing DepositInitialized event", async () => {
+      mockClient.waitForTransaction.resolves({
+        digest: "0xmocktransactiondigest123",
+        effects: {
+          status: { status: "success" },
+        },
+        events: [],
+      })
+
+      await expect(
+        depositor.initializeDeposit(depositTx, depositOutputIndex, deposit)
+      ).to.be.rejectedWith(
+        SuiError,
+        "DepositInitialized event not found in transaction"
+      )
+    })
   })
 })

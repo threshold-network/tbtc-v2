@@ -59,11 +59,13 @@ export async function loadStarkNetCrossChainInterfaces(
     throw new Error("StarkNet provider is required")
   }
 
-  await validateProviderChain(provider, chainId)
+  const normalizedChainId = normalizeStarkNetChainId(chainId)
+
+  await validateProviderChain(provider, normalizedChainId)
 
   // Build depositor configuration with environment variable support
   const depositorConfig: StarkNetBitcoinDepositorConfig = {
-    chainId,
+    chainId: normalizedChainId,
     relayerUrl: process.env.STARKNET_RELAYER_URL, // Optional override
     relayerStatusUrl:
       relayerStatusUrl || process.env.STARKNET_RELAYER_STATUS_URL, // Optional override
@@ -95,16 +97,16 @@ export async function loadStarkNetCrossChainInterfaces(
 
   const tokenContract = Object.prototype.hasOwnProperty.call(
     TBTC_CONTRACT_ADDRESSES,
-    chainId
+    normalizedChainId
   )
-    ? TBTC_CONTRACT_ADDRESSES[chainId]
+    ? TBTC_CONTRACT_ADDRESSES[normalizedChainId]
     : undefined
   if (!tokenContract) {
-    throw new Error(`No tBTC contract address for chain ${chainId}`)
+    throw new Error(`No tBTC contract address for chain ${normalizedChainId}`)
   }
 
   const tokenConfig: StarkNetTBTCTokenConfig = {
-    chainId,
+    chainId: normalizedChainId,
     tokenContract,
   }
 

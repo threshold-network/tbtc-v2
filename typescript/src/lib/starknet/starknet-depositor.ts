@@ -569,13 +569,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex | TransactionReceipt> {
-    // Check if deposit owner is set
-    if (!this.#depositOwner) {
-      throw new Error(
-        "L2 deposit owner must be set before initializing deposit"
-      )
-    }
-
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,
@@ -587,11 +580,21 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
       : this.#depositOwner
 
+    if (!depositOwner) {
+      throw new Error(
+        "L2 deposit owner must be set before initializing deposit"
+      )
+    }
+
+    const l2SenderOwner = this.#depositOwner ?? depositOwner
+
     // Format addresses for relayer
     const formattedL2DepositOwner = this.formatStarkNetAddressAsBytes32(
       depositOwner.toString()
     )
-    const formattedL2Sender = formattedL2DepositOwner
+    const formattedL2Sender = this.formatStarkNetAddressAsBytes32(
+      l2SenderOwner.toString()
+    )
 
     // Derive the canonical deposit ID once, up front, so it is available on
     // BOTH the success path (for logging) and the 409-conflict path (to

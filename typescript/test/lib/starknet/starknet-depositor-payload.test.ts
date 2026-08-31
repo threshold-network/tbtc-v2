@@ -130,7 +130,7 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(payload.l2Sender).to.equal(testAddress.toLowerCase())
   })
 
-  it("should bind l2Sender to the owner encoded in deposit extra data", async () => {
+  it("should bind l2Sender to the connected deposit owner", async () => {
     axiosStub.resolves({
       data: {
         success: true,
@@ -165,7 +165,7 @@ describe("StarkNetDepositor Payload Format", () => {
 
     const payload = axiosStub.getCall(0).args[1]
     expect(payload.l2DepositOwner).to.equal(receiptOwner)
-    expect(payload.l2Sender).to.equal(receiptOwner)
+    expect(payload.l2Sender).to.equal(testAddress.toLowerCase())
   })
 
   it("should handle addresses without 0x prefix", () => {
