@@ -1,5 +1,6 @@
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
+import { DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS } from "../../src/services/deposits/deposits-service"
 import {
   checkMainnetDepositParameters,
   DepositParametersReader,
@@ -47,6 +48,14 @@ describe("Check mainnet deposit parameters", () => {
 
     await expect(checkMainnetDepositParameters(bridge)).to.be.rejectedWith(
       readError
+    )
+  })
+  it("maintains a 30-day depositor funding window between the SDK refund locktime and the governance-required reveal-ahead period", async () => {
+    const thirtyDaysInSeconds = 30 * 24 * 60 * 60
+    const expectedLocktime =
+      REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD.add(thirtyDaysInSeconds)
+    expect(expectedLocktime.toString()).to.equal(
+      DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS.toString()
     )
   })
 })
