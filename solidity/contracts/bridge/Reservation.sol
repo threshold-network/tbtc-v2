@@ -343,6 +343,11 @@ event ReservationAcceptanceTimedOut(
         uint64 anchorAmount
     );
 
+    event ReservationReanchorTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
+    );
+
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
     function actionKey(uint256 reservationKey, uint64 requestNonce)
@@ -541,6 +546,12 @@ event ReservationAcceptanceTimedOut(
             "Reservation exceeds the single-reservation cap"
         );
 
+        require(
+            self.maxActiveReservations == 0 ||
+                self.activeReservationsCount < self.maxActiveReservations,
+            "Active reservations cap exceeded"
+        );
+
         // Reserve capacity using the deposit value as the upper bound of
         // the anchor value; the settlement releases the miner-fee delta.
         uint64 newTotal = self.reservationTotalAmount + deposit.amount;
@@ -674,10 +685,14 @@ event ReservationAcceptanceTimedOut(
     /// @dev Requirements:
     ///      - The reservation must be Active,
     ///      - The reservation must not yet be dissolution-eligible,
-    ///      - The source wallet must be in the MovingFunds state (anyone
-    ///        may then request — migration is the system's duty), or Live
+    ///      - The source wallet must be in the MovingFunds or Closing state
+    ///        (anyone may then request — migration is the system's duty,
+    ///        and a retiring wallet must never pin a reservation), or Live
     ///        with the governance as the caller (approved rotation),
     ///      - The target wallet must be Live and different from the source,
+    ///      - At least one integer timestamp must remain between now and the
+    ///        action-timeout safety margin, so every created action has a
+    ///        proposal the wallet validator can sign,
     ///      - The target wallet's reservation-count capacity must allow the
     ///        move; the capacity is reserved by this call and released if
     ///        the authorization times out.
@@ -712,8 +727,9 @@ event ReservationAcceptanceTimedOut(
                 );
             } else {
                 require(
-                    sourceState == Wallets.WalletState.MovingFunds,
-                    "Source wallet must be in Live or MovingFunds state"
+                    sourceState == Wallets.WalletState.MovingFunds ||
+                        sourceState == Wallets.WalletState.Closing,
+                    "Source wallet must be in Live, MovingFunds or Closing state"
                 );
             }
         }
@@ -726,6 +742,27 @@ event ReservationAcceptanceTimedOut(
             self.registeredWallets[targetWalletPubKeyHash].state ==
                 Wallets.WalletState.Live,
             "Target wallet must be in Live state"
+        );
+
+        /* solhint-disable-next-line not-rely-on-time */
+        uint32 timeoutAt = uint32(block.timestamp) +
+            self.reservationActionTimeout;
+
+        // A re-anchor authorization carries no deposit-reveal age floor
+        // (unlike acceptance): the earliest admissible signing timestamp is
+        // simply the next integer second after this request. Require a
+        // non-empty window before the safety-margined deadline so every
+        // created action has a proposal the wallet validator can sign.
+        require(
+            uint256(timeoutAt) >
+                WalletProposalValidatorConstants
+                    .REQUEST_TIMEOUT_SAFETY_MARGIN &&
+                /* solhint-disable-next-line not-rely-on-time */
+                uint256(block.timestamp) + 1 <
+                uint256(timeoutAt) -
+                    WalletProposalValidatorConstants
+                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Reanchor authorization has no signing window"
         );
 
         // Reserve the target wallet's count and amount capacity; the
@@ -759,12 +796,9 @@ event ReservationAcceptanceTimedOut(
         );
         action.actionType = ActionType.Reanchor;
         action.state = ActionState.Pending;
-        /* solhint-disable not-rely-on-time */
+        /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
-        action.timeoutAt =
-            uint32(block.timestamp) +
-            self.reservationActionTimeout;
-        /* solhint-enable not-rely-on-time */
+        action.timeoutAt = timeoutAt;
         action.txMaxFee = self.reservationTxMaxFee;
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
         action.amount = reservation.anchorAmount;
@@ -776,6 +810,66 @@ event ReservationAcceptanceTimedOut(
             reservation.walletPubKeyHash,
             targetWalletPubKeyHash,
             action.txMaxFee
+        );
+    }
+
+    /// @notice Reports a reservation's pending re-anchor generation as
+    ///         timed out: its authorization window elapsed without a
+    ///         settling SPV proof. Permissionless. Releases the target
+    ///         wallet's reserved capacity and restores the reservation to
+    ///         `Active` so a fresh action may be requested; the generation
+    ///         itself remains eligible for a late proof (see
+    ///         `ReservationProofs.submitReservationReanchorProof`), which
+    ///         re-takes the released capacity.
+    /// @param reservationKey The key of the reservation whose current
+    ///        pending generation timed out.
+    /// @dev Requirements:
+    ///      - The reservation's current generation must be a `Reanchor`
+    ///        action in the `Pending` state,
+    ///      - Its snapshotted `timeoutAt` must have elapsed.
+    ///      - Milestone 1 only supports timing out `Reanchor` generations;
+    ///        `Acceptance` settlement predates this PR and is untouched.
+    function notifyReservationActionTimeout(
+        BridgeState.Storage storage self,
+        uint256 reservationKey
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        ReservationAction storage action = getAction(
+            self,
+            reservationKey,
+            reservation.requestNonce
+        );
+
+        require(
+            action.actionType == ActionType.Reanchor,
+            "Unsupported action type for timeout"
+        );
+        require(action.state == ActionState.Pending, "Action is not pending");
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp >= action.timeoutAt,
+            "Action has not timed out"
+        );
+        /* solhint-enable not-rely-on-time */
+
+        action.state = ActionState.TimedOut;
+
+        // Release the target wallet's capacity reserved at request time;
+        // the source wallet's capacity is untouched because the
+        // reservation stays custodied there. A late proof of this
+        // generation re-takes the released target capacity (see
+        // `ReservationProofs.submitReservationReanchorProof`).
+        self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
+        self.walletReservationsAmount[action.targetWalletPubKeyHash] -= action
+            .amount;
+
+        reservation.state = ReservationState.Active;
+
+        emit ReservationReanchorTimedOut(
+            reservationKey,
+            reservation.requestNonce
         );
     }
 

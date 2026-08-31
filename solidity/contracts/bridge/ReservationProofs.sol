@@ -222,6 +222,29 @@ library ReservationProofs {
         }
     }
 
+    /// @notice Strands a reservation if its (already updated) target
+    ///         wallet can no longer manage the anchor it was just moved
+    ///         to. Used only for an on-time re-anchor settlement, whose
+    ///         target wallet may have started retiring between request and
+    ///         proof; extracted into its own function to keep the caller's
+    ///         stack shallow.
+    function strandIfTargetWalletClosed(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash
+    ) internal {
+        Wallets.WalletState targetWalletState = self
+            .registeredWallets[targetWalletPubKeyHash]
+            .state;
+        if (
+            targetWalletState == Wallets.WalletState.Closing ||
+            targetWalletState == Wallets.WalletState.Closed
+        ) {
+            self.strandReservation(reservation, reservationKey);
+        }
+    }
+
     /// @notice Validates the position can settle the loaded action and, for a
     ///         timed-out generation whose position was already stranded,
     ///         reconstructs the source anchor's tracking before settlement.
@@ -741,11 +764,6 @@ library ReservationProofs {
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
 
-        if (minerFee > 0) {
-            IReservationFeeFinancer(self.deposits[reservationKey].vault)
-                .financeInKindFee(minerFee);
-        }
-
         action.state = Reservation.ActionState.Settled;
 
         self.reservationsByAnchorUtxo[
@@ -768,6 +786,31 @@ library ReservationProofs {
             late,
             evidenceAlreadyEmitted
         );
+
+        // The shared helper above only strands the late branch, matching
+        // the acceptance settlement semantics it is reused from. An
+        // on-time re-anchor proof needs the same safety net: the target
+        // wallet may have started retiring between request and proof, and
+        // without this check the position would stay `Active` under a
+        // wallet that can no longer manage the anchor.
+        if (!late) {
+            strandIfTargetWalletClosed(
+                self,
+                reservation,
+                reservationKey,
+                newWalletPubKeyHash
+            );
+        }
+
+        // Financing the in-kind miner fee is the only external call in
+        // this function; it runs last, after every internal effect and
+        // stranding check has committed, so a malicious or buggy vault
+        // reentering through `financeInKindFee` can only ever observe a
+        // fully settled generation (checks-effects-interactions).
+        if (minerFee > 0) {
+            IReservationFeeFinancer(self.deposits[reservationKey].vault)
+                .financeInKindFee(minerFee);
+        }
     }
 
     /// @notice Unwinds the position's current pending generation during a
