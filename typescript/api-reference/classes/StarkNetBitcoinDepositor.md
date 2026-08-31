@@ -68,11 +68,7 @@ Error if provider is not provided or if chain-ID/relayerUrl requirements are unm
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L408)
-=======
-[lib/starknet/starknet-depositor.ts:91](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L91)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ## Properties
 
@@ -82,11 +78,7 @@ Error if provider is not provided or if chain-ID/relayerUrl requirements are unm
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:396](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L396)
-=======
-[lib/starknet/starknet-depositor.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L80)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -96,11 +88,7 @@ ___
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L395)
-=======
-[lib/starknet/starknet-depositor.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L79)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -110,11 +98,7 @@ ___
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:398](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L398)
-=======
-[lib/starknet/starknet-depositor.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L82)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -124,11 +108,7 @@ ___
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:394](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L394)
-=======
-[lib/starknet/starknet-depositor.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L78)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -138,11 +118,7 @@ ___
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:397](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L397)
-=======
-[lib/starknet/starknet-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L81)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ## Methods
 
@@ -164,7 +140,6 @@ The StarkNetExtraDataEncoder instance.
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:533](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L533)
 
 ___
@@ -192,10 +167,7 @@ A descriptive error message
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:876](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L876)
-=======
-[lib/starknet/starknet-depositor.ts:198](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L198)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+[src/lib/starknet/starknet-depositor.ts:863](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L863)
 
 ___
 
@@ -219,11 +191,7 @@ Formatted error message
 
 #### Defined in
 
-<<<<<<< HEAD
-[src/lib/starknet/starknet-depositor.ts:944](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L944)
-=======
-[lib/starknet/starknet-depositor.ts:375](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L375)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+[src/lib/starknet/starknet-depositor.ts:931](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L931)
 
 ___
 
@@ -251,11 +219,7 @@ Error if the address is invalid
 
 #### Defined in
 
-<<<<<<< HEAD
-[src/lib/starknet/starknet-depositor.ts:1014](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1014)
-=======
-[lib/starknet/starknet-depositor.ts:449](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L449)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+[src/lib/starknet/starknet-depositor.ts:1001](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1001)
 
 ___
 
@@ -279,11 +243,7 @@ Always throws since StarkNet deposits are handled via L1.
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:493](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L493)
-=======
-[lib/starknet/starknet-depositor.ts:158](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L158)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -301,11 +261,7 @@ The chain name (e.g., "StarkNet")
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:476](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L476)
-=======
-[lib/starknet/starknet-depositor.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L141)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -327,11 +283,7 @@ The StarkNet address set as deposit owner, or undefined if not set.
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:504](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L504)
-=======
-[lib/starknet/starknet-depositor.ts:169](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L169)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -349,7 +301,6 @@ The StarkNet provider instance
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:484](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L484)
 
 ___
@@ -387,10 +338,7 @@ StarkNetRelayerDepositConflictError always; carries the deposit ID and
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:766](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L766)
-=======
-[lib/starknet/starknet-depositor.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L149)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+[src/lib/starknet/starknet-depositor.ts:753](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L753)
 
 ___
 
@@ -446,11 +394,7 @@ StarkNetRelayerDepositConflictError if the relayer reports the deposit
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:566](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L566)
-=======
-[lib/starknet/starknet-depositor.ts:217](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L217)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -477,8 +421,7 @@ True if the error is retryable
 
 #### Defined in
 
-<<<<<<< HEAD
-[src/lib/starknet/starknet-depositor.ts:921](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L921)
+[src/lib/starknet/starknet-depositor.ts:908](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L908)
 
 ___
 
@@ -504,10 +447,7 @@ The parsed status response, or undefined if the relayer did
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:839](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L839)
-=======
-[lib/starknet/starknet-depositor.ts:347](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L347)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+[src/lib/starknet/starknet-depositor.ts:826](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L826)
 
 ___
 
@@ -537,8 +477,4 @@ Error if the deposit owner is not a StarkNetAddress and not undefined/null.
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L514)
-=======
-[lib/starknet/starknet-depositor.ts:179](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L179)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)

@@ -18,7 +18,7 @@ const axios = require("axios")
 
 const STARKNET_ADDRESS =
   "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-const TEST_CHAIN_ID = "0x534e5f544553544e4554"
+const TEST_CHAIN_ID = "0x534e5f5345504f4c4941"
 
 function createMockStarkNetAccount(address = STARKNET_ADDRESS): any {
   return {
@@ -34,9 +34,9 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
   let mockBitcoinClient: BitcoinClient
 
   beforeEach(async () => {
-    // Mock loadStarkNetCrossChainContracts
+    // Mock loadStarkNetCrossChainInterfaces
     sinon
-      .stub(starknet, "loadStarkNetCrossChainContracts")
+      .stub(starknet, "loadStarkNetCrossChainInterfaces")
       .callsFake(
         async (
           walletAddress: string,

@@ -249,7 +249,6 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(payload).to.have.property("l2Sender")
   })
 
-<<<<<<< HEAD
   // The three exact-decimal expected values pinned below ("should calculate
   // deposit ID correctly", "should derive the canonical deposit ID for the
   // standard mock vectors (output index 0)", and "should pack the output
@@ -264,9 +263,6 @@ describe("StarkNetDepositor Payload Format", () => {
   // convention in deriveCanonicalDepositId's JSDoc.
   it("should calculate deposit ID correctly", async () => {
     // Mock console.log to capture deposit ID
-=======
-  it("should not log reveal request payloads", async () => {
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
     const consoleLogStub = sinon.stub(console, "log")
 
     axiosStub.resolves({
@@ -298,7 +294,6 @@ describe("StarkNetDepositor Payload Format", () => {
 
     await depositor.initializeDeposit(depositTx, 0, deposit)
 
-<<<<<<< HEAD
     // Verify the exact deposit ID was logged. The ID is derived with Bitcoin
     // SHA-256d over the serialized funding transaction (digest used directly,
     // NOT reversed) packed with the uint32 output index, matching the on-chain
@@ -312,9 +307,6 @@ describe("StarkNetDepositor Payload Format", () => {
       "Deposit initialized with ID: 84327574594609900513771153583252034476167624431248952116381071070685377716504"
     )
   })
-=======
-    expect(consoleLogStub.called).to.be.false
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
   it("should derive the canonical deposit ID for the standard mock vectors (output index 0)", async () => {
     // Canonical vector: createMockDepositTx() with output index 0 must

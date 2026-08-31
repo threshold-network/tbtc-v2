@@ -683,11 +683,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L162)
-=======
-[lib/starknet/starknet-depositor.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L66)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -1066,11 +1062,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-<<<<<<< HEAD
-[src/lib/starknet/starknet-depositor.ts:1041](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1041)
-=======
-[lib/starknet/starknet-depositor.ts:457](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L457)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+[src/lib/starknet/starknet-depositor.ts:1009](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1009)
 
 ___
 
@@ -1672,11 +1664,7 @@ ___
 
 ### loadStarkNetCrossChainContracts
 
-<<<<<<< HEAD
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
-=======
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 #### Parameters
 
@@ -1697,25 +1685,13 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-[src/lib/starknet/index.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L139)
-=======
-[lib/starknet/index.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L95)
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
-=======
-[lib/starknet/index.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L92)
->>>>>>> 31d669ac (test(sdk): update StarkNet hardening coverage)
+[src/lib/starknet/index.ts:122](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L122)
 
 ___
 
 ### loadStarkNetCrossChainInterfaces
 
-<<<<<<< HEAD
-▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
-=======
-▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
->>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
 Now supports balance queries with deployed tBTC contracts and enhanced configuration.

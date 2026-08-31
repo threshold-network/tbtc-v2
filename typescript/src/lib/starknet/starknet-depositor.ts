@@ -11,6 +11,7 @@ import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
+import { ethers } from "ethers"
 import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
