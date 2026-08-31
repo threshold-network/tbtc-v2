@@ -22,6 +22,16 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./Wormhole.sol";
 import "../../integrator/AbstractBTCRedeemer.sol";
 
+/// @notice Minimal interface of the `RedemptionWatchtower` contract,
+///         exposing only the function used to claim vetoed redemption
+///         funds. Declared locally (rather than importing from the
+///         `bridge` subpackage) to keep this integrator contract's
+///         dependency graph self-contained.
+/// @dev See bridge/RedemptionWatchtower.sol#withdrawVetoedFunds
+interface IRedemptionWatchtower {
+    function withdrawVetoedFunds(uint256 redemptionKey) external;
+}
+
 /// @title L1BTCRedeemerWormhole
 /// @notice This contract is part of the direct bridging mechanism allowing
 ///         users to redeem ERC20 tBTC from a supported chain (L2) back to
@@ -57,6 +67,7 @@ contract L1BTCRedeemerWormhole is
     error WormholeTokenBridgeAlreadySet();
     error RecoveryAddressNotSet();
     error RecipientNotRecoveryAddress();
+    error RedemptionWatchtowerNotSet();
 
     /// @notice Reference to the Wormhole Token Bridge contract.
     IWormholeTokenBridge public wormholeTokenBridge;
@@ -200,6 +211,24 @@ contract L1BTCRedeemerWormhole is
 
         emit BankBalanceRescued(recipient, amount);
         bank.transferBalance(recipient, amount);
+    }
+
+    /// @notice Claims this contract's share of vetoed redemption funds from
+    ///         the tBTC `RedemptionWatchtower` and credits them to this
+    ///         contract's Bank balance, where they become rescuable via
+    ///         `rescueBankBalance`.
+    /// @dev Can be called only by the contract owner. The `RedemptionWatchtower`
+    ///      itself enforces that the veto is finalized, the freeze period has
+    ///      expired, and a withdrawable balance exists for `redemptionKey`;
+    ///      this call reverts with the watchtower's own revert reason if any
+    ///      of those conditions are not met.
+    /// @param redemptionKey Redemption key of the vetoed redemption request,
+    ///        as returned by `_requestRedemption`.
+    function withdrawVetoedFunds(uint256 redemptionKey) external onlyOwner {
+        address watchtower = thresholdBridge.getRedemptionWatchtower();
+        if (watchtower == address(0)) revert RedemptionWatchtowerNotSet();
+
+        IRedemptionWatchtower(watchtower).withdrawVetoedFunds(redemptionKey);
     }
 
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)

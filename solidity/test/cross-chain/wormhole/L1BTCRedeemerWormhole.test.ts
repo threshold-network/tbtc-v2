@@ -5,9 +5,11 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
   IWormholeTokenBridge,
+  L1BTCRedeemerWormhole,
   MockL1BTCRedeemerWormhole,
   MockBank,
   MockTBTCBridge,
+  MockRedemptionWatchtower,
   L2TBTC,
   ReimbursementPool,
   WormholeBridgeStub,
@@ -1871,6 +1873,381 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
       expect(estimatedGas).to.be.gt(0)
       expect(estimatedGas).to.be.lt(500000) // Reasonable upper bound
+    })
+  })
+})
+
+describe("L1BTCRedeemerWormhole (using real contract)", () => {
+  // These tests deploy the actual `L1BTCRedeemerWormhole` production contract
+  // (not `MockL1BTCRedeemerWormhole`) so that the rescue/recovery functions
+  // are exercised against the real, shipped implementation rather than a
+  // hand-copied mock. See PR #920 review finding M3.
+  let deployer: SignerWithAddress
+  let governance: SignerWithAddress
+  let relayer: SignerWithAddress
+  let thirdParty: SignerWithAddress
+  let treasury: SignerWithAddress
+
+  let l1BtcRedeemer: L1BTCRedeemerWormhole
+  let bank: MockBank
+  let bridge: MockTBTCBridge
+  let watchtower: MockRedemptionWatchtower
+
+  const exampleAmount = ethers.utils.parseUnits("2", 18)
+  const exampleAmountInSatoshis = toSatoshis(exampleAmount)
+  const exampleRedemptionKey = 12345
+
+  const realContractFixture = async () => {
+    const _signers = await ethers.getSigners()
+    const _deployer = _signers[0]
+    const _thirdParty = _signers[2]
+    const _treasury = _signers[3]
+    const _namedSigners = await helpers.signers.getNamedSigners()
+    const _governance = _namedSigners.governance || _signers[4]
+
+    const MockBankFactory = await ethers.getContractFactory("MockBank")
+    const _bank = (await MockBankFactory.deploy()) as MockBank
+    await _bank.deployed()
+
+    const MockTBTCVaultFactory = await ethers.getContractFactory(
+      "contracts/test/MockTBTCVault.sol:MockTBTCVault"
+    )
+    const _tbtcVault = await MockTBTCVaultFactory.deploy()
+    await _tbtcVault.deployed()
+
+    const TestERC20 = await ethers.getContractFactory("TestERC20")
+    const _wormholeTbtc = await TestERC20.deploy()
+    await _wormholeTbtc.deployed()
+
+    const _wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
+      "IWormholeTokenBridge"
+    )
+
+    const tbtcDeployment = await helpers.upgrades.deployProxy(
+      `L2TBTC_${randomBytes(8).toString("hex")}`,
+      {
+        contractName: "L2TBTC",
+        initializerArgs: ["L2 TBTC", "L2TBTC"],
+        factoryOpts: { signer: _deployer },
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+    const _tbtcToken = tbtcDeployment[0] as L2TBTC
+    await _tbtcToken.connect(_deployer).addMinter(_deployer.address)
+    await _tbtcToken.deployed()
+    await _tbtcVault.setTbtcToken(_tbtcToken.address)
+
+    const MockTBTCBridgeFactory = await ethers.getContractFactory(
+      "MockTBTCBridge"
+    )
+    const _bridge = (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
+    await _bridge.deployed()
+
+    const MockRedemptionWatchtowerFactory = await ethers.getContractFactory(
+      "MockRedemptionWatchtower"
+    )
+    const _watchtower = (await MockRedemptionWatchtowerFactory.deploy(
+      _bank.address
+    )) as MockRedemptionWatchtower
+    await _watchtower.deployed()
+
+    // Deploy the REAL L1BTCRedeemerWormhole contract, not the Mock.
+    const l1BtcRedeemerDeployment = await helpers.upgrades.deployProxy(
+      `L1BTCRedeemerWormhole_${randomBytes(8).toString("hex")}`,
+      {
+        contractName: "L1BTCRedeemerWormhole",
+        initializerArgs: [
+          _bridge.address,
+          _wormholeTokenBridge.address,
+          _tbtcToken.address,
+          _bank.address,
+          _tbtcVault.address,
+        ],
+        factoryOpts: { signer: _deployer },
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+    const _l1BtcRedeemer = l1BtcRedeemerDeployment[0] as L1BTCRedeemerWormhole
+
+    await _l1BtcRedeemer
+      .connect(_deployer)
+      .transferOwnership(_governance.address)
+
+    await _bank.setBalance(
+      _l1BtcRedeemer.address,
+      exampleAmountInSatoshis.mul(5)
+    )
+
+    return {
+      deployer: _deployer,
+      governance: _governance,
+      relayer: _signers[1],
+      thirdParty: _thirdParty,
+      treasury: _treasury,
+      l1BtcRedeemer: _l1BtcRedeemer,
+      bank: _bank,
+      bridge: _bridge,
+      watchtower: _watchtower,
+    }
+  }
+
+  before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;({
+      deployer,
+      governance,
+      relayer,
+      thirdParty,
+      treasury,
+      l1BtcRedeemer,
+      bank,
+      bridge,
+      watchtower,
+    } = await waffle.loadFixture(realContractFixture))
+  })
+
+  describe("bank balance rescue (real contract)", () => {
+    const rescueAmount = exampleAmountInSatoshis
+
+    context("when setting the recovery address", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer.connect(relayer).setRecoveryAddress(treasury.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject the zero address", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(ethers.constants.AddressZero)
+        ).to.be.revertedWith("ZeroAddress")
+      })
+
+      context("when called by the owner", () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+          tx = await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should update the recovery address", async () => {
+          expect(await l1BtcRedeemer.recoveryAddress()).to.equal(
+            treasury.address
+          )
+        })
+
+        it("should emit RecoveryAddressUpdated", async () => {
+          await expect(tx)
+            .to.emit(l1BtcRedeemer, "RecoveryAddressUpdated")
+            .withArgs(treasury.address)
+        })
+      })
+    })
+
+    context("when rescuing Bank balance", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject rescue before a recovery address is set", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("RecoveryAddressNotSet")
+      })
+
+      context("when a recovery address is set", () => {
+        before(async () => {
+          await createSnapshot()
+          await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should reject a different recipient", async () => {
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(thirdParty.address, rescueAmount)
+          ).to.be.revertedWith("RecipientNotRecoveryAddress")
+        })
+
+        it("should reject an amount above the available balance", async () => {
+          const availableBalance = await bank.balanceAvailable(
+            l1BtcRedeemer.address
+          )
+
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, availableBalance.add(1))
+          ).to.be.revertedWith("MockBank: insufficient balance")
+        })
+
+        context("when the recipient and amount are valid", () => {
+          let tx: ContractTransaction
+          let redeemerBalanceBefore: BigNumber
+          let recoveryBalanceBefore: BigNumber
+
+          before(async () => {
+            await createSnapshot()
+            redeemerBalanceBefore = await bank.balanceAvailable(
+              l1BtcRedeemer.address
+            )
+            recoveryBalanceBefore = await bank.balanceAvailable(
+              treasury.address
+            )
+            tx = await l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, rescueAmount)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should transfer the requested Bank balance", async () => {
+            expect(await bank.balanceAvailable(l1BtcRedeemer.address)).to.equal(
+              redeemerBalanceBefore.sub(rescueAmount)
+            )
+            expect(await bank.balanceAvailable(treasury.address)).to.equal(
+              recoveryBalanceBefore.add(rescueAmount)
+            )
+          })
+
+          it("should emit BankBalanceRescued", async () => {
+            await expect(tx)
+              .to.emit(l1BtcRedeemer, "BankBalanceRescued")
+              .withArgs(treasury.address, rescueAmount)
+          })
+        })
+      })
+    })
+  })
+
+  describe("withdraw vetoed funds (real contract)", () => {
+    const vetoedAmount = exampleAmountInSatoshis.toNumber()
+
+    it("should reject a non-owner caller", async () => {
+      await expect(
+        l1BtcRedeemer.connect(relayer).withdrawVetoedFunds(exampleRedemptionKey)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should reject when no redemption watchtower is configured", async () => {
+      await expect(
+        l1BtcRedeemer
+          .connect(governance)
+          .withdrawVetoedFunds(exampleRedemptionKey)
+      ).to.be.revertedWith("RedemptionWatchtowerNotSet")
+    })
+
+    context("when a redemption watchtower is configured", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.setRedemptionWatchtower(watchtower.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should bubble up the watchtower's revert reason when there are no funds to withdraw", async () => {
+        await watchtower.setVetoProposal(
+          exampleRedemptionKey,
+          l1BtcRedeemer.address,
+          0
+        )
+
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .withdrawVetoedFunds(exampleRedemptionKey)
+        ).to.be.revertedWith("No funds to withdraw")
+      })
+
+      it("should bubble up the watchtower's revert reason when the redeemer does not match", async () => {
+        await watchtower.setVetoProposal(
+          exampleRedemptionKey,
+          thirdParty.address,
+          vetoedAmount
+        )
+
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .withdrawVetoedFunds(exampleRedemptionKey)
+        ).to.be.revertedWith("Caller is not the redeemer")
+      })
+
+      context(
+        "when a withdrawable veto is configured for this contract",
+        () => {
+          let watchtowerBalanceBefore: BigNumber
+          let redeemerBalanceBefore: BigNumber
+
+          before(async () => {
+            await createSnapshot()
+            await bank.setBalance(watchtower.address, vetoedAmount)
+            await watchtower.setVetoProposal(
+              exampleRedemptionKey,
+              l1BtcRedeemer.address,
+              vetoedAmount
+            )
+            watchtowerBalanceBefore = await bank.balanceAvailable(
+              watchtower.address
+            )
+            redeemerBalanceBefore = await bank.balanceAvailable(
+              l1BtcRedeemer.address
+            )
+            await l1BtcRedeemer
+              .connect(governance)
+              .withdrawVetoedFunds(exampleRedemptionKey)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should credit the vetoed amount to this contract's Bank balance", async () => {
+            expect(await bank.balanceAvailable(l1BtcRedeemer.address)).to.equal(
+              redeemerBalanceBefore.add(vetoedAmount)
+            )
+            expect(await bank.balanceAvailable(watchtower.address)).to.equal(
+              watchtowerBalanceBefore.sub(vetoedAmount)
+            )
+          })
+
+          it("should make the rescued funds available via rescueBankBalance", async () => {
+            await l1BtcRedeemer
+              .connect(governance)
+              .setRecoveryAddress(treasury.address)
+
+            await expect(
+              l1BtcRedeemer
+                .connect(governance)
+                .rescueBankBalance(treasury.address, vetoedAmount)
+            ).to.not.be.reverted
+          })
+        }
+      )
     })
   })
 })
