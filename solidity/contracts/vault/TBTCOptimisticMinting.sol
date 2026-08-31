@@ -27,12 +27,13 @@ import "../GovernanceUtils.sol";
 ///         Any single Minter can perform this action. There is an
 ///         `optimisticMintingDelay` between the time of the request from
 ///         a Minter to the time TBTC is minted. During the time of the delay,
-///         any Guardian can cancel the minting. The total outstanding
-///         optimistic minting exposure — TBTC minted optimistically but not
-///         yet backed by swept deposits, plus the value of in-flight
-///         requests — is capped, the value a single Minter can request
-///         within a rolling 24-hour window is rate-limited, and the size of
-///         a single deposit eligible for optimistic minting is bounded.
+///         any Guardian can cancel the minting. For non-exempt requesters,
+///         total outstanding optimistic minting exposure — TBTC minted
+///         optimistically but not yet backed by swept deposits, plus the
+///         value of in-flight requests — is capped; per-Minter token buckets
+///         refill continuously at their configured capacity per 24 hours;
+///         and the size of a single deposit eligible for optimistic minting
+///         is bounded.
 /// @dev This functionality is a part of `TBTCVault`. It is implemented in
 ///      a separate abstract contract to achieve better separation of concerns
 ///      and easier-to-follow code.
@@ -101,29 +102,27 @@ abstract contract TBTCOptimisticMinting is Ownable {
     uint32 public optimisticMintingDelay = 3 hours;
 
     /// @notice The maximum total optimistic minting exposure (in satoshi)
-    ///         that can be outstanding at any moment: the sum of the
-    ///         optimistic minting debt not yet repaid by swept deposits
-    ///         (`optimisticMintingDebtTotal`) and the value of in-flight, not
-    ///         yet finalized requests (`optimisticMintingPendingTotal`).
-    ///         A request is rejected if it would push the exposure above the
-    ///         cap. Capacity is recycled as deposits get swept and the debt
-    ///         is repaid. Debt of deposits that never get swept consumes the
-    ///         cap until governance resolves the situation, e.g. by raising
-    ///         the cap; this acts as an automatic circuit breaker when
-    ///         optimistically minted deposits do not settle. Zero value means
-    ///         no limit.
-    ///         The default is a deliberately conservative initial value;
-    ///         governance is expected to raise it based on observed cap
-    ///         utilization. Hitting the cap costs only latency — deposits
-    ///         fall back to the standard sweep flow — while raising it takes
-    ///         the 24-hour governance delay.
+    ///         that can be outstanding at any moment for non-exempt
+    ///         requesters. When enforcing the cap, pending satoshi and the
+    ///         cap are converted to 1e18 TBTC units with
+    ///         `SATOSHI_MULTIPLIER` before being added to
+    ///         `optimisticMintingDebtTotal` (also in 1e18 units). Sweep
+    ///         miner-fee residuals excluded via
+    ///         `optimisticMintingDebtCapExcludedTotal` do not consume cap
+    ///         headroom. A request is rejected if it would push the exposure
+    ///         above the cap. Capacity is recycled as deposits get swept and
+    ///         the debt is repaid. Debt of deposits that never get swept
+    ///         consumes the cap until governance resolves the situation, e.g.
+    ///         by raising the cap; this acts as an automatic circuit breaker
+    ///         when optimistically minted deposits do not settle. Zero value
+    ///         means no limit.
     uint64 public optimisticMintingDebtCap = 1_000_000_000; // 10 BTC
 
     /// @notice The maximum total value of deposits (in satoshi) that can be
-    ///         a subject of optimistic minting requests of a single Minter
-    ///         within a rolling 24-hour window. The limit is enforced with
-    ///         a token bucket that refills continuously at a rate of the full
-    ///         cap per 24 hours. Zero value means no limit.
+    ///         a subject of optimistic minting requests of a single Minter.
+    ///         The limit is enforced with a token bucket that starts at the
+    ///         configured capacity and refills continuously at the full
+    ///         capacity per 24 hours. Zero value means no limit.
     ///         Per-Minter caps are meant to overlap: the sum of all Minters'
     ///         caps may exceed `optimisticMintingDebtCap`, which remains the
     ///         binding total limit.
@@ -139,11 +138,11 @@ abstract contract TBTCOptimisticMinting is Ownable {
     uint64 public optimisticMintingMaxDepositSize = 500_000_000; // 5 BTC
 
     /// @notice The maximum number of optimistic minting requests a single
-    ///         Minter can submit within a rolling 24-hour window. The limit
-    ///         is enforced with a token bucket that refills continuously at
-    ///         a rate of the full limit per 24 hours. Zero value means no
-    ///         limit. Independently of the value caps, this limit bounds the
-    ///         number of requests Guardians may need to validate and cancel.
+    ///         Minter can submit. The limit is enforced with a token bucket
+    ///         that starts at the configured capacity and refills continuously
+    ///         at the full capacity per 24 hours. Zero value means no limit.
+    ///         Independently of the value caps, this limit bounds the number
+    ///         of requests Guardians may need to validate and cancel.
     uint32 public optimisticMintingRequestLimitPerMinter = 100;
 
     /// @notice Indicates if the given address is a Minter. Only Minters can
@@ -203,6 +202,16 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         `optimisticMintingDebt` values.
     uint256 public optimisticMintingDebtTotal;
 
+    /// @notice Portion of `optimisticMintingDebtTotal` excluded from the
+    ///         debt cap after a sweep leaves only the documented Bitcoin
+    ///         miner-fee residual on a depositor's ledger.
+    uint256 public optimisticMintingDebtCapExcludedTotal;
+
+    /// @notice Per-depositor debt excluded from the debt cap. Set when a
+    ///         sweep repayment leaves only miner-fee residual debt; cleared
+    ///         when the depositor's debt is fully repaid.
+    mapping(address => uint256) public optimisticMintingDebtCapExcluded;
+
     /// @notice Rate-limiting buckets tracking the remaining optimistic
     ///         minting allowance of individual Minters.
     /// @dev Raw bucket state; dimensions whose limits are disabled hold
@@ -243,6 +252,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
     );
     event OptimisticMintingCancelled(
         address indexed guardian,
+        uint256 indexed depositKey
+    );
+    event OptimisticMintingPendingReleased(
+        address indexed releaser,
         uint256 indexed depositKey
     );
     event OptimisticMintingDebtRepaid(
@@ -342,12 +355,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         - The deposit has not been swept yet.
     ///         - The deposit is targeted into the TBTCVault.
     ///         - The optimistic minting is not paused.
-    ///         - The deposit size does not exceed
-    ///           `optimisticMintingMaxDepositSize`.
-    ///         - The Minter's rate-limiting bucket has enough allowance for
-    ///           the deposit value; the request consumes it.
-    ///         - The total outstanding and in-flight optimistic minting
-    ///           exposure stays under `optimisticMintingDebtCap`.
+    ///         - For non-exempt requesters, each enabled control must pass:
+    ///           the deposit-size limit, the per-Minter value and request-count
+    ///           token buckets, and the global outstanding-plus-pending
+    ///           exposure cap.
     ///         After calling this function, the Minter has to wait for
     ///         `optimisticMintingDelay` before finalizing the mint with a call
     ///         to finalizeOptimisticMint.
@@ -400,6 +411,16 @@ abstract contract TBTCOptimisticMinting is Ownable {
         // `optimisticMintingPendingTotal` always measures the actual
         // in-flight exposure.
         optimisticMintingPendingTotal += deposit.amount;
+
+        if (_isOptimisticMintingThrottleExempt(msg.sender)) {
+            _emitOptimisticMintingAllowanceConsumed(
+                msg.sender,
+                deposit.amount,
+                true,
+                0,
+                0
+            );
+        }
 
         /* solhint-disable-next-line not-rely-on-time */
         request.requestedAt = uint64(block.timestamp);
@@ -521,14 +542,13 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         Optimistic minting request is removed. It is possible to request
     ///         optimistic minting again for the same deposit later.
     ///         Cancelling releases the deposit value from the in-flight
-    ///         requested total counted against `optimisticMintingDebtCap` but
-    ///         does not restore the per-Minter allowance consumed by the
-    ///         request. This is deliberate: repeated request-cancel cycles
-    ///         keep consuming the requesting Minter's allowance and are
-    ///         naturally bounded by the rate limits. Guardians should also
-    ///         cancel requests that can no longer be finalized (e.g. for
-    ///         deposits swept before finalization) to release their in-flight
-    ///         value.
+    ///         requested total counted against `optimisticMintingDebtCap`.
+    ///         For non-exempt requesters, any per-Minter allowance consumed by
+    ///         the request is deliberately not restored, preventing
+    ///         cancellation from bypassing those limits. Exempt requests
+    ///         consume no per-Minter allowance. Deposits swept before
+    ///         finalization can also be released permissionlessly via
+    ///         `releaseOptimisticMintForSweptDeposit`.
     /// @dev Guardians must validate the following conditions for every deposit
     ///      for which the optimistic minting was requested:
     ///      - The deposit happened on Bitcoin side and it has enough
@@ -558,10 +578,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
             "Optimistic minting already finalized for the deposit"
         );
 
-        // Release the deposit value from the in-flight requested total. No
-        // TBTC was minted so there is nothing at risk for this request
-        // anymore. The per-Minter allowance consumed by the request is not
-        // restored.
+        // Release pending exposure; any per-Minter allowance consumed by the
+        // request is intentionally not restored.
         optimisticMintingPendingTotal -= bridge.deposits(depositKey).amount;
 
         // Delete it. It allows to request optimistic minting for the given
@@ -569,6 +587,43 @@ abstract contract TBTCOptimisticMinting is Ownable {
         delete optimisticMintingRequests[depositKey];
 
         emit OptimisticMintingCancelled(msg.sender, depositKey);
+    }
+
+    /// @notice Releases an unfinalized optimistic minting request whose
+    ///         Bridge deposit has already been swept. Permissionless once the
+    ///         deposit is swept because the request can no longer finalize.
+    ///         Releases pending exposure without restoring any per-Minter
+    ///         allowance consumed by the original request.
+    /// @param fundingTxHash Bitcoin funding transaction hash of the deposit.
+    /// @param fundingOutputIndex Funding transaction output index.
+    function releaseOptimisticMintForSweptDeposit(
+        bytes32 fundingTxHash,
+        uint32 fundingOutputIndex
+    ) external {
+        uint256 depositKey = calculateDepositKey(
+            fundingTxHash,
+            fundingOutputIndex
+        );
+
+        OptimisticMintingRequest storage request = optimisticMintingRequests[
+            depositKey
+        ];
+        require(
+            request.requestedAt != 0,
+            "Optimistic minting not requested for the deposit"
+        );
+        require(
+            request.finalizedAt == 0,
+            "Optimistic minting already finalized for the deposit"
+        );
+
+        Deposit.DepositRequest memory deposit = bridge.deposits(depositKey);
+        require(deposit.sweptAt != 0, "The deposit is not swept yet");
+
+        optimisticMintingPendingTotal -= deposit.amount;
+        delete optimisticMintingRequests[depositKey];
+
+        emit OptimisticMintingPendingReleased(msg.sender, depositKey);
     }
 
     /// @notice Returns the current optimistic minting allowance of the given
@@ -583,9 +638,9 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         can request before their bucket exhausts.
     /// @return minterRequestsRemaining Remaining number of requests the
     ///         Minter can submit before their bucket exhausts.
-    /// @return globalHeadroomRemaining Remaining value (in satoshi) that can
-    ///         be requested across all Minters before the total outstanding
-    ///         and in-flight exposure reaches `optimisticMintingDebtCap`.
+    /// @return globalHeadroomRemaining Remaining value (in satoshi) that a
+    ///         non-exempt request can add before the total outstanding and
+    ///         in-flight exposure reaches `optimisticMintingDebtCap`.
     function getOptimisticMintingAllowance(address minter)
         external
         view
@@ -610,17 +665,9 @@ abstract contract TBTCOptimisticMinting is Ownable {
             : type(uint32).max;
 
         uint64 debtCap = optimisticMintingDebtCap;
-        if (debtCap != 0) {
-            uint256 exposure = uint256(optimisticMintingPendingTotal) *
-                SATOSHI_MULTIPLIER +
-                optimisticMintingDebtTotal;
-            uint256 cap = uint256(debtCap) * SATOSHI_MULTIPLIER;
-            globalHeadroomRemaining = exposure >= cap
-                ? 0
-                : uint64((cap - exposure) / SATOSHI_MULTIPLIER);
-        } else {
-            globalHeadroomRemaining = type(uint64).max;
-        }
+        globalHeadroomRemaining = debtCap != 0
+            ? _globalHeadroomRemaining(0)
+            : type(uint64).max;
     }
 
     /// @notice Adds the address to the Minter list.
@@ -834,21 +881,25 @@ abstract contract TBTCOptimisticMinting is Ownable {
             optimisticMintingDebt[depositor] = 0;
             // slither-disable-next-line costly-loop
             optimisticMintingDebtTotal -= debt;
+            _clearOptimisticMintingDebtCapExclusion(depositor);
             emit OptimisticMintingDebtRepaid(depositor, 0);
             return amount - debt;
         } else {
             optimisticMintingDebt[depositor] = debt - amount;
             // slither-disable-next-line costly-loop
             optimisticMintingDebtTotal -= amount;
+            if (debt - amount == 0) {
+                _clearOptimisticMintingDebtCapExclusion(depositor);
+            }
             emit OptimisticMintingDebtRepaid(depositor, debt - amount);
             return 0;
         }
     }
 
-    /// @notice Enforces the optimistic minting rate limits for a request of
-    ///         the given deposit amount submitted by `msg.sender` and
-    ///         consumes the corresponding allowance from the Minter's and the
-    ///         global rate-limiting buckets.
+    /// @notice Checks the enabled deposit-size, per-Minter token-bucket, and
+    ///         global exposure limits for `amount`, then consumes the
+    ///         applicable per-Minter allowances. The caller records an accepted
+    ///         amount in pending exposure after this function returns.
     /// @dev Consumed allowance is not restored when the request gets
     ///      cancelled by a Guardian. See `cancelOptimisticMint`.
     /// @param amount The deposit amount in satoshi.
@@ -891,25 +942,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
         uint64 debtCap = optimisticMintingDebtCap;
         if (debtCap != 0) {
-            // The exposure the bridge would carry if this request and all
-            // other in-flight requests got finalized, on top of the debt
-            // already outstanding. `optimisticMintingPendingTotal` does not
-            // include this request's amount yet; the caller adds it after
-            // all checks pass.
-            uint256 exposure = (uint256(optimisticMintingPendingTotal) +
-                amount) *
-                SATOSHI_MULTIPLIER +
-                optimisticMintingDebtTotal;
-            uint256 cap = uint256(debtCap) * SATOSHI_MULTIPLIER;
-            require(exposure <= cap, "Optimistic minting debt cap exceeded");
-            globalHeadroomRemaining = uint64(
-                (cap - exposure) / SATOSHI_MULTIPLIER
+            require(
+                _globalExposure(amount) <= uint256(debtCap) * SATOSHI_MULTIPLIER,
+                "Optimistic minting debt cap exceeded"
             );
+            globalHeadroomRemaining = _globalHeadroomRemaining(amount);
         }
 
-        emit OptimisticMintingAllowanceConsumed(
+        _emitOptimisticMintingAllowanceConsumed(
             msg.sender,
             amount,
+            false,
             minterValueRemaining,
             globalHeadroomRemaining
         );
@@ -935,6 +978,109 @@ abstract contract TBTCOptimisticMinting is Ownable {
         return false;
     }
 
+    function _capRelevantDebtTotal() internal view returns (uint256) {
+        uint256 excluded = optimisticMintingDebtCapExcludedTotal;
+        uint256 total = optimisticMintingDebtTotal;
+        return excluded >= total ? 0 : total - excluded;
+    }
+
+    function _globalExposure(uint64 additionalPendingSat)
+        internal
+        view
+        returns (uint256)
+    {
+        return (uint256(optimisticMintingPendingTotal) + additionalPendingSat) *
+            SATOSHI_MULTIPLIER +
+            _capRelevantDebtTotal();
+    }
+
+    function _globalHeadroomRemaining(uint64 additionalPendingSat)
+        internal
+        view
+        returns (uint64)
+    {
+        uint256 cap = uint256(optimisticMintingDebtCap) * SATOSHI_MULTIPLIER;
+        uint256 exposure = _globalExposure(additionalPendingSat);
+        return exposure >= cap
+            ? 0
+            : uint64((cap - exposure) / SATOSHI_MULTIPLIER);
+    }
+
+    function _markOptimisticMintingDebtExcludedFromCap(
+        address depositor,
+        uint256 amount
+    ) internal {
+        uint256 previous = optimisticMintingDebtCapExcluded[depositor];
+        if (amount > previous) {
+            optimisticMintingDebtCapExcludedTotal += amount - previous;
+            optimisticMintingDebtCapExcluded[depositor] = amount;
+        }
+    }
+
+    function _clearOptimisticMintingDebtCapExclusion(address depositor)
+        internal
+    {
+        uint256 excluded = optimisticMintingDebtCapExcluded[depositor];
+        if (excluded > 0) {
+            optimisticMintingDebtCapExcludedTotal -= excluded;
+            delete optimisticMintingDebtCapExcluded[depositor];
+        }
+    }
+
+    function _emitOptimisticMintingAllowanceConsumed(
+        address minter,
+        uint64 amount,
+        bool isExempt,
+        uint64 minterValueRemaining,
+        uint64 globalHeadroomRemaining
+    ) internal {
+        if (isExempt) {
+            uint64 capPerMinter = optimisticMintingCapPerMinter;
+            minterValueRemaining = capPerMinter != 0
+                ? capPerMinter
+                : type(uint64).max;
+            globalHeadroomRemaining = optimisticMintingDebtCap != 0
+                ? _globalHeadroomRemaining(0)
+                : type(uint64).max;
+        }
+
+        emit OptimisticMintingAllowanceConsumed(
+            minter,
+            amount,
+            minterValueRemaining,
+            globalHeadroomRemaining
+        );
+    }
+
+    function _refillBucket(
+        uint256 remaining,
+        uint64 refilledAt,
+        uint256 limit
+    ) private view returns (uint256 updatedRemaining, uint64 updatedRefilledAt) {
+        if (limit == 0) {
+            return (remaining, refilledAt);
+        }
+
+        // slither-disable-next-line incorrect-equality
+        if (refilledAt == 0) {
+            return (limit, uint64(block.timestamp));
+        }
+
+        /* solhint-disable-next-line not-rely-on-time */
+        uint256 elapsed = block.timestamp - refilledAt;
+        uint256 credit = (limit * elapsed) / 24 hours;
+        if (credit == 0) {
+            return (remaining, refilledAt);
+        }
+
+        uint256 updated = remaining + credit;
+        if (updated >= limit) {
+            return (limit, uint64(block.timestamp));
+        }
+
+        return (updated, refilledAt + _refillTimeForCredit(credit, limit));
+    }
+
     /// @notice Computes the refilled state of a Minter's rate-limiting
     ///         buckets without modifying storage. Each dimension refills
     ///         continuously at a rate of the full cap per 24 hours, up to
@@ -954,68 +1100,33 @@ abstract contract TBTCOptimisticMinting is Ownable {
         // is enabled. A dimension that was disabled keeps its old timestamp,
         // so when governance re-enables the limit — which takes at least the
         // 24-hour governance delay — the accrued refill covers the full cap
-        // and every Minter starts from a full bucket. Timestamps advance
-        // only when tokens are credited so that fractional accrual between
-        // frequent touches is never lost.
+        // and every Minter starts from a full bucket. For a partially filled
+        // bucket, advance the timestamp only by the time represented by
+        // credited whole tokens so uncredited elapsed time is preserved.
+        // Once the bucket reaches its cap, reset the timestamp to the current
+        // block because refill cannot accumulate above the cap.
         if (valueCap != 0) {
-            // slither-disable-next-line incorrect-equality
-            if (allowance.valueRefilledAt == 0) {
-                allowance.valueRemaining = valueCap;
-                /* solhint-disable-next-line not-rely-on-time */
-                allowance.valueRefilledAt = uint64(block.timestamp);
-            } else {
-                /* solhint-disable-next-line not-rely-on-time */
-                uint256 elapsed = block.timestamp - allowance.valueRefilledAt;
-                uint256 credit = (uint256(valueCap) * elapsed) / 24 hours;
-                if (credit != 0) {
-                    uint256 value = uint256(allowance.valueRemaining) + credit;
-                    if (value >= valueCap) {
-                        allowance.valueRemaining = valueCap;
-                        /* solhint-disable-next-line not-rely-on-time */
-                        allowance.valueRefilledAt = uint64(block.timestamp);
-                    } else {
-                        allowance.valueRemaining = uint64(value);
-                        allowance.valueRefilledAt += _refillTimeForCredit(
-                            credit,
-                            valueCap
-                        );
-                    }
-                }
-            }
-            // Clamp in case the cap was lowered since the last touch.
+            (uint256 valueRemaining, uint64 valueRefilledAt) = _refillBucket(
+                allowance.valueRemaining,
+                allowance.valueRefilledAt,
+                valueCap
+            );
+            allowance.valueRemaining = uint64(valueRemaining);
+            allowance.valueRefilledAt = valueRefilledAt;
             if (allowance.valueRemaining > valueCap) {
                 allowance.valueRemaining = valueCap;
             }
         }
 
         if (requestLimit != 0) {
-            // slither-disable-next-line incorrect-equality
-            if (allowance.requestsRefilledAt == 0) {
-                allowance.requestsRemaining = requestLimit;
-                /* solhint-disable-next-line not-rely-on-time */
-                allowance.requestsRefilledAt = uint64(block.timestamp);
-            } else {
-                /* solhint-disable-next-line not-rely-on-time */
-                uint256 elapsed = block.timestamp -
-                    allowance.requestsRefilledAt;
-                uint256 credit = (uint256(requestLimit) * elapsed) / 24 hours;
-                if (credit != 0) {
-                    uint256 requests = uint256(allowance.requestsRemaining) +
-                        credit;
-                    if (requests >= requestLimit) {
-                        allowance.requestsRemaining = requestLimit;
-                        /* solhint-disable-next-line not-rely-on-time */
-                        allowance.requestsRefilledAt = uint64(block.timestamp);
-                    } else {
-                        allowance.requestsRemaining = uint32(requests);
-                        allowance.requestsRefilledAt += _refillTimeForCredit(
-                            credit,
-                            requestLimit
-                        );
-                    }
-                }
-            }
-            // Clamp in case the limit was lowered since the last touch.
+            (uint256 requestsRemaining, uint64 requestsRefilledAt) =
+                _refillBucket(
+                    allowance.requestsRemaining,
+                    allowance.requestsRefilledAt,
+                    requestLimit
+                );
+            allowance.requestsRemaining = uint32(requestsRemaining);
+            allowance.requestsRefilledAt = requestsRefilledAt;
             if (allowance.requestsRemaining > requestLimit) {
                 allowance.requestsRemaining = requestLimit;
             }

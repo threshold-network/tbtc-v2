@@ -128,13 +128,16 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         for (uint256 i = 0; i < depositors.length; i++) {
             address depositor = depositors[i];
             uint256 satoshis = depositedSatoshiAmounts[i];
-            _mint(
+            uint256 debtBefore = optimisticMintingDebt[depositor];
+            uint256 mintAmount = repayOptimisticMintingDebt(
                 depositor,
-                repayOptimisticMintingDebt(
-                    depositor,
-                    satoshis * SATOSHI_MULTIPLIER
-                )
+                satoshis * SATOSHI_MULTIPLIER
             );
+            uint256 debtAfter = optimisticMintingDebt[depositor];
+            if (debtAfter > 0 && debtAfter < debtBefore) {
+                _markOptimisticMintingDebtExcludedFromCap(depositor, debtAfter);
+            }
+            _mint(depositor, mintAmount);
         }
     }
 
