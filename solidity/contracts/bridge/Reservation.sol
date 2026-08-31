@@ -18,7 +18,6 @@ pragma solidity 0.8.17;
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./Deposit.sol";
-import "./ReservationProofs.sol";
 import "./Wallets.sol";
 import "./WalletProposalValidatorConstants.sol";
 

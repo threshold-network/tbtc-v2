@@ -578,11 +578,19 @@ library Wallets {
     ///         is unset allowing to trigger a new wallet creation immediately.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
-    ///      - The caller must make sure that the wallet is in the Live state.
+    ///      - The caller must make sure that the wallet is in the Live state,
+    ///      - The wallet must not custody any UTXO reservations (active or
+    ///        acceptance-pending): moving funds and closing are unavailable
+    ///        while `walletReservationsCount` for this wallet is non-zero.
     function moveFunds(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        require(
+            self.walletReservationsCount[walletPubKeyHash] == 0,
+            "Wallet holds reservations"
+        );
+
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         if (wallet.mainUtxoHash == bytes32(0)) {

@@ -454,7 +454,8 @@ library BridgeState {
         // clock then expires and the timeout seizes operator stake. This
         // cap turns that silent cliff into a revert. Genuinely new in
         // milestone 1.
-        // (Forward design note: the wallet-closing-requires-zero-reservation-count invariant this comment assumes is NOT YET ENFORCED anywhere in Wallets.sol/MovingFunds.sol in this branch — no code path checks it. This is a required gate before the reservation vault is wired to a live router; it lands with the wallet-lifecycle integration PR.)
+        // Enforced by `Wallets.moveFunds`, which reverts while this count is
+        // non-zero for the wallet.
         uint32 maxActiveReservations;
         // Collection of all reservations indexed by the deposit key of the
         // underlying reserved deposit, i.e.
@@ -507,7 +508,6 @@ library BridgeState {
         // and whole/partial shape the fee-free retry must preserve. Zero
         // means there is no bound source generation.
         mapping(uint256 => uint64) reservationRetryCreditActionNonce;
-
         // Maximum fraction (basis points, low 16 bits) of total Bank-tracked
         // backing that can be locked under reservations (RFC 13 relative
         // cap). Declared, unused until the reservation-vault PR wires the

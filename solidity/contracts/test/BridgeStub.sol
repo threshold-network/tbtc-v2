@@ -50,6 +50,12 @@ contract BridgeStub is Bridge {
         self.activeWalletPubKeyHash = activeWalletPubKeyHash;
     }
 
+    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
+        external
+    {
+        self.walletReservationsCount[walletPubKeyHash] = count;
+    }
+
     function setWalletMainUtxo(
         bytes20 walletPubKeyHash,
         BitcoinTx.UTXO calldata utxo

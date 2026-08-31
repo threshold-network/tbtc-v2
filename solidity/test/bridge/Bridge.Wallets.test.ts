@@ -1004,6 +1004,32 @@ describe("Bridge - Wallets", () => {
           await restoreSnapshot()
         })
 
+        context("when the wallet holds reservations", () => {
+          before(async () => {
+            await createSnapshot()
+
+            await bridge.setWalletReservationsCount(
+              ecdsaWalletTestData.pubKeyHash160,
+              1
+            )
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should revert", async () => {
+            await expect(
+              bridge
+                .connect(walletRegistry.wallet)
+                .notifyWalletCloseable(
+                  ecdsaWalletTestData.pubKeyHash160,
+                  NO_MAIN_UTXO
+                )
+            ).to.be.revertedWith("Wallet holds reservations")
+          })
+        })
+
         context("when wallet reached the maximum age", () => {
           before(async () => {
             await createSnapshot()
