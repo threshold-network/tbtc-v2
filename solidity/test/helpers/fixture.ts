@@ -2,13 +2,7 @@ import { ethers } from "hardhat"
 
 type Fixture<T> = () => Promise<T>
 
-interface FixtureSnapshot {
-  fixture: Fixture<unknown>
-  data: unknown
-  id: string
-}
-
-const snapshots: FixtureSnapshot[] = []
+const snapshots = new Map<Fixture<unknown>, { data: unknown; id: string }>()
 
 /**
  * Drop-in replacement for `waffle.loadFixture` that checks whether its snapshot
@@ -46,22 +40,22 @@ const snapshots: FixtureSnapshot[] = []
  *          the state that value was captured in.
  */
 export async function loadFixture<T>(fixture: Fixture<T>): Promise<T> {
-  const cached = snapshots.find((entry) => entry.fixture === fixture)
+  const cached = snapshots.get(fixture)
 
   if (cached !== undefined) {
     const reverted = await ethers.provider.send("evm_revert", [cached.id])
-    if (reverted !== false) {
+    if (reverted === true) {
       cached.id = await ethers.provider.send("evm_snapshot", [])
       return cached.data as T
     }
     // Snapshot was spliced away by an older revert. The cached data no longer
     // describes the chain, so it must not be returned.
-    snapshots.splice(snapshots.indexOf(cached), 1)
+    snapshots.delete(fixture)
   }
 
   const data = await fixture()
   const id = await ethers.provider.send("evm_snapshot", [])
-  snapshots.push({ fixture: fixture as Fixture<unknown>, data, id })
+  snapshots.set(fixture as Fixture<unknown>, { data, id })
   return data
 }
 

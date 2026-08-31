@@ -1,6 +1,6 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
-import hre, { ethers, helpers, waffle } from "hardhat"
+import hre, { ethers, helpers } from "hardhat"
 import type { BigNumberish } from "ethers"
 import { utils } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
@@ -31,7 +31,6 @@ import {
 } from "./data/integration"
 import { fixture } from "./utils/fixture"
 import { constants } from "../fixtures"
-import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
@@ -68,7 +67,7 @@ describeFn("Integration Test - Full flow", async () => {
       relay,
       randomBeacon,
       bridgeGovernance,
-    } = await loadFixture(fixture))
+    } = await fixture())
     // Update only the parameters that are crucial for this test.
     await updateWalletRegistryDkgResultChallengePeriodLength(
       hre,
