@@ -169,7 +169,6 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       zeroFeeArgs
     )
 
-
     await expect(
       depositor
         .connect(user)
@@ -351,7 +350,6 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       )
     })
   })
-
 
   describe("setExecutorParameters (stage-time validation)", () => {
     const validSignedQuote = `0x${"a".repeat(64)}`
