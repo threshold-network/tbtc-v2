@@ -37,7 +37,6 @@ contract TestReservation {
         uint64 anchorAmount
     );
 
-
     /// @notice Initialize a deposit reservation producer stub.
     /// @dev Sets up `pendingReservedDeposit`, increments `pendingReservedDeposits`,
     ///      and sets `reservations[key].owner`.
@@ -47,12 +46,13 @@ contract TestReservation {
         uint32 refundDeadline,
         address owner
     ) external {
-        state.pendingReservedDeposit[reservationKey] = BridgeState.PendingReservedDeposit({
-            isReserved: true,
-            walletPubKeyHash: walletPubKeyHash,
-            refundDeadline: refundDeadline,
-            refundDeadlineValidated: true
-        });
+        state.pendingReservedDeposit[reservationKey] = BridgeState
+            .PendingReservedDeposit({
+                isReserved: true,
+                walletPubKeyHash: walletPubKeyHash,
+                refundDeadline: refundDeadline,
+                refundDeadlineValidated: true
+            });
         state.pendingReservedDeposits += 1;
         state.reservations[reservationKey].owner = owner;
     }
@@ -97,11 +97,16 @@ contract TestReservation {
         state.reservationTotalAmount = amount;
     }
 
-    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count) external {
+    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
+        external
+    {
         state.walletReservationsCount[walletPubKeyHash] = count;
     }
 
-    function setWalletReservationsAmount(bytes20 walletPubKeyHash, uint64 amount) external {
+    function setWalletReservationsAmount(
+        bytes20 walletPubKeyHash,
+        uint64 amount
+    ) external {
         state.walletReservationsAmount[walletPubKeyHash] = amount;
     }
 
@@ -113,11 +118,13 @@ contract TestReservation {
         bytes20 walletPubKeyHash,
         Wallets.WalletState walletState
     ) external {
+        /* solhint-disable-next-line not-rely-on-time */
+        uint32 createdAt = uint32(block.timestamp);
         state.registeredWallets[walletPubKeyHash] = Wallets.Wallet({
             ecdsaWalletID: bytes32(0),
             mainUtxoHash: bytes32(0),
             pendingRedemptionsValue: 0,
-            createdAt: uint32(block.timestamp),
+            createdAt: createdAt,
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
@@ -217,7 +224,9 @@ contract TestReservation {
         uint32 anchorTxOutputIndex
     ) external {
         state.reservations[reservationKey].anchorTxHash = anchorTxHash;
-        state.reservations[reservationKey].anchorTxOutputIndex = anchorTxOutputIndex;
+        state
+            .reservations[reservationKey]
+            .anchorTxOutputIndex = anchorTxOutputIndex;
         uint256 utxoKey = uint256(
             keccak256(abi.encodePacked(anchorTxHash, anchorTxOutputIndex))
         );
@@ -288,9 +297,10 @@ contract TestReservation {
         view
         returns (Reservation.ReservationAction memory)
     {
-        return state.reservationActions[
-            Reservation.actionKey(reservationKey, requestNonce)
-        ];
+        return
+            state.reservationActions[
+                Reservation.actionKey(reservationKey, requestNonce)
+            ];
     }
 
     function getPendingReservedDeposit(uint256 reservationKey)
