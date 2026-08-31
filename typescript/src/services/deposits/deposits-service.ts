@@ -21,12 +21,19 @@ import { CrossChainDepositor } from "./cross-chain"
 /**
  * Service exposing features related to tBTC v2 deposits.
  */
+/**
+ * Deposit refund locktime duration in seconds.
+ * This is 180 days (6 months assuming 1 month = 30 days).
+ */
+export const DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS = 15552000
+
 export class DepositsService {
   /**
    * Deposit refund locktime duration in seconds.
-   * This is 9 month in seconds assuming 1 month = 30 days
+   * This is 180 days (6 months assuming 1 month = 30 days).
    */
-  private readonly depositRefundLocktimeDuration = 23328000
+  private readonly depositRefundLocktimeDuration =
+    DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS
   /**
    * Handle to tBTC contracts.
    */

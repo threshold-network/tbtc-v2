@@ -1,5 +1,6 @@
 import { expect } from "chai"
 import { BigNumber } from "ethers"
+import sinon from "sinon"
 import {
   testnetAddress,
   testnetPrivateKey,
@@ -53,6 +54,7 @@ import {
 describe("Deposits", () => {
   const depositCreatedAt: number = 1640181600
   const depositRefundLocktimeDuration: number = 2592000
+  const serviceDepositRefundLocktimeDuration: number = 15552000
 
   const depositAmount = BigNumber.from(10000) // 0.0001 BTC
 
@@ -1690,6 +1692,28 @@ describe("Deposits", () => {
           })
 
           context("when recovery address is correct", () => {
+            it("should set the refund locktime to 180 days", async () => {
+              const clock = sinon.useFakeTimers({
+                now: depositCreatedAt * 1000,
+                toFake: ["Date"],
+              })
+
+              try {
+                const deposit = await depositService.initiateDeposit(
+                  "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
+                )
+                const refundLocktime = BitcoinLocktimeUtils.locktimeToNumber(
+                  deposit.getReceipt().refundLocktime.toBuffer()
+                )
+
+                expect(refundLocktime).to.be.equal(
+                  depositCreatedAt + serviceDepositRefundLocktimeDuration
+                )
+              } finally {
+                clock.restore()
+              }
+            })
+
             const assertCommonDepositProperties = (receipt: DepositReceipt) => {
               expect(receipt.depositor).to.be.equal(depositor)
 
