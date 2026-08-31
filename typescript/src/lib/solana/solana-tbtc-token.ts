@@ -38,8 +38,8 @@ export class SolanaTBTCToken
     // Proper fix: investigate Anchor v0.30+ API for correct Program instantiation.
     const programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
-    // @ts-expect-error - IDL type mismatch with Anchor version, but works at runtime
-    super(SolanaTBTCTokenIdl as Idl, programId, provider)
+    // @ts-ignore - IDL type mismatch with Anchor version, but works at runtime
+    super(SolanaTBTCTokenIdl as unknown as Idl, provider)
 
     // derive your mint:
     this.tbtcMint = PublicKey.findProgramAddressSync(

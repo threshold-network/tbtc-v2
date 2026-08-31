@@ -56,7 +56,6 @@ import {
   MockL2BitcoinRedeemer,
   MockL1BitcoinRedeemer,
 } from "../utils/mock-cross-chain"
-import { NATIVE_BTC_DEPOSITOR_ADDRESSES } from "../../src/lib/ethereum/constants"
 
 describe("Deposits", () => {
   const depositCreatedAt: number = 1640181600
@@ -3089,7 +3088,6 @@ describe("Deposits", () => {
           "Base",
           "Sui",
           "StarkNet",
-          "Solana",
         ]
 
         validChains.forEach((chainName) => {
@@ -3222,7 +3220,8 @@ describe("Deposits", () => {
           depositService = new DepositsService(
             tbtcContracts,
             bitcoinClient,
-            (_: DestinationChainName) => undefined
+            (_: DestinationChainName) => undefined,
+            EthereumAddress.from("0x1234567890123456789012345678901234567890")
           )
 
           tbtcContracts.bridge.setActiveWalletPublicKey(
@@ -3236,7 +3235,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT", // P2SH address
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1", // depositOwner
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1", // depositOwner
               "L1"
             )
           ).to.be.rejectedWith(
@@ -3248,7 +3247,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "invalidaddress",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "L1"
             )
           ).to.be.rejected
@@ -3270,23 +3269,21 @@ describe("Deposits", () => {
           )
         })
 
-        it("should reject Solana chain", async () => {
+        it("should reject unsupported chain names", async () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-              "Solana"
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
+              "Optimism" as GaslessDestination
             )
-          ).to.be.rejectedWith(
-            /Gasless deposits are not supported for chain: Solana/
-          )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
 
         it("should reject unsupported chain names", async () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "Optimism" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3296,7 +3293,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "arbitrum" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3306,7 +3303,7 @@ describe("Deposits", () => {
           try {
             await depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "InvalidChain" as GaslessDestination
             )
             expect.fail("Should have thrown an error")
@@ -3352,7 +3349,7 @@ describe("Deposits", () => {
             await expect(
               depositService.initiateGaslessDeposit(
                 "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", // Mainnet address
-                "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
                 "L1"
               )
             ).to.be.rejectedWith(/NativeBTCDepositor address not available/)
@@ -3375,7 +3372,7 @@ describe("Deposits", () => {
               await expect(
                 depositService.initiateGaslessDeposit(
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                  "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
                   "L1"
                 )
               ).to.be.rejectedWith("Could not get active wallet public key")
@@ -3403,7 +3400,7 @@ describe("Deposits", () => {
               beforeEach(async () => {
                 result = await depositService.initiateGaslessDeposit(
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                  "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
                   "L1"
                 )
               })
@@ -3453,7 +3450,7 @@ describe("Deposits", () => {
               beforeEach(async () => {
                 result = await depositService.initiateGaslessDeposit(
                   "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
-                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                  "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
                   "L1"
                 )
               })
@@ -3471,44 +3468,6 @@ describe("Deposits", () => {
             })
           })
         })
-
-        context(
-          "when NativeBTCDepositor address should auto-resolve from mapping (Mainnet)",
-          () => {
-            let result: GaslessDepositResult
-            beforeEach(async () => {
-              // Switch to mainnet so mapping contains a valid address
-              bitcoinClient.network = BitcoinNetwork.Mainnet
-              tbtcContracts.bridge.setActiveWalletPublicKey(
-                Hex.from(
-                  "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
-                )
-              )
-              // Create service without providing native depositor override
-              depositService = new DepositsService(
-                tbtcContracts,
-                bitcoinClient,
-                (_: DestinationChainName) => undefined
-              )
-
-              // Use a valid mainnet P2PKH address for mainnet network
-              result = await depositService.initiateGaslessDeposit(
-                "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
-                "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-                "L1"
-              )
-            })
-
-            it("should use the address from NATIVE_BTC_DEPOSITOR_ADDRESSES", () => {
-              const expected =
-                NATIVE_BTC_DEPOSITOR_ADDRESSES[BitcoinNetwork.Mainnet]
-              expect(result.receipt.depositor.identifierHex).to.equal(
-                // EthereumAddress normalizes to lowercase hex without 0x
-                expected.substring(2).toLowerCase()
-              )
-            })
-          }
-        )
 
         context("when overriding NativeBTCDepositor via setter", () => {
           let result: GaslessDepositResult
@@ -3533,13 +3492,17 @@ describe("Deposits", () => {
 
             result = await depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "L1"
             )
           })
 
           it("should use the override address for depositor", () => {
-            expect(result.receipt.depositor).to.equal(overrideAddress)
+            // setNativeBTCDepositor revalidates via EthereumAddress.from(),
+            // producing a new instance with the same identifierHex.
+            expect(result.receipt.depositor.identifierHex).to.equal(
+              overrideAddress.identifierHex
+            )
           })
         })
       })
@@ -3568,7 +3531,7 @@ describe("Deposits", () => {
             await expect(
               depositService.initiateGaslessDeposit(
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-                "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
                 "Base"
               )
             ).to.be.rejectedWith(
@@ -3597,9 +3560,18 @@ describe("Deposits", () => {
               l2BitcoinDepositorEncoder
             )
 
+            const l1BitcoinDepositorEncoder =
+              new MockCrossChainExtraDataEncoder()
+            l1BitcoinDepositorEncoder.setEncoding(
+              l2DepositOwner,
+              Hex.from(
+                `000000000000000000000000${l2DepositOwner.identifierHex}`
+              )
+            )
+
             l1BitcoinDepositor = new MockL1BitcoinDepositor(
               EthereumAddress.from("F4c1B212B37775769c73353264ac48dD7fA5B71E"),
-              new MockCrossChainExtraDataEncoder()
+              l1BitcoinDepositorEncoder
             )
 
             const l1BitcoinRedeemer = new MockL1BitcoinRedeemer(
@@ -3644,11 +3616,11 @@ describe("Deposits", () => {
               await expect(
                 depositService.initiateGaslessDeposit(
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                  "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
                   "Base"
                 )
               ).to.be.rejectedWith(
-                "Cannot resolve destination chain deposit owner"
+                "does not match the resolved L2 signer owner"
               )
             })
           })
@@ -3665,7 +3637,7 @@ describe("Deposits", () => {
                 await expect(
                   depositService.initiateGaslessDeposit(
                     "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                    "0x934b98637ca318a4d6e7ca6ffd1690b8e77df637",
                     "Base"
                   )
                 ).to.be.rejectedWith("Could not get active wallet public key")
@@ -3687,7 +3659,7 @@ describe("Deposits", () => {
                 beforeEach(async () => {
                   result = await depositService.initiateGaslessDeposit(
                     "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                    "0x934b98637ca318a4d6e7ca6ffd1690b8e77df637",
                     "Base"
                   )
                 })
@@ -3731,7 +3703,7 @@ describe("Deposits", () => {
                 beforeEach(async () => {
                   result = await depositService.initiateGaslessDeposit(
                     "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
-                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+                    "0x934b98637ca318a4d6e7ca6ffd1690b8e77df637",
                     "Base"
                   )
                 })
@@ -3771,7 +3743,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "InvalidChain" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3781,7 +3753,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
-              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
               "" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3829,11 +3801,6 @@ describe("Deposits", () => {
         extraData: Hex.from("a9b38ea6435c8941d6eda6a46b68e3e211719699"),
       }
 
-      const l2ReceiptWithInvalidExtraDataFixture: DepositReceipt = {
-        ...l1ReceiptFixture,
-        extraData: Hex.from("abcdef"), // Only 3 bytes
-      }
-
       beforeEach(() => {
         bitcoinClient = new MockBitcoinClient()
         tbtcContracts = new MockTBTCContracts()
@@ -3856,20 +3823,33 @@ describe("Deposits", () => {
 
       context("when destination chain is L1", () => {
         context("when receipt has no extraData", () => {
+          it("should throw error requiring extraData", async () => {
+            await expect(
+              depositService.buildGaslessRelayPayload(
+                l1ReceiptFixture,
+                testnetTransactionHash,
+                0,
+                "L1"
+              )
+            ).to.be.rejectedWith("receipt.extraData is required")
+          })
+        })
+
+        context("when receipt has extraData", () => {
           let payload: GaslessRevealPayload
 
           beforeEach(async () => {
             payload = await depositService.buildGaslessRelayPayload(
-              l1ReceiptFixture,
+              l1ReceiptWithExtraDataFixture,
               testnetTransactionHash,
               0,
               "L1"
             )
           })
 
-          it("should encode owner as bytes32 (left-padded address)", () => {
+          it("should pass extraData through unchanged as bytes32 owner", () => {
             expect(payload.destinationChainDepositOwner).to.equal(
-              "0x000000000000000000000000934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+              "0x000000000000000000000000abcdef1234567890abcdef1234567890abcdef12"
             )
           })
 
@@ -3907,31 +3887,6 @@ describe("Deposits", () => {
             expect(payload.fundingTx.version.length).to.equal(10)
           })
         })
-
-        context("when receipt has extraData", () => {
-          let payload: GaslessRevealPayload
-
-          beforeEach(async () => {
-            payload = await depositService.buildGaslessRelayPayload(
-              l1ReceiptWithExtraDataFixture,
-              testnetTransactionHash,
-              0,
-              "L1"
-            )
-          })
-
-          it("should use extraData as bytes32 owner directly", () => {
-            expect(payload.destinationChainDepositOwner).to.equal(
-              "0x000000000000000000000000abcdef1234567890abcdef1234567890abcdef12"
-            )
-          })
-
-          it("should NOT use depositor address when extraData present", () => {
-            expect(payload.destinationChainDepositOwner).to.not.equal(
-              "0x000000000000000000000000934b98637ca318a4d6e7ca6ffd1690b8e77df637"
-            )
-          })
-        })
       })
 
       context("when destination chain is L2", () => {
@@ -3947,14 +3902,10 @@ describe("Deposits", () => {
             )
           })
 
-          it("should extract address from last 20 bytes of 32-byte extraData", () => {
+          it("should pass 32-byte extraData through unchanged", () => {
             expect(payload.destinationChainDepositOwner).to.equal(
-              "0xa9b38ea6435c8941d6eda6a46b68e3e211719699"
+              l2ReceiptWith32ByteExtraDataFixture.extraData!.toPrefixedString()
             )
-          })
-
-          it("should have 20-byte address format (42 chars: 0x + 40)", () => {
-            expect(payload.destinationChainDepositOwner.length).to.equal(42)
           })
 
           it("should include correct Bitcoin transaction vectors", () => {
@@ -3969,52 +3920,16 @@ describe("Deposits", () => {
           })
         })
 
-        context("when receipt has valid 20-byte extraData", () => {
-          let payload: GaslessRevealPayload
-
-          beforeEach(async () => {
-            payload = await depositService.buildGaslessRelayPayload(
-              l2ReceiptWith20ByteExtraDataFixture,
-              testnetTransactionHash,
-              0,
-              "Base"
-            )
-          })
-
-          it("should use 20-byte extraData directly as address", () => {
-            expect(payload.destinationChainDepositOwner).to.equal(
-              "0xa9b38ea6435c8941d6eda6a46b68e3e211719699"
-            )
-          })
-
-          it("should have correct address length", () => {
-            expect(payload.destinationChainDepositOwner.length).to.equal(42)
-          })
-        })
-
         context("when receipt has no extraData", () => {
-          it("should throw error for missing extraData on L2", async () => {
+          it("should throw error requiring extraData", async () => {
             await expect(
               depositService.buildGaslessRelayPayload(
                 l1ReceiptFixture, // No extraData
                 testnetTransactionHash,
                 0,
-                "Optimism"
+                "Arbitrum"
               )
-            ).to.be.rejectedWith("extraData required")
-          })
-        })
-
-        context("when receipt has invalid extraData length", () => {
-          it("should throw error for extraData not 20 or 32 bytes", async () => {
-            await expect(
-              depositService.buildGaslessRelayPayload(
-                l2ReceiptWithInvalidExtraDataFixture,
-                testnetTransactionHash,
-                0,
-                "Base"
-              )
-            ).to.be.rejectedWith("Invalid extraData length")
+            ).to.be.rejectedWith("receipt.extraData is required")
           })
         })
       })
@@ -4022,7 +3937,7 @@ describe("Deposits", () => {
       context("chain name normalization", () => {
         it("should keep L1 as uppercase", async () => {
           const payload = await depositService.buildGaslessRelayPayload(
-            l1ReceiptFixture,
+            l1ReceiptWithExtraDataFixture,
             testnetTransactionHash,
             0,
             "L1"
@@ -4076,7 +3991,7 @@ describe("Deposits", () => {
 
         beforeEach(async () => {
           payload = await depositService.buildGaslessRelayPayload(
-            l1ReceiptFixture,
+            l1ReceiptWithExtraDataFixture,
             testnetTransactionHash,
             0,
             "L1"
@@ -4112,7 +4027,7 @@ describe("Deposits", () => {
       context("fundingOutputIndex parameter", () => {
         it("should correctly pass through fundingOutputIndex value", async () => {
           const payload = await depositService.buildGaslessRelayPayload(
-            l1ReceiptFixture,
+            l1ReceiptWithExtraDataFixture,
             testnetTransactionHash,
             5, // Test with different index
             "L1"
@@ -4123,7 +4038,7 @@ describe("Deposits", () => {
 
         it("should handle fundingOutputIndex 0", async () => {
           const payload = await depositService.buildGaslessRelayPayload(
-            l1ReceiptFixture,
+            l1ReceiptWithExtraDataFixture,
             testnetTransactionHash,
             0,
             "L1"
@@ -4138,7 +4053,7 @@ describe("Deposits", () => {
 
         beforeEach(async () => {
           payload = await depositService.buildGaslessRelayPayload(
-            l1ReceiptFixture,
+            l1ReceiptWithExtraDataFixture,
             testnetTransactionHash,
             0,
             "L1"
@@ -4147,25 +4062,25 @@ describe("Deposits", () => {
 
         it("should map blindingFactor from receipt to reveal", () => {
           expect(payload.reveal.blindingFactor).to.equal(
-            l1ReceiptFixture.blindingFactor.toPrefixedString()
+            l1ReceiptWithExtraDataFixture.blindingFactor.toPrefixedString()
           )
         })
 
         it("should map walletPublicKeyHash from receipt to reveal", () => {
           expect(payload.reveal.walletPubKeyHash).to.equal(
-            l1ReceiptFixture.walletPublicKeyHash.toPrefixedString()
+            l1ReceiptWithExtraDataFixture.walletPublicKeyHash.toPrefixedString()
           )
         })
 
         it("should map refundPublicKeyHash from receipt to reveal", () => {
           expect(payload.reveal.refundPubKeyHash).to.equal(
-            l1ReceiptFixture.refundPublicKeyHash.toPrefixedString()
+            l1ReceiptWithExtraDataFixture.refundPublicKeyHash.toPrefixedString()
           )
         })
 
         it("should map refundLocktime from receipt to reveal", () => {
           expect(payload.reveal.refundLocktime).to.equal(
-            l1ReceiptFixture.refundLocktime.toPrefixedString()
+            l1ReceiptWithExtraDataFixture.refundLocktime.toPrefixedString()
           )
         })
       })

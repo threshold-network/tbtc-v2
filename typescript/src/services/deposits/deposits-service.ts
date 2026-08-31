@@ -14,27 +14,40 @@ import {
   BitcoinScriptUtils,
   BitcoinTxHash,
 } from "../../lib/bitcoin"
-import { BitcoinNetwork } from "../../lib/bitcoin/network"
 import { Hex } from "../../lib/utils"
 import { Deposit } from "./deposit"
 import * as crypto from "crypto"
 import { CrossChainDepositor } from "./cross-chain"
-import { NATIVE_BTC_DEPOSITOR_ADDRESSES } from "../../lib/ethereum/constants"
 import { EthereumAddress } from "../../lib/ethereum/address"
+import { utils as ethersUtils } from "ethers"
+import { extractBitcoinRawTxVectors } from "../../lib/bitcoin/tx"
 
 /**
- * Supported destination chains for gasless deposits.
- * Includes "L1" for direct Ethereum L1 deposits and all supported L2 chains.
+ * Canonical list of destination chains supported by the gasless deposit flow.
+ * Literal source of truth; `GaslessDestination` is derived from it so the
+ * type and runtime list cannot drift.
  */
-export type GaslessDestination = "L1" | DestinationChainName
+export const SUPPORTED_GASLESS_CHAINS = [
+  "L1",
+  "Arbitrum",
+  "Base",
+  "Sui",
+  "StarkNet",
+] as const
+
+/**
+ * Destination chain name accepted by `initiateGaslessDeposit` and
+ * `buildGaslessRelayPayload`. Derived from `SUPPORTED_GASLESS_CHAINS`.
+ */
+export type GaslessDestination = (typeof SUPPORTED_GASLESS_CHAINS)[number]
 
 /**
  * Result of initiating a gasless deposit where the relayer backend pays all
  * gas fees.
  *
  * This structure contains both the Deposit object for Bitcoin operations and
- * serializable data that can be stored (e.g., in localStorage) for later use
- * in building the relay payload.
+ * the typed deposit receipt needed to build the relay payload once the
+ * funding transaction is confirmed.
  *
  * @see {GaslessRevealPayload} for the payload structure needed after funding
  */
@@ -48,13 +61,17 @@ export interface GaslessDepositResult {
 
   /**
    * Deposit receipt containing all deposit parameters.
-   * This is serializable and can be stored for later payload construction.
+   * Contains `Hex`/`ChainIdentifier` class instances, not plain JSON — a
+   * `JSON.parse(JSON.stringify(receipt))` round trip does NOT reproduce a
+   * usable receipt. Callers needing to persist this across page reloads
+   * must implement their own serialize/deserialize step that reconstructs
+   * these class instances.
    */
   receipt: DepositReceipt
 
   /**
    * Target chain name for the deposit.
-   * Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base", "Optimism").
+   * Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base", "Sui").
    */
   destinationChainName: GaslessDestination
 }
@@ -178,45 +195,6 @@ export class DepositsService {
     DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS
 
   /**
-   * List of chains that support gasless deposits.
-   * - "L1": Direct L1 deposits via NativeBTCDepositor
-   * - "Arbitrum", "Base", "Sui", "StarkNet": L2 deposits via L1BitcoinDepositor
-   *
-   * Note: "Solana" is excluded as it uses a different architecture and
-   * gasless deposit support is not yet confirmed.
-   */
-  private readonly SUPPORTED_GASLESS_CHAINS = [
-    "L1",
-    "Arbitrum",
-    "Base",
-    "Sui",
-    "StarkNet",
-  ] as const
-
-  /**
-   * EVM-compatible L2 chains that require 20-byte address format for deposit owners.
-   * Non-EVM L2s (Sui, StarkNet) require 32-byte format.
-   */
-  private readonly EVM_L2_CHAINS = ["Arbitrum", "Base"] as const
-
-  /**
-   * Hex string length for a bytes32 value (0x prefix + 64 hex characters).
-   * Used for L1 deposit owner encoding and extraData validation.
-   */
-  private readonly BYTES32_HEX_LENGTH = 66
-
-  /**
-   * Hex string length for an Ethereum address (0x prefix + 40 hex characters).
-   * Used for L2 deposit owner encoding and extraData validation.
-   */
-  private readonly ADDRESS_HEX_LENGTH = 42
-
-  /**
-   * Number of hex characters representing a 20-byte Ethereum address (40 chars).
-   * Used when extracting address from bytes32 extraData.
-   */
-  private readonly ADDRESS_HEX_CHARS = 40
-  /**
    * Handle to tBTC contracts.
    */
   private readonly tbtcContracts: TBTCContracts
@@ -271,17 +249,6 @@ export class DepositsService {
     resolver: (_: DestinationChainName) => CrossChainInterfaces | undefined
   ) {
     this.#crossChainContracts = resolver
-  }
-
-  /**
-   * Checks if the given chain name is an EVM-compatible L2 chain.
-   * @param chainName - Name of the destination chain to check
-   * @returns true if the chain is an EVM L2 (Arbitrum, Base), false otherwise
-   */
-  private isEVML2Chain(chainName: string): boolean {
-    return this.EVM_L2_CHAINS.some(
-      (chain) => chain.toLowerCase() === chainName.toLowerCase()
-    )
   }
 
   /**
@@ -409,98 +376,80 @@ export class DepositsService {
   /**
    * Initiates a gasless tBTC v2 deposit where the backend relayer pays all gas fees.
    *
-   * This method generates a deposit for backend relay, supporting both L1 and L2
-   * (cross-chain) destinations. For L1 deposits, the NativeBTCDepositor contract
-   * is used. For L2 deposits, the L1BitcoinDepositor contract is used with
-   * proper extraData encoding for the destination chain.
+   * @experimental THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+   *               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+   *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+   *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin address for emergency recovery
+   * For L1 destinations the `depositOwner` is encoded as bytes32 in extraData.
+   * For L2 destinations the SDK throws if `depositOwner` does not match the
+   * L2 signer's resolved owner (the resolved owner is authoritative — the
+   * caller cannot override it).
+   *
+   * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin recovery address.
    * @param depositOwner Ethereum address that will receive the minted tBTC.
-   *                     - For L1 deposits: This address is used directly and encoded
-   *                       as bytes32 in the deposit's extraData.
-   *                     - For L2 deposits: This parameter is currently ignored; the
-   *                       deposit owner is automatically resolved from the destination
-   *                       chain's BitcoinDepositor contract (typically the signer's
-   *                       address). This ensures proper integration with the L2
-   *                       cross-chain infrastructure.
-   * @param destinationChainName Target chain name for the deposit. Must be one of the
-   *                             supported chains (case-sensitive):
-   *                             - "L1" - Direct L1 deposits via NativeBTCDepositor
-   *                             - "Arbitrum" - Arbitrum L2 deposits
-   *                             - "Base" - Base L2 deposits
-   *                             - "Sui" - Sui L2 deposits
-   *                             - "StarkNet" - StarkNet L2 deposits (note: capital 'N')
-   *                             Note: "Solana" is not currently supported for gasless deposits
-   * @returns GaslessDepositResult containing deposit object, receipt, and chain name
-   * @throws Throws an error if:
-   *         - Bitcoin recovery address is not P2PKH or P2WPKH
-   *         - Destination chain name is not in the supported list
-   *         - Destination chain contracts not initialized (for L2 deposits)
-   *         - NativeBTCDepositor address not available (for L1 deposits)
-   *         - Deposit owner cannot be resolved from L2 signer (for L2 deposits)
-   *         - No active wallet in Bridge contract
+   * @param destinationChainName Target chain name (one of `SUPPORTED_GASLESS_CHAINS`).
+   * @returns GaslessDepositResult containing deposit, receipt, and chain name.
    */
   async initiateGaslessDeposit(
     bitcoinRecoveryAddress: string,
     depositOwner: string,
     destinationChainName: GaslessDestination
   ): Promise<GaslessDepositResult> {
-    // Validate that the chain supports gasless deposits
-    if (!this.SUPPORTED_GASLESS_CHAINS.includes(destinationChainName as any)) {
+    if (!SUPPORTED_GASLESS_CHAINS.includes(destinationChainName)) {
       throw new Error(
         `Gasless deposits are not supported for chain: ${destinationChainName}. ` +
-          `Supported chains: ${this.SUPPORTED_GASLESS_CHAINS.join(", ")}`
+          `Supported chains: ${SUPPORTED_GASLESS_CHAINS.join(", ")}`
       )
     }
 
     if (destinationChainName === "L1") {
       return this.initiateL1GaslessDeposit(bitcoinRecoveryAddress, depositOwner)
-    } else {
-      return this.initiateL2GaslessDeposit(
-        bitcoinRecoveryAddress,
-        destinationChainName as DestinationChainName
-      )
     }
+    return this.initiateL2GaslessDeposit(
+      bitcoinRecoveryAddress,
+      destinationChainName as Exclude<GaslessDestination, "L1">,
+      depositOwner
+    )
   }
 
   /**
-   * Internal helper for L1 gasless deposits using NativeBTCDepositor.
+   * Internal helper for L1 gasless deposits using the NativeBTCDepositor contract
+   * configured via the constructor or `setNativeBTCDepositor`.
    *
-   * This method creates an L1 deposit where the depositOwner is encoded as
-   * bytes32 extraData in the deposit receipt. The NativeBTCDepositor address
-   * is resolved either from the constructor parameter, the setter override,
-   * or the network-based mapping.
+   * @experimental THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+   *               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+   *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+   *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * @param bitcoinRecoveryAddress - Bitcoin address for recovery if deposit fails (P2PKH or P2WPKH).
-   * @param depositOwner - Ethereum address that will receive the minted tBTC on L1.
-   *                       This is encoded as bytes32 and stored in extraData.
-   * @returns Promise resolving to GaslessDepositResult containing deposit, receipt, and "L1" chain name.
-   * @throws Error if NativeBTCDepositor address is not available for the current network.
+   * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin recovery address.
+   * @param depositOwner Ethereum address that will receive the minted tBTC on L1.
+   *                     Validated and encoded as bytes32 in extraData.
+   * @returns Promise resolving to the GaslessDepositResult for the L1 deposit.
+   * @throws Error if `depositOwner` is not a valid 20-byte Ethereum address or
+   *         if no NativeBTCDepositor address has been configured.
    */
   private async initiateL1GaslessDeposit(
     bitcoinRecoveryAddress: string,
     depositOwner: string
   ): Promise<GaslessDepositResult> {
-    let depositor = this.getNativeBTCDepositorAddress()
-    if (!depositor) {
-      depositor = await this.resolveNativeBTCDepositorFromNetwork()
-    }
-    if (!depositor) {
-      const network = await this.bitcoinClient.getNetwork()
+    // Validate depositOwner as an Ethereum address BEFORE encoding. A bad
+    // depositOwner is unrecoverable because the deposit script is committed
+    // to the Bitcoin funding address.
+    const owner = EthereumAddress.from(depositOwner)
+    const ownerHex = `0x${owner.identifierHex}`
+
+    if (!this.#nativeBTCDepositor) {
       throw new Error(
-        `NativeBTCDepositor address not available for Bitcoin network: ${network}`
+        "NativeBTCDepositor address not set; call setNativeBTCDepositor or pass it via the DepositsService constructor before initiating a gasless L1 deposit"
       )
     }
 
-    // Encode depositOwner as bytes32 for L1 contract
-    const { ethers } = await import("ethers")
-    const depositOwnerBytes32 = Hex.from(
-      ethers.utils.hexZeroPad(depositOwner, 32)
-    )
+    const depositOwnerBytes32 = Hex.from(ethersUtils.hexZeroPad(ownerHex, 32))
 
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
-      depositor,
+      this.#nativeBTCDepositor,
       depositOwnerBytes32
     )
 
@@ -518,21 +467,26 @@ export class DepositsService {
   }
 
   /**
-   * Internal helper for L2 gasless deposits using L1BitcoinDepositor.
+   * Internal helper for L2 gasless deposits using L1BitcoinDepositor with
+   * L1-transaction reveal mode.
    *
-   * This method creates a cross-chain deposit where the deposit owner is
-   * automatically resolved from the L2 BitcoinDepositor contract. The pattern
-   * is based on initiateCrossChainDeposit but returns the enriched
-   * GaslessDepositResult instead of just a Deposit object.
+   * @experimental THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+   *               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+   *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+   *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * @param bitcoinRecoveryAddress - Bitcoin address for recovery if deposit fails (P2PKH or P2WPKH).
-   * @param destinationChainName - Name of the L2 destination chain (e.g., "Base", "Arbitrum", "Sui", "StarkNet").
-   * @returns Promise resolving to GaslessDepositResult containing deposit, receipt, and destination chain name.
-   * @throws Error if cross-chain contracts are not initialized or deposit owner cannot be resolved.
+   * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin recovery address.
+   * @param destinationChainName L2 destination chain.
+   * @param depositOwner Ethereum address that the caller wants to receive the
+   *                       minted tBTC. Must match the resolved L2 signer
+   *                       owner; otherwise throws (the resolved owner is
+   *                       authoritative — callers cannot override).
+   * @returns Promise resolving to the GaslessDepositResult for the L2 deposit.
    */
   private async initiateL2GaslessDeposit(
     bitcoinRecoveryAddress: string,
-    destinationChainName: DestinationChainName
+    destinationChainName: Exclude<GaslessDestination, "L1">,
+    depositOwner: string
   ): Promise<GaslessDepositResult> {
     const crossChainContracts = this.#crossChainContracts(destinationChainName)
     if (!crossChainContracts) {
@@ -541,7 +495,28 @@ export class DepositsService {
       )
     }
 
-    const depositorProxy = new CrossChainDepositor(crossChainContracts)
+    // L1-transaction reveal mode: the relayer reveals directly on L1
+    // (opposite of the default `L2Transaction` mode where the user reveals
+    // from L2). See typescript/src/services/deposits/cross-chain.ts.
+    const depositorProxy = new CrossChainDepositor(
+      crossChainContracts,
+      "L1Transaction"
+    )
+
+    // The L2 resolved owner is authoritative: depositOwner must match it.
+    const resolvedOwner =
+      await crossChainContracts.destinationChainBitcoinDepositor.getDepositOwner()
+    if (
+      !resolvedOwner ||
+      EthereumAddress.from(depositOwner).identifierHex !==
+        resolvedOwner.identifierHex
+    ) {
+      throw new Error(
+        `depositOwner ${depositOwner} does not match the resolved L2 signer owner ${
+          resolvedOwner ? resolvedOwner.identifierHex : "(unset)"
+        }; for L2 gasless deposits the resolved owner is authoritative`
+      )
+    }
 
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
@@ -552,7 +527,8 @@ export class DepositsService {
     const deposit = await Deposit.fromReceipt(
       receipt,
       this.tbtcContracts,
-      this.bitcoinClient
+      this.bitcoinClient,
+      depositorProxy
     )
 
     return {
@@ -565,138 +541,78 @@ export class DepositsService {
   /**
    * Builds the payload for backend gasless reveal endpoint.
    *
-   * This public method constructs the complete payload needed by the relayer
-   * backend to submit a gasless deposit reveal transaction after the Bitcoin
-   * funding transaction is confirmed. The method handles chain-specific owner
-   * encoding requirements:
-   * - L1 deposits: Encode owner as bytes32 (left-padded Ethereum address)
-   * - L2 deposits: Extract 20-byte address from 32-byte extraData
+   * @experimental THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
+   *               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
+   *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
+   *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * The payload includes:
-   * - Bitcoin funding transaction decomposed into vectors (version, inputs,
-   *   outputs, locktime) - used by backend for deposit key computation
-   * - Deposit reveal parameters from the receipt (blinding factor, wallet PKH,
-   *   refund PKH, refund locktime, vault)
-   * - Destination chain deposit owner (encoding varies by chain type)
-   * - Destination chain name for backend routing (normalized to lowercase)
+   * The payload carries the Bitcoin funding transaction (decomposed into
+   * version / inputVector / outputVector / locktime), the reveal parameters
+   * from the receipt, the destination-chain deposit owner (32-byte extraData
+   * passed through unchanged; the relayer or on-chain contract decodes per
+   * chain type — see `EthereumExtraDataEncoder.decodeDepositOwner` and the
+   * per-chain encoders under `typescript/src/lib/contracts/cross-chain.ts`),
+   * and the destination chain name (lowercased for backend routing, except
+   * "L1" which is preserved).
    *
-   * CRITICAL: This method provides raw Bitcoin transaction vectors to the
-   * backend. The backend computes the depositKey using Bitcoin's hash256
-   * (double-SHA256) algorithm, NOT keccak256. The SDK does not compute the
-   * depositKey directly.
+   * NOTE: The backend recovers the funding txid by `hash256` over the supplied
+   * vectors, then computes
+   * `depositKey = keccak256(abi.encodePacked(reversedTxHash, fundingOutputIndex))`
+   * — see `EthereumBridge.buildDepositKey` at
+   * `typescript/src/lib/ethereum/bridge.ts:478-481`. The SDK does not compute
+   * the depositKey directly.
    *
-   * IMPORTANT: Chain names are automatically normalized to lowercase for
-   * backend compatibility. The SDK accepts capitalized chain names (e.g.,
-   * "Arbitrum", "Base") but converts them to lowercase (e.g., "arbitrum",
-   * "base") in the returned payload. The exception is "L1" which remains
-   * as-is.
-   *
-   * @param receipt - Deposit receipt from initiateGaslessDeposit containing
-   *                  all deposit parameters. For L2 deposits, receipt MUST
-   *                  include extraData with the deposit owner address encoded.
-   * @param fundingTxHash - Bitcoin transaction hash of the funding transaction.
-   *                        This transaction must be confirmed on Bitcoin network
-   *                        before calling this method.
-   * @param fundingOutputIndex - Zero-based index of the deposit output in the
-   *                             funding transaction. Use the output index where
-   *                             the deposit script address received the funds.
-   * @param destinationChainName - Target chain name for the deposit. Should match
-   *                               the chain name used in initiateGaslessDeposit:
-   *                               - "L1" for direct L1 deposits (remains "L1")
-   *                               - L2 chain names: "Arbitrum", "Base", "Sui",
-   *                                 "StarkNet" (converted to lowercase in payload)
-   * @returns Promise resolving to GaslessRevealPayload ready for submission to
-   *          backend POST /tbtc/gasless-reveal endpoint. The
-   *          destinationChainName field will be lowercase (except "L1")
-   * @throws Error if extraData is missing for L2 deposits (cross-chain)
-   * @throws Error if extraData has invalid length for L2 deposits (must be 20
-   *         or 32 bytes)
-   * @throws Error if Bitcoin transaction cannot be fetched from the client
-   * @throws Error if vault address cannot be retrieved from contracts
+   * @param receipt Deposit receipt from `initiateGaslessDeposit`. `receipt.extraData`
+   *                MUST be present.
+   * @param fundingTxHash Bitcoin transaction hash of the funding transaction.
+   * @param fundingOutputIndex Zero-based index of the deposit output in the
+   *                           funding transaction (non-negative integer).
+   * @param destinationChainName One of `SUPPORTED_GASLESS_CHAINS`. The wire
+   *                              format lowercases L2 chain names.
+   * @returns Payload ready for submission to the backend gasless-reveal endpoint.
    */
   async buildGaslessRelayPayload(
     receipt: DepositReceipt,
     fundingTxHash: BitcoinTxHash,
     fundingOutputIndex: number,
-    destinationChainName: string
+    destinationChainName: GaslessDestination
   ): Promise<GaslessRevealPayload> {
-    // Import needed here to avoid circular dependency
-    const { extractBitcoinRawTxVectors } = await import("../../lib/bitcoin/tx")
-    const { ethers } = await import("ethers")
+    if (!SUPPORTED_GASLESS_CHAINS.includes(destinationChainName)) {
+      throw new Error(
+        `Gasless deposits are not supported for chain: ${destinationChainName}. ` +
+          `Supported chains: ${SUPPORTED_GASLESS_CHAINS.join(", ")}`
+      )
+    }
 
-    // Step 1: Get Bitcoin transaction and extract vectors
+    if (!Number.isInteger(fundingOutputIndex) || fundingOutputIndex < 0) {
+      throw new Error(
+        `Invalid fundingOutputIndex: ${fundingOutputIndex}. Must be a non-negative integer.`
+      )
+    }
+
+    if (!receipt.extraData) {
+      throw new Error(
+        `receipt.extraData is required for ${destinationChainName} gasless deposits. ` +
+          `Use initiateGaslessDeposit() to generate the receipt.`
+      )
+    }
+
     const fundingTx = await this.bitcoinClient.getRawTransaction(fundingTxHash)
     const fundingTxVectors = extractBitcoinRawTxVectors(fundingTx)
 
-    // Step 2: Get vault address
     const vaultChainIdentifier =
       this.tbtcContracts.tbtcVault.getChainIdentifier()
     const vaultAddress = `0x${vaultChainIdentifier.identifierHex}`
 
-    // Step 3: Determine owner encoding based on chain
-    // L1 contracts expect bytes32 owner (32 bytes), L2 contracts expect address (20 bytes)
-    let destinationOwner: string
+    // All destination chains (L1 + L2) take a bytes32 `destinationChainDepositOwner`
+    // — see AbstractL1BTCDepositor.initializeDeposit
+    // (solidity/contracts/cross-chain/AbstractL1BTCDepositor.sol:283-293).
+    // The SDK does not re-encode or re-extract; pass extraData through unchanged.
+    const destinationOwner = receipt.extraData.toPrefixedString()
 
-    if (destinationChainName === "L1") {
-      // L1: Use bytes32 encoding for owner
-      if (receipt.extraData) {
-        // If extraData is present, use it directly (already bytes32)
-        destinationOwner = receipt.extraData.toPrefixedString()
-      } else {
-        // If no extraData, encode depositor address as bytes32 (left-padded)
-        destinationOwner = ethers.utils.hexZeroPad(
-          `0x${receipt.depositor.identifierHex}`,
-          32
-        )
-      }
-    } else {
-      // L2: extraData is required and must contain the deposit owner address
-      if (!receipt.extraData) {
-        throw new Error(
-          `extraData required for cross-chain gasless deposits but was not found in the receipt. ` +
-            `This should not happen - please ensure you used initiateGaslessDeposit() to generate the deposit.`
-        )
-      }
-
-      const extraDataHex = receipt.extraData.toPrefixedString()
-
-      // Format owner based on destination chain requirements
-      if (this.isEVML2Chain(destinationChainName)) {
-        // EVM L2s (Arbitrum, Base): Extract 20-byte address from bytes32 or use 20 bytes directly
-        if (extraDataHex.length === this.BYTES32_HEX_LENGTH) {
-          // 32 bytes: Extract last 20 bytes (address) from bytes32 extraData
-          // The address is stored in the rightmost 20 bytes of the 32-byte value
-          destinationOwner = `0x${extraDataHex.slice(-this.ADDRESS_HEX_CHARS)}`
-        } else if (extraDataHex.length === this.ADDRESS_HEX_LENGTH) {
-          // Already 20 bytes (address format) - use directly
-          destinationOwner = extraDataHex
-        } else {
-          throw new Error(
-            `Invalid extraData length for EVM L2 deposit owner: received ${
-              (extraDataHex.length - 2) / 2
-            } bytes, expected 20 or 32 bytes.`
-          )
-        }
-      } else {
-        // Non-EVM L2s (Sui, StarkNet): Use full 32-byte extraData
-        if (extraDataHex.length !== this.BYTES32_HEX_LENGTH) {
-          throw new Error(
-            `${destinationChainName} requires 32-byte extraData for deposit owner, got ${
-              (extraDataHex.length - 2) / 2
-            } bytes.`
-          )
-        }
-        destinationOwner = extraDataHex
-      }
-    }
-
-    // Step 4: Normalize chain name for backend compatibility
-    // Backend expects lowercase chain names (e.g., "arbitrum", "base")
-    // except "L1" which should remain as-is
     const normalizedChainName =
       destinationChainName === "L1" ? "L1" : destinationChainName.toLowerCase()
 
-    // Step 5: Build and return payload
     return {
       fundingTx: {
         version: fundingTxVectors.version.toPrefixedString(),
@@ -718,49 +634,34 @@ export class DepositsService {
   }
 
   /**
-   * Gets the chain identifier of the NativeBTCDepositor contract.
-   * This contract is used for L1 gasless deposits.
-   * @returns Chain identifier of the NativeBTCDepositor or undefined if not available.
-   */
-  private getNativeBTCDepositorAddress(): ChainIdentifier | undefined {
-    return this.#nativeBTCDepositor
-  }
-
-  /**
-   * Sets the NativeBTCDepositor address override used for L1 gasless deposits.
-   * Useful for custom deployments or testing environments.
-   * @param nativeBTCDepositor - Chain identifier of the NativeBTCDepositor contract to use.
+   * Sets the NativeBTCDepositor address used for L1 gasless deposits.
+   *
+   * Required for any gasless L1 deposit. There is no auto-resolve from
+   * `BitcoinNetwork` anymore — the SDK cannot verify a deployed contract
+   * address, so the caller is responsible for supplying the canonical
+   * NativeBTCDepositor contract address for the target Ethereum network.
+   *
+   * @param nativeBTCDepositor Chain identifier of the NativeBTCDepositor contract.
+   *                           Must be a valid Ethereum address (40 hex chars,
+   *                           non-zero). Solana/StarkNet/Sui/other identifiers
+   *                           are rejected.
    * @returns {void}
+   * @throws If the identifier is not a valid Ethereum address.
    */
   setNativeBTCDepositor(nativeBTCDepositor: ChainIdentifier) {
-    this.#nativeBTCDepositor = nativeBTCDepositor
-  }
-
-  /**
-   * Resolves the NativeBTCDepositor address from the current Bitcoin network
-   * using the NATIVE_BTC_DEPOSITOR_ADDRESSES mapping.
-   * @returns Chain identifier of the NativeBTCDepositor contract, or undefined
-   *          if the mapping is missing or invalid for the network.
-   */
-  private async resolveNativeBTCDepositorFromNetwork(): Promise<
-    ChainIdentifier | undefined
-  > {
-    const network = await this.bitcoinClient.getNetwork()
-    if (
-      network !== BitcoinNetwork.Mainnet &&
-      network !== BitcoinNetwork.Testnet
-    ) {
-      return undefined
-    }
-
-    const address = NATIVE_BTC_DEPOSITOR_ADDRESSES[network]
-    if (!address) return undefined
-
+    let validated: ChainIdentifier
     try {
-      return EthereumAddress.from(address)
-    } catch {
-      return undefined
+      validated = EthereumAddress.from(nativeBTCDepositor.identifierHex)
+    } catch (err) {
+      throw new Error(
+        `NativeBTCDepositor must be a valid Ethereum address; received identifierHex='${nativeBTCDepositor.identifierHex}'`
+      )
     }
+    // EthereumAddress.identifierHex is UNPREFIXED (see address.ts:21).
+    if (/^0{40}$/.test(validated.identifierHex)) {
+      throw new Error("NativeBTCDepositor address cannot be the zero address")
+    }
+    this.#nativeBTCDepositor = validated
   }
 
   private async generateDepositReceipt(

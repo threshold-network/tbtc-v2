@@ -6,6 +6,7 @@ import {
   DestinationChainName,
   DestinationChainInterfaces,
   TBTCContracts,
+  ChainIdentifier,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
 import { EthereumSigner } from "../lib/ethereum"
@@ -49,22 +50,24 @@ export class TBTC extends TBTCCore {
   /**
    * Initializes the tBTC v2 SDK entrypoint for Ethereum and Bitcoin mainnets.
    * The initialized instance uses default Electrum servers to interact
-   * with Bitcoin mainnet
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param nativeBTCDepositor NativeBTCDepositor address. Required for L1 gasless deposits.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
-    crossChainSupport: boolean = false
+    crossChainSupport: boolean = false,
+    nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Mainnet,
       BitcoinNetwork.Mainnet,
-      crossChainSupport
+      crossChainSupport,
+      nativeBTCDepositor
     )
   }
 
@@ -82,19 +85,22 @@ export class TBTC extends TBTCCore {
    * upgrading this SDK.
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param nativeBTCDepositor NativeBTCDepositor address. Required for L1 gasless deposits.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
-    crossChainSupport: boolean = false
+    crossChainSupport: boolean = false,
+    nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
       BitcoinNetwork.Testnet4,
-      crossChainSupport
+      crossChainSupport,
+      nativeBTCDepositor
     )
   }
 
@@ -106,6 +112,7 @@ export class TBTC extends TBTCCore {
    * @param ethereumChainId Ethereum chain ID.
    * @param bitcoinNetwork Bitcoin network.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param nativeBTCDepositor NativeBTCDepositor address. Required for L1 gasless deposits.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the underlying signer's Ethereum network is
    *         other than the given Ethereum network.
@@ -114,7 +121,8 @@ export class TBTC extends TBTCCore {
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
-    crossChainSupport = false
+    crossChainSupport = false,
+    nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
     const tbtc = (await super.initializeEthereum(
       ethereumSignerOrProvider,
@@ -138,6 +146,9 @@ export class TBTC extends TBTCCore {
       tbtc.redemptions.setCrossChainContractsResolver((name) =>
         tbtc.crossChainContracts(name)
       )
+    }
+    if (nativeBTCDepositor) {
+      tbtc.deposits.setNativeBTCDepositor(nativeBTCDepositor)
     }
 
     return tbtc
