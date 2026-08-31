@@ -580,8 +580,9 @@ library Wallets {
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the Live state.
     ///
-    ///      RFC 13 requires that a wallet cannot begin closing while it
-    ///      still custodies UTXO reservations (active or
+    ///      RFC 13 (which ships with a later milestone PR and is not yet in
+    ///      this branch's docs/rfc/) requires that a wallet cannot begin
+    ///      closing while it still custodies UTXO reservations (active or
     ///      acceptance-pending, tracked via `walletReservationsCount`). This
     ///      is NOT YET ENFORCED here: the permissionless release path for a
     ///      stranded active reservation (`notifyReservationStranded`) does

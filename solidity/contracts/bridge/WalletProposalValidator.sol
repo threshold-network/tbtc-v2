@@ -157,8 +157,8 @@ contract WalletProposalValidator {
     ///         the deposit becomes refundable.
     ///
     ///         For example, if a deposit becomes refundable after 8 pm and
-    ///         DEPOSIT_REFUND_SAFETY_MARGIN is 6 hours, the deposit is valid
-    ///         for a sweep only before 2 pm.
+    ///         DEPOSIT_REFUND_SAFETY_MARGIN is 24 hours, the deposit is valid
+    ///         for a sweep only before 8 pm the previous day.
     uint32 public constant DEPOSIT_REFUND_SAFETY_MARGIN =
         WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN;
 

@@ -97,6 +97,8 @@ describe("ReservationProofs", () => {
       watchtowerLevelTwoDelay: 0,
       isPartial: false,
       retryCreditSourceNonce: 0,
+      termSeconds,
+      dissolutionDelay,
       ...overrides,
     }
   }

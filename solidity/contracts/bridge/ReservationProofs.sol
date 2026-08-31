@@ -88,7 +88,9 @@ library ReservationProofs {
     );
 
     /// @notice Represents the type of a reservation lifecycle SPV proof.
-    ///         Numbering matches `Reservation.ActionType` minus `None`.
+    ///         Zero-based; `ProofType(n)` corresponds to
+    ///         `Reservation.ActionType(n + 1)` for `n` in `{0..3}` (`None`
+    ///         has no `ProofType` counterpart).
     enum ProofType {
         Acceptance,
         Redemption,
@@ -104,10 +106,9 @@ library ReservationProofs {
     /// @param reservationKey The key of the target reservation.
     /// @param requestNonce The generation being settled. Late settlements
     ///        name an older, timed-out generation.
-    /// @dev To keep the external selector stable for the router wiring that
-    ///      lands with a later milestone PR (redemption/re-anchor/dissolution
-    ///      proof types will need this parameter); only the acceptance branch
-    ///      is wired up here, so the value is unused.
+    /// @dev Only `ProofType.Acceptance` is wired in milestone 1; the
+    ///      trailing `UTXO` argument is reserved for later proof types and
+    ///      is currently ignored.
     function submitReservationProof(
         BridgeState.Storage storage self,
         uint8 proofType,
@@ -168,16 +169,21 @@ library ReservationProofs {
         late = action.state == Reservation.ActionState.TimedOut;
     }
 
-    /// @notice Converts a late settlement into the existing stranded-position
+    /// @notice Converts a settlement into the existing stranded-position
     ///         accounting when its target wallet can no longer manage the
     ///         newly settled anchor.
     /// @dev Live and MovingFunds wallets can still manage the anchor.
-    ///      Closing and Closed wallets are stranded immediately. Terminated
-    ///      wallets retain the permissionless cleanup path (the `notifyReservationStranded` function lands with a later milestone PR and does not exist in this branch)
-    ///      unless this lineage was already stranded before the
-    ///      proof. In that case, restore the Stranded state latch before
-    ///      cleanup so the reconstructed accounting is released without
-    ///      emitting duplicate recovery evidence.
+    ///      Closing, Closed, and Terminated wallets are stranded
+    ///      immediately: the permissionless cleanup path
+    ///      (`notifyReservationStranded`) lands with a later milestone PR
+    ///      and does not exist in this branch, so there is no other route
+    ///      to release a reservation settled against an already-terminated
+    ///      wallet. `evidenceAlreadyEmitted` supports the future
+    ///      `notifyReservationStranded` call site, which strands before any
+    ///      settlement proof exists: when a lineage was already stranded by
+    ///      that path before this proof arrives, restore the Stranded state
+    ///      latch before cleanup so the reconstructed accounting is
+    ///      released without emitting duplicate recovery evidence.
     function strandLateSettlementIfTargetWalletClosed(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
@@ -190,8 +196,7 @@ library ReservationProofs {
         if (
             walletState == Wallets.WalletState.Closing ||
             walletState == Wallets.WalletState.Closed ||
-            (evidenceAlreadyEmitted &&
-                walletState == Wallets.WalletState.Terminated)
+            walletState == Wallets.WalletState.Terminated
         ) {
             if (evidenceAlreadyEmitted) {
                 reservation.state = Reservation.ReservationState.Stranded;
@@ -333,6 +338,17 @@ library ReservationProofs {
             action.amount - anchorAmount <= action.txMaxFee,
             "Transaction fee is too high"
         );
+        // Defense-in-depth: `action.amount - anchorAmount <= action.txMaxFee`
+        // together with the request-time check
+        // `depositAmount >= reservationMinAmount + txMaxFee` already implies
+        // this, but that guarantee is indirect through two other
+        // invariants; make the anchor minimum a direct revert guard so a
+        // future caller or test harness mismatch that writes a smaller
+        // `action.amount` cannot mint a below-minimum anchor silently.
+        require(
+            anchorAmount >= self.reservationMinAmount,
+            "Anchor below reservation minimum"
+        );
     }
 
     /// @notice Finalizes an acceptance settlement: adjusts the reserved
@@ -354,13 +370,14 @@ library ReservationProofs {
 
         if (late) {
             // A newer acceptance generation may have been authorized after
-            // this one timed out: the position stayed Unknown, so
-            // re-authorization was possible. Only the position's current
-            // generation is ever reachable by the timeout-notify milestone PR (which does not exist in this branch)
-            // and this deposit is now consumed, so a still-pending newer
-            // generation's reserved capacity would leak permanently. Unwind
-            // it. (A newer generation that already timed out released its
-            // own capacity — nothing to unwind there.)
+            // this one timed out via `Reservation.notifyReservationAcceptanceTimedOut`:
+            // the position stayed Unknown, so re-authorization was
+            // possible. Only the position's current generation is ever
+            // reachable by proof submission, and this deposit is now
+            // consumed, so a still-pending newer generation's reserved
+            // capacity would leak permanently. Unwind it. (A newer
+            // generation that already timed out released its own capacity
+            // — nothing to unwind there.)
             Reservation.ReservationRequest storage pending = self.reservations[
                 reservationKey
             ];
@@ -377,10 +394,11 @@ library ReservationProofs {
                 }
             }
 
-            // The timeout released the capacity reserved at request time;
-            // re-take it for the actual anchor value. Deliberately no cap
-            // check: caps are request-time throttles and the anchor is
-            // already confirmed on Bitcoin.
+            // `notifyReservationAcceptanceTimedOut` released the capacity
+            // reserved at request time when it marked this generation
+            // `TimedOut`; re-take it here for the actual anchor value.
+            // Deliberately no cap check: caps are request-time throttles
+            // and the anchor is already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
             self.walletReservationsCount[targetWalletPubKeyHash] += 1;
             self.walletReservationsAmount[
@@ -407,8 +425,7 @@ library ReservationProofs {
         address depositor = deposit.depositor;
 
         /* solhint-disable-next-line not-rely-on-time */
-        uint32 expiresAt = uint32(block.timestamp) +
-            self.reservationTermSeconds;
+        uint32 expiresAt = uint32(block.timestamp) + action.termSeconds;
 
         reservation.owner = depositor;
         reservation.mintedAmount = anchorAmount;
@@ -420,9 +437,7 @@ library ReservationProofs {
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
-        reservation.dissolutionEligibleAt =
-            expiresAt +
-            self.reservationDissolutionDelay;
+        reservation.dissolutionEligibleAt = expiresAt + action.dissolutionDelay;
 
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(anchorTxHash, uint32(0))))
@@ -446,11 +461,12 @@ library ReservationProofs {
 
         // A timed-out authorization released the target wallet's reservation
         // count, so the wallet may have retired before this already-confirmed
-        // anchor is proven. Closing and Closed wallets have no later cleanup
-        // path; strand the newly registered position immediately. Terminated
-        // wallets retain the canonical permissionless evidence path. This
-        // check now runs unconditionally (not just for late settlements): an
-        // on-time proof can equally race a wallet leaving Live mid-flight.
+        // anchor is proven. Closing, Closed, and Terminated wallets have no
+        // cleanup path in this branch (`notifyReservationStranded` lands
+        // with a later milestone PR); strand the newly registered position
+        // immediately. This check runs unconditionally (not just for late
+        // settlements): an on-time proof can equally race a wallet leaving
+        // Live mid-flight.
         strandLateSettlementIfTargetWalletClosed(
             self,
             reservation,

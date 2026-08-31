@@ -360,9 +360,10 @@ library BridgeState {
         // vault address are treated as UTXO reservations.
         address reservationVault;
         // Maximum amount of BTC transaction fee in satoshi that can be
-        // incurred by a single reservation lifecycle transaction (anchor,
-        // re-anchor, reserved redemption). Dissolution transactions use
-        // `reservationDissolutionTxMaxFee` instead.
+        // incurred by a single 1-in-1-out lifecycle transaction (anchor,
+        // re-anchor, reserved redemption). Distinct from
+        // `reservationDissolutionTxMaxFee`, which governs the 2-in-1-out
+        // dissolution shape.
         uint64 reservationTxMaxFee;
         // The dissolution delay in seconds after a reservation's custody
         // term expires and before the reservation becomes dissolvable. The
@@ -376,8 +377,9 @@ library BridgeState {
         // the 0-disables fields, see `requestReservationAcceptance` for the
         // convention).
         uint64 reservationMaxTotalAmount;
-        // Current total amount in satoshi locked under active reservations
-        // (reserved capacity of pending acceptance generations plus anchor output values of active reservations).
+        // Current total satoshi reserved by acceptance requests and locked
+        // by active reservations (reserved capacity of pending acceptance
+        // generations plus anchor output values of active reservations).
         uint64 reservationTotalAmount;
         // Maximum number of reservations (active or acceptance-pending) a
         // single wallet can custody. Zero blocks all requests (unlike the
@@ -396,7 +398,10 @@ library BridgeState {
         // (acceptance anchor, re-anchor, dissolution) can be reported
         // timed out. Reserved redemptions use `redemptionTimeout` instead.
         // Must strictly exceed the wallet proposal validator's timeout
-        // safety margin. Snapshotted into each action record at request time.
+        // safety margin - a governance wiring invariant with no on-chain
+        // enforcement or setter in milestone 1; to be checked in the
+        // governance setter PR. Snapshotted into each action record at
+        // request time.
         uint32 reservationActionTimeout;
         // Length in seconds of the renewal window: a reservation owner may
         // renew (extend by exactly one current term) only while
@@ -494,7 +499,10 @@ library BridgeState {
         // dissolutions of a no-main-UTXO wallet could all confirm on
         // Bitcoin with only the first being provable.
         mapping(bytes20 => uint256) walletPendingDissolution;
-        // per-wallet custody exposure: reserved capacity of pending generations plus anchor values of active reservations.
+        // Per-wallet custody exposure: reserved capacity of pending
+        // acceptance generations plus anchor values of active reservations.
+        // Because the claim always equals the anchor, this single field is
+        // both the asset- and the liability-side per-wallet figure.
         mapping(bytes20 => uint64) walletReservationsAmount;
         // Per-wallet enumeration of custodied reservation keys, maintained
         // for monitoring and audit evidence. Entries are appended on
@@ -516,7 +524,8 @@ library BridgeState {
         mapping(uint256 => uint64) reservationRetryCreditActionNonce;
         // Maximum fraction (basis points, low 16 bits) of total Bank-tracked
         // backing that can be locked under reservations (RFC 13 relative
-        // cap). Declared, unused until the reservation-vault PR wires the
+        // cap, ships with a later milestone PR and not yet in this branch's
+        // docs/rfc/). Declared, unused until the reservation-vault PR wires the
         // backing total. Declared as a full slot so the __gap shrink below
         // is accounted for by the storage-layout safety check.
         uint256 reservationMaxBackingFractionBps;
