@@ -54,7 +54,6 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache: "yarn"
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -92,8 +91,6 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache: "yarn"
-          cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
       # next step has an indirect dependency to `@summa-tx/relay-sol@2.0.2`
@@ -127,8 +124,6 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "22.x"
-          cache: "yarn"
-          cache-dependency-path: typescript/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
