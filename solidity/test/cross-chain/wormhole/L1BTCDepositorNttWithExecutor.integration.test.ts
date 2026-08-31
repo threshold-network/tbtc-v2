@@ -101,12 +101,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       // Set up executor parameters using real signed quote
-      await depositor
-        .connect(user)
-        .setExecutorParameters(
-          { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
-          FEE_ARGS_ZERO
-        )
+      await depositor.connect(user).setExecutorParameters({ ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address }, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
       const [isSet] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet).to.be.true
 
@@ -153,9 +148,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         instructions: `0x${"2".repeat(64)}`,
       }
 
-      await depositor
-        .connect(user)
-        .setExecutorParameters(executorArgs1, FEE_ARGS_ZERO)
+      await depositor.connect(user).setExecutorParameters(executorArgs1, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
       const [isSet] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet).to.be.true
       expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
@@ -170,9 +163,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         instructions: `0x${"4".repeat(64)}`,
       }
 
-      await depositor
-        .connect(user)
-        .setExecutorParameters(executorArgs2, FEE_ARGS_ZERO)
+      await depositor.connect(user).setExecutorParameters(executorArgs2, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet2).to.be.true
       expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
@@ -205,9 +196,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       await expect(
-        depositor
-          .connect(user)
-          .setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
+        depositor.connect(user).setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -223,9 +212,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         instructions: `0x${"2".repeat(64)}`,
       }
 
-      await depositor
-        .connect(user)
-        .setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
+      await depositor.connect(user).setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
 
       // Try to quote for unsupported chain
       const unsupportedChain = 999
@@ -280,9 +267,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       // Check for ExecutorParametersSet event
-      const tx = await depositor
-        .connect(user)
-        .setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
+      const tx = await depositor.connect(user).setExecutorParameters(executorArgs, FEE_ARGS_ZERO, WORMHOLE_CHAIN_DESTINATION)
       const receipt = await tx.wait()
       const event = receipt.events?.find(
         (e) => e.event === "ExecutorParametersSet"

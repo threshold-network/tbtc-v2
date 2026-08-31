@@ -79,8 +79,6 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
-    // Set parameter expiration time to 1 hour for testing
-    await depositor.setParameterExpirationTime(3600)
 
     // Set default parameters to match test fee args
     await depositor.setDefaultParameters(
@@ -116,7 +114,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
       // First call should succeed
       await expect(
-        depositor.connect(user1).setExecutorParameters(executorArgs, feeArgs)
+        depositor.connect(user1).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       // Check that parameters are set
@@ -150,7 +148,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       // First call should succeed
       const tx1 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs)
+        .setExecutorParameters(executorArgs1, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       const receipt1 = await tx1.wait()
       const event1 = receipt1.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -160,7 +158,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       // Second call should refresh parameters (not block)
       const tx2 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs2, feeArgs)
+        .setExecutorParameters(executorArgs2, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       const receipt2 = await tx2.wait()
       const event2 = receipt2.events?.find(
         (e) => e.event === "ExecutorParametersRefreshed"
@@ -208,14 +206,14 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       // Set first parameters
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs)
+        .setExecutorParameters(executorArgs1, feeArgs, WORMHOLE_CHAIN_DESTINATION)
 
       // Clear parameters
       await depositor.connect(user1).clearExecutorParameters()
 
       // Now should be able to set new parameters
       await expect(
-        depositor.connect(user1).setExecutorParameters(executorArgs2, feeArgs)
+        depositor.connect(user1).setExecutorParameters(executorArgs2, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       // Check that new parameters are set
@@ -249,7 +247,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       // Set first parameters
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs)
+        .setExecutorParameters(executorArgs1, feeArgs, WORMHOLE_CHAIN_DESTINATION)
 
       // Fast forward time to expire parameters (1 hour + 1 second)
       await ethers.provider.send("evm_increaseTime", [3601])
@@ -257,7 +255,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
       // Now should be able to set new parameters (expired workflow)
       await expect(
-        depositor.connect(user1).setExecutorParameters(executorArgs2, feeArgs)
+        depositor.connect(user1).setExecutorParameters(executorArgs2, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       // Check that new parameters are set
@@ -299,15 +297,15 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
       // All users should be able to set parameters in parallel
       await expect(
-        depositor.connect(user1).setExecutorParameters(executorArgs1, feeArgs)
+        depositor.connect(user1).setExecutorParameters(executorArgs1, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       await expect(
-        depositor.connect(user2).setExecutorParameters(executorArgs2, feeArgs)
+        depositor.connect(user2).setExecutorParameters(executorArgs2, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       await expect(
-        depositor.connect(user3).setExecutorParameters(executorArgs3, feeArgs)
+        depositor.connect(user3).setExecutorParameters(executorArgs3, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       // Each user should have their own workflow
@@ -354,7 +352,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       // Set first parameters
       const tx1 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs)
+        .setExecutorParameters(executorArgs1, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       const receipt1 = await tx1.wait()
       const event1 = receipt1.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -364,7 +362,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       // Try to set second parameters - should refresh with ExecutorParametersRefreshed event
       const tx2 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs2, feeArgs)
+        .setExecutorParameters(executorArgs2, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       const receipt2 = await tx2.wait()
       const event2 = receipt2.events?.find(
         (e) => e.event === "ExecutorParametersRefreshed"

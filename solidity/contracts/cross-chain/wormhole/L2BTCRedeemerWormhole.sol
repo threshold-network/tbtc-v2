@@ -232,6 +232,10 @@ contract L2BTCRedeemerWormhole is
         emit MinimumRedemptionAmountUpdated(_newMinimumRedemptionAmount);
     }
 
+    /// @notice Updates the L1 BTC Redeemer contract address and its corresponding Wormhole chain ID.
+    /// @param _l1BtcRedeemerWormholeAddress The new L1 BTC Redeemer contract address as bytes32.
+    /// @param _l1BtcRedeemerWormholeChain The new Wormhole chain ID for the L1 BTC Redeemer contract.
+    /// @dev Reverts if `_l1BtcRedeemerWormholeAddress` is zero or if `_l1BtcRedeemerWormholeChain` is zero.
     function updateL1BtcRedeemer(
         bytes32 _l1BtcRedeemerWormholeAddress,
         uint16 _l1BtcRedeemerWormholeChain

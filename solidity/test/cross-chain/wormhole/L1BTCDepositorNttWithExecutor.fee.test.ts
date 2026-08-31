@@ -145,7 +145,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
       }
 
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -166,7 +166,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
 
       // Should succeed with mock parameters
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_DESTINATION)
       ).to.not.be.reverted
 
       // Verify parameters are set

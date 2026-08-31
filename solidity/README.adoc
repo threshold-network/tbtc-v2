@@ -99,10 +99,10 @@ for a reference). The initializer reverts if the provided chain ID is 0.
 
 *Deployment and Upgrade:*
 - *Fresh deployment:* Provide a non-zero chain ID to `initialize(...)`.
-- *Existing proxy upgrade:* Upon upgrading the implementation, run the
-  owner-only `initializeV2(uint16)` reinitializer atomically with the
-  implementation upgrade. The new `l1BtcRedeemerWormholeChain` storage slot
-  reads 0 in an upgraded proxy, and redemptions fail closed until it is set.
+- *Existing proxy upgrade:* To upgrade, bundle the implementation upgrade with an
+  owner-only `initializeV2(uint16)` call into a single governance batch. This
+  ensures the `l1BtcRedeemerWormholeChain` is set atomically, preventing redemptions
+  from failing closed in the interim.
 
 Post-deployment, the owner can atomically repoint the destination via
 `updateL1BtcRedeemer(bytes32, uint16)`.

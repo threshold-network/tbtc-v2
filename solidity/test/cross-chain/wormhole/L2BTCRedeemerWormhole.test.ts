@@ -527,6 +527,30 @@ describe("L2BTCRedeemerWormhole", () => {
         expect(await l2BtcRedeemer.redeemedAmount()).to.equal(exampleAmount)
       })
     })
+    context("when l1Chain is 0", () => {
+      let l2BtcRedeemerImplementation: L2BTCRedeemerWormhole
+      beforeEach(async () => {
+        // Deploy implementation directly, without initializing.
+        // All state variables, including l1BtcRedeemerWormholeChain, are zero.
+        const factory = await ethers.getContractFactory("L2BTCRedeemerWormhole")
+        l2BtcRedeemerImplementation = (await factory.deploy()) as L2BTCRedeemerWormhole
+      })
+
+      it("should revert with InvalidRecipientChain", async () => {
+        await expectRevertWithCustomError(
+          l2BtcRedeemerImplementation
+            .connect(user)
+            .requestRedemption(
+              exampleAmount,
+              l1ChainId,
+              exampleRedeemerOutputScript,
+              exampleNonce
+            ),
+          l2BtcRedeemerImplementation,
+          "InvalidRecipientChain"
+        )
+      })
+    })
 
     context("when redeemerOutputScript is P2WPKH (successful)", () => {
       let tx: ContractTransaction

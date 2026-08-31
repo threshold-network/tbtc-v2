@@ -1,5 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   MockNttManager,
   MockNttManagerWithExecutor,
@@ -25,6 +26,7 @@ const encodeDestinationChainReceiver = (
 
 describe("L1BTCDepositorNttWithExecutor - hardening", () => {
   let depositor: TestL1BTCDepositorNttWithExecutor
+  let owner: SignerWithAddress
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
@@ -32,6 +34,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
   let underlyingNttManager: MockNttManager
 
   before(async () => {
+    [owner] = await ethers.getSigners()
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
     tbtcToken = await TestERC20Factory.deploy()
 
@@ -185,24 +188,13 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     expect(await ethers.provider.getBalance(depositor.address)).to.equal(0)
   })
 
-  // I'm keeping the original test but renaming it to reflect the change. Wait, this test is now redundant with the overpayment case I just added above.
-  // Let's replace the refund test with a "should retain no ETH" test.
 
-  it("should reject executor refunds to a different address at stage time", async () => {
-    const [, user, attacker] = await ethers.getSigners()
-    const args = executorArgs(attacker.address)
-    await expect(
-      depositor.connect(user).setExecutorParameters(args, zeroFeeArgs)
-    ).to.be.revertedWith("Executor refund address must be caller")
-  })
-
-  // New staging tests to replace staged equality tests that were failing
   describe("setExecutorParameters (staging consistency)", () => {
     beforeEach(async () => {
       await depositor.setDefaultParameters(
         100_000,
         50,
-        ethers.Wallet.createRandom().address,
+        owner.address,
         0,
         ethers.constants.AddressZero
       )
@@ -214,8 +206,8 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       await expect(
         depositor.setExecutorParameters(args, {
           dbps: 49,
-          payee: ethers.constants.AddressZero,
-        })
+          payee: owner.address,
+        }, WORMHOLE_CHAIN_SEI)
       ).to.be.revertedWith("Fee must match default executor fee")
     })
 
@@ -225,8 +217,8 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       await expect(
         depositor.setExecutorParameters(args, {
           dbps: 50,
-          payee: ethers.constants.AddressZero,
-        })
+          payee: owner.address,
+        }, WORMHOLE_CHAIN_SEI)
       ).to.emit(depositor, "ExecutorParametersSet")
     })
   })
@@ -368,7 +360,8 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
             signedQuote: validSignedQuote,
             instructions: validInstructions,
           },
-          { dbps: 0, payee: ethers.constants.AddressZero }
+          { dbps: 0, payee: ethers.constants.AddressZero },
+          WORMHOLE_CHAIN_SEI
         )
       ).to.be.revertedWith("Executor refund address must be caller")
     })
@@ -383,7 +376,8 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
             signedQuote: validSignedQuote,
             instructions: validInstructions,
           },
-          { dbps: 0, payee: ethers.constants.AddressZero }
+          { dbps: 0, payee: ethers.constants.AddressZero },
+          WORMHOLE_CHAIN_SEI
         )
       ).to.emit(depositor, "ExecutorParametersSet")
     })

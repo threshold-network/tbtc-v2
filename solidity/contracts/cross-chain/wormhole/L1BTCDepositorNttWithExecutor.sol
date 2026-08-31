@@ -127,9 +127,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         FeeArgs feeArgs;
         address user;
         uint256 timestamp;
+        bool exists;
         uint256 cachedRequiredPayment;
         uint16 cachedDestinationChain;
-        bool exists;
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -462,12 +462,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param feeArgs Fee arguments for the executor service
     /// @return nonce The nonce hash for these parameters (for informational purposes)
     /// @dev Must be called before finalizeDeposit() to provide real signed quote.
-    ///      Rotation of owner-configured defaults invalidates in-flight staged params 
-    ///      at finalize, as they are bound at stage time.
     function setExecutorParameters(
         ExecutorArgs memory executorArgs,
-        FeeArgs memory feeArgs
+        FeeArgs memory feeArgs,
+        uint16 destinationChain
     ) external returns (bytes32 nonce) {
+        _validateExecutorParameters(feeArgs);
         // CRITICAL: Validate that we have a real signed quote
         require(
             executorArgs.signedQuote.length > 0,
@@ -484,14 +484,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         // Validate fee basis points
-        require(feeArgs.dbps == defaultExecutorFeeBps, "Fee must match default executor fee");
-
-        uint16 stageChain = _getDefaultSupportedChain();
-        require(stageChain != 0, "No supported chains configured");
-        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(underlyingNttManager, stageChain, "", executorArgs, feeArgs);
+        require(supportedChains[destinationChain], "Destination chain not supported");
+        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(underlyingNttManager, destinationChain, "", executorArgs, feeArgs);
         require(requiredPayment >= executorArgs.value, "Insufficient payment for executor service");
-
-        // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
+        // Remove one expired entry before minting a new nonce
         if (userNonceCounter[msg.sender] > 0) {
             bytes32 latestNonce = _generateNonce(
                 msg.sender,
@@ -500,7 +496,26 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             ExecutorParameterSet storage existingParams = parametersByNonce[
                 latestNonce
             ];
+            if (existingParams.exists) {
+                // Check if parameters have expired
+                // solhint-disable-next-line not-rely-on-time
+                if (block.timestamp > existingParams.timestamp + parameterExpirationTime) {
+                    delete parametersByNonce[latestNonce];
+                }
+            }
+        }
 
+        // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
+        // (Re-using the refresh logic but checking for existence)
+        if (userNonceCounter[msg.sender] > 0) {
+            bytes32 latestNonce = _generateNonce(
+                msg.sender,
+                userNonceCounter[msg.sender] - 1
+            );
+            ExecutorParameterSet storage existingParams = parametersByNonce[
+                latestNonce
+            ];
+            
             if (existingParams.exists) {
                 // Check if parameters have expired
                 // solhint-disable-next-line not-rely-on-time
@@ -511,7 +526,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
                     existingParams.cachedRequiredPayment = requiredPayment;
-                    existingParams.cachedDestinationChain = stageChain;
+                    existingParams.cachedDestinationChain = destinationChain;
                     // solhint-disable-next-line not-rely-on-time
                     existingParams.timestamp = block.timestamp;
 
@@ -527,6 +542,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             }
         }
 
+
         // Generate nonce for this user's current sequence
         uint256 currentSequence = userNonceCounter[msg.sender];
         nonce = _generateNonce(msg.sender, currentSequence);
@@ -539,10 +555,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             executorArgs: executorArgs,
             feeArgs: feeArgs,
             user: msg.sender,
-            timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
+            timestamp: block.timestamp,
+            exists: true,
             cachedRequiredPayment: requiredPayment,
-            cachedDestinationChain: stageChain,
-            exists: true
+            cachedDestinationChain: destinationChain
         });
 
         emit ExecutorParametersSet(
@@ -575,18 +591,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         // If parameters don't exist, that's fine - already cleared
     }
 
-    /// @notice Sets the parameter expiration time (owner only)
-    /// @param newExpirationTime New expiration time in seconds
-    function setParameterExpirationTime(
-        uint256 newExpirationTime
-    ) external onlyOwner {
-        require(
-            newExpirationTime > 0,
-            "Expiration time must be greater than 0"
-        );
-        parameterExpirationTime = newExpirationTime;
-    }
-
     /// @notice Quotes cost using the latest parameters for msg.sender
     /// @return cost Total cost for the transfer
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
@@ -603,17 +607,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        uint16 defaultChain = _getDefaultSupportedChain();
-        require(defaultChain != 0, "No supported chains configured");
-
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                defaultChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        return params.cachedRequiredPayment;
     }
 
     /// @notice Quotes cost for specific destination chain using latest parameters
@@ -683,6 +677,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             params.feeArgs
         );
         executorCost = params.executorArgs.value;
+        require(totalCost >= executorCost, "Total cost less than executor cost");
         nttDeliveryPrice = totalCost - executorCost;
     }
 
@@ -985,10 +980,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     function _validateExecutorParameters(FeeArgs memory feeArgs) internal view {
         // Fee basis points check
         require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
-        // Fee parity check
+        // Fee parity check: must be >= platform fee and == default executor fee
+        require(feeArgs.dbps >= defaultPlatformFeeBps, "Fee must be >= platform fee");
         require(feeArgs.dbps == defaultExecutorFeeBps, "Fee must match default executor fee");
-
-        // Payee rule check
         if (feeArgs.dbps == 0) {
             require(feeArgs.payee == address(0), "Fee payee must be zero when fee is zero");
         } else {
@@ -999,10 +993,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         }
     }
 
-    /// @notice Generates a unique nonce for a user's parameter set
+    /// @notice Generates a unique nonce for a user and sequence
     /// @param user The user address
-    /// @param sequence The sequence number for this user
-    /// @return nonce A unique nonce hash
+    /// @param sequence The sequence number
+    /// @return nonce The generated nonce
     function _generateNonce(
         address user,
         uint256 sequence
