@@ -4052,7 +4052,7 @@ describe("Deposits", () => {
 
         it("should normalize Sui to lowercase", async () => {
           const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith20ByteExtraDataFixture,
+            l2ReceiptWith32ByteExtraDataFixture,
             testnetTransactionHash,
             0,
             "Sui"
@@ -4062,7 +4062,7 @@ describe("Deposits", () => {
 
         it("should normalize StarkNet to lowercase", async () => {
           const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith20ByteExtraDataFixture,
+            l2ReceiptWith32ByteExtraDataFixture,
             testnetTransactionHash,
             0,
             "StarkNet"
