@@ -578,19 +578,23 @@ library Wallets {
     ///         is unset allowing to trigger a new wallet creation immediately.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
-    ///      - The caller must make sure that the wallet is in the Live state,
-    ///      - The wallet must not custody any UTXO reservations (active or
-    ///        acceptance-pending): moving funds and closing are unavailable
-    ///        while `walletReservationsCount` for this wallet is non-zero.
+    ///      - The caller must make sure that the wallet is in the Live state.
+    ///
+    ///      RFC 13 requires that a wallet cannot begin closing while it
+    ///      still custodies UTXO reservations (active or
+    ///      acceptance-pending, tracked via `walletReservationsCount`). This
+    ///      is NOT YET ENFORCED here: the permissionless release path for a
+    ///      stranded active reservation (`notifyReservationStranded`) does
+    ///      not exist in this branch and lands with the wallet-lifecycle
+    ///      integration PR. Enforcing the gate before that release path
+    ///      ships would deadlock any wallet holding a reservation - it can
+    ///      never reach Closing/Closed, and closure is the only condition
+    ///      under which an active reservation's slot is currently released.
+    ///      Both the gate and its release path must land together.
     function moveFunds(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
-        require(
-            self.walletReservationsCount[walletPubKeyHash] == 0,
-            "Wallet holds reservations"
-        );
-
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         if (wallet.mainUtxoHash == bytes32(0)) {
