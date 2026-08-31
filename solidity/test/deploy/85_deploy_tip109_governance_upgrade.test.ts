@@ -156,29 +156,26 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       }
     })
 
-    it("should skip when DEPLOY_TIP109 is not set", async () => {
+    it("should always skip when DEPLOY_TIP109 is not set", async () => {
       const result = await func.skip!({} as any)
       expect(result).to.be.true
     })
 
-    it("should skip when DEPLOY_TIP109 is set to something other than true", async () => {
-      process.env.DEPLOY_TIP109 = "false"
-      const result = await func.skip!({} as any)
-      expect(result).to.be.true
-
-      process.env.DEPLOY_TIP109 = "yes"
-      const result2 = await func.skip!({} as any)
-      expect(result2).to.be.true
-
-      process.env.DEPLOY_TIP109 = "1"
-      const result3 = await func.skip!({} as any)
-      expect(result3).to.be.true
-    })
-
-    it("should not skip when DEPLOY_TIP109 is set to true", async () => {
+    it("should always skip when DEPLOY_TIP109 is set to true", async () => {
       process.env.DEPLOY_TIP109 = "true"
       const result = await func.skip!({} as any)
-      expect(result).to.be.false
+      expect(result).to.be.true
+    })
+
+    it("should always skip regardless of DEPLOY_TIP109 value", async () => {
+      process.env.DEPLOY_TIP109 = "false"
+      expect(await func.skip!({} as any)).to.be.true
+
+      process.env.DEPLOY_TIP109 = "yes"
+      expect(await func.skip!({} as any)).to.be.true
+
+      process.env.DEPLOY_TIP109 = "1"
+      expect(await func.skip!({} as any)).to.be.true
     })
   })
 
@@ -871,7 +868,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(check.expectedResult).to.match(/address\(0\)|0x0{40}/i)
       })
 
-      it("should have a storage layout check referencing slots 79, 80, and gap 81-128", () => {
+      it("should have a storage layout check referencing slots 79, 80, 81, 129, and gap", () => {
         expect(summary).to.not.be.null
 
         const storageCheck = summary.verificationChecks.find(
@@ -889,6 +886,9 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         const combined = `${storageCheck.command} ${storageCheck.expectedResult} ${storageCheck.description}`
         expect(combined).to.include("79")
         expect(combined).to.include("80")
+        expect(combined).to.include("81")
+        expect(combined).to.include("129")
+        expect(combined).to.include("130")
         expect(combined).to.match(/81|__gap|gap/)
       })
 
@@ -915,7 +915,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(combined.toLowerCase()).to.include(KNOWN_T_TOKEN.toLowerCase())
       })
 
-      it("should have a selector count check expecting 56", () => {
+      it("should have a selector count check expecting 57", () => {
         expect(summary).to.not.be.null
 
         const selectorCheck = summary.verificationChecks.find(
@@ -928,7 +928,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         ).to.not.be.undefined
 
         const combined = `${selectorCheck.command} ${selectorCheck.expectedResult}`
-        expect(combined).to.include("56")
+        expect(combined).to.include("57")
       })
 
       it("should have a bytecode linkage check referencing Deposit and Redemption addresses", () => {

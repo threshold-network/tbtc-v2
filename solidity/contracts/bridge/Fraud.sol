@@ -69,6 +69,9 @@ library Fraud {
         uint32 reportedAt;
         // The flag indicating whether the challenge has been resolved.
         bool resolved;
+        // True when `depositAmount` was included in openFraudChallengeEscrow
+        // on submit. Pre-upgrade challenges default to false.
+        bool escrowCounted;
         // This struct doesn't contain `__gap` property as the structure is stored
         // in a mapping, mappings store values in different slots and they are
         // not contiguous with other values.
@@ -185,6 +188,8 @@ library Fraud {
 
         challenge.challenger = msg.sender;
         challenge.depositAmount = msg.value;
+        self.openFraudChallengeEscrow += msg.value;
+        challenge.escrowCounted = true;
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
@@ -328,6 +333,7 @@ library Fraud {
     ) internal {
         // Mark the challenge as resolved as it was successfully defeated
         challenge.resolved = true;
+        releaseFraudChallengeEscrow(self, challenge);
 
         // Send the ether deposited by the challenger to the treasury
         /* solhint-disable avoid-low-level-calls */
@@ -410,6 +416,7 @@ library Fraud {
         );
 
         challenge.resolved = true;
+        releaseFraudChallengeEscrow(self, challenge);
         // Return the ether deposited by the challenger
         /* solhint-disable avoid-low-level-calls */
         // slither-disable-next-line low-level-calls,unchecked-lowlevel
@@ -432,6 +439,15 @@ library Fraud {
 
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeDefeatTimedOut(walletPubKeyHash, sighash);
+    }
+
+    function releaseFraudChallengeEscrow(
+        BridgeState.Storage storage self,
+        FraudChallenge storage challenge
+    ) private {
+        if (challenge.escrowCounted || self.fraudChallengeEscrowSeeded) {
+            self.openFraudChallengeEscrow -= challenge.depositAmount;
+        }
     }
 
     /// @notice Extracts the UTXO keys from the given preimage used during

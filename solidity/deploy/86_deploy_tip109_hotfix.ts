@@ -3,7 +3,7 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { providers, utils } from "ethers"
+import { BigNumber, providers, utils } from "ethers"
 
 import {
   EIP_1967_ADMIN_SLOT,
@@ -16,10 +16,139 @@ const PROXY_ADMIN_ABI = [
   "function upgrade(address proxy, address implementation)",
 ]
 
+const BRIDGE_GOVERNANCE_ABI = [
+  "function seedFraudChallengeEscrow(uint256 preUpgradeOpenEscrow)",
+]
+
+const BRIDGE_EVENT_ABI = [
+  "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash, bytes32 sighash, uint8 v, bytes32 r, bytes32 s)",
+  "event FraudChallengeDefeated(bytes20 indexed walletPubKeyHash, bytes32 sighash)",
+  "event FraudChallengeDefeatTimedOut(bytes20 indexed walletPubKeyHash, bytes32 sighash)",
+]
+
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
+const bridgeGovernanceInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
+const bridgeEventInterface = new utils.Interface(BRIDGE_EVENT_ABI)
+const FRAUD_LOG_SCAN_CHUNK_SIZE = 100000
 
 function encodeUpgrade(proxy: string, newImpl: string): string {
   return proxyAdminInterface.encodeFunctionData("upgrade", [proxy, newImpl])
+}
+
+function encodeSeedFraudChallengeEscrow(
+  preUpgradeOpenEscrow: BigNumber
+): string {
+  return bridgeGovernanceInterface.encodeFunctionData(
+    "seedFraudChallengeEscrow",
+    [preUpgradeOpenEscrow]
+  )
+}
+
+async function getFraudChallengeLogs(
+  provider: providers.Provider,
+  bridgeAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<providers.Log[]> {
+  const topics = [
+    [
+      bridgeEventInterface.getEventTopic("FraudChallengeSubmitted"),
+      bridgeEventInterface.getEventTopic("FraudChallengeDefeated"),
+      bridgeEventInterface.getEventTopic("FraudChallengeDefeatTimedOut"),
+    ],
+  ]
+
+  const logs: providers.Log[] = []
+
+  for (let startBlock = fromBlock; startBlock <= toBlock; ) {
+    const endBlock = Math.min(
+      startBlock + FRAUD_LOG_SCAN_CHUNK_SIZE - 1,
+      toBlock
+    )
+
+    // eslint-disable-next-line no-await-in-loop
+    const chunk = await provider.getLogs({
+      address: bridgeAddress,
+      topics,
+      fromBlock: startBlock,
+      toBlock: endBlock,
+    })
+    logs.push(...chunk)
+
+    startBlock = endBlock + 1
+  }
+
+  return logs.sort((left, right) => {
+    if (left.blockNumber !== right.blockNumber) {
+      return left.blockNumber - right.blockNumber
+    }
+    if (left.transactionIndex !== right.transactionIndex) {
+      return left.transactionIndex - right.transactionIndex
+    }
+    return left.logIndex - right.logIndex
+  })
+}
+
+async function computeOpenFraudChallengeEscrow(
+  provider: providers.Provider,
+  bridgeAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<BigNumber> {
+  const logs = await getFraudChallengeLogs(
+    provider,
+    bridgeAddress,
+    fromBlock,
+    toBlock
+  )
+  const openChallenges = new Map<string, BigNumber>()
+  const txValues = new Map<string, BigNumber>()
+  let openEscrow = BigNumber.from(0)
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const log of logs) {
+    const parsed = bridgeEventInterface.parseLog(log)
+    const challengeKey = `${String(
+      parsed.args.walletPubKeyHash
+    ).toLowerCase()}:${String(parsed.args.sighash).toLowerCase()}`
+
+    if (parsed.name === "FraudChallengeSubmitted") {
+      let txValue = txValues.get(log.transactionHash)
+      if (!txValue) {
+        // eslint-disable-next-line no-await-in-loop
+        const tx = await provider.getTransaction(log.transactionHash)
+        if (!tx) {
+          throw new Error(`Missing transaction ${log.transactionHash}`)
+        }
+        if (tx.to?.toLowerCase() !== bridgeAddress.toLowerCase()) {
+          throw new Error(
+            `Fraud challenge ${challengeKey} was not submitted directly to ` +
+              "the Bridge; compute the escrow seed with transaction traces"
+          )
+        }
+
+        txValue = tx.value
+        txValues.set(log.transactionHash, txValue)
+      }
+
+      if (openChallenges.has(challengeKey)) {
+        throw new Error(`Duplicate open fraud challenge ${challengeKey}`)
+      }
+
+      openChallenges.set(challengeKey, txValue)
+      openEscrow = openEscrow.add(txValue)
+    } else {
+      const txValue = openChallenges.get(challengeKey)
+      if (!txValue) {
+        throw new Error(`Resolved unknown fraud challenge ${challengeKey}`)
+      }
+
+      openChallenges.delete(challengeKey)
+      openEscrow = openEscrow.sub(txValue)
+    }
+  }
+
+  return openEscrow
 }
 
 /**
@@ -116,11 +245,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Step 1: Reuse existing Deposit library ---
-  // PRs #939/#940 do not touch Deposit.sol. Reuse to save gas.
-  console.log("\n--- Reusing existing Deposit library ---")
-  const Deposit = await get("Deposit")
-  console.log(`  Deposit (existing): ${Deposit.address}`)
+  // --- Step 1: Deploy updated deposit libraries ---
+  // The Bridge implementation must link to the versions compiled from this
+  // tree. Reusing old mainnet deployments would bypass migration-debt logic.
+  console.log("\n--- Deploying updated deposit libraries ---")
+  const Deposit = await deploy("DepositTIP109Hotfix", {
+    ...deployOptions,
+    contract: "Deposit",
+    skipIfAlreadyDeployed: false,
+  })
+
+  const DepositSweep = await deploy("DepositSweepTIP109Hotfix", {
+    ...deployOptions,
+    contract: "DepositSweep",
+    skipIfAlreadyDeployed: false,
+  })
 
   // --- Step 2: Deploy new Redemption library (PR #940) ---
   console.log("\n--- Deploying new Redemption library ---")
@@ -130,15 +269,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     skipIfAlreadyDeployed: false,
   })
 
-  // --- Step 3: Resolve unchanged existing libraries ---
+  // --- Step 3: Deploy new Fraud library ---
+  console.log("\n--- Deploying new Fraud library ---")
+  const Fraud = await deploy("FraudTIP109Hotfix", {
+    ...deployOptions,
+    contract: "Fraud",
+    skipIfAlreadyDeployed: false,
+  })
+
+  // --- Step 4: Resolve unchanged existing libraries ---
   console.log("\n--- Resolving existing libraries ---")
-  const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
-  // --- Step 4: Deploy new Bridge implementation ---
-  // Linked to existing Deposit + new Redemption + unchanged libs.
+  // --- Step 5: Deploy new Bridge implementation ---
+  // Linked to fresh deployments for every modified linked library.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
@@ -156,7 +301,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     libraries: bridgeLibraries,
   })
 
-  // --- Step 5: Deploy new RebateStaking implementation (PR #939) ---
+  // --- Step 6: Deploy new RebateStaking implementation (PR #939) ---
   console.log("\n--- Deploying RebateStaking implementation ---")
   const rebateImpl = await deploy("RebateStakingTIP109HotfixImplementation", {
     ...deployOptions,
@@ -167,13 +312,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // --- Deployment Summary ---
   console.log(`\n${"-".repeat(80)}`)
   console.log("Deployed contract addresses:")
-  console.log(`  Deposit library (existing):    ${Deposit.address}`)
+  console.log(`  Deposit library (NEW):         ${Deposit.address}`)
+  console.log(`  DepositSweep library (NEW):    ${DepositSweep.address}`)
   console.log(`  Redemption library (NEW):      ${Redemption.address}`)
+  console.log(`  Fraud library (NEW):           ${Fraud.address}`)
   console.log(`  Bridge implementation (NEW):   ${bridgeImpl.address}`)
   console.log(`  RebateStaking impl (NEW):      ${rebateImpl.address}`)
   console.log("-".repeat(80))
 
-  // --- Step 6: Update proxy deployment artifacts ---
+  // --- Step 7: Update proxy deployment artifacts ---
   // Following the pattern from Wormhole V2 upgrade scripts: update the
   // proxy artifact with the new implementation address and ABI so that
   // hardhat-deploy and downstream tooling reflect the upgraded state.
@@ -181,6 +328,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const Bridge = await get("Bridge")
   const RebateStaking = await get("RebateStaking")
+  const BridgeGovernance = await get("BridgeGovernance")
 
   const bridgeArtifact = artifacts.readArtifactSync("Bridge")
   await save("Bridge", {
@@ -200,7 +348,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     `  RebateStaking proxy artifact updated (impl → ${rebateImpl.address})`
   )
 
-  // --- Step 7: Discover ProxyAdmin and generate calldata ---
+  // --- Step 8: Discover ProxyAdmin and generate calldata ---
   console.log("\n--- Discovering ProxyAdmin ---")
   const adminData = await ethers.provider.getStorageAt(
     Bridge.address,
@@ -214,6 +362,31 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   console.log("\n--- Generating governance calldata ---")
+
+  const latestBlock = await ethers.provider.getBlockNumber()
+  const fraudScanFromBlock = Number(
+    process.env.BRIDGE_FRAUD_EVENT_FROM_BLOCK ||
+      Bridge.receipt?.blockNumber ||
+      0
+  )
+  const preUpgradeOpenEscrow = await computeOpenFraudChallengeEscrow(
+    ethers.provider,
+    Bridge.address,
+    fraudScanFromBlock,
+    latestBlock
+  )
+  console.log(
+    `  Fraud challenge escrow seed at block ${latestBlock}: ` +
+      `${preUpgradeOpenEscrow.toString()} wei`
+  )
+  console.log(
+    "  Recompute this seed immediately after the Bridge upgrade executes " +
+      "and before calling seedFraudChallengeEscrow."
+  )
+  console.log(
+    "  recoverETH and new fraud challenges remain disabled until the seed " +
+      "call succeeds."
+  )
 
   const rebateUpgradeCalldata = encodeUpgrade(
     RebateStaking.address,
@@ -237,7 +410,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`    Proxy: ${Bridge.address}`)
   console.log(`    New impl: ${bridgeImpl.address}`)
 
-  // --- Step 8: Save deployment summary JSON ---
+  const seedEscrowCalldata =
+    encodeSeedFraudChallengeEscrow(preUpgradeOpenEscrow)
+  console.log("\n  Council Safe Action: seedFraudChallengeEscrow")
+  console.log(`    Target: BridgeGovernance (${BridgeGovernance.address})`)
+  console.log(`    Calldata: ${seedEscrowCalldata}`)
+  console.log(`    Selector: ${seedEscrowCalldata.slice(0, 10)}`)
+  console.log(`    Current seed: ${preUpgradeOpenEscrow.toString()} wei`)
+  console.log(`    Event scan: blocks ${fraudScanFromBlock}..${latestBlock}`)
+
+  // --- Step 9: Save deployment summary JSON ---
   const chainId = await hre.getChainId()
 
   const deploymentSummary = {
@@ -247,14 +429,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     chainId,
     purpose:
       "TIP-109 hotfix: add forceStakeTransfer (PR #939) and " +
-      "zero-address redeemer guard (PR #940)",
+      "zero-address redeemer guard (PR #940), with fresh Bridge " +
+      "libraries for migration-debt and fraud-escrow changes",
     deployedContracts: {
+      DepositTIP109Hotfix: Deposit.address,
+      DepositSweepTIP109Hotfix: DepositSweep.address,
       RedemptionTIP109Hotfix: Redemption.address,
+      FraudTIP109Hotfix: Fraud.address,
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
     },
     reusedContracts: {
-      Deposit: Deposit.address,
+      Wallets: Wallets.address,
+      MovingFunds: MovingFunds.address,
     },
     existingContracts: {
       Bridge: Bridge.address,
@@ -262,6 +449,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       Timelock: KNOWN_TIMELOCK,
       CouncilSafe: KNOWN_COUNCIL_SAFE,
       RebateStaking: RebateStaking.address,
+      BridgeGovernance: BridgeGovernance.address,
     },
     timelockActions: [
       {
@@ -275,6 +463,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         data: bridgeUpgradeCalldata,
         value: 0,
         description: "Bridge proxy upgrade via ProxyAdmin.upgrade()",
+      },
+    ],
+    postUpgradeActions: [
+      {
+        target: BridgeGovernance.address,
+        data: seedEscrowCalldata,
+        value: 0,
+        description:
+          "Seed Bridge fraud challenge escrow after recomputing the current open pre-upgrade escrow",
+        eventScan: {
+          fromBlock: fraudScanFromBlock,
+          toBlock: latestBlock,
+          openEscrowWei: preUpgradeOpenEscrow.toString(),
+        },
       },
     ],
     libraries: bridgeLibraries,
@@ -308,9 +510,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("    [1] Bridge upgrade (plain)")
   console.log(`        Proxy: ${Bridge.address}`)
   console.log(`        New impl: ${bridgeImpl.address}`)
+  console.log("  Post-upgrade Council Safe action:")
+  console.log("    seedFraudChallengeEscrow on BridgeGovernance")
+  console.log(`        To: ${BridgeGovernance.address}`)
+  console.log(`        Current seed: ${preUpgradeOpenEscrow.toString()} wei`)
   console.log("=".repeat(80))
 
-  // --- Step 9: Verify contracts on Etherscan (v2 API) ---
+  // --- Step 10: Verify contracts on Etherscan (v2 API) ---
   if (hre.network.tags.etherscan) {
     const etherscanApiKey = process.env.ETHERSCAN_API_KEY
     if (!etherscanApiKey) {
@@ -346,9 +552,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         const networkChainId = parseInt(await hre.getChainId(), 10)
         const contractsToVerify = [
           {
+            address: Deposit.address,
+            name: "contracts/bridge/Deposit.sol:Deposit",
+            label: "Deposit",
+          },
+          {
+            address: DepositSweep.address,
+            name: "contracts/bridge/DepositSweep.sol:DepositSweep",
+            label: "DepositSweep",
+          },
+          {
             address: Redemption.address,
             name: "contracts/bridge/Redemption.sol:Redemption",
             label: "Redemption",
+          },
+          {
+            address: Fraud.address,
+            name: "contracts/bridge/Fraud.sol:Fraud",
+            label: "Fraud",
           },
           {
             address: bridgeImpl.address,

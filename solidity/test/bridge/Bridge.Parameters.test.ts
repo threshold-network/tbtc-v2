@@ -199,6 +199,60 @@ describe("Bridge - Parameters", () => {
         }
       )
 
+      context(
+        "when new deposit dust threshold cannot cover treasury and TX max fee",
+        () => {
+          // Defaults: divisor=2000, txMaxFee=100_000.
+          // Sweep solvency requires `dust > dust/divisor + txMaxFee`.
+          // For divisor=2000 and txMaxFee=100_000, the minimum acceptable
+          // dust is ceil(100_000 * 2000 / 1999) = 100_051. dust=100_050
+          // produces `100_050 > 50 + 100_000` (false) and must revert.
+          const insufficientDust = constants.depositTxMaxFee + 50
+
+          it("should revert", async () => {
+            await bridgeGovernance
+              .connect(governance)
+              .beginDepositDustThresholdUpdate(insufficientDust)
+
+            await helpers.time.increaseTime(constants.governanceDelay)
+
+            await expect(
+              bridgeGovernance
+                .connect(governance)
+                .finalizeDepositDustThresholdUpdate()
+            ).to.be.revertedWith(
+              "Deposit dust threshold must cover treasury and TX max fee"
+            )
+          })
+        }
+      )
+
+      context(
+        "when new deposit dust threshold just covers treasury and TX max fee",
+        () => {
+          // dust = 100_051 → `100_051 > 50 + 100_000` = true. Passes the
+          // sweep solvency invariant by exactly one satoshi.
+          const minimumViableDust = constants.depositTxMaxFee + 51
+
+          it("should accept the update", async () => {
+            await bridgeGovernance
+              .connect(governance)
+              .beginDepositDustThresholdUpdate(minimumViableDust)
+
+            await helpers.time.increaseTime(constants.governanceDelay)
+
+            await expect(
+              bridgeGovernance
+                .connect(governance)
+                .finalizeDepositDustThresholdUpdate()
+            ).to.not.be.reverted
+
+            const { depositDustThreshold } = await bridge.depositParameters()
+            expect(depositDustThreshold).to.equal(minimumViableDust)
+          })
+        }
+      )
+
       context("when new deposit transaction max fee is zero", () => {
         it("should revert", async () => {
           await bridgeGovernance
@@ -1255,6 +1309,24 @@ describe("Bridge - Parameters", () => {
           })
         }
       )
+
+      context("when new moving funds timeout slashing amount is zero", () => {
+        it("should revert", async () => {
+          await bridgeGovernance
+            .connect(governance)
+            .beginMovingFundsTimeoutSlashingAmountUpdate(0)
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          await expect(
+            bridgeGovernance
+              .connect(governance)
+              .finalizeMovingFundsTimeoutSlashingAmountUpdate()
+          ).to.be.revertedWith(
+            "Moving funds timeout slashing amount must be greater than zero"
+          )
+        })
+      })
     })
 
     context("when caller is not the contract guvnor", () => {
@@ -1553,6 +1625,36 @@ describe("Bridge - Parameters", () => {
           )
         })
       })
+
+      context("when new wallet creation period is zero", () => {
+        it("should revert", async () => {
+          await bridgeGovernance
+            .connect(governance)
+            .beginWalletCreationPeriodUpdate(0)
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          await expect(
+            bridgeGovernance
+              .connect(governance)
+              .finalizeWalletCreationPeriodUpdate()
+          ).to.be.revertedWith(
+            "Wallet creation period must be greater than zero"
+          )
+        })
+      })
+
+      context("when new wallet max age is zero", () => {
+        it("should revert", async () => {
+          await bridgeGovernance.connect(governance).beginWalletMaxAgeUpdate(0)
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          await expect(
+            bridgeGovernance.connect(governance).finalizeWalletMaxAgeUpdate()
+          ).to.be.revertedWith("Wallet maximum age must be greater than zero")
+        })
+      })
     })
 
     context("when caller is not the contract guvnor", () => {
@@ -1698,6 +1800,51 @@ describe("Bridge - Parameters", () => {
         })
       })
 
+      context(
+        "when new fraud slashing amount is zero (DisableFraudChallenges use case)",
+        () => {
+          // Regression test: fraudSlashingAmount=0 is a supported operational
+          // value used by the DisableFraudChallenges deploy script
+          // (deploy/16_disable_fraud_challenges.ts). A zero-check guard must
+          // not be added to updateFraudParameters without updating that flow.
+          let tx: ContractTransaction
+
+          before(async () => {
+            await createSnapshot()
+
+            await bridgeGovernance
+              .connect(governance)
+              .beginFraudSlashingAmountUpdate(0)
+
+            await helpers.time.increaseTime(constants.governanceDelay)
+
+            tx = await bridgeGovernance
+              .connect(governance)
+              .finalizeFraudSlashingAmountUpdate()
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should set fraudSlashingAmount to zero", async () => {
+            const params = await bridge.fraudParameters()
+            expect(params.fraudSlashingAmount).to.be.equal(0)
+          })
+
+          it("should emit FraudParametersUpdated with zero slashing amount", async () => {
+            await expect(tx)
+              .to.emit(bridge, "FraudParametersUpdated")
+              .withArgs(
+                constants.fraudChallengeDepositAmount,
+                constants.fraudChallengeDefeatTimeout,
+                0,
+                constants.fraudNotifierRewardMultiplier
+              )
+          })
+        }
+      )
+
       context("when new fraud challenge defeat timeout is zero", () => {
         it("should revert", async () => {
           await bridgeGovernance
@@ -1736,6 +1883,24 @@ describe("Bridge - Parameters", () => {
           })
         }
       )
+
+      context("when new fraud challenge deposit amount is zero", () => {
+        it("should revert", async () => {
+          await bridgeGovernance
+            .connect(governance)
+            .beginFraudChallengeDepositAmountUpdate(0)
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          await expect(
+            bridgeGovernance
+              .connect(governance)
+              .finalizeFraudChallengeDepositAmountUpdate()
+          ).to.be.revertedWith(
+            "Fraud challenge deposit amount must be greater than zero"
+          )
+        })
+      })
     })
 
     context("when caller is not the contract guvnor", () => {

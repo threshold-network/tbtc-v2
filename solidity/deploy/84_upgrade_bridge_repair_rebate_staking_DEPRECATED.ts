@@ -1,5 +1,16 @@
 // ////////////////////////////////////////////////////////////////////////
-// DEPRECATED -- DO NOT USE ON MAINNET
+// DEPRECATED -- DO NOT USE
+//
+// This script targets Bridge.initializeV5_RepairRebateStaking, which is
+// not declared in the Bridge source in this tree. The TIP-109 repair
+// executed on mainnet at block 24800704; slot 50 (_initialized) reads
+// 0x05 on both mainnet and Sepolia, so reinitializer(5) is permanently
+// consumed on both networks (OpenZeppelin Initializable does not
+// decrement). Encoding the missing selector through the Bridge factory
+// would revert at runtime, after the script has already deployed a
+// stray BridgeRebateRepairImplementation.
+//
+// Earlier deprecation notes are also accurate:
 //
 // This script requires the deployer EOA to be the ProxyAdmin owner.
 // On mainnet the ProxyAdmin is owned by a governance Timelock contract,
@@ -8,11 +19,6 @@
 //
 // The script has no governance integration path -- it cannot submit
 // proposals, queue timelock actions, or generate governance calldata.
-// It does correctly use upgradeAndCall with initializeV5, but cannot
-// execute through governance.
-//
-// Suitable for local/testnet where the deployer has direct ProxyAdmin
-// ownership.
 // ////////////////////////////////////////////////////////////////////////
 
 import { HardhatRuntimeEnvironment } from "hardhat/types"
@@ -151,4 +157,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["RepairBridgeRebateStaking"]
-func.skip = async () => process.env.REPAIR_BRIDGE_REBATE_STAKING !== "true"
+// Hard-disabled: the targeted Bridge.initializeV5_RepairRebateStaking
+// selector is not declared in the Bridge source in this tree. Encoding it
+// would revert at runtime, after the script has already deployed a stray
+// BridgeRebateRepairImplementation. Kept for historical reference only.
+func.skip = async () => true

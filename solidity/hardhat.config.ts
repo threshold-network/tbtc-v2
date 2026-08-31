@@ -73,6 +73,18 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      // Bridge sits near the EIP-170 24,576-byte deployed-bytecode limit.
+      // A reduced optimizer-runs setting trades a small amount of runtime
+      // gas efficiency for deployment-size headroom.
+      "contracts/bridge/Bridge.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 500,
+          },
+        },
+      },
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {

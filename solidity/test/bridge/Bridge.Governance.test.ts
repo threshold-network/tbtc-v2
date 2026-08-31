@@ -1,27 +1,51 @@
 import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { BigNumber, ContractTransaction } from "ethers"
 import type {
   BridgeGovernance,
   Bridge,
+  BridgeStub,
   MockBridgeWithRebateStaking,
+  MockMigrationDebtVault,
 } from "../../typechain"
-import { constants } from "../fixtures"
+import { constants, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import {
+  wallet as fraudWallet,
+  nonWitnessSignSingleInputTx,
+} from "../data/fraud"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
+const { increaseTime } = helpers.time
 
 describe("Bridge - Governance", () => {
   let governance: SignerWithAddress
   let thirdParty: SignerWithAddress
   let bridgeGovernance: BridgeGovernance
-  let bridge: Bridge
+  let bridge: Bridge & BridgeStub
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridgeGovernance, bridge } =
       await waffle.loadFixture(bridgeFixture))
+  })
+
+  describe("constructor", () => {
+    it("rejects initial governance delay values below the minimum", async () => {
+      const paramsLib = await helpers.contracts.getContract(
+        "BridgeGovernanceParameters"
+      )
+      const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+        libraries: {
+          BridgeGovernanceParameters: paramsLib.address,
+        },
+      })
+
+      await expect(
+        govFactory.connect(governance).deploy(bridge.address, 0)
+      ).to.be.revertedWith("Initial governance delay must be >= minimum")
+    })
   })
 
   describe("beginGovernanceDelayUpdate", () => {
@@ -41,7 +65,7 @@ describe("Bridge - Governance", () => {
 
         tx = await bridgeGovernance
           .connect(governance)
-          .beginGovernanceDelayUpdate(1337)
+          .beginGovernanceDelayUpdate(7200)
       })
 
       after(async () => {
@@ -51,6 +75,46 @@ describe("Bridge - Governance", () => {
       it("should not update the governance delay", async () => {
         expect(await bridgeGovernance.governanceDelays(0)).to.be.equal(
           constants.governanceDelay
+        )
+      })
+    })
+
+    // Minimum governance delay enforcement: the contract defines a
+    // MIN_GOVERNANCE_DELAY constant and rejects values below it.
+    const MIN_GOVERNANCE_DELAY = 3600
+
+    context("when the new governance delay is below the minimum", () => {
+      it("should revert when delay is zero", async () => {
+        await expect(
+          bridgeGovernance.connect(governance).beginGovernanceDelayUpdate(0)
+        ).to.be.revertedWith("New governance delay must be >= minimum")
+      })
+
+      it("should revert when delay is just below the minimum", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(governance)
+            .beginGovernanceDelayUpdate(MIN_GOVERNANCE_DELAY - 1)
+        ).to.be.revertedWith("New governance delay must be >= minimum")
+      })
+    })
+
+    context("when the new governance delay meets the minimum", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should accept delay equal to the minimum", async () => {
+        await bridgeGovernance
+          .connect(governance)
+          .beginGovernanceDelayUpdate(MIN_GOVERNANCE_DELAY)
+
+        expect(await bridgeGovernance.governanceDelays(1)).to.be.equal(
+          MIN_GOVERNANCE_DELAY
         )
       })
     })
@@ -318,7 +382,7 @@ describe("Bridge - Governance", () => {
 
         await bridgeGovernance
           .connect(governance)
-          .beginDepositDustThresholdUpdate(constants.depositTxMaxFee + 1)
+          .beginDepositDustThresholdUpdate(constants.depositTxMaxFee * 2)
 
         await helpers.time.increaseTime(constants.governanceDelay - 60) // -1min
       })
@@ -346,7 +410,7 @@ describe("Bridge - Governance", () => {
 
           await bridgeGovernance
             .connect(governance)
-            .beginDepositDustThresholdUpdate(constants.depositTxMaxFee + 1)
+            .beginDepositDustThresholdUpdate(constants.depositTxMaxFee * 2)
 
           await helpers.time.increaseTime(constants.governanceDelay)
 
@@ -362,14 +426,14 @@ describe("Bridge - Governance", () => {
         it("should update the deposit dust threshold", async () => {
           const { depositDustThreshold } = await bridge.depositParameters()
           expect(depositDustThreshold).to.be.equal(
-            constants.depositTxMaxFee + 1
+            constants.depositTxMaxFee * 2
           )
         })
 
         it("should emit DepositDustThresholdUpdated event", async () => {
           await expect(tx)
             .to.emit(bridgeGovernance, "DepositDustThresholdUpdated")
-            .withArgs(constants.depositTxMaxFee + 1)
+            .withArgs(constants.depositTxMaxFee * 2)
         })
       }
     )
@@ -4430,6 +4494,72 @@ describe("Bridge - Governance", () => {
     })
   })
 
+  describe("rotateMigrationDebtVault", () => {
+    let previousVault: MockMigrationDebtVault
+    let newVault: MockMigrationDebtVault
+
+    beforeEach(async () => {
+      const MockVaultFactory = await ethers.getContractFactory(
+        "MockMigrationDebtVault"
+      )
+      previousVault =
+        (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+      newVault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+    })
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .rotateMigrationDebtVault(newVault.address, previousVault.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+
+      beforeEach(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setVaultStatus(previousVault.address, true)
+        await bridgeGovernance
+          .connect(governance)
+          .setVaultStatus(newVault.address, true)
+        await bridgeGovernance
+          .connect(governance)
+          .setMigrationDebtVault(previousVault.address)
+
+        tx = await bridgeGovernance
+          .connect(governance)
+          .rotateMigrationDebtVault(newVault.address, previousVault.address)
+      })
+
+      afterEach(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the canonical migration debt vault", async () => {
+        expect(await bridge.migrationDebtVault()).to.equal(newVault.address)
+      })
+
+      it("should untrust the previous vault", async () => {
+        expect(await bridge.isVaultTrusted(previousVault.address)).to.be.false
+      })
+
+      it("should emit Bridge rotation events", async () => {
+        await expect(tx)
+          .to.emit(bridge, "MigrationDebtVaultUpdated")
+          .withArgs(newVault.address)
+          .and.to.emit(bridge, "VaultStatusUpdated")
+          .withArgs(previousVault.address, false)
+      })
+    })
+  })
+
   describe("setRedemptionWatchtower", () => {
     const watchtower = "0xE8ebaEc51bAeeaBff71707dE2AD028C7fB642A3F"
 
@@ -4578,6 +4708,431 @@ describe("Bridge - Governance", () => {
       expect(await bridge.getRebateStaking()).to.equal(
         constants.testRebateStakingAddress
       )
+    })
+  })
+
+  describe("recoverETH", () => {
+    let recipient: SignerWithAddress
+
+    // Waffle 3.4 `revertedWith` matches reason strings only; for custom
+    // errors we assert the error name appears in the surfaced message.
+    const expectCustomError = async (
+      txPromise: Promise<unknown>,
+      errorName: string,
+      expectedArgs: unknown[] = []
+    ): Promise<void> => {
+      try {
+        await txPromise
+        expect.fail(`expected revert with custom error ${errorName}`)
+      } catch (error) {
+        const { message } = error as Error
+        expect(message).to.match(new RegExp(errorName))
+
+        if (expectedArgs.length > 0) {
+          const data = getRevertData(error)
+          expect(data, "revert data").to.not.be.undefined
+
+          const parsedError = bridge.interface.parseError(data as string)
+          expect(parsedError.name).to.equal(errorName)
+
+          expectedArgs.forEach((expectedArg, index) => {
+            if (BigNumber.isBigNumber(expectedArg)) {
+              expect(BigNumber.from(parsedError.args[index])).to.equal(
+                expectedArg
+              )
+            } else {
+              expect(parsedError.args[index]).to.deep.equal(expectedArg)
+            }
+          })
+        }
+      }
+    }
+
+    const getRevertData = (error: unknown): string | undefined => {
+      const revert = error as {
+        data?: string
+        error?: { data?: string }
+      }
+
+      return revert.data ?? revert.error?.data
+    }
+
+    const fraudData = nonWitnessSignSingleInputTx
+    const fraudChallengeKey = BigNumber.from(
+      ethers.utils.keccak256(
+        ethers.utils.solidityPack(
+          ["bytes", "bytes32"],
+          [fraudWallet.publicKey, fraudData.sighash]
+        )
+      )
+    )
+    let fraudChallengeDepositAmount: BigNumber
+    let fraudChallengeDefeatTimeout: number
+
+    const toQuantityHex = (value: BigNumber): string => {
+      const hex = value.toHexString()
+      return hex === "0x00" ? "0x0" : hex.replace(/^0x0+/, "0x")
+    }
+
+    const setBridgeBalance = async (amount: BigNumber): Promise<void> => {
+      await ethers.provider.send("hardhat_setBalance", [
+        bridge.address,
+        toQuantityHex(amount),
+      ])
+    }
+
+    const increaseBridgeBalance = async (amount: BigNumber): Promise<void> => {
+      const balance = await ethers.provider.getBalance(bridge.address)
+      await setBridgeBalance(balance.add(amount))
+    }
+
+    const setOpenFraudChallengeEscrow = async (
+      amount: BigNumber
+    ): Promise<void> => {
+      await bridge.setOpenFraudChallengeEscrow(amount)
+    }
+
+    const setLiveFraudWallet = async (): Promise<void> => {
+      await bridge.setWallet(fraudWallet.pubKeyHash160, {
+        ecdsaWalletID: fraudWallet.ecdsaWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: 0,
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+    }
+
+    const submitOpenFraudChallenge = async (): Promise<void> => {
+      await setLiveFraudWallet()
+
+      await bridge
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          fraudData.preimageSha256,
+          fraudData.signature,
+          { value: fraudChallengeDepositAmount }
+        )
+    }
+
+    const submitPreUpgradeOpenFraudChallenge = async (): Promise<void> => {
+      await submitOpenFraudChallenge()
+      await setOpenFraudChallengeEscrow(BigNumber.from(0))
+      await bridge.setFraudChallengeEscrowSeeded(false)
+      await bridge.setFraudChallengeEscrowCounted(fraudChallengeKey, false)
+
+      expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
+    }
+
+    before(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-extra-semi
+      ;[, , , recipient] = await ethers.getSigners()
+      ;({ fraudChallengeDepositAmount, fraudChallengeDefeatTimeout } =
+        await bridge.fraudParameters())
+    })
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance.connect(thirdParty).recoverETH(recipient.address, 1)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by the governance", () => {
+      context("when recipient is the zero address", () => {
+        it("should revert", async () => {
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(ethers.constants.AddressZero, 1),
+            "EthRescueRecipientZero"
+          )
+        })
+      })
+
+      context("when amount is zero", () => {
+        it("should revert", async () => {
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, 0),
+            "EthRescueAmountZero"
+          )
+        })
+      })
+
+      context("when the contract has insufficient balance", () => {
+        it("should revert", async () => {
+          const balance = await ethers.provider.getBalance(bridge.address)
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, balance.add(1)),
+            "EthRescueInsufficientBalance"
+          )
+        })
+      })
+
+      describe("recoverETH escrow scoping", () => {
+        beforeEach(async () => {
+          await createSnapshot()
+        })
+
+        afterEach(async () => {
+          await restoreSnapshot()
+        })
+
+        it("reverts when amount exceeds balance minus escrow", async () => {
+          await submitOpenFraudChallenge()
+
+          const balance = await ethers.provider.getBalance(bridge.address)
+          const rescuable = balance.sub(fraudChallengeDepositAmount)
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(
+            fraudChallengeDepositAmount
+          )
+
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .callStatic.recoverETH(recipient.address, balance),
+            "EthRescueExceedsRescuable",
+            [balance, rescuable]
+          )
+        })
+
+        it("allows rescuing the non-escrow remainder", async () => {
+          const nonEscrowedAmount = ethers.utils.parseEther("2")
+
+          await submitOpenFraudChallenge()
+          await increaseBridgeBalance(nonEscrowedAmount)
+
+          const recipientBefore = await ethers.provider.getBalance(
+            recipient.address
+          )
+          const bridgeBefore = await ethers.provider.getBalance(bridge.address)
+
+          const tx = await bridgeGovernance
+            .connect(governance)
+            .recoverETH(recipient.address, nonEscrowedAmount)
+
+          await expect(tx)
+            .to.emit(bridge, "EthRescued")
+            .withArgs(recipient.address, nonEscrowedAmount)
+
+          expect(await ethers.provider.getBalance(recipient.address)).to.equal(
+            recipientBefore.add(nonEscrowedAmount)
+          )
+          expect(await ethers.provider.getBalance(bridge.address)).to.equal(
+            bridgeBefore.sub(nonEscrowedAmount)
+          )
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(
+            fraudChallengeDepositAmount
+          )
+        })
+
+        it("seeds pre-upgrade challenge escrow before rescue checks", async () => {
+          await submitPreUpgradeOpenFraudChallenge()
+
+          await bridgeGovernance
+            .connect(governance)
+            .seedFraudChallengeEscrow(fraudChallengeDepositAmount)
+
+          const balance = await ethers.provider.getBalance(bridge.address)
+          const rescuable = balance.sub(fraudChallengeDepositAmount)
+
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .callStatic.recoverETH(recipient.address, balance),
+            "EthRescueExceedsRescuable",
+            [balance, rescuable]
+          )
+        })
+
+        it("blocks ETH rescue before the pre-upgrade escrow seed", async () => {
+          await submitPreUpgradeOpenFraudChallenge()
+
+          const balance = await ethers.provider.getBalance(bridge.address)
+
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, balance),
+            "FraudChallengeEscrowNotSeeded"
+          )
+        })
+
+        it("blocks new fraud challenges before the pre-upgrade escrow seed", async () => {
+          await bridge.setFraudChallengeEscrowSeeded(false)
+
+          await expectCustomError(
+            bridge
+              .connect(thirdParty)
+              .submitFraudChallenge(
+                fraudWallet.publicKey,
+                fraudData.preimageSha256,
+                fraudData.signature,
+                {
+                  value: fraudChallengeDepositAmount,
+                }
+              ),
+            "FraudChallengeEscrowNotSeeded"
+          )
+        })
+
+        it("decrements the escrow counter on defeat", async () => {
+          await submitOpenFraudChallenge()
+
+          await bridge.setSweptDeposits(fraudData.deposits)
+          await bridge.setSpentMainUtxos(fraudData.spentMainUtxos)
+          await bridge.setProcessedMovedFundsSweepRequests(
+            fraudData.movedFundsSweepRequests
+          )
+
+          await bridge
+            .connect(thirdParty)
+            .defeatFraudChallenge(
+              fraudWallet.publicKey,
+              fraudData.preimage,
+              fraudData.witness
+            )
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
+
+          await setBridgeBalance(fraudChallengeDepositAmount)
+
+          await expect(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, fraudChallengeDepositAmount)
+          )
+            .to.emit(bridge, "EthRescued")
+            .withArgs(recipient.address, fraudChallengeDepositAmount)
+        })
+
+        it("resolves a seeded pre-upgrade challenge without underflow", async () => {
+          await submitPreUpgradeOpenFraudChallenge()
+
+          await bridgeGovernance
+            .connect(governance)
+            .seedFraudChallengeEscrow(fraudChallengeDepositAmount)
+
+          await bridge.setSweptDeposits(fraudData.deposits)
+          await bridge.setSpentMainUtxos(fraudData.spentMainUtxos)
+          await bridge.setProcessedMovedFundsSweepRequests(
+            fraudData.movedFundsSweepRequests
+          )
+
+          await bridge
+            .connect(thirdParty)
+            .defeatFraudChallenge(
+              fraudWallet.publicKey,
+              fraudData.preimage,
+              fraudData.witness
+            )
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
+        })
+
+        it("decrements the escrow counter on defeat-timeout", async () => {
+          await submitOpenFraudChallenge()
+
+          await increaseTime(fraudChallengeDefeatTimeout)
+
+          await bridge
+            .connect(thirdParty)
+            .notifyFraudChallengeDefeatTimeout(
+              fraudWallet.publicKey,
+              [1, 2, 3, 4, 5],
+              fraudData.preimageSha256
+            )
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
+
+          await setBridgeBalance(fraudChallengeDepositAmount)
+
+          await expect(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, fraudChallengeDepositAmount)
+          )
+            .to.emit(bridge, "EthRescued")
+            .withArgs(recipient.address, fraudChallengeDepositAmount)
+        })
+
+        it("tracks post-upgrade challenges submitted after the seed", async () => {
+          await bridge.setFraudChallengeEscrowSeeded(false)
+          await bridgeGovernance.connect(governance).seedFraudChallengeEscrow(0)
+
+          await submitOpenFraudChallenge()
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(
+            fraudChallengeDepositAmount
+          )
+
+          await increaseTime(fraudChallengeDefeatTimeout)
+
+          await bridge
+            .connect(thirdParty)
+            .notifyFraudChallengeDefeatTimeout(
+              fraudWallet.publicKey,
+              [1, 2, 3, 4, 5],
+              fraudData.preimageSha256
+            )
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
+        })
+      })
+
+      context("when funds are available", () => {
+        const stuckAmount = ethers.utils.parseEther("3")
+
+        before(async () => {
+          await createSnapshot()
+
+          // Simulate an orphaned fraud-challenge deposit refund stuck on the
+          // Bridge proxy. The Bridge has no `receive()` function so a direct
+          // EOA transfer would revert; we set the proxy balance via the
+          // hardhat cheat to model the post-stuck state without re-running
+          // the full fraud-challenge lifecycle.
+          await ethers.provider.send("hardhat_setBalance", [
+            bridge.address,
+            stuckAmount.toHexString().replace(/^0x0+/, "0x"),
+          ])
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should transfer ETH to the recipient and emit EthRescued", async () => {
+          const recipientBefore = await ethers.provider.getBalance(
+            recipient.address
+          )
+          const bridgeBefore = await ethers.provider.getBalance(bridge.address)
+
+          const tx = await bridgeGovernance
+            .connect(governance)
+            .recoverETH(recipient.address, stuckAmount)
+
+          await expect(tx)
+            .to.emit(bridge, "EthRescued")
+            .withArgs(recipient.address, stuckAmount)
+
+          expect(await ethers.provider.getBalance(recipient.address)).to.equal(
+            recipientBefore.add(stuckAmount)
+          )
+          expect(await ethers.provider.getBalance(bridge.address)).to.equal(
+            bridgeBefore.sub(stuckAmount)
+          )
+        })
+      })
     })
   })
 })

@@ -325,6 +325,12 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Canonical migration debt vault used by non-migration reveal guard.
+        // Optional and set through governance to enable global migration
+        // revealer isolation checks.
+        // Upgrade note: this field consumed one reserved slot, reducing
+        // `__gap` from 48 to 47 for storage-layout compatibility.
+        address migrationDebtVault;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +338,14 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[47] __gap;
+        /// @notice Sum of `depositAmount` across currently-open fraud
+        ///         challenges, used to keep `recoverETH` scoped to
+        ///         non-escrowed ETH.
+        uint256 openFraudChallengeEscrow;
+        /// @notice True once governance has accounted for pre-upgrade open
+        ///         fraud challenges in `openFraudChallengeEscrow`.
+        bool fraudChallengeEscrowSeeded;
     }
 
     event DepositParametersUpdated(
@@ -442,6 +455,27 @@ library BridgeState {
             _depositTxMaxFee > 0,
             "Deposit transaction max fee must be greater than zero"
         );
+
+        // Sweep solvency invariant: a deposit at the dust-threshold floor
+        // pays the treasury fee plus the per-deposit sweep tx fee out of
+        // its own value. `DepositSweep.submitDepositSweepProof` performs
+        // `amount - treasuryFee - depositTxFee` and relies on the dust
+        // threshold to prevent that subtraction from underflowing.
+        // `treasuryFee = amount / depositTreasuryFeeDivisor` when the
+        // divisor is non-zero (see `Deposit.sol:420`), so the worst case
+        // at `amount == depositDustThreshold` is
+        // `depositDustThreshold / depositTreasuryFeeDivisor`. Enforce
+        // that the dust threshold strictly exceeds the worst-case
+        // treasury+tx fee at parameter-set time so a misconfigured
+        // divisor cannot strand revealed deposits at sweep time.
+        if (_depositTreasuryFeeDivisor > 0) {
+            require(
+                _depositDustThreshold >
+                    (_depositDustThreshold / _depositTreasuryFeeDivisor) +
+                        _depositTxMaxFee,
+                "Deposit dust threshold must cover treasury and TX max fee"
+            );
+        }
 
         self.depositDustThreshold = _depositDustThreshold;
         self.depositTreasuryFeeDivisor = _depositTreasuryFeeDivisor;
@@ -630,6 +664,7 @@ library BridgeState {
     ///      - Moving funds timeout reset delay must be greater than zero,
     ///      - Moving funds timeout must be greater than the moving funds
     ///        timeout reset delay,
+    ///      - Moving funds timeout slashing amount must be greater than zero,
     ///      - Moving funds timeout notifier reward multiplier must be in the
     ///        range [0, 100],
     ///      - Moved funds sweep transaction max total fee must be greater than zero,
@@ -669,6 +704,11 @@ library BridgeState {
         require(
             _movingFundsTimeout > _movingFundsTimeoutResetDelay,
             "Moving funds timeout must be greater than its reset delay"
+        );
+
+        require(
+            _movingFundsTimeoutSlashingAmount > 0,
+            "Moving funds timeout slashing amount must be greater than zero"
         );
 
         require(
@@ -743,6 +783,8 @@ library BridgeState {
     //         i.e. the period when the wallet remains in the Closing state
     //         and can be subject of deposit fraud challenges.
     /// @dev Requirements:
+    ///      - Wallet creation period must be greater than zero,
+    ///      - Wallet maximum age must be greater than zero,
     ///      - Wallet maximum BTC balance must be greater than the wallet
     ///        minimum BTC balance,
     ///      - Wallet maximum BTC transfer must be greater than zero,
@@ -757,6 +799,14 @@ library BridgeState {
         uint64 _walletMaxBtcTransfer,
         uint32 _walletClosingPeriod
     ) internal {
+        require(
+            _walletCreationPeriod > 0,
+            "Wallet creation period must be greater than zero"
+        );
+        require(
+            _walletMaxAge > 0,
+            "Wallet maximum age must be greater than zero"
+        );
         require(
             _walletCreationMaxBtcBalance > _walletCreationMinBtcBalance,
             "Wallet creation maximum BTC balance must be greater than the creation minimum BTC balance"
@@ -804,8 +854,13 @@ library BridgeState {
     ///        the notifier reward from the staking contact the notifier of
     ///        a fraud receives. The value must be in the range [0, 100].
     /// @dev Requirements:
+    ///      - Fraud challenge deposit amount must be greater than zero,
     ///      - Fraud challenge defeat timeout must be greater than 0,
     ///      - Fraud notifier reward multiplier must be in the range [0, 100].
+    ///      Note: `_fraudSlashingAmount` is intentionally unbounded on the
+    ///      low end; the `DisableFraudChallenges` deploy flow relies on
+    ///      setting it to zero to signal that fraud challenges are
+    ///      disabled.
     function updateFraudParameters(
         Storage storage self,
         uint96 _fraudChallengeDepositAmount,
@@ -813,6 +868,11 @@ library BridgeState {
         uint96 _fraudSlashingAmount,
         uint32 _fraudNotifierRewardMultiplier
     ) internal {
+        require(
+            _fraudChallengeDepositAmount > 0,
+            "Fraud challenge deposit amount must be greater than zero"
+        );
+
         require(
             _fraudChallengeDefeatTimeout > 0,
             "Fraud challenge defeat timeout must be greater than zero"

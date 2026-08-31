@@ -35,6 +35,7 @@ import "./MovingFunds.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
+import "../vault/ITBTCVaultMigrationDebt.sol";
 
 /// @title Bitcoin Bridge
 /// @notice Bridge manages BTC deposit and redemption flow and is increasing and
@@ -63,6 +64,30 @@ contract Bridge is
     Initializable,
     IReceiveBalanceApproval
 {
+    error CallerNotSpvMaintainer();
+    error BankAddressZero();
+    error RelayAddressZero();
+    error WalletRegistryAddressZero();
+    error ReimbursementPoolAddressZero();
+    error TreasuryAddressZero();
+    error CallerNotBank();
+    error VaultIsCanonicalMigrationDebtVault(address vault);
+    error VaultHasOutstandingMigrationDebt(address vault);
+    error VaultNotTrusted(address vault);
+    error PreviousMigrationDebtVaultIsZero();
+    error PreviousMigrationDebtVaultMismatch(address expected, address actual);
+    error MigrationDebtVaultUnchanged(address vault);
+    error MigrationDebtVaultInterfaceMissing(address vault);
+    error MigrationDebtVaultUnreachable(address vault);
+    error PreviousMigrationDebtVaultHasDebt(address vault);
+    error EthRescueRecipientZero();
+    error EthRescueAmountZero();
+    error EthRescueInsufficientBalance(uint256 requested, uint256 available);
+    error EthRescueExceedsRescuable(uint256 requested, uint256 rescuable);
+    error EthRescueTransferFailed(address recipient, uint256 amount);
+    error FraudChallengeEscrowAlreadySeeded();
+    error FraudChallengeEscrowNotSeeded();
+
     using BridgeState for BridgeState.Storage;
     using Deposit for BridgeState.Storage;
     using DepositSweep for BridgeState.Storage;
@@ -180,6 +205,9 @@ contract Bridge is
     );
 
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
+    event MigrationDebtVaultUpdated(address indexed migrationDebtVault);
+
+    event EthRescued(address indexed recipient, uint256 amount);
 
     event SpvMaintainerStatusUpdated(
         address indexed spvMaintainer,
@@ -239,21 +267,24 @@ contract Bridge is
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
     event RebateStakingSet(address rebateStaking);
+
+    /// @dev Retained for ABI completeness. Not emitted by any function in
+    ///      this implementation; the declaration keeps historical logs from
+    ///      earlier implementations decodable via the current ABI.
     event RebateStakingRepaired(
         address oldRebateStaking,
         address newRebateStaking
     );
 
-    /// @notice Emitted when a deposit's vault field is corrected via governance.
-    /// @dev This event is used for transparency when fixing deposits that were
-    ///      revealed with incorrect vault targets.
+    /// @dev Retained for ABI completeness. Not emitted by any function in
+    ///      this implementation; the declaration keeps historical logs from
+    ///      earlier implementations decodable via the current ABI.
     event DepositVaultFixed(uint256 indexed depositKey, address newVault);
 
     modifier onlySpvMaintainer() {
-        require(
-            self.isSpvMaintainer[msg.sender],
-            "Caller is not SPV maintainer"
-        );
+        if (!self.isSpvMaintainer[msg.sender]) {
+            revert CallerNotSpvMaintainer();
+        }
         _;
     }
 
@@ -280,25 +311,29 @@ contract Bridge is
         address payable _reimbursementPool,
         uint96 _txProofDifficultyFactor
     ) external initializer {
-        require(_bank != address(0), "Bank address cannot be zero");
+        if (_bank == address(0)) {
+            revert BankAddressZero();
+        }
         self.bank = Bank(_bank);
 
-        require(_relay != address(0), "Relay address cannot be zero");
+        if (_relay == address(0)) {
+            revert RelayAddressZero();
+        }
         self.relay = IRelay(_relay);
 
-        require(
-            _ecdsaWalletRegistry != address(0),
-            "ECDSA Wallet Registry address cannot be zero"
-        );
+        if (_ecdsaWalletRegistry == address(0)) {
+            revert WalletRegistryAddressZero();
+        }
         self.ecdsaWalletRegistry = EcdsaWalletRegistry(_ecdsaWalletRegistry);
 
-        require(
-            _reimbursementPool != address(0),
-            "Reimbursement Pool address cannot be zero"
-        );
+        if (_reimbursementPool == address(0)) {
+            revert ReimbursementPoolAddressZero();
+        }
         self.reimbursementPool = ReimbursementPool(_reimbursementPool);
 
-        require(_treasury != address(0), "Treasury address cannot be zero");
+        if (_treasury == address(0)) {
+            revert TreasuryAddressZero();
+        }
         self.treasury = _treasury;
 
         self.txProofDifficultyFactor = _txProofDifficultyFactor;
@@ -337,6 +372,7 @@ contract Bridge is
         self.fraudChallengeDefeatTimeout = 7 days;
         self.fraudSlashingAmount = 100 * 1e18; // 100 T
         self.fraudNotifierRewardMultiplier = 100; // 100%
+        self.fraudChallengeEscrowSeeded = true;
         self.walletCreationPeriod = 1 weeks;
         self.walletCreationMinBtcBalance = 1e8; // 1 BTC
         self.walletCreationMaxBtcBalance = 100e8; // 100 BTC
@@ -346,65 +382,6 @@ contract Bridge is
         self.walletClosingPeriod = 40 days;
 
         _transferGovernance(msg.sender);
-    }
-
-    /// @notice Fixes the vault=0x0 deposit that is blocking sweeps for wallet
-    ///         71bfad9a. This deposit was revealed on 2026-01-08 by depositor
-    ///         0xe7c9a5298A2d2e48B5df3F9D361BA1469B0f436B with an incorrect
-    ///         vault target. This function runs once during the upgrade to v2,
-    ///         directly modifying the deposit's vault field in storage.
-    /// @dev The deposit key is computed as:
-    ///      keccak256(fundingTxHash || fundingOutputIndex) where:
-    ///      - fundingTxHash (little-endian): 0x7ee3fcd03309745af5f35f07572b68affb3f551d8de70b194773644a47c9bb9c
-    ///      - fundingOutputIndex: 1
-    function initializeV2_FixVaultZeroDeposit() external reinitializer(2) {
-        // Deposit key: keccak256(fundingTxHash || fundingOutputIndex)
-        uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
-
-        // Target vault: TBTCVault on mainnet
-        address tbtcVault = 0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
-
-        // Safety checks
-        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
-        require(deposit.revealedAt != 0, "Deposit not revealed");
-        require(deposit.vault == address(0), "Vault already set");
-        require(deposit.sweptAt == 0, "Deposit already swept");
-
-        // Fix the vault
-        deposit.vault = tbtcVault;
-
-        // Emit event for transparency
-        emit DepositVaultFixed(depositKey, tbtcVault);
-    }
-
-    /// @notice Repairs the rebate staking address during a proxy upgrade.
-    /// @param newRebateStaking The new rebate staking address. Set to 0x0 to
-    ///        disable the rebate hook entirely.
-    /// @dev Uses reinitializer(5) to allow a one-time repair of the rebate
-    ///      staking address. Versions 3-4 were reserved for other potential
-    ///      upgrades but ultimately unused. This function can only be called
-    ///      once per proxy deployment.
-    function initializeV5_RepairRebateStaking(address newRebateStaking)
-        external
-        reinitializer(5)
-    {
-        address oldRebateStaking = self.rebateStaking;
-
-        require(
-            oldRebateStaking != newRebateStaking,
-            "Rebate staking unchanged"
-        );
-
-        if (newRebateStaking != address(0)) {
-            require(
-                newRebateStaking.code.length > 0,
-                "Rebate staking must be a contract"
-            );
-        }
-
-        self.rebateStaking = newRebateStaking;
-
-        emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -652,7 +629,9 @@ contract Bridge is
         uint256 amount,
         bytes calldata redemptionData
     ) external override {
-        require(msg.sender == address(self.bank), "Caller is not the bank");
+        if (msg.sender != address(self.bank)) {
+            revert CallerNotBank();
+        }
 
         self.requestRedemption(
             balanceOwner,
@@ -1145,6 +1124,7 @@ contract Bridge is
     ///        or Closing state,
     ///      - The challenger must send appropriate amount of ETH used as
     ///        fraud challenge deposit,
+    ///      - Fraud challenge escrow seeding must be completed,
     ///      - The signature (represented by r, s and v) must be generated by
     ///        the wallet behind `walletPubKey` during signing of `sighash`
     ///        which was calculated from `preimageSha256`,
@@ -1154,6 +1134,10 @@ contract Bridge is
         bytes memory preimageSha256,
         BitcoinTx.RSVSignature calldata signature
     ) external payable {
+        if (!self.fraudChallengeEscrowSeeded) {
+            revert FraudChallengeEscrowNotSeeded();
+        }
+
         self.submitFraudChallenge(walletPublicKey, preimageSha256, signature);
     }
 
@@ -1281,6 +1265,17 @@ contract Bridge is
     ///      vaults not meeting the criteria would be able to nuke sweep proof
     ///      transactions executed by ECDSA wallet with  deposits routed to
     ///      them.
+    ///
+    ///      When untrusting a vault (`isTrusted == false`), two guards apply:
+    ///      1. The current canonical migration debt vault cannot be untrusted
+    ///         directly (must rotate or clear the canonical pointer first).
+    ///      2. Any vault implementing `ITBTCVaultMigrationDebt` that still
+    ///         reports outstanding debt via `hasOutstandingMigrationDebt()`
+    ///         cannot be untrusted. This prevents a two-step bypass where
+    ///         governance changes the canonical pointer away from a vault
+    ///         and then untrusts it while migration debt remains in-flight.
+    ///         The second guard uses a fail-open staticcall: vaults that do
+    ///         not implement the interface are unaffected.
     /// @param vault The address of the vault.
     /// @param isTrusted flag indicating whether the vault is trusted or not.
     /// @dev Can only be called by the Governance.
@@ -1288,8 +1283,218 @@ contract Bridge is
         external
         onlyGovernance
     {
+        if (!isTrusted && self.migrationDebtVault == vault) {
+            revert VaultIsCanonicalMigrationDebtVault(vault);
+        }
+
+        if (!isTrusted) {
+            if (_hasOutstandingMigrationDebt(vault)) {
+                revert VaultHasOutstandingMigrationDebt(vault);
+            }
+        }
+
         self.isVaultTrusted[vault] = isTrusted;
         emit VaultStatusUpdated(vault, isTrusted);
+    }
+
+    /// @notice Sets canonical migration debt vault used by reveal guard.
+    /// @param vault Address of trusted migration debt vault. Can be zero to
+    ///        disable canonical reveal guard checks.
+    /// @dev Can only be called by the Governance. Intended for initial setup
+    ///      and emergency disable (vault == 0). For live rotation between
+    ///      conforming vaults, prefer `rotateMigrationDebtVault`, which
+    ///      atomically untrusts the previous canonical vault.
+    ///
+    ///      A non-zero `vault` must implement `ITBTCVaultMigrationDebt`. The
+    ///      probe is fail-closed at set-time because the deposit-reveal guard
+    ///      in `Deposit.isRegisteredMigrationRevealer` reverts when the
+    ///      canonical vault's `isMigrationRevealer` staticcall fails — a
+    ///      non-conforming canonical pointer would brick every regular
+    ///      reveal until governance corrected the pointer.
+    ///
+    ///      When setting a non-zero canonical vault and the current canonical
+    ///      vault has outstanding migration debt, this setter rejects the
+    ///      change and forces governance to use `rotateMigrationDebtVault`
+    ///      (which atomically untrusts the previous vault and bars further
+    ///      untrust until debt clears). The outgoing-vault debt check is
+    ///      fail-closed: if the previous canonical vault no longer answers,
+    ///      governance must first use the emergency-disable lane (`vault == 0`),
+    ///      which intentionally skips this outgoing strict check.
+    function setMigrationDebtVault(address vault) external onlyGovernance {
+        if (vault != address(0) && !self.isVaultTrusted[vault]) {
+            revert VaultNotTrusted(vault);
+        }
+
+        if (vault != address(0)) {
+            if (!_isMigrationDebtVaultConforming(vault)) {
+                revert MigrationDebtVaultInterfaceMissing(vault);
+            }
+        }
+
+        address previousVault = self.migrationDebtVault;
+        if (vault != address(0) && previousVault != address(0)) {
+            (bool ok, bool hasDebt) = _getOutstandingMigrationDebt(
+                previousVault
+            );
+            if (!ok) {
+                revert MigrationDebtVaultUnreachable(previousVault);
+            }
+            if (hasDebt) {
+                revert PreviousMigrationDebtVaultHasDebt(previousVault);
+            }
+        }
+
+        self.migrationDebtVault = vault;
+        emit MigrationDebtVaultUpdated(vault);
+    }
+
+    /// @notice Atomically rotates canonical migration debt vault and untrusts
+    ///         the previous canonical vault.
+    /// @param newVault Address of new trusted migration debt vault. Can be
+    ///        zero to disable canonical reveal guard checks.
+    /// @param previousVault Canonical migration debt vault expected before
+    ///        rotation.
+    /// @dev Can only be called by the Governance. The previous vault must
+    ///      have no outstanding migration debt; otherwise the rotation
+    ///      reverts. This prevents orphaning in-flight migration state when
+    ///      the canonical vault pointer moves to a new vault. The debt
+    ///      check uses a fail-open staticcall: if the previous vault does
+    ///      not implement `ITBTCVaultMigrationDebt`, the guard is skipped.
+    function rotateMigrationDebtVault(address newVault, address previousVault)
+        external
+        onlyGovernance
+    {
+        if (previousVault == address(0)) {
+            revert PreviousMigrationDebtVaultIsZero();
+        }
+        if (previousVault != self.migrationDebtVault) {
+            revert PreviousMigrationDebtVaultMismatch(
+                self.migrationDebtVault,
+                previousVault
+            );
+        }
+        if (newVault == previousVault) {
+            revert MigrationDebtVaultUnchanged(newVault);
+        }
+        if (newVault != address(0) && !self.isVaultTrusted[newVault]) {
+            revert VaultNotTrusted(newVault);
+        }
+
+        if (newVault != address(0)) {
+            if (!_isMigrationDebtVaultConforming(newVault)) {
+                revert MigrationDebtVaultInterfaceMissing(newVault);
+            }
+        }
+
+        if (_hasOutstandingMigrationDebt(previousVault)) {
+            revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        }
+
+        self.migrationDebtVault = newVault;
+        emit MigrationDebtVaultUpdated(newVault);
+
+        self.isVaultTrusted[previousVault] = false;
+        emit VaultStatusUpdated(previousVault, false);
+    }
+
+    /// @notice Queries whether a vault answers every migration debt selector
+    ///         consumed by Bridge reveal and vault-management paths.
+    /// @param vault The address to query.
+    /// @return True if the vault exposes the staticcall selectors consumed by
+    ///         production Bridge code: `hasOutstandingMigrationDebt`,
+    ///         `isMigrationRevealer`, and `canRevealMigration`.
+    /// @dev Mutation selectors on `ITBTCVaultMigrationDebt` are consumed by the
+    ///      vault/operator workflow, not by the Bridge. The sweep completion
+    ///      callbacks use `ITBTCVaultMigrationSweepHook` and intentionally
+    ///      remain fail-open, so they are outside this strict canonical-vault
+    ///      conformance probe.
+    function _isMigrationDebtVaultConforming(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (bool ok, ) = _getOutstandingMigrationDebt(vault);
+        if (!ok) {
+            return false;
+        }
+
+        (ok, ) = _migrationDebtVaultStaticcall(
+            vault,
+            ITBTCVaultMigrationDebt.isMigrationRevealer.selector,
+            address(0),
+            36
+        );
+        if (!ok) {
+            return false;
+        }
+
+        (ok, ) = _migrationDebtVaultStaticcall(
+            vault,
+            ITBTCVaultMigrationDebt.canRevealMigration.selector,
+            address(0),
+            36
+        );
+
+        return ok;
+    }
+
+    /// @notice Queries whether a vault answers the migration debt interface
+    ///         and whether it reports outstanding debt.
+    /// @param vault The address to query.
+    /// @return ok True if the staticcall succeeds with a decodable bool.
+    /// @return hasDebt True if the vault reports outstanding debt.
+    function _getOutstandingMigrationDebt(address vault)
+        private
+        view
+        returns (bool ok, bool hasDebt)
+    {
+        return
+            _migrationDebtVaultStaticcall(
+                vault,
+                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector,
+                address(0),
+                4
+            );
+    }
+
+    function _migrationDebtVaultStaticcall(
+        address vault,
+        bytes4 selector,
+        address revealer,
+        uint256 inputSize
+    ) private view returns (bool ok, bool value) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, selector)
+            mstore(add(ptr, 0x04), revealer)
+
+            let success := staticcall(gas(), vault, ptr, inputSize, ptr, 0x20)
+            let word := mload(ptr)
+            ok := and(
+                and(success, gt(returndatasize(), 0x1f)),
+                or(iszero(word), eq(word, 1))
+            )
+            value := and(ok, eq(word, 1))
+        }
+    }
+
+    /// @notice Queries whether a vault has outstanding migration debt using
+    ///         a fail-open staticcall to `ITBTCVaultMigrationDebt`.
+    /// @param vault The address to query.
+    /// @return True if the vault implements the migration debt interface and
+    ///         reports outstanding debt. Returns false when the staticcall
+    ///         fails (vault does not implement the interface) or when the
+    ///         vault reports no outstanding debt. This fail-open behaviour
+    ///         ensures backwards compatibility with vaults that predate the
+    ///         migration debt interface.
+    function _hasOutstandingMigrationDebt(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
+        return hasDebt;
     }
 
     /// @notice Allows the Governance to mark the given address as trusted
@@ -1744,6 +1949,11 @@ contract Bridge is
         return self.isVaultTrusted[vault];
     }
 
+    /// @notice Returns canonical migration debt vault used by reveal guard.
+    function migrationDebtVault() external view returns (address) {
+        return self.migrationDebtVault;
+    }
+
     /// @notice Returns the current values of Bridge deposit parameters.
     /// @return depositDustThreshold The minimal amount that can be requested
     ///         to deposit. Value of this parameter must take into account the
@@ -2079,5 +2289,78 @@ contract Bridge is
     ) external {
         // The caller is checked in the internal function.
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    /// @notice Seeds missing fraud-challenge escrow introduced by a Bridge
+    ///         upgrade for challenges opened before the counter existed.
+    /// @param preUpgradeOpenEscrow Sum of `depositAmount` values for unresolved
+    ///        pre-upgrade fraud challenges at the time this function is called.
+    /// @dev Can only be called once by governance. Until this function runs,
+    ///      `recoverETH` and new fraud challenges are disabled. Post-seed fraud
+    ///      challenges are tracked normally on submit.
+    function seedFraudChallengeEscrow(uint256 preUpgradeOpenEscrow)
+        external
+        onlyGovernance
+    {
+        if (self.fraudChallengeEscrowSeeded) {
+            revert FraudChallengeEscrowAlreadySeeded();
+        }
+
+        self.openFraudChallengeEscrow += preUpgradeOpenEscrow;
+        self.fraudChallengeEscrowSeeded = true;
+    }
+
+    /// @notice Allows the Governance to rescue ETH from the contract balance.
+    /// @param recipient Address that receives the rescued ETH. Must be
+    ///        non-zero and able to accept ETH via a default `receive`/`fallback`
+    ///        path. The call forwards all gas, so contract recipients with
+    ///        large `receive` logic are supported.
+    /// @param amount Amount of ETH (in wei) to transfer to `recipient`.
+    /// @dev The Bridge accepts ETH only through `submitFraudChallenge` (a
+    ///      challenger's deposit). The `Fraud` library refunds those deposits
+    ///      to the treasury or the challenger via a bounded-gas low-level
+    ///      call whose return value is not checked, marking the challenge
+    ///      `resolved` regardless of payout success. If a recipient cannot
+    ///      accept the call (insufficient gas in `receive`, contract revert,
+    ///      contract not yet deployed at the address), the corresponding
+    ///      `challenge.depositAmount` remains custodied in this contract with
+    ///      no other path out. This function is the recovery handle; without
+    ///      it, orphaned ETH is permanently stuck behind the upgradeable proxy.
+    ///      Emits `EthRescued` so off-chain monitors can correlate rescue
+    ///      events with stuck-payout incidents.
+    /// @dev Can only be called by the Governance.
+    function recoverETH(address payable recipient, uint256 amount)
+        external
+        onlyGovernance
+    {
+        if (recipient == address(0)) {
+            revert EthRescueRecipientZero();
+        }
+        if (amount == 0) {
+            revert EthRescueAmountZero();
+        }
+        uint256 available = address(this).balance;
+        if (available < amount) {
+            revert EthRescueInsufficientBalance(amount, available);
+        }
+        if (!self.fraudChallengeEscrowSeeded) {
+            revert FraudChallengeEscrowNotSeeded();
+        }
+        uint256 escrow = self.openFraudChallengeEscrow;
+        uint256 rescuable = available > escrow ? available - escrow : 0;
+        if (amount > rescuable) {
+            revert EthRescueExceedsRescuable(amount, rescuable);
+        }
+
+        emit EthRescued(recipient, amount);
+
+        // reason: rescue path for ETH custodied on the Bridge by failed
+        // fraud-challenge refunds; the call is checked and forwards all
+        // gas so contract recipients can use their full receive logic.
+        // slither-disable-next-line low-level-calls
+        (bool success, ) = recipient.call{value: amount}(""); // solhint-disable-line avoid-low-level-calls
+        if (!success) {
+            revert EthRescueTransferFailed(recipient, amount);
+        }
     }
 }

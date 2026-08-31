@@ -594,17 +594,18 @@ describe("TBTCVault - OptimisticMinting", () => {
 
           // Output value is 20000 sat (0.0002 BTC).
           // Bridge deposit treasury fee is 0.05% (1/2000).
-          // Optimistic minting fee is 0.
+          // Optimistic minting fee divisor is 0 (fee disabled).
           //
           // Bridge deposit treasury fee: 20000 / 2000 = 10 [sat]
           // Amount to mint: (20000 - 10) * 1e10 = 199900000000000 [1e18]
+          // Optimistic minting fee: 0 (divisor is 0, fee is disabled) [1e18]
           //
           // Bridge deposit treasury fee is allocated during the sweep.
           //
           // This all gives:
           //   0.0002 BTC deposited
           //   0.0000001 BTC as bridge deposit treasury fee
-          //   0 as TBTC optimistic minting fee
+          //   0 as TBTC optimistic minting fee (disabled)
           //   0.0001999 TBTC minted to the depositor
           //
           //   0.0000001 + 0.0001999 = 0.0002
@@ -777,7 +778,8 @@ describe("TBTCVault - OptimisticMinting", () => {
 
           // Output value is 20000.
           // Bridge deposit treasury fee is 0.
-          // Optimistic minting fee is 0.
+          // Optimistic minting fee divisor is 0 (fee disabled).
+          // Optimistic minting fee: 0 (divisor is 0, fee is disabled).
 
           it("should mint TBTC to depositor", async () => {
             // 20000 * 1e10 = 200000000000000 [1e18]
@@ -1379,6 +1381,14 @@ describe("TBTCVault - OptimisticMinting", () => {
       })
     })
 
+    context("when the new fee divisor is below the minimum bound", () => {
+      it("should revert", async () => {
+        await expect(
+          tbtcVault.connect(governance).beginOptimisticMintingFeeUpdate(1)
+        ).to.be.revertedWith("New fee divisor must be 0 or >= minimum")
+      })
+    })
+
     context("when called by the governance", () => {
       let tx: ContractTransaction
 
@@ -1495,6 +1505,14 @@ describe("TBTCVault - OptimisticMinting", () => {
         await expect(
           tbtcVault.connect(thirdParty).beginOptimisticMintingDelayUpdate(60)
         ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the new delay is zero", () => {
+      it("should revert", async () => {
+        await expect(
+          tbtcVault.connect(governance).beginOptimisticMintingDelayUpdate(0)
+        ).to.be.revertedWith("Optimistic minting delay must be > 0")
       })
     })
 

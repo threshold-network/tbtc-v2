@@ -1,3 +1,28 @@
+// ////////////////////////////////////////////////////////////////////////
+// DEPRECATED -- HISTORICAL UPGRADE
+//
+// The TIP-109 upgrade orchestrated by this script executed on mainnet.
+// Evidence:
+//   - Bridge proxy 0x5e4861a80B55f035D899f66772117F00FA0E8e7B
+//   - Initialized(5) emitted at block 24800704 in tx
+//     0x0d39bfdc49dd9d956b95f5040c32ac271abbae102dc917c164695896d67db08a
+//   - Slot 50 (_initialized) reads 0x05 on both mainnet and Sepolia, so
+//     reinitializer(5) is permanently consumed on both networks
+//     (OpenZeppelin Initializable does not decrement).
+//
+// The Bridge.initializeV5_RepairRebateStaking selector this script targets
+// is not declared in the Bridge source in this tree. Invoking this script
+// would deploy a fresh Bridge implementation and emit governance calldata
+// that reverts at execution because the targeted selector is absent.
+//
+// The exported encoder helpers (encodeRebateStakingUpgrade,
+// encodeBridgeUpgradeAndCall, encodeSetRebateStaking,
+// encodeBeginDepositTreasuryFeeDivisorUpdate) and their unit tests remain
+// valid as historical calldata-format regression coverage.
+//
+// Kept hard-disabled by func.skip for historical reference only.
+// ////////////////////////////////////////////////////////////////////////
+
 import fs from "fs"
 import path from "path"
 import https from "https"
@@ -248,10 +273,10 @@ function buildVerificationChecks(addresses: {
         "Existing P2SH deposits should remain unaffected by the Bridge upgrade",
     },
     {
-      command: `cast call ${addresses.bridgeImpl} "..." | grep -c "^" -- or inspect ABI for 56 public/external selectors`,
-      expectedResult: "56 selectors",
+      command: `cast call ${addresses.bridgeImpl} "..." | grep -c "^" -- or inspect ABI for 57 public/external selectors`,
+      expectedResult: "57 selectors",
       description:
-        "Bridge implementation should expose exactly 56 public/external function selectors",
+        "Bridge implementation should expose exactly 57 public/external function selectors",
     },
     {
       command: `cast storage ${addresses.rebateStakingProxy} ${EIP_1967_IMPLEMENTATION_SLOT}`,
@@ -263,13 +288,18 @@ function buildVerificationChecks(addresses: {
       command:
         `cast storage ${addresses.bridgeProxy} 79 && ` +
         `cast storage ${addresses.bridgeProxy} 80 && ` +
-        `cast storage ${addresses.bridgeProxy} 81`,
+        `cast storage ${addresses.bridgeProxy} 81 && ` +
+        `cast storage ${addresses.bridgeProxy} 129 && ` +
+        `cast storage ${addresses.bridgeProxy} 130`,
       expectedResult:
         "Slot 79 = redemptionWatchtower address, " +
         "slot 80 = rebate staking address, " +
-        "slots 81-128 = zero (__gap[48], gap size unchanged)",
+        "slot 81 = migration debt vault address, " +
+        "slots 82-128 = zero (__gap[47]), " +
+        "slot 129 = openFraudChallengeEscrow, " +
+        "slot 130 = fraudChallengeEscrowSeeded",
       description:
-        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slots 81-128=__gap[48] with gap size unchanged",
+        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slot 81=migrationDebtVault, slots 82-128=__gap[47], slot 129=openFraudChallengeEscrow, slot 130=fraudChallengeEscrowSeeded",
     },
     {
       command:
@@ -689,6 +719,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployTIP109GovernanceUpgrade"]
-// Set DEPLOY_TIP109=true when running the deployment.
-// yarn deploy --tags DeployTIP109GovernanceUpgrade --network <NETWORK>
-func.skip = async () => process.env.DEPLOY_TIP109 !== "true"
+// Hard-disabled: the targeted Bridge.initializeV5_RepairRebateStaking
+// selector is not declared in the Bridge source in this tree. Invoking
+// this script would deploy a fresh Bridge implementation and emit
+// governance calldata that reverts at execution. The exported encoder
+// helpers (encodeRebateStakingUpgrade, encodeBridgeUpgradeAndCall,
+// encodeSetRebateStaking, encodeBeginDepositTreasuryFeeDivisorUpdate)
+// remain importable as historical calldata-format regression coverage.
+func.skip = async () => true

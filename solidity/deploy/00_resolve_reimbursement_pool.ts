@@ -12,6 +12,25 @@ const func: DeployFunction = async function resolveReimbursementPool(
   if (ReimbursementPool && helpers.address.isValid(ReimbursementPool.address)) {
     log(`using existing ReimbursementPool at ${ReimbursementPool.address}`)
   } else {
+    if (hre.network.tags.allowStubs) {
+      const { deployer } = await hre.getNamedAccounts()
+
+      const staticGas = 40800
+      const maxGasPrice = 500000000000
+
+      const reimbursementPool = await deployments.deploy("ReimbursementPool", {
+        from: deployer,
+        args: [staticGas, maxGasPrice],
+        log: true,
+        waitConfirmations: 1,
+      })
+
+      log(
+        `deployed ReimbursementPool for test network at ${reimbursementPool.address}`
+      )
+      return
+    }
+
     throw new Error("deployed ReimbursementPool contract not found")
   }
 }
