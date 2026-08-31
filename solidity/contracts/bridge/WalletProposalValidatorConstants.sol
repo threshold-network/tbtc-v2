@@ -9,6 +9,4 @@ library WalletProposalValidatorConstants {
     uint32 internal constant DEPOSIT_MIN_AGE = 2 hours;
     uint32 internal constant DEPOSIT_REFUND_SAFETY_MARGIN = 24 hours;
     uint32 internal constant REQUEST_TIMEOUT_SAFETY_MARGIN = 2 hours;
-    // Alias mirroring the public constant name in WalletProposalValidator.
-    uint32 internal constant REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN = REQUEST_TIMEOUT_SAFETY_MARGIN;
 }

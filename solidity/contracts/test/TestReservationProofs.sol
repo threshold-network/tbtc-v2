@@ -84,7 +84,6 @@ contract TestReservationProofs {
         uint64 anchorAmount
     );
 
-
     constructor(address _bank) {
         state.bank = Bank(_bank);
     }
@@ -112,9 +111,20 @@ contract TestReservationProofs {
         uint256 reservationKey,
         uint64 requestNonce,
         Reservation.ActionType expectedType
-    ) external view returns (Reservation.ReservationAction memory action, bool late) {
-        (Reservation.ReservationAction storage actionStorage, bool isLate) =
-            ReservationProofs.loadSettleableAction(state, reservationKey, requestNonce, expectedType);
+    )
+        external
+        view
+        returns (Reservation.ReservationAction memory action, bool late)
+    {
+        (
+            Reservation.ReservationAction storage actionStorage,
+            bool isLate
+        ) = ReservationProofs.loadSettleableAction(
+                state,
+                reservationKey,
+                requestNonce,
+                expectedType
+            );
         return (actionStorage, isLate);
     }
 
@@ -122,7 +132,11 @@ contract TestReservationProofs {
         bytes memory inputVector,
         uint256 reservationKey
     ) external {
-        ReservationProofs.consumeAcceptedDeposit(state, inputVector, reservationKey);
+        ReservationProofs.consumeAcceptedDeposit(
+            state,
+            inputVector,
+            reservationKey
+        );
     }
 
     function parseSingleOutput(bytes memory outputVector)
@@ -141,7 +155,8 @@ contract TestReservationProofs {
         Reservation.ReservationAction storage action = state.reservationActions[
             Reservation.actionKey(reservationKey, requestNonce)
         ];
-        return ReservationProofs.validateAnchorOutput(state, outputVector, action);
+        return
+            ReservationProofs.validateAnchorOutput(state, outputVector, action);
     }
 
     function settleAcceptance(
@@ -179,14 +194,12 @@ contract TestReservationProofs {
 
     function strandLateSettlementIfTargetWalletClosed(
         uint256 reservationKey,
-        bool late,
         bool evidenceAlreadyEmitted
     ) external {
         ReservationProofs.strandLateSettlementIfTargetWalletClosed(
             state,
             state.reservations[reservationKey],
             reservationKey,
-            late,
             evidenceAlreadyEmitted
         );
     }
@@ -207,8 +220,10 @@ contract TestReservationProofs {
         uint64 requestNonce,
         bytes32 anchorTxHash
     ) external returns (uint64 anchorAmount) {
-        (Reservation.ReservationAction storage action, bool late) =
-            ReservationProofs.loadSettleableAction(
+        (
+            Reservation.ReservationAction storage action,
+            bool late
+        ) = ReservationProofs.loadSettleableAction(
                 state,
                 reservationKey,
                 requestNonce,
@@ -225,7 +240,11 @@ contract TestReservationProofs {
             "Deposit was not revealed as reserved"
         );
 
-        ReservationProofs.consumeAcceptedDeposit(state, inputVector, reservationKey);
+        ReservationProofs.consumeAcceptedDeposit(
+            state,
+            inputVector,
+            reservationKey
+        );
 
         anchorAmount = ReservationProofs.validateAnchorOutput(
             state,
@@ -249,8 +268,16 @@ contract TestReservationProofs {
         state.bank = Bank(_bank);
     }
 
+    function setRelay(address _relay) external {
+        state.relay = IRelay(_relay);
+    }
+
     function setReservationVault(address vault) external {
         state.reservationVault = vault;
+    }
+
+    function setVaultTrusted(address vault, bool trusted) external {
+        state.isVaultTrusted[vault] = trusted;
     }
 
     function setReservationParameters(
@@ -268,7 +295,9 @@ contract TestReservationProofs {
         uint64 requestNonce,
         Reservation.ReservationAction memory action
     ) external {
-        state.reservationActions[Reservation.actionKey(reservationKey, requestNonce)] = action;
+        state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ] = action;
     }
 
     function setReservation(
@@ -307,11 +336,16 @@ contract TestReservationProofs {
         state.reservationTotalAmount = amount;
     }
 
-    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count) external {
+    function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
+        external
+    {
         state.walletReservationsCount[walletPubKeyHash] = count;
     }
 
-    function setWalletReservationsAmount(bytes20 walletPubKeyHash, uint64 amount) external {
+    function setWalletReservationsAmount(
+        bytes20 walletPubKeyHash,
+        uint64 amount
+    ) external {
         state.walletReservationsAmount[walletPubKeyHash] = amount;
     }
 
@@ -319,12 +353,22 @@ contract TestReservationProofs {
         state.pendingReservedDeposits = count;
     }
 
-    function setWalletPendingDissolution(bytes20 walletPubKeyHash, uint256 reservationKey) external {
+    function setWalletPendingDissolution(
+        bytes20 walletPubKeyHash,
+        uint256 reservationKey
+    ) external {
         state.walletPendingDissolution[walletPubKeyHash] = reservationKey;
     }
 
-    function addWalletReservationKey(bytes20 walletPubKeyHash, uint256 reservationKey) external {
-        Reservation.addWalletReservationKey(state, walletPubKeyHash, reservationKey);
+    function addWalletReservationKey(
+        bytes20 walletPubKeyHash,
+        uint256 reservationKey
+    ) external {
+        Reservation.addWalletReservationKey(
+            state,
+            walletPubKeyHash,
+            reservationKey
+        );
     }
 
     function initializeProducerStub(
@@ -342,10 +386,12 @@ contract TestReservationProofs {
                 refundDeadline: refundDeadline,
                 refundDeadlineValidated: true
             });
+        /* solhint-disable-next-line not-rely-on-time */
+        uint32 revealedAt = uint32(block.timestamp);
         state.deposits[reservationKey] = Deposit.DepositRequest({
             depositor: depositor,
             amount: amount,
-            revealedAt: uint32(block.timestamp),
+            revealedAt: revealedAt,
             vault: vault,
             treasuryFee: 0,
             sweptAt: 0,
@@ -368,7 +414,10 @@ contract TestReservationProofs {
         view
         returns (Reservation.ReservationAction memory)
     {
-        return state.reservationActions[Reservation.actionKey(reservationKey, requestNonce)];
+        return
+            state.reservationActions[
+                Reservation.actionKey(reservationKey, requestNonce)
+            ];
     }
 
     function getPendingReservedDeposit(uint256 reservationKey)

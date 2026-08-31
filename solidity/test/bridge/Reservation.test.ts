@@ -56,20 +56,9 @@ describe("Reservation", () => {
 
   beforeEach(async () => {
     const signers = await ethers.getSigners()
-    deployer = signers[0]
-    depositor = signers[1]
-    thirdParty = signers[2]
-    vault = signers[3]
+    ;[deployer, depositor, thirdParty, vault] = signers
 
-    const ReservationProofsFactory = await ethers.getContractFactory(
-      "ReservationProofs"
-    )
-    const reservationProofsLibrary = await ReservationProofsFactory.connect(
-      deployer
-    ).deploy()
-    const ReservationFactory = await ethers.getContractFactory("Reservation", {
-      libraries: { ReservationProofs: reservationProofsLibrary.address },
-    })
+    const ReservationFactory = await ethers.getContractFactory("Reservation")
     const reservationLibrary = await ReservationFactory.connect(
       deployer
     ).deploy()
@@ -212,7 +201,7 @@ describe("Reservation", () => {
         const now = await lastBlockTime()
         await testReservation.setPendingReservedDeposit(reservationKey1, {
           isReserved: false,
-          walletPubKeyHash: walletPubKeyHash,
+          walletPubKeyHash,
           refundDeadline:
             now + defaultActionTimeout + twentyFourHours + twoHours,
           refundDeadlineValidated: true,

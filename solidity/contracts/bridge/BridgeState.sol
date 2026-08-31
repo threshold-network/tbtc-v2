@@ -372,14 +372,18 @@ library BridgeState {
         // `dissolutionEligibleAt` when a term is granted.
         uint32 reservationDissolutionDelay;
         // Maximum total amount in satoshi that can be locked under active
-        // reservations at the same time.
+        // reservations at the same time. Zero blocks all requests (unlike
+        // the 0-disables fields, see `requestReservationAcceptance` for the
+        // convention).
         uint64 reservationMaxTotalAmount;
         // Current total amount in satoshi locked under active reservations
         // (reserved capacity of pending acceptance generations plus anchor output values of active reservations).
         uint64 reservationTotalAmount;
-        // Maximum number of reservations (active or acceptance-pending) a single wallet can custody.
+        // Maximum number of reservations (active or acceptance-pending) a
+        // single wallet can custody. Zero blocks all requests (unlike the
+        // 0-disables fields, see `requestReservationAcceptance` for the
+        // convention).
         uint32 maxReservationsPerWallet;
-
         // Address of the reservation router: the delegatecall extension of
         // the Bridge holding the UTXO-reservation external surface. The
         // Bridge's fallback function routes calls with unmatched selectors
@@ -450,6 +454,7 @@ library BridgeState {
         // clock then expires and the timeout seizes operator stake. This
         // cap turns that silent cliff into a revert. Genuinely new in
         // milestone 1.
+        // (Forward design note: the wallet-closing-requires-zero-reservation-count invariant this comment assumes is NOT YET ENFORCED anywhere in Wallets.sol/MovingFunds.sol in this branch — no code path checks it. This is a required gate before the reservation vault is wired to a live router; it lands with the wallet-lifecycle integration PR.)
         uint32 maxActiveReservations;
         // Collection of all reservations indexed by the deposit key of the
         // underlying reserved deposit, i.e.
@@ -502,6 +507,7 @@ library BridgeState {
         // and whole/partial shape the fee-free retry must preserve. Zero
         // means there is no bound source generation.
         mapping(uint256 => uint64) reservationRetryCreditActionNonce;
+
         // Maximum fraction (basis points, low 16 bits) of total Bank-tracked
         // backing that can be locked under reservations (RFC 13 relative
         // cap). Declared, unused until the reservation-vault PR wires the

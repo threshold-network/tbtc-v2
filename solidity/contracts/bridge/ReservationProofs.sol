@@ -104,10 +104,10 @@ library ReservationProofs {
     /// @param reservationKey The key of the target reservation.
     /// @param requestNonce The generation being settled. Late settlements
     ///        name an older, timed-out generation.
-    /// @dev The `BitcoinTx.UTXO` parameter is retained in the signature
-    ///      without a name to keep the external selector stable for any
-    ///      milestone-1 callers that already deployed against it; only
-    ///      the acceptance branch is wired up, so the value is unused.
+    /// @dev To keep the external selector stable for the router wiring that
+    ///      lands with a later milestone PR (redemption/re-anchor/dissolution
+    ///      proof types will need this parameter); only the acceptance branch
+    ///      is wired up here, so the value is unused.
     function submitReservationProof(
         BridgeState.Storage storage self,
         uint8 proofType,
@@ -132,7 +132,10 @@ library ReservationProofs {
                 requestNonce
             );
             // Milestone 1 accepts only acceptance proofs. Redemption and
-            // dissolution stay rejected for the entirety of m1; The re-anchor branch lands with the re-anchor milestone PR, placed ahead of this `else`; not present in this branch.
+            // dissolution stay rejected for the entirety of m1. The
+            // re-anchor branch lands with the re-anchor milestone PR as a
+            // new `else if` placed ahead of this `else`; it does not exist
+            // in this branch.
         } else {
             revert("Unsupported reservation proof type");
         }
@@ -179,13 +182,8 @@ library ReservationProofs {
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
         uint256 reservationKey,
-        bool late,
         bool evidenceAlreadyEmitted
     ) internal {
-        if (!late) {
-            return;
-        }
-
         Wallets.WalletState walletState = self
             .registeredWallets[reservation.walletPubKeyHash]
             .state;
@@ -352,6 +350,8 @@ library ReservationProofs {
     ) internal {
         action.state = Reservation.ActionState.Settled;
 
+        bytes20 targetWalletPubKeyHash = action.targetWalletPubKeyHash;
+
         if (late) {
             // A newer acceptance generation may have been authorized after
             // this one timed out: the position stayed Unknown, so
@@ -382,10 +382,11 @@ library ReservationProofs {
             // check: caps are request-time throttles and the anchor is
             // already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
-            self.walletReservationsCount[action.targetWalletPubKeyHash] += 1;
+            self.walletReservationsCount[targetWalletPubKeyHash] += 1;
             self.walletReservationsAmount[
-                action.targetWalletPubKeyHash
+                targetWalletPubKeyHash
             ] += anchorAmount;
+            self.activeReservationsCount += 1;
             emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
@@ -394,17 +395,16 @@ library ReservationProofs {
         } else {
             // Release the difference between the reserved upper bound
             // (deposit value) and the actual anchor value (miner fee).
-            self.reservationTotalAmount -= (action.amount - anchorAmount);
-            self.walletReservationsAmount[
-                action.targetWalletPubKeyHash
-            ] -= (action.amount - anchorAmount);
+            uint64 feeDelta = action.amount - anchorAmount;
+            self.reservationTotalAmount -= feeDelta;
+            self.walletReservationsAmount[targetWalletPubKeyHash] -= feeDelta;
         }
-
-        address depositor = self.deposits[reservationKey].depositor;
 
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
+        Deposit.DepositRequest storage deposit = self.deposits[reservationKey];
+        address depositor = deposit.depositor;
 
         /* solhint-disable-next-line not-rely-on-time */
         uint32 expiresAt = uint32(block.timestamp) +
@@ -414,7 +414,7 @@ library ReservationProofs {
         reservation.mintedAmount = anchorAmount;
         /* solhint-disable-next-line not-rely-on-time */
         reservation.acceptedAt = uint32(block.timestamp);
-        reservation.walletPubKeyHash = action.targetWalletPubKeyHash;
+        reservation.walletPubKeyHash = targetWalletPubKeyHash;
         reservation.anchorAmount = anchorAmount;
         reservation.expiresAt = expiresAt;
         reservation.anchorTxHash = anchorTxHash;
@@ -429,7 +429,7 @@ library ReservationProofs {
         ] = reservationKey;
         Reservation.addWalletReservationKey(
             self,
-            action.targetWalletPubKeyHash,
+            targetWalletPubKeyHash,
             reservationKey
         );
 
@@ -437,44 +437,51 @@ library ReservationProofs {
         emit ReservationAccepted(
             reservationKey,
             requestNonce,
-            action.targetWalletPubKeyHash,
+            targetWalletPubKeyHash,
             depositor,
             anchorTxHash,
             anchorAmount,
             expiresAt
         );
 
-        // Credit the gross anchored amount through the vault the deposit
-        // was revealed to. Using the deposit's immutable `vault` (verified
-        // to equal the reservation vault when the acceptance was requested)
-        // rather than the live `reservationVault` keeps a late settlement
-        // routing to the depositor's chosen vault even if governance
-        // re-pointed or disabled the reservation vault in the interim. The
-        // per-deposit treasury fee computed at reveal time is deliberately
-        // ignored: reservation claims are minted gross and all protocol
-        // fees are charged as explicit transfers by the vault.
-        address[] memory depositors = new address[](1);
-        depositors[0] = depositor;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = anchorAmount;
-        self.bank.increaseBalanceAndCall(
-            self.deposits[reservationKey].vault,
-            depositors,
-            amounts
-        );
-
         // A timed-out authorization released the target wallet's reservation
         // count, so the wallet may have retired before this already-confirmed
         // anchor is proven. Closing and Closed wallets have no later cleanup
         // path; strand the newly registered position immediately. Terminated
-        // wallets retain the canonical permissionless evidence path.
+        // wallets retain the canonical permissionless evidence path. This
+        // check now runs unconditionally (not just for late settlements): an
+        // on-time proof can equally race a wallet leaving Live mid-flight.
         strandLateSettlementIfTargetWalletClosed(
             self,
             reservation,
             reservationKey,
-            late,
             false
         );
+
+        // Credit the gross anchored amount through the vault the deposit was
+        // revealed to, but only if that vault is still trusted: governance
+        // may have revoked trust between the acceptance request and this
+        // (possibly late) proof. Using the deposit's immutable `vault`
+        // (verified to equal the reservation vault when the acceptance was
+        // requested) rather than the live `reservationVault` keeps a late
+        // settlement routing to the depositor's chosen vault even if
+        // governance re-pointed or disabled the reservation vault in the
+        // interim. The per-deposit treasury fee computed at reveal time is
+        // deliberately ignored: reservation claims are minted gross and all
+        // protocol fees are charged as explicit transfers by the vault. All
+        // reservation-position state above is finalized before this external
+        // call, matching the checks-effects-interactions pattern.
+        address[] memory depositors = new address[](1);
+        depositors[0] = depositor;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = anchorAmount;
+
+        address vault = deposit.vault;
+        if (vault != address(0) && self.isVaultTrusted[vault]) {
+            self.bank.increaseBalanceAndCall(vault, depositors, amounts);
+        } else {
+            self.bank.increaseBalances(depositors, amounts);
+        }
     }
 
     /// @notice Unwinds the position's current pending generation during a
@@ -519,11 +526,11 @@ library ReservationProofs {
         } else if (
             pendingAction.actionType == Reservation.ActionType.Reanchor
         ) {
-            self.walletReservationsCount[
-                pendingAction.targetWalletPubKeyHash
-            ] -= 1;
+            bytes20 targetWalletPubKeyHash = pendingAction
+                .targetWalletPubKeyHash;
+            self.walletReservationsCount[targetWalletPubKeyHash] -= 1;
             self.walletReservationsAmount[
-                pendingAction.targetWalletPubKeyHash
+                targetWalletPubKeyHash
             ] -= pendingAction.amount;
         } else if (
             pendingAction.actionType == Reservation.ActionType.Dissolution
@@ -541,14 +548,13 @@ library ReservationProofs {
         ) {
             // A superseded acceptance authorization releases the capacity it
             // reserved against its target wallet at request time.
-            self.reservationTotalAmount -= pendingAction.amount;
-            self.walletReservationsCount[
-                pendingAction.targetWalletPubKeyHash
-            ] -= 1;
-            self.walletReservationsAmount[
-                pendingAction.targetWalletPubKeyHash
-            ] -= pendingAction.amount;
-            self.activeReservationsCount -= 1; // The superseded generation was counted at request time.
+            bytes20 targetWalletPubKeyHash = pendingAction
+                .targetWalletPubKeyHash;
+            uint64 amount = pendingAction.amount;
+            self.reservationTotalAmount -= amount;
+            self.walletReservationsCount[targetWalletPubKeyHash] -= 1;
+            self.walletReservationsAmount[targetWalletPubKeyHash] -= amount;
+            self.activeReservationsCount -= 1;
         }
 
         // The Bank is a trusted protocol contract; the refund above cannot

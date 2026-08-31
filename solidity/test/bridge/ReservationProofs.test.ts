@@ -1,14 +1,18 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { smock, FakeContract } from "@defi-wonderland/smock"
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { BigNumber, BigNumberish } from "ethers"
 import {
+  IRelay,
   TestReservationProofs,
   MockReservationVault,
   Bank,
 } from "../../typechain"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, BigNumberish } from "ethers"
+import { SingleP2SHDeposit } from "../data/deposit-sweep"
 
 describe("ReservationProofs", () => {
+  let relay: FakeContract<IRelay>
   let testReservationProofs: TestReservationProofs
   let mockReservationVault: MockReservationVault
   let bank: Bank
@@ -17,15 +21,15 @@ describe("ReservationProofs", () => {
   let redeemer: SignerWithAddress
 
   // Test constants
-  const walletPubKeyHash = "0x" + "11".repeat(20)
-  const otherWalletPubKeyHash = "0x" + "22".repeat(20)
-  const sampleFundingTxHash = "0x" + "aa".repeat(32)
+  const walletPubKeyHash = `0x${"11".repeat(20)}`
+  const otherWalletPubKeyHash = `0x${"22".repeat(20)}`
+  const sampleFundingTxHash = `0x${"aa".repeat(32)}`
   const sampleFundingOutputIndex = 0
   const sampleReservationKey = ethers.utils.solidityKeccak256(
     ["bytes32", "uint32"],
     [sampleFundingTxHash, sampleFundingOutputIndex]
   )
-  const sampleAnchorTxHash = "0x" + "bb".repeat(32)
+  const sampleAnchorTxHash = `0x${"bb".repeat(32)}`
 
   const termSeconds = 90 * 86400 // 90 days
   const dissolutionDelay = 30 * 86400 // 30 days
@@ -49,7 +53,7 @@ describe("ReservationProofs", () => {
     const cleanTxHash = txHash.startsWith("0x") ? txHash.substring(2) : txHash
     const indexLE = uint32ToLittleEndianHex(txOutputIndex)
     // 0x01 (1 input) + 32B txid + 4B index + 0x00 (0-length scriptSig) + 0xffffffff (sequence)
-    return "0x01" + cleanTxHash + indexLE + "00ffffffff"
+    return `0x01${cleanTxHash}${indexLE}00ffffffff`
   }
 
   // Assemble Bitcoin 1-output vector for P2PKH
@@ -60,7 +64,7 @@ describe("ReservationProofs", () => {
     const cleanPkh = pkh.startsWith("0x") ? pkh.substring(2) : pkh
     const valueLE = uint64ToLittleEndianHex(valueSatoshis)
     // 0x01 (1 output) + 8B value LE + 0x19 (25B script length) + 0x76a914 + 20B PKH + 0x88ac
-    return "0x01" + valueLE + "1976a914" + cleanPkh + "88ac"
+    return `0x01${valueLE}1976a914${cleanPkh}88ac`
   }
 
   // Assemble Bitcoin 1-output vector for P2WPKH
@@ -71,7 +75,7 @@ describe("ReservationProofs", () => {
     const cleanPkh = pkh.startsWith("0x") ? pkh.substring(2) : pkh
     const valueLE = uint64ToLittleEndianHex(valueSatoshis)
     // 0x01 (1 output) + 8B value LE + 0x16 (22B script length) + 0x0014 + 20B PKH
-    return "0x01" + valueLE + "160014" + cleanPkh
+    return `0x01${valueLE}160014${cleanPkh}`
   }
 
   function buildReservationAction(overrides: Record<string, any> = {}) {
@@ -102,7 +106,7 @@ describe("ReservationProofs", () => {
       owner: depositor.address,
       mintedAmount: 100000000 - 5000,
       acceptedAt: 1000,
-      walletPubKeyHash: walletPubKeyHash,
+      walletPubKeyHash,
       anchorAmount: 100000000 - 5000,
       expiresAt: 1000 + termSeconds,
       anchorTxHash: sampleAnchorTxHash,
@@ -118,9 +122,7 @@ describe("ReservationProofs", () => {
 
   beforeEach(async () => {
     const signers = await ethers.getSigners()
-    deployer = signers[0]
-    depositor = signers[1]
-    redeemer = signers[2]
+    ;[deployer, depositor, redeemer] = signers
 
     const BankFactory = await ethers.getContractFactory("Bank")
     bank = (await BankFactory.connect(deployer).deploy()) as Bank
@@ -143,6 +145,9 @@ describe("ReservationProofs", () => {
       deployer
     ).deploy(bank.address)) as TestReservationProofs
 
+    relay = await smock.fake<IRelay>("IRelay")
+    await testReservationProofs.setRelay(relay.address)
+
     await bank.connect(deployer).updateBridge(testReservationProofs.address)
 
     const MockReservationVaultFactory = await ethers.getContractFactory(
@@ -154,6 +159,10 @@ describe("ReservationProofs", () => {
 
     await testReservationProofs.setReservationVault(
       mockReservationVault.address
+    )
+    await testReservationProofs.setVaultTrusted(
+      mockReservationVault.address,
+      true
     )
     await testReservationProofs.setReservationParameters(
       termSeconds,
@@ -446,13 +455,13 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: depositAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
@@ -699,7 +708,7 @@ describe("ReservationProofs", () => {
         validAnchorAmount,
         walletPubKeyHash
       ).substring(4) // remove 0x01
-      const multiOutputVector = "0x02" + singleOutput + singleOutput
+      const multiOutputVector = `0x02${singleOutput}${singleOutput}`
       await expect(
         testReservationProofs.parseSingleOutput(multiOutputVector)
       ).to.be.revertedWith("Reservation transaction must have a single output")
@@ -754,8 +763,9 @@ describe("ReservationProofs", () => {
     })
 
     it("should revert if input vector has not exactly 1 input (0 inputs)", async () => {
-      const invalidInputVector =
-        "0x00" + sampleFundingTxHash.substring(2) + "00000000" + "00ffffffff"
+      const invalidInputVector = `0x00${sampleFundingTxHash.substring(
+        2
+      )}0000000000ffffffff`
       await expect(
         testReservationProofs.consumeAcceptedDeposit(
           invalidInputVector,
@@ -765,7 +775,7 @@ describe("ReservationProofs", () => {
     })
 
     it("should revert if input does not spend the reserved deposit (wrong txHash)", async () => {
-      const wrongTxHash = "0x" + "ff".repeat(32)
+      const wrongTxHash = `0x${"ff".repeat(32)}`
       const wrongInputVector = assembleInputVector(wrongTxHash, 0)
 
       await expect(
@@ -887,6 +897,9 @@ describe("ReservationProofs", () => {
       expect(
         await testReservationProofs.getWalletReservationsCount(walletPubKeyHash)
       ).to.equal(1)
+      expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
+        1
+      )
 
       // ReservationLateSettled event emitted
       await expect(tx)
@@ -1006,7 +1019,7 @@ describe("ReservationProofs", () => {
         await testReservationProofs.getWalletReservationsCount(walletPubKeyHash)
       ).to.equal(1)
       expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
-        0
+        1
       )
 
       // Reservation position becomes Active on older anchor
@@ -1083,7 +1096,7 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: depositAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
+          walletPubKeyHash,
           anchorAmount: depositAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
@@ -1122,7 +1135,7 @@ describe("ReservationProofs", () => {
 
     it("should unwind pending reanchor action", async () => {
       const reanchorNonce = 1
-      const reanchorTargetWallet = "0x" + "33".repeat(20)
+      const reanchorTargetWallet = `0x${"33".repeat(20)}`
 
       await testReservationProofs.setReservationAction(
         sampleReservationKey,
@@ -1141,7 +1154,7 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: depositAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
+          walletPubKeyHash,
           anchorAmount: depositAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
@@ -1200,7 +1213,7 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: depositAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
+          walletPubKeyHash,
           anchorAmount: depositAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
@@ -1258,7 +1271,7 @@ describe("ReservationProofs", () => {
       )
     })
 
-    it("should not strand if late = false (even if wallet is Closing/Closed)", async () => {
+    it("should strand if wallet is Closing/Closed even when late = false (on-time proof)", async () => {
       // WalletState.Closed = 4
       await testReservationProofs.setWalletState(walletPubKeyHash, 4)
 
@@ -1269,31 +1282,50 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: anchorAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
         })
       )
 
-      // Call strand hook with late = false
+      await testReservationProofs.setWalletReservationsCount(
+        walletPubKeyHash,
+        1
+      )
+      await testReservationProofs.setWalletReservationsAmount(
+        walletPubKeyHash,
+        anchorAmount
+      )
+      await testReservationProofs.setReservationTotalAmount(anchorAmount)
+      await testReservationProofs.setActiveReservationsCount(1)
+      await testReservationProofs.addWalletReservationKey(
+        walletPubKeyHash,
+        sampleReservationKey
+      )
+
+      // Call strand hook with late = false: an honest on-time proof must
+      // still strand against a wallet that left Live while the proof was
+      // pending, exactly like the late path does.
       await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
         sampleReservationKey,
-        false,
         false
       )
 
-      // Reservation remains Active
+      // Reservation becomes Stranded, not left Active
       const reservation = await testReservationProofs.getReservation(
         sampleReservationKey
       )
-      expect(reservation.state).to.equal(1) // Active
+      expect(reservation.state).to.equal(4) // Stranded
+      expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
+        0
+      )
     })
 
     it("should not strand on late settlement if wallet is Live (1)", async () => {
@@ -1306,13 +1338,13 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: anchorAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
@@ -1321,7 +1353,6 @@ describe("ReservationProofs", () => {
 
       await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
         sampleReservationKey,
-        true,
         false
       )
 
@@ -1341,13 +1372,13 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: anchorAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
@@ -1356,7 +1387,6 @@ describe("ReservationProofs", () => {
 
       await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
         sampleReservationKey,
-        true,
         false
       )
 
@@ -1377,13 +1407,13 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: anchorAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
@@ -1408,7 +1438,6 @@ describe("ReservationProofs", () => {
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
           sampleReservationKey,
-          true, // late = true
           false // evidenceAlreadyEmitted = false
         )
 
@@ -1461,13 +1490,13 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: anchorAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
@@ -1492,7 +1521,6 @@ describe("ReservationProofs", () => {
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
           sampleReservationKey,
-          true,
           false
         )
 
@@ -1548,13 +1576,13 @@ describe("ReservationProofs", () => {
           owner: depositor.address,
           mintedAmount: anchorAmount,
           acceptedAt: 1000,
-          walletPubKeyHash: walletPubKeyHash,
-          anchorAmount: anchorAmount,
+          walletPubKeyHash,
+          anchorAmount,
           expiresAt: 1000 + termSeconds,
           anchorTxHash: sampleAnchorTxHash,
           anchorTxOutputIndex: 0,
           state: 1, // Active
-          requestNonce: requestNonce,
+          requestNonce,
           retryCredit: false,
           dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
           cumulativeReanchorFee: 0,
@@ -1580,7 +1608,6 @@ describe("ReservationProofs", () => {
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
           sampleReservationKey,
-          true,
           true // evidenceAlreadyEmitted = true
         )
 
@@ -1591,6 +1618,204 @@ describe("ReservationProofs", () => {
 
       // Should NOT emit duplicate ReservationStranded event
       await expect(tx).to.not.emit(testReservationProofs, "ReservationStranded")
+    })
+  })
+  describe("10. End-to-end SPV validation through the real production entry point (Fix 8)", () => {
+    const data = SingleP2SHDeposit
+    const { fundingTx, reveal } = data.deposits[0]
+    const anchorReservationKey = ethers.utils.solidityKeccak256(
+      ["bytes32", "uint32"],
+      [fundingTx.hash, reveal.fundingOutputIndex]
+    )
+    const anchorAmount = 18500 // value of the SingleP2SHDeposit sweepTx's single output
+
+    beforeEach(async () => {
+      await testReservationProofs.setWalletState(reveal.walletPubKeyHash, 1) // Live
+      await testReservationProofs.initializeProducerStub(
+        anchorReservationKey,
+        reveal.walletPubKeyHash,
+        2000000000, // refundDeadline: unused by the settlement path under test
+        depositor.address,
+        anchorAmount,
+        mockReservationVault.address
+      )
+      await testReservationProofs.setReservationAction(
+        anchorReservationKey,
+        1,
+        buildReservationAction({
+          targetWalletPubKeyHash: reveal.walletPubKeyHash,
+          amount: anchorAmount,
+          txMaxFee: 0,
+        })
+      )
+      relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+      relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    })
+
+    it("should settle through submitReservationProof with a real, valid SPV proof", async () => {
+      const tx = await testReservationProofs.submitReservationProof(
+        0, // ProofType.Acceptance
+        data.sweepTx,
+        data.sweepProof,
+        data.mainUtxo,
+        anchorReservationKey,
+        1
+      )
+
+      await expect(tx).to.emit(testReservationProofs, "ReservationAccepted")
+      const reservation = await testReservationProofs.getReservation(
+        anchorReservationKey
+      )
+      expect(reservation.state).to.equal(1) // Active
+      expect(reservation.anchorAmount).to.equal(anchorAmount)
+      expect(await mockReservationVault.totalReceived()).to.equal(anchorAmount)
+    })
+
+    it("should revert with no state mutation when the SPV merkle proof is tampered with", async () => {
+      const tamperedProof = {
+        ...data.sweepProof,
+        merkleProof: "0x00",
+      }
+
+      await expect(
+        testReservationProofs.submitReservationProof(
+          0,
+          data.sweepTx,
+          tamperedProof,
+          data.mainUtxo,
+          anchorReservationKey,
+          1
+        )
+      ).to.be.reverted
+
+      const reservation = await testReservationProofs.getReservation(
+        anchorReservationKey
+      )
+      expect(reservation.state).to.equal(0) // still Unknown, no mutation
+      expect(await mockReservationVault.totalReceived()).to.equal(0)
+    })
+  })
+
+  describe("11. Vault-routing regression test (Fix 9)", () => {
+    it("should credit the deposit's immutable vault, not a reservationVault repointed mid-flight", async () => {
+      const MockReservationVaultFactory = await ethers.getContractFactory(
+        "MockReservationVault"
+      )
+      const vaultA = (await MockReservationVaultFactory.connect(
+        deployer
+      ).deploy(bank.address)) as MockReservationVault
+      const vaultB = (await MockReservationVaultFactory.connect(
+        deployer
+      ).deploy(bank.address)) as MockReservationVault
+      await testReservationProofs.setVaultTrusted(vaultA.address, true)
+      await testReservationProofs.setVaultTrusted(vaultB.address, true)
+
+      const routingFundingTxHash = `0x${"cc".repeat(32)}`
+      const routingFundingOutputIndex = 0
+      const routingReservationKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [routingFundingTxHash, routingFundingOutputIndex]
+      )
+      const depositAmount = 100000000
+      const minerFee = 5000
+      const anchorAmount = depositAmount - minerFee
+      const routingInputVector = assembleInputVector(
+        routingFundingTxHash,
+        routingFundingOutputIndex
+      )
+      const routingOutputVector = assembleP2PKHOutputVector(
+        anchorAmount,
+        walletPubKeyHash
+      )
+
+      await testReservationProofs.initializeProducerStub(
+        routingReservationKey,
+        walletPubKeyHash,
+        2000000000,
+        depositor.address,
+        depositAmount,
+        vaultA.address // the deposit's immutable, reveal-time vault
+      )
+      await testReservationProofs.setReservationAction(
+        routingReservationKey,
+        1,
+        buildReservationAction({
+          targetWalletPubKeyHash: walletPubKeyHash,
+          amount: depositAmount,
+          txMaxFee: minerFee,
+        })
+      )
+      // Governance re-points the live reservation vault after the request but
+      // before settlement.
+      await testReservationProofs.setReservationVault(vaultB.address)
+      await testReservationProofs.setReservationTotalAmount(depositAmount)
+      await testReservationProofs.setWalletReservationsAmount(
+        walletPubKeyHash,
+        depositAmount
+      )
+      await testReservationProofs.setWalletReservationsCount(
+        walletPubKeyHash,
+        1
+      )
+      await testReservationProofs.setActiveReservationsCount(1)
+
+      await testReservationProofs.executeAcceptancePipeline(
+        routingInputVector,
+        routingOutputVector,
+        routingReservationKey,
+        1,
+        sampleAnchorTxHash
+      )
+
+      expect(await vaultA.totalReceived()).to.equal(anchorAmount)
+      expect(await vaultB.totalReceived()).to.equal(0)
+    })
+  })
+
+  describe("12. Idempotency guard for consumeAcceptedDeposit (Fix 10)", () => {
+    it("should not double-decrement pendingReservedDeposits when the pending marker is already cleared", async () => {
+      const idempotencyFundingTxHash = `0x${"dd".repeat(32)}`
+      const idempotencyFundingOutputIndex = 0
+      const reservationKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [idempotencyFundingTxHash, idempotencyFundingOutputIndex]
+      )
+      const inputVector = assembleInputVector(
+        idempotencyFundingTxHash,
+        idempotencyFundingOutputIndex
+      )
+
+      await testReservationProofs.setDeposit(reservationKey, {
+        depositor: depositor.address,
+        amount: 100000000,
+        revealedAt: 1000,
+        vault: mockReservationVault.address,
+        treasuryFee: 0,
+        sweptAt: 0,
+        extraData: ethers.constants.HashZero,
+      })
+      // Pre-clear the pending marker's walletPubKeyHash to zero while
+      // sweptAt stays 0 -- the stale-notification-already-released-it
+      // scenario the idempotency guard exists for.
+      await testReservationProofs.setPendingReservedDeposit(reservationKey, {
+        isReserved: true,
+        walletPubKeyHash: `0x${"00".repeat(20)}`,
+        refundDeadline: 1000,
+        refundDeadlineValidated: true,
+      })
+      await testReservationProofs.setPendingReservedDeposits(1)
+
+      await testReservationProofs.consumeAcceptedDeposit(
+        inputVector,
+        reservationKey
+      )
+
+      // The already-cleared marker must not cause a second decrement.
+      expect(await testReservationProofs.getPendingReservedDeposits()).to.equal(
+        1
+      )
+      const deposit = await testReservationProofs.getDeposit(reservationKey)
+      expect(deposit.sweptAt).to.not.equal(0) // sweep is still recorded
     })
   })
 })

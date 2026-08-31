@@ -319,31 +319,6 @@ library Reservation {
             uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)));
     }
 
-    /// @notice Single entry point for all reservation lifecycle SPV proofs.
-    ///         Forwards to the `ReservationProofs` settlement library. The
-    ///         forwarding hop exists so the `ReservationRouter` links exactly
-    ///         one external library; the router itself ships with a later
-    ///         milestone PR.
-    function submitReservationProof(
-        BridgeState.Storage storage self,
-        uint8 proofType,
-        BitcoinTx.Info calldata txInfo,
-        BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) external {
-        ReservationProofs.submitReservationProof(
-            self,
-            proofType,
-            txInfo,
-            proof,
-            mainUtxo,
-            reservationKey,
-            requestNonce
-        );
-    }
-
     /// @notice Returns the action record of the given reservation
     ///         generation.
     function getAction(
@@ -369,17 +344,20 @@ library Reservation {
     ///      - The reservation vault must be set,
     ///      - The deposit must be revealed to the reservation vault and not
     ///        swept,
-    ///      - Caller is not the deposit's depositor,
+    ///      - Caller must be the deposit's depositor,
     ///      - No acceptance authorization for the deposit may be pending,
-    ///      - Wallet is not the deposit's designated wallet,
-    ///      - Reservation already exists,
+    ///      - Wallet must be the deposit's designated wallet,
+    ///      - No reservation may already exist for the key,
     ///      - The wallet must be Live,
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
-    ///      - Reservation exceeds the single-reservation cap,
-    ///      - Wallet reserved amount cap exceeded,
-    ///      - Max active reservations reached,
+    ///      - Deposit amount must not exceed the single-reservation cap (if
+    ///        set),
+    ///      - Wallet's reserved amount after this deposit must not exceed
+    ///        the per-wallet cap (if set),
+    ///      - Active reservations count must remain below the max active
+    ///        reservations cap (if set),
     ///      - At least one integer timestamp must remain after the deposit
     ///        minimum age and before both the action-timeout and exact
     ///        reveal-time refund safety margins, so every created action has
@@ -485,7 +463,8 @@ library Reservation {
         // because the margin is enforced on-chain.
         require(
             uint256(timeoutAt) +
-                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN <= uint256(reservedDeposit.refundDeadline),
+                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN <=
+                uint256(reservedDeposit.refundDeadline),
             "Authorization window would overlap the deposit refund window"
         );
         require(
@@ -610,17 +589,13 @@ library Reservation {
     ) internal {
         bool evidenceAlreadyEmitted = reservation.state ==
             ReservationState.Stranded;
+        bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
+        uint64 anchorAmount = reservation.anchorAmount;
 
-        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
-        self.reservationTotalAmount -= reservation.anchorAmount;
-        removeWalletReservationKey(
-            self,
-            reservation.walletPubKeyHash,
-            reservationKey
-        );
+        self.walletReservationsCount[walletPubKeyHash] -= 1;
+        self.walletReservationsAmount[walletPubKeyHash] -= anchorAmount;
+        self.reservationTotalAmount -= anchorAmount;
+        removeWalletReservationKey(self, walletPubKeyHash, reservationKey);
         reservation.state = ReservationState.Stranded;
         self.activeReservationsCount -= 1; // The stranded reservation was counted at request time.
 
@@ -642,9 +617,9 @@ library Reservation {
             // slither-disable-next-line reentrancy-events
             emit ReservationStranded(
                 reservationKey,
-                reservation.walletPubKeyHash,
+                walletPubKeyHash,
                 reservation.owner,
-                reservation.anchorAmount
+                anchorAmount
             );
         }
     }
