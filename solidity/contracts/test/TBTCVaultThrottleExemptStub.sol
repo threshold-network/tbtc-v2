@@ -7,9 +7,9 @@ import "../bank/Bank.sol";
 import "../token/TBTC.sol";
 import "../bridge/Bridge.sol";
 
-/// @dev Test stub exercising the optimistic minting throttle exemption seam
-///      of `TBTCOptimisticMinting`. Allows marking arbitrary requesters as
-///      exempt from the optimistic minting rate limits.
+/// @dev Test stub for `TBTCOptimisticMinting`'s throttle-exemption seam.
+///      Allows arbitrary requesters to bypass all optimistic minting throttle
+///      checks.
 contract TBTCVaultThrottleExemptStub is TBTCVault {
     mapping(address => bool) public throttleExempt;
 
