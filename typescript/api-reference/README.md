@@ -1034,7 +1034,7 @@ Use SolanaExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/solana/extra-data-encoder.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L60)
+[src/lib/solana/extra-data-encoder.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L61)
 
 ___
 
@@ -1062,7 +1062,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1041](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1041)
+[src/lib/starknet/starknet-depositor.ts:1012](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1012)
 
 ___
 
@@ -1257,7 +1257,7 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
+[src/lib/electrum/client.ts:784](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L784)
 
 ___
 
@@ -1634,7 +1634,7 @@ ___
 
 ### loadSolanaCrossChainInterfaces
 
-▸ **loadSolanaCrossChainInterfaces**(`solanaProvider`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadSolanaCrossChainInterfaces**(`solanaProvider`, `genesisHash`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads Solana implementation of tBTC cross-chain interfaces using
 an AnchorProvider (which includes the connection and the wallet).
@@ -1644,6 +1644,7 @@ an AnchorProvider (which includes the connection and the wallet).
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `solanaProvider` | `AnchorProvider` | Anchor provider for Solana. Must include both `connection` and `wallet`. |
+| `genesisHash` | [`Solana`](enums/Chains.Solana.md) | The expected Solana genesis hash (from `Chains.Solana.*`). |
 
 #### Returns
 
@@ -1663,14 +1664,14 @@ ___
 
 ### loadStarkNetCrossChainContracts
 
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 #### Parameters
 
 | Name | Type | Default value |
 | :------ | :------ | :------ |
 | `walletAddress` | `string` | `undefined` |
-| `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` |
+| `provider` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` |
 | `relayerStatusUrl?` | `string` | `undefined` |
 
@@ -1684,13 +1685,13 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/starknet/index.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L139)
+[src/lib/starknet/index.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L124)
 
 ___
 
 ### loadStarkNetCrossChainInterfaces
 
-▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider`, `chainId?`, `relayerStatusUrl?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
 Now supports balance queries with deployed tBTC contracts and enhanced configuration.
@@ -1700,7 +1701,7 @@ Now supports balance queries with deployed tBTC contracts and enhanced configura
 | Name | Type | Default value | Description |
 | :------ | :------ | :------ | :------ |
 | `walletAddress` | `string` | `undefined` | The StarkNet wallet address to use as deposit owner |
-| `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for blockchain interactions |
+| `provider` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | StarkNet provider for blockchain interactions |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` | Optional chain ID (defaults to Sepolia) |
 | `relayerStatusUrl?` | `string` | `undefined` | Optional override for the relayer's deposit-status endpoint, used to verify 409 conflicts. Falls back to `STARKNET_RELAYER_STATUS_URL` when not supplied. |
 

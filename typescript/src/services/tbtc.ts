@@ -14,7 +14,8 @@ import type { AnchorProvider } from "@coral-xyz/anchor"
 import type { StarkNetProvider } from "../lib/starknet"
 import type { SuiSignerWithAddress } from "../lib/sui"
 import { TBTC as TBTCCore } from "./tbtc-core"
-import { providers } from "ethers"
+import { providers, Signer } from "ethers"
+import { StarkNetAddress } from "../lib/starknet/address"
 
 // Re-export everything from the base module so that consumers importing
 // from the root entry point get the same symbols as from /core.
@@ -168,6 +169,13 @@ export class TBTC extends TBTCCore {
       throw new Error("StarkNet provider is required")
     }
 
+    if (
+      Signer.isSigner(provider) ||
+      ("getNetwork" in provider && typeof provider.getNetwork === "function")
+    ) {
+      throw new Error("Expected a StarkNet provider or account")
+    }
+
     let address: string | undefined
 
     // Check if it's an Account object with address property
@@ -192,14 +200,7 @@ export class TBTC extends TBTCCore {
       )
     }
 
-    // Validate address format (basic check for hex string)
-    // StarkNet addresses are felt252 values represented as hex strings
-    if (!/^0x[0-9a-fA-F]+$/.test(address)) {
-      throw new Error("Invalid StarkNet address format")
-    }
-
-    // Normalize to lowercase for consistency
-    return address.toLowerCase()
+    return StarkNetAddress.from(address).toString()
   }
 
   /**
@@ -318,27 +319,9 @@ export class TBTC extends TBTCCore {
         }
 
         const starknetProvider = signerOrEthereumSigner as StarkNetProvider
-        let walletAddressHex: string
-
-        // Extract address from StarkNet provider using the new method
-        try {
-          walletAddressHex = await TBTC.extractStarkNetAddress(starknetProvider)
-        } catch (error) {
-          // Check if it's a Provider-only (no account) for backward compatibility
-          // Only apply backward compatibility if it's NOT an Account object
-          if (
-            !("address" in starknetProvider) &&
-            !("account" in starknetProvider) &&
-            "getChainId" in starknetProvider &&
-            typeof starknetProvider.getChainId === "function"
-          ) {
-            // Provider-only - use placeholder address for backward compatibility
-            walletAddressHex = "0x0"
-          } else {
-            // Re-throw the error for invalid providers or invalid addresses
-            throw error
-          }
-        }
+        const walletAddressHex = await TBTC.extractStarkNetAddress(
+          starknetProvider
+        )
 
         const { loadStarkNetCrossChainInterfaces } = await import(
           "../lib/starknet"
@@ -365,13 +348,18 @@ export class TBTC extends TBTCCore {
         // prettier-ignore
         break;
       case "Solana":
+        const solanaChainId = chainMapping.solana
+        if (!solanaChainId) {
+          throw new Error("Solana chain ID not available in chain mapping")
+        }
         if (!signerOrEthereumSigner) {
           throw new Error("Solana provider is required")
         }
         this._l2Signer = signerOrEthereumSigner as AnchorProvider
         const { loadSolanaCrossChainInterfaces } = await import("../lib/solana")
         l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
-          signerOrEthereumSigner as AnchorProvider
+          signerOrEthereumSigner as AnchorProvider,
+          solanaChainId
         )
         // prettier-ignore
         break;

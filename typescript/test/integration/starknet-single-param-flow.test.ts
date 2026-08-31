@@ -6,7 +6,6 @@ use(chaiAsPromised)
 
 import { TBTC } from "../../src/services/tbtc"
 import { BitcoinClient } from "../../src/lib/bitcoin"
-import { RpcProvider, Account } from "starknet"
 import { BitcoinRawTxVectors } from "../../src/lib/bitcoin"
 import { DepositReceipt } from "../../src/lib/contracts/bridge"
 import { Hex } from "../../src/lib/utils"
@@ -17,6 +16,17 @@ import { TransactionReceipt } from "@ethersproject/providers"
 // Mock axios for relayer calls
 const axios = require("axios")
 
+const STARKNET_ADDRESS =
+  "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+const TEST_CHAIN_ID = "0x534e5f5345504f4c4941"
+
+function createMockStarkNetAccount(address = STARKNET_ADDRESS): any {
+  return {
+    address,
+    getChainId: async () => TEST_CHAIN_ID,
+  }
+}
+
 describe("StarkNet Single-Parameter Deposit Flow", () => {
   let tbtc: TBTC
   let axiosStub: any
@@ -24,9 +34,9 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
   let mockBitcoinClient: BitcoinClient
 
   beforeEach(async () => {
-    // Mock loadStarkNetCrossChainContracts
+    // Mock loadStarkNetCrossChainInterfaces
     sinon
-      .stub(starknet, "loadStarkNetCrossChainContracts")
+      .stub(starknet, "loadStarkNetCrossChainInterfaces")
       .callsFake(
         async (
           walletAddress: string,
@@ -146,15 +156,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
   describe("Complete deposit flow with single-parameter", () => {
     it("should complete deposit with only StarkNet wallet", async () => {
       // Arrange
-      const starknetAddress =
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-      const starknetAccount = new Account(
-        new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        }),
-        starknetAddress,
-        "0x1" // dummy private key for testing
-      )
+      const starknetAddress = STARKNET_ADDRESS
+      const starknetAccount = createMockStarkNetAccount(starknetAddress)
 
       // Mock relayer response
       axiosStub.resolves({
@@ -226,15 +229,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
 
     it("should preserve StarkNet address through entire flow", async () => {
       // Arrange
-      const starknetAddress =
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-      const starknetAccount = new Account(
-        new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        }),
-        starknetAddress,
-        "0x1"
-      )
+      const starknetAddress = STARKNET_ADDRESS
+      const starknetAccount = createMockStarkNetAccount(starknetAddress)
 
       // Mock relayer to capture the request
       let capturedRequest: any
@@ -292,13 +288,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       this.timeout(15000) // Increase timeout to handle retry delays
 
       // Arrange
-      const starknetAccount = new Account(
-        new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        }),
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const starknetAccount = createMockStarkNetAccount()
 
       // Mock setTimeout to speed up retries
       const setTimeoutStub = sinon
@@ -378,13 +368,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       this.timeout(15000) // Increase timeout to handle retry delays
 
       // Arrange
-      const starknetAccount = new Account(
-        new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        }),
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const starknetAccount = createMockStarkNetAccount()
 
       // Mock setTimeout to speed up retries
       const setTimeoutStub = sinon

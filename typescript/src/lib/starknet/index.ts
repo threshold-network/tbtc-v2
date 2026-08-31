@@ -41,7 +41,7 @@ let relayerStatusWarningEmitted = false
  * Now supports balance queries with deployed tBTC contracts and enhanced configuration.
  *
  * @param walletAddress The StarkNet wallet address to use as deposit owner
- * @param provider Optional StarkNet provider for blockchain interactions
+ * @param provider StarkNet provider for blockchain interactions
  * @param chainId Optional chain ID (defaults to Sepolia)
  * @param relayerStatusUrl Optional override for the relayer's deposit-status
  *        endpoint, used to verify 409 conflicts. Falls back to
@@ -51,27 +51,32 @@ let relayerStatusWarningEmitted = false
  */
 export async function loadStarkNetCrossChainInterfaces(
   walletAddress: string,
-  provider?: StarkNetProvider,
+  provider: StarkNetProvider,
   chainId: string = Chains.StarkNet.Sepolia,
   relayerStatusUrl?: string
 ): Promise<DestinationChainInterfaces> {
+  if (!provider) {
+    throw new Error("StarkNet provider is required")
+  }
+
+  const normalizedChainId = normalizeStarkNetChainId(chainId)
+
+  await validateProviderChain(provider, normalizedChainId)
+
   // Build depositor configuration with environment variable support
   const depositorConfig: StarkNetBitcoinDepositorConfig = {
-    chainId,
+    chainId: normalizedChainId,
     relayerUrl: process.env.STARKNET_RELAYER_URL, // Optional override
     relayerStatusUrl:
       relayerStatusUrl || process.env.STARKNET_RELAYER_STATUS_URL, // Optional override
     defaultVault: process.env.STARKNET_TBTC_VAULT, // Optional override
   }
 
-  // Create provider if not provided (for testing/backward compatibility)
-  const actualProvider = provider || createMockProvider()
-
   // Create the main depositor instance
   const starkNetBitcoinDepositor = new StarkNetBitcoinDepositor(
     depositorConfig,
     "StarkNet",
-    actualProvider
+    provider
   )
   if (
     !relayerStatusWarningEmitted &&
@@ -90,42 +95,22 @@ export async function loadStarkNetCrossChainInterfaces(
   // Set the deposit owner
   starkNetBitcoinDepositor.setDepositOwner(StarkNetAddress.from(walletAddress))
 
-  // Create token instance
-  let starkNetTbtcToken: StarkNetTBTCToken
-
-  if (provider) {
-    // Provider available - create full implementation with balance queries
-    const tokenContract = Object.prototype.hasOwnProperty.call(
-      TBTC_CONTRACT_ADDRESSES,
-      chainId
-    )
-      ? TBTC_CONTRACT_ADDRESSES[chainId]
-      : undefined
-    if (!tokenContract) {
-      throw new Error(`No tBTC contract address for chain ${chainId}`)
-    }
-
-    const tokenConfig: StarkNetTBTCTokenConfig = {
-      chainId,
-      tokenContract,
-    }
-
-    starkNetTbtcToken = new StarkNetTBTCToken(tokenConfig, provider)
-  } else {
-    // No provider - create interface-only implementation
-    // This maintains backward compatibility for tests
-    const mockConfig: StarkNetTBTCTokenConfig = {
-      chainId,
-      tokenContract: "0x0", // Placeholder
-    }
-
-    // Create a mock provider that throws errors
-    const mockProvider = {
-      getChainId: () => Promise.resolve(chainId),
-    } as unknown as StarkNetProvider
-
-    starkNetTbtcToken = new StarkNetTBTCToken(mockConfig, mockProvider)
+  const tokenContract = Object.prototype.hasOwnProperty.call(
+    TBTC_CONTRACT_ADDRESSES,
+    normalizedChainId
+  )
+    ? TBTC_CONTRACT_ADDRESSES[normalizedChainId]
+    : undefined
+  if (!tokenContract) {
+    throw new Error(`No tBTC contract address for chain ${normalizedChainId}`)
   }
+
+  const tokenConfig: StarkNetTBTCTokenConfig = {
+    chainId: normalizedChainId,
+    tokenContract,
+  }
+
+  const starkNetTbtcToken = new StarkNetTBTCToken(tokenConfig, provider)
 
   return {
     destinationChainBitcoinDepositor: starkNetBitcoinDepositor,
@@ -138,13 +123,44 @@ export async function loadStarkNetCrossChainInterfaces(
  */
 export const loadStarkNetCrossChainContracts = loadStarkNetCrossChainInterfaces
 
-/**
- * Creates a mock StarkNet provider for testing purposes
- * @returns A mock StarkNet provider with minimal interface
- */
-function createMockProvider(): StarkNetProvider {
-  return {
-    getChainId: () => Promise.resolve("0x534e5f5345504f4c4941"),
-    // Add minimal provider interface for testing
-  } as StarkNetProvider
+async function validateProviderChain(
+  provider: StarkNetProvider,
+  expectedChainId: string
+): Promise<void> {
+  const providerChainId = await resolveProviderChainId(provider)
+  if (providerChainId !== normalizeStarkNetChainId(expectedChainId)) {
+    throw new Error(
+      `StarkNet provider chain mismatch: expected ${expectedChainId}, got ${providerChainId}`
+    )
+  }
+}
+
+async function resolveProviderChainId(
+  provider: StarkNetProvider
+): Promise<string> {
+  if ("getChainId" in provider && typeof provider.getChainId === "function") {
+    return normalizeStarkNetChainId(await provider.getChainId())
+  }
+
+  const nestedProvider = (provider as any).provider
+  if (
+    nestedProvider &&
+    typeof nestedProvider === "object" &&
+    "getChainId" in nestedProvider &&
+    typeof nestedProvider.getChainId === "function"
+  ) {
+    return normalizeStarkNetChainId(await nestedProvider.getChainId())
+  }
+
+  throw new Error("StarkNet provider must expose getChainId")
+}
+
+function normalizeStarkNetChainId(chainId: string): string {
+  const aliases: Record<string, string> = {
+    SN_MAIN: Chains.StarkNet.Mainnet,
+    SN_SEPOLIA: Chains.StarkNet.Sepolia,
+    SN_GOERLI: Chains.StarkNet.Sepolia,
+  }
+
+  return aliases[chainId] || chainId.toLowerCase()
 }

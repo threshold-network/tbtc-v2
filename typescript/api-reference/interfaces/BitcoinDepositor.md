@@ -112,7 +112,7 @@ issued by this contract.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `depositOwner` | [`ChainIdentifier`](ChainIdentifier.md) | Identifier of the deposit owner or undefined to clear. |
+| `depositOwner` | `undefined` \| ``null`` \| [`ChainIdentifier`](ChainIdentifier.md) | Identifier of the deposit owner or undefined to clear. |
 
 #### Returns
 
