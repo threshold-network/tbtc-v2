@@ -2,7 +2,7 @@ import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { BigNumber, Contract, ContractTransaction } from "ethers"
 import {
   IWormholeTokenBridge,
   MockL1BTCRedeemerWormhole,
@@ -35,7 +35,7 @@ const toTBTC = (satoshiAmount: BigNumber) =>
 // error-decode state (proxies can surface the error as raw selector data).
 const expectRevertWithCustomError = async (
   promise: Promise<unknown>,
-  contract: ethers.Contract,
+  contract: Contract,
   errorName: string
 ) => {
   const selector = contract.interface.getSighash(`${errorName}()`)

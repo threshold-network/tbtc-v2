@@ -1,5 +1,12 @@
 import type { BytesLike } from "@ethersproject/bytes"
-import { ethers, getUnnamedAccounts, helpers, upgrades, waffle } from "hardhat"
+import {
+  artifacts,
+  ethers,
+  getUnnamedAccounts,
+  helpers,
+  upgrades,
+  waffle,
+} from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
