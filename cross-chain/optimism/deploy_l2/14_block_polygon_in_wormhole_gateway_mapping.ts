@@ -38,5 +38,5 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
 export default func
 
-func.tags = ["BlockPolygonGatewayAddress"]
+func.tags = ["BlockPolygonGatewayAddress", "DeprecatePolygon"]
 func.dependencies = ["OptimismWormholeGateway"]
