@@ -24,6 +24,12 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
  *   L1_BTC_DEPOSITOR_NTT_ADDRESS - Address of deployed L1BTCDepositorNtt contract
  *   NTT_DESTINATION - Destination key for this depositor instance
  *   NTT_MANAGER_ADDRESS - Optional expected NTT Manager address
+ *
+ * NOTE: The Solana/Sui block in SPOKE_MIGRATION_BLOCKED_DESTINATIONS is an
+ * off-chain release-gating checklist for the operator, not a technical
+ * enforcement mechanism. Readiness is independently enforced by each spoke
+ * chain's on-chain gates (e.g., Solana: dual-signer+guardian in
+ * transfer_mint_authority; Sui: retire_gateway_for_ntt pause/balance checks).
  */
 
 interface DestinationConfig {
@@ -43,6 +49,14 @@ interface NetworkConfiguration {
 const ZERO_PEER_ADDRESS =
   "0x0000000000000000000000000000000000000000000000000000000000000000"
 const SPOKE_MIGRATION_BLOCKED_DESTINATIONS = new Set(["solana", "sui"])
+
+/**
+ * NOTE: The Solana/Sui block here is an off-chain release-gating checklist for
+ * the operator, not a technical enforcement mechanism. Actual readiness is
+ * enforced independently by each spoke chain's own on-chain gates. This
+ * guard is currently unreachable-by-construction as neither network is
+ * present in the destinations map.
+ */
 
 const WORMHOLE_CHAIN_IDS = {
   arbitrum: {
@@ -146,23 +160,25 @@ function selectDestination(
     )
   }
 
-  if (SPOKE_MIGRATION_BLOCKED_DESTINATIONS.has(destinationKey.toLowerCase())) {
+  const key = destinationKey.toLowerCase()
+
+  if (SPOKE_MIGRATION_BLOCKED_DESTINATIONS.has(key)) {
     throw new Error(
-      `NTT destination "${destinationKey}" is blocked until spoke-side NTT ` +
+      `NTT destination "${key}" is blocked until spoke-side NTT ` +
         "deployment plus token-authority and legacy lockbox migration are complete."
     )
   }
 
-  const destinationConfig = config.destinations[destinationKey]
+  const destinationConfig = config.destinations[key]
   if (!destinationConfig) {
     throw new Error(
-      `Unsupported NTT_DESTINATION "${destinationKey}" for ${
+      `Unsupported NTT_DESTINATION "${key}" for ${
         config.networkName
       }. Supported values: ${Object.keys(config.destinations).join(", ")}`
     )
   }
 
-  return [destinationKey, destinationConfig]
+  return [key, destinationConfig]
 }
 
 async function main() {

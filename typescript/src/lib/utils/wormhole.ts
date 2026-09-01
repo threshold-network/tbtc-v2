@@ -28,6 +28,13 @@ export const WORMHOLE_CHAIN_IDS = {
   [Chains.Sui.Devnet]: 21,
 } as const
 
+/**
+ * EVM-only subset of WORMHOLE_CHAIN_IDS scoped to NTT migration destinations.
+ *
+ * Non-EVM chains (Solana, Sui) are intentionally omitted because NTT
+ * fixed-destination depositors are only used for EVM destination chains in
+ * the current migration.
+ */
 export const WORMHOLE_NTT_CHAIN_IDS = {
   Ethereum: {
     Sepolia: WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],

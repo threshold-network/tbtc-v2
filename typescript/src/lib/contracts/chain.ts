@@ -64,7 +64,12 @@ export namespace Chains {
 
 /**
  * Destination chains supported by tBTC v2 contracts.
- * These are chains other than the main Ethereum L1 chain.
+ *
+ * Excluded:
+ * - Ethereum: The L1 hub, never a destination.
+ * - Optimism: Chain-ID mapping exists for NTT config purposes only; no SDK
+ *   contract-loader artifact exists yet, so it cannot be a valid runtime
+ *   destination.
  */
 export type DestinationChainName = Exclude<
   keyof typeof Chains,
