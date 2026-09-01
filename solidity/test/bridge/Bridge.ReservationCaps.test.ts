@@ -125,6 +125,22 @@ describe("Reservation - amount cap versus slot capacity", () => {
       ).to.be.revertedWith(CAPACITY_REVERT)
     })
   })
+  describe("ReservationCapsUpdated event and launch-gate revert", () => {
+    it("emits ReservationCapsUpdated event with all three args", async () => {
+      const a = 1_000_000
+      const b = 100_000
+      const c = 5
+      await expect(stub.updateReservationCaps(a, b, c))
+        .to.emit(stub, "ReservationCapsUpdated")
+        .withArgs(a, b, c)
+    })
+
+    it("reverts when maxActiveReservations is set to zero", async () => {
+      await expect(stub.updateReservationCaps(0, 0, 0)).to.be.revertedWith(
+        "Active reservations cap must be greater than zero"
+      )
+    })
+  })
 
   // Either cap set to zero means that cap is disabled, so there is no
   // slot-capacity ceiling to violate and the relational check must be skipped

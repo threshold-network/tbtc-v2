@@ -24,6 +24,16 @@ contract ReservationCapsStub {
 
     BridgeState.Storage internal self;
 
+    // Re-declaration of the library event so it appears in this stub's ABI.
+    // Library events are not part of any contract ABI under solc 0.8.17, but
+    // the underlying `Reservation.updateReservationCaps` does emit one on
+    // every successful write; re-declaring it here lets the test harness
+    // observe the emit with `.to.emit(stub, ...)`.
+    event ReservationCapsUpdated(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount,
+        uint32 maxActiveReservations
+    );
     function updateReservationParameters(
         address reservationVault,
         uint64 reservationMinAmount,
