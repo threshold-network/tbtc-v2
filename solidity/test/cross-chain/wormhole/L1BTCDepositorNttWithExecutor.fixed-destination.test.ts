@@ -634,6 +634,388 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
         .setDestinationRefundAddress(`0x${"cd".repeat(32)}`)
     ).to.be.revertedWith("Ownable: caller is not the owner")
   })
+  describe("executor parameter management", () => {
+    it("refreshes existing nonce for same user before expiry", async () => {
+      const [, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      const [, nonce1] = await depositor
+        .connect(user)
+        .areExecutorParametersSet()
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      )
+        .to.emit(depositor, "ExecutorParametersRefreshed")
+        .withArgs(
+          user.address,
+          nonce1,
+          ethers.utils.arrayify(executorArgs.signedQuote).length,
+          executorArgs.value
+        )
+
+      const [, nonce2] = await depositor
+        .connect(user)
+        .areExecutorParametersSet()
+      expect(nonce2).to.equal(nonce1)
+    })
+
+    it("mints new nonce for same user after expiry", async () => {
+      const [owner, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      const expiry = await depositor.parameterExpirationTime()
+      await helpers.time.increaseTime(expiry.add(1).toNumber())
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.emit(depositor, "ExecutorParametersSet")
+    })
+
+    it("reverts finalize if parameters expired", async () => {
+      const [, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await bridge.setNextDepositKey(fixture.expectedDepositKey)
+      await depositor
+        .connect(user)
+        .initializeDeposit(
+          fixture.fundingTx,
+          fixture.reveal,
+          destinationChainDepositOwner
+        )
+      await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+      const tbtcAmount = await calculateTbtcAmount(
+        bridge,
+        fixture.expectedDepositKey
+      )
+      await tbtcToken.mint(depositor.address, tbtcAmount)
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      const expiry = await depositor.parameterExpirationTime()
+      await helpers.time.increaseTime(expiry.add(1).toNumber())
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        depositor.connect(user).finalizeDeposit(fixture.expectedDepositKey)
+      ).to.be.revertedWith("Executor parameters expired")
+    })
+
+    it("isolates nonce state between different users", async () => {
+      const [, user1, user2] = await ethers.getSigners()
+      const executorArgs1 = buildExecutorArgs(
+        BigNumber.from(70000),
+        user1.address
+      )
+      const executorArgs2 = buildExecutorArgs(
+        BigNumber.from(80000),
+        user2.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await depositor
+        .connect(user1)
+        .setExecutorParameters(executorArgs1, feeArgs)
+      await depositor
+        .connect(user2)
+        .setExecutorParameters(executorArgs2, feeArgs)
+
+      const [isSet1, nonce1] = await depositor
+        .connect(user1)
+        .areExecutorParametersSet()
+      const [isSet2, nonce2] = await depositor
+        .connect(user2)
+        .areExecutorParametersSet()
+
+      expect(isSet1).to.be.true
+      expect(isSet2).to.be.true
+      expect(nonce1).to.not.equal(nonce2)
+      expect(await depositor.connect(user1).getStoredExecutorValue()).to.equal(
+        executorArgs1.value
+      )
+      expect(await depositor.connect(user2).getStoredExecutorValue()).to.equal(
+        executorArgs2.value
+      )
+
+      // Clearing one user's parameters must not disturb the other user's.
+      await depositor.connect(user1).clearExecutorParameters()
+      const [isSet1After] = await depositor
+        .connect(user1)
+        .areExecutorParametersSet()
+      const [isSet2After] = await depositor
+        .connect(user2)
+        .areExecutorParametersSet()
+      expect(isSet1After).to.be.false
+      expect(isSet2After).to.be.true
+    })
+
+    it("clears own executor parameters", async () => {
+      const [, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      const [isSetBefore] = await depositor
+        .connect(user)
+        .areExecutorParametersSet()
+      expect(isSetBefore).to.be.true
+
+      await depositor.connect(user).clearExecutorParameters()
+      const [isSetAfter] = await depositor
+        .connect(user)
+        .areExecutorParametersSet()
+      expect(isSetAfter).to.be.false
+
+      await expect(depositor.connect(user).clearExecutorParameters()).to.not.be
+        .reverted
+    })
+  })
+
+  describe("retrieveTokens", () => {
+    it("allows owner to retrieve tokens", async () => {
+      const [owner, , recipient] = await ethers.getSigners()
+      await tbtcToken.mint(depositor.address, BigNumber.from(1000))
+
+      const initialBalance = await tbtcToken.balanceOf(recipient.address)
+      await depositor
+        .connect(owner)
+        .retrieveTokens(
+          tbtcToken.address,
+          recipient.address,
+          BigNumber.from(1000)
+        )
+      expect(await tbtcToken.balanceOf(recipient.address)).to.equal(
+        initialBalance.add(1000)
+      )
+    })
+
+    it("reverts retrieveTokens for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        depositor
+          .connect(nonOwner)
+          .retrieveTokens(
+            tbtcToken.address,
+            nonOwner.address,
+            BigNumber.from(1000)
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+  })
+
+  describe("NTT manager address setters", () => {
+    it("updates underlying ntt manager", async () => {
+      const [owner, , , newManager] = await ethers.getSigners()
+      await expect(
+        depositor.connect(owner).updateUnderlyingNttManager(newManager.address)
+      )
+        .to.emit(depositor, "UnderlyingNttManagerUpdated")
+        .withArgs(underlyingNttManager.address, newManager.address)
+
+      expect(await depositor.underlyingNttManager()).to.equal(
+        newManager.address
+      )
+
+      await expect(
+        depositor
+          .connect(owner)
+          .updateUnderlyingNttManager(ethers.constants.AddressZero)
+      ).to.be.revertedWith("NTT Manager address cannot be zero")
+    })
+
+    it("updates ntt manager with executor", async () => {
+      const [owner, , , newManager] = await ethers.getSigners()
+      await expect(
+        depositor
+          .connect(owner)
+          .updateNttManagerWithExecutor(newManager.address)
+      )
+        .to.emit(depositor, "NttManagerWithExecutorUpdated")
+        .withArgs(nttManagerWithExecutor.address, newManager.address)
+
+      expect(await depositor.nttManagerWithExecutor()).to.equal(
+        newManager.address
+      )
+
+      await expect(
+        depositor
+          .connect(owner)
+          .updateNttManagerWithExecutor(ethers.constants.AddressZero)
+      ).to.be.revertedWith("Address cannot be zero")
+    })
+
+    it("reverts setters for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        depositor.connect(nonOwner).updateUnderlyingNttManager(nonOwner.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+      await expect(
+        depositor
+          .connect(nonOwner)
+          .updateNttManagerWithExecutor(nonOwner.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+  })
+
+  describe("setExecutorParameters input validation", () => {
+    it("reverts if empty signed quote", async () => {
+      const [, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      executorArgs.signedQuote = "0x"
+      const feeArgs = buildFeeArgs()
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.be.revertedWith(
+        "Real signed quote from Wormhole Executor API is required"
+      )
+    })
+
+    it("reverts if refund address mismatch", async () => {
+      const [, user, other] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        other.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.be.revertedWith("Executor refund address must be caller")
+    })
+
+    it("reverts if fee exceeds maximum", async () => {
+      const [, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+      feeArgs.dbps = 10001 // Assuming MAX is 10000
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.be.revertedWith("Fee exceeds maximum")
+    })
+
+    it("reverts if fee does not equal default", async () => {
+      const [, user] = await ethers.getSigners()
+      const executorArgs = buildExecutorArgs(
+        BigNumber.from(70000),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+      feeArgs.dbps += 1
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.be.revertedWith("Fee must equal the default platform fee")
+    })
+
+    it("reverts if insufficient payment", async () => {
+      const [, user] = await ethers.getSigners()
+      // The mock's quote normally includes executorArgs.value additively, so
+      // it can never under-quote a claimed value. Force an undervalued quote
+      // (pinned below MOCK_DELIVERY_PRICE regardless of the claimed value) to
+      // exercise the requiredPayment >= executorArgs.value check.
+      await nttManagerWithExecutor.setUndervalueQuote(true)
+      const executorArgs = buildExecutorArgs(
+        ethers.utils.parseEther("1"),
+        user.address
+      )
+      const feeArgs = buildFeeArgs()
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.be.revertedWith("Insufficient payment for executor service")
+    })
+  })
+
+  describe("owner-only setter boundary/revert tests", () => {
+    it("reverts on zero gas limit for setDefaultDestinationGasLimit", async () => {
+      const [owner] = await ethers.getSigners()
+      await expect(
+        depositor.connect(owner).setDefaultDestinationGasLimit(0)
+      ).to.be.revertedWith("Gas limit must be greater than zero")
+    })
+
+    it("reverts when fee exceeds max for setDefaultPlatformFeeDbps", async () => {
+      const [owner] = await ethers.getSigners()
+      await expect(
+        depositor.connect(owner).setDefaultPlatformFeeDbps(10001)
+      ).to.be.revertedWith("Fee exceeds maximum")
+    })
+
+    it("reverts on zero recipient for setDefaultPlatformFeeRecipient", async () => {
+      const [owner, , platformFeeRecipient] = await ethers.getSigners()
+      // A non-zero fee requires a recipient to already be set, so set the
+      // recipient first, then the fee, to reach the state under test.
+      await depositor
+        .connect(owner)
+        .setDefaultPlatformFeeRecipient(platformFeeRecipient.address)
+      await depositor.connect(owner).setDefaultPlatformFeeDbps(100)
+
+      await expect(
+        depositor
+          .connect(owner)
+          .setDefaultPlatformFeeRecipient(ethers.constants.AddressZero)
+      ).to.be.revertedWith(
+        "Recipient address cannot be zero when platform fee is set"
+      )
+    })
+
+    it("reverts on zero gas limit for setDefaultParameters", async () => {
+      const [owner, , platformFeeRecipient] = await ethers.getSigners()
+      await expect(
+        depositor
+          .connect(owner)
+          .setDefaultParameters(0, 0, platformFeeRecipient.address)
+      ).to.be.revertedWith("Gas limit must be greater than zero")
+    })
+
+    it("reverts when fee exceeds max for setDefaultParameters", async () => {
+      const [owner, , platformFeeRecipient] = await ethers.getSigners()
+      await expect(
+        depositor
+          .connect(owner)
+          .setDefaultParameters(800000, 10001, platformFeeRecipient.address)
+      ).to.be.revertedWith("Platform fee exceeds maximum")
+    })
+
+    it("reverts on zero recipient with nonzero fee for setDefaultParameters", async () => {
+      const [owner] = await ethers.getSigners()
+      await expect(
+        depositor
+          .connect(owner)
+          .setDefaultParameters(800000, 100, ethers.constants.AddressZero)
+      ).to.be.revertedWith(
+        "Platform fee recipient cannot be zero when platform fee is set"
+      )
+    })
+  })
 })
 
 function buildExecutorArgs(

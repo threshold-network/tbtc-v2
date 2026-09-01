@@ -99,6 +99,10 @@ describe("L1BTCDepositorNtt fixed destination", () => {
     await restoreSnapshot()
   })
 
+  it("verifies owner", async () => {
+    const [owner] = await ethers.getSigners()
+    expect(await l1BtcDepositorNtt.owner()).to.equal(owner.address)
+  })
   it("initializes the fixed destination chain", async () => {
     expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
       WORMHOLE_CHAIN_DESTINATION
@@ -366,6 +370,63 @@ describe("L1BTCDepositorNtt fixed destination", () => {
         value: quote.add(1),
       })
     ).to.be.revertedWith("Payment for Wormhole NTT has incorrect value")
+  })
+  describe("retrieveTokens", () => {
+    it("allows owner to retrieve tokens", async () => {
+      const [owner, , recipient] = await ethers.getSigners()
+      await tbtcToken.mint(l1BtcDepositorNtt.address, BigNumber.from(1000))
+
+      const initialBalance = await tbtcToken.balanceOf(recipient.address)
+      await l1BtcDepositorNtt
+        .connect(owner)
+        .retrieveTokens(
+          tbtcToken.address,
+          recipient.address,
+          BigNumber.from(1000)
+        )
+      expect(await tbtcToken.balanceOf(recipient.address)).to.equal(
+        initialBalance.add(1000)
+      )
+    })
+
+    it("reverts retrieveTokens for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt
+          .connect(nonOwner)
+          .retrieveTokens(
+            tbtcToken.address,
+            nonOwner.address,
+            BigNumber.from(1000)
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+  })
+
+  describe("NTT manager address setter", () => {
+    it("updates ntt manager", async () => {
+      const [owner, , newManager] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt.connect(owner).updateNttManager(newManager.address)
+      )
+        .to.emit(l1BtcDepositorNtt, "NttManagerUpdated")
+        .withArgs(nttManager.address, newManager.address)
+
+      expect(await l1BtcDepositorNtt.nttManager()).to.equal(newManager.address)
+
+      await expect(
+        l1BtcDepositorNtt
+          .connect(owner)
+          .updateNttManager(ethers.constants.AddressZero)
+      ).to.be.revertedWith("NTT Manager address cannot be zero")
+    })
+
+    it("reverts setter for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt.connect(nonOwner).updateNttManager(nonOwner.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
   })
 })
 
