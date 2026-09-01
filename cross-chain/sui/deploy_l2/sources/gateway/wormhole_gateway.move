@@ -32,6 +32,8 @@ module l2_tbtc::Gateway {
     const E_NOT_PAUSED: u64 = 9;
     const E_WRONG_NONCE: u64 = 10;
     const E_OUTSTANDING_MINTED_AMOUNT: u64 = 11;
+    const E_TOKEN_NOT_PAUSED: u64 = 12;
+    const E_OUTSTANDING_SUPPLY: u64 = 13;
 
     // === Events ===
 
@@ -358,15 +360,32 @@ module l2_tbtc::Gateway {
     /// Retire the legacy Wormhole gateway and return token capabilities for NTT setup.
     /// Requires the gateway to be paused and drained so no lockbox-backed tBTC supply
     /// or wrapped-token custody is migrated implicitly.
+    /// @dev Also requires the TBTC token itself (not just the gateway) to be
+    ///      paused: `TBTC::mint` gates on `TokenState.paused`, which is a
+    ///      DIFFERENT flag from `GatewayState.paused`. Pausing only the
+    ///      gateway would leave the retiring admin free to mint canonical
+    ///      tBTC directly (bypassing the gateway) in the window before the
+    ///      treasury cap reaches the new NTT manager.
+    /// @dev Requires a `TBTC::GuardianCap` co-signer in addition to the
+    ///      gateway `AdminCap`, for on-chain parity with the Solana tBTC
+    ///      program's authority+guardian dual-signer requirement on its
+    ///      equivalent mint-authority transfer instruction.
     public entry fun retire_gateway_for_ntt(
         _: &AdminCap,
+        _guardian_cap: &TBTC::GuardianCap,
         state: &mut GatewayState,
+        token_state: &TBTC::TokenState,
         capabilities: GatewayCapabilities,
         ctx: &mut TxContext,
     ) {
         assert!(state.is_initialized, E_NOT_INITIALIZED);
         assert!(state.paused, E_NOT_PAUSED);
+        assert!(TBTC::is_paused(token_state), E_TOKEN_NOT_PAUSED);
         assert!(state.minted_amount == 0, E_OUTSTANDING_MINTED_AMOUNT);
+        assert!(
+            coin::total_supply(&capabilities.treasury_cap) == 0,
+            E_OUTSTANDING_SUPPLY,
+        );
         let recipient = tx_context::sender(ctx);
 
         let GatewayCapabilities {
