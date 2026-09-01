@@ -236,7 +236,7 @@ Type representing a mapping between specific L1 and L2 chains.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
+[src/lib/contracts/chain.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L87)
 
 ___
 
@@ -335,11 +335,16 @@ ___
 Ƭ **DestinationChainName**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"`` \| ``"Optimism"``\>
 
 Destination chains supported by tBTC v2 contracts.
-These are chains other than the main Ethereum L1 chain.
+
+Excluded:
+- Ethereum: The L1 hub, never a destination.
+- Optimism: Chain-ID mapping exists for NTT config purposes only; no SDK
+  contract-loader artifact exists yet, so it cannot be a valid runtime
+  destination.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
+[src/lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
 
 ___
 
@@ -526,7 +531,7 @@ Use DestinationChainName instead
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
+[src/lib/contracts/chain.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L82)
 
 ___
 
@@ -977,7 +982,7 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
+[src/lib/contracts/chain.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L124)
 
 ___
 
@@ -1021,6 +1026,7 @@ type and runtime list cannot drift.
 [src/services/deposits/deposits-service.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L30)
 
 ___
+
 ### SolanaCrossChainExtraDataEncoder
 
 • `Const` **SolanaCrossChainExtraDataEncoder**: typeof [`SolanaExtraDataEncoder`](classes/SolanaExtraDataEncoder.md) = `SolanaExtraDataEncoder`
@@ -1099,13 +1105,19 @@ const baseWormholeChain = WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia]
 
 #### Defined in
 
-[src/lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
+[src/lib/utils/wormhole.ts:15](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L15)
 
 ___
 
 ### WORMHOLE\_NTT\_CHAIN\_IDS
 
 • `Const` **WORMHOLE\_NTT\_CHAIN\_IDS**: `Object`
+
+EVM-only subset of WORMHOLE_CHAIN_IDS scoped to NTT migration destinations.
+
+Non-EVM chains (Solana, Sui) are intentionally omitted because NTT
+fixed-destination depositors are only used for EVM destination chains in
+the current migration.
 
 #### Type declaration
 
@@ -1126,7 +1138,7 @@ ___
 
 #### Defined in
 
-[lib/utils/wormhole.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L31)
+[src/lib/utils/wormhole.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L38)
 
 ___
 
@@ -1293,7 +1305,6 @@ Electrum script hash as a hex string.
 
 ___
 
-
 ### ethereumAddressFromSigner
 
 ▸ **ethereumAddressFromSigner**(`signer`): `Promise`\<[`EthereumAddress`](classes/EthereumAddress.md) \| `undefined`\>
@@ -1402,38 +1413,7 @@ True if the recipient is a 20-byte address or 32-byte Wormhole recipient.
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L47)
-
-___
-
-### normalizeNttRecipient
-
-▸ **normalizeNttRecipient**(`recipient`): [`Hex`](classes/Hex.md)
-
-Normalizes an NTT recipient into the bytes32 format expected by Wormhole NTT.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `recipient` | `string` \| [`Hex`](classes/Hex.md) | EVM address (20 bytes) or full Wormhole recipient (32 bytes). |
-
-#### Returns
-
-[`Hex`](classes/Hex.md)
-
-Recipient as a 32-byte hex string. EVM addresses are left-padded.
-
-**`Example`**
-
-```typescript
-const recipient = normalizeNttRecipient("0x1234567890123456789012345678901234567890")
-// Returns: "0x0000000000000000000000001234567890123456789012345678901234567890"
-```
-
-#### Defined in
-
-[src/lib/utils/ntt.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L20)
+[src/lib/utils/ntt.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L48)
 
 ___
 
@@ -1696,7 +1676,7 @@ const recipient = normalizeNttRecipient("0x1234567890123456789012345678901234567
 
 #### Defined in
 
-[lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
+[src/lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
 
 ___
 
