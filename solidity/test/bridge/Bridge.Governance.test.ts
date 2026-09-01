@@ -4430,6 +4430,47 @@ describe("Bridge - Governance", () => {
     })
   })
 
+  describe("beginReservationCapsUpdate", () => {
+    const maxReservationsAmountPerWallet = 100000000
+    const reservationMaxSingleAmount = 50000000
+    let tx: ContractTransaction
+
+    before(async () => {
+      await createSnapshot()
+
+      tx = await bridgeGovernance
+        .connect(governance)
+        .beginReservationCapsUpdate(
+          maxReservationsAmountPerWallet,
+          reservationMaxSingleAmount
+        )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should declare the exact ReservationCapsUpdateStarted event in the ABI", async () => {
+      expect(
+        bridgeGovernance.interface
+          .getEvent("ReservationCapsUpdateStarted")
+          .format()
+      ).to.equal("ReservationCapsUpdateStarted(uint64,uint64,uint256)")
+    })
+
+    it("should emit ReservationCapsUpdateStarted event", async () => {
+      const blockTimestamp = await helpers.time.lastBlockTime()
+
+      await expect(tx)
+        .to.emit(bridgeGovernance, "ReservationCapsUpdateStarted")
+        .withArgs(
+          maxReservationsAmountPerWallet,
+          reservationMaxSingleAmount,
+          blockTimestamp
+        )
+    })
+  })
+
   describe("setRedemptionWatchtower", () => {
     const watchtower = "0xE8ebaEc51bAeeaBff71707dE2AD028C7fB642A3F"
 

@@ -30,12 +30,19 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // 1. Stage and finalize the vault and reservation parameters through
   //    `BridgeGovernance.beginReservationParametersUpdate(...)` and
   //    `BridgeGovernance.finalizeReservationParametersUpdate()`,
-  // 2. Optionally appoint a renewal guardian
+  // 2. Stage and finalize the reservation caps through
+  //    `BridgeGovernance.beginReservationCapsUpdate(...)` and
+  //    `BridgeGovernance.finalizeReservationCapsUpdate()`,
+  // 3. Set the in-kind fee reserve target
+  //    (`ReservationVault.updateFeeReserveTarget(...)`),
+  // 4. Optionally appoint a renewal guardian
   //    (`ReservationVault.setRenewalGuardian`),
-  // 3. If renewals should start enabled, unpause them
+  // 5. If renewals should start enabled, unpause them
   //    (`ReservationVault.unpauseRenewals`) — the vault deploys paused,
-  // 4. As the final activation step, mark the fully configured vault as
+  // 6. As the final activation step, mark the fully configured vault as
   //    trusted: `BridgeGovernance.setVaultStatus(vault, true)`.
+  // Required steps 1-3 must be completed while the vault is untrusted. Any
+  // applicable steps 4-5 must also precede step 6.
   // `unpauseRenewals` gates `extendCustody` only; it is not a global pause for
   // reserved deposit reveals. Vault trust is the safe activation boundary.
   // None of these actions are performed by this script.

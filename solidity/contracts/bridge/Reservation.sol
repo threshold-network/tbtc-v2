@@ -315,6 +315,11 @@ library Reservation {
 
     event ReservationVaultUpdated(address reservationVault);
 
+    event ReservationCapsUpdated(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount
+    );
+
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
     function actionKey(uint256 reservationKey, uint64 requestNonce)
@@ -505,6 +510,12 @@ library Reservation {
             "Acceptance authorization has no signing window"
         );
 
+        require(
+            self.reservationMaxSingleAmount == 0 ||
+                deposit.amount <= self.reservationMaxSingleAmount,
+            "Reservation exceeds the single-reservation cap"
+        );
+
         // Reserve capacity using the deposit value as the upper bound of
         // the anchor value; the settlement releases the miner-fee delta.
         uint64 newTotal = self.reservationTotalAmount + deposit.amount;
@@ -520,6 +531,15 @@ library Reservation {
             "Wallet reservations cap exceeded"
         );
         self.walletReservationsCount[walletPubKeyHash] = walletCount;
+
+        uint64 walletAmount = self.walletReservationsAmount[walletPubKeyHash] +
+            deposit.amount;
+        require(
+            self.maxReservationsAmountPerWallet == 0 ||
+                walletAmount <= self.maxReservationsAmountPerWallet,
+            "Wallet reserved amount cap exceeded"
+        );
+        self.walletReservationsAmount[walletPubKeyHash] = walletAmount;
 
         uint64 requestNonce = ++reservation.requestNonce;
 
@@ -775,8 +795,8 @@ library Reservation {
             "Target wallet must be in Live state"
         );
 
-        // Reserve the target wallet's count capacity; the source wallet's
-        // count is released at settlement (or kept on timeout).
+        // Reserve the target wallet's count and amount capacity; the
+        // source wallet's are released at settlement (or kept on timeout).
         uint32 targetCount = self.walletReservationsCount[
             targetWalletPubKeyHash
         ] + 1;
@@ -785,6 +805,16 @@ library Reservation {
             "Wallet reservations cap exceeded"
         );
         self.walletReservationsCount[targetWalletPubKeyHash] = targetCount;
+
+        uint64 targetAmount = self.walletReservationsAmount[
+            targetWalletPubKeyHash
+        ] + reservation.anchorAmount;
+        require(
+            self.maxReservationsAmountPerWallet == 0 ||
+                targetAmount <= self.maxReservationsAmountPerWallet,
+            "Wallet reserved amount cap exceeded"
+        );
+        self.walletReservationsAmount[targetWalletPubKeyHash] = targetAmount;
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -950,6 +980,9 @@ library Reservation {
             // the refund-locktime margin allows.
             self.reservationTotalAmount -= action.amount;
             self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
+            self.walletReservationsAmount[
+                action.targetWalletPubKeyHash
+            ] -= action.amount;
         } else if (actionType == ActionType.Redemption) {
             reservation.state = ReservationState.Active;
 
@@ -969,8 +1002,11 @@ library Reservation {
             self.bank.transferBalance(action.redeemer, action.amount);
         } else if (actionType == ActionType.Reanchor) {
             reservation.state = ReservationState.Active;
-            // Release the target wallet's reserved count capacity.
+            // Release the target wallet's reserved capacity.
             self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
+            self.walletReservationsAmount[
+                action.targetWalletPubKeyHash
+            ] -= action.amount;
         } else {
             // Dissolution.
             reservation.state = ReservationState.Active;
@@ -1234,6 +1270,27 @@ library Reservation {
         );
     }
 
+    /// @notice Updates the amount-denominated reservation caps. Checked
+    ///         and reserved at request/authorization time, never at proof
+    ///         time; a zero value disables the respective cap.
+    /// @param maxReservationsAmountPerWallet New cap on the total satoshi
+    ///        amount of anchors a single wallet can custody.
+    /// @param reservationMaxSingleAmount New cap on the satoshi amount of
+    ///        a single reservation.
+    function updateReservationCaps(
+        BridgeState.Storage storage self,
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount
+    ) external {
+        self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
+        self.reservationMaxSingleAmount = reservationMaxSingleAmount;
+
+        emit ReservationCapsUpdated(
+            maxReservationsAmountPerWallet,
+            reservationMaxSingleAmount
+        );
+    }
+
     /// @notice Closes a reservation: adjusts the wallet reservation count
     ///         and the total reserved amount, and marks the reservation as
     ///         Closed.
@@ -1242,6 +1299,9 @@ library Reservation {
         ReservationRequest storage reservation
     ) internal {
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] -= reservation.anchorAmount;
         self.reservationTotalAmount -= reservation.anchorAmount;
         reservation.state = ReservationState.Closed;
     }

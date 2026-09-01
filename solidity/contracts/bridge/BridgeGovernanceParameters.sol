@@ -1585,6 +1585,18 @@ library BridgeGovernanceParameters {
         uint256 reservationParametersChangeInitiated;
     }
 
+    struct ReservationCapsData {
+        uint64 newMaxReservationsAmountPerWallet;
+        uint64 newReservationMaxSingleAmount;
+        uint256 reservationCapsChangeInitiated;
+    }
+
+    event ReservationCapsUpdateStarted(
+        uint64 newMaxReservationsAmountPerWallet,
+        uint64 newReservationMaxSingleAmount,
+        uint256 timestamp
+    );
+
     event ReservationParametersUpdateStarted(
         address newReservationVault,
         uint64 newReservationMinAmount,
@@ -1638,6 +1650,42 @@ library BridgeGovernanceParameters {
             block.timestamp
         );
         /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Begins the reservation caps update process.
+    function beginReservationCapsUpdate(
+        ReservationCapsData storage self,
+        uint64 _newMaxReservationsAmountPerWallet,
+        uint64 _newReservationMaxSingleAmount
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        self
+            .newMaxReservationsAmountPerWallet = _newMaxReservationsAmountPerWallet;
+        self.newReservationMaxSingleAmount = _newReservationMaxSingleAmount;
+        self.reservationCapsChangeInitiated = block.timestamp;
+        emit ReservationCapsUpdateStarted(
+            _newMaxReservationsAmountPerWallet,
+            _newReservationMaxSingleAmount,
+            block.timestamp
+        );
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the reservation caps update process.
+    /// @dev The staged values are read by the caller before this call; this
+    ///      function only enforces the governance delay and clears the
+    ///      staged change.
+    function finalizeReservationCapsUpdate(
+        ReservationCapsData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.reservationCapsChangeInitiated,
+            governanceDelay
+        )
+    {
+        self.reservationCapsChangeInitiated = 0;
     }
 
     /// @notice Finalizes the reservation parameters update process.

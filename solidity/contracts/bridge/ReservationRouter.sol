@@ -201,6 +201,11 @@ contract ReservationRouter is Governable, Initializable {
 
     event ReservationVaultUpdated(address reservationVault);
 
+    event ReservationCapsUpdated(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount
+    );
+
     // Re-declaration of the event emitted by
     // `BridgeState.setReservationRouter` (invoked through
     // `Bridge.setReservationRouter`). Library events are not part of any
@@ -426,6 +431,52 @@ contract ReservationRouter is Governable, Initializable {
             reservationActionTimeout,
             reservationRenewalWindowSeconds
         );
+    }
+
+    /// @notice Updates the amount-denominated reservation caps: the
+    ///         per-wallet total anchor amount and the single-reservation
+    ///         maximum. A zero value disables the respective cap. Checked
+    ///         and reserved at request/authorization time, never at proof
+    ///         time.
+    /// @param maxReservationsAmountPerWallet New cap on the total satoshi
+    ///        amount of anchors a single wallet can custody.
+    /// @param reservationMaxSingleAmount New cap on the satoshi amount of
+    ///        a single reservation.
+    /// @dev Requirements:
+    ///      - The caller must be the governance.
+    function updateReservationCaps(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount
+    ) external onlyGovernance {
+        self.updateReservationCaps(
+            maxReservationsAmountPerWallet,
+            reservationMaxSingleAmount
+        );
+    }
+
+    /// @notice Returns the amount-denominated reservation caps.
+    function reservationCaps()
+        external
+        view
+        returns (
+            uint64 maxReservationsAmountPerWallet,
+            uint64 reservationMaxSingleAmount
+        )
+    {
+        maxReservationsAmountPerWallet = self.maxReservationsAmountPerWallet;
+        reservationMaxSingleAmount = self.reservationMaxSingleAmount;
+    }
+
+    /// @notice Returns the total satoshi amount of reservation anchors
+    ///         (and reserved capacity of pending reservation actions)
+    ///         custodied by the given wallet.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    function walletReservationsAmount(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint64)
+    {
+        return self.walletReservationsAmount[walletPubKeyHash];
     }
 
     /// @notice Collection of all reservation positions indexed by the
