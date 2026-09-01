@@ -99,6 +99,20 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
     /// @dev Marks deposits initialized after the fixed-destination upgrade.
     ///      Unmarked initialized deposits are treated as legacy NTT deposits
     ///      whose extra data used `[2-byte chain id][30-byte recipient]`.
+    ///      This legacy-decode branch exists to backfill proxies upgraded
+    ///      from the pre-fixed-destination storage layout; as of this PR no
+    ///      such proxy has been deployed, so it currently ships as
+    ///      forward-compatibility infrastructure for a hypothetical future
+    ///      upgrade rather than an active migration path.
+    /// @dev A separate mapping (one extra cold SSTORE per deposit) was
+    ///      chosen over folding this flag into the shared
+    ///      `AbstractL1BTCDepositor.DepositState` enum. Reusing that enum
+    ///      would require modifying the state-transition checks in
+    ///      `AbstractL1BTCDepositor.initializeDeposit`/`finalizeDeposit`,
+    ///      which are inherited by every other live depositor proxy on this
+    ///      contract's L1 (Base, Arbitrum, StarkNet, etc.). This mapping
+    ///      keeps that shared, already-deployed state machine untouched at
+    ///      the cost of one extra SSTORE per deposit on this contract only.
     mapping(uint256 => bool) public fixedDestinationDeposits;
 
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
@@ -147,25 +161,6 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
 
         nttManager = INttManager(_nttManager);
         destinationChainId = _destinationChainId;
-    }
-
-    /// @notice Migrates the fixed destination chain during a proxy upgrade.
-    /// @param _destinationChainId Wormhole chain ID of the destination chain
-    /// @dev Intended as a one-time backfill hook for proxies that were
-    ///      initialized before the fixed-destination slot existed and had no
-    ///      default destination set. Fresh deployments configure the
-    ///      destination during `initialize` and cannot use this hook to
-    ///      retarget in-flight deposits.
-    function initializeV2DestinationChain(uint16 _destinationChainId)
-        external
-        onlyOwner
-        reinitializer(2)
-    {
-        require(
-            destinationChainId == 0,
-            "Destination chain already configured"
-        );
-        _updateDestinationChain(_destinationChainId);
     }
 
     /// @notice Allows the owner to retrieve tokens from the contract and send to another wallet.

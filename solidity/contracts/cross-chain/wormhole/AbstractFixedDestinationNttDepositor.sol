@@ -19,6 +19,43 @@ abstract contract AbstractFixedDestinationNttDepositor is
         uint16 indexed newDestinationChain
     );
 
+    /// @notice Migrates the fixed destination chain during a proxy upgrade.
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
+    /// @dev Intended as a one-time backfill hook for proxies that were
+    ///      initialized before the fixed-destination slot existed and had no
+    ///      default destination set. Fresh deployments configure the
+    ///      destination during `initialize` and cannot use this hook to
+    ///      retarget in-flight deposits. Shared by both children so the two
+    ///      copies cannot silently diverge (e.g. a guard tightened in one
+    ///      but not the other).
+    function initializeV2DestinationChain(uint16 _destinationChainId)
+        external
+        onlyOwner
+        reinitializer(2)
+    {
+        require(
+            _destinationChainIdValue() == 0,
+            "Destination chain already configured"
+        );
+        _updateDestinationChain(_destinationChainId);
+    }
+
+    /// @notice Owner-only corrective setter for the fixed destination chain.
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
+    /// @dev Unlike `initializeV2DestinationChain`, this is not gated on the
+    ///      slot being unset and is not a one-time reinitializer step. It
+    ///      exists to repair a mis-migrated `destinationChainId` -- e.g. an
+    ///      inherited non-zero value left over in the storage slot this
+    ///      field reuses from the pre-upgrade proxy -- without requiring a
+    ///      second implementation upgrade to unblock
+    ///      `initializeV2DestinationChain`.
+    function setDestinationChainId(uint16 _destinationChainId)
+        external
+        onlyOwner
+    {
+        _updateDestinationChain(_destinationChainId);
+    }
+
     /// @notice Updates the fixed destination chain.
     function _updateDestinationChain(uint16 _destinationChainId) internal {
         require(_destinationChainId != 0, "Chain ID cannot be zero");

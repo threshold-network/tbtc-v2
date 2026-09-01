@@ -127,6 +127,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         address user;
         uint256 timestamp;
         bool exists;
+        /// @dev Snapshot of the executor delivery-price quote at the time
+        ///      parameters were staged. Finalization enforces payment against
+        ///      this cached value instead of re-quoting, so a price move
+        ///      between staging and finalization cannot revert an otherwise
+        ///      valid finalization, and finalization only pays for one
+        ///      quote call instead of two.
+        uint256 cachedRequiredPayment;
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -196,6 +203,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
     /// @dev Marks deposits initialized after the fixed-destination upgrade.
     ///      Unmarked initialized deposits are treated as legacy NTT deposits
     ///      whose extra data used `[2-byte chain id][30-byte recipient]`.
+    ///      This legacy-decode branch exists to backfill proxies upgraded
+    ///      from the pre-fixed-destination storage layout; as of this PR no
+    ///      such proxy has been deployed, so it currently ships as
+    ///      forward-compatibility infrastructure for a hypothetical future
+    ///      upgrade rather than an active migration path.
+    /// @dev A separate mapping (one extra cold SSTORE per deposit) was
+    ///      chosen over folding this flag into the shared
+    ///      `AbstractL1BTCDepositor.DepositState` enum. Reusing that enum
+    ///      would require modifying the state-transition checks in
+    ///      `AbstractL1BTCDepositor.initializeDeposit`/`finalizeDeposit`,
+    ///      which are inherited by every other live depositor proxy on this
+    ///      contract's L1 (Base, Arbitrum, StarkNet, etc.). This mapping
+    ///      keeps that shared, already-deployed state machine untouched at
+    ///      the cost of one extra SSTORE per deposit on this contract only.
     mapping(uint256 => bool) public fixedDestinationDeposits;
 
     /// @notice Emitted when executor parameters are set
@@ -320,23 +341,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         // Set reasonable defaults
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         parameterExpirationTime = 3600; // 1 hour default expiration time
-    }
-
-    /// @notice Migrates the fixed destination chain during a proxy upgrade.
-    /// @param _destinationChainId Wormhole chain ID of the destination chain
-    /// @dev Intended as a one-time backfill hook for proxies that were
-    ///      initialized before the fixed-destination slot existed and had no
-    ///      default destination set. Fresh deployments configure the
-    ///      destination during `initialize` and cannot use this hook to
-    ///      retarget in-flight deposits.
-    function initializeV2DestinationChain(
-        uint16 _destinationChainId
-    ) external onlyOwner reinitializer(2) {
-        require(
-            destinationChainId == 0,
-            "Destination chain already configured"
-        );
-        _updateDestinationChain(_destinationChainId);
     }
 
     /// @notice Updates default parameters for executor transfers
@@ -512,8 +516,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             "Fee exceeds maximum"
         );
         require(
-            feeArgs.dbps >= defaultPlatformFeeDbps,
-            "Fee must be at least the default platform fee"
+            feeArgs.dbps == defaultPlatformFeeDbps,
+            "Fee must equal the default platform fee"
         );
         require(
             defaultPlatformFeeRecipient != address(0) || feeArgs.dbps == 0,
@@ -568,6 +572,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
                 if (!expired) {
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
+                    existingParams.cachedRequiredPayment = requiredPayment;
                     // solhint-disable-next-line not-rely-on-time
                     existingParams.timestamp = block.timestamp;
 
@@ -597,7 +602,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             feeArgs: feeArgs,
             user: msg.sender,
             timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
-            exists: true
+            exists: true,
+            cachedRequiredPayment: requiredPayment
         });
 
         emit ExecutorParametersSet(
@@ -632,6 +638,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
 
     /// @notice Quotes cost using the latest parameters for msg.sender
     /// @return cost Total cost for the transfer
+    /// @dev Returns the cost snapshotted when parameters were staged (see
+    ///      `setExecutorParameters`), which is the exact value finalization
+    ///      enforces -- not a fresh re-quote that could drift from it.
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
         require(
             userNonceCounter[msg.sender] > 0,
@@ -646,15 +655,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        uint16 chainId = _destinationChain();
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                chainId,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        return params.cachedRequiredPayment;
     }
 
     /// @notice Quotes the underlying NTT delivery price and total cost including executor costs
@@ -694,13 +695,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             "" // Empty transceiver instructions for basic transfer
         );
 
-        totalCost = nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            chainId,
-            "",
-            params.executorArgs,
-            params.feeArgs
-        );
+        // The exact cost enforced at finalization is the value cached when
+        // parameters were staged (see `setExecutorParameters`), not a fresh
+        // re-quote that could drift from it.
+        totalCost = params.cachedRequiredPayment;
 
         // Report the wrapper/executor component without assuming it is exactly
         // executorArgs.value; wrappers may add surcharges or aggregate costs.
@@ -887,6 +885,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             destinationChainDepositOwner,
             cachedParams.executorArgs,
             cachedParams.feeArgs,
+            cachedParams.cachedRequiredPayment,
             latestNonce
         );
     }
@@ -896,6 +895,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
     /// @param destinationChainDepositOwner Full 32-byte recipient on the destination chain
     /// @param executorArgs Real executor arguments with valid signed quote
     /// @param feeArgs Platform fee arguments
+    /// @param requiredCost Cost snapshotted when parameters were staged (see
+    ///        `setExecutorParameters`). Enforced as-is rather than re-quoted,
+    ///        so a price move between staging and finalization cannot revert
+    ///        an otherwise valid finalization, and finalization only pays
+    ///        for one quote call instead of two.
     /// @param nonce The nonce used for this transfer
     // slither-disable-next-line reentrancy-vulnerabilities-3
     function _transferTbtcWithExecutor(
@@ -903,6 +907,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         bytes32 destinationChainDepositOwner,
         ExecutorArgs memory executorArgs,
         FeeArgs memory feeArgs,
+        uint256 requiredCost,
         bytes32 nonce
     ) internal {
         // External calls are to trusted contracts (tbtcToken, nttManagerWithExecutor)
@@ -918,14 +923,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
 
         uint16 chainId = _destinationChain();
 
-        // CRITICAL: Validate payment amount before calling NTT manager
-        uint256 requiredCost = nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            chainId,
-            "",
-            executorArgs,
-            feeArgs
-        );
+        // CRITICAL: Validate payment amount against the cached quote.
         require(
             msg.value == requiredCost,
             "Payment for Wormhole NTT has incorrect value"
