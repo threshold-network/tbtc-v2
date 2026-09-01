@@ -14,7 +14,7 @@ import {
   BitcoinHashUtils,
 } from "../bitcoin"
 import Electrum from "electrum-client-js"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { URL as nodeURL } from "url"
 import URLParse from "url-parse"
 import { backoffRetrier, Hex, RetrierFn } from "../utils"

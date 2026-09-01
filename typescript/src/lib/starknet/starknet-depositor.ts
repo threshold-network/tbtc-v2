@@ -11,8 +11,10 @@ import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
-import { ethers } from "ethers"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { MaxUint256 } from "@ethersproject/constants"
+import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 /**
  * Relayer request payload for revealing a deposit
@@ -280,7 +282,7 @@ function getDefaultStarkNetRelayerStatusUrl(chainId: string): string {
 /**
  * Canonical decimal deposit ID pattern: base-10 digits only, no sign, no
  * whitespace, and no leading zeros other than the literal "0". This is the
- * exact form produced by `ethers.BigNumber.from(...).toString()`, which is
+ * exact form produced by `BigNumber.from(...).toString()`, which is
  * how this file derives a deposit ID from the funding transaction (see
  * {@link deriveCanonicalDepositId}). Hex strings, signed values,
  * padded/whitespace strings, and arbitrary text never match.
@@ -294,7 +296,7 @@ const CANONICAL_DEPOSIT_ID_PATTERN = /^(0|[1-9][0-9]*)$/
  * `0..2^256-1`. Any larger magnitude cannot be a genuine deposit ID and must
  * be rejected. `2^256-1` is exactly 78 decimal digits long.
  */
-const MAX_CANONICAL_DEPOSIT_ID = ethers.constants.MaxUint256.toString()
+const MAX_CANONICAL_DEPOSIT_ID = MaxUint256.toString()
 
 /**
  * Determines whether a value is a canonical decimal deposit ID string within
@@ -374,11 +376,11 @@ function deriveCanonicalDepositId(
 
   // Pack the funding hash and the uint32 output index, Keccak-hash them, and
   // convert to the canonical decimal representation.
-  const depositIdHash = ethers.utils.solidityKeccak256(
+  const depositIdHash = solidityKeccak256(
     ["bytes32", "uint32"],
     [fundingTxHash.toPrefixedString(), depositOutputIndex]
   )
-  return ethers.BigNumber.from(depositIdHash).toString()
+  return BigNumber.from(depositIdHash).toString()
 }
 
 /**

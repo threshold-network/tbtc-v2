@@ -118,7 +118,7 @@ Bitcoin client handle for low-level access.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L45)
+[src/services/tbtc-core.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L44)
 
 ___
 
@@ -134,7 +134,7 @@ Service supporting the tBTC v2 deposit flow.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L28)
+[src/services/tbtc-core.ts:27](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L27)
 
 ___
 
@@ -151,7 +151,7 @@ and operators.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L33)
+[src/services/tbtc-core.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L32)
 
 ___
 
@@ -167,7 +167,7 @@ Service supporting the tBTC v2 redemption flow.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L37)
+[src/services/tbtc-core.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L36)
 
 ___
 
@@ -183,7 +183,7 @@ Handle to tBTC contracts for low-level access.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L41)
+[src/services/tbtc-core.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L40)
 
 ## Methods
 
@@ -333,7 +333,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[src/services/tbtc-core.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L150)
+[src/services/tbtc-core.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L149)
 
 ___
 

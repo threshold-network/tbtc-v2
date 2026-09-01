@@ -59,7 +59,7 @@ Error.constructor
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:130](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L130)
+[src/lib/starknet/starknet-depositor.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L132)
 
 ## Properties
 
@@ -72,7 +72,7 @@ or undefined if the relayer's reported ID was non-canonical or missing.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L132)
+[src/lib/starknet/starknet-depositor.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L134)
 
 ___
 
@@ -85,7 +85,7 @@ independently derived by the SDK from the funding transaction, if available.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L133)
+[src/lib/starknet/starknet-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L135)
 
 ___
 
@@ -137,7 +137,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L134)
+[src/lib/starknet/starknet-depositor.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L136)
 
 ___
 
@@ -153,7 +153,7 @@ reported an unrecognized status.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L135)
+[src/lib/starknet/starknet-depositor.ts:137](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L137)
 
 ___
 

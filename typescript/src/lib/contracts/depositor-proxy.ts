@@ -2,7 +2,7 @@ import { ChainIdentifier } from "./chain-identifier"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { DepositReceipt } from "./bridge"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 /**
  * Interface representing a depositor proxy contract. A depositor proxy
