@@ -652,4 +652,18 @@ contract TestReservation {
     {
         Reservation.notifyReservationAcceptanceTimedOut(state, reservationKey);
     }
+
+    function setSpentMainUtxo(uint256 reservationKey, bool spent) external {
+        Reservation.ReservationRequest storage reservation = state
+            .reservations[reservationKey];
+        uint256 anchorUtxoKey = uint256(
+            keccak256(
+                abi.encodePacked(
+                    reservation.anchorTxHash,
+                    reservation.anchorTxOutputIndex
+                )
+            )
+        );
+        state.spentMainUTXOs[anchorUtxoKey] = spent;
+    }
 }

@@ -37,10 +37,14 @@ import "../vault/IReservationFeeFinancer.sol";
 ///         parameters.
 /// @dev Settlement rules shared by all action types:
 ///
-///      - NOTE: The configured reservationVault is assumed to conform to
-///        IReservationFeeFinancer. This conformance gap must be validated
-///        (via ERC-165 or a probe call) once a governance setter for
-///        reservationVault is implemented.
+///      - NOTE: The untrusted call target is `deposits[reservationKey].vault`
+///        (the deposit's immutable vault, pinned at request time), assumed
+///        to conform to IReservationFeeFinancer. This conformance gap must
+///        be validated (via ERC-165 or a probe call) at that address once a
+///        governance setter for reservationVault is implemented -- every
+///        such address was `reservationVault` at some point, since
+///        `requestReservationAcceptance` already requires
+///        `deposit.vault == reservationVault`.
 ///
 ///      - A `Pending` generation settles normally. For redemptions the
 ///        proof additionally requires the watchtower delay of the
