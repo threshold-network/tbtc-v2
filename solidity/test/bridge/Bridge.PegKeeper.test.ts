@@ -15,7 +15,6 @@ import type {
 } from "../../typechain"
 
 import bridgeFixture from "../fixtures/bridge"
-import { loadFixture } from "../helpers/fixture"
 import { constants, walletState } from "../fixtures"
 import { SingleP2SHDeposit } from "../data/deposit-sweep"
 
@@ -53,7 +52,7 @@ describe("Bridge - Peg keeper", () => {
     ;({ deployer, governance, esdm } = await helpers.signers.getNamedSigners())
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ thirdParty, bank, bridge, bridgeGovernance, rebateStaking } =
-      await loadFixture(bridgeFixture))
+      await bridgeFixture())
 
     await bridge.setDepositDustThreshold(10000)
     await bridge.setDepositTxMaxFee(2000)
