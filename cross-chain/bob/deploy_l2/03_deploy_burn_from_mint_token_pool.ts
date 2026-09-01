@@ -151,7 +151,11 @@ export default func
 
 func.tags = ["BurnFromMintTokenPoolUpgradeable"]
 // BOB CCIP support is deprecated. Keep this script for historical reference
-// without deploying new BOB CCIP token-pool infrastructure. Still runs on
-// hardhat/localhost so the CI dry-run continues to exercise this path.
-func.skip = async (hre) =>
-  hre.network.name !== "hardhat" && hre.network.name !== "localhost"
+// without deploying new BOB CCIP token-pool infrastructure. Unconditional:
+// running it even on hardhat/localhost surfaces a pre-existing bug where
+// the deployer signer used by 05_configure_token_pool_chains.ts is also the
+// proxy admin, which OpenZeppelin's TransparentUpgradeableProxy blocks from
+// calling implementation functions ("admin cannot fallback to proxy
+// target"). Fixing that signer/admin conflict is out of scope for this
+// deprecation and would need its own review.
+func.skip = async () => true

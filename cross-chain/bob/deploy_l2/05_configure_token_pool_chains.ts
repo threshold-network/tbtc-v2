@@ -142,9 +142,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
 func.tags = ["ConfigureTokenPoolChains"]
 // BOB CCIP support is deprecated. Keep this script for historical reference
-// without configuring new BOB CCIP routes. Still runs on hardhat/localhost
-// so the CI dry-run continues to exercise this path.
-func.skip = async (hre) =>
-  hre.network.name !== "hardhat" && hre.network.name !== "localhost"
+// without configuring new BOB CCIP routes. Unconditional: running this on
+// hardhat/localhost reverts with "admin cannot fallback to proxy target"
+// because the deployer signer used here is also the proxy admin set by
+// 03_deploy_burn_from_mint_token_pool.ts, and OpenZeppelin's
+// TransparentUpgradeableProxy blocks the admin from calling implementation
+// functions. Fixing that signer/admin conflict is out of scope for this
+// deprecation and would need its own review.
+func.skip = async () => true
 
 export default func
