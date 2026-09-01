@@ -1,5 +1,13 @@
 name: Cross-chain BOB
 
+# BOB CCIP support is deprecated (see cross-chain/bob/README.md); all deploy
+# scripts under cross-chain/bob/deploy_l1 and deploy_l2 are permanently
+# skipped. This workflow is kept running (including the daily cron) as a
+# deliberate choice: contracts-build-and-test and contracts-deployment-dry-run
+# still exercise the frozen contracts and their skip guards, and
+# contracts-slither keeps static analysis current on code that still holds
+# live user funds on-chain. Revisit only once BOB liquidity is fully drained
+# and the CCIP chain config has been removed on-chain.
 on:
   schedule:
     - cron: "0 0 * * *"

@@ -21,17 +21,30 @@ Existing BOB liquidity should remain withdraw-only:
   once it reaches zero, the native bridge's own burn path reverts instead
   and CCIP becomes the only working exit -- the two exit paths are never
   both available at once, so treat "cap reached zero" as the point CCIP
-  becomes required, not a signal that it is safe to remove;
+  becomes required, not a signal that it is safe to remove.
+  **Verified on-chain (2026-09-01): `legacyCapRemaining` is already 0** on
+  the live `OptimismMintableUpgradableTBTC` contract on BOB, so CCIP is
+  already the only working exit today, not a future state -- do not disable
+  or rate-limit-to-zero the CCIP outbound (exit) path while this holds;
 - after BOB balances and in-flight messages are fully drained, governance can
   remove the BOB CCIP chain config on both pools and withdraw remaining
   Ethereum pool liquidity through the configured rebalancer. Before that
   step, confirm two preconditions this package's scripts do not establish:
   pool `owner()` on both pools has been transferred from the deployer to the
-  governance council multisig (no script here performs that transfer --
-  verify on-chain and complete it out of band if still outstanding), and
-  `setRebalancer(<address>)` has been called on the L1
-  `LockReleaseTokenPoolUpgradeable` pool (`withdrawLiquidity` reverts for any
-  caller other than the configured rebalancer, which defaults unset).
+  governance council multisig, and `setRebalancer(<address>)` has been
+  called on the L1 `LockReleaseTokenPoolUpgradeable` pool (`withdrawLiquidity`
+  reverts for any caller other than the configured rebalancer, which
+  defaults unset).
+  **Verified on-chain (2026-09-01):** the owner-transfer precondition is
+  already satisfied on both sides -- the L1 pool
+  (`0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6`) is owned by a 6-of-9 Safe
+  (`0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`) and the BOB pool
+  (`0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A`) is owned by a separate
+  6-of-9 Safe (`0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C`). The rebalancer
+  precondition is **not** satisfied: `getRebalancer()` on the L1 pool
+  currently returns the zero address, so `withdrawLiquidity`/
+  `transferLiquidity` cannot be called by anyone until the L1 multisig
+  calls `setRebalancer`.
 
 The CCIP token pool contracts do not expose a way to hard-block
 Ethereum-to-BOB deposits while leaving BOB-to-Ethereum exits fully unlimited,

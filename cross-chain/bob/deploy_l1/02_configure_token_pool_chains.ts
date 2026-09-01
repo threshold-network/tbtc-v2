@@ -21,9 +21,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     await ethers.getSigner(deployer)
   )
 
-  const BOB_CHAIN_SELECTOR = "5535534526963509396"
-  const BOB_POOL = "0x32a88b83DeD5F06bc05eC60F2cF45CC0FEdC6C25"
-  const BOB_TBTC = "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA"
+  // Verified against live mainnet state (LockReleaseTokenPoolUpgradeable
+  // proxy 0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6): the selector and
+  // remote pool/token below previously did not match what was actually
+  // configured on-chain. Corrected to the real values so this script
+  // remains an accurate historical record.
+  const BOB_CHAIN_SELECTOR = "3849287863852499584"
+  const BOB_POOL = "0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A"
+  const BOB_TBTC = "0xbBa2eF945D523C4e2608C9E1214C2cC64D4fc2e2"
 
   const encodedBobPool = ethers.utils.defaultAbiCoder.encode(
     ["address"],
