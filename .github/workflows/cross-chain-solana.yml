@@ -73,7 +73,8 @@ jobs:
       - name: Stage OpenSSL 1.1 runtime for legacy SBF tools
         run: |
           curl -sSfL -o /tmp/libssl11.deb \
-            "http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb"
+            "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb"
+          echo "09ee28588a1fb5613ddc6c26a992d5a76931b3cf22c022930da413a5e580599e /tmp/libssl11.deb" | sha256sum -c -
           dpkg -x /tmp/libssl11.deb "$HOME/libssl11"
           echo "LD_LIBRARY_PATH=$HOME/libssl11/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
