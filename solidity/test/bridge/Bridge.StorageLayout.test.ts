@@ -120,7 +120,7 @@ describe("Bridge storage layout", () => {
       bridgeTIP109HotfixDeployment.storageLayout as unknown as StorageLayout
     const updatedRawLayout = await getBridgeStorageLayout()
 
-// `self`'s absolute position must not move: bridgeStateLayout() below
+    // `self`'s absolute position must not move: bridgeStateLayout() below
     // only ever compares the flattened member list, never self's own
     // slot/offset, so a future base-contract change that shifts BridgeState
     // off its deployed slot would otherwise pass every packing assertion
