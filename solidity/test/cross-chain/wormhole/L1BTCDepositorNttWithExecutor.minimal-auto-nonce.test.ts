@@ -7,6 +7,8 @@ import type {
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -20,6 +22,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
+  let underlyingNttManager: MockNttManager
   let owner: SignerWithAddress
   let user1: SignerWithAddress
   let user2: SignerWithAddress
@@ -38,13 +42,22 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.address)
 
-    // Mock NTT managers with simple objects (following working pattern)
-    const nttManagerWithExecutor = {
-      address: ethers.Wallet.createRandom().address,
-    }
-    const underlyingNttManager = {
-      address: ethers.Wallet.createRandom().address,
-    }
+    // Deploy proper mock NTT managers
+    const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
+      "MockNttManagerWithExecutor"
+    )
+    nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
+
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
+
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -99,14 +112,18 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000) // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // User 1 sets parameters
       const tx1 = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs1, feeArgs)
+        .setExecutorParameters(
+          executorArgs1,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const receipt1 = await tx1.wait()
       const nonce1 = receipt1.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -115,7 +132,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // User 2 sets parameters (should not interfere with user 1)
       const tx2 = await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs2, feeArgs)
+        .setExecutorParameters(
+          executorArgs2,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const receipt2 = await tx2.wait()
       const nonce2 = receipt2.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -141,22 +162,33 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     })
 
     it("should track nonce sequences per user", async () => {
-      const executorArgs = {
+      const baseExecutorArgs = {
         value: ethers.utils.parseEther("0.01"),
-        refundAddress: user1.address,
         signedQuote: ethers.utils.formatBytes32String("quote"),
         instructions: "0x",
       }
+      const user1ExecutorArgs = {
+        ...baseExecutorArgs,
+        refundAddress: user1.address,
+      }
+      const user2ExecutorArgs = {
+        ...baseExecutorArgs,
+        refundAddress: user2.address,
+      }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // User 1 sets parameters multiple times (clearing between calls)
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          user1ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // getUserNonceSequence was removed to reduce contract size
       // Nonce tracking is still internal, just not exposed via getter
@@ -165,12 +197,20 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       await depositor.connect(user1).clearExecutorParameters()
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          user1ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // User 2's sequence should be independent
       await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          user2ExecutorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify parameters were set successfully by checking from each user's context
       const [isSet1] = await depositor.connect(user1).areExecutorParametersSet()
@@ -188,8 +228,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // Initially no workflow
@@ -202,7 +242,11 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // Set parameters
       const tx = await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
       const receipt = await tx.wait()
       const expectedNonce = receipt.events?.find(
         (e) => e.event === "ExecutorParametersSet"
@@ -225,14 +269,18 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: owner.address,
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
       }
 
       // Set parameters
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify parameters are set
       const [isSetBefore] = await depositor

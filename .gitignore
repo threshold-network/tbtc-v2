@@ -10,3 +10,15 @@ dist-test/
 yarn-error.log
 CLAUDE.md
 .claude/
+agent-docs/
+.ralph/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+target/*
+/build/
+.DS_Store

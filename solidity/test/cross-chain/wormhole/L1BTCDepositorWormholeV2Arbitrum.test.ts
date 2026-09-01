@@ -1,11 +1,18 @@
 import type { BytesLike } from "@ethersproject/bytes"
-import { ethers, getUnnamedAccounts, helpers, upgrades, waffle } from "hardhat"
+import {
+  artifacts,
+  ethers,
+  getUnnamedAccounts,
+  helpers,
+  upgrades,
+} from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import * as fs from "fs"
 import * as path from "path"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   IWormholeGateway,
@@ -89,36 +96,139 @@ async function getV2StorageLayout(): Promise<
     }
   }
 
-  const debugArtifactPath = path.resolve(
-    __dirname,
-    "../../../build/contracts/cross-chain/wormhole/" +
-      "L1BTCDepositorWormholeV2Arbitrum.sol/L1BTCDepositorWormholeV2Arbitrum.dbg.json"
-  )
-  const debugArtifact = parseJson<{ buildInfo: string }>(
-    await fs.promises.readFile(debugArtifactPath, "utf8"),
-    debugArtifactPath
-  )
-  const buildInfoPath = path.resolve(
-    path.dirname(debugArtifactPath),
-    debugArtifact.buildInfo
-  )
-  const buildInfo = parseJson<Record<string, any>>(
-    await fs.promises.readFile(buildInfoPath, "utf8"),
-    buildInfoPath
-  )
-  const layout =
-    buildInfo?.output?.contracts?.[
-      "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol"
-    ]?.L1BTCDepositorWormholeV2Arbitrum?.storageLayout
+  const contractPath =
+    "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol"
+  const contractName = "L1BTCDepositorWormholeV2Arbitrum"
+  const fullyQualifiedName = `${contractPath}:${contractName}`
 
-  if (!layout?.storage) {
-    throw new Error(
-      "storageLayout not found for L1BTCDepositorWormholeV2Arbitrum. " +
-        "Run `yarn build` first."
-    )
+  type StorageEntry = {
+    label: string
+    slot: string
+    offset: number
+    type: string
   }
 
-  return layout.storage
+  type BuildInfoContracts = {
+    output?: {
+      contracts?: Record<
+        string,
+        Record<string, { storageLayout?: { storage?: StorageEntry[] } }>
+      >
+    }
+  }
+
+  const extractLayout = (
+    parsed: BuildInfoContracts | null | undefined
+  ): StorageEntry[] | undefined => {
+    const contracts = parsed?.output?.contracts
+    if (!contracts) return undefined
+
+    const direct =
+      contracts[contractPath]?.[contractName]?.storageLayout?.storage
+    if (Array.isArray(direct) && direct.length > 0) {
+      return direct
+    }
+
+    const sourcePath = Object.keys(contracts).find((key) => {
+      const storage = contracts[key]?.[contractName]?.storageLayout?.storage
+      return Array.isArray(storage) && storage.length > 0
+    })
+    return sourcePath
+      ? contracts[sourcePath]?.[contractName]?.storageLayout?.storage
+      : undefined
+  }
+
+  // Strategy 1: Scan all .json files under build/build-info
+  const buildInfoDir = path.resolve(__dirname, "../../../build/build-info")
+  if (fs.existsSync(buildInfoDir)) {
+    const buildInfoFiles = fs
+      .readdirSync(buildInfoDir)
+      .filter((file) => file.endsWith(".json"))
+
+    let latestLayout: StorageEntry[] | undefined
+    let latestMtime = -1
+
+    buildInfoFiles.forEach((file) => {
+      const filePath = path.join(buildInfoDir, file)
+      try {
+        const content = fs.readFileSync(filePath, "utf8")
+        if (content.includes("L1BTCDepositorWormholeV2Arbitrum")) {
+          const parsed = parseJson<BuildInfoContracts>(content, filePath)
+          const layout = extractLayout(parsed)
+          if (layout) {
+            const stat = fs.statSync(filePath)
+            if (stat.mtimeMs >= latestMtime) {
+              latestMtime = stat.mtimeMs
+              latestLayout = layout
+            }
+          }
+        }
+      } catch {
+        // Continue scanning remaining files
+      }
+    })
+
+    if (latestLayout) {
+      return latestLayout
+    }
+  }
+
+  // Strategy 2: Try the contract's own .dbg.json reference path
+  const dbgPath = path.resolve(
+    __dirname,
+    "../../../build/contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol/L1BTCDepositorWormholeV2Arbitrum.dbg.json"
+  )
+  if (fs.existsSync(dbgPath)) {
+    try {
+      const dbgContent = fs.readFileSync(dbgPath, "utf8")
+      const dbg = parseJson<{ buildInfo: string }>(dbgContent, dbgPath)
+      const resolvedBuildInfoPath = path.resolve(
+        path.dirname(dbgPath),
+        dbg.buildInfo
+      )
+      if (fs.existsSync(resolvedBuildInfoPath)) {
+        const content = fs.readFileSync(resolvedBuildInfoPath, "utf8")
+        const parsed = parseJson<BuildInfoContracts>(
+          content,
+          resolvedBuildInfoPath
+        )
+        const layout = extractLayout(parsed)
+        if (layout) {
+          return layout
+        }
+      }
+    } catch {
+      // Continue to Strategy 3
+    }
+  }
+
+  // Strategy 3: Try hre.artifacts.getBuildInfo
+  try {
+    const artifactsObj = artifacts
+    if (artifactsObj?.getBuildInfo) {
+      const buildInfo =
+        ((await artifactsObj.getBuildInfo(
+          fullyQualifiedName
+        )) as BuildInfoContracts | null) ??
+        ((await artifactsObj.getBuildInfo(
+          contractName
+        )) as BuildInfoContracts | null)
+      if (buildInfo) {
+        const layout = extractLayout(buildInfo)
+        if (layout) {
+          return layout
+        }
+      }
+    }
+  } catch {
+    // All strategies exhausted
+  }
+
+  throw new Error(
+    "storageLayout not found for L1BTCDepositorWormholeV2Arbitrum across " +
+      "build/build-info/*.json, .dbg.json reference, and artifacts.getBuildInfo. " +
+      "Run `yarn build` first."
+  )
 }
 
 describe("L1BTCDepositorWormholeV2Arbitrum", () => {
@@ -222,7 +332,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       l2BitcoinDepositor,
       reimbursementPool,
       l1BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("storage layout invariants", () => {

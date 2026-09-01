@@ -46,7 +46,7 @@
     "@nomiclabs/hardhat-ethers": "^2.0.6",
     "@nomiclabs/hardhat-etherscan": "^3.1.0",
     "@nomiclabs/hardhat-waffle": "^2.0.2",
-    "@openzeppelin/hardhat-upgrades": "1.22.0",
+    "@openzeppelin/hardhat-upgrades": "1.28.0",
     "@tenderly/hardhat-tenderly": ">=1.0.12 <1.2.0",
     "@thesis-co/eslint-config": "github:thesis/eslint-config",
     "@typechain/ethers-v5": "^8.0.5",
@@ -78,8 +78,7 @@
   "resolutions": {
     "crypto-js": "4.2.0",
     "ethereumjs-abi": "0.6.8",
-    "eth-sig-util/ethereumjs-abi": "0.6.8",
-    "@openzeppelin/upgrades-core": "1.20.0"
+    "eth-sig-util/ethereumjs-abi": "0.6.8"
   },
   "engines": {
     "node": ">=22.0.0"

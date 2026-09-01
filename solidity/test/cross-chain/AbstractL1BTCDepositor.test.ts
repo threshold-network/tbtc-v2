@@ -1,7 +1,13 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import {
+  BigNumber,
+  ContractTransaction,
+  Contract,
+  ContractReceipt,
+} from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -77,6 +83,7 @@ describe("AbstractL1BTCDepositor", () => {
 
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
+    const initializer = await ethers.getSigner(accounts[2])
 
     const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
@@ -106,6 +113,7 @@ describe("AbstractL1BTCDepositor", () => {
     return {
       governance,
       relayer,
+      initializer,
       bridge,
       tbtcVault,
       reimbursementPool,
@@ -115,6 +123,7 @@ describe("AbstractL1BTCDepositor", () => {
 
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
+  let initializer: SignerWithAddress
 
   let bridge: Mock<IBridge>
   let tbtcVault: Mock<ITBTCVault>
@@ -123,8 +132,15 @@ describe("AbstractL1BTCDepositor", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, relayer, bridge, tbtcVault, reimbursementPool, depositor } =
-      await waffle.loadFixture(contractsFixture))
+    ;({
+      governance,
+      relayer,
+      initializer,
+      bridge,
+      tbtcVault,
+      reimbursementPool,
+      depositor,
+    } = await loadFixture(contractsFixture))
   })
 
   // Sets the Bridge and TBTCVault mocks to a state that allows finalizing
@@ -194,9 +210,12 @@ describe("AbstractL1BTCDepositor", () => {
           await depositor
             .connect(governance)
             .updateReimbursementAuthorization(relayer.address, true)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(initializer.address, true)
 
           await depositor
-            .connect(relayer)
+            .connect(initializer)
             .initializeDeposit(
               initializeDepositFixture.fundingTx,
               initializeDepositFixture.reveal,
@@ -275,19 +294,114 @@ describe("AbstractL1BTCDepositor", () => {
           expect(gasReimbursement.gasSpent).to.equal(0)
         })
 
-        it("should pay out proper reimbursements after the transfer", async () => {
+        it("should reimburse finalization before deferred initialization", async () => {
           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           await expectCalledTwice(reimbursementPool.refund)
 
-          // First call is the deferred gas reimbursement for deposit
-          // initialization.
+          // The finalization reimbursement must be calculated and paid before
+          // the deferred initialization reimbursement. The latter calls an
+          // untrusted receiver, so doing it first would let that receiver burn
+          // gas that is then counted again in the finalization reimbursement.
           const firstCall = await reimbursementPool.refund.getCall(0)
-          expect(firstCall.args[0]).to.equal(initializeDepositGasSpent)
           expect(firstCall.args[1]).to.equal(relayer.address)
+          expect(
+            BigNumber.from(firstCall.args[0]).toNumber()
+          ).to.be.greaterThan(0)
 
-          // Second call is the reimbursement for the deposit finalization.
           const secondCall = await reimbursementPool.refund.getCall(1)
-          expect(secondCall.args[1]).to.equal(relayer.address)
+          expect(secondCall.args[0]).to.equal(initializeDepositGasSpent)
+          expect(secondCall.args[1]).to.equal(initializer.address)
+        })
+      }
+    )
+    context(
+      "when the deferred initialization receiver burns gas on receipt",
+      () => {
+        const gasPrice = ethers.utils.parseUnits("1", "gwei")
+
+        let realReimbursementPool: ReimbursementPool
+        let gasBurningReceiver: Contract
+        let relayerBalanceBefore: BigNumber
+        let relayerBalanceAfter: BigNumber
+        let receipt: ContractReceipt
+
+        before(async () => {
+          await createSnapshot()
+
+          const [funder] = await ethers.getSigners()
+
+          realReimbursementPool = (await (
+            await ethers.getContractFactory("ReimbursementPool")
+          ).deploy(10000, gasPrice)) as ReimbursementPool
+          await realReimbursementPool.authorize(depositor.address)
+          await funder.sendTransaction({
+            to: realReimbursementPool.address,
+            value: ethers.utils.parseEther("1"),
+          })
+
+          // Burns far more gas in `receive` than a plain EOA ever would.
+          gasBurningReceiver = await (
+            await ethers.getContractFactory("GasBurningReceiver")
+          ).deploy(50)
+
+          await depositor
+            .connect(governance)
+            .updateReimbursementPool(realReimbursementPool.address)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(relayer.address, true)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(gasBurningReceiver.address, true)
+
+          await gasBurningReceiver.callInitializeDeposit(
+            depositor.address,
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+          const deferredReimbursement = await depositor.gasReimbursements(
+            initializeDepositFixture.depositKey
+          )
+          expect(deferredReimbursement.receiver).to.equal(
+            gasBurningReceiver.address
+          )
+          expect(deferredReimbursement.gasSpent).to.be.gt(0)
+
+          await allowFinalization()
+
+          relayerBalanceBefore = await relayer.getBalance()
+
+          const tx = await depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey, {
+              gasPrice,
+            })
+          receipt = await tx.wait()
+
+          relayerBalanceAfter = await relayer.getBalance()
+        })
+
+        after(async () => {
+          await resetFakes()
+
+          await restoreSnapshot()
+        })
+
+        it("should pay the gas-burning receiver its deferred reimbursement without reverting finalization", async () => {
+          expect(
+            await ethers.provider.getBalance(gasBurningReceiver.address)
+          ).to.be.gt(0)
+        })
+
+        it("should still reimburse the finalizer despite the receiver's real gas burn", async () => {
+          const txCost = receipt.gasUsed.mul(gasPrice)
+          const netReimbursement = relayerBalanceAfter
+            .sub(relayerBalanceBefore)
+            .add(txCost)
+
+          expect(netReimbursement).to.be.gt(0)
         })
       }
     )

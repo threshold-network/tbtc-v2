@@ -1,8 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -136,7 +137,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       nttManager,
       reimbursementPool,
       l1BtcDepositorNtt,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("initialization", () => {

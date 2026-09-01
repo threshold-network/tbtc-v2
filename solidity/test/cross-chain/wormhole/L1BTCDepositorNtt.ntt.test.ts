@@ -1,8 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -110,7 +111,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   }
 
   before(async () => {
-    const fixture = await waffle.loadFixture(contractsFixture)
+    const fixture = await loadFixture(contractsFixture)
     governance = fixture.governance
     relayer = fixture.relayer
     user = fixture.user

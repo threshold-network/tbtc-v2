@@ -20,4 +20,23 @@ module.exports = {
       },
     ],
   },
+  overrides: [
+    {
+      files: ["src/**/*.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: ["ethers", "ethers/*"],
+                message:
+                  "ethers is a devDependency only. Use scoped @ethersproject/* packages instead.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ],
 }

@@ -1,8 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, BigNumberish, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   IWormholeGateway,
@@ -159,7 +160,7 @@ describe("L1BTCDepositorWormhole", () => {
       l1BtcDepositor,
       reimbursementPool,
       l2BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("attachL2BtcDepositor", () => {
@@ -1511,19 +1512,14 @@ describe("L1BTCDepositorWormhole", () => {
                   expect(call.args[7]).to.equal(relayer.address)
                 })
 
-                it("should pay out proper reimbursements", async () => {
+                it("should reimburse finalization before initialization", async () => {
                   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledTwice(reimbursementPool.refund)
 
-                  // First call is the deferred gas reimbursement for deposit
-                  // initialization.
+                  // Pay the finalization reimbursement first so gas consumed
+                  // by the deferred reimbursement's untrusted receiver cannot
+                  // be counted again in this calculation.
                   const call1 = await reimbursementPool.refund.getCall(0)
-                  // Should reimburse the exact value stored upon deposit initialization.
-                  expect(call1.args[0]).to.equal(initializeDepositGasSpent)
-                  expect(call1.args[1]).to.equal(relayer.address)
-
-                  // Second call is the refund for deposit finalization.
-                  const call2 = await reimbursementPool.refund.getCall(1)
                   // It doesn't make much sense to check the exact gas spent
                   // value here because Wormhole contracts mocks are used for
                   // testing and the resulting value won't be realistic.
@@ -1537,8 +1533,14 @@ describe("L1BTCDepositorWormhole", () => {
                     .div(reimbursementPoolMaxGasPrice)
                     .sub(reimbursementPoolStaticGas)
                   expect(
-                    BigNumber.from(call2.args[0]).toNumber()
+                    BigNumber.from(call1.args[0]).toNumber()
                   ).to.be.greaterThan(msgValueOffset.toNumber())
+                  expect(call1.args[1]).to.equal(relayer.address)
+
+                  // Second call is the deferred gas reimbursement for deposit
+                  // initialization and must use the exact stored value.
+                  const call2 = await reimbursementPool.refund.getCall(1)
+                  expect(call2.args[0]).to.equal(initializeDepositGasSpent)
                   expect(call2.args[1]).to.equal(relayer.address)
                 })
               }

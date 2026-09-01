@@ -1,5 +1,9 @@
 import { ChainIdentifier } from "../contracts"
 
+const STARKNET_FIELD_PRIME = BigInt(
+  "0x0800000000000011000000000000000000000000000000000000000000000001"
+)
+
 /**
  * Represents a StarkNet address compliant with the ChainIdentifier interface.
  * StarkNet addresses are field elements (felt252) in the StarkNet prime field.
@@ -20,12 +24,14 @@ export class StarkNetAddress implements ChainIdentifier {
       throw new Error(`Invalid StarkNet address format: ${address}`)
     }
 
-    // Validate it's within felt252 range (prime field element)
-    // For simplicity, we'll just check it's not too long
     if (normalized.length > 64) {
       throw new Error(
         `StarkNet address exceeds maximum field element size: ${address}`
       )
+    }
+
+    if (BigInt(`0x${normalized}`) >= STARKNET_FIELD_PRIME) {
+      throw new Error(`StarkNet address exceeds field prime range: ${address}`)
     }
 
     // Pad to 64 characters (32 bytes)

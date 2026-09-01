@@ -19,7 +19,7 @@ tBTCv2 system prerequisite is that you can refund your BTC only if it was not us
 for minting tBTC and after `refundLocktime` has passed.
 In practice, you should wait about an hour longer than the `refundLocktime` since
 this is how Bitcoin handles time based transactions.
-Currently the `refundLocktime` is set to 9 months.
+Currently the `refundLocktime` is set to 180 days (6 months).
 
 === Running a refund script
 

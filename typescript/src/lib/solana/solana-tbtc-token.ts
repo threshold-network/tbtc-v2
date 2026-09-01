@@ -1,6 +1,6 @@
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor"
 import { PublicKey, Transaction } from "@solana/web3.js"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import {
   getMint,
   getAssociatedTokenAddressSync,
@@ -38,7 +38,7 @@ export class SolanaTBTCToken
     // Proper fix: investigate Anchor v0.30+ API for correct Program instantiation.
     const programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
-    // @ts-ignore - Pre-existing Anchor v0.30+ API incompatibility
+    // @ts-ignore - IDL type mismatch with Anchor version, but works at runtime
     super(SolanaTBTCTokenIdl as unknown as Idl, provider)
 
     // derive your mint:

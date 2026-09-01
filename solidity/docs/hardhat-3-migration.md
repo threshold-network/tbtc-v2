@@ -107,7 +107,10 @@ had before:
 
 Item 1 above is the expensive one, and it forks. This section records a spike
 that migrated one real test file to viem so the fork could be priced instead of
-argued. The branch is `chore/solidity-viem-spike`.
+argued. The evidence is preserved in the immutable
+[`3cfc4e4`](https://github.com/threshold-network/tbtc-v2/commit/3cfc4e4e0b9d87f40ee12474f3a361ee1084366f)
+commit from [`#1066`](https://github.com/threshold-network/tbtc-v2/pull/1066);
+the live branch was later reset.
 
 ### A premise worth correcting first
 
@@ -185,9 +188,11 @@ decoded. No port needed.
 it. `helpers.signers` and `helpers.contracts.getContract` do not: both return
 ethers objects. Their replacement is `getNamedAccounts()` plus
 `viem.getWalletClient`, and `deployments.get(name).address` plus
-`viem.getContractAt(name, address)`. `waffle.loadFixture`, 55 sites across the
-suite, has no viem equivalent either; this file calls its fixture directly
-because it calls it once, but that does not generalise.
+`viem.getContractAt(name, address)`. `waffle.loadFixture` -- formerly used at 55
+sites across the suite with no viem equivalent -- has since been replaced
+project-wide by a project-owned loader (`solidity/test/helpers/fixture.ts`) that
+fixes a separate correctness bug in waffle's implementation; see that file's
+docstring for the full history.
 
 **Not the codegen step.** `hardhat-viem` is itself a code generator. Compiling
 with the plugin loaded emitted **368** `.d.ts` files into `paths.artifacts`
@@ -378,10 +383,16 @@ Two things follow that are worth doing regardless of which way this goes:
 - The TypeScript 5 and `strict` work is worth scheduling on its own merits.
   If it lands first, this decision is worth revisiting — most of viem's cost
   is that chain, not viem.
-- `test/helpers/viem.ts` and the interop test should stay on the spike branch
-  rather than being deleted. If the decision is revisited, the matchers and the
-  proof that the mock needs no port are the two things that would otherwise be
-  redone.
+- `test/helpers/viem.ts` and the interop test are preserved in the immutable
+  [`3cfc4e4`](https://github.com/threshold-network/tbtc-v2/commit/3cfc4e4e0b9d87f40ee12474f3a361ee1084366f)
+  spike commit. If the decision is revisited, the matchers and the proof that
+  the mock needs no port are the two things that would otherwise be redone.
+- The incomplete ethers v6 migration is preserved at
+  [`c367c63`](https://github.com/threshold-network/tbtc-v2/commit/c367c63c00ddfaed91d6f14bb3c34714a02bad95)
+  from [`#1067`](https://github.com/threshold-network/tbtc-v2/pull/1067). It
+  reduced the compiler error count from 1,922 to 536 but never completed the
+  typecheck or ran the test suite; use it as migration evidence, not as a merge
+  candidate.
 
 ## What Hardhat 3 is actually worth here
 
