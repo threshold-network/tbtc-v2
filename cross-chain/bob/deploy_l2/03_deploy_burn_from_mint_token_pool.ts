@@ -35,16 +35,29 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     tbtcAddress = TBTC_ADDRESS.bobSepolia
     router = ROUTER_ADDRESSES.bobSepolia
     rmnProxy = RMN_PROXY_ADDRESS.bobSepolia
-  } else if (hre.network.name === "hardhat" || hre.network.name === "localhost") {
+  } else if (
+    hre.network.name === "hardhat" ||
+    hre.network.name === "localhost"
+  ) {
     // Deploy a mock ERC20 for local testing
-    const ERC20Mock = await ethers.getContractFactory("ERC20Mock", await ethers.getSigner(deployer))
-    const mockToken = await ERC20Mock.deploy("Mock tBTC", "tBTC", deployer, ethers.utils.parseEther("1000000"))
+    const ERC20Mock = await ethers.getContractFactory(
+      "ERC20Mock",
+      await ethers.getSigner(deployer)
+    )
+    const mockToken = await ERC20Mock.deploy(
+      "Mock tBTC",
+      "tBTC",
+      deployer,
+      ethers.utils.parseEther("1000000")
+    )
     await mockToken.deployed()
     tbtcAddress = mockToken.address
     router = ROUTER_ADDRESSES.bobSepolia
     rmnProxy = RMN_PROXY_ADDRESS.bobSepolia
   } else {
-    throw new Error("Unsupported network for BurnFromMintTokenPoolUpgradeable deployment")
+    throw new Error(
+      "Unsupported network for BurnFromMintTokenPoolUpgradeable deployment"
+    )
   }
 
   if (!router || router === ethers.constants.AddressZero) {
@@ -62,7 +75,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  Token Decimals: 18`)
   console.log(`  CCIP Router: ${router}`)
   console.log(`  RMN Proxy: ${rmnProxy}`)
-  console.log(`  Allowlist: ${allowlist.length === 0 ? 'Empty (permissionless)' : allowlist.join(', ')}`)
+  console.log(
+    `  Allowlist: ${
+      allowlist.length === 0 ? "Empty (permissionless)" : allowlist.join(", ")
+    }`
+  )
 
   // Deploy using hardhat-deploy's built-in proxy support
   const deployment = await deploy("BurnFromMintTokenPoolUpgradeable", {
@@ -93,15 +110,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const proxyAdminDeployment = await deployments.get("DefaultProxyAdmin")
     console.log(`  ProxyAdmin Address: ${proxyAdminDeployment.address}`)
   } catch (error) {
-    console.log("  ProxyAdmin deployment not found (may be managed differently)")
+    console.log(
+      "  ProxyAdmin deployment not found (may be managed differently)"
+    )
   }
 
   // Verification for Bobscan
   if (hre.network.tags.bobscan) {
     console.log(`\nContract deployed at: ${deployment.address}`)
-    console.log("For better verification results, run the verification script with delay:")
-    console.log(`CONTRACT_ADDRESS=${deployment.address} npx hardhat run scripts/verify-with-delay.ts --network ${hre.network.name}`)
-    
+    console.log(
+      "For better verification results, run the verification script with delay:"
+    )
+    console.log(
+      `CONTRACT_ADDRESS=${deployment.address} npx hardhat run scripts/verify-with-delay.ts --network ${hre.network.name}`
+    )
+
     try {
       // Verify implementation
       if (deployment.implementation) {
@@ -116,7 +139,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         address: deployment.address,
       })
     } catch (error) {
-      console.log("Contract verification failed, but deployment was successful.")
+      console.log(
+        "Contract verification failed, but deployment was successful."
+      )
       console.log("You can manually verify the contract later on Bobscan.")
     }
   }
@@ -126,5 +151,7 @@ export default func
 
 func.tags = ["BurnFromMintTokenPoolUpgradeable"]
 // BOB CCIP support is deprecated. Keep this script for historical reference
-// without deploying new BOB CCIP token-pool infrastructure.
-func.skip = async () => true
+// without deploying new BOB CCIP token-pool infrastructure. Still runs on
+// hardhat/localhost so the CI dry-run continues to exercise this path.
+func.skip = async (hre) =>
+  hre.network.name !== "hardhat" && hre.network.name !== "localhost"

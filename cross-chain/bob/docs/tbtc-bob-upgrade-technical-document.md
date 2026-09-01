@@ -179,3 +179,13 @@ The `legacyCapRemaining` mechanism represents a thoughtful approach to bridge mi
 - Natural market-driven migration
 
 This design demonstrates the importance of considering not just technical feasibility but also user experience and system predictability when designing critical infrastructure upgrades.
+
+## Deprecation Addendum (BOB CCIP)
+
+As of this addendum's date, BOB CCIP bridge support is deprecated, while the native OP Stack legacy bridge remains active. This is the reverse of what the original Migration Timeline and BOB Bridge Frontend-Driven Depletion sections describe; those sections previously assumed the legacy bridge would be deactivated in favor of CCIP as the primary bridge. Under the current deprecation plan, the native bridge remains the primary exit path for the duration of the wind-down.
+
+`legacyCapRemaining` is not guaranteed to reach zero automatically under this addendum's plan. The variable decreases on native-bridge burns but increases on native-bridge mints (deposits), and this deprecation intentionally leaves the native bridge fully open in both directions. The cap will only trend toward zero if native bridge-in deposits are also curtailed at the frontend and routing layers, not just CCIP bridge-in.
+
+The two BOB exit paths—CCIP burnFrom-based exits and the native bridge's own burn—are mutually exclusive due to the `legacyCapRemaining > 0` gate documented earlier in this file. CCIP exits only function once the cap is fully drained, and native bridge exits stop working at exactly that point. This exclusivity must be carefully managed given the decision to prioritize the native bridge over CCIP.
+
+For the withdraw-only procedure and final cleanup preconditions, including pool ownership transfer and rebalancer configuration, please refer to `cross-chain/bob/README.md`, which serves as the authoritative operational runbook for this deprecation.
