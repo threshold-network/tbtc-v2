@@ -1825,9 +1825,49 @@ describe("RebateStaking", () => {
         .withArgs(thirdParty.address, governance.address, stakeAmount)
     })
 
+    it("should return a staker's entire stake to the staker after deprecation", async () => {
+      const unstakeAmount = stakeAmount.div(4)
+      await stakeFor(thirdParty, stakeAmount)
+      await rebateStaking.connect(thirdParty).startUnstaking(unstakeAmount)
+      await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+      await rebateStaking.connect(deployer).deprecate()
+
+      const stakerBalanceBefore = await t.balanceOf(thirdParty.address)
+      const callerBalanceBefore = await t.balanceOf(governance.address)
+      const tx = await rebateStaking
+        .connect(governance)
+        .returnStake(thirdParty.address)
+
+      expect(await t.balanceOf(thirdParty.address)).to.be.equal(
+        stakerBalanceBefore.add(stakeAmount)
+      )
+      expect(await t.balanceOf(governance.address)).to.be.equal(
+        callerBalanceBefore
+      )
+      expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
+
+      const [unstakingAmount, unstakingTimestamp] =
+        await rebateStaking.getUnstakingAmount(thirdParty.address)
+      expect(unstakingAmount).to.be.equal(0)
+      expect(unstakingTimestamp).to.be.equal(0)
+      expect(await rebateStaking.getDelegatee(thirdParty.address)).to.be.equal(
+        ZERO_ADDRESS
+      )
+      expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+        ZERO_ADDRESS
+      )
+
+      await expect(tx)
+        .to.emit(rebateStaking, "StakeWithdrawn")
+        .withArgs(thirdParty.address, thirdParty.address, stakeAmount)
+    })
+
     it("should reject stake withdrawal when unavailable", async () => {
       await expect(
         rebateStaking.connect(thirdParty).withdrawStake(thirdParty.address)
+      ).to.be.revertedWith("RebateStakingNotDeprecated")
+      await expect(
+        rebateStaking.connect(thirdParty).returnStake(thirdParty.address)
       ).to.be.revertedWith("RebateStakingNotDeprecated")
 
       await rebateStaking.connect(deployer).deprecate()
@@ -1836,7 +1876,13 @@ describe("RebateStaking", () => {
         rebateStaking.connect(thirdParty).withdrawStake(ZERO_ADDRESS)
       ).to.be.revertedWith("ZeroAddress")
       await expect(
+        rebateStaking.connect(thirdParty).returnStake(ZERO_ADDRESS)
+      ).to.be.revertedWith("ZeroAddress")
+      await expect(
         rebateStaking.connect(thirdParty).withdrawStake(thirdParty.address)
+      ).to.be.revertedWith("NotAStaker")
+      await expect(
+        rebateStaking.connect(thirdParty).returnStake(thirdParty.address)
       ).to.be.revertedWith("NotAStaker")
     })
 

@@ -588,7 +588,21 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         if (!deprecated) revert RebateStakingNotDeprecated();
         if (receiver == address(0)) revert ZeroAddress();
 
-        Stake storage stakeInfo = stakes[msg.sender];
+        _withdrawStake(msg.sender, receiver);
+    }
+
+    /// @notice Returns a staker's entire stake to the staker after rebate
+    ///         staking is deprecated.
+    /// @param staker Address of the staker receiving their stake.
+    function returnStake(address staker) external {
+        if (!deprecated) revert RebateStakingNotDeprecated();
+        if (staker == address(0)) revert ZeroAddress();
+
+        _withdrawStake(staker, staker);
+    }
+
+    function _withdrawStake(address staker, address receiver) internal {
+        Stake storage stakeInfo = stakes[staker];
         uint96 amount = stakeInfo.stakedAmount;
         if (amount == 0) revert NotAStaker();
 
@@ -600,7 +614,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             stakeInfo.delegatee = address(0);
         }
 
-        emit StakeWithdrawn(msg.sender, receiver, amount);
+        emit StakeWithdrawn(staker, receiver, amount);
         token.safeTransfer(receiver, amount);
     }
 
