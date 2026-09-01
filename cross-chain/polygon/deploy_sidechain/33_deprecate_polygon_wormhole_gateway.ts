@@ -16,5 +16,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
 export default func
 
-func.tags = ["DeprecatePolygonWormholeGateway"]
+func.tags = ["DeprecatePolygonWormholeGateway", "DeprecatePolygon"]
+func.skip = async (hre: HardhatRuntimeEnvironment) =>
+  hre.network.name !== "hardhat"
 func.dependencies = ["PolygonWormholeGateway"]

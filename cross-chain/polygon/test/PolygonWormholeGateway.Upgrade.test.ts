@@ -22,6 +22,7 @@ describe("PolygonWormholeGatewayUpgraded - Upgrade", async () => {
     polygonWormholeGateway = (await helpers.contracts.getContract(
       "PolygonWormholeGateway"
     )) as PolygonWormholeGateway
+    expect(await polygonWormholeGateway.mintingLimit()).to.equal(0)
   })
 
   describe("when a new contract is valid", () => {
