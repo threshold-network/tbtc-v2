@@ -72,6 +72,7 @@ export async function checkConfig(expected: {
   supply: bigint;
   paused: boolean;
   pendingAuthority: PublicKey | null;
+  mintAuthority?: PublicKey | null;
 }) {
   let {
     authority,
@@ -80,6 +81,7 @@ export async function checkConfig(expected: {
     supply,
     paused,
     pendingAuthority,
+    mintAuthority,
   } = expected;
   const program = workspace.Tbtc as Program<Tbtc>;
   const configState = await getConfigData();
@@ -95,6 +97,9 @@ export async function checkConfig(expected: {
     configState.mint
   );
   expect(mintState.supply).to.equal(supply);
+  if (mintAuthority !== undefined) {
+    expect(mintState.mintAuthority).to.eql(mintAuthority);
+  }
 
   const guardians = getGuardiansPDA();
   const guardiansState = await program.account.guardians.fetch(guardians);
@@ -466,6 +471,47 @@ export async function unpauseIx(
     .accounts({
       config,
       authority,
+    })
+    .instruction();
+}
+
+type TransferMintAuthorityContext = {
+  config?: PublicKey;
+  authority: PublicKey;
+  mint?: PublicKey;
+  guardianInfo?: PublicKey;
+  guardian: PublicKey;
+  newAuthority: PublicKey;
+};
+
+export async function transferMintAuthorityIx(
+  accounts: TransferMintAuthorityContext
+): Promise<TransactionInstruction> {
+  const program = workspace.Tbtc as Program<Tbtc>;
+
+  let { config, authority, mint, guardianInfo, guardian, newAuthority } =
+    accounts;
+  if (config === undefined) {
+    config = getConfigPDA();
+  }
+
+  if (mint === undefined) {
+    mint = getMintPDA();
+  }
+
+  if (guardianInfo === undefined) {
+    guardianInfo = getGuardianInfoPDA(guardian);
+  }
+
+  return program.methods
+    .transferMintAuthority()
+    .accounts({
+      config,
+      authority,
+      mint,
+      guardianInfo,
+      guardian,
+      newAuthority,
     })
     .instruction();
 }

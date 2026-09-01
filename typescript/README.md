@@ -153,22 +153,15 @@ to the [`api-reference`](./api-reference) directory.
 The SDK includes utility functions for NTT (Native Token Transfer) bridges:
 
 ```typescript
-import {
-  encodeDestinationReceiver,
-  decodeDestinationReceiver,
-} from "@keep-network/tbtc-v2"
+import { normalizeNttRecipient } from "@keep-network/tbtc-v2"
 
-// Encode destination chain and recipient
-const encoded = encodeDestinationReceiver(
-  10002,
+// EVM recipients are left-padded to bytes32 for Wormhole NTT.
+const recipient = normalizeNttRecipient(
   "0x1234567890123456789012345678901234567890"
 )
-
-// Decode back to original values
-const { chainId, recipient } = decodeDestinationReceiver(encoded)
 ```
 
-These utilities were removed from on-chain contracts to reduce bytecode size but are available off-chain for encoding and decoding destination chain and recipient data.
+NTT direct depositors use a fixed destination chain per deployed contract. Do not pack a chain ID into the deposit recipient; the recipient remains the full bytes32 deposit extra data.
 
 For more details, see the [NTT Utilities documentation](./src/lib/utils/README.md).
 

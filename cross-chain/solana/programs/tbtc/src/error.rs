@@ -20,6 +20,9 @@ pub enum TbtcError {
     #[msg("Caller is not a guardian")]
     SignerNotGuardian = 0x34,
 
+    #[msg("Guardian cannot be the authority")]
+    GuardianCannotBeAuthority = 0x36,
+
     #[msg("This address is already a minter")]
     MinterAlreadyExists = 0x40,
 
@@ -34,4 +37,16 @@ pub enum TbtcError {
 
     #[msg("Program is not paused")]
     IsNotPaused = 0x52,
+
+    #[msg("Mint supply must be zero")]
+    MintSupplyNotZero = 0x54,
+
+    #[msg("All minters must be removed")]
+    MintersStillConfigured = 0x56,
+
+    #[msg("New mint authority cannot be the default pubkey")]
+    NewMintAuthorityCannotBeDefault = 0x58,
+
+    #[msg("At least two guardians must be registered to transfer mint authority")]
+    InsufficientGuardiansForMintAuthorityTransfer = 0x5A,
 }

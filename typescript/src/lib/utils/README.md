@@ -1,120 +1,65 @@
 # NTT Utilities
 
-This module provides utility functions for NTT (Native Token Transfer) bridges. These functions were removed from on-chain contracts to reduce bytecode size but are available off-chain for encoding and decoding destination chain and recipient data.
+This module provides helpers for fixed-destination NTT (Native Token Transfer) direct depositors.
+
+Each L1 NTT depositor instance has a single configured destination chain. The deposit extra data is the full destination recipient in `bytes32` format; it does not pack a chain ID into the high bytes.
 
 ## Functions
 
-### `encodeDestinationReceiver(chainId, recipient)`
+### `normalizeNttRecipient(recipient)`
 
-Encodes a destination chain ID and recipient address into a 32-byte value.
+Normalizes a recipient into the 32-byte format expected by Wormhole NTT.
 
 **Parameters:**
 
-- `chainId` (number): Wormhole chain ID of the destination chain (0-65535)
-- `recipient` (string): Recipient address on the destination chain (20 bytes, hex format)
+- `recipient` (`Hex | string`): 20-byte EVM address or 32-byte Wormhole recipient.
 
-**Returns:** `Hex` - The encoded receiver data as a 32-byte hex string
+**Returns:** `Hex` - The recipient as a 32-byte hex string.
 
 **Example:**
 
 ```typescript
-import {
-  encodeDestinationReceiver,
-  WORMHOLE_CHAIN_IDS,
-  Chains,
-} from "@keep-network/tbtc-v2"
+import { normalizeNttRecipient } from "@keep-network/tbtc-v2"
 
-const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia], // 10002
+const recipient = normalizeNttRecipient(
   "0x1234567890123456789012345678901234567890"
 )
-console.log(encoded.toPrefixedString())
-// Output: "0x2712000000000000000000001234567890123456789012345678901234567890"
+
+// "0x0000000000000000000000001234567890123456789012345678901234567890"
+console.log(recipient.toPrefixedString())
 ```
 
-### `decodeDestinationReceiver(encodedReceiver)`
+### `isValidNttRecipient(recipient)`
 
-Decodes destination chain ID and recipient address from encoded receiver data.
+Validates that a recipient can be normalized to a 32-byte NTT recipient.
 
 **Parameters:**
 
-- `encodedReceiver` (Hex | string): The encoded receiver data (32 bytes)
+- `recipient` (`Hex | string`): Recipient data to validate.
 
-**Returns:** `{ chainId: number, recipient: string }` - Object containing the decoded chain ID and recipient address
+**Returns:** `boolean` - True for 20-byte or 32-byte hex recipients.
 
-**Example:**
+## Usage In NTT Bridges
+
+Use `normalizeNttRecipient` when building deposit extra data for a fixed-destination NTT depositor:
 
 ```typescript
-import { decodeDestinationReceiver } from "@keep-network/tbtc-v2"
+import { normalizeNttRecipient } from "@keep-network/tbtc-v2"
 
-const { chainId, recipient } = decodeDestinationReceiver(encoded)
-console.log(chainId) // 10002
-console.log(recipient) // "0x1234567890123456789012345678901234567890"
-```
-
-### `isValidEncodedReceiver(encodedReceiver)`
-
-Validates that an encoded receiver has the correct format.
-
-**Parameters:**
-
-- `encodedReceiver` (Hex | string): The encoded receiver data to validate
-
-**Returns:** `boolean` - True if the format is valid, false otherwise
-
-### `getChainIdFromEncodedReceiver(encodedReceiver)`
-
-Gets the chain ID from encoded receiver data without full decoding.
-
-**Parameters:**
-
-- `encodedReceiver` (Hex | string): The encoded receiver data
-
-**Returns:** `number` - The chain ID
-
-### `getRecipientFromEncodedReceiver(encodedReceiver)`
-
-Gets the recipient address from encoded receiver data without full decoding.
-
-**Parameters:**
-
-- `encodedReceiver` (Hex | string): The encoded receiver data
-
-**Returns:** `string` - The recipient address
-
-## Usage in NTT Bridges
-
-These utilities are particularly useful for NTT bridges where you need to encode destination chain and recipient information for cross-chain transfers.
-
-```typescript
-import {
-  encodeDestinationReceiver,
-  decodeDestinationReceiver,
-  WORMHOLE_CHAIN_IDS,
-  Chains,
-} from "@keep-network/tbtc-v2"
-
-// Encode destination chain and recipient.
-const recipient = "0x1234567890123456789012345678901234567890"
-const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],
-  recipient
+const evmRecipient = normalizeNttRecipient(
+  "0x1234567890123456789012345678901234567890"
 )
 
-// Use the encoded value in your NTT bridge operations
-// ...
-
-// Later, decode to get the original values
-const { chainId, recipient: decodedRecipient } =
-  decodeDestinationReceiver(encoded)
+const fullBytes32Recipient = normalizeNttRecipient(
+  "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+)
 ```
+
+Do not encode a destination chain ID into the recipient. Chain selection is part of the deployed depositor configuration.
 
 ## Error Handling
 
-All functions include proper error handling for invalid inputs:
+The helpers reject:
 
-- Invalid chain IDs (outside 0-65535 range)
-- Invalid recipient addresses (wrong format or length)
-- Invalid encoded data (wrong length or format)
-
-Make sure to handle these errors appropriately in your application.
+- Non-hex input
+- Recipient values that are not 20 bytes or 32 bytes

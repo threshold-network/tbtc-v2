@@ -1,0 +1,540 @@
+import { ethers, helpers } from "hardhat"
+import { expect } from "chai"
+import { BigNumber } from "ethers"
+import type {
+  L1BTCDepositorNtt,
+  MockNttManager,
+  MockTBTCBridgeWithSweep,
+  MockTBTCVault,
+  TestERC20,
+} from "../../../typechain"
+
+const { createSnapshot, restoreSnapshot } = helpers.snapshot
+
+const WORMHOLE_CHAIN_DESTINATION = 32
+const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
+const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const destinationChainDepositOwner =
+  "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+const chainLikePrefixedDestinationChainDepositOwner = `0x0020${"11".repeat(30)}`
+const legacyDecodedDestinationChainDepositOwner = `0x0000${"11".repeat(30)}`
+const wrongChainLegacyDestinationChainDepositOwner = `0x0021${"22".repeat(30)}`
+
+const loadFixture = (vault: string) => ({
+  fundingTx: {
+    version: "0x01000000",
+    inputVector:
+      "0x018348cdeb551134fe1f19d378a8adec9b146671cb67b945b71bf56b20d" +
+      "c2b952f0100000000ffffffff",
+    outputVector:
+      "0x021027000000000000220020bfaeddba12b0de6feeb649af76376876bc1" +
+      "feb6c2248fbfef9293ba3ac51bb4a10d73b00000000001600147ac2d9378a" +
+      "1c47e589dfb8095ca95ed2140d2726",
+    locktime: "0x00000000",
+  },
+  reveal: {
+    fundingOutputIndex: 0,
+    blindingFactor: "0xf9f0c90d00039523",
+    walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+    refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+    refundLocktime: "0x60bcea61",
+    vault,
+  },
+  expectedDepositKey:
+    "0xebff13c2304229ab4a97bfbfabeac82c9c0704e4aae2acf022252ac8dc1101d1",
+})
+
+describe("L1BTCDepositorNtt fixed destination", () => {
+  let bridge: MockTBTCBridgeWithSweep
+  let tbtcToken: TestERC20
+  let tbtcVault: MockTBTCVault
+  let nttManager: MockNttManager
+  let l1BtcDepositorNtt: L1BTCDepositorNtt
+  let fixture: ReturnType<typeof loadFixture>
+
+  before(async () => {
+    const TestERC20 = await ethers.getContractFactory("TestERC20")
+    tbtcToken = (await TestERC20.deploy()) as TestERC20
+
+    const MockBridge = await ethers.getContractFactory(
+      "MockTBTCBridgeWithSweep"
+    )
+    bridge = (await MockBridge.deploy()) as MockTBTCBridgeWithSweep
+
+    const MockTBTCVault = await ethers.getContractFactory(
+      "contracts/test/MockTBTCVault.sol:MockTBTCVault"
+    )
+    tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
+    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setOptimisticMintingFeeDivisor(0)
+
+    const MockNttManager = await ethers.getContractFactory("MockNttManager")
+    nttManager = (await MockNttManager.deploy()) as MockNttManager
+
+    fixture = loadFixture(tbtcVault.address)
+
+    const L1BTCDepositorNtt = await ethers.getContractFactory(
+      "L1BTCDepositorNtt"
+    )
+    const implementation = await L1BTCDepositorNtt.deploy()
+
+    const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
+    const initData = implementation.interface.encodeFunctionData("initialize", [
+      bridge.address,
+      tbtcVault.address,
+      nttManager.address,
+      WORMHOLE_CHAIN_DESTINATION,
+    ])
+    const proxy = await ProxyFactory.deploy(implementation.address, initData)
+    l1BtcDepositorNtt = L1BTCDepositorNtt.attach(
+      proxy.address
+    ) as L1BTCDepositorNtt
+  })
+
+  beforeEach(async () => {
+    await createSnapshot()
+  })
+
+  afterEach(async () => {
+    await restoreSnapshot()
+  })
+
+  it("verifies owner", async () => {
+    const [owner] = await ethers.getSigners()
+    expect(await l1BtcDepositorNtt.owner()).to.equal(owner.address)
+  })
+  it("initializes the fixed destination chain", async () => {
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+    expect(await l1BtcDepositorNtt.nttManager()).to.equal(nttManager.address)
+  })
+
+  it("quotes the configured destination chain", async () => {
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    const expectedQuote = (await nttManager.MOCK_DELIVERY_PRICE()).add(
+      await nttManager.chainSpecificPrices(WORMHOLE_CHAIN_DESTINATION)
+    )
+
+    expect(quote).to.equal(expectedQuote)
+  })
+
+  it("does not retarget an initialized fixed destination chain", async () => {
+    const [, nonOwner] = await ethers.getSigners()
+
+    await expect(
+      l1BtcDepositorNtt
+        .connect(nonOwner)
+        .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    ).to.be.revertedWith("Destination chain already configured")
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+  })
+
+  it("backfills an unset fixed destination chain once during upgrade", async () => {
+    await clearDestinationChainIdSlot(
+      l1BtcDepositorNtt.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(0)
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(0)
+    ).to.be.revertedWith("Chain ID cannot be zero")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    )
+      .to.emit(l1BtcDepositorNtt, "DestinationChainUpdated")
+      .withArgs(0, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      UPDATED_WORMHOLE_CHAIN_DESTINATION
+    )
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    const expectedQuote = (await nttManager.MOCK_DELIVERY_PRICE()).add(
+      await nttManager.chainSpecificPrices(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    )
+    expect(quote).to.equal(expectedQuote)
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Initializable: contract is already initialized")
+  })
+
+  it("requires a destination chain before initializing deposits", async () => {
+    await clearDestinationChainIdSlot(
+      l1BtcDepositorNtt.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+
+    await expect(
+      l1BtcDepositorNtt.initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+    ).to.be.revertedWith("Destination chain not configured")
+  })
+
+  it("passes the full 32-byte deposit owner to NTT without masking", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      destinationChainDepositOwner
+    )
+    expect(
+      await l1BtcDepositorNtt.fixedDestinationDeposits(
+        fixture.expectedDepositKey
+      )
+    ).to.equal(true)
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const deposit = await bridge.deposits(fixture.expectedDepositKey)
+    const [, , depositTxMaxFee] = await bridge.depositParameters()
+    const tbtcAmount = BigNumber.from(deposit.amount)
+      .sub(deposit.treasuryFee)
+      .sub(depositTxMaxFee)
+      .mul(TBTC_SATOSHI_MULTIPLIER)
+
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+    )
+      .to.emit(nttManager, "MockTransferExecuted")
+      .withArgs(
+        1,
+        WORMHOLE_CHAIN_DESTINATION,
+        destinationChainDepositOwner,
+        tbtcAmount,
+        quote
+      )
+
+    expect(await nttManager.lastAmount()).to.equal(tbtcAmount)
+    expect(await nttManager.lastRecipientChain()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+    expect(await nttManager.lastRecipient()).to.equal(
+      destinationChainDepositOwner
+    )
+  })
+
+  it("passes the full 32-byte deposit owner with a chain-like prefix", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      chainLikePrefixedDestinationChainDepositOwner
+    )
+    expect(
+      await l1BtcDepositorNtt.fixedDestinationDeposits(
+        fixture.expectedDepositKey
+      )
+    ).to.equal(true)
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+    )
+      .to.emit(nttManager, "MockTransferExecuted")
+      .withArgs(
+        1,
+        WORMHOLE_CHAIN_DESTINATION,
+        chainLikePrefixedDestinationChainDepositOwner,
+        tbtcAmount,
+        quote
+      )
+
+    expect(await nttManager.lastRecipient()).to.equal(
+      chainLikePrefixedDestinationChainDepositOwner
+    )
+  })
+
+  it("decodes unmarked legacy packed recipients during upgrade finalization", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      chainLikePrefixedDestinationChainDepositOwner
+    )
+    await clearFixedDestinationDepositMarker(
+      l1BtcDepositorNtt,
+      fixture.expectedDepositKey
+    )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+    )
+      .to.emit(nttManager, "MockTransferExecuted")
+      .withArgs(
+        1,
+        WORMHOLE_CHAIN_DESTINATION,
+        legacyDecodedDestinationChainDepositOwner,
+        tbtcAmount,
+        quote
+      )
+
+    expect(await nttManager.lastRecipient()).to.equal(
+      legacyDecodedDestinationChainDepositOwner
+    )
+  })
+
+  it("rejects unmarked legacy packed recipients for a different chain", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      wrongChainLegacyDestinationChainDepositOwner
+    )
+    await clearFixedDestinationDepositMarker(
+      l1BtcDepositorNtt,
+      fixture.expectedDepositKey
+    )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+    ).to.be.revertedWith("Legacy destination chain mismatch")
+  })
+
+  it("reverts when payment exceeds the quoted NTT cost", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      destinationChainDepositOwner
+    )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const deposit = await bridge.deposits(fixture.expectedDepositKey)
+    const [, , depositTxMaxFee] = await bridge.depositParameters()
+    const tbtcAmount = BigNumber.from(deposit.amount)
+      .sub(deposit.treasuryFee)
+      .sub(depositTxMaxFee)
+      .mul(TBTC_SATOSHI_MULTIPLIER)
+
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote.add(1),
+      })
+    ).to.be.revertedWith("Payment for Wormhole NTT has incorrect value")
+  })
+  describe("retrieveTokens", () => {
+    it("allows owner to retrieve tokens", async () => {
+      const [owner, , recipient] = await ethers.getSigners()
+      await tbtcToken.mint(l1BtcDepositorNtt.address, BigNumber.from(1000))
+
+      const initialBalance = await tbtcToken.balanceOf(recipient.address)
+      await l1BtcDepositorNtt
+        .connect(owner)
+        .retrieveTokens(
+          tbtcToken.address,
+          recipient.address,
+          BigNumber.from(1000)
+        )
+      expect(await tbtcToken.balanceOf(recipient.address)).to.equal(
+        initialBalance.add(1000)
+      )
+    })
+
+    it("reverts retrieveTokens for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt
+          .connect(nonOwner)
+          .retrieveTokens(
+            tbtcToken.address,
+            nonOwner.address,
+            BigNumber.from(1000)
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+  })
+
+  describe("NTT manager address setter", () => {
+    it("updates ntt manager", async () => {
+      const [owner, , newManager] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt.connect(owner).updateNttManager(newManager.address)
+      )
+        .to.emit(l1BtcDepositorNtt, "NttManagerUpdated")
+        .withArgs(nttManager.address, newManager.address)
+
+      expect(await l1BtcDepositorNtt.nttManager()).to.equal(newManager.address)
+
+      await expect(
+        l1BtcDepositorNtt
+          .connect(owner)
+          .updateNttManager(ethers.constants.AddressZero)
+      ).to.be.revertedWith("NTT Manager address cannot be zero")
+    })
+
+    it("reverts setter for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt.connect(nonOwner).updateNttManager(nonOwner.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+  })
+})
+
+async function calculateTbtcAmount(
+  bridge: MockTBTCBridgeWithSweep,
+  depositKey: string
+) {
+  const deposit = await bridge.deposits(depositKey)
+  const [, , depositTxMaxFee] = await bridge.depositParameters()
+
+  return BigNumber.from(deposit.amount)
+    .sub(deposit.treasuryFee)
+    .sub(depositTxMaxFee)
+    .mul(TBTC_SATOSHI_MULTIPLIER)
+}
+
+async function clearDestinationChainIdSlot(
+  contractAddress: string,
+  currentDestinationChainId: number
+) {
+  const destinationChainIdSlot = await findStorageSlot(
+    contractAddress,
+    ethers.utils.hexZeroPad(
+      BigNumber.from(currentDestinationChainId).toHexString(),
+      32
+    )
+  )
+
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contractAddress,
+    destinationChainIdSlot,
+    ethers.constants.HashZero,
+  ])
+}
+
+async function findStorageSlot(contractAddress: string, expectedValue: string) {
+  const storageSlots = await Promise.all(
+    Array.from({ length: 300 }, async (_, slot) => {
+      const slotKey = ethers.utils.hexValue(slot)
+      const value = await ethers.provider.getStorageAt(contractAddress, slotKey)
+
+      return { slotKey, value }
+    })
+  )
+
+  const matchingSlot = storageSlots.find(
+    ({ value }) => value.toLowerCase() === expectedValue.toLowerCase()
+  )
+
+  if (matchingSlot) {
+    return matchingSlot.slotKey
+  }
+
+  throw new Error(`Storage slot not found for value ${expectedValue}`)
+}
+
+async function clearFixedDestinationDepositMarker(
+  contract: L1BTCDepositorNtt,
+  depositKey: string
+) {
+  expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(true)
+
+  const encodedTrue = ethers.utils.hexZeroPad("0x01", 32)
+  const candidateSlots = await Promise.all(
+    Array.from({ length: 400 }, async (_, slot) => {
+      const slotKey = ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256", "uint256"],
+          [depositKey, slot]
+        )
+      )
+      const storageSlotKey = ethers.utils.hexStripZeros(slotKey)
+      const value = await ethers.provider.getStorageAt(
+        contract.address,
+        storageSlotKey
+      )
+
+      return { storageSlotKey, value }
+    })
+  )
+  const matchingSlots = candidateSlots.filter(
+    ({ value }) => value.toLowerCase() === encodedTrue.toLowerCase()
+  )
+
+  async function clearMatchingSlot(index: number): Promise<void> {
+    const matchingSlot = matchingSlots[index]
+    if (!matchingSlot) {
+      throw new Error("Fixed destination marker storage slot not found")
+    }
+
+    await ethers.provider.send("hardhat_setStorageAt", [
+      contract.address,
+      matchingSlot.storageSlotKey,
+      ethers.constants.HashZero,
+    ])
+
+    if (!(await contract.fixedDestinationDeposits(depositKey))) {
+      return
+    }
+
+    await ethers.provider.send("hardhat_setStorageAt", [
+      contract.address,
+      matchingSlot.storageSlotKey,
+      matchingSlot.value,
+    ])
+
+    await clearMatchingSlot(index + 1)
+  }
+
+  await clearMatchingSlot(0)
+}

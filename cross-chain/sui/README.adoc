@@ -83,3 +83,39 @@ The BTCDepositorWormhole contract requires the following configuration:
 3. **Wormhole Core & Token Bridge**: Standard Wormhole infrastructure addresses
 
 These are configured during deployment and can be found in the deployment artifacts.
+
+=== NTT migration
+
+The existing Sui deployment uses a Wormhole Token Bridge lockbox gateway. The
+gateway stores `TreasuryCap<TBTC>` in `GatewayCapabilities` and mints canonical
+tBTC against wrapped Wormhole tBTC held in `WrappedTokenTreasury`.
+
+Before Sui can be configured as an L1 NTT peer:
+
+1. Pause the existing Sui Wormhole gateway (`Gateway::pause`).
+2. Pause the TBTC token itself (`TBTC::pause`, via a `TBTC::GuardianCap`).
+   `TBTC::mint` gates on `TokenState.paused`, not `GatewayState.paused`, so
+   both must be paused or the retiring admin could still mint canonical tBTC
+   directly in the handoff window.
+3. Drain or otherwise reconcile the wrapped-token treasury so the gateway has no
+   outstanding lockbox-backed minted amount and holds no wrapped-token balance.
+4. Call `Gateway::retire_gateway_for_ntt` to consume `GatewayCapabilities` and
+   return `MinterCap`, `EmitterCap`, and `TreasuryCap<TBTC>` to the transaction
+   sender/admin. This call requires both the gateway `AdminCap` and a
+   `TBTC::GuardianCap` as co-signing capabilities, mirroring the Solana tBTC
+   program's authority+guardian dual-signer requirement for its equivalent
+   mint-authority transfer.
+5. Pass the recovered `TreasuryCap<TBTC>` to Wormhole NTT's
+   `setup::complete_burning<TBTC>` when initializing the Sui NTT manager.
+
+`retire_gateway_for_ntt` enforces the gateway pause, the token pause, zero
+`minted_amount`, and zero `TreasuryCap<TBTC>` total supply. This keeps the old
+gateway from minting after the capability handoff and avoids silently
+converting live lockbox debt or pre-gateway test mints into NTT supply.
+
+The recovered `MinterCap` is transferred to the admin alongside the
+`TreasuryCap<TBTC>` rather than destroyed. It carries no minting power on its
+own: `TBTC::mint` requires both a `MinterCap` AND the `TreasuryCap<TBTC>`
+together, and this same call transfers both to the same recipient, so holding
+the `MinterCap` after retirement does not expand what its holder can already
+do with the `TreasuryCap<TBTC>` alone.

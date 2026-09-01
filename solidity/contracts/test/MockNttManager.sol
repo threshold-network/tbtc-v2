@@ -6,9 +6,26 @@ pragma solidity 0.8.17;
 /// @dev Implements the INttManager interface for unit tests
 contract MockNttManager {
     uint256 public constant MOCK_DELIVERY_PRICE = 10000000000000000; // 0.01 ETH
+    uint64 public nextMsgId = 1;
 
     mapping(uint16 => bool) public supportedChains;
     mapping(uint16 => uint256) public chainSpecificPrices;
+
+    uint256 public lastAmount;
+    uint16 public lastRecipientChain;
+    bytes32 public lastRecipient;
+    bytes32 public lastRefundAddress;
+    bool public lastShouldQueue;
+    bytes public lastEncodedInstructions;
+    uint256 public lastMsgValue;
+
+    event MockTransferExecuted(
+        uint64 indexed msgId,
+        uint16 indexed chain,
+        bytes32 indexed recipient,
+        uint256 amount,
+        uint256 value
+    );
 
     constructor() {
         // Set up supported chains for testing
@@ -44,6 +61,41 @@ contract MockNttManager {
         totalPrice = totalQuote;
     }
 
+    /// @notice Mock implementation of the simple NTT transfer overload
+    function transfer(
+        uint256 amount,
+        uint16 recipientChain,
+        bytes32 recipient
+    ) external payable returns (uint64 msgId) {
+        msgId = _recordTransfer(
+            amount,
+            recipientChain,
+            recipient,
+            bytes32(0),
+            false,
+            ""
+        );
+    }
+
+    /// @notice Mock implementation of the full NTT transfer overload
+    function transfer(
+        uint256 amount,
+        uint16 recipientChain,
+        bytes32 recipient,
+        bytes32 refundAddress,
+        bool shouldQueue,
+        bytes memory encodedInstructions
+    ) external payable returns (uint64 msgId) {
+        msgId = _recordTransfer(
+            amount,
+            recipientChain,
+            recipient,
+            refundAddress,
+            shouldQueue,
+            encodedInstructions
+        );
+    }
+
     /// @notice Add support for a chain (for testing)
     function setSupportedChain(uint16 chainId, bool supported) external {
         supportedChains[chainId] = supported;
@@ -52,5 +104,33 @@ contract MockNttManager {
     /// @notice Set chain-specific price (for testing)
     function setChainSpecificPrice(uint16 chainId, uint256 price) external {
         chainSpecificPrices[chainId] = price;
+    }
+
+    function _recordTransfer(
+        uint256 amount,
+        uint16 recipientChain,
+        bytes32 recipient,
+        bytes32 refundAddress,
+        bool shouldQueue,
+        bytes memory encodedInstructions
+    ) internal returns (uint64 msgId) {
+        require(supportedChains[recipientChain], "Chain not supported");
+
+        msgId = nextMsgId++;
+        lastAmount = amount;
+        lastRecipientChain = recipientChain;
+        lastRecipient = recipient;
+        lastRefundAddress = refundAddress;
+        lastShouldQueue = shouldQueue;
+        lastEncodedInstructions = encodedInstructions;
+        lastMsgValue = msg.value;
+
+        emit MockTransferExecuted(
+            msgId,
+            recipientChain,
+            recipient,
+            amount,
+            msg.value
+        );
     }
 }

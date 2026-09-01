@@ -25,6 +25,7 @@ contract MockNttManagerWithExecutor {
     using SafeERC20 for IERC20;
 
     uint256 public constant MOCK_DELIVERY_PRICE = 10000000000000000; // 0.01 ETH
+    uint256 public constant MOCK_WRAPPER_SURCHARGE = 1000000000000000; // 0.001 ETH
     uint64 public nextMsgId = 1;
 
     mapping(uint16 => bool) public supportedChains;
@@ -33,6 +34,17 @@ contract MockNttManagerWithExecutor {
     bool public undervalueQuote;
 
     mapping(bytes => bool) public validSignedQuotes;
+
+    address public lastNttManager;
+    uint256 public lastAmount;
+    uint16 public lastRecipientChain;
+    bytes32 public lastRecipientAddress;
+    bytes32 public lastRefundAddress;
+    bytes public lastEncodedInstructions;
+    uint256 public lastExecutorValue;
+    uint16 public lastFeeDbps;
+    address public lastFeePayee;
+    uint256 public lastMsgValue;
 
     // Mock events to match real implementation
     event MockTransferExecuted(
@@ -56,12 +68,12 @@ contract MockNttManagerWithExecutor {
 
     /// @notice Mock implementation of transfer matching real NttManagerWithExecutor
     function transfer(
-        address, /* nttManager */
+        address nttManager,
         uint256 amount,
         uint16 recipientChain,
         bytes32 recipientAddress,
-        bytes32, /* refundAddress */
-        bytes memory, /* encodedInstructions */
+        bytes32 refundAddress,
+        bytes memory encodedInstructions,
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata feeArgs
     ) external payable returns (uint64 msgId) {
@@ -73,6 +85,16 @@ contract MockNttManagerWithExecutor {
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
         msgId = nextMsgId++;
+        lastNttManager = nttManager;
+        lastAmount = amount;
+        lastRecipientChain = recipientChain;
+        lastRecipientAddress = recipientAddress;
+        lastRefundAddress = refundAddress;
+        lastEncodedInstructions = encodedInstructions;
+        lastExecutorValue = executorArgs.value;
+        lastFeeDbps = feeArgs.dbps;
+        lastFeePayee = feeArgs.payee;
+        lastMsgValue = msg.value;
 
         // Mock fee calculation (simplified)
         uint256 fee = calculateFee(amount, feeArgs.dbps);
@@ -111,7 +133,7 @@ contract MockNttManagerWithExecutor {
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
         // Base cost for executor service
-        uint256 baseCost = MOCK_DELIVERY_PRICE;
+        uint256 baseCost = MOCK_DELIVERY_PRICE + MOCK_WRAPPER_SURCHARGE;
 
         // Add chain-specific costs
         if (recipientChain == 32 || recipientChain == 40) {
