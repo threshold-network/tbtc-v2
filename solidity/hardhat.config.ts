@@ -36,6 +36,7 @@ const ecdsaSolidityCompilerConfig = {
       enabled: true,
       runs: 200,
     },
+    outputSelection: storageLayoutOutputSelection,
   },
 }
 
@@ -92,6 +93,7 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1, // Minimal runs to minimize bytecode size
           },
+          outputSelection: storageLayoutOutputSelection,
         },
       },
     },

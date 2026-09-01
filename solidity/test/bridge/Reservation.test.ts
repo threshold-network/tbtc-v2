@@ -1111,4 +1111,141 @@ describe("Reservation", () => {
       ).to.equal(0)
     })
   })
+
+  describe("actionKey", () => {
+    it("should produce correct action keys", async () => {
+      const reservationKey = 1
+      const requestNonce = 2
+      const expectedKey = ethers.utils.solidityKeccak256(
+        ["uint256", "uint64"],
+        [reservationKey, requestNonce]
+      )
+      expect(
+        await testReservation.actionKey(reservationKey, requestNonce)
+      ).to.equal(expectedKey)
+    })
+
+    it("should be sensitive to argument order", async () => {
+      const key1 = await testReservation.actionKey(1, 2)
+      const key2 = await testReservation.actionKey(2, 1)
+      expect(key1).to.not.equal(key2)
+    })
+  })
+
+  describe("anchorUtxoHash", () => {
+    it("should produce correct hash and react to input changes", async () => {
+      const reservationKey = 123
+      const anchorTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      const anchorTxOutputIndex = 0
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        anchorTxHash,
+        anchorTxOutputIndex
+      )
+
+      const expectedHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTxHash, anchorTxOutputIndex]
+      )
+      expect(await testReservation.anchorUtxoHash(reservationKey)).to.equal(
+        expectedHash
+      )
+
+      // Changing the anchor tx hash must change the resulting hash.
+      const newAnchorTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        newAnchorTxHash,
+        anchorTxOutputIndex
+      )
+      expect(await testReservation.anchorUtxoHash(reservationKey)).to.not.equal(
+        expectedHash
+      )
+
+      // Changing only the output index (same tx hash) must also change it.
+      const newOutputIndex = 1
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        newAnchorTxHash,
+        newOutputIndex
+      )
+      const expectedHashNewIndex = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [newAnchorTxHash, newOutputIndex]
+      )
+      expect(await testReservation.anchorUtxoHash(reservationKey)).to.equal(
+        expectedHashNewIndex
+      )
+    })
+  })
+
+  // A single well-formed P2WPKH (witness v0, 20-byte program) output:
+  // varint(count=1) | value (8-byte LE, 99500 sat) | scriptLen (0x16=22) |
+  // 0x0014 (OP_0 PUSH20) | 20-byte pubkey hash.
+  const anchorPubKeyHash = "0xaf802a76c10b6a646fff8d358241c121c9be1c53"
+  const singleOutputBody =
+    "ac84010000000000160014af802a76c10b6a646fff8d358241c121c9be1c53"
+  const singleOutput = `0x01${singleOutputBody}`
+  // The same output repeated twice, with a matching count=2 prefix.
+  const multiOutput = `0x02${singleOutputBody}${singleOutputBody}`
+
+  describe("parseSingleOutput", () => {
+    it("should parse a single-output vector successfully", async () => {
+      const output = await testReservation.parseSingleOutput(singleOutput)
+      // The parsed output is the value+script slice with the leading
+      // varint count byte stripped off.
+      expect(output).to.equal(`0x${singleOutputBody}`)
+    })
+
+    it("should revert for a multi-output vector", async () => {
+      await expect(
+        testReservation.parseSingleOutput(multiOutput)
+      ).to.be.revertedWith("Reservation transaction must have a single output")
+    })
+  })
+
+  describe("validateAnchorOutput", () => {
+    // The single output above carries 99500 satoshi.
+    const anchorAmount = 99500
+    const amount = 100000
+    const txMaxFee = 1000
+
+    it("should validate a correct anchor output and return its amount", async () => {
+      expect(
+        await testReservation.callStatic.validateAnchorOutput(
+          singleOutput,
+          anchorPubKeyHash,
+          amount,
+          txMaxFee
+        )
+      ).to.equal(anchorAmount)
+    })
+
+    it("should revert when the output pays the wrong wallet", async () => {
+      const wrongPubKeyHash = `0x${"11".repeat(20)}`
+      await expect(
+        testReservation.validateAnchorOutput(
+          singleOutput,
+          wrongPubKeyHash,
+          amount,
+          txMaxFee
+        )
+      ).to.be.revertedWith("Anchor output must pay the authorized wallet")
+    })
+
+    it("should revert when the fee exceeds the snapshotted bound", async () => {
+      // amount(100000) - anchorAmount(99500) = 500 <= 1000 normally passes;
+      // raise the requested amount so the implied fee (200000 -> 99500,
+      // difference 100500) blows past the 1000 satoshi bound.
+      const tooHighAmount = 200000
+      await expect(
+        testReservation.validateAnchorOutput(
+          singleOutput,
+          anchorPubKeyHash,
+          tooHighAmount,
+          txMaxFee
+        )
+      ).to.be.revertedWith("Transaction fee is too high")
+    })
+  })
 })

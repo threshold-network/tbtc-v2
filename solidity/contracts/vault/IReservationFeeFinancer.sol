@@ -22,6 +22,10 @@ pragma solidity 0.8.17;
 ///         fee from its custody-fee reserve so total TBTC supply shrinks in
 ///         lockstep with the Bitcoin backing.
 interface IReservationFeeFinancer {
+    /// @dev NOTE: This interface has no in-repo implementation. The implementing
+    ///      PR must not merge with a signature or semantic divergence from what
+    ///      is documented here, and should add a conformance test asserting the
+    ///      implementation satisfies each documented clause.
     /// @notice Finances an in-kind Bitcoin miner fee: burns TBTC equal to
     ///         `feeSat` from the vault's fee reserve and the corresponding
     ///         Bank balance. If the reserve cannot cover the full amount,

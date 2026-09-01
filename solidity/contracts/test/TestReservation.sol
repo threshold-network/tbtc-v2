@@ -4,12 +4,16 @@ pragma solidity 0.8.17;
 import "../bridge/BridgeState.sol";
 import "../bridge/Deposit.sol";
 import "../bridge/Reservation.sol";
+import "../bridge/ReservationProofs.sol";
 import "../bridge/Wallets.sol";
 import "../bridge/WalletProposalValidatorConstants.sol";
 import "../bridge/BitcoinTx.sol";
 
 /// @title TestReservation
-/// @notice Test harness for the Reservation library control-plane logic.
+/// @notice Test harness for the Reservation and ReservationProofs library
+///         functions, exercised directly without pulling in the full
+///         Bridge contract (and the external library linking that
+///         requires).
 /// @dev Stubs the reveal-side producer contract that milestone-2 reveal flow must implement:
 ///      1. When a deposit is revealed with `vault == reservationVault`, the producer records:
 ///         - `pendingReservedDeposit[key] = PendingReservedDeposit({ isReserved: true, walletPubKeyHash, refundDeadline, refundDeadlineValidated })`
@@ -233,6 +237,17 @@ contract TestReservation {
         state.reservationsByAnchorUtxo[utxoKey] = reservationKey;
     }
 
+    function setReservationAnchor(
+        uint256 reservationKey,
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex
+    ) external {
+        state.reservations[reservationKey].anchorTxHash = anchorTxHash;
+        state.reservations[reservationKey].anchorTxOutputIndex = (
+            anchorTxOutputIndex
+        );
+    }
+
     function setAction(
         uint256 reservationKey,
         uint64 requestNonce,
@@ -379,5 +394,52 @@ contract TestReservation {
         returns (Wallets.Wallet memory)
     {
         return state.registeredWallets[walletPubKeyHash];
+    }
+
+    function actionKey(uint256 reservationKey, uint64 requestNonce)
+        external
+        pure
+        returns (uint256)
+    {
+        return Reservation.actionKey(reservationKey, requestNonce);
+    }
+
+    function anchorUtxoHash(uint256 reservationKey)
+        external
+        view
+        returns (bytes32)
+    {
+        return Reservation.anchorUtxoHash(state.reservations[reservationKey]);
+    }
+
+    function parseSingleOutput(bytes memory outputVector)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return ReservationProofs.parseSingleOutput(outputVector);
+    }
+
+    function validateAnchorOutput(
+        bytes memory outputVector,
+        bytes20 targetWalletPubKeyHash,
+        uint64 amount,
+        uint64 txMaxFee
+    ) external returns (uint64 anchorAmount) {
+        // A throwaway action record keyed by a fixed slot: each call sets
+        // it fresh, so tests never see stale state from a prior call.
+        Reservation.ReservationAction storage action = state.reservationActions[
+            0
+        ];
+        action.targetWalletPubKeyHash = targetWalletPubKeyHash;
+        action.amount = amount;
+        action.txMaxFee = txMaxFee;
+
+        return
+            ReservationProofs.validateAnchorOutput(
+                state,
+                outputVector,
+                action
+            );
     }
 }
