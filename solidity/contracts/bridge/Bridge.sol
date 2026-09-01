@@ -243,6 +243,8 @@ contract Bridge is
         address oldRebateStaking,
         address newRebateStaking
     );
+    event RebateStakingPermanentlyDisabled(address oldRebateStaking);
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
     /// @dev This event is used for transparency when fixing deposits that were
@@ -357,6 +359,8 @@ contract Bridge is
     ///      keccak256(fundingTxHash || fundingOutputIndex) where:
     ///      - fundingTxHash (little-endian): 0x7ee3fcd03309745af5f35f07572b68affb3f551d8de70b194773644a47c9bb9c
     ///      - fundingOutputIndex: 1
+    // Upgrade-only guards omit revert strings to keep Bridge under the size cap.
+    // solhint-disable reason-string
     function initializeV2_FixVaultZeroDeposit() external reinitializer(2) {
         // Deposit key: keccak256(fundingTxHash || fundingOutputIndex)
         uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
@@ -366,9 +370,9 @@ contract Bridge is
 
         // Safety checks
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
-        require(deposit.revealedAt != 0, "Deposit not revealed");
-        require(deposit.vault == address(0), "Vault already set");
-        require(deposit.sweptAt == 0, "Deposit already swept");
+        require(deposit.revealedAt != 0);
+        require(deposit.vault == address(0));
+        require(deposit.sweptAt == 0);
 
         // Fix the vault
         deposit.vault = tbtcVault;
@@ -390,21 +394,56 @@ contract Bridge is
     {
         address oldRebateStaking = self.rebateStaking;
 
-        require(
-            oldRebateStaking != newRebateStaking,
-            "Rebate staking unchanged"
-        );
+        require(oldRebateStaking != newRebateStaking);
 
         if (newRebateStaking != address(0)) {
-            require(
-                newRebateStaking.code.length > 0,
-                "Rebate staking must be a contract"
-            );
+            require(newRebateStaking.code.length > 0);
         }
 
         self.rebateStaking = newRebateStaking;
 
         emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
+    }
+
+    // solhint-enable reason-string
+
+    /// @notice Configures an initial peg keeper during a proxy upgrade and
+    ///         permanently disables the rebate-staking hook.
+    /// @param initialPegKeeper The initial peg keeper address; cannot be the
+    ///        zero address.
+    /// @dev This function can only be called once per proxy deployment using
+    ///      reinitializer(6). It requires the caller to be the proxy admin.
+    ///      This call clears the rebate-staking address and permanently
+    ///      disables the rebate-staking hook; this action is irreversible.
+    function initializeV6_ConfigurePegKeeper(address initialPegKeeper)
+        external
+        reinitializer(6)
+    {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            if or(
+                iszero(initialPegKeeper),
+                iszero(
+                    eq(
+                        caller(),
+                        sload(
+                            0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
+                        )
+                    )
+                )
+            ) {
+                revert(0, 0)
+            }
+        }
+
+        self.updatePegKeeper(initialPegKeeper, true);
+
+        if (self.rebateStaking != address(0)) {
+            emit RebateStakingRepaired(self.rebateStaking, address(0));
+        }
+        emit RebateStakingPermanentlyDisabled(self.rebateStaking);
+        self.rebateStakingDisabled = true;
+        self.rebateStaking = address(0);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -1611,6 +1650,19 @@ contract Bridge is
         self.updateTreasury(treasury);
     }
 
+    /// @notice Updates eligibility for deposit and direct-redemption
+    ///         treasury-fee waivers.
+    /// @dev Peg keepers are exempt from deposit fees and direct-redemption
+    ///      treasury fees (where balanceOwner == redeemer).
+    /// @param pegKeeper Peg keeper address.
+    /// @param allowed True if the address should be allowed, false otherwise.
+    function updatePegKeeper(address pegKeeper, bool allowed)
+        external
+        onlyGovernance
+    {
+        self.updatePegKeeper(pegKeeper, allowed);
+    }
+
     /// @notice Collection of all revealed deposits indexed by
     ///         keccak256(fundingTxHash | fundingOutputIndex).
     ///         The fundingTxHash is bytes32 (ordered as in Bitcoin internally)
@@ -2035,6 +2087,17 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
+    }
+
+    /// @return True if the rebate-staking hook has been permanently
+    ///         disabled by initializeV6_ConfigurePegKeeper.
+    function isRebateStakingDisabled() external view returns (bool) {
+        return self.rebateStakingDisabled;
+    }
+
+    /// @return True if the address is allowed as a peg keeper.
+    function isPegKeeper(address pegKeeper) external view returns (bool) {
+        return self.pegKeepers[pegKeeper];
     }
 
     /// @notice Sets the redemption watchtower address.

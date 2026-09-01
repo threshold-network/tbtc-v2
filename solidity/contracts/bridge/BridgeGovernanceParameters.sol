@@ -22,6 +22,12 @@ library BridgeGovernanceParameters {
         uint256 treasuryChangeInitiated;
     }
 
+    struct PegKeeperData {
+        address pegKeeper;
+        bool allowed;
+        uint256 pegKeeperChangeInitiated;
+    }
+
     struct DepositData {
         uint64 newDepositDustThreshold;
         uint256 depositDustThresholdChangeInitiated;
@@ -330,6 +336,13 @@ library BridgeGovernanceParameters {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
+    event PegKeeperUpdateStarted(
+        address pegKeeper,
+        bool allowed,
+        uint256 timestamp
+    );
+    event PegKeeperUpdateCanceled(address pegKeeper, bool allowed);
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     /// @notice Reverts if called before the governance delay elapses.
     /// @param changeInitiatedTimestamp Timestamp indicating the beginning
@@ -1570,5 +1583,59 @@ library BridgeGovernanceParameters {
 
         self.newTreasury = address(0);
         self.treasuryChangeInitiated = 0;
+    }
+
+    /// @notice Begins the peg keeper status update process.
+    /// @param _pegKeeper Peg keeper address.
+    /// @param _allowed True if the address should be allowed, false otherwise.
+    /// @dev Reverts with "Peg keeper update already initiated" if a keeper update is already pending.
+    function beginPegKeeperUpdate(
+        PegKeeperData storage self,
+        address _pegKeeper,
+        bool _allowed
+    ) external {
+        require(
+            self.pegKeeperChangeInitiated == 0,
+            "Peg keeper update already initiated"
+        );
+
+        /* solhint-disable not-rely-on-time */
+        self.pegKeeper = _pegKeeper;
+        self.allowed = _allowed;
+        self.pegKeeperChangeInitiated = block.timestamp;
+        emit PegKeeperUpdateStarted(_pegKeeper, _allowed, block.timestamp);
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the peg keeper status update process.
+    /// @dev Can be called after the governance delay elapses.
+    function finalizePegKeeperUpdate(
+        PegKeeperData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(self.pegKeeperChangeInitiated, governanceDelay)
+    {
+        emit PegKeeperUpdated(self.pegKeeper, self.allowed);
+
+        self.pegKeeper = address(0);
+        self.allowed = false;
+        self.pegKeeperChangeInitiated = 0;
+    }
+
+    /// @notice Cancels a pending peg keeper status update.
+    /// @dev Reverts with "Peg keeper update not initiated" if none is pending.
+    /// @dev Internal visibility is deliberate to avoid a second external library link reference, working around an OpenZeppelin validation-cache CI issue.
+    function cancelPegKeeperUpdate(PegKeeperData storage self) internal {
+        require(
+            self.pegKeeperChangeInitiated != 0,
+            "Peg keeper update not initiated"
+        );
+
+        emit PegKeeperUpdateCanceled(self.pegKeeper, self.allowed);
+
+        self.pegKeeper = address(0);
+        self.allowed = false;
+        self.pegKeeperChangeInitiated = 0;
     }
 }

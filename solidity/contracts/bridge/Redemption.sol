@@ -481,6 +481,12 @@ library Redemption {
     ///      `request.redeemer` is preserved: when no rebate is applied,
     ///      `RebateStaking.cancelRebate` is a no-op for the corresponding
     ///      timeout.
+    ///      - Treasury-fee waiver: Peg keepers are exempt from treasury fees on
+    ///        direct redemptions when `balanceOwner == redeemer`. This waiver
+    ///        does not apply to the standard `TBTCVault` redemption callback
+    ///        path; for the waiver to apply, a peg keeper must call
+    ///        `TBTCVault.unmint()` then `Bridge.requestRedemption()` directly
+    ///        (two transactions).
     function requestRedemption(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -584,24 +590,23 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
-        // Apply rebate only when the redeemer is authorized for this
-        // balance owner. Direct redemptions (`balanceOwner == redeemer`)
-        // are always authorized; callback redemptions where
-        // `balanceOwner != redeemer` require the redeemer to have opted in
-        // via `RebateStaking.setRebateAuthorization`. Unauthorized callback
-        // redemptions proceed with the full treasury fee and no rebate
-        // accounting (soft-fail), which closes the spoof primitive without
-        // breaking canonical vault user flows.
-        if (
-            treasuryFee > 0 &&
-            self.rebateStaking != address(0) &&
-            isRebateAuthorizedForRedemption(self, balanceOwner, redeemer)
-        ) {
-            treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
-                redeemer,
-                treasuryFee,
-                RebateStaking.TreasuryFeeType.Redemption
-            );
+        // Direct redemptions from allowlisted peg keepers waive the treasury
+        // fee. Other redeemers retain the legacy rebate path, but callback
+        // redemptions where `balanceOwner != redeemer` require the redeemer's
+        // explicit authorization for that balance owner.
+        if (treasuryFee > 0) {
+            if (balanceOwner == redeemer && self.pegKeepers[redeemer]) {
+                treasuryFee = 0;
+            } else if (
+                self.rebateStaking != address(0) &&
+                isRebateAuthorizedForRedemption(self, balanceOwner, redeemer)
+            ) {
+                treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
+                    redeemer,
+                    treasuryFee,
+                    RebateStaking.TreasuryFeeType.Redemption
+                );
+            }
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 

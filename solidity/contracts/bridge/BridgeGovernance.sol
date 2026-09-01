@@ -32,6 +32,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.WalletData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.PegKeeperData;
 
     BridgeGovernanceParameters.DepositData internal depositData;
     BridgeGovernanceParameters.RedemptionData internal redemptionData;
@@ -39,6 +40,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.WalletData internal walletData;
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
+    BridgeGovernanceParameters.PegKeeperData internal pegKeeperData;
 
     Bridge internal bridge;
 
@@ -287,6 +289,13 @@ contract BridgeGovernance is Ownable {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
+    event PegKeeperUpdateStarted(
+        address pegKeeper,
+        bool allowed,
+        uint256 timestamp
+    );
+    event PegKeeperUpdateCanceled(address pegKeeper, bool allowed);
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
         bridge = _bridge;
@@ -1760,6 +1769,34 @@ contract BridgeGovernance is Ownable {
         address newTreasury = treasuryData.newTreasury;
         treasuryData.finalizeTreasuryUpdate(governanceDelay());
         bridge.updateTreasury(newTreasury);
+    }
+
+    /// @notice Begins the peg keeper status update process.
+    /// @dev Can be called only by the contract owner.
+    /// @dev Reverts with "Peg keeper update already initiated" if a keeper update is already pending.
+    /// @param _pegKeeper Peg keeper address.
+    /// @param _allowed True if the address should be allowed, false otherwise.
+    function beginPegKeeperUpdate(address _pegKeeper, bool _allowed)
+        external
+        onlyOwner
+    {
+        pegKeeperData.beginPegKeeperUpdate(_pegKeeper, _allowed);
+    }
+
+    /// @notice Finalizes the peg keeper status update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses.
+    function finalizePegKeeperUpdate() external onlyOwner {
+        address pegKeeper = pegKeeperData.pegKeeper;
+        bool allowed = pegKeeperData.allowed;
+        pegKeeperData.finalizePegKeeperUpdate(governanceDelay());
+        bridge.updatePegKeeper(pegKeeper, allowed);
+    }
+
+    /// @notice Cancels a pending peg keeper status update.
+    /// @dev Can be called only by the contract owner. Reverts with "Peg keeper update not initiated" if none is pending.
+    function cancelPegKeeperUpdate() external onlyOwner {
+        pegKeeperData.cancelPegKeeperUpdate();
     }
 
     /// @notice Gets the governance delay parameter.
