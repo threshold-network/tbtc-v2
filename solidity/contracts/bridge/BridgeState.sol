@@ -440,8 +440,7 @@ library BridgeState {
         uint64 reservationDissolutionTxMaxFee;
         // Global count of open reservation positions. Distinct from the
         // per-wallet `walletReservationsCount` and from the global amount
-        // `reservationTotalAmount`. Genuinely new in milestone 1 - no
-        // extraction source.
+        // `reservationTotalAmount`.
         uint32 activeReservationsCount;
         // Governance-time cap on `activeReservationsCount`, sized below the
         // slot capacity `liveWalletsCount * maxReservationsPerWallet` at the

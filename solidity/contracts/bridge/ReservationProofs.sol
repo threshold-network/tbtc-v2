@@ -29,8 +29,8 @@ import "../vault/IReservationFeeFinancer.sol";
 
 /// @title Bridge UTXO reservations — settlement
 /// @notice SPV settlement side of the two-phase reservation model (see
-///         `Reservation` for the request/authorization side and RFC 13 for
-///         the architecture, whose document ships with a later milestone PR (not yet in this branch's docs/rfc/)). Every proof settles one requested
+///         `Reservation` for the request/authorization side, as described
+///         in tbtc-v2 PR #1108). Every proof settles one requested
 ///         *generation*, named explicitly by `(reservationKey,
 ///         requestNonce)`, and is validated exclusively against that
 ///         generation's snapshotted action record — never against live
@@ -79,7 +79,8 @@ library ReservationProofs {
         uint64 requestNonce,
         bytes20 indexed newWalletPubKeyHash,
         bytes32 newAnchorTxHash,
-        uint64 newAnchorAmount
+        uint64 newAnchorAmount,
+        uint64 minerFee
     );
 
     event ReservationActionSuperseded(
@@ -106,8 +107,9 @@ library ReservationProofs {
         Dissolution
     }
 
-    /// @notice Single entry point for all reservation lifecycle SPV proofs.
-    ///         Dispatches to the appropriate handler based on `proofType`.
+    /// @notice Entry point for supported reservation lifecycle SPV proofs
+    ///         (Acceptance, Reanchor); Redemption and Dissolution proofs
+    ///         revert as unsupported.
     /// @param proofType The type of the submitted proof, see `ProofType`.
     /// @param txInfo Bitcoin transaction data.
     /// @param proof Bitcoin proof data.
@@ -115,10 +117,12 @@ library ReservationProofs {
     /// @param requestNonce The generation being settled. Late settlements
     ///        name an older, timed-out generation.
     /// @dev The `BitcoinTx.UTXO` parameter is retained in the signature
-    ///      without a name to keep the external selector stable for any
-    ///      milestone-1 callers that already deployed against it; only the
-    ///      acceptance and re-anchor branches are wired up, so the value
-    ///      is unused.
+    ///      without a name as it is reserved for the future router's use
+    ///      (see PR #B); it is unused by the current bridge-facing entry
+    ///      point. Unlike every other existing SPV proof entry point in
+    ///      this repo, this function has no caller-identity gate here --
+    ///      the future router (PR #B) must apply the equivalent
+    ///      maintainer-only gate when it wires this entry point up.
     function submitReservationProof(
         BridgeState.Storage storage self,
         uint8 proofType,
@@ -151,8 +155,6 @@ library ReservationProofs {
                 requestNonce
             );
             // Milestone 1 accepts acceptance and re-anchor proofs.
-            // Redemption and dissolution stay rejected for the entirety
-            // of m1.
         } else {
             revert("Unsupported reservation proof type");
         }
@@ -177,10 +179,6 @@ library ReservationProofs {
             Reservation.actionKey(reservationKey, requestNonce)
         ];
         require(action.actionType == expectedType, "Action type mismatch");
-        require(
-            self.reservations[reservationKey].requestNonce == requestNonce,
-            "Not the current generation"
-        );
         require(
             action.state == Reservation.ActionState.Pending ||
                 action.state == Reservation.ActionState.TimedOut,
@@ -299,7 +297,7 @@ library ReservationProofs {
         self.walletReservationsAmount[
             reservation.walletPubKeyHash
         ] += reservation.anchorAmount;
-        self.reservationsByAnchorUtxo[anchorUtxoKey] = reservationKey;
+        self.activeReservationsCount += 1;
     }
 
     /// @notice Reverts unless the reservation still points at the exact
@@ -477,6 +475,13 @@ library ReservationProofs {
         bytes32 anchorTxHash,
         uint64 anchorAmount
     ) internal {
+        if (!late) {
+            require(
+                self.reservations[reservationKey].requestNonce == requestNonce,
+                "Not the current generation"
+            );
+        }
+
         action.state = Reservation.ActionState.Settled;
 
         bytes20 targetWalletPubKeyHash = action.targetWalletPubKeyHash;
@@ -554,7 +559,7 @@ library ReservationProofs {
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
-// activeReservationsCount is incremented at reservation request time.
+        // activeReservationsCount is incremented at reservation request time.
         reservation.dissolutionEligibleAt = expiresAt + action.dissolutionDelay;
 
         self.reservationsByAnchorUtxo[
@@ -590,6 +595,15 @@ library ReservationProofs {
             reservationKey,
             false
         );
+        // If the target wallet retired on the on-time path, strand.
+        if (!late) {
+            strandIfTargetWalletClosed(
+                self,
+                reservation,
+                reservationKey,
+                action.targetWalletPubKeyHash
+            );
+        }
 
         // Credit the gross anchored amount through the vault the deposit was
         // revealed to, but only if that vault is still trusted: governance
@@ -759,17 +773,14 @@ library ReservationProofs {
 
         action.state = Reservation.ActionState.Settled;
 
-        self.reservationsByAnchorUtxo[
-            uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))
-        ] = reservationKey;
-
         // slither-disable-next-line reentrancy-events
         emit ReservationReanchored(
             reservationKey,
             requestNonce,
             newWalletPubKeyHash,
             reanchorTxHash,
-            newAnchorAmount
+            newAnchorAmount,
+            minerFee
         );
 
         strandLateSettlementIfTargetWalletClosed(
