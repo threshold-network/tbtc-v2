@@ -176,13 +176,6 @@ contract TestReservation {
         });
     }
 
-    function setDeposit(
-        uint256 reservationKey,
-        Deposit.DepositRequest calldata deposit
-    ) external {
-        state.deposits[reservationKey] = deposit;
-    }
-
     function setSweptAt(uint256 reservationKey, uint32 sweptAt) external {
         state.deposits[reservationKey].sweptAt = sweptAt;
     }
@@ -494,7 +487,6 @@ contract TestReservation {
 
     function strandLateSettlementIfTargetWalletClosed(
         uint256 reservationKey,
-        bool late,
         bool evidenceAlreadyEmitted
     ) external {
         Reservation.ReservationRequest storage reservation = state
@@ -503,7 +495,6 @@ contract TestReservation {
             state,
             reservation,
             reservationKey,
-            late,
             evidenceAlreadyEmitted
         );
     }
@@ -563,7 +554,7 @@ contract TestReservation {
         state.maxReservationsPerWallet = maxReservationsPerWallet;
     }
 
-    function setPendingReservedDeposit(
+    function seedPendingReservedDeposit(
         uint256 depositKey,
         bool isReserved,
         bytes20 walletPubKeyHash,
@@ -580,10 +571,12 @@ contract TestReservation {
 
     function setDeposit(
         uint256 depositKey,
+        address depositor,
         uint64 amount,
         uint32 revealedAt,
         address vault
     ) external {
+        state.deposits[depositKey].depositor = depositor;
         state.deposits[depositKey].amount = amount;
         state.deposits[depositKey].revealedAt = revealedAt;
         state.deposits[depositKey].vault = vault;

@@ -732,7 +732,7 @@ describe("Reservation", () => {
         expect(await testReservation.activeReservationsCount()).to.equal(2)
       })
 
-      it("should revert when activeReservationsCount reaches maxActiveReservations (Max active reservations reached)", async () => {
+      it("should revert when activeReservationsCount reaches maxActiveReservations (Active reservations cap exceeded)", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
 
@@ -763,7 +763,7 @@ describe("Reservation", () => {
           testReservation
             .connect(depositor)
             .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
-        ).to.be.revertedWith("Max active reservations reached")
+        ).to.be.revertedWith("Active reservations cap exceeded")
       })
 
       it("should allow a new request after strandReservation decrements activeReservationsCount", async () => {
@@ -1391,34 +1391,7 @@ describe("Reservation", () => {
       expect(await testReservation.reservationState(strandKey)).to.equal(4)
     })
 
-    it("should be a no-op when the settlement is not late", async () => {
-      const key = 102
-      await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
-      await testReservation.setReservationFullState(
-        key,
-        owner,
-        walletPubKeyHash,
-        anchorAmount,
-        1, // Active
-        requestNonce
-      )
-      await testReservation.setWalletReservationsCounters(
-        walletPubKeyHash,
-        1,
-        anchorAmount
-      )
-      await testReservation.strandLateSettlementIfTargetWalletClosed(
-        key,
-        false, // late
-        false // evidenceAlreadyEmitted
-      )
-      expect(await testReservation.reservationState(key)).to.equal(1) // still Active
-      expect(
-        await testReservation.walletReservationsCount(walletPubKeyHash)
-      ).to.equal(1)
-    })
-
-    it("should not strand a late settlement whose target wallet is still Live", async () => {
+    it("should not strand when the target wallet is still Live", async () => {
       const key = 103
       await testReservation.setWalletState(walletPubKeyHash, 1) // 1 = Live
       await testReservation.setReservationFullState(
@@ -1431,13 +1404,12 @@ describe("Reservation", () => {
       )
       await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
-        true, // late
         false // evidenceAlreadyEmitted
       )
       expect(await testReservation.reservationState(key)).to.equal(1) // still Active
     })
 
-    it("should strand a late settlement whose target wallet is Closing", async () => {
+    it("should strand a settlement whose target wallet is Closing", async () => {
       const key = 104
       await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
       await testReservation.setReservationFullState(
@@ -1456,7 +1428,6 @@ describe("Reservation", () => {
       await testReservation.setGlobalReservationCounters(anchorAmount, 1)
       await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
-        true, // late
         false // evidenceAlreadyEmitted
       )
       expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
@@ -1465,7 +1436,7 @@ describe("Reservation", () => {
       ).to.equal(0)
     })
 
-    it("should defer a late Terminated settlement to the permissionless cleanup path when not already stranded", async () => {
+    it("should strand a settlement whose target wallet is Terminated", async () => {
       const key = 105
       await testReservation.setWalletState(walletPubKeyHash, 5) // 5 = Terminated
       await testReservation.setReservationFullState(
@@ -1476,16 +1447,23 @@ describe("Reservation", () => {
         1, // Active
         requestNonce
       )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
       await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
-        true, // late
         false // evidenceAlreadyEmitted
       )
-      // Left Active: notifyReservationStranded is the intended cleanup path.
-      expect(await testReservation.reservationState(key)).to.equal(1)
+      expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
     })
 
-    it("should strand a late Terminated settlement without double-releasing when evidence was already emitted", async () => {
+    it("should strand a Terminated settlement without double-releasing when evidence was already emitted", async () => {
       const key = 106
       await testReservation.setWalletState(walletPubKeyHash, 5) // 5 = Terminated
       await testReservation.setReservationFullState(
@@ -1499,7 +1477,6 @@ describe("Reservation", () => {
       )
       await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
-        true, // late
         true // evidenceAlreadyEmitted
       )
       expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
@@ -1660,7 +1637,7 @@ describe("Reservation", () => {
     })
   })
 
-  describe("notifyReservationActionTimeout", () => {
+  describe("notifyReservationAcceptanceTimedOut", () => {
     it("should time out a pending acceptance and release its capacity", async () => {
       const reservationKey = 400
       const targetWalletPubKeyHash = `0x${"11".repeat(20)}`
@@ -1684,7 +1661,7 @@ describe("Reservation", () => {
       )
       await testReservation.setGlobalReservationCounters(amount, 1)
 
-      await testReservation.notifyReservationActionTimeout(reservationKey)
+      await testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
 
       expect(await testReservation.actionState(reservationKey, 0)).to.equal(3) // TimedOut
       expect(
@@ -1716,11 +1693,12 @@ describe("Reservation", () => {
       await testReservation.setWalletState(walletPubKeyHash, 1) // 1 = Live
       await testReservation.setDeposit(
         reservationKey,
+        depositor.address,
         1000,
         now - 3 * 60 * 60,
         vault
       )
-      await testReservation.setPendingReservedDeposit(
+      await testReservation.seedPendingReservedDeposit(
         reservationKey,
         true,
         walletPubKeyHash,
@@ -1728,10 +1706,9 @@ describe("Reservation", () => {
       )
 
       // Call
-      await testReservation.requestReservationAcceptance(
-        reservationKey,
-        walletPubKeyHash
-      )
+      await testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
 
       // Assert
       expect(

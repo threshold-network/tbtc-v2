@@ -511,7 +511,7 @@ library ReservationProofs {
                         )
                     ];
                 if (newer.state == Reservation.ActionState.Pending) {
-                    unwindPendingAction(self, pending, reservationKey);
+                    unwindPendingAction(self, pending, reservationKey, false);
                 }
             }
 
@@ -719,7 +719,7 @@ library ReservationProofs {
             if (
                 reservation.state == Reservation.ReservationState.ActionPending
             ) {
-                unwindPendingAction(self, reservation, reservationKey);
+                unwindPendingAction(self, reservation, reservationKey, true);
             }
 
             // slither-disable-next-line reentrancy-events
@@ -785,7 +785,6 @@ library ReservationProofs {
             self,
             reservation,
             reservationKey,
-            late,
             evidenceAlreadyEmitted
         );
 
@@ -821,10 +820,16 @@ library ReservationProofs {
     ///         consumed, so the generation can never settle. Its reserved
     ///         capacity and locks are released and it is terminally marked
     ///         `Superseded`.
+    /// @param restoreRetryCredit True when the settlement superseding this
+    ///        generation is itself a late re-anchor (the only path that
+    ///        returns a consumed retry entitlement per the field's
+    ///        contract); false from the late-acceptance unwind path, which
+    ///        never restores the entitlement.
     function unwindPendingAction(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
-        uint256 reservationKey
+        uint256 reservationKey,
+        bool restoreRetryCredit
     ) internal {
         uint64 pendingNonce = reservation.requestNonce;
         Reservation.ReservationAction storage pendingAction = self
