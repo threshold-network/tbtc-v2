@@ -239,4 +239,12 @@ contract BridgeStub is Bridge {
     {
         return self.walletReservationsCount[walletPubKeyHash];
     }
+
+    function getWalletReservationKeyIndex(uint256 reservationKey)
+        external
+        view
+        returns (uint256)
+    {
+        return self.walletReservationKeyIndex[reservationKey];
+    }
 }

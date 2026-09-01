@@ -188,6 +188,15 @@ contract ReservationRouter is Governable, Initializable {
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
 
+    event ReservedDepositMarkedStale(uint256 indexed depositKey);
+
+    event ReservationStranded(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash,
+        address indexed owner,
+        uint64 anchorAmount
+    );
+
     event ReservationParametersUpdated(
         uint64 reservationMinAmount,
         uint64 reservationTxMaxFee,
@@ -433,6 +442,26 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
+    /// @notice Marks a revealed reserved deposit as stale so it stops
+    ///         counting against the pending-reserved-deposit guard and can
+    ///         no longer be authorized for acceptance. See
+    ///         `Reservation.notifyStaleReservedDeposit`.
+    /// @param depositKey The deposit key of the reserved deposit.
+    function notifyStaleReservedDeposit(uint256 depositKey) external {
+        self.notifyStaleReservedDeposit(depositKey);
+    }
+
+    /// @notice Marks a reservation custodied by a terminated wallet as
+    ///         stranded: an idle position closes, capacity is released and
+    ///         the owner's minted balance remains an ordinary pooled claim.
+    ///         Pending actions remain proof-eligible and cannot be stranded.
+    ///         See
+    ///         `Reservation.notifyReservationStranded`.
+    /// @param reservationKey The key of the stranded reservation.
+    function notifyReservationStranded(uint256 reservationKey) external {
+        self.notifyReservationStranded(reservationKey);
+    }
+
     /// @notice Updates the amount-denominated reservation caps: the
     ///         per-wallet total anchor amount and the single-reservation
     ///         maximum. A zero value disables the respective cap. Checked
@@ -477,6 +506,64 @@ contract ReservationRouter is Governable, Initializable {
         returns (uint64)
     {
         return self.walletReservationsAmount[walletPubKeyHash];
+    }
+
+    /// @notice Returns the number of reservations custodied by the given
+    ///         wallet (including reserved capacity of pending actions).
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    function walletReservationsCount(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32)
+    {
+        return self.walletReservationsCount[walletPubKeyHash];
+    }
+
+    /// @notice Returns the reservation keys custodied by the given wallet.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    function walletReservations(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint256[] memory)
+    {
+        return self.walletReservationKeys[walletPubKeyHash];
+    }
+
+    /// @notice Returns the reservation key whose current anchor is the
+    ///         given outpoint, or zero when the outpoint is not a tracked
+    ///         anchor.
+    /// @param anchorTxHash Hash of the transaction holding the anchor
+    ///        output, in Bitcoin internal byte order.
+    /// @param anchorTxOutputIndex Output index of the anchor output.
+    function reservationByAnchorUtxo(
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex
+    ) external view returns (uint256) {
+        return
+            self.reservationsByAnchorUtxo[
+                uint256(
+                    keccak256(
+                        abi.encodePacked(anchorTxHash, anchorTxOutputIndex)
+                    )
+                )
+            ];
+    }
+
+    /// @notice Returns the designated wallet of a pending reserved deposit
+    ///         (zero when the deposit is not pending).
+    /// @param depositKey The deposit key of the reserved deposit.
+    function reservedDepositWallet(uint256 depositKey)
+        external
+        view
+        returns (bytes20)
+    {
+        return self.pendingReservedDeposit[depositKey].walletPubKeyHash;
+    }
+
+    /// @notice Returns the number of revealed reserved deposits that were
+    ///         neither accepted nor marked stale yet.
+    function pendingReservedDeposits() external view returns (uint64) {
+        return self.pendingReservedDeposits;
     }
 
     /// @notice Collection of all reservation positions indexed by the

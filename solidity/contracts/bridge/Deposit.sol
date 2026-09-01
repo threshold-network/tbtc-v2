@@ -366,6 +366,7 @@ library Deposit {
                     refundDeadline,
                     refundDeadlineValidated
                 );
+            self.pendingReservedDeposits += 1;
         }
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
