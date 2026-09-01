@@ -429,11 +429,7 @@ contract TestReservation {
         action.txMaxFee = txMaxFee;
 
         return
-            ReservationProofs.validateAnchorOutput(
-                state,
-                outputVector,
-                action
-            );
+            ReservationProofs.validateAnchorOutput(state, outputVector, action);
     }
 
     function setActionSourceAnchorUtxoHash(
@@ -441,10 +437,9 @@ contract TestReservation {
         uint64 requestNonce,
         bytes32 sourceAnchorUtxoHash
     ) external {
-        Reservation.ReservationAction storage action = state
-            .reservationActions[
-                Reservation.actionKey(reservationKey, requestNonce)
-            ];
+        Reservation.ReservationAction storage action = state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
         action.sourceAnchorUtxoHash = sourceAnchorUtxoHash;
     }
 
@@ -452,12 +447,12 @@ contract TestReservation {
         uint256 reservationKey,
         uint64 requestNonce
     ) external view {
-        Reservation.ReservationRequest storage reservation = state
-            .reservations[reservationKey];
-        Reservation.ReservationAction storage action = state
-            .reservationActions[
-                Reservation.actionKey(reservationKey, requestNonce)
-            ];
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        Reservation.ReservationAction storage action = state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
         ReservationProofs.requireCurrentSourceAnchor(reservation, action);
     }
 
@@ -469,8 +464,9 @@ contract TestReservation {
         Reservation.ReservationState newState,
         uint64 requestNonce
     ) external {
-        Reservation.ReservationRequest storage reservation = state
-            .reservations[reservationKey];
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
         reservation.owner = owner;
         reservation.walletPubKeyHash = walletPubKeyHash;
         reservation.anchorAmount = anchorAmount;
@@ -489,8 +485,9 @@ contract TestReservation {
         uint256 reservationKey,
         bool evidenceAlreadyEmitted
     ) external {
-        Reservation.ReservationRequest storage reservation = state
-            .reservations[reservationKey];
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
         ReservationProofs.strandLateSettlementIfTargetWalletClosed(
             state,
             reservation,
@@ -503,8 +500,9 @@ contract TestReservation {
         uint256 reservationKey,
         bytes20 targetWalletPubKeyHash
     ) external {
-        Reservation.ReservationRequest storage reservation = state
-            .reservations[reservationKey];
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
         ReservationProofs.strandIfTargetWalletClosed(
             state,
             reservation,
@@ -516,8 +514,9 @@ contract TestReservation {
     function prepareReservationForSettlement(uint256 reservationKey, bool late)
         external
     {
-        Reservation.ReservationRequest storage reservation = state
-            .reservations[reservationKey];
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
         ReservationProofs.prepareReservationForSettlement(
             state,
             reservation,
@@ -599,10 +598,9 @@ contract TestReservation {
         bytes20 targetWalletPubKeyHash,
         uint64 amount
     ) external {
-        Reservation.ReservationAction storage action = state
-            .reservationActions[
-                Reservation.actionKey(reservationKey, requestNonce)
-            ];
+        Reservation.ReservationAction storage action = state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
         action.actionType = actionType;
         action.state = newActionState;
         action.timeoutAt = timeoutAt;
@@ -647,8 +645,9 @@ contract TestReservation {
     }
 
     function setSpentMainUtxo(uint256 reservationKey, bool spent) external {
-        Reservation.ReservationRequest storage reservation = state
-            .reservations[reservationKey];
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
         uint256 anchorUtxoKey = uint256(
             keccak256(
                 abi.encodePacked(

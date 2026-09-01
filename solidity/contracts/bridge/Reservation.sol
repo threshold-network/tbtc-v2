@@ -877,13 +877,12 @@ library Reservation {
         // generation re-takes the released target capacity (see
         // `ReservationProofs.submitReservationReanchorProof`).
         self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            action.targetWalletPubKeyHash
-        ] -= action.amount;
+        self.walletReservationsAmount[action.targetWalletPubKeyHash] -= action
+            .amount;
 
         reservation.state = ReservationState.Active;
 
-/* solhint-disable not-rely-on-time */
+        /* solhint-disable not-rely-on-time */
         reservation.reanchorCooldownUntil =
             uint32(block.timestamp) +
             self.reservationActionTimeout;
