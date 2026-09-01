@@ -19,10 +19,12 @@ import {
   DepositRequest,
   Chains,
 } from "../contracts"
-import { Event as EthersEvent } from "@ethersproject/contracts"
+import {
+  ContractTransaction,
+  Event as EthersEvent,
+} from "@ethersproject/contracts"
 import { BigNumber } from "@ethersproject/bignumber"
 import { AddressZero } from "@ethersproject/constants"
-import { ContractTransaction } from "@ethersproject/contracts"
 import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { backoffRetrier, Hex } from "../utils"
 import {
@@ -670,8 +672,9 @@ export class EthereumBridge
   ): Promise<RedemptionRequestedEvent[]> {
     // FIXME: Filtering by indexed walletPubKeyHash field may not work
     //        until https://github.com/ethers-io/ethers.js/pull/4244 is
-    //        included in the currently used version of ethers.js.
-    //        Ultimately, we should upgrade ethers.js to include that fix.
+    //        included in the @ethersproject/contracts/@ethersproject/abi
+    //        v5 packages. Ethers v6 contains the referenced fix, but this SDK
+    //        targets v5 types.
     //        Short-term, we can workaround the problem as presented in:
     //        https://github.com/threshold-network/token-dashboard/blob/main/src/threshold-ts/tbtc/index.ts#L1041C1-L1093C1
     const events: EthersEvent[] = await this.getEvents(

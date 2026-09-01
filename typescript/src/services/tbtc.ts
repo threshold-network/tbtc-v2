@@ -15,7 +15,6 @@ import type { StarkNetProvider } from "../lib/starknet"
 import type { SuiSignerWithAddress } from "../lib/sui"
 import { TBTC as TBTCCore } from "./tbtc-core"
 import { Signer } from "@ethersproject/abstract-signer"
-import { Provider } from "@ethersproject/providers"
 import { StarkNetAddress } from "../lib/starknet/address"
 
 // Re-export everything from the base module so that consumers importing
@@ -60,7 +59,7 @@ export class TBTC extends TBTCCore {
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
-    ethereumSignerOrProvider: EthereumSigner | Provider,
+    ethereumSignerOrProvider: EthereumSigner,
     crossChainSupport: boolean = false,
     nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
@@ -93,7 +92,7 @@ export class TBTC extends TBTCCore {
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
-    ethereumSignerOrProvider: EthereumSigner | Provider,
+    ethereumSignerOrProvider: EthereumSigner,
     crossChainSupport: boolean = false,
     nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
@@ -120,7 +119,7 @@ export class TBTC extends TBTCCore {
    *         other than the given Ethereum network.
    */
   protected static async initializeEthereum(
-    ethereumSignerOrProvider: EthereumSigner | Provider,
+    ethereumSignerOrProvider: EthereumSigner,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
     crossChainSupport = false,

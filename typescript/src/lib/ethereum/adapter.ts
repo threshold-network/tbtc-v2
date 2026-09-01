@@ -6,7 +6,7 @@ import {
   Event as EthersEvent,
   EventFilter as EthersEventFilter,
 } from "@ethersproject/contracts"
-import { Provider } from "@ethersproject/providers"
+import { Provider } from "@ethersproject/abstract-provider"
 import { GetChainEvents } from "../contracts"
 import {
   backoffRetrier,

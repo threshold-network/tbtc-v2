@@ -14,7 +14,7 @@ import axios from "axios"
 import { BigNumber } from "@ethersproject/bignumber"
 import { MaxUint256 } from "@ethersproject/constants"
 import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 /**
  * Relayer request payload for revealing a deposit

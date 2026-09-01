@@ -1,6 +1,6 @@
 import { Chains, TBTCContracts } from "../contracts"
 import { Signer } from "@ethersproject/abstract-signer"
-import { Provider } from "@ethersproject/providers"
+import { Provider } from "@ethersproject/abstract-provider"
 import { EthereumBridge } from "./bridge"
 import { EthereumWalletRegistry } from "./wallet-registry"
 import { EthereumTBTCToken } from "./tbtc-token"
@@ -20,9 +20,8 @@ export * from "./wallet-registry"
 export { EthersContractConfig as EthereumContractConfig } from "./adapter"
 
 /**
- * Represents an Ethereum signer. This type is a wrapper for Ethers-specific
- * types and can be either a Signer that can make write transactions
- * or a Provider that works only in the read-only mode.
+ * Represents an ethers v5 signer or provider. Signers (from @ethersproject/abstract-signer)
+ * can submit transactions; providers (from @ethersproject/abstract-provider) provide read-only access.
  */
 export type EthereumSigner = Signer | Provider
 
@@ -32,7 +31,7 @@ export type EthereumSigner = Signer | Provider
  * @returns Chain ID as a string.
  */
 export async function chainIdFromSigner(
-  signer: EthereumSigner | Provider
+  signer: EthereumSigner
 ): Promise<string> {
   let chainId: number
   if (Signer.isSigner(signer)) {
