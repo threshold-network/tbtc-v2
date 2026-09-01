@@ -243,6 +243,7 @@ contract Bridge is
         address oldRebateStaking,
         address newRebateStaking
     );
+    event RebateStakingPermanentlyDisabled(address oldRebateStaking);
     event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
@@ -406,10 +407,14 @@ contract Bridge is
 
     // solhint-enable reason-string
 
-    /// @notice Configures an initial peg keeper during a proxy upgrade.
-    /// @param initialPegKeeper The initial peg keeper address.
-    /// @dev Uses reinitializer(6) to allow a one-time configuration of the peg
-    ///      keeper. This function can only be called once per proxy deployment.
+    /// @notice Configures an initial peg keeper during a proxy upgrade and
+    ///         permanently disables the rebate-staking hook.
+    /// @param initialPegKeeper The initial peg keeper address; cannot be the
+    ///        zero address.
+    /// @dev This function can only be called once per proxy deployment using
+    ///      reinitializer(6). It requires the caller to be the proxy admin.
+    ///      This call clears the rebate-staking address and permanently
+    ///      disables the rebate-staking hook; this action is irreversible.
     function initializeV6_ConfigurePegKeeper(address initialPegKeeper)
         external
         reinitializer(6)
@@ -433,7 +438,10 @@ contract Bridge is
 
         self.updatePegKeeper(initialPegKeeper, true);
 
-        emit RebateStakingRepaired(self.rebateStaking, address(0));
+        if (self.rebateStaking != address(0)) {
+            emit RebateStakingRepaired(self.rebateStaking, address(0));
+        }
+        emit RebateStakingPermanentlyDisabled(self.rebateStaking);
         self.rebateStakingDisabled = true;
         self.rebateStaking = address(0);
     }
@@ -1642,8 +1650,10 @@ contract Bridge is
         self.updateTreasury(treasury);
     }
 
-    /// @notice Updates a peg keeper status. Peg keepers are exempt from
-    ///         deposit and redemption treasury fees.
+    /// @notice Updates eligibility for deposit and direct-redemption
+    ///         treasury-fee waivers.
+    /// @dev Peg keepers are exempt from deposit fees and direct-redemption
+    ///      treasury fees (where balanceOwner == redeemer).
     /// @param pegKeeper Peg keeper address.
     /// @param allowed True if the address should be allowed, false otherwise.
     function updatePegKeeper(address pegKeeper, bool allowed)
@@ -2077,6 +2087,12 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
+    }
+
+    /// @return True if the rebate-staking hook has been permanently
+    ///         disabled by initializeV6_ConfigurePegKeeper.
+    function isRebateStakingDisabled() external view returns (bool) {
+        return self.rebateStakingDisabled;
     }
 
     /// @return True if the address is allowed as a peg keeper.

@@ -481,6 +481,12 @@ library Redemption {
     ///      `request.redeemer` is preserved: when no rebate is applied,
     ///      `RebateStaking.cancelRebate` is a no-op for the corresponding
     ///      timeout.
+    ///      - Treasury-fee waiver: Peg keepers are exempt from treasury fees on
+    ///        direct redemptions when `balanceOwner == redeemer`. This waiver
+    ///        does not apply to the standard `TBTCVault` redemption callback
+    ///        path; for the waiver to apply, a peg keeper must call
+    ///        `TBTCVault.unmint()` then `Bridge.requestRedemption()` directly
+    ///        (two transactions).
     function requestRedemption(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,

@@ -1773,6 +1773,7 @@ contract BridgeGovernance is Ownable {
 
     /// @notice Begins the peg keeper status update process.
     /// @dev Can be called only by the contract owner.
+    /// @dev Reverts with "Peg keeper update already initiated" if a keeper update is already pending.
     /// @param _pegKeeper Peg keeper address.
     /// @param _allowed True if the address should be allowed, false otherwise.
     function beginPegKeeperUpdate(address _pegKeeper, bool _allowed)
@@ -1793,7 +1794,7 @@ contract BridgeGovernance is Ownable {
     }
 
     /// @notice Cancels a pending peg keeper status update.
-    /// @dev Can be called only by the contract owner.
+    /// @dev Can be called only by the contract owner. Reverts with "Peg keeper update not initiated" if none is pending.
     function cancelPegKeeperUpdate() external onlyOwner {
         pegKeeperData.cancelPegKeeperUpdate();
     }

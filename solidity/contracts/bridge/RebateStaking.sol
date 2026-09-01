@@ -175,6 +175,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @dev Intended for ProxyAdmin.upgradeAndCall so the upgrade and
     ///      deprecation happen atomically through the timelock-controlled
     ///      proxy admin. Can be called only by the proxy admin.
+    ///      If owner deprecation already occurred, the initializer consumes
+    ///      the version without changing state or re-emitting events.
     // solhint-disable-next-line func-name-mixedcase
     function initializeV2_Deprecate() external reinitializer(2) {
         if (msg.sender != proxyAdmin()) revert CallerNotProxyAdmin();
@@ -525,9 +527,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     /// @notice Stake T token to be eligible for rebate
     /// @param amount Amount of tokens to stake
-    function stake(uint96 amount) external {
+    function stake(uint96 amount) external onlyWhenActive {
         if (amount == 0) revert AmountCannotBeZero();
-        if (deprecated) revert ContractDeprecated();
 
         address otherStaker = delegates[msg.sender];
         if (otherStaker != address(0)) {

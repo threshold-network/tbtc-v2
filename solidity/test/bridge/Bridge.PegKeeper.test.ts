@@ -75,6 +75,11 @@ describe("Bridge - Peg keeper", () => {
           .beginPegKeeperUpdate(thirdParty.address, true)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
+    it("should require governance to update peg keeper", async () => {
+      await expect(
+        bridge.connect(thirdParty).updatePegKeeper(thirdParty.address, true)
+      ).to.be.revertedWith("Caller is not the governance")
+    })
 
     it("should begin peg keeper update without applying it", async () => {
       const tx = await bridgeGovernance
@@ -137,6 +142,11 @@ describe("Bridge - Peg keeper", () => {
       await expect(
         bridgeGovernance.connect(governance).cancelPegKeeperUpdate()
       ).to.be.revertedWith("Peg keeper update not initiated")
+    })
+    it("should require a pending peg keeper update to finalize", async () => {
+      await expect(
+        bridgeGovernance.connect(governance).finalizePegKeeperUpdate()
+      ).to.be.revertedWith("Change not initiated")
     })
 
     it("should require governance delay before finalizing peg keeper update", async () => {

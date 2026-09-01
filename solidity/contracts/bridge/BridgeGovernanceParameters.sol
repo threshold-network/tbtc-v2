@@ -1588,6 +1588,7 @@ library BridgeGovernanceParameters {
     /// @notice Begins the peg keeper status update process.
     /// @param _pegKeeper Peg keeper address.
     /// @param _allowed True if the address should be allowed, false otherwise.
+    /// @dev Reverts with "Peg keeper update already initiated" if a keeper update is already pending.
     function beginPegKeeperUpdate(
         PegKeeperData storage self,
         address _pegKeeper,
@@ -1623,6 +1624,8 @@ library BridgeGovernanceParameters {
     }
 
     /// @notice Cancels a pending peg keeper status update.
+    /// @dev Reverts with "Peg keeper update not initiated" if none is pending.
+    /// @dev Internal visibility is deliberate to avoid a second external library link reference, working around an OpenZeppelin validation-cache CI issue.
     function cancelPegKeeperUpdate(PegKeeperData storage self) internal {
         require(
             self.pegKeeperChangeInitiated != 0,
