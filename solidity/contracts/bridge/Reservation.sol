@@ -73,6 +73,7 @@ library Reservation {
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
     // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
+
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -1260,7 +1261,7 @@ library Reservation {
         // deadline is retained even when reveal-ahead validation is disabled
         // because the wallet validator always enforces its refund margin.
         require(
-            timeoutAt <= reservedDeposit.refundDeadline,
+            timeoutAt < reservedDeposit.refundDeadline,
             "Authorization window would overlap the deposit refund window"
         );
         require(
@@ -1272,7 +1273,6 @@ library Reservation {
                         .DEPOSIT_REFUND_SAFETY_MARGIN,
             "Acceptance authorization has no signing window"
         );
-
         require(
             self.reservationMaxSingleAmount == 0 ||
                 deposit.amount <= self.reservationMaxSingleAmount,
@@ -1305,8 +1305,9 @@ library Reservation {
         self.walletReservationsAmount[walletPubKeyHash] = walletAmount;
 
         // Global open-position occupancy, reserved at request time the same
-        // way `walletReservationsCount` is. Converts variant B's silent
-        // saturation cliff into a revert (`m1-b-implementation.md` §4.1).
+        // way walletReservationsCount is. Converts variant B's silent
+        // saturation cliff into a revert: saturation prevents retirement and
+        // re-anchoring, so this revert forces an explicit, early failure.
         require(
             self.activeReservationsCount < self.maxActiveReservations,
             "Active reservations cap exceeded"
@@ -1633,7 +1634,7 @@ library Reservation {
     ///         evidence.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
-    ///      - The custodying wallet must be in the Terminated state,
+    ///      - The custodying wallet must be in the Terminated, Closing, or Closed state,
     ///      - The reservation must be Active.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
@@ -1646,10 +1647,12 @@ library Reservation {
             reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
+        Wallets.WalletState walletState = self.registeredWallets[reservation.walletPubKeyHash].state;
         require(
-            self.registeredWallets[reservation.walletPubKeyHash].state ==
-                Wallets.WalletState.Terminated,
-            "Wallet is not terminated"
+            walletState == Wallets.WalletState.Terminated ||
+            walletState == Wallets.WalletState.Closing ||
+            walletState == Wallets.WalletState.Closed,
+            "Wallet is not terminated, closing, or closed"
         );
 
         strandReservation(self, reservation, reservationKey);
@@ -1664,6 +1667,8 @@ library Reservation {
     ///        `reservationTxMaxFee`,
     ///      - `reservationTermSeconds` must stay within
     ///        [MIN_RESERVATION_TERM, MAX_RESERVATION_TERM],
+    ///      - `reservationDissolutionDelay` must stay within
+    ///        [MIN_RESERVATION_DISSOLUTION_DELAY, MAX_RESERVATION_DISSOLUTION_DELAY],
     ///      - `reservationRenewalWindowSeconds` must be greater than zero
     ///        and strictly shorter than the term (written in milestone 1
     ///        for storage completeness; unread until renewal lands),
@@ -1671,11 +1676,16 @@ library Reservation {
     ///        validator's final signing safety margin,
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero),
+    ///      - The reservation vault can only be changed while there are no
+    ///        pending reserved deposits awaiting acceptance or staleness
+    ///        (`pendingReservedDeposits == 0`).
     ///      - `reservationMaxTotalAmount` must not exceed worst-case slot
     ///        capacity, `maxActiveReservations *
     ///        reservationMaxSingleAmount`, both owned by
-    ///        `updateReservationCaps`; a zero value on either of those two
-    ///        disables that cap and skips the check.
+    ///        `updateReservationCaps`; `reservationMaxSingleAmount == 0`
+    ///        disables the single-reservation cap and skips its check;
+    ///        `maxActiveReservations == 0` is rejected earlier by the launch-gate
+    ///        require in `updateReservationCaps`, not skipped.
     ///
     ///      Term, dissolution delay and fee bounds are snapshotted into
     ///      positions and action records when terms are granted or actions
@@ -1704,6 +1714,11 @@ library Reservation {
             reservationTermSeconds >= MIN_RESERVATION_TERM &&
                 reservationTermSeconds <= MAX_RESERVATION_TERM,
             "Reservation term out of protocol bounds"
+        );
+        require(
+            reservationDissolutionDelay >= MIN_RESERVATION_DISSOLUTION_DELAY &&
+                reservationDissolutionDelay <= MAX_RESERVATION_DISSOLUTION_DELAY,
+            "Reservation dissolution delay out of protocol bounds"
         );
         require(
             reservationRenewalWindowSeconds > 0 &&
@@ -1735,20 +1750,15 @@ library Reservation {
         // any single position's amount, so their product is the most that
         // can ever be reserved at once; a higher `reservationMaxTotalAmount`
         // is unreachable dead configuration because the position-count cap
-        // saturates first. Either of those two set to zero means that cap
-        // is disabled, so there is no ceiling to violate and the check is
-        // skipped — this also covers the pre-launch state where
-        // `updateReservationCaps` has not run yet. Mirrored in
-        // `updateReservationCaps`, which owns the two operands read here.
-        require(
-            self.reservationMaxSingleAmount == 0 ||
-                self.maxActiveReservations == 0 ||
-                reservationMaxTotalAmount <=
-                uint256(self.maxActiveReservations) *
-                    self.reservationMaxSingleAmount,
-            "Amount cap exceeds slot capacity"
+        // saturates first. `reservationMaxSingleAmount == 0` disables the
+        // single-reservation cap and skips its check; `maxActiveReservations == 0`
+        // is rejected earlier by the launch-gate require in updateReservationCaps,
+        // not skipped.
+        requireWithinSlotCapacity(
+            reservationMaxTotalAmount,
+            self.maxActiveReservations,
+            self.reservationMaxSingleAmount
         );
-
         self.reservationMinAmount = reservationMinAmount;
         self.reservationTxMaxFee = reservationTxMaxFee;
         self.reservationTermSeconds = reservationTermSeconds;
@@ -1776,7 +1786,8 @@ library Reservation {
     ///         time; a zero amount-cap value disables that amount cap.
     ///         `maxActiveReservations` must be greater than zero — it is
     ///         the launch gate that turns variant B's saturation cliff into
-    ///         a revert.
+    ///         a revert: saturation prevents retirement and re-anchoring, so this
+    ///         revert forces an explicit, early failure.
     /// @dev `reservationMaxTotalAmount` may not exceed worst-case slot
     ///      capacity, `maxActiveReservations * reservationMaxSingleAmount`.
     ///      Enforced here and in `updateReservationParameters`, each from
@@ -1800,11 +1811,10 @@ library Reservation {
         // operands against the stored `reservationMaxTotalAmount` that the
         // other setter owns. `maxActiveReservations == 0` needs no disjunct
         // here — the require above already rejects it.
-        require(
-            reservationMaxSingleAmount == 0 ||
-                self.reservationMaxTotalAmount <=
-                uint256(maxActiveReservations) * reservationMaxSingleAmount,
-            "Amount cap exceeds slot capacity"
+        requireWithinSlotCapacity(
+            self.reservationMaxTotalAmount,
+            maxActiveReservations,
+            reservationMaxSingleAmount
         );
 
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
@@ -1824,10 +1834,9 @@ library Reservation {
         bytes20 walletPubKeyHash,
         uint256 reservationKey
     ) internal {
-        self.walletReservationKeys[walletPubKeyHash].push(reservationKey);
-        self.walletReservationKeyIndex[reservationKey] = self
-            .walletReservationKeys[walletPubKeyHash]
-            .length;
+        uint256[] storage keys = self.walletReservationKeys[walletPubKeyHash];
+        keys.push(reservationKey);
+        self.walletReservationKeyIndex[reservationKey] = keys.length;
     }
 
     /// @notice Swap-removes a reservation key from a wallet's enumeration

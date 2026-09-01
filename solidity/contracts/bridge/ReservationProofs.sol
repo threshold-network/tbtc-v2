@@ -100,6 +100,12 @@ library ReservationProofs {
         Reservation.ActionType actionType
     );
 
+    event ReservationReconstructed(
+        uint256 indexed reservationKey,
+        bytes20 indexed walletPubKeyHash,
+        uint64 anchorAmount
+    );
+
     /// @notice Represents the type of a reservation lifecycle SPV proof.
     ///         Zero-based; `ProofType(n)` corresponds to
     ///         `Reservation.ActionType(n + 1)` for `n` in `{0..3}` (`None`
@@ -898,8 +904,7 @@ library ReservationProofs {
             // amount; re-take them. Deliberately no cap check (see
             // acceptance).
             self.walletReservationsCount[newWalletPubKeyHash] += 1;
-            self.walletReservationsAmount[newWalletPubKeyHash] += reservation
-                .anchorAmount;
+            self.walletReservationsAmount[newWalletPubKeyHash] += reservation.anchorAmount;
 
             // A newer pending generation references an anchor this
             // transaction just consumed; unwind it.
@@ -922,16 +927,13 @@ library ReservationProofs {
         // above). The target reserved the pre-hop anchor value; release
         // the miner-fee delta.
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
+        self.walletReservationsAmount[reservation.walletPubKeyHash] -= reservation.anchorAmount;
         self.walletReservationsAmount[newWalletPubKeyHash] -= (reservation
             .anchorAmount - newAnchorAmount);
 
-        uint64 minerFee = reservation.anchorAmount - newAnchorAmount;
 
         // The miner fee reduces the on-chain earmarked amount.
-        self.reservationTotalAmount -= minerFee;
+        self.reservationTotalAmount -= (reservation.anchorAmount - newAnchorAmount);
 
         // Record the per-hop fee before the claim is written down below.
         // Afterwards the original anchor value is unrecoverable and
@@ -939,7 +941,7 @@ library ReservationProofs {
         // this total could not be reconstructed from later state. No
         // ceiling is enforced in milestone 1: `maxCumulativeReanchorFee`
         // stays declare-only until a post-milestone-1 bound lands.
-        reservation.cumulativeReanchorFee += minerFee;
+        reservation.cumulativeReanchorFee += (reservation.anchorAmount - newAnchorAmount);
 
         Reservation.removeWalletReservationKey(
             self,
@@ -966,9 +968,9 @@ library ReservationProofs {
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
 
-        if (minerFee > 0) {
+        if ((reservation.anchorAmount - newAnchorAmount) > 0) {
             IReservationFeeFinancer(self.deposits[reservationKey].vault)
-                .financeInKindFee(minerFee);
+                .financeInKindFee((reservation.anchorAmount - newAnchorAmount));
         }
 
         action.state = Reservation.ActionState.Settled;
