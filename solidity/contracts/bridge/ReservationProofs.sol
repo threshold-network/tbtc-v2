@@ -259,7 +259,6 @@ library ReservationProofs {
     function prepareReservationForSettlement(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
-        uint256 reservationKey,
         bool late
     ) internal {
         bool stranded = reservation.state ==
@@ -508,7 +507,7 @@ library ReservationProofs {
                         )
                     ];
                 if (newer.state == Reservation.ActionState.Pending) {
-                    unwindPendingAction(self, pending, reservationKey, false);
+                    unwindPendingAction(self, pending, reservationKey);
                 }
             }
 
@@ -665,12 +664,7 @@ library ReservationProofs {
         ];
         bool evidenceAlreadyEmitted = reservation.state ==
             Reservation.ReservationState.Stranded;
-        prepareReservationForSettlement(
-            self,
-            reservation,
-            reservationKey,
-            late
-        );
+        prepareReservationForSettlement(self, reservation, late);
         if (!late) {
             require(
                 reservation.requestNonce == requestNonce,
@@ -721,7 +715,7 @@ library ReservationProofs {
             if (
                 reservation.state == Reservation.ReservationState.ActionPending
             ) {
-                unwindPendingAction(self, reservation, reservationKey, true);
+                unwindPendingAction(self, reservation, reservationKey);
             }
 
             // slither-disable-next-line reentrancy-events
@@ -820,17 +814,13 @@ library ReservationProofs {
     /// @notice Unwinds the position's current pending generation during a
     ///         late settlement of an older generation: the anchor the
     ///         pending generation was authorized to spend has provably been
-    ///         consumed, so the generation can never settle. Its escrow is
-    ///         refunded (redemptions), its reserved capacity and locks are
-    ///         released, and it is terminally marked `Superseded`. Retry
-    ///         credit restoration is enabled only by the late-reanchor call
-    ///         site, whose successful settlement leaves the reservation
-    ///         Active on a replacement anchor.
+    ///         consumed, so the generation can never settle. Its reserved
+    ///         capacity and locks are released and it is terminally marked
+    ///         `Superseded`.
     function unwindPendingAction(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
-        uint256 reservationKey,
-        bool restoreRetryCredit
+        uint256 reservationKey
     ) internal {
         uint64 pendingNonce = reservation.requestNonce;
         Reservation.ReservationAction storage pendingAction = self

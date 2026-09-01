@@ -56,6 +56,17 @@ async function getBridgeStorageLayout(): Promise<StorageLayout> {
   return layout
 }
 
+function getMissingMemberTypes(layout: StorageLayout): string[] {
+  return Object.values(layout.types)
+    .filter(
+      (type) =>
+        type.members === undefined &&
+        (type.label.startsWith("enum ") || type.label.startsWith("struct "))
+    )
+    .map((type) => type.label)
+    .sort()
+}
+
 function bridgeStateEntry(layout: StorageLayout): StorageEntry {
   const bridgeState = layout.storage.find((entry) => entry.label === "self")
   if (!bridgeState) {
@@ -109,7 +120,7 @@ describe("Bridge storage layout", () => {
       bridgeTIP109HotfixDeployment.storageLayout as unknown as StorageLayout
     const updatedRawLayout = await getBridgeStorageLayout()
 
-    // `self`'s absolute position must not move: bridgeStateLayout() below
+// `self`'s absolute position must not move: bridgeStateLayout() below
     // only ever compares the flattened member list, never self's own
     // slot/offset, so a future base-contract change that shifts BridgeState
     // off its deployed slot would otherwise pass every packing assertion
@@ -121,6 +132,26 @@ describe("Bridge storage layout", () => {
 
     const deployedLayout = bridgeStateLayout(deployedRawLayout)
     const updatedLayout = bridgeStateLayout(updatedRawLayout)
+
+    const expectedDeployedMissingMembers = [
+      "enum MovingFunds.MovedFundsSweepRequestState",
+      "enum Wallets.WalletState",
+    ].sort()
+
+    const expectedUpdatedMissingMembers = [
+      "enum MovingFunds.MovedFundsSweepRequestState",
+      "enum Reservation.ActionState",
+      "enum Reservation.ActionType",
+      "enum Reservation.ReservationState",
+      "enum Wallets.WalletState",
+    ].sort()
+
+    expect(getMissingMemberTypes(deployedLayout)).to.deep.equal(
+      expectedDeployedMissingMembers
+    )
+    expect(getMissingMemberTypes(updatedLayout)).to.deep.equal(
+      expectedUpdatedMissingMembers
+    )
 
     // The deployment artifact predates the current source only in date, not
     // in enum-member support: under this project's pinned solc 0.8.17,

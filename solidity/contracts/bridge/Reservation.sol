@@ -68,7 +68,6 @@ library Reservation {
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
     // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
-
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
@@ -709,13 +708,13 @@ library Reservation {
             reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
+        /* solhint-disable not-rely-on-time */
         if (!privileged) {
             require(
                 block.timestamp >= reservation.reanchorCooldownUntil,
                 "Reanchor cooldown in effect"
             );
         }
-        /* solhint-disable not-rely-on-time */
         require(
             block.timestamp < reservation.dissolutionEligibleAt,
             "Reservation is dissolution-eligible"
@@ -783,7 +782,8 @@ library Reservation {
             targetWalletPubKeyHash
         ] + 1;
         require(
-            self.maxReservationsPerWallet == 0 || targetCount <= self.maxReservationsPerWallet,
+            self.maxReservationsPerWallet == 0 ||
+                targetCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationsCount[targetWalletPubKeyHash] = targetCount;
@@ -883,8 +883,11 @@ library Reservation {
 
         reservation.state = ReservationState.Active;
 
+/* solhint-disable not-rely-on-time */
         reservation.reanchorCooldownUntil =
-            uint32(block.timestamp) + self.reservationActionTimeout;
+            uint32(block.timestamp) +
+            self.reservationActionTimeout;
+        /* solhint-enable not-rely-on-time */
 
         emit ReservationReanchorTimedOut(
             reservationKey,
@@ -986,7 +989,9 @@ library Reservation {
         BridgeState.Storage storage self,
         uint256 reservationKey
     ) external {
-        ReservationRequest storage reservation = self.reservations[reservationKey];
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
         require(
             reservation.state == ReservationState.Active,
             "Reservation is not active"
@@ -1002,5 +1007,4 @@ library Reservation {
 
         strandReservation(self, reservation, reservationKey);
     }
-
 }
