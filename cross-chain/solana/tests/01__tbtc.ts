@@ -842,6 +842,17 @@ describe("tbtc", () => {
       });
       await expectIxSuccess([addGuardianIx], [authority]);
 
+      // transfer_mint_authority now requires at least two registered
+      // guardians (raising the bar on a single authority self-registering
+      // one puppet guardian and immediately co-signing with it). Register a
+      // second guardian here; it stays registered for the rest of this
+      // describe block.
+      const addSecondGuardianIx = await tbtc.addGuardianIx({
+        authority: authority.publicKey,
+        guardian: anotherGuardian.publicKey,
+      });
+      await expectIxSuccess([addSecondGuardianIx], [authority]);
+
       const transferIx = await tbtc.transferMintAuthorityIx({
         authority: authority.publicKey,
         guardian: guardian.publicKey,
@@ -922,7 +933,7 @@ describe("tbtc", () => {
       await tbtc.checkConfig({
         authority: authority.publicKey,
         numMinters: 0,
-        numGuardians: 1,
+        numGuardians: 2,
         supply: BigInt(0),
         paused: true,
         pendingAuthority: null,
@@ -955,7 +966,7 @@ describe("tbtc", () => {
       await tbtc.checkConfig({
         authority: authority.publicKey,
         numMinters: 0,
-        numGuardians: 1,
+        numGuardians: 2,
         supply: BigInt(0),
         paused: true,
         pendingAuthority: null,

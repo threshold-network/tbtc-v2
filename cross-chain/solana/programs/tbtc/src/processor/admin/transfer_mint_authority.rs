@@ -15,6 +15,16 @@ pub struct TransferMintAuthority<'info> {
         has_one = mint,
         constraint = config.paused @ TbtcError::IsNotPaused,
         constraint = config.num_minters == 0 @ TbtcError::MintersStillConfigured,
+        // A single authority can register one guardian it also controls and
+        // immediately co-sign this instruction, since `guardian.key() !=
+        // authority.key()` only proves two distinct pubkeys, not two
+        // independently-custodied operators. Requiring at least two
+        // registered guardians raises the bar: the authority would need to
+        // control multiple distinct puppet keys, matching the same
+        // structural (not custody-provable) parity accepted for the
+        // equivalent Sui `retire_gateway_for_ntt` dual-signer requirement.
+        constraint = config.num_guardians >= 2
+            @ TbtcError::InsufficientGuardiansForMintAuthorityTransfer,
     )]
     config: Account<'info, Config>,
 

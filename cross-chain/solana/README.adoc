@@ -26,3 +26,12 @@ enforces key separation, but operational independence is a governance
 requirement. Because guardian registration is authority-controlled, the guardian
 co-signature should be treated as true two-party control only when the guardian
 was pre-established under independent custody.
+
+`transfer_mint_authority` additionally requires at least two guardians to be
+registered at call time. A lone registered guardian only proves the co-signer
+holds a distinct pubkey from the authority, which a compromised or malicious
+authority can satisfy trivially by registering one puppet key it also
+controls and immediately co-signing with it. Requiring a second registered
+guardian raises the operational bar without changing the on-chain
+authorization model, and gives program-level parity with the equivalent
+`retire_gateway_for_ntt` dual-signer requirement on the Sui tBTC gateway.

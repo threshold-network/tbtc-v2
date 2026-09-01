@@ -46,4 +46,7 @@ pub enum TbtcError {
 
     #[msg("New mint authority cannot be the default pubkey")]
     NewMintAuthorityCannotBeDefault = 0x58,
+
+    #[msg("At least two guardians must be registered to transfer mint authority")]
+    InsufficientGuardiansForMintAuthorityTransfer = 0x5A,
 }
