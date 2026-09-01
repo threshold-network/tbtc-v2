@@ -423,13 +423,12 @@ ___
 
 Ƭ **EthereumSigner**: `Signer` \| `Provider`
 
-Represents an Ethereum signer. This type is a wrapper for Ethers-specific
-types and can be either a Signer that can make write transactions
-or a Provider that works only in the read-only mode.
+Represents an ethers v5 signer or provider. Signers (from @ethersproject/abstract-signer)
+can submit transactions; providers (from @ethersproject/abstract-provider) provide read-only access.
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:27](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L27)
+[src/lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
 
 ___
 
@@ -1232,7 +1231,7 @@ Chain ID as a string.
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L34)
+[src/lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
 
 ___
 
@@ -1355,7 +1354,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L56)
+[src/lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
 
 ___
 
@@ -1628,7 +1627,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L75)
+[src/lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
 
 ___
 
@@ -1761,7 +1760,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:720](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L720)
+[src/lib/ethereum/bridge.ts:723](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L723)
 
 ___
 
