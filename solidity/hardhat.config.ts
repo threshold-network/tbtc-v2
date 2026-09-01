@@ -19,6 +19,16 @@ import "solidity-docgen"
 // Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
 loadEnv({ path: path.join(__dirname, "..", ".env") })
 
+// Solc output selection shared by every compiler-settings block whose build
+// info needs to expose storage layouts to the upgrade-safety test in
+// test/bridge/Bridge.StorageLayout.test.ts. Hoisted so per-contract compiler
+// overrides cannot drift from the main compiler's selection.
+const storageLayoutOutputSelection = {
+  "*": {
+    "*": ["storageLayout"],
+  },
+}
+
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
   settings: {
@@ -38,19 +48,7 @@ const bridgeGovernanceCompilerConfig = {
       enabled: true,
       runs: 200,
     },
-  },
-}
-// Solc output selection exposing storage layouts to the upgrade-safety test
-// in test/bridge/Bridge.StorageLayout.test.ts. Currently applied to the main
-// compiler config only (`compilers[0]`, below) - none of the per-contract
-// compiler overrides (ecdsaSolidityCompilerConfig,
-// bridgeGovernanceCompilerConfig, the wormhole
-// L1BTCDepositorNttWithExecutor.sol override) include it, so a contract
-// compiled only under one of those overrides has no storage layout in its
-// build info.
-const storageLayoutOutputSelection = {
-  "*": {
-    "*": ["storageLayout"],
+    outputSelection: storageLayoutOutputSelection,
   },
 }
 

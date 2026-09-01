@@ -579,6 +579,19 @@ library Wallets {
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the Live state.
+    ///
+    ///      RFC 13 (which ships with a later milestone PR and is not yet in
+    ///      this branch's docs/rfc/) requires that a wallet cannot begin
+    ///      closing while it still custodies UTXO reservations (active or
+    ///      acceptance-pending, tracked via `walletReservationsCount`). This
+    ///      is NOT YET ENFORCED here: the permissionless release path for a
+    ///      stranded active reservation (`notifyReservationStranded`) does
+    ///      not exist in this branch and lands with the wallet-lifecycle
+    ///      integration PR. Enforcing the gate before that release path
+    ///      ships would deadlock any wallet holding a reservation - it can
+    ///      never reach Closing/Closed, and closure is the only condition
+    ///      under which an active reservation's slot is currently released.
+    ///      Both the gate and its release path must land together.
     function moveFunds(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
