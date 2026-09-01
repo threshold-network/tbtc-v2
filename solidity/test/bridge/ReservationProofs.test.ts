@@ -118,6 +118,7 @@ describe("ReservationProofs", () => {
       retryCredit: false,
       dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
       cumulativeReanchorFee: 0,
+      reanchorCooldownUntil: 0,
       ...overrides,
     }
   }
@@ -221,23 +222,11 @@ describe("ReservationProofs", () => {
       ).to.be.revertedWith("Unsupported reservation proof type")
     })
 
-    it("should revert if proof type is not Acceptance (Redemption, Reanchor, Dissolution)", async () => {
+    it("should revert if proof type is not supported (Redemption, Dissolution)", async () => {
       // ProofType.Redemption = 1
       await expect(
         testReservationProofs.submitReservationProof(
           1,
-          dummyTxInfo,
-          dummyProof,
-          dummyUtxo,
-          sampleReservationKey,
-          1
-        )
-      ).to.be.revertedWith("Unsupported reservation proof type")
-
-      // ProofType.Reanchor = 2
-      await expect(
-        testReservationProofs.submitReservationProof(
-          2,
           dummyTxInfo,
           dummyProof,
           dummyUtxo,
@@ -520,6 +509,18 @@ describe("ReservationProofs", () => {
         depositor.address,
         depositAmount,
         mockReservationVault.address
+      )
+
+      // Seed the reservation's current generation to match the settling
+      // request: settleAcceptance's on-time path requires the position's
+      // requestNonce to equal the generation being proven.
+      await testReservationProofs.setReservation(
+        sampleReservationKey,
+        buildReservationRequest({
+          owner: depositor.address,
+          state: 0, // Unknown
+          requestNonce,
+        })
       )
 
       // Action record created at request time
@@ -1641,6 +1642,14 @@ describe("ReservationProofs", () => {
         anchorAmount,
         mockReservationVault.address
       )
+      await testReservationProofs.setReservation(
+        anchorReservationKey,
+        buildReservationRequest({
+          owner: depositor.address,
+          state: 0, // Unknown
+          requestNonce: 1,
+        })
+      )
       await testReservationProofs.setReservationAction(
         anchorReservationKey,
         1,
@@ -1737,6 +1746,14 @@ describe("ReservationProofs", () => {
         depositor.address,
         depositAmount,
         vaultA.address // the deposit's immutable, reveal-time vault
+      )
+      await testReservationProofs.setReservation(
+        routingReservationKey,
+        buildReservationRequest({
+          owner: depositor.address,
+          state: 0, // Unknown
+          requestNonce: 1,
+        })
       )
       await testReservationProofs.setReservationAction(
         routingReservationKey,

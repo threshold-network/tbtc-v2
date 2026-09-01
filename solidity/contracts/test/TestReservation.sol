@@ -4,12 +4,16 @@ pragma solidity 0.8.17;
 import "../bridge/BridgeState.sol";
 import "../bridge/Deposit.sol";
 import "../bridge/Reservation.sol";
+import "../bridge/ReservationProofs.sol";
 import "../bridge/Wallets.sol";
 import "../bridge/WalletProposalValidatorConstants.sol";
 import "../bridge/BitcoinTx.sol";
 
 /// @title TestReservation
-/// @notice Test harness for the Reservation library control-plane logic.
+/// @notice Test harness for the Reservation and ReservationProofs library
+///         functions, exercised directly without pulling in the full
+///         Bridge contract (and the external library linking that
+///         requires).
 /// @dev Stubs the reveal-side producer contract that milestone-2 reveal flow must implement:
 ///      1. When a deposit is revealed with `vault == reservationVault`, the producer records:
 ///         - `pendingReservedDeposit[key] = PendingReservedDeposit({ isReserved: true, walletPubKeyHash, refundDeadline, refundDeadlineValidated })`
@@ -172,13 +176,6 @@ contract TestReservation {
         });
     }
 
-    function setDeposit(
-        uint256 reservationKey,
-        Deposit.DepositRequest calldata deposit
-    ) external {
-        state.deposits[reservationKey] = deposit;
-    }
-
     function setSweptAt(uint256 reservationKey, uint32 sweptAt) external {
         state.deposits[reservationKey].sweptAt = sweptAt;
     }
@@ -231,6 +228,17 @@ contract TestReservation {
             keccak256(abi.encodePacked(anchorTxHash, anchorTxOutputIndex))
         );
         state.reservationsByAnchorUtxo[utxoKey] = reservationKey;
+    }
+
+    function setReservationAnchor(
+        uint256 reservationKey,
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex
+    ) external {
+        state.reservations[reservationKey].anchorTxHash = anchorTxHash;
+        state.reservations[reservationKey].anchorTxOutputIndex = (
+            anchorTxOutputIndex
+        );
     }
 
     function setAction(
@@ -379,5 +387,275 @@ contract TestReservation {
         returns (Wallets.Wallet memory)
     {
         return state.registeredWallets[walletPubKeyHash];
+    }
+
+    function actionKey(uint256 reservationKey, uint64 requestNonce)
+        external
+        pure
+        returns (uint256)
+    {
+        return Reservation.actionKey(reservationKey, requestNonce);
+    }
+
+    function anchorUtxoHash(uint256 reservationKey)
+        external
+        view
+        returns (bytes32)
+    {
+        return Reservation.anchorUtxoHash(state.reservations[reservationKey]);
+    }
+
+    function parseSingleOutput(bytes memory outputVector)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return ReservationProofs.parseSingleOutput(outputVector);
+    }
+
+    function validateAnchorOutput(
+        bytes memory outputVector,
+        bytes20 targetWalletPubKeyHash,
+        uint64 amount,
+        uint64 txMaxFee
+    ) external returns (uint64 anchorAmount) {
+        // A throwaway action record keyed by a fixed slot: each call sets
+        // it fresh, so tests never see stale state from a prior call.
+        Reservation.ReservationAction storage action = state.reservationActions[
+            0
+        ];
+        action.targetWalletPubKeyHash = targetWalletPubKeyHash;
+        action.amount = amount;
+        action.txMaxFee = txMaxFee;
+
+        return
+            ReservationProofs.validateAnchorOutput(state, outputVector, action);
+    }
+
+    function setActionSourceAnchorUtxoHash(
+        uint256 reservationKey,
+        uint64 requestNonce,
+        bytes32 sourceAnchorUtxoHash
+    ) external {
+        Reservation.ReservationAction storage action = state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
+        action.sourceAnchorUtxoHash = sourceAnchorUtxoHash;
+    }
+
+    function requireCurrentSourceAnchor(
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external view {
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        Reservation.ReservationAction storage action = state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
+        ReservationProofs.requireCurrentSourceAnchor(reservation, action);
+    }
+
+    function setReservationFullState(
+        uint256 reservationKey,
+        address owner,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount,
+        Reservation.ReservationState newState,
+        uint64 requestNonce
+    ) external {
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        reservation.owner = owner;
+        reservation.walletPubKeyHash = walletPubKeyHash;
+        reservation.anchorAmount = anchorAmount;
+        reservation.state = newState;
+        reservation.requestNonce = requestNonce;
+    }
+
+    function setWalletState(
+        bytes20 walletPubKeyHash,
+        Wallets.WalletState newState
+    ) external {
+        state.registeredWallets[walletPubKeyHash].state = newState;
+    }
+
+    function strandLateSettlementIfTargetWalletClosed(
+        uint256 reservationKey,
+        bool evidenceAlreadyEmitted
+    ) external {
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        ReservationProofs.strandLateSettlementIfTargetWalletClosed(
+            state,
+            reservation,
+            reservationKey,
+            evidenceAlreadyEmitted
+        );
+    }
+
+    function strandIfTargetWalletClosed(
+        uint256 reservationKey,
+        bytes20 targetWalletPubKeyHash
+    ) external {
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        ReservationProofs.strandIfTargetWalletClosed(
+            state,
+            reservation,
+            reservationKey,
+            targetWalletPubKeyHash
+        );
+    }
+
+    function prepareReservationForSettlement(uint256 reservationKey, bool late)
+        external
+    {
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        ReservationProofs.prepareReservationForSettlement(
+            state,
+            reservation,
+            late
+        );
+    }
+
+    function setWalletReservationsCounters(
+        bytes20 walletPubKeyHash,
+        uint32 count,
+        uint64 amount
+    ) external {
+        state.walletReservationsCount[walletPubKeyHash] = count;
+        state.walletReservationsAmount[walletPubKeyHash] = amount;
+    }
+
+    function setGlobalReservationCounters(
+        uint64 totalAmount,
+        uint32 activeCount
+    ) external {
+        state.reservationTotalAmount = totalAmount;
+        state.activeReservationsCount = activeCount;
+    }
+
+    function setGovernanceParameters(
+        uint64 minAmount,
+        uint64 txMaxFee,
+        uint32 actionTimeout,
+        uint32 maxReservationsPerWallet
+    ) external {
+        state.reservationMinAmount = minAmount;
+        state.reservationTxMaxFee = txMaxFee;
+        state.reservationActionTimeout = actionTimeout;
+        state.maxReservationsPerWallet = maxReservationsPerWallet;
+    }
+
+    function seedPendingReservedDeposit(
+        uint256 depositKey,
+        bool isReserved,
+        bytes20 walletPubKeyHash,
+        uint32 refundDeadline
+    ) external {
+        state.pendingReservedDeposit[depositKey] = BridgeState
+            .PendingReservedDeposit(
+                isReserved,
+                walletPubKeyHash,
+                refundDeadline,
+                true
+            );
+    }
+
+    function setDeposit(
+        uint256 depositKey,
+        address depositor,
+        uint64 amount,
+        uint32 revealedAt,
+        address vault
+    ) external {
+        state.deposits[depositKey].depositor = depositor;
+        state.deposits[depositKey].amount = amount;
+        state.deposits[depositKey].revealedAt = revealedAt;
+        state.deposits[depositKey].vault = vault;
+    }
+
+    function reservationState(uint256 reservationKey)
+        external
+        view
+        returns (Reservation.ReservationState)
+    {
+        return state.reservations[reservationKey].state;
+    }
+
+    function setFullAction(
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ActionType actionType,
+        Reservation.ActionState newActionState,
+        uint32 timeoutAt,
+        bytes20 targetWalletPubKeyHash,
+        uint64 amount
+    ) external {
+        Reservation.ReservationAction storage action = state.reservationActions[
+            Reservation.actionKey(reservationKey, requestNonce)
+        ];
+        action.actionType = actionType;
+        action.state = newActionState;
+        action.timeoutAt = timeoutAt;
+        action.targetWalletPubKeyHash = targetWalletPubKeyHash;
+        action.amount = amount;
+    }
+
+    function actionState(uint256 reservationKey, uint64 requestNonce)
+        external
+        view
+        returns (Reservation.ActionState)
+    {
+        return
+            state
+                .reservationActions[
+                    Reservation.actionKey(reservationKey, requestNonce)
+                ]
+                .state;
+    }
+
+    function loadSettleableAction(
+        uint256 reservationKey,
+        uint64 requestNonce,
+        Reservation.ActionType expectedType
+    ) external view returns (bool late) {
+        (, late) = ReservationProofs.loadSettleableAction(
+            state,
+            reservationKey,
+            requestNonce,
+            expectedType
+        );
+    }
+
+    function notifyReservationActionTimeout(uint256 reservationKey) external {
+        Reservation.notifyReservationActionTimeout(state, reservationKey);
+    }
+
+    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
+        external
+    {
+        Reservation.notifyReservationAcceptanceTimedOut(state, reservationKey);
+    }
+
+    function setSpentMainUtxo(uint256 reservationKey, bool spent) external {
+        Reservation.ReservationRequest storage reservation = state.reservations[
+            reservationKey
+        ];
+        uint256 anchorUtxoKey = uint256(
+            keccak256(
+                abi.encodePacked(
+                    reservation.anchorTxHash,
+                    reservation.anchorTxOutputIndex
+                )
+            )
+        );
+        state.spentMainUTXOs[anchorUtxoKey] = spent;
     }
 }

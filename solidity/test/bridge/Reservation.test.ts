@@ -732,7 +732,7 @@ describe("Reservation", () => {
         expect(await testReservation.activeReservationsCount()).to.equal(2)
       })
 
-      it("should revert when activeReservationsCount reaches maxActiveReservations (Max active reservations reached)", async () => {
+      it("should revert when activeReservationsCount reaches maxActiveReservations (Active reservations cap exceeded)", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
 
@@ -763,7 +763,7 @@ describe("Reservation", () => {
           testReservation
             .connect(depositor)
             .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
-        ).to.be.revertedWith("Max active reservations reached")
+        ).to.be.revertedWith("Active reservations cap exceeded")
       })
 
       it("should allow a new request after strandReservation decrements activeReservationsCount", async () => {
@@ -1109,6 +1109,615 @@ describe("Reservation", () => {
       expect(
         await testReservation.getWalletReservationKeyIndex(reservationKey2)
       ).to.equal(0)
+    })
+  })
+
+  describe("actionKey", () => {
+    it("should produce correct action keys", async () => {
+      const reservationKey = 1
+      const requestNonce = 2
+      const expectedKey = ethers.utils.solidityKeccak256(
+        ["uint256", "uint64"],
+        [reservationKey, requestNonce]
+      )
+      expect(
+        await testReservation.actionKey(reservationKey, requestNonce)
+      ).to.equal(expectedKey)
+    })
+
+    it("should be sensitive to argument order", async () => {
+      const key1 = await testReservation.actionKey(1, 2)
+      const key2 = await testReservation.actionKey(2, 1)
+      expect(key1).to.not.equal(key2)
+    })
+  })
+
+  describe("anchorUtxoHash", () => {
+    it("should produce correct hash and react to input changes", async () => {
+      const reservationKey = 123
+      const anchorTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      const anchorTxOutputIndex = 0
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        anchorTxHash,
+        anchorTxOutputIndex
+      )
+
+      const expectedHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTxHash, anchorTxOutputIndex]
+      )
+      expect(await testReservation.anchorUtxoHash(reservationKey)).to.equal(
+        expectedHash
+      )
+
+      // Changing the anchor tx hash must change the resulting hash.
+      const newAnchorTxHash = ethers.utils.hexlify(ethers.utils.randomBytes(32))
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        newAnchorTxHash,
+        anchorTxOutputIndex
+      )
+      expect(await testReservation.anchorUtxoHash(reservationKey)).to.not.equal(
+        expectedHash
+      )
+
+      // Changing only the output index (same tx hash) must also change it.
+      const newOutputIndex = 1
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        newAnchorTxHash,
+        newOutputIndex
+      )
+      const expectedHashNewIndex = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [newAnchorTxHash, newOutputIndex]
+      )
+      expect(await testReservation.anchorUtxoHash(reservationKey)).to.equal(
+        expectedHashNewIndex
+      )
+    })
+  })
+
+  // A single well-formed P2WPKH (witness v0, 20-byte program) output:
+  // varint(count=1) | value (8-byte LE, 99500 sat) | scriptLen (0x16=22) |
+  // 0x0014 (OP_0 PUSH20) | 20-byte pubkey hash.
+  const anchorPubKeyHash = "0xaf802a76c10b6a646fff8d358241c121c9be1c53"
+  const singleOutputBody =
+    "ac84010000000000160014af802a76c10b6a646fff8d358241c121c9be1c53"
+  const singleOutput = `0x01${singleOutputBody}`
+  // The same output repeated twice, with a matching count=2 prefix.
+  const multiOutput = `0x02${singleOutputBody}${singleOutputBody}`
+
+  describe("parseSingleOutput", () => {
+    it("should parse a single-output vector successfully", async () => {
+      const output = await testReservation.parseSingleOutput(singleOutput)
+      // The parsed output is the value+script slice with the leading
+      // varint count byte stripped off.
+      expect(output).to.equal(`0x${singleOutputBody}`)
+    })
+
+    it("should revert for a multi-output vector", async () => {
+      await expect(
+        testReservation.parseSingleOutput(multiOutput)
+      ).to.be.revertedWith("Reservation transaction must have a single output")
+    })
+  })
+
+  describe("validateAnchorOutput", () => {
+    // The single output above carries 99500 satoshi.
+    const anchorAmount = 99500
+    const amount = 100000
+    const txMaxFee = 1000
+
+    it("should validate a correct anchor output and return its amount", async () => {
+      expect(
+        await testReservation.callStatic.validateAnchorOutput(
+          singleOutput,
+          anchorPubKeyHash,
+          amount,
+          txMaxFee
+        )
+      ).to.equal(anchorAmount)
+    })
+
+    it("should revert when the output pays the wrong wallet", async () => {
+      const wrongPubKeyHash = `0x${"11".repeat(20)}`
+      await expect(
+        testReservation.validateAnchorOutput(
+          singleOutput,
+          wrongPubKeyHash,
+          amount,
+          txMaxFee
+        )
+      ).to.be.revertedWith("Anchor output must pay the authorized wallet")
+    })
+
+    it("should revert when the fee exceeds the snapshotted bound", async () => {
+      // amount(100000) - anchorAmount(99500) = 500 <= 1000 normally passes;
+      // raise the requested amount so the implied fee (200000 -> 99500,
+      // difference 100500) blows past the 1000 satoshi bound.
+      const tooHighAmount = 200000
+      await expect(
+        testReservation.validateAnchorOutput(
+          singleOutput,
+          anchorPubKeyHash,
+          tooHighAmount,
+          txMaxFee
+        )
+      ).to.be.revertedWith("Transaction fee is too high")
+    })
+    it("should succeed at the fee-bound boundary (amount - anchorAmount == txMaxFee)", async () => {
+      const boundaryAmount = anchorAmount + txMaxFee
+      expect(
+        await testReservation.callStatic.validateAnchorOutput(
+          singleOutput,
+          anchorPubKeyHash,
+          boundaryAmount,
+          txMaxFee
+        )
+      ).to.equal(anchorAmount)
+    })
+
+    it("should revert on underflow when amount < anchorAmount", async () => {
+      const underflowAmount = anchorAmount - 1
+      await expect(
+        testReservation.validateAnchorOutput(
+          singleOutput,
+          anchorPubKeyHash,
+          underflowAmount,
+          txMaxFee
+        )
+      ).to.be.reverted
+    })
+  })
+  describe("requireCurrentSourceAnchor", () => {
+    const reservationKey = 1
+    const requestNonce = 1
+    const anchorTxHash = `0x${"11".repeat(32)}`
+    const anchorTxOutputIndex = 1
+
+    it("should not revert when anchors match", async () => {
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        anchorTxHash,
+        anchorTxOutputIndex
+      )
+      const expectedHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTxHash, anchorTxOutputIndex]
+      )
+      await testReservation.setActionSourceAnchorUtxoHash(
+        reservationKey,
+        requestNonce,
+        expectedHash
+      )
+      await testReservation.requireCurrentSourceAnchor(
+        reservationKey,
+        requestNonce
+      )
+    })
+
+    it("should revert when anchors mismatch", async () => {
+      await testReservation.setReservationAnchor(
+        reservationKey,
+        anchorTxHash,
+        anchorTxOutputIndex
+      )
+      const wrongHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTxHash, 2] // Wrong index
+      )
+      await testReservation.setActionSourceAnchorUtxoHash(
+        reservationKey,
+        requestNonce,
+        wrongHash
+      )
+      await expect(
+        testReservation.requireCurrentSourceAnchor(reservationKey, requestNonce)
+      ).to.be.revertedWith("Action source anchor is no longer current")
+    })
+  })
+  describe("strand functions", () => {
+    const reservationKey = 100
+    const requestNonce = 1
+    const walletPubKeyHash = `0x${"11".repeat(20)}`
+    const owner = `0x${"22".repeat(20)}`
+    const anchorAmount = 100000
+
+    it("should strand reservation when target wallet is closed", async () => {
+      // 1. Set wallet state to Closing (one of the three trigger states).
+      await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
+      // 2. Set reservation state.
+      await testReservation.setReservationFullState(
+        reservationKey,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      // 3. Seed the capacity counters strandReservation will decrement.
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      // 4. Call strandIfTargetWalletClosed.
+      await testReservation.strandIfTargetWalletClosed(
+        reservationKey,
+        walletPubKeyHash
+      )
+      // 5. Assert counters were released to zero.
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await testReservation.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(await testReservation.reservationTotalAmount()).to.equal(0)
+      expect(await testReservation.activeReservationsCount()).to.equal(0)
+    })
+
+    it("should strand an active reservation and release its capacity exactly once", async () => {
+      const strandKey = 101
+      await testReservation.setReservationFullState(
+        strandKey,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+
+      await testReservation.strandReservation(strandKey)
+
+      expect(await testReservation.reservationState(strandKey)).to.equal(4) // Stranded
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(await testReservation.activeReservationsCount()).to.equal(0)
+
+      // Calling again on an already-Stranded reservation must not
+      // double-decrement the now-zero counters (would otherwise underflow).
+      await testReservation.strandReservation(strandKey)
+      expect(await testReservation.reservationState(strandKey)).to.equal(4)
+    })
+
+    it("should not strand when the target wallet is still Live", async () => {
+      const key = 103
+      await testReservation.setWalletState(walletPubKeyHash, 1) // 1 = Live
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        false // evidenceAlreadyEmitted
+      )
+      expect(await testReservation.reservationState(key)).to.equal(1) // still Active
+    })
+
+    it("should strand a settlement whose target wallet is Closing", async () => {
+      const key = 104
+      await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        false // evidenceAlreadyEmitted
+      )
+      expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+    })
+
+    it("should strand a settlement whose target wallet is Terminated", async () => {
+      const key = 105
+      await testReservation.setWalletState(walletPubKeyHash, 5) // 5 = Terminated
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        false // evidenceAlreadyEmitted
+      )
+      expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+    })
+
+    it("should strand a Terminated settlement without double-releasing when evidence was already emitted", async () => {
+      const key = 106
+      await testReservation.setWalletState(walletPubKeyHash, 5) // 5 = Terminated
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        2, // ActionPending (the pre-restore state; counters were already
+        // released once and must not be released again)
+        requestNonce
+      )
+      await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        true // evidenceAlreadyEmitted
+      )
+      expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
+      // Counters default to zero and must stay zero: evidenceAlreadyEmitted
+      // means strandReservation must skip the decrement this time.
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+    })
+
+    it("prepareReservationForSettlement should no-op for a non-stranded settleable reservation", async () => {
+      const key = 500
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.prepareReservationForSettlement(key, false)
+      expect(await testReservation.reservationTotalAmount()).to.equal(0)
+    })
+
+    it("prepareReservationForSettlement should restore capacity for a late-settled stranded reservation", async () => {
+      const key = 501
+      await testReservation.setReservationAnchor(key, `0x${"33".repeat(32)}`, 0)
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        4, // Stranded
+        requestNonce
+      )
+      await testReservation.prepareReservationForSettlement(key, true)
+      expect(await testReservation.reservationTotalAmount()).to.equal(
+        anchorAmount
+      )
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+      expect(await testReservation.activeReservationsCount()).to.equal(1)
+    })
+
+    it("prepareReservationForSettlement should reject an on-time settlement of a stranded reservation", async () => {
+      const key = 502
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        4, // Stranded
+        requestNonce
+      )
+      await expect(
+        testReservation.prepareReservationForSettlement(key, false)
+      ).to.be.revertedWith("Reservation is not settleable")
+    })
+
+    it("prepareReservationForSettlement should reject an anchor that was already spent by another generation", async () => {
+      const key = 503
+      await testReservation.setReservationAnchor(key, `0x${"44".repeat(32)}`, 0)
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        4, // Stranded
+        requestNonce
+      )
+      await testReservation.setSpentMainUtxo(key, true)
+      await expect(
+        testReservation.prepareReservationForSettlement(key, true)
+      ).to.be.revertedWith("Reservation anchor already spent")
+    })
+  })
+
+  describe("loadSettleableAction", () => {
+    const reservationKey = 300
+    const requestNonce = 1
+    const targetWalletPubKeyHash = `0x${"11".repeat(20)}`
+
+    it("should report a pending action as not late", async () => {
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        3, // Reanchor
+        1, // Pending
+        1,
+        targetWalletPubKeyHash,
+        1000
+      )
+      expect(
+        await testReservation.callStatic.loadSettleableAction(
+          reservationKey,
+          requestNonce,
+          3 // Reanchor
+        )
+      ).to.equal(false)
+    })
+
+    it("should report a timed-out action as late", async () => {
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        3, // Reanchor
+        3, // TimedOut
+        1,
+        targetWalletPubKeyHash,
+        1000
+      )
+      expect(
+        await testReservation.callStatic.loadSettleableAction(
+          reservationKey,
+          requestNonce,
+          3 // Reanchor
+        )
+      ).to.equal(true)
+    })
+
+    it("should revert on an action type mismatch", async () => {
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        3, // Reanchor
+        1, // Pending
+        1,
+        targetWalletPubKeyHash,
+        1000
+      )
+      await expect(
+        testReservation.callStatic.loadSettleableAction(
+          reservationKey,
+          requestNonce,
+          1 // Acceptance
+        )
+      ).to.be.revertedWith("Action type mismatch")
+    })
+
+    it("should revert when the action is already settled", async () => {
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        3, // Reanchor
+        2, // Settled
+        1,
+        targetWalletPubKeyHash,
+        1000
+      )
+      await expect(
+        testReservation.callStatic.loadSettleableAction(
+          reservationKey,
+          requestNonce,
+          3 // Reanchor
+        )
+      ).to.be.revertedWith("Action is not settleable")
+    })
+  })
+
+  describe("notifyReservationAcceptanceTimedOut", () => {
+    it("should time out a pending acceptance and release its capacity", async () => {
+      const reservationKey = 400
+      const targetWalletPubKeyHash = `0x${"11".repeat(20)}`
+      const amount = 1000
+
+      // reservation.requestNonce defaults to 0, so the action must be keyed
+      // at requestNonce 0 to be the reservation's current generation.
+      await testReservation.setFullAction(
+        reservationKey,
+        0,
+        1, // Acceptance
+        1, // Pending
+        1, // timeoutAt: far in the past, so the timeout check passes
+        targetWalletPubKeyHash,
+        amount
+      )
+      await testReservation.setWalletReservationsCounters(
+        targetWalletPubKeyHash,
+        1,
+        amount
+      )
+      await testReservation.setGlobalReservationCounters(amount, 1)
+
+      await testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
+
+      expect(await testReservation.actionState(reservationKey, 0)).to.equal(3) // TimedOut
+      expect(
+        await testReservation.walletReservationsCount(targetWalletPubKeyHash)
+      ).to.equal(0)
+      expect(await testReservation.reservationTotalAmount()).to.equal(0)
+      expect(await testReservation.activeReservationsCount()).to.equal(0)
+      // Acceptance timeout reverts the position to Unknown (its
+      // pre-request state), not Active -- it was never a custodied
+      // reservation.
+      expect(await testReservation.reservationState(reservationKey)).to.equal(0) // Unknown
+    })
+  })
+
+  describe("requestReservationAcceptance", () => {
+    const reservationKey = 200
+    const walletPubKeyHash = `0x${"11".repeat(20)}`
+    const vault = `0x${"33".repeat(20)}`
+
+    it("should request reservation acceptance successfully", async () => {
+      const now = (await ethers.provider.getBlock("latest")).timestamp
+
+      // Preconditions: governance params (all extra caps default to 0 =
+      // disabled), a Live designated wallet, and a revealed deposit routed
+      // to the reservation vault with a signing window that clears both
+      // the deposit-age floor and the refund-deadline safety margin.
+      await testReservation.setGovernanceParameters(100, 100, 10000, 0)
+      await testReservation.setReservationVault(vault)
+      await testReservation.setWalletState(walletPubKeyHash, 1) // 1 = Live
+      await testReservation.setDeposit(
+        reservationKey,
+        depositor.address,
+        1000,
+        now - 3 * 60 * 60,
+        vault
+      )
+      await testReservation.seedPendingReservedDeposit(
+        reservationKey,
+        true,
+        walletPubKeyHash,
+        now + 200000
+      )
+
+      // Call
+      await testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+
+      // Assert
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(1)
+      expect(
+        await testReservation.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(1000)
+      expect(await testReservation.activeReservationsCount()).to.equal(1)
     })
   })
 })
