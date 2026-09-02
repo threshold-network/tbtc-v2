@@ -668,10 +668,10 @@ describe("acceptance authorization timeout", () => {
     await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
     const timeoutTx = await reservationRouter
       .connect(thirdParty)
-      .notifyReservationActionTimeout(reservationKey, [])
+      .notifyReservationAcceptanceTimedOut(reservationKey)
     await expect(timeoutTx)
-      .to.emit(reservationRouter, "ReservationActionTimedOut")
-      .withArgs(reservationKey, 1, ActionType.Acceptance)
+      .to.emit(reservationRouter, "ReservationAcceptanceTimedOut")
+      .withArgs(reservationKey, 1)
 
     // The reserved capacity was released.
     expect(

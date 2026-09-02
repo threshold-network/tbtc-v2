@@ -126,7 +126,13 @@ contract ReservationRouter is Governable, Initializable {
         uint64 requestNonce,
         bytes20 indexed newWalletPubKeyHash,
         bytes32 newAnchorTxHash,
-        uint64 newAnchorAmount
+        uint64 newAnchorAmount,
+        uint64 minerFee
+    );
+
+    event ReservationAcceptanceTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
     );
 
     event ReservationActionTimedOut(
@@ -334,6 +340,21 @@ contract ReservationRouter is Governable, Initializable {
     /// @param depositKey The deposit key of the reserved deposit.
     function notifyStaleReservedDeposit(uint256 depositKey) external {
         self.notifyStaleReservedDeposit(depositKey);
+    }
+
+    /// @notice Permissionlessly reports a pending acceptance authorization
+    ///         as timed out once its authorization window has elapsed,
+    ///         releasing the capacity it reserved so a fresh generation can
+    ///         be requested for the deposit. The timed-out generation
+    ///         remains settleable: a late anchor proof still settles via
+    ///         `submitReservationProof`. See
+    ///         `Reservation.notifyReservationAcceptanceTimedOut`.
+    /// @param reservationKey The deposit key of the revealed reserved
+    ///        deposit, which doubles as the reservation key.
+    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
+        external
+    {
+        self.notifyReservationAcceptanceTimedOut(reservationKey);
     }
 
     /// @notice Marks a reservation custodied by a terminated, closing, or

@@ -464,6 +464,13 @@ describe("Bridge - Reservation source-anchor binding", () => {
         .connect(thirdParty)
         .notifyReservationActionTimeout(reservationKey, [])
 
+      // Advance past the re-anchor cooldown (d600a8bf's P2 anti-griefing
+      // fix) that generation 2's timeout just started. Unrelated to what
+      // this test actually characterizes (source-anchor binding across a
+      // stale generation's replay); without this the next request reverts
+      // with "Reanchor cooldown in effect" before reaching that scenario.
+      await increaseTime(RESERVATION_ACTION_TIMEOUT + 1)
+
       // Generation 3 authorizes the same source A -> C and also times out.
       await reservationRouter
         .connect(thirdParty)
@@ -506,7 +513,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
           2,
           secondWalletPubKeyHash,
           firstReanchorTx.txHash,
-          anchorAmount.sub(500)
+          anchorAmount.sub(500),
+          500
         )
 
       // A freshly crafted B -> C transaction has generation 3's shape but

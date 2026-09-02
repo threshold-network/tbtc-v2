@@ -38,11 +38,19 @@
  *
  * The characterization block above is the PR D obligation tracked in
  * agent-docs/m1/pr-D-description.md (the "Carry-forward obligation" note).
- * Source PR #1104 already understood this as an accepted regression and
- * bounded the assertions (`gt PR1102_CAP`, `gte 86%`) so they FAIL if a
- * cap is ported. For m1 specifically: see docs/spec/reservations/pr-strategy.md
- * §4.1 (justification section) and pr-review-followups.md item 7 (the four-
- * lever decision deferring the bound to post-m1).
+ * Source PR #1104 originally understood this as an unbounded accepted
+ * regression (`gt PR1102_CAP`, `gte 86%`). During m1 merge reconciliation
+ * (2026-09-02), `d600a8bf` (fix(bridge): close confirmed review findings in
+ * reservation core, P3 "added a request-time amount floor for re-anchor")
+ * was found to already bound it via `anchorAmount > reservationTxMaxFee +
+ * reservationMinAmount`, checked at request time rather than the
+ * settlement-time dust floor #1104/#1102 characterized. Updated the test
+ * to assert the new (still substantial, ~80%+ in this fixture, but no
+ * longer unbounded) terminal behavior. For m1 specifically: see
+ * docs/spec/reservations/pr-strategy.md §4.1 (justification section) and
+ * pr-review-followups.md item 7 - this P3 fix does not implement any of
+ * the four levers that item enumerated, so item 7 still needs revisiting
+ * against this new floor, not closed by it.
  */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
@@ -50,7 +58,7 @@
 // the late-proof settlement matrix, the action source-anchor binding, the
 // capacity-reserved-before-signing guarantee, the acceptance authorization
 // timeout, the wallet lifecycle integration, and the cumulative re-anchor
-// fee exposure characterization (an accepted, documented regression).
+// fee exposure characterization (substantial but bounded, see file header).
 
 import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
@@ -514,7 +522,7 @@ describe("Bridge - Reservation settlement", () => {
       return hopTx
     }
 
-    it("lets most of a claim evaporate into miner fees, with no absolute ceiling", async () => {
+    it("bounds the grind at a request-time amount floor, not the settlement-time dust floor", async () => {
       const { anchorTx, reservationKey } = await makeAcceptedReservation()
       await liveWallet(secondWalletPubKeyHash)
       await raiseFeeBound()
@@ -522,16 +530,26 @@ describe("Bridge - Reservation settlement", () => {
       const reserveBefore = await tbtc.balanceOf(reservationVault.address)
       const debtBefore = await reservationVault.inKindFeeDebtSat()
 
-      // Grind at the maximum permitted fee per hop until the next full-fee
-      // hop would breach the dust floor. The hop count is derived, never
-      // hardcoded: that is the point, since it scales with the claim.
+      // Grind at the maximum permitted fee per hop. Termination is no
+      // longer the settlement-time dust floor `#1104`/`#1102` characterized
+      // (`GRIND_TX_MAX_FEE + 1`): `d600a8bf` (fix(bridge): close confirmed
+      // review findings in reservation core, P3 "added a request-time
+      // amount floor for re-anchor") added a REQUEST-time floor requiring
+      // `anchorAmount > reservationTxMaxFee + reservationMinAmount` before
+      // the next hop can even be authorized, which is much higher than the
+      // dust floor and fires first. This supersedes the "no absolute
+      // ceiling" premise `pr-review-followups.md` item 7 documented as an
+      // accepted regression deferred to post-m1: a P3 review fix already
+      // bounds it, just not via the four levers that item enumerated. The
+      // hop count is derived, never hardcoded: it scales with the claim.
       let currentTx = anchorTx
       let currentAnchor = anchorAmount
       let target = secondWalletPubKeyHash
       let nonce = 2
       let hops = 0
+      const requestFloor = BigNumber.from(GRIND_TX_MAX_FEE + GRIND_MIN_AMOUNT)
 
-      while (currentAnchor.sub(GRIND_TX_MAX_FEE).gt(GRIND_TX_MAX_FEE)) {
+      while (currentAnchor.gt(requestFloor)) {
         const nextAnchor = currentAnchor.sub(GRIND_TX_MAX_FEE)
         // Sequential on purpose: each hop spends the previous hop's output,
         // so these cannot be batched or parallelised.
@@ -552,29 +570,6 @@ describe("Bridge - Reservation settlement", () => {
         hops += 1
       }
 
-      // One final partial-fee hop lands the anchor exactly on the dust
-      // floor's boundary, `txMaxFee + 1`, which is the true worst case.
-      const floorBoundary = BigNumber.from(GRIND_TX_MAX_FEE + 1)
-      if (currentAnchor.gt(floorBoundary)) {
-        currentTx = await grindOneHop(
-          reservationKey,
-          currentTx,
-          target,
-          floorBoundary,
-          nonce
-        )
-        currentAnchor = floorBoundary
-        nonce += 1
-        hops += 1
-        // The reservation now sits on `target`, so the terminal attempt
-        // below has to name the other wallet. Inside the loop this flip
-        // happens on every iteration; here it has to happen explicitly.
-        target =
-          target === secondWalletPubKeyHash
-            ? walletPubKeyHash
-            : secondWalletPubKeyHash
-      }
-
       const reservation = await reservationRouter.reservations(reservationKey)
       const cumulativeFee = anchorAmount.sub(currentAnchor)
 
@@ -591,53 +586,36 @@ describe("Bridge - Reservation settlement", () => {
       const burnedSat = reserveBefore.sub(reserveAfter).div(SATOSHI_MULTIPLIER)
       expect(burnedSat.add(debtAfter.sub(debtBefore))).to.equal(cumulativeFee)
 
-      // The characterization itself. Both assertions would FAIL if an
-      // absolute per-reservation ceiling were ported, which is exactly
-      // what makes the accepted regression executable rather than a claim
-      // in a document.
+      // Still a real, substantial exposure - well above #1102's original
+      // fixture cap - just no longer unbounded. The exact percentage is a
+      // function of `reservationMinAmount` relative to the claim in this
+      // regime, not a protocol constant.
       expect(cumulativeFee).to.be.gt(PR1102_CAP)
-      expect(cumulativeFee.mul(100).div(anchorAmount)).to.be.gte(86)
+      expect(cumulativeFee.mul(100).div(anchorAmount)).to.be.gte(80)
 
-      // And the grind is genuinely terminal: one more full-fee hop cannot
-      // settle, because the dust floor is the only thing that ever stopped
-      // it.
-      await reservationRouter
-        .connect(bridgeGovernanceSigner)
-        .requestReservationReanchor(reservationKey, target)
-      const belowFloorTx = buildTx(
-        [{ txHash: currentTx.txHash, index: 0 }],
-        [
-          {
-            valueSat: BigNumber.from(GRIND_TX_MAX_FEE),
-            script: p2wpkhScript(target),
-          },
-        ]
-      )
+      // And the grind is genuinely terminal: the next hop cannot even be
+      // requested, because the request-time floor is the first thing that
+      // stops it now (never reaches the settlement-time dust floor check).
       await expect(
         reservationRouter
-          .connect(spvMaintainer)
-          .submitReservationProof(
-            ProofType.Reanchor,
-            belowFloorTx.info,
-            proofFor(belowFloorTx.txHash),
-            NO_MAIN_UTXO_PARAM,
-            reservationKey,
-            nonce
-          )
-      ).to.be.revertedWith("Re-anchor amount below the dust floor")
+          .connect(bridgeGovernanceSigner)
+          .requestReservationReanchor(reservationKey, target)
+      ).to.be.revertedWith(
+        "Reanchor would fall below the minimum reservation amount"
+      )
 
       // Recorded for the deferral note: the hop count scales with the
       // claim, so this figure is regime-specific, not a constant bound.
-      expect(hops).to.be.gte(7)
+      expect(hops).to.be.gte(6)
     })
 
     it("depends on the governance gate: a Live wallet's anchor cannot be rotated permissionlessly", async () => {
-      // The accepted regression above is only tolerable because reaching
-      // it requires governance to authorize every hop. If this gate is
-      // ever relaxed, the unbounded exposure becomes reachable by the
-      // custodying wallet operator alone, which is the threat model
-      // `pr-review-followups.md` item 7 scored as the severity-driving
-      // case. This test is the tripwire for that change.
+      // The grind above is only tolerable because reaching it requires
+      // governance to authorize every hop. If this gate is ever relaxed,
+      // this substantial (bounded but still large) exposure becomes
+      // reachable by the custodying wallet operator alone, which is the
+      // threat model `pr-review-followups.md` item 7 scored as the
+      // severity-driving case. This test is the tripwire for that change.
       //
       // Scope, per limit 2 in this block's header: this catches the gate
       // being removed, not `privileged` being widened to admit a second
