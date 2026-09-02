@@ -10,7 +10,6 @@ import {
   DestinationChainTBTCToken,
 } from "../contracts"
 
-
 import ArbitrumL2TBTCTokenDeployment from "./artifacts/arbitrumOne/ArbitrumTBTC.json"
 import ArbitrumSepoliaL2TBTCTokenDeployment from "./artifacts/arbitrumSepolia/ArbitrumTBTC.json"
 

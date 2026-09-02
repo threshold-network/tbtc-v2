@@ -17,7 +17,6 @@ import { EthereumCrossChainExtraDataEncoder } from "../ethereum/l1-bitcoin-depos
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
 
-
 import BaseL2BitcoinDepositorDeployment from "./artifacts/base/BaseL2BitcoinDepositor.json"
 import BaseSepoliaL2BitcoinDepositorDeployment from "./artifacts/baseSepolia/BaseL2BitcoinDepositor.json"
 

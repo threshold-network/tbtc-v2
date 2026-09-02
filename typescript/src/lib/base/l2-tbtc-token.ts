@@ -10,7 +10,6 @@ import {
   DestinationChainTBTCToken,
 } from "../contracts"
 
-
 import BaseL2TBTCTokenDeployment from "./artifacts/base/BaseTBTC.json"
 import BaseSepoliaL2TBTCTokenDeployment from "./artifacts/baseSepolia/BaseTBTC.json"
 

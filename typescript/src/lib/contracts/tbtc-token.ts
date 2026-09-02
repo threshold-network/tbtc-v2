@@ -1,4 +1,3 @@
-
 import { BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
 import { ChainIdentifier } from "./chain-identifier"

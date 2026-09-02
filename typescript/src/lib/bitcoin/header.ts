@@ -1,4 +1,3 @@
-
 import { Hex } from "../utils"
 import { BitcoinHashUtils } from "./hash"
 

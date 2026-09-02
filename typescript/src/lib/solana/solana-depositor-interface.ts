@@ -111,8 +111,7 @@ function isTransactionReceipt(
   return (
     typeof receipt === "object" &&
     receipt !== null &&
-    typeof (receipt as ChainTransactionReceipt).transactionHash ===
-      "string" &&
+    typeof (receipt as ChainTransactionReceipt).transactionHash === "string" &&
     /^0x[0-9a-fA-F]{64}$/.test(
       (receipt as ChainTransactionReceipt).transactionHash
     )

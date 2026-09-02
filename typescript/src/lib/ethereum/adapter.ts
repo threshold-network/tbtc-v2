@@ -421,25 +421,23 @@ export class EvmContractHandle {
       opts?.nonRetryableErrors
         ? skipRetryWhenMatched(opts.nonRetryableErrors)
         : undefined
-    )(
-      async () => {
-        const { public: publicClient } = await this._connRef.get()
-        try {
-          return (await publicClient.readContract({
-            address: this._address,
-            abi: this._abi,
-            functionName,
-            args: args ?? [],
-            blockNumber:
-              opts?.blockNumber !== undefined
-                ? BigInt(opts.blockNumber)
-                : undefined,
-          } as never)) as T
-        } catch (e: unknown) {
-          throw normalizeEvmError(e)
-        }
+    )(async () => {
+      const { public: publicClient } = await this._connRef.get()
+      try {
+        return (await publicClient.readContract({
+          address: this._address,
+          abi: this._abi,
+          functionName,
+          args: args ?? [],
+          blockNumber:
+            opts?.blockNumber !== undefined
+              ? BigInt(opts.blockNumber)
+              : undefined,
+        } as never)) as T
+      } catch (e: unknown) {
+        throw normalizeEvmError(e)
       }
-    )
+    })
   }
 
   /**

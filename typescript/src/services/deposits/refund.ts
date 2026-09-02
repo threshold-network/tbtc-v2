@@ -1,4 +1,3 @@
-
 import {
   BitcoinAddressConverter,
   BitcoinClient,

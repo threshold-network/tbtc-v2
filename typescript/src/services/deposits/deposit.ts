@@ -17,7 +17,6 @@ import {
 import { payments, Stack, script, opcodes } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
 
-
 /**
  * Component representing an instance of the tBTC v2 deposit process.
  * Depositing is a complex process spanning both the Bitcoin and the target chain.

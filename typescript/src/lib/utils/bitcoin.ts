@@ -1,4 +1,3 @@
-
 /**
  * Converts the amount to Satoshi precision.
  * @param value The amount to be converted.

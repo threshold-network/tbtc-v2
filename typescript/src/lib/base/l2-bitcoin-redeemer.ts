@@ -8,7 +8,6 @@ import {
 import { ChainIdentifier, Chains, L2BitcoinRedeemer } from "../contracts"
 import { Hex } from "../utils"
 
-
 import BaseSepoliaL2BitcoinRedeemerDeployment from "./artifacts/baseSepolia/BaseL2BitcoinRedeemer.json"
 import BaseSepoliaWormholeCoreDeployment from "./artifacts/baseSepolia/WormholeCore.json"
 import { WORMHOLE_CHAIN_IDS } from "../utils/wormhole"

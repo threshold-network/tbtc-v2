@@ -18,7 +18,6 @@ import MainnetBaseL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1Bitcoi
 import MainnetArbitrumL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
 
-
 const artifactLoader = {
   getMainnet: (l2ChainName: DestinationChainName) => {
     switch (l2ChainName) {

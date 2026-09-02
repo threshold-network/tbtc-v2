@@ -1,4 +1,3 @@
-
 import { Hex } from "../utils"
 import { ECPairFactory, ECPairInterface } from "ecpair"
 import * as tinysecp from "@bitcoinerlab/secp256k1"

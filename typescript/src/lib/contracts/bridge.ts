@@ -1,4 +1,3 @@
-
 import {
   BitcoinSpvProof,
   BitcoinUtxo,

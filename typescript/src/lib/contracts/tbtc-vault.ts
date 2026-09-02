@@ -3,7 +3,6 @@ import { Hex } from "../utils"
 import { ChainIdentifier } from "./chain-identifier"
 import { ChainEvent, GetChainEvents } from "./chain-event"
 
-
 /**
  * Interface for communication with the TBTCVault on-chain contract.
  */
