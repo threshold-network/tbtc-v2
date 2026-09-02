@@ -20,6 +20,7 @@ the relayer so the caller can poll the relayer or otherwise recover.
 ### Properties
 
 - [depositId](StarkNetRelayerDepositConflictError.md#depositid)
+- [depositIdMismatch](StarkNetRelayerDepositConflictError.md#depositidmismatch)
 - [locallyDerivedDepositId](StarkNetRelayerDepositConflictError.md#locallyderiveddepositid)
 - [message](StarkNetRelayerDepositConflictError.md#message)
 - [name](StarkNetRelayerDepositConflictError.md#name)
@@ -37,17 +38,18 @@ the relayer so the caller can poll the relayer or otherwise recover.
 
 ### constructor
 
-• **new StarkNetRelayerDepositConflictError**(`message`, `depositId`, `locallyDerivedDepositId`, `status`, `statusVerified`): [`StarkNetRelayerDepositConflictError`](StarkNetRelayerDepositConflictError.md)
+• **new StarkNetRelayerDepositConflictError**(`message`, `depositId`, `locallyDerivedDepositId`, `status`, `statusVerified`, `depositIdMismatch?`): [`StarkNetRelayerDepositConflictError`](StarkNetRelayerDepositConflictError.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `message` | `string` |
-| `depositId` | `undefined` \| `string` |
-| `locallyDerivedDepositId` | `undefined` \| `string` |
-| `status` | `undefined` \| [`StarkNetRelayerDepositStatus`](../enums/StarkNetRelayerDepositStatus.md) |
-| `statusVerified` | `boolean` |
+| Name | Type | Default value |
+| :------ | :------ | :------ |
+| `message` | `string` | `undefined` |
+| `depositId` | `undefined` \| `string` | `undefined` |
+| `locallyDerivedDepositId` | `undefined` \| `string` | `undefined` |
+| `status` | `undefined` \| [`StarkNetRelayerDepositStatus`](../enums/StarkNetRelayerDepositStatus.md) | `undefined` |
+| `statusVerified` | `boolean` | `undefined` |
+| `depositIdMismatch` | `boolean` | `false` |
 
 #### Returns
 
@@ -59,7 +61,7 @@ Error.constructor
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L132)
+[src/lib/starknet/starknet-depositor.ts:151](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L151)
 
 ## Properties
 
@@ -72,7 +74,25 @@ or undefined if the relayer's reported ID was non-canonical or missing.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L134)
+[src/lib/starknet/starknet-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L153)
+
+___
+
+### depositIdMismatch
+
+• `Readonly` **depositIdMismatch**: `boolean` = `false`
+
+True specifically when the relayer
+reported a canonical deposit ID that disagrees with the SDK's own
+locally-derived ID (both known, but different) - as opposed to
+`statusVerified` being false for any other reason (e.g. no local ID was
+available at all). Lets callers distinguish a genuine ID mismatch from an
+unconfigured or unreachable status endpoint without diffing fields
+themselves.
+
+#### Defined in
+
+[src/lib/starknet/starknet-depositor.ts:157](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L157)
 
 ___
 
@@ -85,7 +105,7 @@ independently derived by the SDK from the funding transaction, if available.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L135)
+[src/lib/starknet/starknet-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L154)
 
 ___
 
@@ -137,7 +157,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L136)
+[src/lib/starknet/starknet-depositor.ts:155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L155)
 
 ___
 
@@ -145,15 +165,26 @@ ___
 
 • `Readonly` **statusVerified**: `boolean`
 
-Whether the relayer's reported status is
-trustable. False if no status endpoint was configured, the deposit ID was
-non-canonical, the query failed, the relayer's success response was false, the
-relayer's echoed ID did not match the locally derived one, or the relayer
-reported an unrecognized status.
+Whether the relayer's status response is
+self-consistent and trustable as *the relayer's own account* of the
+deposit - NOT independently verified against L1. This depositor has no L1
+provider and cannot cross-check the relayer's claim against on-chain
+state, so a malicious, buggy, or stale relayer's report cannot be caught
+here. True only when the relayer's status response echoed back the exact
+deposit ID that was queried AND that ID was the SDK's own
+locally-derived ID (either because the relayer's reported ID agreed with
+it, or because no canonical relayer ID was available and the query used
+the local ID directly) - a relayer merely corroborating its own
+unverifiable claim, with no local ID available to cross-check against,
+never counts as verified. False in every other case: no status endpoint
+configured, no canonical ID available to query, the query failed, the
+relayer's success response was not the literal boolean `true`, a
+canonical relayer-reported ID mismatched the locally derived one, or the
+relayer reported an unrecognized status.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:137](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L137)
+[src/lib/starknet/starknet-depositor.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L156)
 
 ___
 

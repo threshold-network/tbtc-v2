@@ -467,7 +467,7 @@ Destination chain name accepted by `initiateGaslessDeposit` and
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L42)
+[src/services/deposits/deposits-service.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L36)
 
 ___
 
@@ -682,7 +682,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L164)
+[src/lib/starknet/starknet-depositor.ts:184](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L184)
 
 ___
 
@@ -991,7 +991,7 @@ This is 180 days (6 months assuming 1 month = 30 days).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:184](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L184)
+[src/services/deposits/deposits-service.ts:175](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L175)
 
 ___
 
@@ -1011,7 +1011,7 @@ ___
 
 ### SUPPORTED\_GASLESS\_CHAINS
 
-• `Const` **SUPPORTED\_GASLESS\_CHAINS**: readonly [``"L1"``, ``"Arbitrum"``, ``"Base"``, ``"Sui"``, ``"StarkNet"``]
+• `Const` **SUPPORTED\_GASLESS\_CHAINS**: readonly [``"L1"``, ``"Arbitrum"``, ``"Base"``]
 
 Canonical list of destination chains supported by the gasless deposit flow.
 Literal source of truth; `GaslessDestination` is derived from it so the
@@ -1061,7 +1061,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1014](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1014)
+[src/lib/starknet/starknet-depositor.ts:1093](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1093)
 
 ___
 
@@ -1684,7 +1684,7 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/starknet/index.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L124)
+[src/lib/starknet/index.ts:118](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L118)
 
 ___
 
@@ -1716,7 +1716,7 @@ Error if the chain ID is unrecognized and no URL overrides are provided.
 
 #### Defined in
 
-[src/lib/starknet/index.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L52)
+[src/lib/starknet/index.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L48)
 
 ___
 

@@ -19,7 +19,7 @@ Configuration for StarkNetBitcoinDepositor
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:148](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L148)
+[src/lib/starknet/starknet-depositor.ts:168](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L168)
 
 ___
 
@@ -29,7 +29,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:158](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L158)
+[src/lib/starknet/starknet-depositor.ts:178](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L178)
 
 ___
 
@@ -45,7 +45,7 @@ or similar placeholders.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:157](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L157)
+[src/lib/starknet/starknet-depositor.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L177)
 
 ___
 
@@ -55,4 +55,4 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L149)
+[src/lib/starknet/starknet-depositor.ts:169](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L169)

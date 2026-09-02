@@ -31,18 +31,16 @@ for transaction vector structure reference
 • **destinationChainDepositOwner**: `string`
 
 Destination chain deposit owner address.
-Format varies by chain based on the contract parameter type:
-- L1 (Ethereum): bytes32 - 32-byte hex (left-padded Ethereum address, e.g., "0x000000000000000000000000" + address)
-- Arbitrum: address - 20-byte Ethereum address hex (e.g., "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1")
-- Base: address - 20-byte Ethereum address hex (e.g., "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1")
-- Sui: bytes32 - 32-byte hex (left-padded Ethereum address)
-- StarkNet: bytes32 - 32-byte hex (left-padded Ethereum address)
-
-Note: Backend will automatically pad 20-byte addresses to bytes32 for chains that require it.
+Always a 32-byte hex value (bytes32), passed through unchanged from
+`receipt.extraData` - every destination chain's own extraData encoder
+already produces a 32-byte value (see `AbstractL1BTCDepositor.initializeDeposit`,
+solidity/contracts/cross-chain/AbstractL1BTCDepositor.sol:283-293). The backend
+or on-chain contract decodes it per chain type; the SDK does not re-encode
+or re-extract it.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L170)
+[src/services/deposits/deposits-service.ts:161](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L161)
 
 ___
 
@@ -56,7 +54,7 @@ Target chain name for backend routing (normalized to lowercase).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L177)
+[src/services/deposits/deposits-service.ts:168](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L168)
 
 ___
 
@@ -78,7 +76,7 @@ This structure matches the on-chain contract requirements.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:98](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L98)
+[src/services/deposits/deposits-service.ts:91](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L91)
 
 ___
 
@@ -101,4 +99,4 @@ Deposit reveal information matching on-chain reveal structure.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:123](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L123)
+[src/services/deposits/deposits-service.ts:116](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L116)
