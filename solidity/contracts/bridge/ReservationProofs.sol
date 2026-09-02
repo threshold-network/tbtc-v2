@@ -196,17 +196,21 @@ library ReservationProofs {
             "Action is not settleable"
         );
         late = action.state == Reservation.ActionState.TimedOut;
-        // Bound late settlement: a timed-out action may be settled late
-        // only within the reservation term following its timeout. After
-        // that window the depositor's Bitcoin refund path is the only
-        // resolution, and the occupancy slot can no longer be re-taken.
-        // This caps the counter overshoot window that the M15 deferral
-        // relies on.
+        // Bound late acceptance settlement (M15 deferral mitigation):
+        // a timed-out acceptance action may be settled late only within
+        // the reservation term following its timeout. After that window
+        // the depositor's Bitcoin refund path is the only resolution,
+        // and the occupancy slot can no longer be re-taken. Reanchor
+        // late settlement is intentionally left unbounded: reanchor
+        // actions have their own timeout bounded by their own term
+        // via the late-reanchor wallet-stranding path, not via this
+        // action-window check.
         require(
             !late ||
+                expectedType != Reservation.ActionType.Acceptance ||
                 block.timestamp <=
                 uint256(action.timeoutAt) + self.reservationTermSeconds,
-            "Late settlement window expired"
+            "Late acceptance settlement window expired"
         );
     }
 
