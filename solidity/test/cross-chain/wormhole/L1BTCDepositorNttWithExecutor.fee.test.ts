@@ -83,7 +83,6 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
     // Set default parameters to match test fee args
     await depositor.setDefaultParameters(

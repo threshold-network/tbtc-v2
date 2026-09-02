@@ -919,6 +919,98 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       })
     })
 
+    context("CEI ordering", () => {
+      // This finalizeDeposit implementation is a hand-duplicated (not
+      // inherited) copy of AbstractL1BTCDepositor's CEI-ordered
+      // delete-before-transfer logic; this guards against a regression
+      // that stops clearing the deferred gas reimbursement in this
+      // specific contract.
+      const messageFee = 1000
+      const transferSequence = 555
+      const depositAmount = BigNumber.from(100000)
+      const treasuryFee = BigNumber.from(500)
+      const optimisticMintingFeeDivisor = 20
+      const depositTxMaxFee = BigNumber.from(1000)
+
+      before(async () => {
+        await createSnapshot()
+
+        await l1BtcDepositor
+          .connect(governance)
+          .updateReimbursementAuthorization(relayer.address, true)
+        await l1BtcDepositor
+          .connect(governance)
+          .updateReimbursementPool(reimbursementPool.address)
+
+        await l1BtcDepositor
+          .connect(relayer)
+          .initializeDeposit(
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+        await bridge.depositParameters.returns({
+          depositDustThreshold: 0,
+          depositTreasuryFeeDivisor: 0,
+          depositTxMaxFee,
+          depositRevealAheadPeriod: 0,
+        })
+        await tbtcVault.optimisticMintingFeeDivisor.returns(
+          optimisticMintingFeeDivisor
+        )
+
+        const revealedAt = (await lastBlockTime()) - 7200
+        const finalizedAt = await lastBlockTime()
+        await bridge.deposits
+          .whenCalledWith(initializeDepositFixture.depositKey)
+          .returns({
+            depositor: l1BtcDepositor.address,
+            amount: depositAmount,
+            revealedAt,
+            vault: initializeDepositFixture.reveal.vault,
+            treasuryFee,
+            sweptAt: finalizedAt,
+            extraData: initializeDepositFixture.destinationChainDepositOwner,
+          })
+
+        await tbtcVault.optimisticMintingRequests
+          .whenCalledWith(initializeDepositFixture.depositKey)
+          .returns([revealedAt, finalizedAt])
+
+        await wormhole.messageFee.returns(messageFee)
+        await wormholeTokenBridge.transferTokensWithPayload.returns(
+          transferSequence
+        )
+
+        await l1BtcDepositor
+          .connect(relayer)
+          .finalizeDeposit(initializeDepositFixture.depositKey, {
+            value: messageFee,
+          })
+      })
+
+      after(async () => {
+        await bridge.depositParameters.reset()
+        await tbtcVault.optimisticMintingFeeDivisor.reset()
+        await bridge.deposits.reset()
+        await tbtcVault.optimisticMintingRequests.reset()
+        await wormhole.messageFee.reset()
+        await wormholeTokenBridge.transferTokensWithPayload.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should delete the deferred gas reimbursement from storage", async () => {
+        const gasReimbursement = await l1BtcDepositor.gasReimbursements(
+          initializeDepositFixture.depositKey
+        )
+
+        expect(gasReimbursement.receiver).to.equal(ethers.constants.AddressZero)
+        expect(gasReimbursement.gasSpent).to.equal(0)
+      })
+    })
+
     // The next three contexts exercise the reimburseTxMaxFee branches of
     // finalizeDeposit. Math reused: depositAmount=100000, treasuryFee=500,
     // optimisticMintingFeeDivisor=20, depositTxMaxFee=1000.
@@ -1424,6 +1516,18 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         // Deploy a second V2 implementation and upgrade.
         const proxyAdmin: Contract = await upgrades.admin.getInstance()
         const proxyAdminOwner = await proxyAdmin.owner()
+        // The shared OZ ProxyAdmin singleton for this network may already be
+        // owned by a real governance contract (e.g. the mainnet Timelock)
+        // when USE_EXTERNAL_DEPLOY replays production deployment history.
+        // Impersonate + fund it so the upgrade call can be signed locally,
+        // matching the pattern in UpgradeNativeBTCDepositorTo968.test.ts.
+        await ethers.provider.send("hardhat_impersonateAccount", [
+          proxyAdminOwner,
+        ])
+        await ethers.provider.send("hardhat_setBalance", [
+          proxyAdminOwner,
+          "0x3635c9adc5dea00000", // 1000 ETH
+        ])
         const ownerSigner = await ethers.getSigner(proxyAdminOwner)
 
         const v2Factory = await ethers.getContractFactory(
@@ -1501,6 +1605,15 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         // Upgrade to a fresh V2 implementation.
         const proxyAdmin: Contract = await upgrades.admin.getInstance()
         const proxyAdminOwner = await proxyAdmin.owner()
+        // See the equivalent comment in the previous test for why this
+        // impersonation step is required under USE_EXTERNAL_DEPLOY.
+        await ethers.provider.send("hardhat_impersonateAccount", [
+          proxyAdminOwner,
+        ])
+        await ethers.provider.send("hardhat_setBalance", [
+          proxyAdminOwner,
+          "0x3635c9adc5dea00000", // 1000 ETH
+        ])
         const ownerSigner = await ethers.getSigner(proxyAdminOwner)
 
         const v2Factory = await ethers.getContractFactory(

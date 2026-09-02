@@ -85,7 +85,6 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -117,16 +116,16 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         .areExecutorParametersSet()
       expect(isSetAgain).to.be.true
 
-      // Test chain-specific quote for supported chain
+      // Test chain-specific quote for the staged destination chain
       const quote = await depositor
         .connect(user)
-        ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_BASE)
+        ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       expect(quote).to.be.gt(0)
 
-      // Test chain-specific quote for unsupported chain
+      // Test chain-specific quote for a chain that was never staged
       await expect(
         depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
-      ).to.be.revertedWith("Destination chain not supported")
+      ).to.be.revertedWith("Destination chain not bound to staged parameters")
     })
 
     it("should handle multiple chain configurations", async () => {
@@ -250,7 +249,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         depositor
           .connect(user)
           ["quoteFinalizeDeposit(uint16)"](unsupportedChain)
-      ).to.be.revertedWith("Destination chain not supported")
+      ).to.be.revertedWith("Destination chain not bound to staged parameters")
     })
   })
 

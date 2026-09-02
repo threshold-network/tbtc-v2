@@ -37,7 +37,7 @@ struct ExecutorArgs {
 /// @notice Fee arguments for NttManagerWithExecutor transfers
 /// @dev Used to specify fees taken by the executor service
 struct FeeArgs {
-    /// @notice Fee in basis points (e.g., 100 = 1%)
+    /// @notice Fee in basis points (e.g., 100 = 0.1%)
     uint16 dbps;
     /// @notice Address to receive the fee payment
     address payee;
@@ -130,6 +130,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         bool exists;
         uint256 cachedRequiredPayment;
         uint16 cachedDestinationChain;
+        uint16 cachedFeeBps;
+        address cachedFeeRecipient;
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -143,7 +145,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     mapping(uint16 => bool) public supportedChains;
 
     /// @notice Default supported chain ID for backward compatibility
-    uint16 public defaultSupportedChain;
+    // Default supported chain removed: governance surface deprecated.
 
     /// @notice Default gas limit for destination chain execution
     /// @dev Used when no specific gas limit is provided in relay instructions
@@ -157,15 +159,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Address to receive TBTC platform fees
     address public defaultPlatformFeeRecipient;
 
-    /// @notice Maximum basis points value (100%)
-    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 100% = 10000 dbps
+    /// @notice Maximum basis points value (10%)
+    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 10% = 10000 dbps
     uint16 public constant MAX_BPS = 10000;
 
     /// @notice Default destination gas limit for execution (500k gas)
     uint256 private constant DEFAULT_DESTINATION_GAS_LIMIT = 500000;
 
     /// @notice Default executor fee in basis points
-    /// @dev Used when no specific fee is configured (e.g., 100 = 1%)
+    /// @dev Used when no specific fee is configured (e.g., 100 = 0.1%)
     uint16 public defaultExecutorFeeBps;
 
     /// @notice Default executor fee recipient
@@ -177,7 +179,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Mapping of user address to their current nonce sequence counter
     mapping(address => uint256) private userNonceCounter;
 
-    /// @notice Parameter expiration time in seconds (default: 1 hour)
+    /// @notice Parameter expiration time in seconds (3600s = 1 hour, permanent constant)
     uint256 public parameterExpirationTime;
 
     /// @notice Emitted when executor parameters are set
@@ -224,8 +226,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Emitted when a destination chain is added or removed
     event SupportedChainUpdated(uint16 indexed chainId, bool supported);
 
-    /// @notice Emitted when default supported chain is updated
-    event DefaultSupportedChainUpdated(uint16 indexed chainId);
+    // DefaultSupportedChainUpdated event removed.
 
     /// @notice Emitted when default parameters are updated
     event DefaultParametersUpdated(
@@ -304,17 +305,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         parameterExpirationTime = 3600; // 1 hour default expiration time
     }
 
-    /// @notice Sets the default supported chain for backward compatibility
-    /// @param _chainId Wormhole chain ID to set as default
-    function setDefaultSupportedChain(uint16 _chainId) external onlyOwner {
-        require(_chainId != 0, "Chain ID cannot be zero");
-        require(
-            supportedChains[_chainId],
-            "Chain must be supported before setting as default"
-        );
-        defaultSupportedChain = _chainId;
-        emit DefaultSupportedChainUpdated(_chainId);
-    }
+    // setDefaultSupportedChain removed: governance surface deprecated.
 
     /// @notice Adds or removes support for a destination chain
     /// @param _chainId Wormhole chain ID of the destination chain
@@ -330,9 +321,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Updates default parameters for executor transfers
     /// @param _gasLimit Default gas limit for destination chain execution
-    /// @param _feeBps Default executor fee in basis points (max 10000 = 100%)
+    /// @param _feeBps Default executor fee in basis points (max 10000 = 10%)
     /// @param _feeRecipient Default executor fee recipient
-    /// @param _platformFeeBps Default TBTC platform fee in basis points (max 10000 = 100%)
+    /// @param _platformFeeBps Default TBTC platform fee in basis points (max 10000 = 10%)
     /// @param _platformFeeRecipient Default TBTC platform fee recipient
     function setDefaultParameters(
         uint256 _gasLimit,
@@ -341,10 +332,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 _platformFeeBps,
         address _platformFeeRecipient
     ) external onlyOwner {
-        require(_feeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_feeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(
             _platformFeeBps <= MAX_BPS,
-            "Platform fee cannot exceed 100% (10000 bps)"
+            "Platform fee cannot exceed 10% (10000 bps)"
         );
         require(
             _feeRecipient != address(0) || _feeBps == 0,
@@ -379,7 +370,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Sets the default TBTC platform fee in basis points
     /// @param _newFeeBps New default platform fee in basis points (100 = 0.1%)
     function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
-        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(_newFeeBps <= defaultExecutorFeeBps, "Platform fee cannot exceed executor fee");
         uint16 oldFeeBps = defaultPlatformFeeBps;
         defaultPlatformFeeBps = _newFeeBps;
@@ -460,6 +451,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Sets executor parameters and returns the nonce for reference
     /// @param executorArgs Real executor arguments with valid signed quote from Wormhole Executor API
     /// @param feeArgs Fee arguments for the executor service
+    /// @param destinationChain Wormhole chain ID to bind to the staged quote and cached payment.
     /// @return nonce The nonce hash for these parameters (for informational purposes)
     /// @dev Must be called before finalizeDeposit() to provide real signed quote.
     function setExecutorParameters(
@@ -476,72 +468,39 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
         // Bind the refund address to the staging caller at stage time. The
-        // remaining fee / payee equality checks happen at finalize time inside
-        // `_validateExecutorParameters`.
+        // remaining fee / payee equality checks run at both stage time and
+        // finalize time (revalidated at finalization).
         require(
             executorArgs.refundAddress == msg.sender,
             "Executor refund address must be caller"
         );
 
-        // Validate fee basis points
+        // Validate destination chain and calculate payment
         require(supportedChains[destinationChain], "Destination chain not supported");
         uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(underlyingNttManager, destinationChain, "", executorArgs, feeArgs);
-        require(requiredPayment >= executorArgs.value, "Insufficient payment for executor service");
-        // Remove one expired entry before minting a new nonce
-        if (userNonceCounter[msg.sender] > 0) {
-            bytes32 latestNonce = _generateNonce(
-                msg.sender,
-                userNonceCounter[msg.sender] - 1
-            );
-            ExecutorParameterSet storage existingParams = parametersByNonce[
-                latestNonce
-            ];
-            if (existingParams.exists) {
-                // Check if parameters have expired
-                // solhint-disable-next-line not-rely-on-time
-                if (block.timestamp > existingParams.timestamp + parameterExpirationTime) {
-                    delete parametersByNonce[latestNonce];
-                }
-            }
-        }
+        require(requiredPayment >= executorArgs.value, "Quote below executor declared value");
 
-        // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
-        // (Re-using the refresh logic but checking for existence)
+        // Refresh existing active parameters or generate a new nonce.
         if (userNonceCounter[msg.sender] > 0) {
-            bytes32 latestNonce = _generateNonce(
-                msg.sender,
-                userNonceCounter[msg.sender] - 1
-            );
-            ExecutorParameterSet storage existingParams = parametersByNonce[
-                latestNonce
-            ];
-            
+            bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
+            ExecutorParameterSet storage existingParams = parametersByNonce[latestNonce];
             if (existingParams.exists) {
-                // Check if parameters have expired
-                // solhint-disable-next-line not-rely-on-time
-                bool expired = block.timestamp >
-                    existingParams.timestamp + parameterExpirationTime;
-
+                bool expired = block.timestamp > existingParams.timestamp + parameterExpirationTime; // solhint-disable-line not-rely-on-time
                 if (!expired) {
+                    // Re-staging silently overwrites prior staged parameters.
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
                     existingParams.cachedRequiredPayment = requiredPayment;
                     existingParams.cachedDestinationChain = destinationChain;
-                    // solhint-disable-next-line not-rely-on-time
-                    existingParams.timestamp = block.timestamp;
-
-                    emit ExecutorParametersRefreshed(
-                        msg.sender,
-                        latestNonce,
-                        executorArgs.signedQuote.length,
-                        executorArgs.value
-                    );
-
-                    return latestNonce; // Return existing nonce
+                    existingParams.cachedFeeBps = feeArgs.dbps;
+                    existingParams.cachedFeeRecipient = feeArgs.payee;
+                    existingParams.timestamp = block.timestamp; // solhint-disable-line not-rely-on-time
+                    emit ExecutorParametersRefreshed(msg.sender, latestNonce, executorArgs.signedQuote.length, executorArgs.value);
+                    return latestNonce;
                 }
+                delete parametersByNonce[latestNonce];
             }
         }
-
 
         // Generate nonce for this user's current sequence
         uint256 currentSequence = userNonceCounter[msg.sender];
@@ -558,7 +517,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
             exists: true,
             cachedRequiredPayment: requiredPayment,
-            cachedDestinationChain: destinationChain
+            cachedDestinationChain: destinationChain,
+            cachedFeeBps: feeArgs.dbps,
+            cachedFeeRecipient: feeArgs.payee
         });
 
         emit ExecutorParametersSet(
@@ -594,16 +555,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Quotes cost using the latest parameters for msg.sender
     /// @return cost Total cost for the transfer
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        require(
-            userNonceCounter[msg.sender] > 0,
-            "Executor parameters not set"
-        );
+        require(userNonceCounter[msg.sender] > 0, "Executor parameters not set");
 
-        bytes32 latestNonce = _generateNonce(
-            msg.sender,
-            userNonceCounter[msg.sender] - 1
-        );
-
+        bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
@@ -616,31 +570,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     function quoteFinalizeDeposit(
         uint16 destinationChain
     ) external view returns (uint256 cost) {
-        require(
-            userNonceCounter[msg.sender] > 0,
-            "Executor parameters not set"
-        );
-        require(
-            supportedChains[destinationChain],
-            "Destination chain not supported"
-        );
-
-        bytes32 latestNonce = _generateNonce(
-            msg.sender,
-            userNonceCounter[msg.sender] - 1
-        );
-
+        require(userNonceCounter[msg.sender] > 0, "Executor parameters not set");
+        bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
+        require(destinationChain == params.cachedDestinationChain, "Destination chain not bound to staged parameters");
 
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                destinationChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        return params.cachedRequiredPayment;
     }
 
     /// @param destinationChain The destination chain ID
@@ -648,9 +584,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @return executorCost The executor cost (from executorArgs.value)
     /// @return totalCost The total cost (nttDeliveryPrice + executorCost)
     /// @dev Routes through the same formula as the finalize path for consistency.
-    ///      totalCost is derived from nttManagerWithExecutor.quoteDeliveryPrice.
-    ///      executorCost is derived from the stored executorArgs.
-    ///      nttDeliveryPrice is the difference (totalCost - executorCost).
     function quoteFinalizedDeposit(
         uint16 destinationChain
     )
@@ -663,19 +596,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         )
     {
         require(userNonceCounter[msg.sender] > 0, "Executor parameters not set");
-        uint256 currentSequence = userNonceCounter[msg.sender];
-        require(supportedChains[destinationChain], "Destination chain not supported");
-        bytes32 latestNonce = _generateNonce(msg.sender, currentSequence - 1);
+        bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
+        require(destinationChain == params.cachedDestinationChain, "Destination chain not bound to staged parameters");
 
-        totalCost = nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            destinationChain,
-            "",
-            params.executorArgs,
-            params.feeArgs
-        );
+        totalCost = params.cachedRequiredPayment;
         executorCost = params.executorArgs.value;
         require(totalCost >= executorCost, "Total cost less than executor cost");
         nttDeliveryPrice = totalCost - executorCost;
@@ -887,8 +813,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         // Validate against cached parameters
-        require(destinationChain == params.cachedDestinationChain, "Executor parameters bound to default chain");
+        require(destinationChain == params.cachedDestinationChain, "Executor parameters bound to a different destination chain");
         require(msg.value == params.cachedRequiredPayment, "Payment must exactly match executor service quote");
+        require(params.feeArgs.dbps == params.cachedFeeBps, "Fee BPS mismatch");
+        require(params.feeArgs.payee == params.cachedFeeRecipient, "Fee recipient mismatch");
 
         _validateExecutorParameters(params.feeArgs);
 
@@ -943,16 +871,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         return chainId;
     }
 
-    /// @notice Get the default supported chain ID
-    /// @return chainId The default supported chain ID
-    function _getDefaultSupportedChain()
-        internal
-        view
-        returns (uint16 chainId)
-    {
-        return defaultSupportedChain;
-    }
-
     /// @notice Extract recipient address from encoded receiver data
     /// @param destinationChainReceiver Encoded receiver data
     /// @return recipient The recipient address (last 30 bytes, padded to 32 bytes)
@@ -979,7 +897,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param feeArgs Fee arguments supplied by the caller
     function _validateExecutorParameters(FeeArgs memory feeArgs) internal view {
         // Fee basis points check
-        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         // Fee parity check: must be >= platform fee and == default executor fee
         require(feeArgs.dbps >= defaultPlatformFeeBps, "Fee must be >= platform fee");
         require(feeArgs.dbps == defaultExecutorFeeBps, "Fee must match default executor fee");

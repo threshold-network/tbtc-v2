@@ -77,7 +77,6 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     ) as TestL1BTCDepositorNttWithExecutor
 
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
   })
 
   beforeEach(async () => {
@@ -125,6 +124,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
+          WORMHOLE_CHAIN_SEI,
           { value: requiredPayment.sub(1) }
         )
     ).to.be.revertedWith("Payment must exactly match executor service quote")
@@ -139,6 +139,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
+          WORMHOLE_CHAIN_SEI,
           { value: requiredPayment.add(1) }
         )
     ).to.be.revertedWith("Payment must exactly match executor service quote")
@@ -153,6 +154,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
+          WORMHOLE_CHAIN_SEI,
           { value: requiredPayment }
         )
     ).to.emit(depositor, "TokensTransferredNttWithExecutor")
@@ -182,6 +184,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
+          WORMHOLE_CHAIN_SEI,
           { value: requiredPayment }
         )
     ).to.emit(depositor, "TokensTransferredNttWithExecutor")
@@ -258,6 +261,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           args,
           feeArgs,
           DEFAULT_NONCE,
+          WORMHOLE_CHAIN_SEI,
           { value: requiredPayment }
         )
     ).to.be.revertedWith("Fee payee must be zero when fee is zero")
@@ -310,6 +314,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
             args,
             feeArgs,
             DEFAULT_NONCE,
+            WORMHOLE_CHAIN_SEI,
             { value: requiredPayment }
           )
       ).to.emit(depositor, "TokensTransferredNttWithExecutor")
@@ -343,6 +348,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
             args,
             feeArgs,
             DEFAULT_NONCE,
+            WORMHOLE_CHAIN_SEI,
             { value: requiredPayment }
           )
       ).to.be.revertedWith(

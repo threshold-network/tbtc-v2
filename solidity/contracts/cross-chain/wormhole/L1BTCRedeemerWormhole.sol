@@ -140,10 +140,6 @@ contract L1BTCRedeemerWormhole is
         __Ownable_init();
         __ReentrancyGuard_init();
 
-        if (address(wormholeTokenBridge) != address(0)) {
-            revert WormholeTokenBridgeAlreadySet();
-        }
-
         if (_wormholeTokenBridge == address(0)) {
             revert ZeroAddress();
         }

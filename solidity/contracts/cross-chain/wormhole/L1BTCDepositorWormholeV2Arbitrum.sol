@@ -513,9 +513,17 @@ contract L1BTCDepositorWormholeV2Arbitrum is
             }
 
             if (reimbursement.receiver != address(0)) {
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
+                // Best-effort: a deferred receiver that cannot be
+                // reimbursed within the gas stipend must not block this
+                // deposit's finalization for everyone.
+                // slither-disable-next-line unchecked-lowlevel,low-level-calls
+                // solhint-disable-next-line avoid-low-level-calls
+                address(reimbursementPool).call{gas: 2_000_000}(
+                    abi.encodeWithSelector(
+                        reimbursementPool.refund.selector,
+                        reimbursement.gasSpent,
+                        reimbursement.receiver
+                    )
                 );
             }
         }

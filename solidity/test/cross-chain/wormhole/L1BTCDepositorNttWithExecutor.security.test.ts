@@ -80,7 +80,6 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -118,10 +117,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         depositor.connect(user).setSupportedChain(99, true)
       ).to.be.revertedWith("Ownable: caller is not the owner")
 
-      // Non-owner cannot update default supported chain
-      await expect(
-        depositor.connect(user).setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
-      ).to.be.revertedWith("Ownable: caller is not the owner")
+      // Non-owner cannot update supported chains (already covered above)
     })
 
     it("should prevent non-owners from retrieving tokens", async () => {
@@ -144,13 +140,6 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
   })
 
   describe("Input Validation", () => {
-    it("should reject invalid chain configurations", async () => {
-      // Cannot set unsupported chain as default
-      await expect(depositor.setDefaultSupportedChain(999)).to.be.revertedWith(
-        "Chain must be supported before setting as default"
-      )
-    })
-
     it("should reject invalid executor parameters", async () => {
       const [, , user] = await ethers.getSigners()
 
@@ -206,7 +195,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       // Try to quote for unsupported chain
       await expect(
         depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
-      ).to.be.revertedWith("Destination chain not supported")
+      ).to.be.revertedWith("Destination chain not bound to staged parameters")
     })
   })
 
@@ -319,7 +308,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 10000, // 100% fee in basis points
+        dbps: 10000, // 10% fee in basis points (max allowed)
         payee: user.address,
       }
 

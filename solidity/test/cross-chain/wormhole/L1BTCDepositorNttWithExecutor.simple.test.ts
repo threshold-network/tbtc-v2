@@ -74,7 +74,6 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
     // Set up supported chains
     await l1BTCDepositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await l1BTCDepositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await l1BTCDepositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -115,9 +114,6 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
         .to.be.true
       expect(await l1BTCDepositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be
         .true
-      expect(await l1BTCDepositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_DESTINATION
-      )
     })
   })
 
