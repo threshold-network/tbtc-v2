@@ -963,7 +963,8 @@ library Reservation {
     ///         generation as timed out once its authorization window has
     ///         elapsed: restores the reservation to `Active` so a fresh
     ///         redemption may be requested, mints a fee-free retry
-    ///         entitlement when the generation had paid the fee, and
+    ///         entitlement when the generation had paid the fee or had
+    ///         itself consumed one (returning the credit), and
     ///         propagates wallet consequences (slashing follows the
     ///         regular redemption timeout rules).
     /// @dev Returns the redemption generation's escrowed claim to
@@ -988,10 +989,11 @@ library Reservation {
         ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
+        uint64 requestNonce = reservation.requestNonce;
         ReservationAction storage action = getAction(
             self,
             reservationKey,
-            reservation.requestNonce
+            requestNonce
         );
 
         require(
@@ -1015,39 +1017,68 @@ library Reservation {
 
         if (action.feePaid || action.usedRetryCredit) {
             reservation.retryCredit = true;
-            self.reservationRetryCreditActionNonce[reservationKey] = reservation
-                .requestNonce;
+            self.reservationRetryCreditActionNonce[
+                reservationKey
+            ] = requestNonce;
             emit ReservationRetryCreditMinted(reservationKey);
         }
 
-        // A wallet that has already moved past MovingFunds (Closing,
-        // Closed) cannot be slashed via the regular redemption-timeout
-        // path -- `notifyWalletRedemptionTimeout` requires Live,
-        // MovingFunds, or Terminated and reverts otherwise. Skipping it
-        // here (rather than reverting the whole timeout) keeps this
-        // permissionless cleanup callable regardless of the wallet's
-        // lifecycle stage.
-        Wallets.WalletState walletState = self
-            .registeredWallets[reservation.walletPubKeyHash]
-            .state;
-        bool isWalletRedeemable = walletState == Wallets.WalletState.Live ||
-            walletState == Wallets.WalletState.MovingFunds ||
-            walletState == Wallets.WalletState.Terminated;
-        if (isWalletRedeemable) {
-            self.notifyWalletRedemptionTimeout(
-                reservation.walletPubKeyHash,
-                walletMembersIDs
-            );
-        }
+        bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
+        _slashWalletIfRedeemable(self, walletPubKeyHash, walletMembersIDs);
 
         // Return the escrowed balance to the redeemer as Bank balance.
         self.bank.transferBalance(action.redeemer, action.amount);
 
         // slither-disable-next-line reentrancy-events
-        emit ReservationRedemptionTimedOut(
-            reservationKey,
-            reservation.requestNonce
-        );
+        emit ReservationRedemptionTimedOut(reservationKey, requestNonce);
+    }
+
+    /// @notice Slashes a wallet for a reservation redemption or
+    ///         dissolution timeout when its current state makes it
+    ///         eligible. Live, MovingFunds, and Terminated wallets are
+    ///         routed through the regular redemption-timeout path (a
+    ///         no-op slash for an already-Terminated wallet, kept for the
+    ///         uniform notifier-reward bookkeeping it performs). A wallet
+    ///         that has moved to Closing cannot use that path --
+    ///         `notifyWalletRedemptionTimeout` only accepts Live,
+    ///         MovingFunds, or Terminated and reverts otherwise -- but
+    ///         reaching Closing must not let it dodge the slashing
+    ///         consequence it would otherwise face, so it is slashed
+    ///         directly here, mirroring `notifyWalletRedemptionTimeout`'s
+    ///         own slashing branch. A Closed wallet's signing group is
+    ///         already gone and is left untouched.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    /// @param walletMembersIDs Identifiers of the wallet signing group
+    ///        members, consulted for the slashing path.
+    function _slashWalletIfRedeemable(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint32[] calldata walletMembersIDs
+    ) internal {
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            walletPubKeyHash
+        ];
+        Wallets.WalletState walletState = wallet.state;
+
+        if (
+            walletState == Wallets.WalletState.Live ||
+            walletState == Wallets.WalletState.MovingFunds ||
+            walletState == Wallets.WalletState.Terminated
+        ) {
+            self.notifyWalletRedemptionTimeout(
+                walletPubKeyHash,
+                walletMembersIDs
+            );
+        } else if (walletState == Wallets.WalletState.Closing) {
+            // slither-disable-next-line reentrancy-no-eth
+            self.ecdsaWalletRegistry.seize(
+                self.redemptionTimeoutSlashingAmount,
+                self.redemptionTimeoutNotifierRewardMultiplier,
+                msg.sender,
+                wallet.ecdsaWalletID,
+                walletMembersIDs
+            );
+        }
     }
 
     /// @notice Permissionlessly reports a reservation's pending dissolution
@@ -1079,10 +1110,11 @@ library Reservation {
         ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
+        uint64 requestNonce = reservation.requestNonce;
         ReservationAction storage action = getAction(
             self,
             reservationKey,
-            reservation.requestNonce
+            requestNonce
         );
 
         require(
@@ -1103,56 +1135,46 @@ library Reservation {
 
         action.state = ActionState.TimedOut;
         reservation.state = ReservationState.Active;
+
+        // The dissolution action snapshots the custodying wallet itself
+        // into `targetWalletPubKeyHash` at request time (see the field's
+        // declaration above); read that snapshot rather than the
+        // reservation's live wallet field, for consistency with the
+        // settlement paths elsewhere in this file, which settle strictly
+        // against what the action recorded at request time.
+        bytes20 walletPubKeyHash = action.targetWalletPubKeyHash;
+
         // Only clear the wallet's pending-dissolution marker if it still
         // points at THIS reservation: a newer request for a different
         // reservation may have since claimed the wallet's single-slot
         // marker, and this timeout must not clear that unrelated claim.
-        if (
-            self.walletPendingDissolution[reservation.walletPubKeyHash] ==
-            reservationKey
-        ) {
-            delete self.walletPendingDissolution[reservation.walletPubKeyHash];
+        if (self.walletPendingDissolution[walletPubKeyHash] == reservationKey) {
+            delete self.walletPendingDissolution[walletPubKeyHash];
         }
 
         Wallets.WalletState walletState = self
-            .registeredWallets[reservation.walletPubKeyHash]
+            .registeredWallets[walletPubKeyHash]
             .state;
         bool walletWasMovingFunds = walletState ==
             Wallets.WalletState.MovingFunds;
-        // See notifyReservationRedemptionTimedOut: skip slashing for a
-        // wallet notifyWalletRedemptionTimeout cannot accept (Closing,
-        // Closed) rather than reverting this permissionless cleanup.
-        bool isWalletRedeemable = walletState == Wallets.WalletState.Live ||
-            walletWasMovingFunds ||
-            walletState == Wallets.WalletState.Terminated;
-        if (isWalletRedeemable) {
-            self.notifyWalletRedemptionTimeout(
-                reservation.walletPubKeyHash,
-                walletMembersIDs
-            );
-        }
+
+        _slashWalletIfRedeemable(self, walletPubKeyHash, walletMembersIDs);
 
         // A Live wallet enters MovingFunds on its first failure and keeps
         // the ordinary moving-funds deadline. A wallet already in
         // MovingFunds has now also refused the terminal cleanup of its
-        // residual anchor, so terminate it at the dissolution bound. The
-        // slashing call above may itself have just moved a Live wallet to
-        // MovingFunds or Closing, so the termination check re-reads state
-        // after that call rather than trusting the pre-call snapshot.
-        Wallets.WalletState postCallState = self
-            .registeredWallets[reservation.walletPubKeyHash]
-            .state;
-        if (
-            walletWasMovingFunds || postCallState == Wallets.WalletState.Closing
-        ) {
-            self.terminateWallet(reservation.walletPubKeyHash);
+        // residual anchor, so terminate it at the dissolution bound.
+        // Gated on the PRE-call state only: the slashing call above may
+        // itself have just moved a Live wallet into MovingFunds or
+        // Closing, and neither of those transitions is itself a second
+        // dissolution failure, so they must not trigger termination on
+        // this same call.
+        if (walletWasMovingFunds) {
+            self.terminateWallet(walletPubKeyHash);
         }
 
         // slither-disable-next-line reentrancy-events
-        emit ReservationDissolutionTimedOut(
-            reservationKey,
-            reservation.requestNonce
-        );
+        emit ReservationDissolutionTimedOut(reservationKey, requestNonce);
     }
 
     /// @notice Appends a reservation key to a wallet's enumeration list.

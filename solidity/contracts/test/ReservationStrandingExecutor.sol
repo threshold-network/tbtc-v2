@@ -65,6 +65,10 @@ contract ReservationStrandingExecutor {
         self.notifyReservationActionTimeout(reservationKey);
     }
 
+    /// @notice Forwards `Reservation.notifyReservationRedemptionTimedOut`.
+    ///         Reverts when the action is not a Redemption in the
+    ///         `Pending` state, the reservation is not `ActionPending`, or
+    ///         the snapshotted timeout has not yet elapsed.
     function notifyReservationRedemptionTimedOut(
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
@@ -75,6 +79,10 @@ contract ReservationStrandingExecutor {
         );
     }
 
+    /// @notice Forwards `Reservation.notifyReservationDissolutionTimedOut`.
+    ///         Reverts when the action is not a Dissolution in the
+    ///         `Pending` state, the reservation is not `ActionPending`, or
+    ///         the snapshotted timeout has not yet elapsed.
     function notifyReservationDissolutionTimedOut(
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
@@ -165,6 +173,25 @@ contract ReservationStrandingExecutor {
         wallet.ecdsaWalletID = ecdsaWalletID;
         wallet.state = state;
         wallet.createdAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
+        if (state == Wallets.WalletState.Live) {
+            self.liveWalletsCount++;
+        }
+    }
+
+    /// @notice Seeds a wallet with a main UTXO hash, allowing moveFunds to route a Live wallet into MovingFunds.
+    function seedWalletWithMainUtxo(
+        bytes20 walletPubKeyHash,
+        bytes32 ecdsaWalletID,
+        Wallets.WalletState state,
+        bytes32 mainUtxoHash
+    ) external {
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            walletPubKeyHash
+        ];
+        wallet.ecdsaWalletID = ecdsaWalletID;
+        wallet.state = state;
+        wallet.createdAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
+        wallet.mainUtxoHash = mainUtxoHash;
         if (state == Wallets.WalletState.Live) {
             self.liveWalletsCount++;
         }
@@ -380,6 +407,18 @@ contract ReservationStrandingExecutor {
         returns (Reservation.ReservationState)
     {
         return self.reservations[reservationKey].state;
+    }
+
+    function retryCredit(uint256 reservationKey) external view returns (bool) {
+        return self.reservations[reservationKey].retryCredit;
+    }
+
+    function reservationRetryCreditActionNonce(uint256 reservationKey)
+        external
+        view
+        returns (uint64)
+    {
+        return self.reservationRetryCreditActionNonce[reservationKey];
     }
 
     function walletState(bytes20 walletPubKeyHash)

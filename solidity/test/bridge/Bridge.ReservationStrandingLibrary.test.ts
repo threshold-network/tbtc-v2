@@ -54,6 +54,8 @@ const fixture = waffle.createFixtureLoader(waffle.provider.getWallets())
 async function deployExecutor(): Promise<ReservationStrandingExecutor> {
   // The Reservation library is `external` (its `notifyReservationStranded`,
   // `notifyStaleReservedDeposit`, `notifyReservationActionTimeout`,
+  // `notifyReservationRedemptionTimedOut`,
+  // `notifyReservationDissolutionTimedOut`,
   // `requestReservationAcceptance`, and `requestReservationReanchor`
   // functions have the `external` visibility modifier). The bytecode of
   // the `ReservationStrandingExecutor` test contract embeds a
@@ -1197,7 +1199,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Action has not timed out")
     })
   })
-  describe("notifyReservationActionTimeout - Redemption and Dissolution", () => {
+  describe("notifyReservationRedemptionTimedOut and notifyReservationDissolutionTimedOut", () => {
     let bankStub: any // Using 'any' for simplicity, or could import Contract
 
     beforeEach(async () => {
@@ -1268,11 +1270,12 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(retryCreditMinted![0].args!.reservationKey).to.equal(
         reservationKey
       )
+      expect(await executor.retryCredit(reservationKey)).to.be.true
+      expect(
+        await executor.reservationRetryCreditActionNonce(reservationKey)
+      ).to.equal(0)
 
-      // Assert balance transfer: executor -> redeemer
-      // bankStub.setBalance(executor.address, amount) seeded executor balance
-      // Bank.transferBalance(redeemer, amount) moves amount to redeemer
-      // bankStub.balanceOf(redeemer) should be amount
+      // Escrowed balance moved from the executor to the redeemer.
       expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
       expect(await bankStub.balanceOf(executor.address)).to.equal(0)
       expect(await executor.reservationState(reservationKey)).to.equal(
@@ -1341,6 +1344,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(retryCreditMinted![0].args!.reservationKey).to.equal(
         reservationKey
       )
+      expect(await executor.retryCredit(reservationKey)).to.be.true
+      expect(
+        await executor.reservationRetryCreditActionNonce(reservationKey)
+      ).to.equal(0)
       expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
@@ -1404,6 +1411,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         (e) => e.event === "ReservationRetryCreditMinted"
       )
       expect(retryCreditMinted).to.have.lengthOf(0)
+      expect(await executor.retryCredit(reservationKey)).to.be.false
       expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
@@ -1492,6 +1500,243 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(walletRegistry.closeWallet).not.to.have.been.called
     })
 
+    it("Redemption: slashes wallet when wallet is in MovingFunds state", async () => {
+      const walletRegistry: FakeContract<IWalletRegistry> =
+        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(walletRegistry.address)
+
+      const reservationKey = 110
+      const amount = 1_000_000
+      const redeemer = ethers.Wallet.createRandom().address
+      const walletPubKeyHash = `0x${"e0".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.MovingFunds
+      )
+      await executor.seedReservation(
+        reservationKey,
+        redeemer,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Redemption,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        true,
+        redeemer
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+      await bankStub.setBalance(executor.address, amount)
+
+      const tx = await executor.notifyReservationRedemptionTimedOut(
+        reservationKey,
+        []
+      )
+      const receipt = await tx.wait()
+
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationRedemptionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+
+      expect(walletRegistry.seize).to.have.been.calledOnce
+      expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+    })
+
+    it("Redemption: reverts when action is not Redemption", async () => {
+      const reservationKey = 111
+      const amount = 1_000_000
+      const redeemer = ethers.Wallet.createRandom().address
+      const walletPubKeyHash = `0x${"e1".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        redeemer,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        true,
+        redeemer
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.notifyReservationRedemptionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Unsupported action type for timeout")
+    })
+
+    it("Redemption: reverts when reservation is not in ActionPending state", async () => {
+      const reservationKey = 112
+      const amount = 1_000_000
+      const redeemer = ethers.Wallet.createRandom().address
+      const walletPubKeyHash = `0x${"e2".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        redeemer,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.Active
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Redemption,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        true,
+        redeemer
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.notifyReservationRedemptionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Reservation is not in ActionPending state")
+    })
+
+    it("Redemption: reverts when action is not pending", async () => {
+      const reservationKey = 113
+      const amount = 1_000_000
+      const redeemer = ethers.Wallet.createRandom().address
+      const walletPubKeyHash = `0x${"e3".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        redeemer,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Redemption,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        true,
+        redeemer
+      )
+      await executor.seedReservationActionState(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Redemption,
+        reservationActionStateEnum.Settled
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.notifyReservationRedemptionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Action is not pending")
+    })
+
+    it("Redemption: reverts when action has not timed out", async () => {
+      const reservationKey = 114
+      const amount = 1_000_000
+      const redeemer = ethers.Wallet.createRandom().address
+      const walletPubKeyHash = `0x${"e4".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 1000
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        redeemer,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Redemption,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        true,
+        redeemer
+      )
+
+      await expect(
+        executor.notifyReservationRedemptionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Action has not timed out")
+    })
+
     it("Dissolution: reverts to Active and clears pending dissolution", async () => {
       const reservationKey = 102
       const requestNonce = 1
@@ -1551,6 +1796,71 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(
         await executor.walletPendingDissolution(walletPubKeyHash)
       ).to.equal(0)
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationDissolutionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+    })
+
+    it("Dissolution: preserves pending dissolution marker when wallet marker belongs to another reservation", async () => {
+      const reservationKey = 120
+      const otherReservationKey = 121
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"f0".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedWalletPendingDissolution(
+        walletPubKeyHash,
+        otherReservationKey
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(otherReservationKey)
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.notifyReservationDissolutionTimedOut(
+        reservationKey,
+        []
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(otherReservationKey)
+
       const actionTimedOut = receipt.events?.filter(
         (e) => e.event === "ReservationDissolutionTimedOut"
       )
@@ -1640,7 +1950,86 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(walletRegistry.closeWallet).to.have.been.calledOnce
     })
 
-    it("Dissolution: escalates wallet transitioning to Closing to Terminated and clears pending dissolution", async () => {
+    it("Dissolution: transitions Live wallet with main UTXO to MovingFunds on first failure", async () => {
+      const walletRegistry: FakeContract<IWalletRegistry> =
+        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(walletRegistry.address)
+
+      const reservationKey = 122
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"f1".repeat(20)}` as `0x${string}`
+      const mainUtxoHash = `0x${"ab".repeat(32)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWalletWithMainUtxo(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Live,
+        mainUtxoHash
+      )
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedWalletPendingDissolution(
+        walletPubKeyHash,
+        reservationKey
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(reservationKey)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.Live
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.notifyReservationDissolutionTimedOut(
+        reservationKey,
+        []
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(0)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.MovingFunds
+      )
+
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationDissolutionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+
+      expect(walletRegistry.seize).to.have.been.calledOnce
+      expect(walletRegistry.closeWallet).not.to.have.been.called
+    })
+
+    it("Dissolution: slashes but does not terminate a Live wallet that transitions to Closing on its first failure", async () => {
       const walletRegistry: FakeContract<IWalletRegistry> =
         await smock.fake<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
@@ -1656,7 +2045,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       // Seed wallet in Live state with mainUtxoHash = bytes32(0).
       // When notifyWalletRedemptionTimeout runs on a Live wallet with no main UTXO,
       // moveFunds() calls beginWalletClosing() which sets wallet.state = Closing.
-      // Then the dissolution escalation check (postCallState == Closing) terminates the wallet.
+      // Because the wallet was Live (not MovingFunds) pre-call, it is slashed but
+      // not terminated, ending the call in Closing state.
       await executor.seedWallet(
         walletPubKeyHash,
         ZERO_BYTES32,
@@ -1711,9 +2101,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(
         await executor.walletPendingDissolution(walletPubKeyHash)
       ).to.equal(0)
-      // Wallet escalated to Terminated (via Closing intermediate state)
+      // Wallet transitioned to Closing (not Terminated)
       expect(await executor.walletState(walletPubKeyHash)).to.equal(
-        walletStateEnum.Terminated
+        walletStateEnum.Closing
       )
 
       // Event emitted
@@ -1722,9 +2112,180 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
       expect(actionTimedOut).to.have.lengthOf(1)
 
-      // Slashed and closed in registry
+      // Slashed in registry but not closed/terminated
       expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).to.have.been.calledOnce
+      expect(walletRegistry.closeWallet).not.to.have.been.called
+    })
+
+    it("Dissolution: reverts when action is not Dissolution", async () => {
+      const reservationKey = 123
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"f2".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Redemption,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.notifyReservationDissolutionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Unsupported action type for timeout")
+    })
+
+    it("Dissolution: reverts when reservation is not in ActionPending state", async () => {
+      const reservationKey = 124
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"f3".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.Active
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.notifyReservationDissolutionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Reservation is not in ActionPending state")
+    })
+
+    it("Dissolution: reverts when action is not pending", async () => {
+      const reservationKey = 125
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"f4".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+      await executor.seedReservationActionState(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        reservationActionStateEnum.Settled
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await expect(
+        executor.notifyReservationDissolutionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Action is not pending")
+    })
+
+    it("Dissolution: reverts when action has not timed out", async () => {
+      const reservationKey = 126
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"f5".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 1000
+
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Terminated
+      )
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      await expect(
+        executor.notifyReservationDissolutionTimedOut(reservationKey, [])
+      ).to.be.revertedWith("Action has not timed out")
     })
   })
   describe("requestReservationReanchor", () => {
@@ -1773,6 +2334,59 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("successfully requests reservation re-anchor from MovingFunds wallet (unprivileged happy path)", async () => {
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(0)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(0)
+
+      const tx = await executor.requestReservationReanchor(
+        reservationKey,
+        targetWallet,
+        false
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+      expect(await executor.actionState(reservationKey, 1)).to.equal(
+        reservationActionStateEnum.Pending
+      )
+
+      const parsedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return reservationInterface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .filter((e) => e !== null)
+
+      const requested = parsedEvents.find(
+        (e) => e!.name === "ReservationReanchorRequested"
+      )
+      expect(requested, "ReservationReanchorRequested event missing").to.not.be
+        .undefined
+      expect(requested!.args.reservationKey).to.equal(reservationKey)
+      expect(requested!.args.requestNonce).to.equal(1)
+      expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
+      expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
+      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+    })
+
+    it("successfully requests reservation re-anchor from Closing wallet (unprivileged happy path)", async () => {
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Closing
+      )
+
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
       )
