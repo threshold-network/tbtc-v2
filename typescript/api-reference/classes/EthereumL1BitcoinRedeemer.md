@@ -64,7 +64,7 @@ EvmContractHandle.constructor
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-redeemer.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L51)
+[src/lib/ethereum/l1-bitcoin-redeemer.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L50)
 
 ## Properties
 
@@ -186,7 +186,7 @@ EvmContractHandle.\_getEvents
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:516](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L516)
+[src/lib/ethereum/adapter.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L514)
 
 ___
 
@@ -268,7 +268,7 @@ EvmContractHandle.\_write
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:458](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L458)
+[src/lib/ethereum/adapter.ts:456](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L456)
 
 ___
 
@@ -310,7 +310,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-redeemer.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L76)
+[src/lib/ethereum/l1-bitcoin-redeemer.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L75)
 
 ___
 
@@ -338,4 +338,4 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-redeemer.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L84)
+[src/lib/ethereum/l1-bitcoin-redeemer.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-redeemer.ts#L83)

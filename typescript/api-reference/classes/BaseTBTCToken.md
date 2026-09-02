@@ -62,7 +62,7 @@ EvmContractHandle.constructor
 
 #### Defined in
 
-[src/lib/base/l2-tbtc-token.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L25)
+[src/lib/base/l2-tbtc-token.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L24)
 
 ## Properties
 
@@ -184,7 +184,7 @@ EvmContractHandle.\_getEvents
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:516](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L516)
+[src/lib/ethereum/adapter.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L514)
 
 ___
 
@@ -266,7 +266,7 @@ EvmContractHandle.\_write
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:458](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L458)
+[src/lib/ethereum/adapter.ts:456](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L456)
 
 ___
 
@@ -292,7 +292,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-tbtc-token.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L54)
+[src/lib/base/l2-tbtc-token.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L53)
 
 ___
 
@@ -334,4 +334,4 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-tbtc-token.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L46)
+[src/lib/base/l2-tbtc-token.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L45)
