@@ -34,7 +34,13 @@ library BridgeState {
     ///         permanent; the remaining fields are used by the reservation
     ///         action flow and may be cleared after acceptance or staleness.
     struct PendingReservedDeposit {
-        // Immutable reveal-time reservation classification.
+        // Immutable reveal-time reservation classification: set when a
+        // deposit is revealed to the reservation vault and never cleared.
+        // `notifyStaleReservedDeposit` wipes the three fields below but
+        // deliberately leaves this bit set, so the record stays recognizable
+        // as reservation-routed for the whole life of the deposit. The
+        // stale/acceptable partition is carried by `walletPubKeyHash`, not
+        // by this flag.
         bool isReserved;
         // Wallet committed by the deposit script and therefore the only
         // wallet that can be authorized to anchor the deposit.
@@ -481,7 +487,6 @@ library BridgeState {
         // updates from changing an ordinary deposit into a reservation or
         // making a reserved deposit eligible for an ordinary sweep.
         mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
-
         // Collection of all reservation action generation records indexed
         // by `keccak256(reservationKey | requestNonce)`. Each record
         // snapshots every proof- and settlement-critical parameter of one
@@ -515,7 +520,6 @@ library BridgeState {
         // Index-plus-one of each reservation key inside its wallet's
         // `walletReservationKeys` array (zero means absent).
         mapping(uint256 => uint256) walletReservationKeyIndex;
-
         // Generation that minted a reservation's outstanding retry credit.
         // The terminal action record supplies the exact redemption amount
         // and whole/partial shape the fee-free retry must preserve. Zero
