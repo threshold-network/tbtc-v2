@@ -27,7 +27,12 @@ interface IReservationFeeFinancer {
     ///         Bank balance. If the reserve cannot cover the full amount,
     ///         the shortfall is recorded as public debt and the call still
     ///         succeeds — a confirmed Bitcoin spend must never fail to
-    ///         settle because of the reserve level.
+    ///         settle because of the reserve level. This function has no
+    ///         return value and the legitimate partial-burn case makes a
+    ///         balance-delta check unreliable, so callers cannot fully
+    ///         verify the burn from this call alone; a non-conforming vault
+    ///         must be caught before it is wired up (governance-gated
+    ///         `reservationVault`/`isVaultTrusted`), not at call time.
     /// @param feeSat The in-kind fee in satoshi.
     function financeInKindFee(uint64 feeSat) external;
 }

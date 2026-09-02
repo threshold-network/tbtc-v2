@@ -19,6 +19,16 @@ import "solidity-docgen"
 // Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
 loadEnv({ path: path.join(__dirname, "..", ".env") })
 
+// Solc output selection shared by every compiler-settings block whose build
+// info needs to expose storage layouts to the upgrade-safety test in
+// test/bridge/Bridge.StorageLayout.test.ts. Hoisted so per-contract compiler
+// overrides cannot drift from the main compiler's selection.
+const storageLayoutOutputSelection = {
+  "*": {
+    "*": ["storageLayout"],
+  },
+}
+
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
   settings: {
@@ -26,6 +36,7 @@ const ecdsaSolidityCompilerConfig = {
       enabled: true,
       runs: 200,
     },
+    outputSelection: storageLayoutOutputSelection,
   },
 }
 
@@ -36,17 +47,8 @@ const bridgeGovernanceCompilerConfig = {
   settings: {
     optimizer: {
       enabled: true,
-      runs: 200,
     },
-  },
-}
-// Solc output selection shared by every compiler-settings block whose build
-// info needs to expose storage layouts to the upgrade-safety test in
-// test/bridge/Bridge.StorageLayout.test.ts. Hoisted so per-contract compiler
-// overrides cannot drift from the main compiler's selection.
-const storageLayoutOutputSelection = {
-  "*": {
-    "*": ["storageLayout"],
+    outputSelection: storageLayoutOutputSelection,
   },
 }
 // Reduce the number of optimizer runs to keep Bridge.sol under the
@@ -108,6 +110,7 @@ const config: HardhatUserConfig = {
             enabled: true,
             runs: 1, // Minimal runs to minimize bytecode size
           },
+          outputSelection: storageLayoutOutputSelection,
         },
       },
     },
@@ -321,7 +324,7 @@ const config: HardhatUserConfig = {
     disambiguatePaths: false,
     runOnCompile: true,
     strict: true,
-    except: ["BridgeStub$"],
+    except: ["BridgeStub$", "ReservationStrandingExecutor$"],
   },
   mocha: {
     timeout: 60_000,

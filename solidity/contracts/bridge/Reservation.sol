@@ -18,22 +18,21 @@ pragma solidity 0.8.17;
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./Deposit.sol";
-import "./ReservationProofs.sol";
 import "./Wallets.sol";
 import "./WalletProposalValidatorConstants.sol";
-
-import "../bank/Bank.sol";
+import "./ReservationProofs.sol";
 
 /// @title Bridge UTXO reservations — control plane
 /// @notice The library handles the request/authorization side of UTXO
 ///         reservations: deposits custodied without ever being commingled
 ///         with the pooled supply and returned in-kind — with an unbroken
 ///         1-input-1-output lineage — upon redemption. The SPV settlement
-///         side lives in the `ReservationProofs` companion library.
+///         side will live in the future `ReservationProofs` companion
+///         library (not yet implemented).
 /// @dev Every Bitcoin action of a reservation's life — the acceptance
 ///      anchor, an in-kind redemption, a re-anchor to another wallet, and
 ///      the post-term dissolution — follows a *two-phase,
-///      authorize-then-prove* model (see RFC 13):
+///      authorize-then-prove* model, as described in tbtc-v2 PR #1108:
 ///
 ///      1. An explicit *request* increments the position's monotonic
 ///         request nonce, performs every capacity and lifecycle check and
@@ -45,7 +44,9 @@ import "../bank/Bank.sol";
 ///         after the request can make the signed transaction unprovable.
 ///
 ///      2. The SPV *proof* settles the generation against the record's
-///         snapshots — never against live parameters. A generation that
+///         snapshotted authorization parameters; term and
+///         dissolution-delay grants at settlement additionally read live
+///         governance parameters current at that moment. A generation that
 ///         times out leaves a terminal record that still accepts a late
 ///         proof (closing the anchor lineage without a second refund); a
 ///         generation vetoed by the redemption watchtower never accepts a
@@ -64,13 +65,22 @@ library Reservation {
     ///         governable term must stay within them; they bound the
     ///         maximum owner lookahead (one term plus the renewal window)
     ///         and keep the carry economics of a term meaningful.
+    // Bounds enforced by the governance term-update setter that ships in the
+    // bounded-renewal PR; unused in milestone 1.
+    // slither-disable-next-line unused-state
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
+    // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
-
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
         /// @dev The reservation is unknown to the Bridge. Acceptance
-        ///      requests are made against positions in this state.
+        ///      requests are made against positions in this state. An
+        ///      acceptance authorization pending settlement is tracked
+        ///      exclusively via the action record
+        ///      (`reservationActions[actionKey(reservationKey, requestNonce)]`
+        ///      `.state == Pending`); the position itself stays `Unknown`
+        ///      and `ActionPending` is not set for acceptance in
+        ///      milestone 1.
         Unknown,
         /// @dev The reservation was accepted (anchor proven, balance
         ///      credited) and its anchor outpoint is under wallet custody,
@@ -80,10 +90,14 @@ library Reservation {
         ///      requested for the position and is not yet settled. The
         ///      pending action record is
         ///      `reservationActions[actionKey(reservationKey, requestNonce)]`.
+        ///      Not used for a pending acceptance authorization; see
+        ///      `Unknown`.
         ActionPending,
-        /// @dev The reservation was closed: redeemed in-kind, dissolved
-        ///      into the wallet's main UTXO, or settled late after a
-        ///      timeout.
+        /// @dev The reservation was closed as a terminal position outcome:
+        ///      redeemed in-kind or dissolved into the wallet's main UTXO.
+        ///      Late settlement of a timed-out acceptance generation does
+        ///      not produce this state — it settles into `Active` (see
+        ///      `ReservationProofs.settleAcceptance`).
         Closed,
         /// @dev The custodying wallet was terminated while the anchor was
         ///      outstanding. The owner's minted balance remains an ordinary
@@ -130,8 +144,11 @@ library Reservation {
 
     /// @notice Represents a UTXO reservation position.
     struct ReservationRequest {
-        // The reservation owner holding the in-kind redemption right. Set
-        // to the deposit's depositor at acceptance time.
+        // The reservation owner holding the in-kind redemption right.
+        // Initialized at reveal time by the deposit-reveal producer stub
+        // (`reservations[key].owner = depositor`) and reaffirmed here at
+        // acceptance time; must remain meaningless to any reader before
+        // acceptance settles.
         address owner;
         // Gross amount in satoshi credited to the owner via the reservation
         // vault at acceptance time. This is the amount that must be
@@ -149,7 +166,11 @@ library Reservation {
         uint64 anchorAmount;
         // UNIX timestamp the custody term expires at. Purely a contract
         // layer fact -- the anchor output carries no timelock.
-        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
+        // XXX: Unsigned 32-bit int unix seconds. Computed as `acceptedAt +
+        // reservationTermSeconds`; Solidity's checked arithmetic reverts
+        // this addition (rather than silently wrapping) once the sum would
+        // exceed the uint32 ceiling - starting up to MAX_RESERVATION_TERM
+        // (730 days) before the raw February 7th 2106 date, not at it.
         uint32 expiresAt;
         // Hash of the Bitcoin transaction holding the current anchor output.
         bytes32 anchorTxHash;
@@ -179,24 +200,32 @@ library Reservation {
         // granted (acceptance and each renewal), using the delay value
         // current at that moment — later governance changes never move
         // the eligibility time of a term already granted.
-        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
+        // XXX: Unsigned 32-bit int unix seconds. Computed as `expiresAt +
+        // reservationDissolutionDelay`; Solidity's checked arithmetic
+        // reverts this addition (rather than silently wrapping) once the
+        // sum would exceed the uint32 ceiling - starting somewhat before
+        // February 7th 2106, proportional to the delay applied on top of
+        // expiresAt's own margin.
         uint32 dissolutionEligibleAt;
         // Cumulative satoshi lost to Bitcoin miner fees across all
-        // re-anchor hops of this reservation. Written on every re-anchor
-        // settlement but never read in milestone 1: no ceiling is enforced
-        // yet, and a structural bound is deferred to post-milestone-1
-        // work. It is written from milestone 1 because the re-anchor
+        // re-anchor hops of this reservation. Will be written on every
+        // re-anchor settlement; not read in milestone 1 because the
+        // re-anchor path lands with a later milestone. It will be written
+        // from the first re-anchor hop onward because the re-anchor
         // settlement path writes the claim down on every hop, so the
         // original anchor value is not recoverable afterwards and this
         // total cannot be reconstructed from later state — the
         // `ReservationReanchored` event carries only the new anchor
         // amount, not the per-hop delta. Accumulating now means a
         // post-milestone-1 cap reads the true lifetime total instead of
-        // only post-upgrade hops. A position field a later milestone reads
-        // cannot be added while reservations are live.
+        // only post-upgrade hops. Appended to the end of the struct: since
+        // the struct is stored in a mapping, fields can be appended safely
+        // without gap-scarcity (see the note below on why this struct has
+        // no `__gap`).
+        uint64 cumulativeReanchorFee;
         // Appended to the end of the struct so the existing field layout
         // is unchanged.
-        uint64 cumulativeReanchorFee;
+        uint32 reanchorCooldownUntil;
         // This struct doesn't contain `__gap` property as the structure is
         // stored in a mapping, mappings store values in different slots and
         // they are not contiguous with other values.
@@ -205,7 +234,8 @@ library Reservation {
     /// @notice Represents one requested generation of a reservation action.
     ///         All fields the proof and settlement paths consult are
     ///         snapshotted here at request time; live parameters are never
-    ///         read at settlement.
+    ///         read at settlement, with the exception of term and dissolution
+    ///         delay grants.
     struct ReservationAction {
         // 20-byte public key hash of the wallet the action's single
         // wallet-controlled output must pay to: the designated custodian
@@ -213,8 +243,14 @@ library Reservation {
         // custodying wallet itself for dissolutions. Zero for redemptions.
         bytes20 targetWalletPubKeyHash;
         // UNIX timestamp the action was requested at.
+        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
         uint32 requestedAt;
         // UNIX timestamp after which the action can be reported timed out.
+        // XXX: Unsigned 32-bit int unix seconds. Computed by adding a
+        // timeout duration to requestedAt; Solidity's checked arithmetic
+        // reverts this addition (rather than silently wrapping) once the
+        // sum would exceed the uint32 ceiling - starting somewhat before
+        // February 7th 2106, proportional to the timeout applied.
         uint32 timeoutAt;
         // Snapshotted maximum Bitcoin miner fee for the action transaction.
         uint64 txMaxFee;
@@ -229,12 +265,6 @@ library Reservation {
         // The address able to claim the escrowed balance back should a
         // redemption generation time out. Zero for other action types.
         address redeemer;
-        // Amount in satoshi associated with the generation: the escrowed
-        // gross claim for redemptions (the full claim for a whole
-        // redemption, the redeemed portion for a partial), the
-        // capacity-reserved deposit value for acceptances, the anchor
-        // value at request time otherwise.
-        uint64 amount;
         // Action-specific authorization data: the keccak256 hash of the
         // length-prefixed redeemer output script for redemptions, or the
         // wallet main UTXO hash snapshotted for dissolutions. Zero for
@@ -245,6 +275,12 @@ library Reservation {
         // authorized to spend. Zero only for acceptance generations, which
         // spend the revealed deposit rather than an existing anchor.
         bytes32 sourceAnchorUtxoHash;
+        // Amount in satoshi associated with the generation: the escrowed
+        // gross claim for redemptions (the full claim for a whole
+        // redemption, the redeemed portion for a partial), the
+        // capacity-reserved deposit value for acceptances, the anchor
+        // value at request time otherwise.
+        uint64 amount;
         // True when this redemption generation consumed the reservation's
         // single-use retry entitlement. Needed to return the entitlement if
         // a late action consumes the expected anchor while leaving the
@@ -261,19 +297,29 @@ library Reservation {
         // Reserved-redemption veto delay after two guardian objections,
         // snapshotted from the watchtower policy at request time.
         uint32 watchtowerLevelTwoDelay;
-        // True when a redemption generation is partial: it redeems only
-        // `amount` of the reservation's claim in a 1-input-2-output spend
-        // (redeemer output + re-anchored remainder) and leaves the
-        // reservation open with a reduced anchor. False for a whole
-        // redemption (1-input-1-output, closes the reservation) and for
-        // every non-redemption action. Appended to the end of the struct so
-        // the existing field layout is unchanged.
-        bool isPartial;
         // Fee-paid redemption generation that originated the retry credit
         // consumed by this action. Zero when `usedRetryCredit` is false.
         // Kept on the action so a late re-anchor or partial redemption can
         // restore the exact amount/shape binding after superseding the retry.
         uint64 retryCreditSourceNonce;
+        // True when a redemption generation is partial: it redeems only
+        // `amount` of the reservation's claim in a 1-input-2-output spend
+        // (redeemer output + re-anchored remainder) and leaves the
+        // reservation open with a reduced anchor. False for a whole
+        // redemption (1-input-1-output, closes the reservation) and for
+        // every non-redemption action.
+        bool isPartial;
+        // Snapshotted `reservationTermSeconds` at acceptance request time.
+        // Zero for every non-acceptance action type. Used by
+        // `settleAcceptance` to compute `expiresAt` from the generation
+        // record instead of the live governance parameter, matching this
+        // struct's snapshot-at-request invariant.
+        uint32 termSeconds;
+        // Snapshotted `reservationDissolutionDelay` at acceptance request
+        // time. Zero for every non-acceptance action type. Used by
+        // `settleAcceptance` to compute `dissolutionEligibleAt` from the
+        // generation record instead of the live governance parameter.
+        uint32 dissolutionDelay;
     }
 
     event ReservationAcceptanceRequested(
@@ -293,21 +339,21 @@ library Reservation {
         uint64 txMaxFee
     );
 
-    event ReservationActionTimedOut(
-        uint256 indexed reservationKey,
-        uint64 requestNonce,
-        ActionType actionType
-    );
-
-    event ReservationRetryCreditMinted(uint256 indexed reservationKey);
-
-    event ReservedDepositMarkedStale(uint256 indexed depositKey);
-
     event ReservationStranded(
         uint256 indexed reservationKey,
         bytes20 indexed walletPubKeyHash,
         address indexed owner,
         uint64 anchorAmount
+    );
+
+    event ReservationReanchorTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
+    );
+
+    event ReservationAcceptanceTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
     );
 
     event ReservationParametersUpdated(
@@ -329,6 +375,19 @@ library Reservation {
         uint32 maxActiveReservations
     );
 
+    event ReservationRedemptionTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
+    );
+
+    event ReservationDissolutionTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
+    );
+
+    event ReservationRetryCreditMinted(uint256 indexed reservationKey);
+    event ReservedDepositMarkedStale(uint256 indexed depositKey);
+
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
     function actionKey(uint256 reservationKey, uint64 requestNonce)
@@ -338,31 +397,6 @@ library Reservation {
     {
         return
             uint256(keccak256(abi.encodePacked(reservationKey, requestNonce)));
-    }
-
-    /// @notice Single entry point for all reservation lifecycle SPV proofs.
-    ///         Forwards to the `ReservationProofs` settlement library. The
-    ///         forwarding hop exists so the `ReservationRouter` links
-    ///         exactly one external library; see the router for the
-    ///         architecture.
-    function submitReservationProof(
-        BridgeState.Storage storage self,
-        uint8 proofType,
-        BitcoinTx.Info calldata txInfo,
-        BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) external {
-        ReservationProofs.submitReservationProof(
-            self,
-            proofType,
-            txInfo,
-            proof,
-            mainUtxo,
-            reservationKey,
-            requestNonce
-        );
     }
 
     /// @notice Returns the action record of the given reservation
@@ -407,21 +441,34 @@ library Reservation {
     ///      - The reservation vault must be set,
     ///      - The deposit must be revealed to the reservation vault and not
     ///        swept,
+    ///      - Caller must be the deposit's depositor,
     ///      - No acceptance authorization for the deposit may be pending,
+    ///      - Wallet must be the deposit's designated wallet,
+    ///      - No reservation may already exist for the key,
     ///      - The wallet must be Live,
     ///      - The deposit amount must satisfy the reservation minimum plus
     ///        the transaction fee allowance, so a compliant anchor always
     ///        satisfies the minimum after fees,
+    ///      - Deposit amount must not exceed the single-reservation cap
+    ///        (`reservationMaxSingleAmount`; 0 disables the cap),
+    ///      - Wallet's reserved amount after this deposit must not exceed
+    ///        the per-wallet amount cap (`maxReservationsAmountPerWallet`;
+    ///        0 disables the cap),
+    ///      - Active reservations count must remain below the max active
+    ///        reservations cap (`maxActiveReservations`; 0 disables the
+    ///        cap),
     ///      - At least one integer timestamp must remain after the deposit
     ///        minimum age and before both the action-timeout and exact
     ///        reveal-time refund safety margins, so every created action has
-    ///        a proposal the wallet validator can sign,
-    ///      - The authorization window (now + action timeout) must end before
-    ///        the exact refund deadline, so an authorized anchor can never
+    ///        a proposal the wallet validator (see PR #B) can sign,
+    ///      - The authorization window (now + action timeout) must end at or
+    ///        before the exact refund deadline, so an authorized anchor can never
     ///        race the depositor's refund,
-    ///      - Reservation capacity (total amount, per-wallet count) must
-    ///        allow the deposit; both are reserved by this call and
-    ///        released if the authorization times out.
+    ///      - The single-reservation amount must not exceed the cap,
+    ///      - The active-position cap must not be exceeded,
+    ///      - The global reserved-amount cap must not be exceeded,
+    ///      - The per-wallet reservation-count cap must not be exceeded,
+    ///      - The per-wallet amount cap must not be exceeded.
     function requestReservationAcceptance(
         BridgeState.Storage storage self,
         uint256 reservationKey,
@@ -434,6 +481,10 @@ library Reservation {
 
         Deposit.DepositRequest storage deposit = self.deposits[reservationKey];
         require(deposit.revealedAt != 0, "Deposit not revealed");
+        require(
+            msg.sender == deposit.depositor,
+            "Caller is not the deposit's depositor"
+        );
         require(deposit.sweptAt == 0, "Deposit already swept");
         require(
             self.pendingReservedDeposit[reservationKey].isReserved,
@@ -446,18 +497,6 @@ library Reservation {
 
         BridgeState.PendingReservedDeposit storage reservedDeposit = self
             .pendingReservedDeposit[reservationKey];
-        // NOTE: This exact require repeats below, after the reservation
-        // state and pending-action checks. Neither operand is mutated in
-        // between (`walletPubKeyHash` is calldata, `reservedDeposit` is a
-        // storage pointer, and the checks between only read), so the
-        // second copy can never revert when this one passes. The
-        // duplication is inherited verbatim from #1094 and kept
-        // deliberately: this stack's extraction PRs stay faithful to the
-        // audited source. Do not "fix" one copy without the other.
-        require(
-            reservedDeposit.walletPubKeyHash == walletPubKeyHash,
-            "Wallet is not the deposit's designated wallet"
-        );
 
         ReservationRequest storage reservation = self.reservations[
             reservationKey
@@ -522,9 +561,11 @@ library Reservation {
         // governance update of `depositRevealAheadPeriod` must neither
         // extend nor shorten this deposit's authorization window. The raw
         // deadline is retained even when reveal-ahead validation is disabled
-        // because the wallet validator always enforces its refund margin.
+        // because the margin is enforced on-chain.
         require(
-            timeoutAt <= reservedDeposit.refundDeadline,
+            uint256(timeoutAt) +
+                WalletProposalValidatorConstants.DEPOSIT_REFUND_SAFETY_MARGIN <=
+                uint256(reservedDeposit.refundDeadline),
             "Authorization window would overlap the deposit refund window"
         );
         require(
@@ -543,18 +584,29 @@ library Reservation {
             "Reservation exceeds the single-reservation cap"
         );
 
+        // Occupancy: number of open reservation positions across all
+        // wallets. Zero disables the cap until governance sets it.
+        require(
+            self.maxActiveReservations == 0 ||
+                self.activeReservationsCount < self.maxActiveReservations,
+            "Active reservations cap exceeded"
+        );
+        self.activeReservationsCount += 1;
+
         // Reserve capacity using the deposit value as the upper bound of
         // the anchor value; the settlement releases the miner-fee delta.
         uint64 newTotal = self.reservationTotalAmount + deposit.amount;
         require(
-            newTotal <= self.reservationMaxTotalAmount,
+            self.reservationMaxTotalAmount == 0 ||
+                newTotal <= self.reservationMaxTotalAmount,
             "Total reserved amount cap exceeded"
         );
         self.reservationTotalAmount = newTotal;
 
         uint32 walletCount = self.walletReservationsCount[walletPubKeyHash] + 1;
         require(
-            walletCount <= self.maxReservationsPerWallet,
+            self.maxReservationsPerWallet == 0 ||
+                walletCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationsCount[walletPubKeyHash] = walletCount;
@@ -567,15 +619,6 @@ library Reservation {
             "Wallet reserved amount cap exceeded"
         );
         self.walletReservationsAmount[walletPubKeyHash] = walletAmount;
-
-        // Global open-position occupancy, reserved at request time the same
-        // way `walletReservationsCount` is. Converts variant B's silent
-        // saturation cliff into a revert (`m1-b-implementation.md` §4.1).
-        require(
-            self.activeReservationsCount < self.maxActiveReservations,
-            "Active reservations cap exceeded"
-        );
-        self.activeReservationsCount += 1;
 
         uint64 requestNonce = ++reservation.requestNonce;
 
@@ -592,6 +635,8 @@ library Reservation {
         action.txMaxFee = self.reservationTxMaxFee;
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = deposit.amount;
+        action.termSeconds = self.reservationTermSeconds;
+        action.dissolutionDelay = self.reservationDissolutionDelay;
 
         emit ReservationAcceptanceRequested(
             reservationKey,
@@ -601,6 +646,62 @@ library Reservation {
             action.txMaxFee,
             timeoutAt
         );
+    }
+
+    /// @notice Permissionlessly reports a pending acceptance authorization
+    ///         as timed out once its authorization window has elapsed,
+    ///         releasing the capacity it reserved so a fresh generation can
+    ///         be requested for the deposit. The timed-out generation
+    ///         remains settleable: if its anchor transaction later confirms
+    ///         on Bitcoin, `submitReservationAcceptanceProof` settles it as
+    ///         a late acceptance instead of reverting.
+    /// @param reservationKey The deposit key of the revealed reserved
+    ///        deposit, which doubles as the reservation key.
+    /// @dev Requirements:
+    ///      - The reservation's current generation must be a pending
+    ///        acceptance authorization (`ActionType.Acceptance`,
+    ///        `ActionState.Pending`),
+    ///      - `block.timestamp` must be at or after the generation's
+    ///        `timeoutAt`.
+    function notifyReservationAcceptanceTimedOut(
+        BridgeState.Storage storage self,
+        uint256 reservationKey
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        uint64 requestNonce = reservation.requestNonce;
+        ReservationAction storage action = getAction(
+            self,
+            reservationKey,
+            requestNonce
+        );
+
+        require(
+            action.actionType == ActionType.Acceptance,
+            "Action type mismatch"
+        );
+        require(action.state == ActionState.Pending, "Action is not pending");
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp >= action.timeoutAt,
+            "Action has not timed out"
+        );
+
+        action.state = ActionState.TimedOut;
+
+        // Mirrors `ReservationProofs.unwindPendingAction`'s acceptance
+        // branch: a superseded or timed-out acceptance authorization
+        // releases the capacity it reserved against its target wallet at
+        // request time.
+        bytes20 targetWalletPubKeyHash = action.targetWalletPubKeyHash;
+        uint64 amount = action.amount;
+        self.reservationTotalAmount -= amount;
+        self.walletReservationsCount[targetWalletPubKeyHash] -= 1;
+        self.walletReservationsAmount[targetWalletPubKeyHash] -= amount;
+        self.activeReservationsCount -= 1;
+
+        emit ReservationAcceptanceTimedOut(reservationKey, requestNonce);
     }
 
     /// @notice Requests the re-anchoring of a reservation to another
@@ -617,13 +718,18 @@ library Reservation {
     /// @dev Requirements:
     ///      - The reservation must be Active,
     ///      - The reservation must not yet be dissolution-eligible,
-    ///      - The source wallet must be in the MovingFunds state (anyone
-    ///        may then request — migration is the system's duty), or Live
-    ///        with the governance as the caller (approved rotation),
+    ///      - The source wallet must be in the MovingFunds or Closing state
+    ///        (the primary re-anchor path for MovingFunds/Closing is
+    ///        permissionless by design, not gated), or Live with the
+    ///        governance as the caller (approved rotation),
     ///      - The target wallet must be Live and different from the source,
+    ///      - At least one integer timestamp must remain between now and the
+    ///        action-timeout safety margin, so every created action has a
+    ///        proposal the wallet validator (see PR #B) can sign,
     ///      - The target wallet's reservation-count capacity must allow the
     ///        move; the capacity is reserved by this call and released if
-    ///        the authorization times out.
+    ///        the authorization times out,
+    ///      - The target wallet's amount capacity must allow the move.
     function requestReservationReanchor(
         BridgeState.Storage storage self,
         uint256 reservationKey,
@@ -638,6 +744,12 @@ library Reservation {
             "Reservation is not active"
         );
         /* solhint-disable not-rely-on-time */
+        if (!privileged) {
+            require(
+                block.timestamp >= reservation.reanchorCooldownUntil,
+                "Reanchor cooldown in effect"
+            );
+        }
         require(
             block.timestamp < reservation.dissolutionEligibleAt,
             "Reservation is dissolution-eligible"
@@ -655,8 +767,9 @@ library Reservation {
                 );
             } else {
                 require(
-                    sourceState == Wallets.WalletState.MovingFunds,
-                    "Source wallet must be in Live or MovingFunds state"
+                    sourceState == Wallets.WalletState.MovingFunds ||
+                        sourceState == Wallets.WalletState.Closing,
+                    "Source wallet must be in MovingFunds or Closing state"
                 );
             }
         }
@@ -671,13 +784,41 @@ library Reservation {
             "Target wallet must be in Live state"
         );
 
+        /* solhint-disable-next-line not-rely-on-time */
+        uint32 timeoutAt = uint32(block.timestamp) +
+            self.reservationActionTimeout;
+
+        // A re-anchor authorization carries no deposit-reveal age floor
+        // (unlike acceptance): the earliest admissible signing timestamp is
+        // simply the next integer second after this request. Require a
+        // non-empty window before the safety-margined deadline so every
+        // created action has a proposal the wallet validator (see PR #B)
+        // can sign.
+        require(
+            uint256(timeoutAt) >
+                WalletProposalValidatorConstants
+                    .REQUEST_TIMEOUT_SAFETY_MARGIN &&
+                /* solhint-disable-next-line not-rely-on-time */
+                uint256(block.timestamp) + 1 <
+                uint256(timeoutAt) -
+                    WalletProposalValidatorConstants
+                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Reanchor authorization has no signing window"
+        );
+        require(
+            reservation.anchorAmount >
+                self.reservationTxMaxFee + self.reservationMinAmount,
+            "Reanchor would fall below the minimum reservation amount"
+        );
+
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
         uint32 targetCount = self.walletReservationsCount[
             targetWalletPubKeyHash
         ] + 1;
         require(
-            targetCount <= self.maxReservationsPerWallet,
+            self.maxReservationsPerWallet == 0 ||
+                targetCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
         self.walletReservationsCount[targetWalletPubKeyHash] = targetCount;
@@ -702,12 +843,9 @@ library Reservation {
         );
         action.actionType = ActionType.Reanchor;
         action.state = ActionState.Pending;
-        /* solhint-disable not-rely-on-time */
+        /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
-        action.timeoutAt =
-            uint32(block.timestamp) +
-            self.reservationActionTimeout;
-        /* solhint-enable not-rely-on-time */
+        action.timeoutAt = timeoutAt;
         action.txMaxFee = self.reservationTxMaxFee;
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
         action.amount = reservation.anchorAmount;
@@ -722,25 +860,89 @@ library Reservation {
         );
     }
 
-    /// @notice Notifies that the pending action of the given reservation
-    ///         has timed out. Writes the terminal `TimedOut` record —
-    ///         which still accepts a late proof — releases the capacity
-    ///         and locks reserved at request time, refunds the escrowed
-    ///         claim for redemptions (minting the fee-free retry
-    ///         entitlement when the generation had paid the fee), and
-    ///         propagates wallet consequences: redemption and dissolution
-    ///         timeouts slash the wallet operators exactly like a pooled
-    ///         redemption timeout.
-    /// @param reservationKey The key of the reservation with the timed out
-    ///        action.
     /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members. Only consulted for redemption and dissolution
-    ///        timeouts (the slashing path); pass an empty array otherwise.
-    /// @dev Requirements:
-    ///      - The reservation must have a pending action (or a pending
-    ///        acceptance authorization),
-    ///      - The action's timeout must have elapsed.
+    ///        members; only consulted on the slashing paths (redemption and
+    ///        dissolution timeouts). Unreachable in milestone 1 (redemption
+    ///        and dissolution timeouts do not occur); unused until those
+    ///        paths land.
     function notifyReservationActionTimeout(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        // solhint-disable-next-line no-unused-vars
+        uint32[] calldata walletMembersIDs
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        ReservationAction storage action = getAction(
+            self,
+            reservationKey,
+            reservation.requestNonce
+        );
+
+        require(
+            action.actionType == ActionType.Reanchor,
+            "Unsupported action type for timeout"
+        );
+        require(
+            reservation.state == ReservationState.ActionPending,
+            "Reservation is not in ActionPending state"
+        );
+        require(action.state == ActionState.Pending, "Action is not pending");
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp >= action.timeoutAt,
+            "Action has not timed out"
+        );
+        /* solhint-enable not-rely-on-time */
+
+        action.state = ActionState.TimedOut;
+
+        // Release the target wallet's capacity reserved at request time;
+        // the source wallet's capacity is untouched because the
+        // reservation stays custodied there. A late proof of this
+        // generation re-takes the released target capacity (see
+        // `ReservationProofs.submitReservationReanchorProof`).
+        self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
+        self.walletReservationsAmount[action.targetWalletPubKeyHash] -= action
+            .amount;
+
+        reservation.state = ReservationState.Active;
+
+        /* solhint-disable not-rely-on-time */
+        reservation.reanchorCooldownUntil =
+            uint32(block.timestamp) +
+            self.reservationActionTimeout;
+        /* solhint-enable not-rely-on-time */
+
+        emit ReservationReanchorTimedOut(
+            reservationKey,
+            reservation.requestNonce
+        );
+    }
+
+    /// @notice Permissionlessly reports a reservation's pending redemption
+    ///         generation as timed out once its authorization window has
+    ///         elapsed: restores the reservation to `Active` so a fresh
+    ///         redemption may be requested, mints a fee-free retry
+    ///         entitlement when the generation had paid the fee, and
+    ///         propagates wallet consequences (slashing follows the
+    ///         regular redemption timeout rules).
+    /// @dev Returns the redemption generation's escrowed claim to
+    ///      `action.redeemer` as Bank balance, regardless of whether the
+    ///      wallet was slashable: the redeemer's entitlement to the
+    ///      escrowed amount does not depend on the wallet's post-timeout
+    ///      lifecycle state.
+    /// @param reservationKey The key of the reservation whose current
+    ///        pending generation timed out.
+    /// @param walletMembersIDs Identifiers of the wallet signing group
+    ///        members, consulted for the slashing path.
+    /// @dev Requirements:
+    ///      - The reservation's current generation must be a `Redemption`
+    ///        action in the `Pending` state,
+    ///      - The reservation itself must be in the `ActionPending` state,
+    ///      - Its snapshotted `timeoutAt` must have elapsed.
+    function notifyReservationRedemptionTimedOut(
         BridgeState.Storage storage self,
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
@@ -748,97 +950,295 @@ library Reservation {
         ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
-        uint64 requestNonce = reservation.requestNonce;
         ReservationAction storage action = getAction(
             self,
             reservationKey,
-            requestNonce
+            reservation.requestNonce
         );
-        require(action.state == ActionState.Pending, "No pending action");
+
         require(
-            /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp > action.timeoutAt,
+            action.actionType == ActionType.Redemption,
+            "Unsupported action type for timeout"
+        );
+        require(
+            reservation.state == ReservationState.ActionPending,
+            "Reservation is not in ActionPending state"
+        );
+        require(action.state == ActionState.Pending, "Action is not pending");
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp >= action.timeoutAt,
             "Action has not timed out"
         );
+        /* solhint-enable not-rely-on-time */
 
         action.state = ActionState.TimedOut;
+        reservation.state = ReservationState.Active;
 
-        ActionType actionType = action.actionType;
-
-        if (actionType == ActionType.Acceptance) {
-            // Release the capacity reserved at request time; the deposit
-            // remains revealed and a new acceptance can be requested while
-            // the refund-locktime margin allows.
-            self.reservationTotalAmount -= action.amount;
-            self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
-            self.walletReservationsAmount[
-                action.targetWalletPubKeyHash
-            ] -= action.amount;
-            self.activeReservationsCount -= 1;
-        } else if (actionType == ActionType.Redemption) {
-            reservation.state = ReservationState.Active;
-
-            if (action.feePaid) {
-                reservation.retryCredit = true;
-                emit ReservationRetryCreditMinted(reservationKey);
-            }
-
-            // Propagate timeout consequences to the wallet: slashing and
-            // state transition follow the regular redemption timeout rules.
-            self.notifyWalletRedemptionTimeout(
-                reservation.walletPubKeyHash,
-                walletMembersIDs
-            );
-
-            // Return the escrowed balance to the redeemer as Bank balance.
-            self.bank.transferBalance(action.redeemer, action.amount);
-        } else if (actionType == ActionType.Reanchor) {
-            reservation.state = ReservationState.Active;
-            // Release the target wallet's reserved capacity.
-            self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
-            self.walletReservationsAmount[
-                action.targetWalletPubKeyHash
-            ] -= action.amount;
-        } else {
-            // Dissolution.
-            reservation.state = ReservationState.Active;
-            delete self.walletPendingDissolution[reservation.walletPubKeyHash];
-
-            bool walletWasMovingFunds = self
-                .registeredWallets[reservation.walletPubKeyHash]
-                .state == Wallets.WalletState.MovingFunds;
-
-            // A wallet failing its dissolution duty is slashed like a
-            // wallet failing a redemption: dissolution is the mechanism
-            // that makes term + grace a hard stranding bound.
-            self.notifyWalletRedemptionTimeout(
-                reservation.walletPubKeyHash,
-                walletMembersIDs
-            );
-
-            // A Live wallet enters MovingFunds on its first failure and keeps
-            // the ordinary moving-funds deadline. A wallet already in
-            // MovingFunds has now also refused the terminal cleanup of its
-            // residual anchor, so terminate it at the dissolution bound.
-            if (walletWasMovingFunds) {
-                self.terminateWallet(reservation.walletPubKeyHash);
-            }
+        if (action.feePaid || action.usedRetryCredit) {
+            reservation.retryCredit = true;
+            self.reservationRetryCreditActionNonce[reservationKey] = reservation
+                .requestNonce;
+            emit ReservationRetryCreditMinted(reservationKey);
         }
 
+        // A wallet that has already moved past MovingFunds (Closing,
+        // Closed) cannot be slashed via the regular redemption-timeout
+        // path -- `notifyWalletRedemptionTimeout` requires Live,
+        // MovingFunds, or Terminated and reverts otherwise. Skipping it
+        // here (rather than reverting the whole timeout) keeps this
+        // permissionless cleanup callable regardless of the wallet's
+        // lifecycle stage.
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        bool isWalletRedeemable = walletState == Wallets.WalletState.Live ||
+            walletState == Wallets.WalletState.MovingFunds ||
+            walletState == Wallets.WalletState.Terminated;
+        if (isWalletRedeemable) {
+            self.notifyWalletRedemptionTimeout(
+                reservation.walletPubKeyHash,
+                walletMembersIDs
+            );
+        }
+
+        // Return the escrowed balance to the redeemer as Bank balance.
+        self.bank.transferBalance(action.redeemer, action.amount);
+
         // slither-disable-next-line reentrancy-events
-        emit ReservationActionTimedOut(
+        emit ReservationRedemptionTimedOut(
             reservationKey,
-            requestNonce,
-            actionType
+            reservation.requestNonce
         );
     }
 
-    /// @notice Marks a revealed reserved deposit as stale: it can no
-    ///         longer be authorized for acceptance and stops counting
-    ///         against the pending-reserved-deposit guard. Intended for
-    ///         deposits whose acceptance never happened — after the
-    ///         reveal-time refund deadline the depositor is expected to
-    ///         reclaim the funds through the Bitcoin refund path.
+    /// @notice Permissionlessly reports a reservation's pending dissolution
+    ///         generation as timed out once its authorization window has
+    ///         elapsed: restores the reservation to `Active` so a fresh
+    ///         dissolution may be requested, and propagates wallet
+    ///         consequences. A wallet failing its dissolution duty is
+    ///         slashed like a wallet failing a redemption: dissolution is
+    ///         the mechanism that makes term + grace a hard stranding
+    ///         bound. A Live wallet enters MovingFunds on its first
+    ///         failure and keeps the ordinary moving-funds deadline; a
+    ///         wallet already in MovingFunds has now also refused the
+    ///         terminal cleanup of its residual anchor, so it is
+    ///         terminated at the dissolution bound.
+    /// @param reservationKey The key of the reservation whose current
+    ///        pending generation timed out.
+    /// @param walletMembersIDs Identifiers of the wallet signing group
+    ///        members, consulted for the slashing path.
+    /// @dev Requirements:
+    ///      - The reservation's current generation must be a `Dissolution`
+    ///        action in the `Pending` state,
+    ///      - The reservation itself must be in the `ActionPending` state,
+    ///      - Its snapshotted `timeoutAt` must have elapsed.
+    function notifyReservationDissolutionTimedOut(
+        BridgeState.Storage storage self,
+        uint256 reservationKey,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        ReservationAction storage action = getAction(
+            self,
+            reservationKey,
+            reservation.requestNonce
+        );
+
+        require(
+            action.actionType == ActionType.Dissolution,
+            "Unsupported action type for timeout"
+        );
+        require(
+            reservation.state == ReservationState.ActionPending,
+            "Reservation is not in ActionPending state"
+        );
+        require(action.state == ActionState.Pending, "Action is not pending");
+        /* solhint-disable not-rely-on-time */
+        require(
+            block.timestamp >= action.timeoutAt,
+            "Action has not timed out"
+        );
+        /* solhint-enable not-rely-on-time */
+
+        action.state = ActionState.TimedOut;
+        reservation.state = ReservationState.Active;
+        // Only clear the wallet's pending-dissolution marker if it still
+        // points at THIS reservation: a newer request for a different
+        // reservation may have since claimed the wallet's single-slot
+        // marker, and this timeout must not clear that unrelated claim.
+        if (
+            self.walletPendingDissolution[reservation.walletPubKeyHash] ==
+            reservationKey
+        ) {
+            delete self.walletPendingDissolution[reservation.walletPubKeyHash];
+        }
+
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        bool walletWasMovingFunds = walletState ==
+            Wallets.WalletState.MovingFunds;
+        // See notifyReservationRedemptionTimedOut: skip slashing for a
+        // wallet notifyWalletRedemptionTimeout cannot accept (Closing,
+        // Closed) rather than reverting this permissionless cleanup.
+        bool isWalletRedeemable = walletState == Wallets.WalletState.Live ||
+            walletWasMovingFunds ||
+            walletState == Wallets.WalletState.Terminated;
+        if (isWalletRedeemable) {
+            self.notifyWalletRedemptionTimeout(
+                reservation.walletPubKeyHash,
+                walletMembersIDs
+            );
+        }
+
+        // A Live wallet enters MovingFunds on its first failure and keeps
+        // the ordinary moving-funds deadline. A wallet already in
+        // MovingFunds has now also refused the terminal cleanup of its
+        // residual anchor, so terminate it at the dissolution bound. The
+        // slashing call above may itself have just moved a Live wallet to
+        // MovingFunds or Closing, so the termination check re-reads state
+        // after that call rather than trusting the pre-call snapshot.
+        Wallets.WalletState postCallState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        if (
+            walletWasMovingFunds || postCallState == Wallets.WalletState.Closing
+        ) {
+            self.terminateWallet(reservation.walletPubKeyHash);
+        }
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservationDissolutionTimedOut(
+            reservationKey,
+            reservation.requestNonce
+        );
+    }
+
+    /// @notice Appends a reservation key to a wallet's enumeration list.
+    function addWalletReservationKey(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint256 reservationKey
+    ) internal {
+        self.walletReservationKeys[walletPubKeyHash].push(reservationKey);
+        self.walletReservationKeyIndex[reservationKey] = self
+            .walletReservationKeys[walletPubKeyHash]
+            .length;
+    }
+
+    /// @notice Swap-removes a reservation key from a wallet's enumeration
+    ///         list.
+    function removeWalletReservationKey(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint256 reservationKey
+    ) internal {
+        uint256 indexPlusOne = self.walletReservationKeyIndex[reservationKey];
+        if (indexPlusOne == 0) {
+            return;
+        }
+        uint256[] storage keys = self.walletReservationKeys[walletPubKeyHash];
+        uint256 lastIndex = keys.length - 1;
+        if (indexPlusOne - 1 != lastIndex) {
+            uint256 movedKey = keys[lastIndex];
+            keys[indexPlusOne - 1] = movedKey;
+            self.walletReservationKeyIndex[movedKey] = indexPlusOne;
+        }
+        keys.pop();
+        delete self.walletReservationKeyIndex[reservationKey];
+    }
+
+    /// @notice Strands a reservation: releases its tracked capacity and
+    ///         emits the canonical recovery evidence. The caller decides
+    ///         whether the anchor was honestly spent before invoking this
+    ///         accounting transition.
+    function strandReservation(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation,
+        uint256 reservationKey
+    ) internal {
+        bool evidenceAlreadyEmitted = reservation.state ==
+            ReservationState.Stranded;
+        bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
+        uint64 anchorAmount = reservation.anchorAmount;
+
+        if (!evidenceAlreadyEmitted) {
+            self.walletReservationsCount[walletPubKeyHash] -= 1;
+            self.walletReservationsAmount[walletPubKeyHash] -= anchorAmount;
+            self.reservationTotalAmount -= anchorAmount;
+            self.activeReservationsCount -= 1; // The stranded reservation was counted at request time.
+            removeWalletReservationKey(self, walletPubKeyHash, reservationKey);
+            delete self.reservationsByAnchorUtxo[
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            reservation.anchorTxHash,
+                            reservation.anchorTxOutputIndex
+                        )
+                    )
+                )
+            ];
+        }
+        reservation.state = ReservationState.Stranded;
+
+        // A late dissolution proof can reconstruct and then release the
+        // accounting of an already-stranded position. Preserve the original
+        // recovery evidence instead of emitting a second compensation claim.
+        if (!evidenceAlreadyEmitted) {
+            // slither-disable-next-line reentrancy-events
+            emit ReservationStranded(
+                reservationKey,
+                walletPubKeyHash,
+                reservation.owner,
+                anchorAmount
+            );
+        }
+    }
+
+    /// @notice Permissionless cleanup entry point for a reservation whose
+    ///         custodying wallet has reached the Closing, Closed, or
+    ///         Terminated state with no settlement currently in flight:
+    ///         capacity is released via `strandReservation`, which also
+    ///         emits the canonical `ReservationStranded` recovery evidence,
+    ///         and the owner's minted balance remains an ordinary pooled
+    ///         claim. Pending actions remain proof-eligible and cannot be
+    ///         stranded.
+    /// @param reservationKey The key of the reservation to strand.
+    /// @dev Requirements:
+    ///      - The reservation must be Active,
+    ///      - The reservation's wallet must be in the Closing, Closed, or
+    ///        Terminated state.
+    function notifyReservationStranded(
+        BridgeState.Storage storage self,
+        uint256 reservationKey
+    ) external {
+        ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        require(
+            reservation.state == ReservationState.Active,
+            "Reservation is not active"
+        );
+
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
+        require(
+            walletState == Wallets.WalletState.Closing ||
+                walletState == Wallets.WalletState.Closed ||
+                walletState == Wallets.WalletState.Terminated,
+            "Wallet is not closing, closed or terminated"
+        );
+
+        strandReservation(self, reservation, reservationKey);
+    }
+
+    /// @notice Marks a revealed reserved deposit as stale so it stops
+    ///         counting against the pending-reserved-deposit guard and can
+    ///         no longer be authorized for acceptance.
     /// @param depositKey The deposit key of the reserved deposit.
     /// @dev Requirements:
     ///      - The deposit must be a pending reserved deposit (revealed to
@@ -858,6 +1258,12 @@ library Reservation {
             pendingDeposit.walletPubKeyHash != bytes20(0),
             "Not a pending reserved deposit"
         );
+        // A non-zero designated wallet implies reveal-time reservation
+        // routing, and no path clears `isReserved` once reveal sets it. Lock
+        // the implication here so a future refactor that re-purposes the flag
+        // - for instance as a not-yet-stale marker - fails loudly instead of
+        // silently redrawing the stale/acceptable partition.
+        assert(pendingDeposit.isReserved);
 
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.sweptAt == 0, "Deposit already swept");
@@ -884,41 +1290,6 @@ library Reservation {
         emit ReservedDepositMarkedStale(depositKey);
     }
 
-    /// @notice Marks a reservation custodied by a terminated wallet as
-    ///         stranded. A terminated wallet's operators are already
-    ///         slashed and can sign the anchor away unchallengeably, so
-    ///         the registry stops tracking the anchor: the position closes
-    ///         as Stranded and reserved capacity is released. A pending
-    ///         action cannot be stranded: its Bitcoin transaction may already
-    ///         be confirmed and must remain provable. The owner's minted
-    ///         balance simply remains an ordinary pooled claim — the backing
-    ///         shortfall is socialized exactly like a terminated wallet's main
-    ///         UTXO. A governance compensation path can consume the emitted
-    ///         evidence.
-    /// @param reservationKey The key of the stranded reservation.
-    /// @dev Requirements:
-    ///      - The custodying wallet must be in the Terminated state,
-    ///      - The reservation must be Active.
-    function notifyReservationStranded(
-        BridgeState.Storage storage self,
-        uint256 reservationKey
-    ) external {
-        ReservationRequest storage reservation = self.reservations[
-            reservationKey
-        ];
-        require(
-            reservation.state == ReservationState.Active,
-            "Reservation is not active"
-        );
-        require(
-            self.registeredWallets[reservation.walletPubKeyHash].state ==
-                Wallets.WalletState.Terminated,
-            "Wallet is not terminated"
-        );
-
-        strandReservation(self, reservation, reservationKey);
-    }
-
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as UTXO reservations.
@@ -933,13 +1304,11 @@ library Reservation {
     ///        for storage completeness; unread until renewal lands),
     ///      - `reservationActionTimeout` must exceed the wallet
     ///        validator's final signing safety margin,
+    ///      - `maxReservationsPerWallet` must be greater than zero, so that
+    ///        a parameter update can never become an undeclared halt of all
+    ///        new acceptances and re-anchors,
     ///      - The reservation vault can only be changed while there are no
-    ///        active reservations (total reserved amount is zero),
-    ///      - `reservationMaxTotalAmount` must not exceed worst-case slot
-    ///        capacity, `maxActiveReservations *
-    ///        reservationMaxSingleAmount`, both owned by
-    ///        `updateReservationCaps`; a zero value on either of those two
-    ///        disables that cap and skips the check.
+    ///        active reservations (total reserved amount is zero).
     ///
     ///      Term, dissolution delay and fee bounds are snapshotted into
     ///      positions and action records when terms are granted or actions
@@ -979,6 +1348,10 @@ library Reservation {
                 WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reservation action timeout must exceed the safety margin"
         );
+        require(
+            maxReservationsPerWallet > 0,
+            "Max reservations per wallet must be greater than zero"
+        );
 
         if (reservationVault != self.reservationVault) {
             require(
@@ -1012,7 +1385,6 @@ library Reservation {
                     self.reservationMaxSingleAmount,
             "Amount cap exceeds slot capacity"
         );
-
         self.reservationMinAmount = reservationMinAmount;
         self.reservationTxMaxFee = reservationTxMaxFee;
         self.reservationTermSeconds = reservationTermSeconds;
@@ -1039,15 +1411,13 @@ library Reservation {
     ///         and reserved at request/authorization time, never at proof
     ///         time; a zero amount-cap value disables that amount cap.
     ///         `maxActiveReservations` must be greater than zero — it is
-    ///         the launch gate that turns variant B's saturation cliff into
-    ///         a revert.
-    /// @dev `reservationMaxTotalAmount` may not exceed worst-case slot
-    ///      capacity, `maxActiveReservations * reservationMaxSingleAmount`.
-    ///      Enforced here and in `updateReservationParameters`, each from
-    ///      its own new arguments plus a storage read of the field the
-    ///      other setter owns, so no call order can leave the invariant
-    ///      violated. A zero amount cap disables that cap and skips the
-    ///      check.
+    ///         the milestone 1 launch gate.
+    /// @dev Deploy-ordering requirement (see
+    ///      `docs/RESERVATION_CAPS_DEPLOYMENT.md`): the M3/M8 runbook
+    ///      gates `updateReservationParameters` calls on
+    ///      `updateReservationCaps` having run first, so the slot-capacity
+    ///      check at reservation request has at least one zero operand to
+    ///      short-circuit on.
     function updateReservationCaps(
         BridgeState.Storage storage self,
         uint64 maxReservationsAmountPerWallet,
@@ -1070,7 +1440,6 @@ library Reservation {
                 uint256(maxActiveReservations) * reservationMaxSingleAmount,
             "Amount cap exceeds slot capacity"
         );
-
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
         self.reservationMaxSingleAmount = reservationMaxSingleAmount;
         self.maxActiveReservations = maxActiveReservations;
@@ -1082,87 +1451,31 @@ library Reservation {
         );
     }
 
-    /// @notice Appends a reservation key to a wallet's enumeration list.
-    function addWalletReservationKey(
+    /// @notice Single entry point for all reservation lifecycle SPV proofs.
+    ///         Forwards to the `ReservationProofs` settlement library. The
+    ///         forwarding hop exists so the `ReservationRouter` can call
+    ///         `self.submitReservationProof(...)` via the `using Reservation
+    ///         for BridgeState.Storage` directive; see the router for the
+    ///         architecture.
+    /// @dev Only the SPV maintainer may call; enforced at the router, not
+    ///      here.
+    function submitReservationProof(
         BridgeState.Storage storage self,
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) internal {
-        self.walletReservationKeys[walletPubKeyHash].push(reservationKey);
-        self.walletReservationKeyIndex[reservationKey] = self
-            .walletReservationKeys[walletPubKeyHash]
-            .length;
-    }
-
-    /// @notice Swap-removes a reservation key from a wallet's enumeration
-    ///         list.
-    function removeWalletReservationKey(
-        BridgeState.Storage storage self,
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) internal {
-        uint256 indexPlusOne = self.walletReservationKeyIndex[reservationKey];
-        if (indexPlusOne == 0) {
-            return;
-        }
-        uint256[] storage keys = self.walletReservationKeys[walletPubKeyHash];
-        uint256 lastIndex = keys.length - 1;
-        if (indexPlusOne - 1 != lastIndex) {
-            uint256 movedKey = keys[lastIndex];
-            keys[indexPlusOne - 1] = movedKey;
-            self.walletReservationKeyIndex[movedKey] = indexPlusOne;
-        }
-        keys.pop();
-        delete self.walletReservationKeyIndex[reservationKey];
-    }
-
-    /// @notice Strands a reservation: releases its tracked capacity, removes
-    ///         it from wallet enumeration and emits the canonical recovery
-    ///         evidence. The caller decides whether the anchor was honestly
-    ///         spent before invoking this accounting transition.
-    function strandReservation(
-        BridgeState.Storage storage self,
-        ReservationRequest storage reservation,
-        uint256 reservationKey
-    ) internal {
-        bool evidenceAlreadyEmitted = reservation.state ==
-            ReservationState.Stranded;
-
-        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
-        self.reservationTotalAmount -= reservation.anchorAmount;
-        self.activeReservationsCount -= 1;
-        removeWalletReservationKey(
+        uint8 proofType,
+        BitcoinTx.Info calldata txInfo,
+        BitcoinTx.Proof calldata proof,
+        BitcoinTx.UTXO calldata mainUtxo,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external {
+        ReservationProofs.submitReservationProof(
             self,
-            reservation.walletPubKeyHash,
-            reservationKey
+            proofType,
+            txInfo,
+            proof,
+            mainUtxo,
+            reservationKey,
+            requestNonce
         );
-        reservation.state = ReservationState.Stranded;
-
-        delete self.reservationsByAnchorUtxo[
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                )
-            )
-        ];
-
-        // A late dissolution proof can reconstruct and then release the
-        // accounting of an already-stranded position. Preserve the original
-        // recovery evidence instead of emitting a second compensation claim.
-        if (!evidenceAlreadyEmitted) {
-            // slither-disable-next-line reentrancy-events
-            emit ReservationStranded(
-                reservationKey,
-                reservation.walletPubKeyHash,
-                reservation.owner,
-                reservation.anchorAmount
-            );
-        }
     }
 }
