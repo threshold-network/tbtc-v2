@@ -3082,13 +3082,7 @@ describe("Deposits", () => {
           refundLocktime: Hex.from("60bcea61"),
         }
 
-        const validChains: GaslessDestination[] = [
-          "L1",
-          "Arbitrum",
-          "Base",
-          "Sui",
-          "StarkNet",
-        ]
+        const validChains: GaslessDestination[] = ["L1", "Arbitrum", "Base"]
 
         validChains.forEach((chainName) => {
           const result: GaslessDepositResult = {
@@ -3312,8 +3306,6 @@ describe("Deposits", () => {
             expect(error.message).to.include("L1")
             expect(error.message).to.include("Arbitrum")
             expect(error.message).to.include("Base")
-            expect(error.message).to.include("Sui")
-            expect(error.message).to.include("StarkNet")
           }
         })
       })
@@ -3963,26 +3955,6 @@ describe("Deposits", () => {
             "Base"
           )
           expect(payload.destinationChainName).to.equal("base")
-        })
-
-        it("should normalize Sui to lowercase", async () => {
-          const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith32ByteExtraDataFixture,
-            testnetTransactionHash,
-            0,
-            "Sui"
-          )
-          expect(payload.destinationChainName).to.equal("sui")
-        })
-
-        it("should normalize StarkNet to lowercase", async () => {
-          const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith32ByteExtraDataFixture,
-            testnetTransactionHash,
-            0,
-            "StarkNet"
-          )
-          expect(payload.destinationChainName).to.equal("starknet")
         })
       })
 

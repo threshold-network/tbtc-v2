@@ -10,6 +10,7 @@ import {
 import { StarkNetAddress } from "./address"
 import { StarkNetProvider } from "./types"
 import { Chains } from "../contracts/chain"
+import { normalizeStarkNetChainId } from "./chain-id"
 
 export * from "./address"
 export * from "./extra-data-encoder"
@@ -30,11 +31,6 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
   ["0x534e5f544553544e4554"]:
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276", // Using Sepolia address for tests
 }
-
-/**
- * Guard to ensure we only emit the relayer status warning once.
- */
-let relayerStatusWarningEmitted = false
 
 /**
  * Loads StarkNet implementation of tBTC cross-chain contracts.
@@ -79,7 +75,6 @@ export async function loadStarkNetCrossChainInterfaces(
     provider
   )
   if (
-    !relayerStatusWarningEmitted &&
     process.env.STARKNET_RELAYER_URL &&
     !process.env.STARKNET_RELAYER_STATUS_URL &&
     !relayerStatusUrl
@@ -89,7 +84,6 @@ export async function loadStarkNetCrossChainInterfaces(
         "Conflict-status verification will be disabled. Set " +
         "STARKNET_RELAYER_STATUS_URL or pass relayerStatusUrl to enable it."
     )
-    relayerStatusWarningEmitted = true
   }
 
   // Set the deposit owner
@@ -123,6 +117,15 @@ export async function loadStarkNetCrossChainInterfaces(
  */
 export const loadStarkNetCrossChainContracts = loadStarkNetCrossChainInterfaces
 
+/**
+ * Validates that the connected StarkNet provider's own chain ID matches the
+ * expected chain ID for this depositor, so a caller cannot silently connect
+ * a wallet on the wrong network.
+ * @param provider The StarkNet provider to validate.
+ * @param expectedChainId The chain ID the provider is expected to be on.
+ * @returns Resolves when the provider's chain ID matches; never resolves a value.
+ * @throws Error if the provider's chain ID does not match.
+ */
 async function validateProviderChain(
   provider: StarkNetProvider,
   expectedChainId: string
@@ -135,6 +138,12 @@ async function validateProviderChain(
   }
 }
 
+/**
+ * Resolves the chain ID a StarkNet provider is currently connected to.
+ * @param provider The StarkNet provider (`Provider` or `Account`).
+ * @returns The provider's normalized chain ID.
+ * @throws Error if the provider does not expose `getChainId`.
+ */
 async function resolveProviderChainId(
   provider: StarkNetProvider
 ): Promise<string> {
@@ -142,25 +151,5 @@ async function resolveProviderChainId(
     return normalizeStarkNetChainId(await provider.getChainId())
   }
 
-  const nestedProvider = (provider as any).provider
-  if (
-    nestedProvider &&
-    typeof nestedProvider === "object" &&
-    "getChainId" in nestedProvider &&
-    typeof nestedProvider.getChainId === "function"
-  ) {
-    return normalizeStarkNetChainId(await nestedProvider.getChainId())
-  }
-
   throw new Error("StarkNet provider must expose getChainId")
-}
-
-function normalizeStarkNetChainId(chainId: string): string {
-  const aliases: Record<string, string> = {
-    SN_MAIN: Chains.StarkNet.Mainnet,
-    SN_SEPOLIA: Chains.StarkNet.Sepolia,
-    SN_GOERLI: Chains.StarkNet.Sepolia,
-  }
-
-  return aliases[chainId] || chainId.toLowerCase()
 }

@@ -27,13 +27,7 @@ import { extractBitcoinRawTxVectors } from "../../lib/bitcoin/tx"
  * Literal source of truth; `GaslessDestination` is derived from it so the
  * type and runtime list cannot drift.
  */
-export const SUPPORTED_GASLESS_CHAINS = [
-  "L1",
-  "Arbitrum",
-  "Base",
-  "Sui",
-  "StarkNet",
-] as const
+export const SUPPORTED_GASLESS_CHAINS = ["L1", "Arbitrum", "Base"] as const
 
 /**
  * Destination chain name accepted by `initiateGaslessDeposit` and
@@ -70,8 +64,7 @@ export interface GaslessDepositResult {
   receipt: DepositReceipt
 
   /**
-   * Target chain name for the deposit.
-   * Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base", "Sui").
+   * Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base").
    */
   destinationChainName: GaslessDestination
 }
@@ -158,14 +151,12 @@ export interface GaslessRevealPayload {
 
   /**
    * Destination chain deposit owner address.
-   * Format varies by chain based on the contract parameter type:
-   * - L1 (Ethereum): bytes32 - 32-byte hex (left-padded Ethereum address, e.g., "0x000000000000000000000000" + address)
-   * - Arbitrum: address - 20-byte Ethereum address hex (e.g., "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1")
-   * - Base: address - 20-byte Ethereum address hex (e.g., "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1")
-   * - Sui: bytes32 - 32-byte hex (left-padded Ethereum address)
-   * - StarkNet: bytes32 - 32-byte hex (left-padded Ethereum address)
-   *
-   * Note: Backend will automatically pad 20-byte addresses to bytes32 for chains that require it.
+   * Always a 32-byte hex value (bytes32), passed through unchanged from
+   * `receipt.extraData` - every destination chain's own extraData encoder
+   * already produces a 32-byte value (see `AbstractL1BTCDepositor.initializeDeposit`,
+   * solidity/contracts/cross-chain/AbstractL1BTCDepositor.sol:283-293). The backend
+   * or on-chain contract decodes it per chain type; the SDK does not re-encode
+   * or re-extract it.
    */
   destinationChainDepositOwner: string
 

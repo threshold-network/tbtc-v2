@@ -318,7 +318,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       expect(conflict.depositId).to.equal("123456789")
       expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.QUEUED)
-      // Per F3: statusVerified is downgraded to false when the relayer's
+      // statusVerified is downgraded to false when the relayer's
       // echoed ID differs from the SDK's locally-derived ID. Here the
       // relayer reports "123456789" while the SDK derives a 78-digit
       // decimal from the mock funding tx.
@@ -332,7 +332,28 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         "http://test-relayer.local/api/StarknetMainnet/deposit/123456789"
       )
     })
+    it("should verify status successfully when the relayer's status response echoes the SDK's own locally-derived deposit ID", async () => {
+      axios.post = sinon.stub().rejects(build409Error(undefined))
+      axios.get = sinon.stub().callsFake((url: string) => {
+        const queriedId = decodeURIComponent(url.split("/").pop()!)
+        return Promise.resolve({
+          data: {
+            success: true,
+            depositId: queriedId,
+            status: StarkNetRelayerDepositStatus.INITIALIZED,
+          },
+        })
+      })
 
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
+      expect(conflict.statusVerified).to.be.true
+      expect(conflict.depositIdMismatch).to.be.false
+      expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
+    })
     it("should propagate StarkNetRelayerDepositConflictError through CrossChainDepositor.revealDeposit", async () => {
       // The typed conflict must survive the SDK-facing consumer boundary: an
       // L2Transaction CrossChainDepositor delegates straight to this
@@ -370,7 +391,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect(conflict.name).to.equal("StarkNetRelayerDepositConflictError")
       expect(conflict.depositId).to.equal("123456789")
       expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
-      // Per F3 mismatch: relayer-reported "123456789" differs from the
+      // relayer-reported "123456789" differs from the
       // SDK's locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
     })
@@ -409,7 +430,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
         expect(conflict.depositId).to.equal("42")
         expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.QUEUED)
-        // Per F3 mismatch: relayer-reported "42" differs from the SDK's
+        // relayer-reported "42" differs from the SDK's
         // locally-derived 78-digit decimal.
         expect(conflict.statusVerified).to.be.false
         // One 500 attempt, one 409 attempt - the conflict short-circuits
@@ -425,7 +446,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
     it("should treat a malformed (non-string) deposit ID as unverifiable without crashing", async () => {
       axios.post = sinon.stub().rejects(build409Error(123456789))
-      // Per F3: when rawDepositId is non-canonical/missing AND the SDK has
+      // when rawDepositId is non-canonical/missing AND the SDK has
       // a locally-derived ID, the SDK queries the status endpoint with the
       // local ID before throwing. The stub below resolves with a successful
       // response whose echoed ID disagrees with the local derivation, so the
@@ -564,7 +585,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
-      // Per F3 mismatch: relayer-reported "77" differs from the SDK's
+      // relayer-reported "77" differs from the SDK's
       // locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
     })
@@ -584,7 +605,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.FINALIZED)
-      // Per F3 mismatch: relayer-reported "88" differs from the SDK's
+      // relayer-reported "88" differs from the SDK's
       // locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
     })
@@ -610,7 +631,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       expect(conflict.depositId).to.equal("55")
       expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.INITIALIZED)
-      // Per F3 mismatch: relayer-reported "55" differs from the SDK's
+      // relayer-reported "55" differs from the SDK's
       // locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
     })
@@ -629,7 +650,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       for (const malformedId of malformedIds) {
         axios.post = sinon.stub().rejects(build409Error(malformedId))
-        // Per F3: status endpoint is queried using the locally-derived ID
+        // status endpoint is queried using the locally-derived ID
         // when the relayer-reported ID is non-canonical. The response
         // intentionally echoes a non-matching ID, which is rejected by the
         // id-echo check, so statusVerified stays false.
@@ -657,7 +678,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       // range cannot be real deposit IDs and must be discarded before any
       // status query. `2^256` (78 digits) exercises the range comparison,
       // and a very long all-digit string exercises the early length guard.
-      // Per F3: when the relayer-reported ID is non-canonical, the SDK still
+      // when the relayer-reported ID is non-canonical, the SDK still
       // queries the status endpoint using the locally-derived ID.
       const twoPow256 =
         "115792089237316195423570985008687907853269984665640564039457584007913129639936"
@@ -665,7 +686,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       for (const outOfRangeId of [twoPow256, wayTooLong]) {
         axios.post = sinon.stub().rejects(build409Error(outOfRangeId))
-        // Status endpoint queried with locally-derived ID per F3; response
+        // Status endpoint queried with locally-derived ID; response
         // echoes a non-matching ID, so statusVerified stays false.
         axios.get = sinon.stub().resolves({
           data: {
@@ -709,7 +730,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       expect(conflict.depositId).to.equal(maxUint256)
       expect(conflict.status).to.equal(StarkNetRelayerDepositStatus.FINALIZED)
-      // Per F3 mismatch: relayer-reported maxUint256 differs from the SDK's
+      // relayer-reported maxUint256 differs from the SDK's
       // locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
       expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
@@ -898,7 +919,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         )
       )
 
-      // Per F3 mismatch: relayer-reported "123456789" differs from the
+      // relayer-reported "123456789" differs from the
       // SDK's locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
       // Reveal URL still defaults from the recognized chain ID.
@@ -936,7 +957,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         fullyDefaultedDepositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
       )
 
-      // Per F3 mismatch: relayer-reported "123456789" differs from the
+      // relayer-reported "123456789" differs from the
       // SDK's locally-derived 78-digit decimal.
       expect(conflict.statusVerified).to.be.false
       expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
@@ -949,14 +970,13 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       // For a recognized chain ID with no overrides, the reveal and status
       // defaults must resolve to the SAME chain segment (never drifting apart)
       // and to the environment-matched base (production under Node/SSR). This
-      // pins the full route for mainnet, Sepolia, legacy Goerli, and Testnet,
+      // pins the full route for mainnet, Sepolia, and Testnet,
       // guarding against silent chain-name/route regressions.
       const PRODUCTION_BASE =
         "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app"
       const recognizedChainRoutes = [
         { chainId: "0x534e5f4d41494e", chainSegment: "StarknetMainnet" }, // SN_MAIN
         { chainId: "0x534e5f5345504f4c4941", chainSegment: "StarknetTestnet" }, // SN_SEPOLIA
-        { chainId: "0x534e5f474f45524c49", chainSegment: "StarknetTestnet" }, // SN_GOERLI (legacy)
         { chainId: "0x534e5f544553544e4554", chainSegment: "StarknetTestnet" }, // SN_TESTNET
       ]
 
@@ -983,7 +1003,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
         // The status query targets the defaulted chain-matched route and the
         // response echoes the queried deposit ID, so the route resolved
-        // correctly. Per F3: statusVerified is downgraded because the
+        // correctly. statusVerified is downgraded because the
         // relayer-reported "123456789" differs from the SDK's locally-derived
         // 78-digit decimal.
         expect(conflict.statusVerified, chainId).to.be.false
@@ -1215,7 +1235,6 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       const recognizedChainIds = [
         "0x534e5f4d41494e", // SN_MAIN
         "0x534e5f5345504f4c4941", // SN_SEPOLIA
-        "0x534e5f474f45524c49", // SN_GOERLI (legacy)
         "0x534e5f544553544e4554", // SN_TESTNET
       ]
       for (const chainId of recognizedChainIds) {
@@ -1332,10 +1351,10 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
     it("should use the local status URL for a localhost origin when a 409 is verified", async () => {
       // Sibling of the reveal-URL local-origin tests above: the default
-      // STATUS url (getDefaultStarkNetRelayerStatusUrl) must independently
-      // respect isLocalhostBrowserOrigin() too, not just the reveal URL.
-      // Neither relayerUrl nor relayerStatusUrl is overridden, so both
-      // default from the same local origin.
+      // status URL (getDefaultStarkNetRelayerEndpoint(chainId, "deposit"))
+      // must independently respect isLocalhostBrowserOrigin() too, not just
+      // the reveal URL. Neither relayerUrl nor relayerStatusUrl is
+      // overridden, so both default from the same local origin.
       ;(global as any).window = { location: { hostname: "localhost" } }
 
       const mockProvider = createMockProvider()
