@@ -47,7 +47,8 @@ describe("Check mainnet deposit parameters", () => {
     }
 
     await expect(checkMainnetDepositParameters(bridge)).to.be.rejectedWith(
-      readError
+      "INFRA_ERROR: Failed to fetch deposit parameters from chain: " +
+        readError.message
     )
   })
   it("maintains a 30-day depositor funding window between the SDK refund locktime and the governance-required reveal-ahead period", async () => {
