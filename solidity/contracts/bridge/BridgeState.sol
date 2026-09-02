@@ -34,7 +34,13 @@ library BridgeState {
     ///         permanent; the remaining fields are used by the reservation
     ///         action flow and may be cleared after acceptance or staleness.
     struct PendingReservedDeposit {
-        // Immutable reveal-time reservation classification.
+        // Immutable reveal-time reservation classification: set when a
+        // deposit is revealed to the reservation vault and never cleared.
+        // `notifyStaleReservedDeposit` wipes the three fields below but
+        // deliberately leaves this bit set, so the record stays recognizable
+        // as reservation-routed for the whole life of the deposit. The
+        // stale/acceptable partition is carried by `walletPubKeyHash`, not
+        // by this flag.
         bool isReserved;
         // Wallet committed by the deposit script and therefore the only
         // wallet that can be authorized to anchor the deposit.

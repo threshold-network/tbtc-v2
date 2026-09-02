@@ -1045,6 +1045,12 @@ library Reservation {
             pendingDeposit.walletPubKeyHash != bytes20(0),
             "Not a pending reserved deposit"
         );
+        // A non-zero designated wallet implies reveal-time reservation
+        // routing, and no path clears `isReserved` once reveal sets it. Lock
+        // the implication here so a future refactor that re-purposes the flag
+        // - for instance as a not-yet-stale marker - fails loudly instead of
+        // silently redrawing the stale/acceptable partition.
+        assert(pendingDeposit.isReserved);
 
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.sweptAt == 0, "Deposit already swept");
@@ -1085,6 +1091,9 @@ library Reservation {
     ///        for storage completeness; unread until renewal lands),
     ///      - `reservationActionTimeout` must exceed the wallet
     ///        validator's final signing safety margin,
+    ///      - `maxReservationsPerWallet` must be greater than zero, so that
+    ///        a parameter update can never become an undeclared halt of all
+    ///        new acceptances and re-anchors,
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero).
     ///
@@ -1125,6 +1134,10 @@ library Reservation {
             reservationActionTimeout >
                 WalletProposalValidatorConstants.REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reservation action timeout must exceed the safety margin"
+        );
+        require(
+            maxReservationsPerWallet > 0,
+            "Max reservations per wallet must be greater than zero"
         );
 
         if (reservationVault != self.reservationVault) {
