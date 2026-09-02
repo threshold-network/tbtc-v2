@@ -100,12 +100,6 @@ library ReservationProofs {
         Reservation.ActionType actionType
     );
 
-    event ReservationReconstructed(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash,
-        uint64 anchorAmount
-    );
-
     /// @notice Represents the type of a reservation lifecycle SPV proof.
     ///         Zero-based; `ProofType(n)` corresponds to
     ///         `Reservation.ActionType(n + 1)` for `n` in `{0..3}` (`None`
@@ -165,7 +159,6 @@ library ReservationProofs {
                 requestNonce
             );
             // Milestone 1 accepts acceptance and re-anchor proofs.
-
         } else {
             revert("Unsupported reservation proof type");
         }
@@ -198,13 +191,9 @@ library ReservationProofs {
         late = action.state == Reservation.ActionState.TimedOut;
         // Bound late acceptance settlement (M15 deferral mitigation):
         // a timed-out acceptance action may be settled late only within
-        // the reservation term following its timeout. After that window
-        // the depositor's Bitcoin refund path is the only resolution,
-        // and the occupancy slot can no longer be re-taken. Reanchor
-        // late settlement is intentionally left unbounded: reanchor
-        // actions have their own timeout bounded by their own term
-        // via the late-reanchor wallet-stranding path, not via this
-        // action-window check.
+        // the reservation term following its timeout. Reanchor late
+        // settlement is left unbounded here because the reanchor wallet-
+        // stranding path handles late reanchor lifetimes separately.
         require(
             !late ||
                 expectedType != Reservation.ActionType.Acceptance ||
@@ -273,6 +262,7 @@ library ReservationProofs {
             self.strandReservation(reservation, reservationKey);
         }
     }
+
     /// @notice Validates the position can settle the loaded action and, for a
     ///         timed-out generation whose position was already stranded,
     ///         reconstructs the source anchor's tracking before settlement.
@@ -285,7 +275,6 @@ library ReservationProofs {
     function prepareReservationForSettlement(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
-
         bool late
     ) internal {
         bool stranded = reservation.state ==
@@ -324,7 +313,6 @@ library ReservationProofs {
             reservation.walletPubKeyHash
         ] += reservation.anchorAmount;
         self.activeReservationsCount += 1;
-
     }
 
     /// @notice Reverts unless the reservation still points at the exact
@@ -836,190 +824,6 @@ library ReservationProofs {
             IReservationFeeFinancer(self.deposits[reservationKey].vault)
                 .financeInKindFee(minerFee);
         }
-    }
-
-    /// @notice Used by the wallet to prove a re-anchor transaction moving a
-    ///         reservation's anchor outpoint to the authorized target
-    ///         wallet in a 1-input-1-output spend.
-    /// @dev Requirements:
-    ///      - The named generation must be a settleable re-anchor,
-    ///      - `reanchorTx` must spend the current anchor outpoint as its
-    ///        sole input and create a single P2(W)PKH output paying the
-    ///        generation's authorized target wallet,
-    ///      - The miner fee must respect the snapshotted bound and the
-    ///        re-anchored value must stay above the dust floor (the
-    ///        snapshotted fee bound), preserving positive redemption
-    ///        value.
-    function submitReservationReanchorProof(
-        BridgeState.Storage storage self,
-        BitcoinTx.Info calldata reanchorTx,
-        BitcoinTx.Proof calldata reanchorProof,
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) internal {
-        (
-            Reservation.ReservationAction storage action,
-            bool late
-        ) = loadSettleableAction(
-                self,
-                reservationKey,
-                requestNonce,
-                Reservation.ActionType.Reanchor
-            );
-
-        Reservation.ReservationRequest storage reservation = self.reservations[
-            reservationKey
-        ];
-        bool evidenceAlreadyEmitted = reservation.state ==
-            Reservation.ReservationState.Stranded;
-        prepareReservationForSettlement(
-            self,
-            reservation,
-            reservationKey,
-            late
-        );
-        if (!late) {
-            require(
-                reservation.requestNonce == requestNonce,
-                "Not the current generation"
-            );
-        }
-
-        requireCurrentSourceAnchor(reservation, action);
-
-        bytes32 reanchorTxHash = self.validateProof(reanchorTx, reanchorProof);
-
-        consumeAnchor(self, reservation, reanchorTx.inputVector);
-
-        bytes memory output = parseSingleOutput(reanchorTx.outputVector);
-        bytes20 newWalletPubKeyHash = self.extractPubKeyHash(output);
-        uint64 newAnchorAmount = output.extractValue();
-
-        require(
-            newWalletPubKeyHash == action.targetWalletPubKeyHash,
-            "Output must pay the authorized target wallet"
-        );
-
-        // `newAnchorAmount <= anchorAmount` is guaranteed by Bitcoin
-        // consensus (the re-anchor output cannot exceed its input).
-        require(
-            reservation.anchorAmount - newAnchorAmount <= action.txMaxFee,
-            "Transaction fee is too high"
-        );
-
-        // Dust floor: the re-anchored amount must stay strictly above the
-        // snapshotted per-transaction fee bound, keeping the anchor clear
-        // of dust and preserving positive redemption value.
-        require(
-            newAnchorAmount > action.txMaxFee,
-            "Re-anchor amount below the dust floor"
-        );
-
-        if (late) {
-            // The timeout released the target wallet's reserved count and
-            // amount; re-take them. Deliberately no cap check (see
-            // acceptance).
-            self.walletReservationsCount[newWalletPubKeyHash] += 1;
-            self.walletReservationsAmount[newWalletPubKeyHash] += reservation
-                .anchorAmount;
-
-            // A newer pending generation references an anchor this
-            // transaction just consumed; unwind it.
-            if (
-                reservation.state == Reservation.ReservationState.ActionPending
-            ) {
-                unwindPendingAction(self, reservation, reservationKey, true);
-            }
-
-            // slither-disable-next-line reentrancy-events
-            emit ReservationLateSettled(
-                reservationKey,
-                requestNonce,
-                Reservation.ActionType.Reanchor
-            );
-        }
-
-        // The source wallet's count and amount are released now; the
-        // target wallet's were reserved at request time (or re-taken
-        // above). The target reserved the pre-hop anchor value; release
-        // the miner-fee delta.
-        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
-            reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
-        self.walletReservationsAmount[newWalletPubKeyHash] -= (reservation
-            .anchorAmount - newAnchorAmount);
-
-        // The miner fee reduces the on-chain earmarked amount.
-        self.reservationTotalAmount -= (reservation.anchorAmount -
-            newAnchorAmount);
-
-        // Record the per-hop fee before the claim is written down below.
-        // Afterwards the original anchor value is unrecoverable and
-        // `ReservationReanchored` carries only the new anchor amount, so
-        // this total could not be reconstructed from later state. Cache
-        // the fee before the anchor overwrite so the in-kind fee
-        // financing branch fires correctly (post-overwrite reads of
-        // reservation.anchorAmount always return newAnchorAmount). No
-        // ceiling is enforced in milestone 1: `maxCumulativeReanchorFee`
-        // stays declare-only until a post-milestone-1 bound lands.
-        uint64 feeSat = reservation.anchorAmount - newAnchorAmount;
-        reservation.cumulativeReanchorFee += feeSat;
-
-        Reservation.removeWalletReservationKey(
-            self,
-            reservation.walletPubKeyHash,
-            reservationKey
-        );
-        Reservation.addWalletReservationKey(
-            self,
-            newWalletPubKeyHash,
-            reservationKey
-        );
-
-        reservation.walletPubKeyHash = newWalletPubKeyHash;
-        reservation.anchorAmount = newAnchorAmount;
-        // The claim always equals the anchor: the miner fee is financed
-        // from the vault's custody-fee reserve (which burns supply in
-        // lockstep with the backing loss), and the claim is written down
-        // to the new anchor value. The owner's redemption surrender
-        // shrinks accordingly — rotation costs are borne by the custody
-        // fee that was priced for them, not by the owner and not by the
-        // peg.
-        reservation.mintedAmount = newAnchorAmount;
-        reservation.anchorTxHash = reanchorTxHash;
-        reservation.anchorTxOutputIndex = 0;
-        reservation.state = Reservation.ReservationState.Active;
-
-        // Effects (settlement state and anchor UTXO index) BEFORE the
-        // external fee-financing interaction.
-        action.state = Reservation.ActionState.Settled;
-
-        self.reservationsByAnchorUtxo[
-            uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))
-        ] = reservationKey;
-
-        if (feeSat > 0) {
-            IReservationFeeFinancer(self.deposits[reservationKey].vault)
-                .financeInKindFee(feeSat);
-        }
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservationReanchored(
-            reservationKey,
-            requestNonce,
-            newWalletPubKeyHash,
-            reanchorTxHash,
-            newAnchorAmount
-        );
-
-        strandLateSettlementIfTargetWalletClosed(
-            self,
-            reservation,
-            reservationKey,
-            late,
-            evidenceAlreadyEmitted
-        );
     }
 
     /// @notice Unwinds the position's current pending generation during a

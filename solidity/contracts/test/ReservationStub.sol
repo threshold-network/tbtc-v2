@@ -160,7 +160,8 @@ contract ReservationStub {
             requestNonce: 1,
             retryCredit: false,
             dissolutionEligibleAt: acceptedAt + 2000,
-            cumulativeReanchorFee: 0
+            cumulativeReanchorFee: 0,
+            reanchorCooldownUntil: 0
         });
     }
 

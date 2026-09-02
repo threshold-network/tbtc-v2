@@ -634,8 +634,15 @@ contract TestReservation {
         );
     }
 
-    function notifyReservationActionTimeout(uint256 reservationKey) external {
-        Reservation.notifyReservationActionTimeout(state, reservationKey);
+    function notifyReservationActionTimeout(
+        uint256 reservationKey,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        Reservation.notifyReservationActionTimeout(
+            state,
+            reservationKey,
+            walletMembersIDs
+        );
     }
 
     function notifyReservationAcceptanceTimedOut(uint256 reservationKey)

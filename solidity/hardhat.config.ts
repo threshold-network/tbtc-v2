@@ -51,14 +51,6 @@ const bridgeGovernanceCompilerConfig = {
     outputSelection: storageLayoutOutputSelection,
   },
 }
-// Applied to the main compiler config; per-contract overrides that need
-// storage-layout introspection must add the selection explicitly.
-const storageLayoutOutputSelection = {
-  "*": {
-    "*": ["storageLayout"],
-  },
-}
-
 // Configuration for testing environment.
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
