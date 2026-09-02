@@ -78,11 +78,7 @@ an `export.json` file containing contract deployment info.
 
 ==== Wormhole L2 BTC redeemer initializer
 
-`L2BTCRedeemerWormhole.initialize` expects the canonical L1 BTC redeemer
-Wormhole chain ID as its fourth argument. This guard is critical for security:
-without it, a misconfigured L2 could route bridged tBTC to a chain where an
-attacker controls the redeemer contract. The guard pins redemptions to the
-configured L1 redeemer chain.
+L2BTCRedeemerWormhole.initialize stores a non-zero, deployment-supplied Wormhole chain ID for the L1 BTC redeemer. requestRedemption rejects a caller-supplied recipientChain unless it matches that stored value, preventing callers from redirecting a redemption. The contract does not verify the configured ID is canonical, so deployment and upgrade procedures must supply the correct Wormhole chain ID.
 
 ```
 initialize(
