@@ -1,0 +1,879 @@
+{
+  "_comment": "Snapshot of BridgeState.Storage layout for Bridge.sol. This snapshot must be regenerated/updated by whichever future stack PR intentionally changes BridgeState.Storage layout, and a CI failure here on an unrelated PR means that PR unexpectedly touched shared storage layout.",
+  "self": {
+    "slot": "51",
+    "offset": 0,
+    "type": "struct BridgeState.Storage"
+  },
+  "members": [
+    {
+      "label": "bank",
+      "slot": "0",
+      "offset": 0,
+      "type": "contract Bank",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "relay",
+      "slot": "1",
+      "offset": 0,
+      "type": "contract IRelay",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "txProofDifficultyFactor",
+      "slot": "1",
+      "offset": 20,
+      "type": "uint96",
+      "numberOfBytes": "12"
+    },
+    {
+      "label": "ecdsaWalletRegistry",
+      "slot": "2",
+      "offset": 0,
+      "type": "contract IWalletRegistry",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "reimbursementPool",
+      "slot": "3",
+      "offset": 0,
+      "type": "contract ReimbursementPool",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "treasury",
+      "slot": "4",
+      "offset": 0,
+      "type": "address",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "__treasuryAlignmentGap",
+      "slot": "5",
+      "offset": 0,
+      "type": "bytes32",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "depositDustThreshold",
+      "slot": "6",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "depositTreasuryFeeDivisor",
+      "slot": "6",
+      "offset": 8,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "depositTxMaxFee",
+      "slot": "6",
+      "offset": 16,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "depositRevealAheadPeriod",
+      "slot": "6",
+      "offset": 24,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "__depositAlignmentGap",
+      "slot": "7",
+      "offset": 0,
+      "type": "bytes32",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "movingFundsTxMaxTotalFee",
+      "slot": "8",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "movingFundsDustThreshold",
+      "slot": "8",
+      "offset": 8,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "movingFundsTimeoutResetDelay",
+      "slot": "8",
+      "offset": 16,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "movingFundsTimeout",
+      "slot": "8",
+      "offset": 20,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "movingFundsTimeoutSlashingAmount",
+      "slot": "9",
+      "offset": 0,
+      "type": "uint96",
+      "numberOfBytes": "12"
+    },
+    {
+      "label": "movingFundsTimeoutNotifierRewardMultiplier",
+      "slot": "9",
+      "offset": 12,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "movingFundsCommitmentGasOffset",
+      "slot": "9",
+      "offset": 16,
+      "type": "uint16",
+      "numberOfBytes": "2"
+    },
+    {
+      "label": "__movingFundsAlignmentGap",
+      "slot": "10",
+      "offset": 0,
+      "type": "bytes32",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "movedFundsSweepTxMaxTotalFee",
+      "slot": "11",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "movedFundsSweepTimeout",
+      "slot": "11",
+      "offset": 8,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "movedFundsSweepTimeoutSlashingAmount",
+      "slot": "11",
+      "offset": 12,
+      "type": "uint96",
+      "numberOfBytes": "12"
+    },
+    {
+      "label": "movedFundsSweepTimeoutNotifierRewardMultiplier",
+      "slot": "11",
+      "offset": 24,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "redemptionDustThreshold",
+      "slot": "12",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "redemptionTreasuryFeeDivisor",
+      "slot": "12",
+      "offset": 8,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "redemptionTxMaxFee",
+      "slot": "12",
+      "offset": 16,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "redemptionTxMaxTotalFee",
+      "slot": "12",
+      "offset": 24,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "__redemptionAlignmentGap",
+      "slot": "13",
+      "offset": 0,
+      "type": "bytes32",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "redemptionTimeout",
+      "slot": "14",
+      "offset": 0,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "redemptionTimeoutSlashingAmount",
+      "slot": "14",
+      "offset": 4,
+      "type": "uint96",
+      "numberOfBytes": "12"
+    },
+    {
+      "label": "redemptionTimeoutNotifierRewardMultiplier",
+      "slot": "14",
+      "offset": 16,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "fraudChallengeDepositAmount",
+      "slot": "14",
+      "offset": 20,
+      "type": "uint96",
+      "numberOfBytes": "12"
+    },
+    {
+      "label": "fraudChallengeDefeatTimeout",
+      "slot": "15",
+      "offset": 0,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "fraudSlashingAmount",
+      "slot": "15",
+      "offset": 4,
+      "type": "uint96",
+      "numberOfBytes": "12"
+    },
+    {
+      "label": "fraudNotifierRewardMultiplier",
+      "slot": "15",
+      "offset": 16,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "walletCreationPeriod",
+      "slot": "15",
+      "offset": 20,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "walletCreationMinBtcBalance",
+      "slot": "15",
+      "offset": 24,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "walletCreationMaxBtcBalance",
+      "slot": "16",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "walletClosureMinBtcBalance",
+      "slot": "16",
+      "offset": 8,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "walletMaxAge",
+      "slot": "16",
+      "offset": 16,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "activeWalletPubKeyHash",
+      "slot": "17",
+      "offset": 0,
+      "type": "bytes20",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "liveWalletsCount",
+      "slot": "17",
+      "offset": 20,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "walletMaxBtcTransfer",
+      "slot": "17",
+      "offset": 24,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "walletClosingPeriod",
+      "slot": "18",
+      "offset": 0,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "deposits",
+      "slot": "19",
+      "offset": 0,
+      "type": "mapping(uint256 => struct Deposit.DepositRequest)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "isVaultTrusted",
+      "slot": "20",
+      "offset": 0,
+      "type": "mapping(address => bool)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "isSpvMaintainer",
+      "slot": "21",
+      "offset": 0,
+      "type": "mapping(address => bool)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "movedFundsSweepRequests",
+      "slot": "22",
+      "offset": 0,
+      "type": "mapping(uint256 => struct MovingFunds.MovedFundsSweepRequest)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "pendingRedemptions",
+      "slot": "23",
+      "offset": 0,
+      "type": "mapping(uint256 => struct Redemption.RedemptionRequest)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "timedOutRedemptions",
+      "slot": "24",
+      "offset": 0,
+      "type": "mapping(uint256 => struct Redemption.RedemptionRequest)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "fraudChallenges",
+      "slot": "25",
+      "offset": 0,
+      "type": "mapping(uint256 => struct Fraud.FraudChallenge)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "spentMainUTXOs",
+      "slot": "26",
+      "offset": 0,
+      "type": "mapping(uint256 => bool)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "registeredWallets",
+      "slot": "27",
+      "offset": 0,
+      "type": "mapping(bytes20 => struct Wallets.Wallet)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "redemptionWatchtower",
+      "slot": "28",
+      "offset": 0,
+      "type": "address",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "rebateStaking",
+      "slot": "29",
+      "offset": 0,
+      "type": "address",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "reservationMinAmount",
+      "slot": "29",
+      "offset": 20,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "reservationTermSeconds",
+      "slot": "29",
+      "offset": 28,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "reservationVault",
+      "slot": "30",
+      "offset": 0,
+      "type": "address",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "reservationTxMaxFee",
+      "slot": "30",
+      "offset": 20,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "reservationDissolutionDelay",
+      "slot": "30",
+      "offset": 28,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "reservationMaxTotalAmount",
+      "slot": "31",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "reservationTotalAmount",
+      "slot": "31",
+      "offset": 8,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "maxReservationsPerWallet",
+      "slot": "31",
+      "offset": 16,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "reservationRouter",
+      "slot": "32",
+      "offset": 0,
+      "type": "address",
+      "numberOfBytes": "20"
+    },
+    {
+      "label": "reservationActionTimeout",
+      "slot": "32",
+      "offset": 20,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "reservationRenewalWindowSeconds",
+      "slot": "32",
+      "offset": 24,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "maxReservationsAmountPerWallet",
+      "slot": "33",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "reservationMaxSingleAmount",
+      "slot": "33",
+      "offset": 8,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "pendingReservedDeposits",
+      "slot": "33",
+      "offset": 16,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "maxCumulativeReanchorFee",
+      "slot": "33",
+      "offset": 24,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "reservationDissolutionTxMaxFee",
+      "slot": "34",
+      "offset": 0,
+      "type": "uint64",
+      "numberOfBytes": "8"
+    },
+    {
+      "label": "activeReservationsCount",
+      "slot": "34",
+      "offset": 8,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "maxActiveReservations",
+      "slot": "34",
+      "offset": 12,
+      "type": "uint32",
+      "numberOfBytes": "4"
+    },
+    {
+      "label": "reservations",
+      "slot": "35",
+      "offset": 0,
+      "type": "mapping(uint256 => struct Reservation.ReservationRequest)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "reservationsByAnchorUtxo",
+      "slot": "36",
+      "offset": 0,
+      "type": "mapping(uint256 => uint256)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "walletReservationsCount",
+      "slot": "37",
+      "offset": 0,
+      "type": "mapping(bytes20 => uint32)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "pendingReservedDeposit",
+      "slot": "38",
+      "offset": 0,
+      "type": "mapping(uint256 => struct BridgeState.PendingReservedDeposit)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "reservationActions",
+      "slot": "39",
+      "offset": 0,
+      "type": "mapping(uint256 => struct Reservation.ReservationAction)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "walletPendingDissolution",
+      "slot": "40",
+      "offset": 0,
+      "type": "mapping(bytes20 => uint256)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "walletReservationsAmount",
+      "slot": "41",
+      "offset": 0,
+      "type": "mapping(bytes20 => uint64)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "walletReservationKeys",
+      "slot": "42",
+      "offset": 0,
+      "type": "mapping(bytes20 => uint256[])",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "walletReservationKeyIndex",
+      "slot": "43",
+      "offset": 0,
+      "type": "mapping(uint256 => uint256)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "reservationRetryCreditActionNonce",
+      "slot": "44",
+      "offset": 0,
+      "type": "mapping(uint256 => uint64)",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "reservationMaxBackingFractionBps",
+      "slot": "45",
+      "offset": 0,
+      "type": "uint256",
+      "numberOfBytes": "32"
+    },
+    {
+      "label": "__gap",
+      "slot": "46",
+      "offset": 0,
+      "type": "uint256[32]",
+      "numberOfBytes": "1024"
+    }
+  ],
+  "structMembers": {
+    "PendingReservedDeposit": [
+      {
+        "label": "isReserved",
+        "slot": "0",
+        "offset": 0,
+        "type": "bool",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "walletPubKeyHash",
+        "slot": "0",
+        "offset": 1,
+        "type": "bytes20",
+        "numberOfBytes": "20"
+      },
+      {
+        "label": "refundDeadline",
+        "slot": "0",
+        "offset": 21,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "refundDeadlineValidated",
+        "slot": "0",
+        "offset": 25,
+        "type": "bool",
+        "numberOfBytes": "1"
+      }
+    ],
+    "ReservationRequest": [
+      {
+        "label": "owner",
+        "slot": "0",
+        "offset": 0,
+        "type": "address",
+        "numberOfBytes": "20"
+      },
+      {
+        "label": "mintedAmount",
+        "slot": "0",
+        "offset": 20,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "acceptedAt",
+        "slot": "0",
+        "offset": 28,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "walletPubKeyHash",
+        "slot": "1",
+        "offset": 0,
+        "type": "bytes20",
+        "numberOfBytes": "20"
+      },
+      {
+        "label": "anchorAmount",
+        "slot": "1",
+        "offset": 20,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "expiresAt",
+        "slot": "1",
+        "offset": 28,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "anchorTxHash",
+        "slot": "2",
+        "offset": 0,
+        "type": "bytes32",
+        "numberOfBytes": "32"
+      },
+      {
+        "label": "anchorTxOutputIndex",
+        "slot": "3",
+        "offset": 0,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "state",
+        "slot": "3",
+        "offset": 4,
+        "type": "enum Reservation.ReservationState",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "requestNonce",
+        "slot": "3",
+        "offset": 5,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "retryCredit",
+        "slot": "3",
+        "offset": 13,
+        "type": "bool",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "dissolutionEligibleAt",
+        "slot": "3",
+        "offset": 14,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "cumulativeReanchorFee",
+        "slot": "3",
+        "offset": 18,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "reanchorCooldownUntil",
+        "slot": "3",
+        "offset": 26,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      }
+    ],
+    "ReservationAction": [
+      {
+        "label": "targetWalletPubKeyHash",
+        "slot": "0",
+        "offset": 0,
+        "type": "bytes20",
+        "numberOfBytes": "20"
+      },
+      {
+        "label": "requestedAt",
+        "slot": "0",
+        "offset": 20,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "timeoutAt",
+        "slot": "0",
+        "offset": 24,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "txMaxFee",
+        "slot": "1",
+        "offset": 0,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "actionType",
+        "slot": "1",
+        "offset": 8,
+        "type": "enum Reservation.ActionType",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "state",
+        "slot": "1",
+        "offset": 9,
+        "type": "enum Reservation.ActionState",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "feePaid",
+        "slot": "1",
+        "offset": 10,
+        "type": "bool",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "redeemer",
+        "slot": "1",
+        "offset": 11,
+        "type": "address",
+        "numberOfBytes": "20"
+      },
+      {
+        "label": "actionDataHash",
+        "slot": "2",
+        "offset": 0,
+        "type": "bytes32",
+        "numberOfBytes": "32"
+      },
+      {
+        "label": "sourceAnchorUtxoHash",
+        "slot": "3",
+        "offset": 0,
+        "type": "bytes32",
+        "numberOfBytes": "32"
+      },
+      {
+        "label": "amount",
+        "slot": "4",
+        "offset": 0,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "usedRetryCredit",
+        "slot": "4",
+        "offset": 8,
+        "type": "bool",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "watchtowerDefaultDelay",
+        "slot": "4",
+        "offset": 9,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "watchtowerLevelOneDelay",
+        "slot": "4",
+        "offset": 13,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "watchtowerLevelTwoDelay",
+        "slot": "4",
+        "offset": 17,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "retryCreditSourceNonce",
+        "slot": "4",
+        "offset": 21,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "isPartial",
+        "slot": "4",
+        "offset": 29,
+        "type": "bool",
+        "numberOfBytes": "1"
+      },
+      {
+        "label": "termSeconds",
+        "slot": "5",
+        "offset": 0,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      },
+      {
+        "label": "dissolutionDelay",
+        "slot": "5",
+        "offset": 4,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      }
+    ]
+  }
+}
