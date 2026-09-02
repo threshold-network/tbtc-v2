@@ -467,7 +467,7 @@ Destination chain name accepted by `initiateGaslessDeposit` and
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L36)
+[src/services/deposits/deposits-service.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L46)
 
 ___
 
@@ -991,7 +991,7 @@ This is 180 days (6 months assuming 1 month = 30 days).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:175](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L175)
+[src/services/deposits/deposits-service.ts:185](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L185)
 
 ___
 
@@ -1017,9 +1017,19 @@ Canonical list of destination chains supported by the gasless deposit flow.
 Literal source of truth; `GaslessDestination` is derived from it so the
 type and runtime list cannot drift.
 
+StarkNet and Sui are deliberately excluded: `initiateL2GaslessDeposit`'s
+owner-match check always parses the caller-supplied `depositOwner` as an
+`EthereumAddress` (20-byte identifier) and compares it against the
+resolved deposit owner, which for StarkNet/Sui is a StarkNetAddress/
+SuiAddress (32-byte native identifier) - the two can never be equal, so
+every gasless deposit call for those chains would throw unconditionally.
+Re-adding either name here requires first making that comparison
+chain-aware (see the resolved deposit owner's own identifier type,
+not a forced EthereumAddress parse).
+
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L30)
+[src/services/deposits/deposits-service.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L40)
 
 ___
 

@@ -3308,6 +3308,16 @@ describe("Deposits", () => {
             expect(error.message).to.include("Base")
           }
         })
+
+        it("should reject StarkNet - excluded from the gasless flow because the L2 owner-match check always parses depositOwner as an EthereumAddress, which can never equal a StarkNetAddress-resolved owner", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
+              "StarkNet" as GaslessDestination
+            )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
+        })
       })
 
       context("when destinationChainName is L1", () => {
@@ -3811,6 +3821,19 @@ describe("Deposits", () => {
           bitcoinClient,
           (_: DestinationChainName) => undefined
         )
+      })
+
+      context("when destinationChainName is unsupported", () => {
+        it("should reject Sui - excluded from the gasless flow (same owner-match limitation as StarkNet in initiateGaslessDeposit)", async () => {
+          await expect(
+            depositService.buildGaslessRelayPayload(
+              l2ReceiptWith32ByteExtraDataFixture,
+              testnetTransactionHash,
+              0,
+              "Sui" as GaslessDestination
+            )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
+        })
       })
 
       context("when destination chain is L1", () => {

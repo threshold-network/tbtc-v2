@@ -26,6 +26,16 @@ import { extractBitcoinRawTxVectors } from "../../lib/bitcoin/tx"
  * Canonical list of destination chains supported by the gasless deposit flow.
  * Literal source of truth; `GaslessDestination` is derived from it so the
  * type and runtime list cannot drift.
+ *
+ * StarkNet and Sui are deliberately excluded: `initiateL2GaslessDeposit`'s
+ * owner-match check always parses the caller-supplied `depositOwner` as an
+ * `EthereumAddress` (20-byte identifier) and compares it against the
+ * resolved deposit owner, which for StarkNet/Sui is a StarkNetAddress/
+ * SuiAddress (32-byte native identifier) - the two can never be equal, so
+ * every gasless deposit call for those chains would throw unconditionally.
+ * Re-adding either name here requires first making that comparison
+ * chain-aware (see the resolved deposit owner's own identifier type,
+ * not a forced EthereumAddress parse).
  */
 export const SUPPORTED_GASLESS_CHAINS = ["L1", "Arbitrum", "Base"] as const
 
