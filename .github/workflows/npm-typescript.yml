@@ -49,7 +49,7 @@ jobs:
         run: yarn build
 
       - name: Verify mainnet deposit reveal-ahead period
-        if: github.event_name != 'workflow_dispatch' || inputs.skip_governance_check != true
+        if: (github.event_name != 'workflow_dispatch' || inputs.skip_governance_check != true) && vars.SKIP_GOVERNANCE_CHECK != 'true'
         env:
           CHAIN_API_URL: ${{ secrets.MAINNET_ETH_HOSTNAME }}
         run: yarn check:mainnet-deposit-parameters

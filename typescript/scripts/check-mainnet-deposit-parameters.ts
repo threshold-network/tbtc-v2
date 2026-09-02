@@ -14,7 +14,16 @@ export interface DepositParametersReader {
 export async function checkMainnetDepositParameters(
   bridge: DepositParametersReader
 ): Promise<void> {
-  const { depositRevealAheadPeriod } = await bridge.depositParameters()
+  let depositRevealAheadPeriod
+  try {
+    ;({ depositRevealAheadPeriod } = await bridge.depositParameters())
+  } catch (error) {
+    throw new Error(
+      "INFRA_ERROR: Failed to fetch deposit parameters from chain: " +
+        `${error instanceof Error ? error.message : String(error)}`
+    )
+  }
+
   const actualDepositRevealAheadPeriod = BigNumber.from(
     depositRevealAheadPeriod
   )
@@ -23,7 +32,7 @@ export async function checkMainnetDepositParameters(
     !actualDepositRevealAheadPeriod.eq(REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD)
   ) {
     throw new Error(
-      "Refusing to publish the 180-day SDK locktime: mainnet Bridge " +
+      "GOVERNANCE_MISMATCH: Refusing to publish the 180-day SDK locktime: mainnet Bridge " +
         `deposit reveal-ahead period is ${actualDepositRevealAheadPeriod.toString()} ` +
         `seconds; expected ${REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD.toString()} ` +
         "seconds to be finalized"
