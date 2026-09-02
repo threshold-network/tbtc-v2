@@ -342,7 +342,6 @@ contract ReservationRouter is Governable, Initializable {
     ///         pooled claim. Pending actions remain proof-eligible and
     ///         cannot be stranded. See
     ///         `Reservation.notifyReservationStranded`.
-
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external {
         self.notifyReservationStranded(reservationKey);

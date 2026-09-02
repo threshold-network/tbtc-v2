@@ -1647,7 +1647,6 @@ library Reservation {
     ///         shortfall is socialized exactly like a terminated wallet's
     ///         main UTXO. A governance compensation path can consume the
     ///         emitted evidence.
-
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated, Closing, or Closed state,

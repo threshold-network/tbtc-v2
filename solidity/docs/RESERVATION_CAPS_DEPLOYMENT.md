@@ -79,15 +79,15 @@ Off-chain tooling updates required:
 After applying the upgrade on a live network:
 
 ```solidity
-// Spot-check the new cap state via the bridge fallback or directly via the router.
-(uint64 maxReservationsAmountPerWallet, uint64 reservationMaxSingleAmount, uint32 maxActiveReservations) =
-    IReservationBridge(bridgeAddress).reservationParameters(); // returns the full parameter set
+// Spot-check the Decision 1 invariant via three views on the bridge.
+(uint64 reservationMaxTotalAmount, , , , , , , , , , ) =
+    IReservationBridge(bridgeAddress).reservationParameters();
+(, uint64 reservationMaxSingleAmount) =
+    IReservationBridge(bridgeAddress).reservationCaps();
+(, uint32 maxActiveReservations) =
+    IReservationBridge(bridgeAddress).activeReservationsCount();
 ```
 
-The `reservationParameters()` view returns the full parameter record including `reservationMaxTotalAmount` and `maxReservationsPerWallet`, sufficient to verify the Decision 1 invariant holds:
-
-```
-reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount
-```
+The three views together supply the three quantities the Decision 1 invariant is written in terms of:
 
 If the invariant is violated, the on-chain setter has rejected the configuration and the upgrade is in an inconsistent state. Roll back to the prior implementation (the post-upgrade `BridgeState.Storage` snapshot preserved in the upgrade transaction) and re-apply the upgrade with the correct deploy ordering.
