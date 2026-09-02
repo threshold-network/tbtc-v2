@@ -847,9 +847,15 @@ library Reservation {
         );
     }
 
+    /// @param walletMembersIDs Identifiers of the wallet signing group
+    ///        members; only consulted on the slashing paths (redemption and
+    ///        dissolution timeouts). Unreachable in milestone 1 (redemption
+    ///        and dissolution timeouts do not occur); unused until those
+    ///        paths land.
     function notifyReservationActionTimeout(
         BridgeState.Storage storage self,
         uint256 reservationKey,
+        // solhint-disable-next-line no-unused-vars
         uint32[] calldata walletMembersIDs
     ) external {
         ReservationRequest storage reservation = self.reservations[
@@ -1134,6 +1140,25 @@ library Reservation {
             emit ReservationVaultUpdated(reservationVault);
         }
 
+        // Decision 1 (option 2): the total amount cap may not exceed
+        // worst-case slot capacity. `maxActiveReservations` bounds the
+        // number of open positions and `reservationMaxSingleAmount` bounds
+        // any single position's amount, so their product is the most that
+        // can ever be reserved at once; a higher `reservationMaxTotalAmount`
+        // is unreachable dead configuration because the position-count cap
+        // saturates first. Either of those two set to zero means that cap
+        // is disabled, so there is no ceiling to violate and the check is
+        // skipped — this also covers the pre-launch state where
+        // `updateReservationCaps` has not run yet. Mirrored in
+        // `updateReservationCaps`, which owns the two operands read here.
+        require(
+            self.reservationMaxSingleAmount == 0 ||
+                self.maxActiveReservations == 0 ||
+                reservationMaxTotalAmount <=
+                uint256(self.maxActiveReservations) *
+                    self.reservationMaxSingleAmount,
+            "Amount cap exceeds slot capacity"
+        );
         self.reservationMinAmount = reservationMinAmount;
         self.reservationTxMaxFee = reservationTxMaxFee;
         self.reservationTermSeconds = reservationTermSeconds;

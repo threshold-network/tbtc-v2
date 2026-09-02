@@ -197,6 +197,7 @@ library ReservationProofs {
         require(
             !late ||
                 expectedType != Reservation.ActionType.Acceptance ||
+                /* solhint-disable-next-line not-rely-on-time */
                 block.timestamp <=
                 uint256(action.timeoutAt) + self.reservationTermSeconds,
             "Late acceptance settlement window expired"
