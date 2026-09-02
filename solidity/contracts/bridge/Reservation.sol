@@ -1178,6 +1178,17 @@ library Reservation {
             "Active reservations cap must be greater than zero"
         );
 
+        // Decision 1 (option 2): mirror of the invariant enforced in
+        // `updateReservationParameters`, evaluated from this function's new
+        // operands against the stored `reservationMaxTotalAmount` that the
+        // other setter owns. `maxActiveReservations == 0` needs no disjunct
+        // here — the require above already rejects it.
+        require(
+            reservationMaxSingleAmount == 0 ||
+                self.reservationMaxTotalAmount <=
+                uint256(maxActiveReservations) * reservationMaxSingleAmount,
+            "Amount cap exceeds slot capacity"
+        );
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
         self.reservationMaxSingleAmount = reservationMaxSingleAmount;
         self.maxActiveReservations = maxActiveReservations;
