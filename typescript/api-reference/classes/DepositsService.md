@@ -1,5 +1,7 @@
 # Class: DepositsService
 
+Service exposing features related to tBTC v2 deposits.
+
 ## Table of contents
 
 ### Constructors

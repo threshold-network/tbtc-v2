@@ -178,14 +178,14 @@ export interface GaslessRevealPayload {
 }
 
 /**
- * Service exposing features related to tBTC v2 deposits.
- */
-/**
  * Deposit refund locktime duration in seconds.
  * This is 180 days (6 months assuming 1 month = 30 days).
  */
 export const DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS = 15552000
 
+/**
+ * Service exposing features related to tBTC v2 deposits.
+ */
 export class DepositsService {
   /**
    * Deposit refund locktime duration in seconds.
