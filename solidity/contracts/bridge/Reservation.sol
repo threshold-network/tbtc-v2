@@ -1070,12 +1070,8 @@ library Reservation {
                 walletMembersIDs
             );
         } else if (walletState == Wallets.WalletState.Closing) {
-            // slither-disable-next-line reentrancy-no-eth
-            self.ecdsaWalletRegistry.seize(
-                self.redemptionTimeoutSlashingAmount,
-                self.redemptionTimeoutNotifierRewardMultiplier,
-                msg.sender,
-                wallet.ecdsaWalletID,
+            self.notifyClosingWalletRedemptionTimeout(
+                walletPubKeyHash,
                 walletMembersIDs
             );
         }
@@ -1136,13 +1132,18 @@ library Reservation {
         action.state = ActionState.TimedOut;
         reservation.state = ReservationState.Active;
 
-        // The dissolution action snapshots the custodying wallet itself
-        // into `targetWalletPubKeyHash` at request time (see the field's
-        // declaration above); read that snapshot rather than the
-        // reservation's live wallet field, for consistency with the
-        // settlement paths elsewhere in this file, which settle strictly
-        // against what the action recorded at request time.
-        bytes20 walletPubKeyHash = action.targetWalletPubKeyHash;
+        // NOTE: this reads `reservation.walletPubKeyHash` (the reservation's
+        // live/current custodying wallet), not `action.targetWalletPubKeyHash`.
+        // For a Dissolution action, `targetWalletPubKeyHash` is documented as
+        // "the custodying wallet itself" (see the field's declaration above),
+        // but no function in this file currently produces a Dissolution
+        // action and populates it -- only `requestReservationAcceptance` and
+        // `requestReservationReanchor` do, for their own action types. Until
+        // a `requestReservationDissolution` request-side function lands and
+        // is verified to always set that snapshot, reading it here would
+        // silently degrade to `bytes20(0)` for every real dissolution,
+        // skipping the marker clear and slashing below entirely.
+        bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
 
         // Only clear the wallet's pending-dissolution marker if it still
         // points at THIS reservation: a newer request for a different

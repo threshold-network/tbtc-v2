@@ -84,8 +84,6 @@ async function main(): Promise<void> {
   )
   const rawLayout = await getBridgeStorageLayout()
   const currentSnapshot = extractBridgeStateStorageSnapshot(rawLayout)
-  // eslint-disable-next-line no-underscore-dangle
-  currentSnapshot._comment = SNAPSHOT_COMMENT
 
   if (fs.existsSync(SNAPSHOT_PATH)) {
     console.log("Found existing snapshot fixture. Validating upgrade safety...")
@@ -118,9 +116,18 @@ async function main(): Promise<void> {
     )
   }
 
+  // Key order matches the checked-in fixture (`_comment` first) so re-running
+  // this script never produces a spurious key-reordering diff when nothing
+  // about the layout actually changed.
+  const snapshotToWrite: BridgeStateStorageSnapshot = {
+    _comment: SNAPSHOT_COMMENT,
+    self: currentSnapshot.self,
+    members: currentSnapshot.members,
+    structMembers: currentSnapshot.structMembers,
+  }
   fs.writeFileSync(
     SNAPSHOT_PATH,
-    `${JSON.stringify(currentSnapshot, null, 2)}\n`
+    `${JSON.stringify(snapshotToWrite, null, 2)}\n`
   )
   console.log(
     `Successfully updated BridgeState storage layout snapshot at ${SNAPSHOT_PATH}`
