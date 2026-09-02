@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, waffle } from "hardhat"
+import { artifacts, ethers, waffle } from "hardhat"
 import chai, { expect } from "chai"
 import { Contract, ContractTransaction } from "ethers"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -58,10 +58,24 @@ async function deployExecutor(): Promise<ReservationStrandingExecutor> {
   // functions have the `external` visibility modifier). The bytecode of
   // the `ReservationStrandingExecutor` test contract embeds a
   // placeholder for the Reservation library because of the `using
-  // Reservation for BridgeState.Storage` declaration (which is also used
-  // inside `ReservationProofs.sol`). The Reservation library must
-  // therefore be deployed before the executor and linked into it.
-  const ReservationFactory = await ethers.getContractFactory("Reservation")
+  // Reservation for BridgeState.Storage` declaration. `Reservation.sol`
+  // itself calls into `ReservationProofs.submitReservationProof`
+  // (external), so `ReservationProofs` must be deployed and linked into
+  // `Reservation` first. The executor's own direct calls into
+  // `submitReservationAcceptanceProof`/`submitReservationReanchorProof`
+  // are `internal` and get inlined at compile time, so the executor
+  // itself only needs `Reservation` linked, not `ReservationProofs`.
+  const ReservationProofsFactory = await ethers.getContractFactory(
+    "ReservationProofs"
+  )
+  const reservationProofs = await ReservationProofsFactory.deploy()
+  await reservationProofs.deployed()
+
+  const ReservationFactory = await ethers.getContractFactory("Reservation", {
+    libraries: {
+      ReservationProofs: reservationProofs.address,
+    },
+  })
   const reservation = await ReservationFactory.deploy()
   await reservation.deployed()
 
@@ -1143,7 +1157,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
       await ethers.provider.send("evm_mine", [])
 
-      const tx = await executor.notifyReservationActionTimeout(reservationKey)
+      const tx = await executor.notifyReservationActionTimeout(
+        reservationKey,
+        []
+      )
       const receipt = await tx.wait()
 
       const reanchorTimedOut = receipt.events?.filter(
@@ -1193,7 +1210,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.notifyReservationActionTimeout(reservationKey)
+        executor.notifyReservationActionTimeout(reservationKey, [])
       ).to.be.revertedWith("Action has not timed out")
     })
   })
@@ -1742,8 +1759,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     let reservationInterface: ethers.utils.Interface
 
     beforeEach(async () => {
-      const ReservationFactory = await ethers.getContractFactory("Reservation")
-      reservationInterface = ReservationFactory.interface
+      // Only the ABI is needed here (for event decoding via parseLog
+      // below), so read the artifact directly rather than constructing a
+      // ContractFactory, which would require linking ReservationProofs.
+      const reservationArtifact = await artifacts.readArtifact("Reservation")
+      reservationInterface = new ethers.utils.Interface(
+        reservationArtifact.abi
+      )
 
       await setReservationConfig(executor.address, {
         reservationTxMaxFee: txMaxFee,

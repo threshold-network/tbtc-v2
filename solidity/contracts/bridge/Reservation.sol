@@ -704,55 +704,6 @@ library Reservation {
         emit ReservationAcceptanceTimedOut(reservationKey, requestNonce);
     }
 
-    /// @notice Marks a revealed reserved deposit as stale: it can no
-    ///         longer be authorized for acceptance and stops counting
-    ///         against the pending-reserved-deposit guard. Intended for
-    ///         deposits whose acceptance never happened — after the
-    ///         reveal-time refund deadline the depositor is expected to
-    ///         reclaim the funds through the Bitcoin refund path.
-    /// @param depositKey The deposit key of the reserved deposit.
-    /// @dev Requirements:
-    ///      - The deposit must be a pending reserved deposit (revealed to
-    ///        the reservation vault, not accepted, not already stale),
-    ///      - No acceptance authorization may be pending for it,
-    ///      - If refundDeadlineValidated is true, the exact Bitcoin refund
-    ///        deadline snapshotted at reveal must have elapsed.
-    function notifyStaleReservedDeposit(
-        BridgeState.Storage storage self,
-        uint256 depositKey
-    ) external {
-        BridgeState.PendingReservedDeposit storage pendingDeposit = self
-            .pendingReservedDeposit[depositKey];
-        require(
-            pendingDeposit.walletPubKeyHash != bytes20(0),
-            "Not a pending reserved deposit"
-        );
-
-        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
-        require(deposit.sweptAt == 0, "Deposit already swept");
-        if (pendingDeposit.refundDeadlineValidated) {
-            require(
-                /* solhint-disable-next-line not-rely-on-time */
-                block.timestamp > pendingDeposit.refundDeadline,
-                "Deposit refund deadline has not elapsed"
-            );
-        }
-
-        ReservationRequest storage reservation = self.reservations[depositKey];
-        require(
-            getAction(self, depositKey, reservation.requestNonce).state !=
-                ActionState.Pending,
-            "Acceptance authorization pending"
-        );
-
-        delete pendingDeposit.walletPubKeyHash;
-        delete pendingDeposit.refundDeadline;
-        delete pendingDeposit.refundDeadlineValidated;
-        self.pendingReservedDeposits -= 1;
-
-        emit ReservedDepositMarkedStale(depositKey);
-    }
-
     /// @notice Requests the re-anchoring of a reservation to another
     ///         wallet: the authorization for the source wallet to spend the
     ///         anchor in a 1-input-1-output transaction paying the target
