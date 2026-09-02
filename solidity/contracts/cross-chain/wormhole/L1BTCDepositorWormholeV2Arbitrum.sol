@@ -516,8 +516,8 @@ contract L1BTCDepositorWormholeV2Arbitrum is
                 // Best-effort: a deferred receiver that cannot be
                 // reimbursed within the gas stipend must not block this
                 // deposit's finalization for everyone.
+                /* solhint-disable avoid-low-level-calls */
                 // slither-disable-next-line unchecked-lowlevel,low-level-calls
-                // solhint-disable-next-line avoid-low-level-calls
                 address(reimbursementPool).call{gas: 2_000_000}(
                     abi.encodeWithSelector(
                         reimbursementPool.refund.selector,
@@ -525,6 +525,7 @@ contract L1BTCDepositorWormholeV2Arbitrum is
                         reimbursement.receiver
                     )
                 );
+                /* solhint-enable avoid-low-level-calls */
             }
         }
     }

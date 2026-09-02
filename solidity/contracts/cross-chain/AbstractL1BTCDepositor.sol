@@ -497,8 +497,8 @@ abstract contract AbstractL1BTCDepositor is
                 // not be able to block this deposit's finalization for
                 // everyone. The stipend still bounds the worst case a
                 // compromised-but-authorized receiver can consume.
+                /* solhint-disable avoid-low-level-calls */
                 // slither-disable-next-line unchecked-lowlevel,low-level-calls
-                // solhint-disable-next-line avoid-low-level-calls
                 address(reimbursementPool).call{gas: 2_000_000}(
                     abi.encodeWithSelector(
                         reimbursementPool.refund.selector,
@@ -506,6 +506,7 @@ abstract contract AbstractL1BTCDepositor is
                         reimbursement.receiver
                     )
                 );
+                /* solhint-enable avoid-low-level-calls */
             }
         }
     }
