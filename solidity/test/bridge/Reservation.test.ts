@@ -58,7 +58,17 @@ describe("Reservation", () => {
     const signers = await ethers.getSigners()
     ;[deployer, depositor, thirdParty, vault] = signers
 
-    const ReservationFactory = await ethers.getContractFactory("Reservation")
+    const ReservationProofsFactory = await ethers.getContractFactory(
+      "ReservationProofs"
+    )
+    const reservationProofsLibrary = await ReservationProofsFactory.connect(
+      deployer
+    ).deploy()
+    const ReservationFactory = await ethers.getContractFactory("Reservation", {
+      libraries: {
+        ReservationProofs: reservationProofsLibrary.address,
+      },
+    })
     const reservationLibrary = await ReservationFactory.connect(
       deployer
     ).deploy()

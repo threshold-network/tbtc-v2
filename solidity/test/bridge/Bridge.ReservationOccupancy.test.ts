@@ -56,7 +56,7 @@ describe("Reservation - occupancy tracking", () => {
     await stub.setMaxActiveReservations(5)
     await stub.setActiveReservationsCount(1)
 
-    const walletPubKeyHash = "0x" + "1".repeat(40)
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
     await stub.setWalletReservationsCount(walletPubKeyHash, 1)
     await stub.setWalletReservationsAmount(walletPubKeyHash, 100)
     await stub.setReservationTotalAmount(100)
