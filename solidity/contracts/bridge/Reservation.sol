@@ -73,6 +73,21 @@ library Reservation {
     uint32 internal constant MIN_RESERVATION_TERM = 90 days;
     // slither-disable-next-line unused-state
     uint32 internal constant MAX_RESERVATION_TERM = 730 days;
+    uint32 internal constant MIN_RESERVATION_DISSOLUTION_DELAY = 1 hours;
+    uint32 internal constant MAX_RESERVATION_DISSOLUTION_DELAY = 30 days;
+
+    function requireWithinSlotCapacity(
+        uint64 totalAmount,
+        uint32 activeCap,
+        uint64 singleAmount
+    ) internal pure {
+        require(
+            singleAmount == 0 ||
+                activeCap == 0 ||
+                totalAmount <= uint256(activeCap) * singleAmount,
+            "Amount cap exceeds slot capacity"
+        );
+    }
 
     /// @notice Represents the state of a reservation position.
     enum ReservationState {
@@ -169,11 +184,8 @@ library Reservation {
         uint64 anchorAmount;
         // UNIX timestamp the custody term expires at. Purely a contract
         // layer fact -- the anchor output carries no timelock.
-        // XXX: Unsigned 32-bit int unix seconds. Computed as `acceptedAt +
-        // reservationTermSeconds`; Solidity's checked arithmetic reverts
-        // this addition (rather than silently wrapping) once the sum would
-        // exceed the uint32 ceiling - starting up to MAX_RESERVATION_TERM
-        // (730 days) before the raw February 7th 2106 date, not at it.
+
+        // XXX: Unsigned 32-bit int unix seconds, will break February 7th 2106.
         uint32 expiresAt;
         // Hash of the Bitcoin transaction holding the current anchor output.
         bytes32 anchorTxHash;
@@ -1621,17 +1633,21 @@ library Reservation {
         emit ReservedDepositMarkedStale(depositKey);
     }
 
-    /// @notice Marks a reservation custodied by a terminated wallet as
-    ///         stranded. A terminated wallet's operators are already
-    ///         slashed and can sign the anchor away unchallengeably, so
-    ///         the registry stops tracking the anchor: the position closes
-    ///         as Stranded and reserved capacity is released. A pending
-    ///         action cannot be stranded: its Bitcoin transaction may already
-    ///         be confirmed and must remain provable. The owner's minted
+    /// @notice Marks a reservation custodied by a terminated, closing, or
+    ///         closed wallet as stranded. A terminated wallet's operators
+    ///         are already slashed and can sign the anchor away
+    ///         unchallengeably, so the registry stops tracking the anchor:
+    ///         the position closes as Stranded and reserved capacity is
+    ///         released. A closing or closed wallet is no longer managing
+    ///         reservations; permissionless stranding prevents the anchor
+    ///         from outliving the wallet's custody. A pending action cannot
+    ///         be stranded: its Bitcoin transaction may already be
+    ///         confirmed and must remain provable. The owner's minted
     ///         balance simply remains an ordinary pooled claim — the backing
-    ///         shortfall is socialized exactly like a terminated wallet's main
-    ///         UTXO. A governance compensation path can consume the emitted
-    ///         evidence.
+    ///         shortfall is socialized exactly like a terminated wallet's
+    ///         main UTXO. A governance compensation path can consume the
+    ///         emitted evidence.
+
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated, Closing, or Closed state,
@@ -1647,11 +1663,13 @@ library Reservation {
             reservation.state == ReservationState.Active,
             "Reservation is not active"
         );
-        Wallets.WalletState walletState = self.registeredWallets[reservation.walletPubKeyHash].state;
+        Wallets.WalletState walletState = self
+            .registeredWallets[reservation.walletPubKeyHash]
+            .state;
         require(
             walletState == Wallets.WalletState.Terminated ||
-            walletState == Wallets.WalletState.Closing ||
-            walletState == Wallets.WalletState.Closed,
+                walletState == Wallets.WalletState.Closing ||
+                walletState == Wallets.WalletState.Closed,
             "Wallet is not terminated, closing, or closed"
         );
 
@@ -1684,8 +1702,11 @@ library Reservation {
     ///        reservationMaxSingleAmount`, both owned by
     ///        `updateReservationCaps`; `reservationMaxSingleAmount == 0`
     ///        disables the single-reservation cap and skips its check;
-    ///        `maxActiveReservations == 0` is rejected earlier by the launch-gate
-    ///        require in `updateReservationCaps`, not skipped.
+    ///      `maxActiveReservations == 0` (pre-launch bootstrap state, before
+    ///      `updateReservationCaps` has been called) skips the relational
+    ///      check entirely so parameters can be configured first.
+    ///      `updateReservationCaps` itself rejects passing 0 as its
+    ///      `maxActiveReservations` argument.
     ///
     ///      Term, dissolution delay and fee bounds are snapshotted into
     ///      positions and action records when terms are granted or actions
@@ -1717,7 +1738,8 @@ library Reservation {
         );
         require(
             reservationDissolutionDelay >= MIN_RESERVATION_DISSOLUTION_DELAY &&
-                reservationDissolutionDelay <= MAX_RESERVATION_DISSOLUTION_DELAY,
+                reservationDissolutionDelay <=
+                MAX_RESERVATION_DISSOLUTION_DELAY,
             "Reservation dissolution delay out of protocol bounds"
         );
         require(
@@ -1751,9 +1773,11 @@ library Reservation {
         // can ever be reserved at once; a higher `reservationMaxTotalAmount`
         // is unreachable dead configuration because the position-count cap
         // saturates first. `reservationMaxSingleAmount == 0` disables the
-        // single-reservation cap and skips its check; `maxActiveReservations == 0`
-        // is rejected earlier by the launch-gate require in updateReservationCaps,
-        // not skipped.
+        // single-reservation cap and skips its check; when
+        // `self.maxActiveReservations == 0` (pre-launch bootstrap state) the
+        // relational check is also skipped to permit initial parameter
+        // configuration. `updateReservationCaps` rejects passing 0 as its
+        // `maxActiveReservations` argument.
         requireWithinSlotCapacity(
             reservationMaxTotalAmount,
             self.maxActiveReservations,

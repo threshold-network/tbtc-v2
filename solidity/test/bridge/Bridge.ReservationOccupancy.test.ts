@@ -11,7 +11,7 @@ async function deployStub(): Promise<Contract> {
   })
   const reservation = await Reservation.deploy()
 
-  const Stub = await ethers.getContractFactory("ReservationOccupancyStub", {
+  const Stub = await ethers.getContractFactory("ReservationStub", {
     libraries: { Reservation: reservation.address },
   })
 
@@ -74,7 +74,12 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(stub.notifyReservationStranded(reservationKey))
       .to.emit(stub, "ReservationStranded")
-      .withArgs(reservationKey, walletPubKeyHash, ethers.constants.AddressZero, 100)
+      .withArgs(
+        reservationKey,
+        walletPubKeyHash,
+        ethers.constants.AddressZero,
+        100
+      )
 
     expect(await stub.getActiveReservationsCount()).to.equal(0)
   })

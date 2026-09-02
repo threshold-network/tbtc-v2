@@ -196,6 +196,18 @@ library ReservationProofs {
             "Action is not settleable"
         );
         late = action.state == Reservation.ActionState.TimedOut;
+        // Bound late settlement: a timed-out action may be settled late
+        // only within the reservation term following its timeout. After
+        // that window the depositor's Bitcoin refund path is the only
+        // resolution, and the occupancy slot can no longer be re-taken.
+        // This caps the counter overshoot window that the M15 deferral
+        // relies on.
+        require(
+            !late ||
+                block.timestamp <=
+                uint256(action.timeoutAt) + self.reservationTermSeconds,
+            "Late settlement window expired"
+        );
     }
 
     /// @notice Converts a settlement into the existing stranded-position
@@ -904,7 +916,8 @@ library ReservationProofs {
             // amount; re-take them. Deliberately no cap check (see
             // acceptance).
             self.walletReservationsCount[newWalletPubKeyHash] += 1;
-            self.walletReservationsAmount[newWalletPubKeyHash] += reservation.anchorAmount;
+            self.walletReservationsAmount[newWalletPubKeyHash] += reservation
+                .anchorAmount;
 
             // A newer pending generation references an anchor this
             // transaction just consumed; unwind it.
@@ -927,21 +940,27 @@ library ReservationProofs {
         // above). The target reserved the pre-hop anchor value; release
         // the miner-fee delta.
         self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[reservation.walletPubKeyHash] -= reservation.anchorAmount;
+        self.walletReservationsAmount[
+            reservation.walletPubKeyHash
+        ] -= reservation.anchorAmount;
         self.walletReservationsAmount[newWalletPubKeyHash] -= (reservation
             .anchorAmount - newAnchorAmount);
 
-
         // The miner fee reduces the on-chain earmarked amount.
-        self.reservationTotalAmount -= (reservation.anchorAmount - newAnchorAmount);
+        self.reservationTotalAmount -= (reservation.anchorAmount -
+            newAnchorAmount);
 
         // Record the per-hop fee before the claim is written down below.
         // Afterwards the original anchor value is unrecoverable and
         // `ReservationReanchored` carries only the new anchor amount, so
-        // this total could not be reconstructed from later state. No
+        // this total could not be reconstructed from later state. Cache
+        // the fee before the anchor overwrite so the in-kind fee
+        // financing branch fires correctly (post-overwrite reads of
+        // reservation.anchorAmount always return newAnchorAmount). No
         // ceiling is enforced in milestone 1: `maxCumulativeReanchorFee`
         // stays declare-only until a post-milestone-1 bound lands.
-        reservation.cumulativeReanchorFee += (reservation.anchorAmount - newAnchorAmount);
+        uint64 feeSat = reservation.anchorAmount - newAnchorAmount;
+        reservation.cumulativeReanchorFee += feeSat;
 
         Reservation.removeWalletReservationKey(
             self,
@@ -968,16 +987,18 @@ library ReservationProofs {
         reservation.anchorTxOutputIndex = 0;
         reservation.state = Reservation.ReservationState.Active;
 
-        if ((reservation.anchorAmount - newAnchorAmount) > 0) {
-            IReservationFeeFinancer(self.deposits[reservationKey].vault)
-                .financeInKindFee((reservation.anchorAmount - newAnchorAmount));
-        }
-
+        // Effects (settlement state and anchor UTXO index) BEFORE the
+        // external fee-financing interaction.
         action.state = Reservation.ActionState.Settled;
 
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))
         ] = reservationKey;
+
+        if (feeSat > 0) {
+            IReservationFeeFinancer(self.deposits[reservationKey].vault)
+                .financeInKindFee(feeSat);
+        }
 
         // slither-disable-next-line reentrancy-events
         emit ReservationReanchored(

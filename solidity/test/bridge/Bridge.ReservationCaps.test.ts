@@ -35,7 +35,7 @@ async function deployStub(): Promise<Contract> {
   })
   const reservation = await Reservation.deploy()
 
-  const Stub = await ethers.getContractFactory("ReservationCapsStub", {
+  const Stub = await ethers.getContractFactory("ReservationStub", {
     libraries: { Reservation: reservation.address },
   })
 

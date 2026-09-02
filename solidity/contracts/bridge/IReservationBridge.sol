@@ -124,9 +124,45 @@ interface IReservationBridge {
             uint32 reservationRenewalWindowSeconds
         );
 
+    /// @notice See `ReservationRouter.walletReservationsAmount`.
+    function walletReservationsAmount(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint64);
+
+    /// @notice See `ReservationRouter.walletReservationsCount`.
+    function walletReservationsCount(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32);
+
+    /// @notice See `ReservationRouter.walletReservations`.
+    function walletReservations(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint256[] memory);
+
+    /// @notice See `ReservationRouter.reservationByAnchorUtxo`.
+    function reservationByAnchorUtxo(
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex
+    ) external view returns (uint256);
+
+    /// @notice See `ReservationRouter.reservedDepositWallet`.
+    function reservedDepositWallet(uint256 depositKey)
+        external
+        view
+        returns (bytes20);
+
+    /// @notice See `ReservationRouter.pendingReservedDeposits`.
+    function pendingReservedDeposits() external view returns (uint64);
+
     /// @notice See `ReservationRouter.activeReservationsCount`.
     function activeReservationsCount()
         external
         view
         returns (uint32 count, uint32 maxActive);
+
+    /// @notice See `ReservationRouter.reservationRouter`.
+    function reservationRouter() external view returns (address);
 }

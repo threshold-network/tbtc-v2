@@ -61,7 +61,9 @@ import "./Reservation.sol";
 ///         same slots as in the Bridge. The router MUST NOT declare any
 ///         additional state variable; new reservation state goes into
 ///         `BridgeState.Storage` (appending, with a matching `__gap`
-    ///         reduction). MUST be guarded by a storage-layout parity test; guard lands with the Bridge-integration PR (PR #G) which is out of scope here.
+///         reduction). MUST be guarded by a storage-layout parity test;
+///         guard lands with the Bridge-integration PR (PR #G) which is
+///         out of scope here.
 ///
 ///      2. NO SELECTOR SHADOWING. A selector defined by the Bridge never
 ///         reaches the router (the fallback only sees unmatched calls). The
@@ -77,7 +79,7 @@ import "./Reservation.sol";
 ///
 ///      4. UPGRADE MODEL. The Bridge stores the router address in
 ///         `BridgeState.Storage.reservationRouter`, settable exactly once
-    ///         via the Bridge (Bridge-integration PR, out of scope). Replacing router code
+///         via the Bridge (Bridge-integration PR, out of scope). Replacing router code
 ///         afterwards requires a Bridge implementation upgrade (the same
 ///         ceremony as any Bridge logic change), keeping code-change
 ///         authority exactly where it is today: with the proxy admin, not
@@ -334,22 +336,25 @@ contract ReservationRouter is Governable, Initializable {
         self.notifyStaleReservedDeposit(depositKey);
     }
 
-    /// @notice Marks a reservation custodied by a terminated wallet as
-    ///         stranded: an idle position closes, capacity is released and
-    ///         the owner's minted balance remains an ordinary pooled claim.
-    ///         Pending actions remain proof-eligible and cannot be stranded.
-    ///         See
+    /// @notice Marks a reservation custodied by a terminated, closing, or
+    ///         closed wallet as stranded: an idle position closes, capacity
+    ///         is released and the owner's minted balance remains an ordinary
+    ///         pooled claim. Pending actions remain proof-eligible and
+    ///         cannot be stranded. See
     ///         `Reservation.notifyReservationStranded`.
+
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external {
         self.notifyReservationStranded(reservationKey);
     }
 
-    /// @notice Updates the amount-denominated reservation caps: the
-    ///         per-wallet total anchor amount and the single-reservation
-    ///         maximum. A zero value disables the respective cap. Checked
-    ///         and reserved at request/authorization time, never at proof
-    ///         time.
+    /// @notice Updates the amount-denominated reservation caps (per-wallet
+    ///         total anchor amount and single-reservation maximum) and the
+    ///         global open-position occupancy cap. A zero amount-cap value
+    ///         disables that amount cap. `maxActiveReservations` must be
+    ///         greater than zero — it is the milestone 1 launch gate.
+    ///         Caps are checked and reserved at request/authorization time,
+    ///         never at proof time.
     /// @param maxReservationsAmountPerWallet New cap on the total satoshi
     ///        amount of anchors a single wallet can custody.
     /// @param reservationMaxSingleAmount New cap on the satoshi amount of
