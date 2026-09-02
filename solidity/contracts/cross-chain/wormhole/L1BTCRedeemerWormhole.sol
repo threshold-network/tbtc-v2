@@ -138,6 +138,7 @@ contract L1BTCRedeemerWormhole is
             _tbtcVault
         );
         __Ownable_init();
+        __ReentrancyGuard_init();
 
         if (address(wormholeTokenBridge) != address(0)) {
             revert WormholeTokenBridgeAlreadySet();
