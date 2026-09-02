@@ -20,7 +20,6 @@ import "./BridgeState.sol";
 import "./Deposit.sol";
 import "./Wallets.sol";
 import "./WalletProposalValidatorConstants.sol";
-import "./ReservationProofs.sol";
 
 /// @title Bridge UTXO reservations — control plane
 /// @notice The library handles the request/authorization side of UTXO
@@ -1198,19 +1197,15 @@ library Reservation {
         }
     }
 
-    /// @notice Permissionless cleanup entry point for a reservation whose
-    ///         custodying wallet has reached the Closing, Closed, or
-    ///         Terminated state with no settlement currently in flight:
-    ///         capacity is released via `strandReservation`, which also
-    ///         emits the canonical `ReservationStranded` recovery evidence,
-    ///         and the owner's minted balance remains an ordinary pooled
-    ///         claim. Pending actions remain proof-eligible and cannot be
-    ///         stranded.
-    /// @param reservationKey The key of the reservation to strand.
+    /// @notice Marks a reservation custodied by a terminated or closed
+    ///         wallet as stranded: an idle position closes, capacity
+    ///         is released and the owner's minted balance remains an ordinary
+    ///         pooled claim. Pending actions remain proof-eligible and
+    ///         cannot be stranded.
+    /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
-    ///      - The reservation must be Active,
-    ///      - The reservation's wallet must be in the Closing, Closed, or
-    ///        Terminated state.
+    ///      - The custodying wallet must be in the Terminated or Closed state,
+    ///      - The reservation must be Active.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1227,10 +1222,9 @@ library Reservation {
             .registeredWallets[reservation.walletPubKeyHash]
             .state;
         require(
-            walletState == Wallets.WalletState.Closing ||
-                walletState == Wallets.WalletState.Closed ||
-                walletState == Wallets.WalletState.Terminated,
-            "Wallet is not closing, closed or terminated"
+            walletState == Wallets.WalletState.Terminated ||
+                walletState == Wallets.WalletState.Closed,
+            "Wallet is not terminated or closed"
         );
 
         strandReservation(self, reservation, reservationKey);
@@ -1245,9 +1239,7 @@ library Reservation {
     ///        the reservation vault, not accepted, not already stale),
     ///      - No acceptance authorization may be pending for it,
     ///      - The exact Bitcoin refund deadline snapshotted at reveal must
-    ///        have elapsed. With the reveal-ahead validation disabled at
-    ///        reveal, the deposit can be marked stale immediately, matching
-    ///        the disabled protection.
+    ///        have elapsed.
     function notifyStaleReservedDeposit(
         BridgeState.Storage storage self,
         uint256 depositKey
@@ -1267,13 +1259,11 @@ library Reservation {
 
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.sweptAt == 0, "Deposit already swept");
-        if (pendingDeposit.refundDeadlineValidated) {
-            require(
-                /* solhint-disable-next-line not-rely-on-time */
-                block.timestamp > pendingDeposit.refundDeadline,
-                "Deposit refund deadline has not elapsed"
-            );
-        }
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp > pendingDeposit.refundDeadline,
+            "Deposit refund deadline has not elapsed"
+        );
 
         ReservationRequest storage reservation = self.reservations[depositKey];
         require(
@@ -1290,6 +1280,25 @@ library Reservation {
         emit ReservedDepositMarkedStale(depositKey);
     }
 
+    /// @notice Validates the Decision-1 relational invariant between the
+    ///         total amount cap and slot capacity.
+    /// @dev Requires that `reservationMaxTotalAmount` does not exceed the
+    ///      worst-case slot capacity `maxActiveReservations * reservationMaxSingleAmount`.
+    ///      Skipped if either operand is zero (disabled).
+    function validateReservationCapsInvariant(
+        uint64 reservationMaxTotalAmount,
+        uint64 reservationMaxSingleAmount,
+        uint32 maxActiveReservations
+    ) internal pure {
+        require(
+            reservationMaxSingleAmount == 0 ||
+                maxActiveReservations == 0 ||
+                reservationMaxTotalAmount <=
+                uint256(maxActiveReservations) * reservationMaxSingleAmount,
+            "Amount cap exceeds slot capacity"
+        );
+    }
+
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as UTXO reservations.
@@ -1304,9 +1313,12 @@ library Reservation {
     ///        for storage completeness; unread until renewal lands),
     ///      - `reservationActionTimeout` must exceed the wallet
     ///        validator's final signing safety margin,
-    ///      - `maxReservationsPerWallet` must be greater than zero, so that
-    ///        a parameter update can never become an undeclared halt of all
-    ///        new acceptances and re-anchors,
+    ///      - `maxReservationsPerWallet` must be greater than zero, so the
+    ///        per-wallet count cap cannot be silently disabled by a
+    ///        parameter update,
+    ///      - `reservationMaxTotalAmount` must not exceed the slot capacity
+    ///        `maxActiveReservations * reservationMaxSingleAmount` (skipped
+    ///        when either operand is zero/disabled),
     ///      - The reservation vault can only be changed while there are no
     ///        active reservations (total reserved amount is zero).
     ///
@@ -1377,13 +1389,10 @@ library Reservation {
         // skipped — this also covers the pre-launch state where
         // `updateReservationCaps` has not run yet. Mirrored in
         // `updateReservationCaps`, which owns the two operands read here.
-        require(
-            self.reservationMaxSingleAmount == 0 ||
-                self.maxActiveReservations == 0 ||
-                reservationMaxTotalAmount <=
-                uint256(self.maxActiveReservations) *
-                    self.reservationMaxSingleAmount,
-            "Amount cap exceeds slot capacity"
+        validateReservationCapsInvariant(
+            reservationMaxTotalAmount,
+            self.reservationMaxSingleAmount,
+            self.maxActiveReservations
         );
         self.reservationMinAmount = reservationMinAmount;
         self.reservationTxMaxFee = reservationTxMaxFee;
@@ -1412,12 +1421,20 @@ library Reservation {
     ///         time; a zero amount-cap value disables that amount cap.
     ///         `maxActiveReservations` must be greater than zero — it is
     ///         the milestone 1 launch gate.
-    /// @dev Deploy-ordering requirement (see
+    /// @dev Requirements:
+    ///      - `maxActiveReservations` must be greater than zero,
+    ///      - Stored `reservationMaxTotalAmount` must not exceed the slot
+    ///        capacity `maxActiveReservations * reservationMaxSingleAmount`
+    ///        (skipped when either operand is zero/disabled).
+    ///
+    ///      Deploy-ordering recommendation (see
     ///      `docs/RESERVATION_CAPS_DEPLOYMENT.md`): the M3/M8 runbook
-    ///      gates `updateReservationParameters` calls on
-    ///      `updateReservationCaps` having run first, so the slot-capacity
-    ///      check at reservation request has at least one zero operand to
-    ///      short-circuit on.
+    ///      recommends running `updateReservationCaps` before
+    ///      `updateReservationParameters` so that when
+    ///      `updateReservationParameters`'s own slot-capacity check runs,
+    ///      `self.reservationMaxSingleAmount` and `self.maxActiveReservations`
+    ///      are already set to real (non-zero) values instead of relying on
+    ///      the zero-disjunct short-circuit.
     function updateReservationCaps(
         BridgeState.Storage storage self,
         uint64 maxReservationsAmountPerWallet,
@@ -1434,11 +1451,10 @@ library Reservation {
         // operands against the stored `reservationMaxTotalAmount` that the
         // other setter owns. `maxActiveReservations == 0` needs no disjunct
         // here — the require above already rejects it.
-        require(
-            reservationMaxSingleAmount == 0 ||
-                self.reservationMaxTotalAmount <=
-                uint256(maxActiveReservations) * reservationMaxSingleAmount,
-            "Amount cap exceeds slot capacity"
+        validateReservationCapsInvariant(
+            self.reservationMaxTotalAmount,
+            reservationMaxSingleAmount,
+            maxActiveReservations
         );
         self.maxReservationsAmountPerWallet = maxReservationsAmountPerWallet;
         self.reservationMaxSingleAmount = reservationMaxSingleAmount;
@@ -1448,34 +1464,6 @@ library Reservation {
             maxReservationsAmountPerWallet,
             reservationMaxSingleAmount,
             maxActiveReservations
-        );
-    }
-
-    /// @notice Single entry point for all reservation lifecycle SPV proofs.
-    ///         Forwards to the `ReservationProofs` settlement library. The
-    ///         forwarding hop exists so the `ReservationRouter` can call
-    ///         `self.submitReservationProof(...)` via the `using Reservation
-    ///         for BridgeState.Storage` directive; see the router for the
-    ///         architecture.
-    /// @dev Only the SPV maintainer may call; enforced at the router, not
-    ///      here.
-    function submitReservationProof(
-        BridgeState.Storage storage self,
-        uint8 proofType,
-        BitcoinTx.Info calldata txInfo,
-        BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) external {
-        ReservationProofs.submitReservationProof(
-            self,
-            proofType,
-            txInfo,
-            proof,
-            mainUtxo,
-            reservationKey,
-            requestNonce
         );
     }
 }

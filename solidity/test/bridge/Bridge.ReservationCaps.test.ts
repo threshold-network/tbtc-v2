@@ -26,24 +26,28 @@ const baseParams = {
   reservationRenewalWindowSeconds: 14 * 24 * 60 * 60,
 }
 
-async function deployStub(): Promise<Contract> {
+async function deployTestReservation(): Promise<Contract> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
-  const Reservation = await ethers.getContractFactory("Reservation", {
-    libraries: { ReservationProofs: reservationProofs.address },
-  })
+  const Reservation = await ethers.getContractFactory("Reservation")
   const reservation = await Reservation.deploy()
 
-  const Stub = await ethers.getContractFactory("ReservationStub", {
-    libraries: { Reservation: reservation.address },
-  })
+  const TestReservationFactory = await ethers.getContractFactory(
+    "TestReservation",
+    {
+      libraries: { Reservation: reservation.address },
+    }
+  )
 
-  return Stub.deploy()
+  return TestReservationFactory.deploy()
 }
 
-function setTotalAmount(stub: Contract, reservationMaxTotalAmount: number) {
-  return stub.updateReservationParameters(
+function setTotalAmount(
+  testReservation: Contract,
+  reservationMaxTotalAmount: number
+) {
+  return testReservation.updateReservationParameters(
     baseParams.reservationVault,
     baseParams.reservationMinAmount,
     baseParams.reservationTxMaxFee,
@@ -65,15 +69,15 @@ describe("Reservation - amount cap versus slot capacity", () => {
   const slotCapacity = maxActiveReservations * reservationMaxSingleAmount
   const maxReservationsAmountPerWallet = 10_000_000
 
-  let stub: Contract
+  let testReservation: Contract
 
   beforeEach(async () => {
-    stub = await deployStub()
+    testReservation = await deployTestReservation()
   })
 
   describe("updateReservationParameters", () => {
     beforeEach(async () => {
-      await stub.updateReservationCaps(
+      await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
         maxActiveReservations
@@ -81,15 +85,15 @@ describe("Reservation - amount cap versus slot capacity", () => {
     })
 
     it("reverts when the total amount cap exceeds slot capacity", async () => {
-      await expect(setTotalAmount(stub, slotCapacity + 1)).to.be.revertedWith(
-        CAPACITY_REVERT
-      )
+      await expect(
+        setTotalAmount(testReservation, slotCapacity + 1)
+      ).to.be.revertedWith(CAPACITY_REVERT)
     })
 
     it("accepts a total amount cap exactly equal to slot capacity", async () => {
-      await setTotalAmount(stub, slotCapacity)
+      await setTotalAmount(testReservation, slotCapacity)
 
-      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
+      expect((await testReservation.caps()).reservationMaxTotalAmount).to.equal(
         slotCapacity
       )
     })
@@ -97,17 +101,17 @@ describe("Reservation - amount cap versus slot capacity", () => {
 
   describe("updateReservationCaps", () => {
     beforeEach(async () => {
-      await stub.updateReservationCaps(
+      await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
         maxActiveReservations
       )
-      await setTotalAmount(stub, slotCapacity)
+      await setTotalAmount(testReservation, slotCapacity)
     })
 
     it("reverts when lowering the position cap below the standing total", async () => {
       await expect(
-        stub.updateReservationCaps(
+        testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount,
           maxActiveReservations - 1
@@ -117,7 +121,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
 
     it("reverts when lowering the single-position cap below the standing total", async () => {
       await expect(
-        stub.updateReservationCaps(
+        testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount / 2,
           maxActiveReservations
@@ -130,15 +134,15 @@ describe("Reservation - amount cap versus slot capacity", () => {
       const a = 1_000_000
       const b = 100_000
       const c = 5
-      await expect(stub.updateReservationCaps(a, b, c))
-        .to.emit(stub, "ReservationCapsUpdated")
+      await expect(testReservation.updateReservationCaps(a, b, c))
+        .to.emit(testReservation, "ReservationCapsUpdated")
         .withArgs(a, b, c)
     })
 
     it("reverts when maxActiveReservations is set to zero", async () => {
-      await expect(stub.updateReservationCaps(0, 0, 0)).to.be.revertedWith(
-        "Active reservations cap must be greater than zero"
-      )
+      await expect(
+        testReservation.updateReservationCaps(0, 0, 0)
+      ).to.be.revertedWith("Active reservations cap must be greater than zero")
     })
   })
 
@@ -148,15 +152,15 @@ describe("Reservation - amount cap versus slot capacity", () => {
   // zero and reject every nonzero total in a fully supported configuration.
   describe("when a cap is disabled with zero", () => {
     it("accepts any total amount while the single-position cap is disabled", async () => {
-      await stub.updateReservationCaps(
+      await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         0,
         maxActiveReservations
       )
 
-      await setTotalAmount(stub, slotCapacity * 1000)
+      await setTotalAmount(testReservation, slotCapacity * 1000)
 
-      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
+      expect((await testReservation.caps()).reservationMaxTotalAmount).to.equal(
         slotCapacity * 1000
       )
     })
@@ -166,11 +170,11 @@ describe("Reservation - amount cap versus slot capacity", () => {
       // `maxActiveReservations` is still zero. It cannot be set back to zero
       // afterwards, which is why this is the pre-launch state and not a
       // reachable post-launch one.
-      expect((await stub.caps()).maxActiveReservations).to.equal(0)
+      expect((await testReservation.caps()).maxActiveReservations).to.equal(0)
 
-      await setTotalAmount(stub, slotCapacity * 1000)
+      await setTotalAmount(testReservation, slotCapacity * 1000)
 
-      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
+      expect((await testReservation.caps()).reservationMaxTotalAmount).to.equal(
         slotCapacity * 1000
       )
     })
@@ -193,11 +197,13 @@ describe("Reservation - amount cap versus slot capacity", () => {
     // product. This is the two-sided check working as designed, not a
     // bug — the test pins it as a regression check.
     it("reverts when updateReservationCaps follows an oversized parameters write", async () => {
-      expect((await stub.caps()).maxActiveReservations).to.equal(0)
-      expect((await stub.caps()).reservationMaxSingleAmount).to.equal(0)
+      expect((await testReservation.caps()).maxActiveReservations).to.equal(0)
+      expect(
+        (await testReservation.caps()).reservationMaxSingleAmount
+      ).to.equal(0)
 
-      await setTotalAmount(stub, slotCapacity * 1000)
-      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
+      await setTotalAmount(testReservation, slotCapacity * 1000)
+      expect((await testReservation.caps()).reservationMaxTotalAmount).to.equal(
         slotCapacity * 1000
       )
 
@@ -205,7 +211,7 @@ describe("Reservation - amount cap versus slot capacity", () => {
       // `updateReservationCaps` reads the stored 4,000,000,000 total
       // against the new product of 4,000,000 and trips.
       await expect(
-        stub.updateReservationCaps(
+        testReservation.updateReservationCaps(
           maxReservationsAmountPerWallet,
           reservationMaxSingleAmount,
           maxActiveReservations
@@ -218,22 +224,24 @@ describe("Reservation - amount cap versus slot capacity", () => {
     // (passes), then a follow-up attempt to raise past slot capacity
     // (reverts). Proves the safe operational path works end to end.
     it("accepts caps first, then a total within slot capacity", async () => {
-      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(0)
+      expect((await testReservation.caps()).reservationMaxTotalAmount).to.equal(
+        0
+      )
 
-      await stub.updateReservationCaps(
+      await testReservation.updateReservationCaps(
         maxReservationsAmountPerWallet,
         reservationMaxSingleAmount,
         maxActiveReservations
       )
 
-      await setTotalAmount(stub, slotCapacity)
-      expect((await stub.caps()).reservationMaxTotalAmount).to.equal(
+      await setTotalAmount(testReservation, slotCapacity)
+      expect((await testReservation.caps()).reservationMaxTotalAmount).to.equal(
         slotCapacity
       )
 
-      await expect(setTotalAmount(stub, slotCapacity + 1)).to.be.revertedWith(
-        CAPACITY_REVERT
-      )
+      await expect(
+        setTotalAmount(testReservation, slotCapacity + 1)
+      ).to.be.revertedWith(CAPACITY_REVERT)
     })
   })
 })

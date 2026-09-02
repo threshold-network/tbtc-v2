@@ -64,11 +64,7 @@ describe("Reservation", () => {
     const reservationProofsLibrary = await ReservationProofsFactory.connect(
       deployer
     ).deploy()
-    const ReservationFactory = await ethers.getContractFactory("Reservation", {
-      libraries: {
-        ReservationProofs: reservationProofsLibrary.address,
-      },
-    })
+    const ReservationFactory = await ethers.getContractFactory("Reservation")
     const reservationLibrary = await ReservationFactory.connect(
       deployer
     ).deploy()
@@ -1683,6 +1679,239 @@ describe("Reservation", () => {
       // pre-request state), not Active -- it was never a custodied
       // reservation.
       expect(await testReservation.reservationState(reservationKey)).to.equal(0) // Unknown
+    })
+  })
+
+  describe("notifyReservationActionTimeout", () => {
+    const reservationKey = 500
+    const requestNonce = 1
+    const sourceWalletPubKeyHash = `0x${"11".repeat(20)}`
+    const targetWalletPubKeyHash = `0x${"22".repeat(20)}`
+    const amount = 1000
+    const actionTimeout = 14400 // 4 hours
+
+    it("should time out a pending reanchor action, release target wallet capacity, restore reservation to Active, and set reanchor cooldown", async () => {
+      await testReservation.setReservationActionTimeout(actionTimeout)
+
+      // Set reservation in ActionPending state with requestNonce = 1, custodied by source wallet
+      await testReservation.setReservationFullState(
+        reservationKey,
+        depositor.address,
+        sourceWalletPubKeyHash,
+        amount,
+        reservationState.ActionPending,
+        requestNonce
+      )
+
+      // Set the pending Reanchor action for (reservationKey, requestNonce) with timeoutAt in the past
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        actionType.Reanchor,
+        actionState.Pending,
+        1, // timeoutAt: far in the past
+        targetWalletPubKeyHash,
+        amount
+      )
+
+      // Seed target wallet counters (which should be decremented) and source wallet counters (which should be untouched)
+      await testReservation.setWalletReservationsCounters(
+        targetWalletPubKeyHash,
+        2,
+        amount * 2
+      )
+      await testReservation.setWalletReservationsCounters(
+        sourceWalletPubKeyHash,
+        1,
+        amount
+      )
+
+      const tx = await testReservation.notifyReservationActionTimeout(
+        reservationKey,
+        []
+      )
+      const receipt = await tx.wait()
+      const block = await ethers.provider.getBlock(receipt.blockNumber)
+
+      // 1. Action state transitions to TimedOut
+      expect(
+        await testReservation.actionState(reservationKey, requestNonce)
+      ).to.equal(actionState.TimedOut)
+
+      // 2. Target wallet capacity and count are released (decremented)
+      expect(
+        await testReservation.walletReservationsCount(targetWalletPubKeyHash)
+      ).to.equal(1)
+      expect(
+        await testReservation.walletReservationsAmount(targetWalletPubKeyHash)
+      ).to.equal(amount)
+
+      // 3. Source wallet counters remain untouched
+      expect(
+        await testReservation.walletReservationsCount(sourceWalletPubKeyHash)
+      ).to.equal(1)
+      expect(
+        await testReservation.walletReservationsAmount(sourceWalletPubKeyHash)
+      ).to.equal(amount)
+
+      // 4. Reservation state returns to Active
+      expect(await testReservation.reservationState(reservationKey)).to.equal(
+        reservationState.Active
+      )
+
+      // 5. Reanchor cooldown is set to block.timestamp + reservationActionTimeout
+      const res = await testReservation.getReservation(reservationKey)
+      expect(res.reanchorCooldownUntil).to.equal(
+        block.timestamp + actionTimeout
+      )
+    })
+
+    it("should revert if action type is not Reanchor", async () => {
+      await testReservation.setReservationFullState(
+        reservationKey,
+        depositor.address,
+        sourceWalletPubKeyHash,
+        amount,
+        reservationState.ActionPending,
+        requestNonce
+      )
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        actionType.Acceptance,
+        actionState.Pending,
+        1,
+        targetWalletPubKeyHash,
+        amount
+      )
+
+      await expect(
+        testReservation.notifyReservationActionTimeout(reservationKey, [])
+      ).to.be.revertedWith("Unsupported action type for timeout")
+    })
+
+    it("should revert if reservation is not in ActionPending state", async () => {
+      await testReservation.setReservationFullState(
+        reservationKey,
+        depositor.address,
+        sourceWalletPubKeyHash,
+        amount,
+        reservationState.Active,
+        requestNonce
+      )
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        actionType.Reanchor,
+        actionState.Pending,
+        1,
+        targetWalletPubKeyHash,
+        amount
+      )
+
+      await expect(
+        testReservation.notifyReservationActionTimeout(reservationKey, [])
+      ).to.be.revertedWith("Reservation is not in ActionPending state")
+    })
+
+    it("should revert if action is not pending", async () => {
+      await testReservation.setReservationFullState(
+        reservationKey,
+        depositor.address,
+        sourceWalletPubKeyHash,
+        amount,
+        reservationState.ActionPending,
+        requestNonce
+      )
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        actionType.Reanchor,
+        actionState.Settled,
+        1,
+        targetWalletPubKeyHash,
+        amount
+      )
+
+      await expect(
+        testReservation.notifyReservationActionTimeout(reservationKey, [])
+      ).to.be.revertedWith("Action is not pending")
+    })
+
+    it("should revert if action has not timed out yet", async () => {
+      const now = await lastBlockTime()
+      await testReservation.setReservationFullState(
+        reservationKey,
+        depositor.address,
+        sourceWalletPubKeyHash,
+        amount,
+        reservationState.ActionPending,
+        requestNonce
+      )
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        actionType.Reanchor,
+        actionState.Pending,
+        now + 1000,
+        targetWalletPubKeyHash,
+        amount
+      )
+
+      await expect(
+        testReservation.notifyReservationActionTimeout(reservationKey, [])
+      ).to.be.revertedWith("Action has not timed out")
+    })
+
+    it("should succeed when called after advancing time past timeoutAt", async () => {
+      const now = await lastBlockTime()
+      const timeoutAt = now + 500
+      await testReservation.setReservationActionTimeout(actionTimeout)
+      await testReservation.setReservationFullState(
+        reservationKey,
+        depositor.address,
+        sourceWalletPubKeyHash,
+        amount,
+        reservationState.ActionPending,
+        requestNonce
+      )
+      await testReservation.setFullAction(
+        reservationKey,
+        requestNonce,
+        actionType.Reanchor,
+        actionState.Pending,
+        timeoutAt,
+        targetWalletPubKeyHash,
+        amount
+      )
+      await testReservation.setWalletReservationsCounters(
+        targetWalletPubKeyHash,
+        1,
+        amount
+      )
+
+      // Calling before timeoutAt reverts
+      await expect(
+        testReservation.notifyReservationActionTimeout(reservationKey, [])
+      ).to.be.revertedWith("Action has not timed out")
+
+      // Advance time past timeoutAt
+      await increaseTime(501)
+
+      // Calling now succeeds
+      await testReservation.notifyReservationActionTimeout(reservationKey, [])
+      expect(
+        await testReservation.actionState(reservationKey, requestNonce)
+      ).to.equal(actionState.TimedOut)
+      expect(await testReservation.reservationState(reservationKey)).to.equal(
+        reservationState.Active
+      )
+      expect(
+        await testReservation.walletReservationsCount(targetWalletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await testReservation.walletReservationsAmount(targetWalletPubKeyHash)
+      ).to.equal(0)
     })
   })
 

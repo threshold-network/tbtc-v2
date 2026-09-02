@@ -40,13 +40,14 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
+// Set optimizer runs to 200 for BridgeGovernance (matching
+// ecdsaSolidityCompilerConfig, for cross-environment solc-default reproducibility).
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
     optimizer: {
       enabled: true,
+      runs: 200,
     },
     outputSelection: storageLayoutOutputSelection,
   },
