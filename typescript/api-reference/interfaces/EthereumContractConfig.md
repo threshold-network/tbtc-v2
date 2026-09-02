@@ -22,7 +22,7 @@ contract artifact.
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L51)
+[src/lib/ethereum/adapter.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L68)
 
 ___
 
@@ -36,17 +36,21 @@ contract artifact.
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L62)
+[src/lib/ethereum/adapter.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L83)
 
 ___
 
 ### signerOrProvider
 
-• **signerOrProvider**: `Signer` \| `Provider`
+• **signerOrProvider**: [`EthereumSigner`](../README.md#ethereumsigner) \| [`EvmConnection`](EvmConnection.md)
 
-Signer - will return a Contract which will act on behalf of that signer. The signer will sign all contract transactions.
-Provider - will return a downgraded Contract which only has read-only access (i.e. constant calls)
+Signer - will allow the contract handle to send write transactions on
+behalf of that signer, besides read-only access.
+Provider - will give the contract handle read-only access.
+An already-normalized [EvmConnection](EvmConnection.md) may be passed as an internal
+fast path (used by the contract loaders to normalize once per
+initialization).
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L56)
+[src/lib/ethereum/adapter.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L77)

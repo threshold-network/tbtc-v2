@@ -14,9 +14,11 @@ import {
   createMockDeposit,
 } from "./test-helpers"
 import { Hex } from "../../../src/lib/utils"
-import { TransactionReceipt } from "@ethersproject/providers"
 import { CrossChainDepositor } from "../../../src/services/deposits/cross-chain"
-import { CrossChainInterfaces } from "../../../src/lib/contracts"
+import {
+  ChainTransactionReceipt,
+  CrossChainInterfaces,
+} from "../../../src/lib/contracts"
 
 // Mock axios
 const axios = require("axios")
@@ -68,7 +70,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       // Assert
       expect(result).to.not.be.instanceOf(Hex)
-      expect((result as TransactionReceipt).transactionHash).to.equal(
+      expect((result as ChainTransactionReceipt).transactionHash).to.equal(
         "0xabc123def456"
       )
 
@@ -157,7 +159,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       // Assert
-      expect((result as TransactionReceipt).transactionHash).to.equal(
+      expect((result as ChainTransactionReceipt).transactionHash).to.equal(
         "0x" + "1234567890abcdef".repeat(4)
       )
       expect(callCount).to.equal(3)
@@ -286,7 +288,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
     }
 
     async function expectConflictError(
-      act: Promise<Hex | TransactionReceipt>
+      act: Promise<Hex | ChainTransactionReceipt>
     ): Promise<StarkNetRelayerDepositConflictError> {
       try {
         await act
@@ -753,7 +755,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         mockReceipt
       )
 
-      expect((result as TransactionReceipt).transactionHash).to.equal(
+      expect((result as ChainTransactionReceipt).transactionHash).to.equal(
         "0x" + "a".repeat(64)
       )
       expect((axios.get as sinon.SinonStub).called).to.be.false
@@ -785,7 +787,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         })
         axios.get = sinon.stub()
 
-        let returned: Hex | TransactionReceipt | undefined
+        let returned: Hex | ChainTransactionReceipt | undefined
         let threw = false
         try {
           returned = await depositor.initializeDeposit(
@@ -821,7 +823,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         mockReceipt
       )
 
-      expect((result as TransactionReceipt).transactionHash).to.equal(
+      expect((result as ChainTransactionReceipt).transactionHash).to.equal(
         "0x" + "b".repeat(64)
       )
       expect((axios.get as sinon.SinonStub).called).to.be.false

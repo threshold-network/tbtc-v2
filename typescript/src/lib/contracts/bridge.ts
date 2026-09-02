@@ -1,4 +1,3 @@
-import { BigNumber } from "@ethersproject/bignumber"
 import {
   BitcoinSpvProof,
   BitcoinUtxo,
@@ -85,7 +84,7 @@ export interface Bridge {
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex>
 
   /**
@@ -278,7 +277,7 @@ export interface DepositRequest {
   /**
    * Deposit amount in satoshis.
    */
-  amount: BigNumber
+  amount: bigint
 
   /**
    * Optional identifier of the vault the deposit should be routed in.
@@ -298,7 +297,7 @@ export interface DepositRequest {
    * Value of the treasury fee calculated for this revealed deposit.
    * Denominated in satoshi.
    */
-  treasuryFee: BigNumber
+  treasuryFee: bigint
 }
 
 /**
@@ -330,7 +329,7 @@ export interface RedemptionRequest {
    * The actual value of the output in the Bitcoin transaction will be decreased
    * by the sum of the fee share and the treasury fee for this particular output.
    */
-  requestedAmount: BigNumber
+  requestedAmount: bigint
 
   /**
    * The amount of Bitcoins in satoshis that is subtracted from the amount of
@@ -338,13 +337,13 @@ export interface RedemptionRequest {
    * The value should be exactly equal to the value of treasury fee in the Bridge
    * on-chain contract at the time the redemption request was made.
    */
-  treasuryFee: BigNumber
+  treasuryFee: bigint
 
   /**
    * The maximum amount of Bitcoins in satoshis that can be subtracted from the
    * redemption's `requestedAmount` to pay the transaction network fee.
    */
-  txMaxFee: BigNumber
+  txMaxFee: bigint
 
   /**
    * UNIX timestamp the request was created at.
@@ -437,7 +436,7 @@ export interface Wallet {
   /**
    * The total redeemable value of pending redemption requests targeting that wallet.
    */
-  pendingRedemptionsValue: BigNumber
+  pendingRedemptionsValue: bigint
   /**
    * UNIX timestamp the wallet was created at.
    */

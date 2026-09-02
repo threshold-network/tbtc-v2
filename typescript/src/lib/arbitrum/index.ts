@@ -1,8 +1,4 @@
-import {
-  chainIdFromSigner,
-  ethereumAddressFromSigner,
-  EthereumSigner,
-} from "../ethereum"
+import { connectEvm, EthereumAddress, EthereumSigner } from "../ethereum"
 import { ArbitrumBitcoinDepositor } from "./l2-bitcoin-depositor"
 import { ArbitrumTBTCToken } from "./l2-tbtc-token"
 import { Chains, DestinationChainInterfaces } from "../contracts"
@@ -24,28 +20,32 @@ export async function loadArbitrumCrossChainInterfaces(
   signer: EthereumSigner,
   chainId: Chains.Arbitrum
 ): Promise<DestinationChainInterfaces> {
-  const signerChainId = await chainIdFromSigner(signer)
-  if (signerChainId !== chainId) {
+  // Normalize the signer once; every contract handle constructed here reuses
+  // the same connection.
+  const connection = await connectEvm(signer)
+  if (connection.chainId !== chainId) {
     throw new Error(
       "Signer uses different chain than Arbitrum cross-chain contracts"
     )
   }
 
   const destinationChainBitcoinDepositor = new ArbitrumBitcoinDepositor(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
   destinationChainBitcoinDepositor.setDepositOwner(
-    await ethereumAddressFromSigner(signer)
+    connection.account !== undefined
+      ? EthereumAddress.from(connection.account)
+      : undefined
   )
 
   const l2BitcoinRedeemer = new ArbitrumL2BitcoinRedeemer(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
 
   const destinationChainTbtcToken = new ArbitrumTBTCToken(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
 

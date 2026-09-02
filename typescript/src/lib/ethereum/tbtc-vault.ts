@@ -1,4 +1,3 @@
-import { TBTCVault as TBTCVaultTypechain } from "../../../typechain/TBTCVault"
 import {
   GetChainEvents,
   TBTCVault,
@@ -9,15 +8,14 @@ import {
   ChainIdentifier,
   Chains,
 } from "../contracts"
-import { BigNumber } from "@ethersproject/bignumber"
-import { ContractTransaction } from "@ethersproject/contracts"
+
 import { BitcoinTxHash } from "../bitcoin"
-import { backoffRetrier, Hex } from "../utils"
+import { Hex } from "../utils"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-  EthersTransactionUtils,
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
 } from "./adapter"
 import { EthereumAddress } from "./address"
 import { EthereumBridge } from "./bridge"
@@ -26,34 +24,41 @@ import MainnetTBTCVaultDeployment from "./artifacts/mainnet/TBTCVault.json"
 import SepoliaTBTCVaultDeployment from "./artifacts/sepolia/TBTCVault.json"
 import LocalTBTCVaultDeployment from "@keep-network/tbtc-v2/artifacts/TBTCVault.json"
 
-type ContractOptimisticMintingRequest = {
-  requestedAt: BigNumber
-  finalizedAt: BigNumber
+/**
+ * Converts a numeric value to a minimal-length, even-padded, 0x-prefixed hex
+ * string - the exact format the ethers `BigNumber.toHexString()` produced
+ * (e.g. `0x01` for 1), which downstream `Hex` handling relies on.
+ * @param value The value to convert.
+ * @returns The 0x-prefixed hex string.
+ */
+function toEvenLengthHex(value: bigint): string {
+  let hex = value.toString(16)
+  if (hex.length % 2 !== 0) {
+    hex = `0${hex}`
+  }
+  return `0x${hex}`
 }
 
 /**
  * Implementation of the Ethereum TBTCVault handle.
  * @see {TBTCVault} for reference.
  */
-export class EthereumTBTCVault
-  extends EthersContractHandle<TBTCVaultTypechain>
-  implements TBTCVault
-{
+export class EthereumTBTCVault extends EvmContractHandle implements TBTCVault {
   constructor(
-    config: EthersContractConfig,
+    config: EthereumContractConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
-    let deployment: EthersContractDeployment
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Local:
-        deployment = LocalTBTCVaultDeployment
+        deployment = asDeployment(LocalTBTCVaultDeployment)
         break
       case Chains.Ethereum.Sepolia:
-        deployment = SepoliaTBTCVaultDeployment
+        deployment = asDeployment(SepoliaTBTCVaultDeployment)
         break
       case Chains.Ethereum.Mainnet:
-        deployment = MainnetTBTCVaultDeployment
+        deployment = asDeployment(MainnetTBTCVaultDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -67,7 +72,7 @@ export class EthereumTBTCVault
    * @see {TBTCVault#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -75,13 +80,11 @@ export class EthereumTBTCVault
    * @see {TBTCVault#optimisticMintingDelay}
    */
   async optimisticMintingDelay(): Promise<number> {
-    const delaySeconds = await backoffRetrier<number>(this._totalRetryAttempts)(
-      async () => {
-        return await this._instance.optimisticMintingDelay()
-      }
+    const delaySeconds = await this._read<number | bigint>(
+      "optimisticMintingDelay"
     )
 
-    return BigNumber.from(delaySeconds).toNumber()
+    return Number(delaySeconds)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -89,11 +92,7 @@ export class EthereumTBTCVault
    * @see {TBTCVault#getMinters}
    */
   async getMinters(): Promise<EthereumAddress[]> {
-    const minters: string[] = await backoffRetrier<string[]>(
-      this._totalRetryAttempts
-    )(async () => {
-      return await this._instance.getMinters()
-    })
+    const minters = await this._read<readonly string[]>("getMinters")
 
     return minters.map(EthereumAddress.from)
   }
@@ -103,9 +102,7 @@ export class EthereumTBTCVault
    * @see {TBTCVault#isMinter}
    */
   async isMinter(address: EthereumAddress): Promise<boolean> {
-    return await backoffRetrier<boolean>(this._totalRetryAttempts)(async () => {
-      return await this._instance.isMinter(`0x${address.identifierHex}`)
-    })
+    return this._read<boolean>("isMinter", [`0x${address.identifierHex}`])
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -113,9 +110,7 @@ export class EthereumTBTCVault
    * @see {TBTCVault#isGuardian}
    */
   async isGuardian(address: EthereumAddress): Promise<boolean> {
-    return await backoffRetrier<boolean>(this._totalRetryAttempts)(async () => {
-      return await this._instance.isGuardian(`0x${address.identifierHex}`)
-    })
+    return this._read<boolean>("isGuardian", [`0x${address.identifierHex}`])
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -126,22 +121,16 @@ export class EthereumTBTCVault
     depositTxHash: BitcoinTxHash,
     depositOutputIndex: number
   ): Promise<Hex> {
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.requestOptimisticMint(
-          depositTxHash.reverse().toPrefixedString(),
-          depositOutputIndex
-        )
-      },
-      this._totalRetryAttempts,
-      undefined,
-      [
-        "Optimistic minting already requested for the deposit",
-        "The deposit is already swept",
-      ]
+    return this._write(
+      "requestOptimisticMint",
+      [depositTxHash.reverse().toPrefixedString(), depositOutputIndex],
+      {
+        nonRetryableErrors: [
+          "Optimistic minting already requested for the deposit",
+          "The deposit is already swept",
+        ],
+      }
     )
-
-    return Hex.from(tx.hash)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -152,19 +141,15 @@ export class EthereumTBTCVault
     depositTxHash: BitcoinTxHash,
     depositOutputIndex: number
   ): Promise<Hex> {
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.cancelOptimisticMint(
-          depositTxHash.reverse().toPrefixedString(),
-          depositOutputIndex
-        )
-      },
-      this._totalRetryAttempts,
-      undefined,
-      ["Optimistic minting already finalized for the deposit"]
+    return this._write(
+      "cancelOptimisticMint",
+      [depositTxHash.reverse().toPrefixedString(), depositOutputIndex],
+      {
+        nonRetryableErrors: [
+          "Optimistic minting already finalized for the deposit",
+        ],
+      }
     )
-
-    return Hex.from(tx.hash)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -175,22 +160,16 @@ export class EthereumTBTCVault
     depositTxHash: BitcoinTxHash,
     depositOutputIndex: number
   ): Promise<Hex> {
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.finalizeOptimisticMint(
-          depositTxHash.reverse().toPrefixedString(),
-          depositOutputIndex
-        )
-      },
-      this._totalRetryAttempts,
-      undefined,
-      [
-        "Optimistic minting already finalized for the deposit",
-        "The deposit is already swept",
-      ]
+    return this._write(
+      "finalizeOptimisticMint",
+      [depositTxHash.reverse().toPrefixedString(), depositOutputIndex],
+      {
+        nonRetryableErrors: [
+          "Optimistic minting already finalized for the deposit",
+          "The deposit is already swept",
+        ],
+      }
     )
-
-    return Hex.from(tx.hash)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -206,26 +185,15 @@ export class EthereumTBTCVault
       depositOutputIndex
     )
 
-    const request: ContractOptimisticMintingRequest =
-      await backoffRetrier<ContractOptimisticMintingRequest>(
-        this._totalRetryAttempts
-      )(async () => {
-        return await this._instance.optimisticMintingRequests(depositKey)
-      })
-    return this.parseOptimisticMintingRequest(request)
-  }
+    // `optimisticMintingRequests` returns two outputs
+    // (requestedAt, finalizedAt) which viem decodes as a positional array.
+    const [requestedAt, finalizedAt] = await this._read<
+      readonly [number | bigint, number | bigint]
+    >("optimisticMintingRequests", [BigInt(depositKey)])
 
-  /**
-   * Parses a optimistic minting request using data fetched from the on-chain contract.
-   * @param request Data of the optimistic minting request.
-   * @returns Parsed optimistic minting request.
-   */
-  private parseOptimisticMintingRequest(
-    request: ContractOptimisticMintingRequest
-  ): OptimisticMintingRequest {
     return {
-      requestedAt: BigNumber.from(request.requestedAt).toNumber(),
-      finalizedAt: BigNumber.from(request.finalizedAt).toNumber(),
+      requestedAt: Number(requestedAt),
+      finalizedAt: Number(finalizedAt),
     }
   }
 
@@ -237,7 +205,7 @@ export class EthereumTBTCVault
     options?: GetChainEvents.Options,
     ...filterArgs: Array<any>
   ): Promise<OptimisticMintingRequestedEvent[]> {
-    const events = await this.getEvents(
+    const events = await this._getEvents(
       "OptimisticMintingRequested",
       options,
       ...filterArgs
@@ -245,19 +213,21 @@ export class EthereumTBTCVault
 
     return events.map<OptimisticMintingRequestedEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        minter: EthereumAddress.from(event.args!.minter),
+        minter: EthereumAddress.from(event.args.minter as string),
         depositKey: Hex.from(
-          BigNumber.from(event.args!.depositKey).toHexString()
+          toEvenLengthHex(BigInt(event.args.depositKey as number | bigint))
         ),
-        depositor: EthereumAddress.from(event.args!.depositor),
-        amount: BigNumber.from(event.args!.amount),
-        fundingTxHash: BitcoinTxHash.from(event.args!.fundingTxHash).reverse(),
-        fundingOutputIndex: BigNumber.from(
-          event.args!.fundingOutputIndex
-        ).toNumber(),
+        depositor: EthereumAddress.from(event.args.depositor as string),
+        amount: BigInt(event.args.amount as number | bigint),
+        fundingTxHash: BitcoinTxHash.from(
+          event.args.fundingTxHash as string
+        ).reverse(),
+        fundingOutputIndex: Number(
+          event.args.fundingOutputIndex as number | bigint
+        ),
       }
     })
   }
@@ -270,7 +240,7 @@ export class EthereumTBTCVault
     options?: GetChainEvents.Options,
     ...filterArgs: Array<any>
   ): Promise<OptimisticMintingCancelledEvent[]> {
-    const events = await this.getEvents(
+    const events = await this._getEvents(
       "OptimisticMintingCancelled",
       options,
       ...filterArgs
@@ -278,12 +248,12 @@ export class EthereumTBTCVault
 
     return events.map<OptimisticMintingCancelledEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        guardian: EthereumAddress.from(event.args!.guardian),
+        guardian: EthereumAddress.from(event.args.guardian as string),
         depositKey: Hex.from(
-          BigNumber.from(event.args!.depositKey).toHexString()
+          toEvenLengthHex(BigInt(event.args.depositKey as number | bigint))
         ),
       }
     })
@@ -297,7 +267,7 @@ export class EthereumTBTCVault
     options?: GetChainEvents.Options,
     ...filterArgs: Array<any>
   ): Promise<OptimisticMintingFinalizedEvent[]> {
-    const events = await this.getEvents(
+    const events = await this._getEvents(
       "OptimisticMintingFinalized",
       options,
       ...filterArgs
@@ -305,16 +275,16 @@ export class EthereumTBTCVault
 
     return events.map<OptimisticMintingFinalizedEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        minter: EthereumAddress.from(event.args!.minter),
+        minter: EthereumAddress.from(event.args.minter as string),
         depositKey: Hex.from(
-          BigNumber.from(event.args!.depositKey).toHexString()
+          toEvenLengthHex(BigInt(event.args.depositKey as number | bigint))
         ),
-        depositor: EthereumAddress.from(event.args!.depositor),
-        optimisticMintingDebt: BigNumber.from(
-          event.args!.optimisticMintingDebt
+        depositor: EthereumAddress.from(event.args.depositor as string),
+        optimisticMintingDebt: BigInt(
+          event.args.optimisticMintingDebt as number | bigint
         ),
       }
     })

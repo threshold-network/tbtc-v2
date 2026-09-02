@@ -1,16 +1,14 @@
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
 } from "../ethereum/adapter"
-import { L2TBTC as L2TBTCTypechain } from "../../../typechain/L2TBTC"
 import {
   ChainIdentifier,
   Chains,
   DestinationChainTBTCToken,
 } from "../contracts"
-import { BigNumber } from "@ethersproject/bignumber"
-import { EthereumAddress } from "../ethereum"
 
 import BaseL2TBTCTokenDeployment from "./artifacts/base/BaseTBTC.json"
 import BaseSepoliaL2TBTCTokenDeployment from "./artifacts/baseSepolia/BaseTBTC.json"
@@ -20,18 +18,18 @@ import BaseSepoliaL2TBTCTokenDeployment from "./artifacts/baseSepolia/BaseTBTC.j
  * @see {DestinationChainTBTCToken} for reference.
  */
 export class BaseTBTCToken
-  extends EthersContractHandle<L2TBTCTypechain>
+  extends EvmContractHandle
   implements DestinationChainTBTCToken
 {
-  constructor(config: EthersContractConfig, chainId: Chains.Base) {
-    let deployment: EthersContractDeployment
+  constructor(config: EthereumContractConfig, chainId: Chains.Base) {
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Base.BaseSepolia:
-        deployment = BaseSepoliaL2TBTCTokenDeployment
+        deployment = asDeployment(BaseSepoliaL2TBTCTokenDeployment)
         break
       case Chains.Base.Base:
-        deployment = BaseL2TBTCTokenDeployment
+        deployment = asDeployment(BaseL2TBTCTokenDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -45,15 +43,19 @@ export class BaseTBTCToken
    * @see {DestinationChainTBTCToken#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {DestinationChainTBTCToken#balanceOf}
    */
-  balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
-    return this._instance.balanceOf(`0x${identifier.identifierHex}`)
+  async balanceOf(identifier: ChainIdentifier): Promise<bigint> {
+    const balance = await this._read<bigint | number>("balanceOf", [
+      `0x${identifier.identifierHex}`,
+    ])
+
+    return BigInt(balance)
   }
 }
 

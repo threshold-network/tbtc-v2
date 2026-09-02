@@ -22,7 +22,7 @@ any action in the Bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L395)
+[src/lib/contracts/bridge.ts:394](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L394)
 
 ___
 
@@ -36,7 +36,7 @@ and must defend against them.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:390](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
+[src/lib/contracts/bridge.ts:389](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L389)
 
 ___
 
@@ -48,7 +48,7 @@ The wallet can sweep deposits and accept redemption requests.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:377](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L377)
+[src/lib/contracts/bridge.ts:376](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L376)
 
 ___
 
@@ -63,7 +63,7 @@ accepted.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:384](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L384)
+[src/lib/contracts/bridge.ts:383](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L383)
 
 ___
 
@@ -78,7 +78,7 @@ any actions in the Bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:402](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L402)
+[src/lib/contracts/bridge.ts:401](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L401)
 
 ___
 
@@ -90,4 +90,4 @@ The wallet is unknown to the Bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:373](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L373)
+[src/lib/contracts/bridge.ts:372](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L372)

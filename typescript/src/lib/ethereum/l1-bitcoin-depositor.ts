@@ -1,9 +1,9 @@
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
 } from "./adapter"
-import { L1BitcoinDepositor as L1BitcoinDepositorTypechain } from "../../../typechain/L1BitcoinDepositor"
 import {
   ChainIdentifier,
   Chains,
@@ -13,7 +13,8 @@ import {
   L1BitcoinDepositor,
   DestinationChainName,
 } from "../contracts"
-import { EthereumAddress, packRevealDepositParameters } from "./index"
+import { packRevealDepositParameters } from "./bridge"
+import { EthereumAddress } from "./address"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { Hex } from "../utils"
 
@@ -34,29 +35,24 @@ import { SuiExtraDataEncoder } from "../sui"
 import { StarkNetExtraDataEncoder } from "../starknet"
 import { SolanaExtraDataEncoder } from "../solana"
 
-const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> =
-  {
-    Base: MainnetBaseL1BitcoinDepositorDeployment,
-    Arbitrum: MainnetArbitrumL1BitcoinDepositorDeployment,
-    Solana: MainnetSolanaL1BitcoinDepositorDeployment,
-    StarkNet: MainnetStarkNetL1BitcoinDepositorDeployment,
-    Sui: MainnetSuiBTCDepositorWormholeDeployment,
-  }
+const mainnetArtifacts: Record<DestinationChainName, EvmContractDeployment> = {
+  Base: asDeployment(MainnetBaseL1BitcoinDepositorDeployment),
+  Arbitrum: asDeployment(MainnetArbitrumL1BitcoinDepositorDeployment),
+  Solana: asDeployment(MainnetSolanaL1BitcoinDepositorDeployment),
+  StarkNet: asDeployment(MainnetStarkNetL1BitcoinDepositorDeployment),
+  Sui: asDeployment(MainnetSuiBTCDepositorWormholeDeployment),
+}
 
-const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
-  {
-    Base: SepoliaBaseL1BitcoinDepositorDeployment,
-    Arbitrum: SepoliaArbitrumL1BitcoinDepositorDeployment,
-    Solana: SepoliaSolanaL1BitcoinDepositorDeployment,
-    StarkNet: SepoliaStarkNetL1BitcoinDepositorDeployment,
-    Sui: SepoliaSuiBTCDepositorWormholeDeployment,
-  }
+const sepoliaArtifacts: Record<DestinationChainName, EvmContractDeployment> = {
+  Base: asDeployment(SepoliaBaseL1BitcoinDepositorDeployment),
+  Arbitrum: asDeployment(SepoliaArbitrumL1BitcoinDepositorDeployment),
+  Solana: asDeployment(SepoliaSolanaL1BitcoinDepositorDeployment),
+  StarkNet: asDeployment(SepoliaStarkNetL1BitcoinDepositorDeployment),
+  Sui: asDeployment(SepoliaSuiBTCDepositorWormholeDeployment),
+}
 
 const artifactLoaders: Partial<
-  Record<
-    Chains.Ethereum,
-    Record<DestinationChainName, EthersContractDeployment>
-  >
+  Record<Chains.Ethereum, Record<DestinationChainName, EvmContractDeployment>>
 > = {
   [Chains.Ethereum.Mainnet]: mainnetArtifacts,
   [Chains.Ethereum.Sepolia]: sepoliaArtifacts,
@@ -76,14 +72,14 @@ const extraDataEncoders: Partial<
  * @see {L1BitcoinDepositor} for reference.
  */
 export class EthereumL1BitcoinDepositor
-  extends EthersContractHandle<L1BitcoinDepositorTypechain>
+  extends EvmContractHandle
   implements L1BitcoinDepositor
 {
   readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
   constructor(
-    config: EthersContractConfig,
+    config: EthereumContractConfig,
     chainId: Chains.Ethereum,
     destinationChainName: DestinationChainName
   ) {
@@ -123,15 +119,20 @@ export class EthereumL1BitcoinDepositor
   /**
    * @see {L1BitcoinDepositor#getDepositState}
    */
-  getDepositState(depositId: string): Promise<DepositState> {
-    return this._instance.deposits(depositId)
+  async getDepositState(depositId: string): Promise<DepositState> {
+    const state = await this._read<number | bigint>("deposits", [
+      BigInt(depositId),
+    ])
+
+    return Number(state)
   }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {L1BitcoinDepositor#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -163,20 +164,14 @@ export class EthereumL1BitcoinDepositor
       throw new Error("Extra data is required")
     }
 
-    const tx = await this._instance.initializeDeposit(
+    return this._write("initializeDeposit", [
       fundingTx,
       reveal,
-      deposit.extraData.toPrefixedString()
-    )
-
-    return Hex.from(tx.hash)
+      deposit.extraData.toPrefixedString(),
+    ])
   }
 }
 
-/**
- * Implementation of the Ethereum ExtraDataEncoder.
- * @see {ExtraDataEncoder} for reference.
- */
 /**
  * Implementation of the Ethereum ExtraDataEncoder.
  * @see {ExtraDataEncoder} for reference.

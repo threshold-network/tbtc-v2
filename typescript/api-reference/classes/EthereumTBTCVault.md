@@ -8,7 +8,7 @@ for reference.
 
 ## Hierarchy
 
-- `EthersContractHandle`\<`TBTCVaultTypechain`\>
+- `EvmContractHandle`
 
   ↳ **`EthereumTBTCVault`**
 
@@ -24,17 +24,21 @@ for reference.
 
 ### Properties
 
+- [\_abi](EthereumTBTCVault.md#_abi)
+- [\_address](EthereumTBTCVault.md#_address)
 - [\_deployedAtBlockNumber](EthereumTBTCVault.md#_deployedatblocknumber)
-- [\_instance](EthereumTBTCVault.md#_instance)
 - [\_totalRetryAttempts](EthereumTBTCVault.md#_totalretryattempts)
 
 ### Methods
 
+- [\_connection](EthereumTBTCVault.md#_connection)
+- [\_getEvents](EthereumTBTCVault.md#_getevents)
+- [\_read](EthereumTBTCVault.md#_read)
+- [\_write](EthereumTBTCVault.md#_write)
 - [cancelOptimisticMint](EthereumTBTCVault.md#canceloptimisticmint)
 - [finalizeOptimisticMint](EthereumTBTCVault.md#finalizeoptimisticmint)
 - [getAddress](EthereumTBTCVault.md#getaddress)
 - [getChainIdentifier](EthereumTBTCVault.md#getchainidentifier)
-- [getEvents](EthereumTBTCVault.md#getevents)
 - [getMinters](EthereumTBTCVault.md#getminters)
 - [getOptimisticMintingCancelledEvents](EthereumTBTCVault.md#getoptimisticmintingcancelledevents)
 - [getOptimisticMintingFinalizedEvents](EthereumTBTCVault.md#getoptimisticmintingfinalizedevents)
@@ -43,7 +47,6 @@ for reference.
 - [isMinter](EthereumTBTCVault.md#isminter)
 - [optimisticMintingDelay](EthereumTBTCVault.md#optimisticmintingdelay)
 - [optimisticMintingRequests](EthereumTBTCVault.md#optimisticmintingrequests)
-- [parseOptimisticMintingRequest](EthereumTBTCVault.md#parseoptimisticmintingrequest)
 - [requestOptimisticMint](EthereumTBTCVault.md#requestoptimisticmint)
 
 ## Constructors
@@ -65,45 +68,61 @@ for reference.
 
 #### Overrides
 
-EthersContractHandle\&lt;TBTCVaultTypechain\&gt;.constructor
+EvmContractHandle.constructor
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L42)
+[src/lib/ethereum/tbtc-vault.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L47)
 
 ## Properties
+
+### \_abi
+
+• `Protected` `Readonly` **\_abi**: `Abi`
+
+ABI of the contract instance.
+
+#### Inherited from
+
+EvmContractHandle.\_abi
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:350](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L350)
+
+___
+
+### \_address
+
+• `Protected` `Readonly` **\_address**: \`0x$\{string}\`
+
+Address of the contract instance.
+
+#### Inherited from
+
+EvmContractHandle.\_address
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:346](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L346)
+
+___
 
 ### \_deployedAtBlockNumber
 
 • `Protected` `Readonly` **\_deployedAtBlockNumber**: `number`
 
-Number of a block within which the contract was deployed. Value is read from
-the contract deployment artifact. It can be overwritten by setting a
-[EthersContractConfig.deployedAtBlockNumber](../interfaces/EthereumContractConfig.md#deployedatblocknumber) property.
+Number of a block within which the contract was deployed. Value is read
+from the contract deployment artifact. It can be overwritten by setting
+a [EthereumContractConfig.deployedAtBlockNumber](../interfaces/EthereumContractConfig.md#deployedatblocknumber) property.
 
 #### Inherited from
 
-EthersContractHandle.\_deployedAtBlockNumber
+EvmContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L78)
-
-___
-
-### \_instance
-
-• `Protected` `Readonly` **\_instance**: `TBTCVault`
-
-Ethers instance of the deployed contract.
-
-#### Inherited from
-
-EthersContractHandle.\_instance
-
-#### Defined in
-
-[src/lib/ethereum/adapter.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L72)
+[src/lib/ethereum/adapter.ts:356](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L356)
 
 ___
 
@@ -115,13 +134,151 @@ Number of retries for ethereum requests.
 
 #### Inherited from
 
-EthersContractHandle.\_totalRetryAttempts
+EvmContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L82)
+[src/lib/ethereum/adapter.ts:360](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L360)
 
 ## Methods
+
+### \_connection
+
+▸ **_connection**(): `Promise`\<[`EvmConnection`](../interfaces/EvmConnection.md)\>
+
+#### Returns
+
+`Promise`\<[`EvmConnection`](../interfaces/EvmConnection.md)\>
+
+The normalized connection this handle operates on.
+
+#### Inherited from
+
+EvmContractHandle.\_connection
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L395)
+
+___
+
+### \_getEvents
+
+▸ **_getEvents**(`eventName`, `options?`, `...filterArgs`): `Promise`\<`EvmEvent`[]\>
+
+Get events emitted by the Ethereum contract.
+It starts searching from provided block number. If the
+[GetChainEvents.Options#fromBlock](../interfaces/GetChainEvents.Options.md#fromblock) option is missing it looks for
+a contract's defined property [_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber).
+It pulls events in one `eth_getLogs` call. If the call fails it
+fallbacks to querying events in batches of
+[GetChainEvents.Options#batchedQueryBlockInterval](../interfaces/GetChainEvents.Options.md#batchedqueryblockinterval) blocks.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `eventName` | `string` | Name of the event. |
+| `options?` | [`Options`](../interfaces/GetChainEvents.Options.md) | Options for events fetching. |
+| `...filterArgs` | `unknown`[] | Positional arguments for events filtering, mapped onto the event's indexed inputs. Values must be 0x-prefixed hex strings, addresses, or `bigint`. |
+
+#### Returns
+
+`Promise`\<`EvmEvent`[]\>
+
+Array of found events.
+
+#### Inherited from
+
+EvmContractHandle.\_getEvents
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L514)
+
+___
+
+### \_read
+
+▸ **_read**\<`T`\>(`functionName`, `args?`, `opts?`): `Promise`\<`T`\>
+
+Calls a read-only contract function with retries.
+
+#### Type parameters
+
+| Name |
+| :------ |
+| `T` |
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `functionName` | `string` | Name of the contract function. |
+| `args?` | readonly `unknown`[] | Positional arguments of the function. |
+| `opts?` | `Object` | Optional block number to read at and retries override. |
+| `opts.blockNumber?` | `number` | - |
+| `opts.nonRetryableErrors?` | (`string` \| `RegExp`)[] | - |
+| `opts.retries?` | `number` | - |
+
+#### Returns
+
+`Promise`\<`T`\>
+
+Decoded function result. Numeric values arrive as `bigint` for
+         types wider than 48 bits and `number` otherwise - normalize
+         with `BigInt(x)` / `Number(x)` at the parsing site.
+
+#### Inherited from
+
+EvmContractHandle.\_read
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L408)
+
+___
+
+### \_write
+
+▸ **_write**(`functionName`, `args`, `opts?`): `Promise`\<[`Hex`](Hex.md)\>
+
+Sends a contract write transaction with retries. The transaction is
+simulated first (`eth_call`) so that reverts surface with a parseable
+reason before anything is sent - mirroring the ethers v5 gas-estimation
+pre-flight.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `functionName` | `string` | Name of the contract function. |
+| `args` | readonly `unknown`[] | Positional arguments of the function. |
+| `opts?` | `Object` | Optional value to send, non-retryable error matchers and logger. |
+| `opts.logger?` | [`ExecutionLoggerFn`](../README.md#executionloggerfn) | - |
+| `opts.nonRetryableErrors?` | (`string` \| `RegExp`)[] | - |
+| `opts.value?` | `bigint` | - |
+
+#### Returns
+
+`Promise`\<[`Hex`](Hex.md)\>
+
+Transaction hash.
+
+**`Throws`**
+
+"Signer not provided" when the handle operates in read-only
+        mode; EvmRevertError on contract revert.
+
+#### Inherited from
+
+EvmContractHandle.\_write
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:456](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L456)
+
+___
 
 ### cancelOptimisticMint
 
@@ -146,7 +303,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:151](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L151)
+[src/lib/ethereum/tbtc-vault.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L140)
 
 ___
 
@@ -173,7 +330,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L174)
+[src/lib/ethereum/tbtc-vault.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L159)
 
 ___
 
@@ -191,11 +348,11 @@ Address of this contract instance.
 
 #### Inherited from
 
-EthersContractHandle.getAddress
+EvmContractHandle.getAddress
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L110)
+[src/lib/ethereum/adapter.ts:388](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L388)
 
 ___
 
@@ -215,41 +372,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L69)
-
-___
-
-### getEvents
-
-▸ **getEvents**(`eventName`, `options?`, `...filterArgs`): `Promise`\<`Event`[]\>
-
-Get events emitted by the Ethereum contract.
-It starts searching from provided block number. If the GetEvents.Options#fromBlock
-option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
-from block `0`.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` | Name of the event. |
-| `options?` | [`Options`](../interfaces/GetChainEvents.Options.md) | Options for events fetching. |
-| `...filterArgs` | `unknown`[] | Arguments for events filtering. |
-
-#### Returns
-
-`Promise`\<`Event`[]\>
-
-Array of found events.
-
-#### Inherited from
-
-EthersContractHandle.getEvents
-
-#### Defined in
-
-[src/lib/ethereum/adapter.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L125)
+[src/lib/ethereum/tbtc-vault.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L74)
 
 ___
 
@@ -269,7 +392,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:91](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L91)
+[src/lib/ethereum/tbtc-vault.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L94)
 
 ___
 
@@ -296,7 +419,7 @@ TBTCVault.getOptimisticMintingCancelledEvents
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:269](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L269)
+[src/lib/ethereum/tbtc-vault.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L239)
 
 ___
 
@@ -323,7 +446,7 @@ TBTCVault.getOptimisticMintingFinalizedEvents
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:296](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L296)
+[src/lib/ethereum/tbtc-vault.ts:266](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L266)
 
 ___
 
@@ -350,7 +473,7 @@ TBTCVault.getOptimisticMintingRequestedEvents
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:236](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L236)
+[src/lib/ethereum/tbtc-vault.ts:204](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L204)
 
 ___
 
@@ -376,7 +499,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:115](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L115)
+[src/lib/ethereum/tbtc-vault.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L112)
 
 ___
 
@@ -402,7 +525,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:105](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L105)
+[src/lib/ethereum/tbtc-vault.ts:104](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L104)
 
 ___
 
@@ -422,7 +545,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L77)
+[src/lib/ethereum/tbtc-vault.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L82)
 
 ___
 
@@ -449,31 +572,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L200)
-
-___
-
-### parseOptimisticMintingRequest
-
-▸ **parseOptimisticMintingRequest**(`request`): [`OptimisticMintingRequest`](../README.md#optimisticmintingrequest)
-
-Parses a optimistic minting request using data fetched from the on-chain contract.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `request` | `ContractOptimisticMintingRequest` | Data of the optimistic minting request. |
-
-#### Returns
-
-[`OptimisticMintingRequest`](../README.md#optimisticmintingrequest)
-
-Parsed optimistic minting request.
-
-#### Defined in
-
-[src/lib/ethereum/tbtc-vault.ts:223](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L223)
+[src/lib/ethereum/tbtc-vault.ts:179](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L179)
 
 ___
 
@@ -500,4 +599,4 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/tbtc-vault.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L125)
+[src/lib/ethereum/tbtc-vault.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/tbtc-vault.ts#L120)

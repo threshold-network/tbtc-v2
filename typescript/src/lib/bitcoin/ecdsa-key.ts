@@ -1,4 +1,3 @@
-import { BigNumber } from "@ethersproject/bignumber"
 import { Hex } from "../utils"
 import { ECPairFactory, ECPairInterface } from "ecpair"
 import * as tinysecp from "@bitcoinerlab/secp256k1"
@@ -40,7 +39,7 @@ function compressPublicKey(publicKey: Hex): string {
   // The Y coordinate is the next 32 bytes.
   const publicKeyY = publicKeyStr.substring(64)
 
-  const prefix = BigNumber.from(`0x${publicKeyY}`).mod(2).eq(0) ? "02" : "03"
+  const prefix = BigInt(`0x${publicKeyY}`) % 2n === 0n ? "02" : "03"
 
   return `${prefix}${publicKeyX}`
 }

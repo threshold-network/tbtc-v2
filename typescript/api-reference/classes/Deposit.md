@@ -168,7 +168,7 @@ ___
 
 ### initiateMinting
 
-▸ **initiateMinting**(`fundingOutpoint?`): `Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+▸ **initiateMinting**(`fundingOutpoint?`): `Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 Initiates minting of the TBTC token, based on the Bitcoin funding
 transaction outpoint targeting this deposit. By default, it detects and
@@ -184,7 +184,7 @@ a funding transaction explicitly, using the fundingOutpoint parameter.
 
 #### Returns
 
-`Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+`Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 Target chain hash of the initiate minting transaction.
 

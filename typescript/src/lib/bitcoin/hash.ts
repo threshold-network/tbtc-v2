@@ -1,5 +1,4 @@
-import { BigNumber } from "@ethersproject/bignumber"
-import { ripemd160, sha256 } from "@ethersproject/sha2"
+import { ripemd160, sha256 } from "viem"
 import { Hex } from "../utils"
 
 /**
@@ -8,7 +7,7 @@ import { Hex } from "../utils"
  * @returns 20-byte-long hash.
  */
 function computeHash160(text: Hex): Hex {
-  const sha256Hash = sha256(text.toPrefixedString())
+  const sha256Hash = sha256(text.toPrefixedString() as `0x${string}`)
   const hash160 = ripemd160(sha256Hash)
 
   return Hex.from(hash160)
@@ -21,19 +20,19 @@ function computeHash160(text: Hex): Hex {
  * @dev Do not confuse it with computeSha256 which computes single SHA256.
  */
 function computeHash256(text: Hex): Hex {
-  const firstHash = sha256(text.toPrefixedString())
+  const firstHash = sha256(text.toPrefixedString() as `0x${string}`)
   const secondHash = sha256(firstHash)
 
   return Hex.from(secondHash)
 }
 
 /**
- * Converts a hash in hex string in little endian to a BigNumber.
+ * Converts a hash in hex string in little endian to a bigint.
  * @param hash Hash in hex-string format.
- * @returns BigNumber representation of the hash.
+ * @returns Bigint representation of the hash.
  */
-function hashLEToBigNumber(hash: Hex): BigNumber {
-  return BigNumber.from(hash.reverse().toPrefixedString())
+function hashLEToBigInt(hash: Hex): bigint {
+  return BigInt(hash.reverse().toPrefixedString())
 }
 
 /**
@@ -43,7 +42,7 @@ function hashLEToBigNumber(hash: Hex): BigNumber {
  * @dev Do not confuse it with computeHash256 which computes double SHA256.
  */
 function computeSha256(text: Hex): Hex {
-  const hash = sha256(text.toPrefixedString())
+  const hash = sha256(text.toPrefixedString() as `0x${string}`)
   return Hex.from(hash)
 }
 
@@ -53,6 +52,6 @@ function computeSha256(text: Hex): Hex {
 export const BitcoinHashUtils = {
   computeHash160,
   computeHash256,
-  hashLEToBigNumber,
+  hashLEToBigInt,
   computeSha256,
 }

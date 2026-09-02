@@ -1,8 +1,4 @@
-import {
-  chainIdFromSigner,
-  ethereumAddressFromSigner,
-  EthereumSigner,
-} from "../ethereum"
+import { connectEvm, EthereumAddress, EthereumSigner } from "../ethereum"
 import { BaseBitcoinDepositor } from "./l2-bitcoin-depositor"
 import { BaseTBTCToken } from "./l2-tbtc-token"
 import { Chains, DestinationChainInterfaces } from "../contracts"
@@ -24,28 +20,32 @@ export async function loadBaseCrossChainInterfaces(
   signer: EthereumSigner,
   chainId: Chains.Base
 ): Promise<DestinationChainInterfaces> {
-  const signerChainId = await chainIdFromSigner(signer)
-  if (signerChainId !== chainId) {
+  // Normalize the signer once; every contract handle constructed here reuses
+  // the same connection.
+  const connection = await connectEvm(signer)
+  if (connection.chainId !== chainId) {
     throw new Error(
       "Signer uses different chain than Base cross-chain contracts"
     )
   }
 
   const destinationChainBitcoinDepositor = new BaseBitcoinDepositor(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
   destinationChainBitcoinDepositor.setDepositOwner(
-    await ethereumAddressFromSigner(signer)
+    connection.account !== undefined
+      ? EthereumAddress.from(connection.account)
+      : undefined
   )
 
   const l2BitcoinRedeemer = new BaseL2BitcoinRedeemer(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
 
   const destinationChainTbtcToken = new BaseTBTCToken(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
 

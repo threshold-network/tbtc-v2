@@ -1,11 +1,12 @@
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
 } from "../ethereum/adapter"
-import { L2BitcoinDepositor as L2BitcoinDepositorTypechain } from "../../../typechain/L2BitcoinDepositor"
 import {
   ChainIdentifier,
+  ChainTransactionReceipt,
   Chains,
   ExtraDataEncoder,
   DepositReceipt,
@@ -14,7 +15,6 @@ import {
 import { EthereumAddress, packRevealDepositParameters } from "../ethereum"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 import ArbitrumL2BitcoinDepositorDeployment from "./artifacts/arbitrumOne/ArbitrumL2BitcoinDepositor.json"
 import ArbitrumSepoliaL2BitcoinDepositorDeployment from "./artifacts/arbitrumSepolia/ArbitrumL2BitcoinDepositor.json"
@@ -24,21 +24,21 @@ import ArbitrumSepoliaL2BitcoinDepositorDeployment from "./artifacts/arbitrumSep
  * @see {BitcoinDepositor} for reference.
  */
 export class ArbitrumBitcoinDepositor
-  extends EthersContractHandle<L2BitcoinDepositorTypechain>
+  extends EvmContractHandle
   implements BitcoinDepositor
 {
   readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
-  constructor(config: EthersContractConfig, chainId: Chains.Arbitrum) {
-    let deployment: EthersContractDeployment
+  constructor(config: EthereumContractConfig, chainId: Chains.Arbitrum) {
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Arbitrum.ArbitrumSepolia:
-        deployment = ArbitrumSepoliaL2BitcoinDepositorDeployment
+        deployment = asDeployment(ArbitrumSepoliaL2BitcoinDepositorDeployment)
         break
       case Chains.Arbitrum.Arbitrum:
-        deployment = ArbitrumL2BitcoinDepositorDeployment
+        deployment = asDeployment(ArbitrumL2BitcoinDepositorDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -54,7 +54,7 @@ export class ArbitrumBitcoinDepositor
    * @see {BitcoinDepositor#getChainIdentifier}
    */
   getChainIdentifier?(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -90,7 +90,7 @@ export class ArbitrumBitcoinDepositor
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex | TransactionReceipt> {
+  ): Promise<Hex | ChainTransactionReceipt> {
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,
@@ -106,13 +106,11 @@ export class ArbitrumBitcoinDepositor
       deposit.extraData
     )
 
-    const tx = await this._instance.initializeDeposit(
+    return this._write("initializeDeposit", [
       fundingTx,
       reveal,
-      `0x${l2DepositOwner.identifierHex}`
-    )
-
-    return Hex.from(tx.hash)
+      `0x${l2DepositOwner.identifierHex}`,
+    ])
   }
 }
 

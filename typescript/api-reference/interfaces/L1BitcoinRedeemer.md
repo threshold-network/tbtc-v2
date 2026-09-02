@@ -28,7 +28,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L206)
+[src/lib/contracts/cross-chain.ts:204](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L204)
 
 ___
 
@@ -47,7 +47,7 @@ tBTC tokens and requests redemption.
 | :------ | :------ | :------ |
 | `walletPublicKey` | [`Hex`](../classes/Hex.md) | The public key of the wallet that is redeeming the tBTC tokens. |
 | `mainUtxo` | [`BitcoinUtxo`](../README.md#bitcoinutxo) | The main UTXO of the wallet that is redeeming the tBTC tokens. |
-| `encodedVm` | `BytesLike` | The encoded VM of the redemption. |
+| `encodedVm` | [`Hex`](../classes/Hex.md) \| `Uint8Array`\<`ArrayBufferLike`\> | The encoded VM of the redemption. |
 
 #### Returns
 
@@ -57,4 +57,4 @@ Transaction hash of the approve and call transaction.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:220](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L220)
+[src/lib/contracts/cross-chain.ts:218](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L218)

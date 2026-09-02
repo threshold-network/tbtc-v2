@@ -1,8 +1,13 @@
 import axios from "axios"
-import { ChainIdentifier, BitcoinDepositor, DepositReceipt } from "../contracts"
+import {
+  ChainIdentifier,
+  ChainTransactionReceipt,
+  BitcoinDepositor,
+  DepositReceipt,
+} from "../contracts"
 import { packRevealDepositParameters } from "../ethereum"
 import { BitcoinRawTxVectors } from "../bitcoin"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
+
 import { SolanaExtraDataEncoder } from "./extra-data-encoder"
 
 /**
@@ -54,7 +59,7 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<TransactionReceipt> {
+  ): Promise<ChainTransactionReceipt> {
     const { fundingTx, reveal, extraData } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,
@@ -100,11 +105,15 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
   }
 }
 
-function isTransactionReceipt(receipt: unknown): receipt is TransactionReceipt {
+function isTransactionReceipt(
+  receipt: unknown
+): receipt is ChainTransactionReceipt {
   return (
     typeof receipt === "object" &&
     receipt !== null &&
-    typeof (receipt as TransactionReceipt).transactionHash === "string" &&
-    /^0x[0-9a-fA-F]{64}$/.test((receipt as TransactionReceipt).transactionHash)
+    typeof (receipt as ChainTransactionReceipt).transactionHash === "string" &&
+    /^0x[0-9a-fA-F]{64}$/.test(
+      (receipt as ChainTransactionReceipt).transactionHash
+    )
   )
 }

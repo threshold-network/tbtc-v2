@@ -1,5 +1,5 @@
 import { DestinationChainTBTCToken, ChainIdentifier } from "../contracts"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { StarkNetAddress } from "./address"
 import { Contract } from "starknet"
 import { tbtcABI } from "./abi"
@@ -58,9 +58,9 @@ export class StarkNetTBTCToken implements DestinationChainTBTCToken {
   /**
    * Returns the balance of the given identifier.
    * @param identifier Must be a StarkNetAddress instance.
-   * @returns The balance as a BigNumber
+   * @returns The balance as a bigint
    */
-  async balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
+  async balanceOf(identifier: ChainIdentifier): Promise<bigint> {
     if (!(identifier instanceof StarkNetAddress)) {
       throw new Error("Address must be a StarkNet address")
     }
@@ -70,10 +70,10 @@ export class StarkNetTBTCToken implements DestinationChainTBTCToken {
   /**
    * Gets the balance for a StarkNet address.
    * @param identifier Must be a StarkNetAddress instance
-   * @returns The balance as a BigNumber
+   * @returns The balance as a bigint
    * @throws Error if address is not a StarkNetAddress
    */
-  async getBalance(identifier: ChainIdentifier): Promise<BigNumber> {
+  async getBalance(identifier: ChainIdentifier): Promise<bigint> {
     if (!(identifier instanceof StarkNetAddress)) {
       throw new Error("Address must be a StarkNet address")
     }
@@ -88,8 +88,8 @@ export class StarkNetTBTCToken implements DestinationChainTBTCToken {
       // Result should be an array, take the first element
       const balance = Array.isArray(result) ? result[0] : result
 
-      // Convert the result to BigNumber
-      return BigNumber.from(balance.toString())
+      // Convert the result to bigint
+      return BigInt(balance.toString())
     } catch (error) {
       throw new Error(`Failed to get balance: ${error}`)
     }
@@ -106,10 +106,10 @@ export class StarkNetTBTCToken implements DestinationChainTBTCToken {
   /**
    * Returns the total supply of the token.
    * @param _identifier Not used for total supply query
-   * @returns The total supply as a BigNumber
+   * @returns The total supply as a bigint
    * @throws Not implemented yet
    */
-  async totalSupply(_identifier: ChainIdentifier): Promise<BigNumber> {
+  async totalSupply(_identifier: ChainIdentifier): Promise<bigint> {
     throw new Error("Not implemented yet")
   }
 }

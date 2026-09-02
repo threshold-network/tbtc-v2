@@ -1,31 +1,30 @@
+import { bytesToHex } from "viem"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
 } from "./adapter"
-import { L1BitcoinRedeemer as L1BitcoinRedeemerTypechain } from "../../../typechain/L1BitcoinRedeemer"
 import {
   ChainIdentifier,
   Chains,
   DestinationChainName,
   L1BitcoinRedeemer,
 } from "../contracts"
-import { EthereumAddress } from "./index"
 import { Hex } from "../utils"
 
 import SepoliaL1BitcoinRedeemerDeployment from "./artifacts/sepolia/L1BitcoinRedeemer.json"
 import MainnetBaseL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import MainnetArbitrumL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
-import { BytesLike } from "@ethersproject/bytes"
 
 const artifactLoader = {
   getMainnet: (l2ChainName: DestinationChainName) => {
     switch (l2ChainName) {
       case "Base":
-        return MainnetBaseL1BitcoinRedeemerDeployment
+        return asDeployment(MainnetBaseL1BitcoinRedeemerDeployment)
       case "Arbitrum":
-        return MainnetArbitrumL1BitcoinRedeemerDeployment
+        return asDeployment(MainnetArbitrumL1BitcoinRedeemerDeployment)
       default:
         throw new Error("Unsupported destination chain")
     }
@@ -33,7 +32,7 @@ const artifactLoader = {
 
   getSepolia: (l2ChainName: DestinationChainName) => {
     if (l2ChainName === "Base" || l2ChainName === "Arbitrum") {
-      return SepoliaL1BitcoinRedeemerDeployment
+      return asDeployment(SepoliaL1BitcoinRedeemerDeployment)
     }
     throw new Error("Unsupported destination chain")
   },
@@ -45,15 +44,15 @@ const artifactLoader = {
  * @see {L1BitcoinRedeemer} for reference.
  */
 export class EthereumL1BitcoinRedeemer
-  extends EthersContractHandle<L1BitcoinRedeemerTypechain>
+  extends EvmContractHandle
   implements L1BitcoinRedeemer
 {
   constructor(
-    config: EthersContractConfig,
+    config: EthereumContractConfig,
     chainId: Chains.Ethereum,
     l2ChainName: DestinationChainName
   ) {
-    let deployment: EthersContractDeployment
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Sepolia:
@@ -74,7 +73,7 @@ export class EthereumL1BitcoinRedeemer
    * @see {L1BitcoinRedeemer#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -84,7 +83,7 @@ export class EthereumL1BitcoinRedeemer
   async requestRedemption(
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
-    encodedVm: BytesLike
+    encodedVm: Hex | Uint8Array
   ): Promise<Hex> {
     const walletPublicKeyHash =
       BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
@@ -97,12 +96,15 @@ export class EthereumL1BitcoinRedeemer
       txOutputValue: mainUtxo.value,
     }
 
-    const tx = await this._instance.requestRedemption(
+    const encodedVmParam =
+      encodedVm instanceof Uint8Array
+        ? bytesToHex(encodedVm)
+        : encodedVm.toPrefixedString()
+
+    return this._write("requestRedemption", [
       walletPublicKeyHash,
       mainUtxoParam,
-      encodedVm
-    )
-
-    return Hex.from(tx.hash)
+      encodedVmParam,
+    ])
   }
 }

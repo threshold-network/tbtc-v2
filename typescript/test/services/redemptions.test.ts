@@ -28,7 +28,6 @@ import { MockBridge } from "../utils/mock-bridge"
 import * as chai from "chai"
 import { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockRedeemerProxy } from "../utils/mock-redeemer-proxy"
 
@@ -47,7 +46,8 @@ describe("Redemptions", () => {
       data.pendingRedemptions[0].pendingRedemption.redeemerOutputScript
     // Use amount in TBTC token precision (1e18)
     const amount =
-      data.pendingRedemptions[0].pendingRedemption.requestedAmount.mul(1e10)
+      data.pendingRedemptions[0].pendingRedemption.requestedAmount *
+      10_000_000_000n
 
     describe("requestRedemption", () => {
       let tbtcContracts: MockTBTCContracts
@@ -74,7 +74,7 @@ describe("Redemptions", () => {
           walletPublicKey,
           mainUtxo,
           redeemerOutputScript: redeemerOutputScript,
-          amount: amount.div(1e10),
+          amount: amount / 10_000_000_000n,
         })
       })
     })
@@ -139,7 +139,7 @@ describe("Redemptions", () => {
           tbtcContracts = new MockTBTCContracts()
           bitcoinClient = new MockBitcoinClient()
 
-          const pendingRedemptions = new Map<BigNumberish, RedemptionRequest>()
+          const pendingRedemptions = new Map<string, RedemptionRequest>()
           pendingRedemptions.set(redemptionKey, redemptionRequest)
 
           tbtcContracts.bridge.setPendingRedemptions(pendingRedemptions)
@@ -179,7 +179,7 @@ describe("Redemptions", () => {
           tbtcContracts = new MockTBTCContracts()
           bitcoinClient = new MockBitcoinClient()
 
-          const timedOutRedemptions = new Map<BigNumberish, RedemptionRequest>()
+          const timedOutRedemptions = new Map<string, RedemptionRequest>()
           timedOutRedemptions.set(redemptionKey, redemptionRequest)
 
           tbtcContracts.bridge.setTimedOutRedemptions(timedOutRedemptions)
@@ -211,7 +211,7 @@ describe("Redemptions", () => {
     describe("findWalletForRedemption", () => {
       class TestRedemptionsService extends RedemptionsService {
         public async findWalletForRedemption(
-          amount: BigNumber,
+          amount: bigint,
           redeemerOutputScript: Hex,
           concurrencyLimit?: number
         ): Promise<{
@@ -238,7 +238,7 @@ describe("Redemptions", () => {
       context(
         "when there are no wallets in the network that can handle redemption",
         () => {
-          const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+          const amount: bigint = 1000000n // 0.01 BTC
           beforeEach(() => {
             bitcoinClient = new MockBitcoinClient()
             tbtcContracts = new MockTBTCContracts()
@@ -327,7 +327,7 @@ describe("Redemptions", () => {
         context(
           "when there is a wallet that can handle the redemption request",
           () => {
-            const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+            const amount: bigint = 1000000n // 0.01 BTC
             beforeEach(async () => {
               result = await redemptionsService.findWalletForRedemption(
                 amount,
@@ -361,12 +361,12 @@ describe("Redemptions", () => {
         context(
           "when the redemption request amount is too large and no wallet can handle the request",
           () => {
-            const amount = BigNumber.from("10000000000") // 1 000 BTC
+            const amount = 10000000000n // 1 000 BTC
             const expectedMaxAmount = walletsOrder
               .map((wallet) => wallet.data)
               .map((wallet) => wallet.mainUtxo)
               .map((utxo) => utxo.value)
-              .sort((a, b) => (b.gt(a) ? 0 : -1))[0]
+              .sort((a, b) => (b > a ? 0 : -1))[0]
 
             it("should throw an error", async () => {
               await expect(
@@ -375,9 +375,9 @@ describe("Redemptions", () => {
                   redeemerOutputScript
                 )
               ).to.be.rejectedWith(
-                `Could not find a wallet with enough funds. Maximum redemption amount is ${expectedMaxAmount.toString()} Satoshi ( ${expectedMaxAmount.div(
-                  BigNumber.from(1e8)
-                )} BTC )`
+                `Could not find a wallet with enough funds. Maximum redemption amount is ${expectedMaxAmount.toString()} Satoshi ( ${
+                  expectedMaxAmount / 100000000n
+                } BTC )`
               )
             })
           }
@@ -390,16 +390,13 @@ describe("Redemptions", () => {
               const redeemerOutputScript =
                 findWalletForRedemptionData.pendingRedemption
                   .redeemerOutputScript
-              const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+              const amount: bigint = 1000000n // 0.01 BTC
 
               const walletPublicKeyHash =
                 findWalletForRedemptionData.walletWithPendingRedemption.event
                   .walletPublicKeyHash
 
-              const pendingRedemptions = new Map<
-                BigNumberish,
-                RedemptionRequest
-              >()
+              const pendingRedemptions = new Map<string, RedemptionRequest>()
 
               const key = MockBridge.buildRedemptionKey(
                 walletPublicKeyHash,
@@ -449,9 +446,8 @@ describe("Redemptions", () => {
                 findWalletForRedemptionData.walletWithPendingRedemption
               const walletBTCBalance = wallet.data.mainUtxo.value
 
-              const amount: BigNumber = walletBTCBalance
-                .sub(wallet.data.pendingRedemptionsValue)
-                .add(BigNumber.from(500000)) // 0.005 BTC
+              const amount: bigint =
+                walletBTCBalance - wallet.data.pendingRedemptionsValue + 500000n // 0.005 BTC
 
               console.log("amount", amount.toString())
 
@@ -476,7 +472,7 @@ describe("Redemptions", () => {
         context(
           "when all active wallets has pending redemption for a given Bitcoin address",
           () => {
-            const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+            const amount: bigint = 1000000n // 0.01 BTC
             const redeemerOutputScript =
               findWalletForRedemptionData.pendingRedemption.redeemerOutputScript
 
@@ -485,10 +481,7 @@ describe("Redemptions", () => {
                 findWalletForRedemptionData.walletWithPendingRedemption.event
                   .walletPublicKeyHash
 
-              const pendingRedemptions = new Map<
-                BigNumberish,
-                RedemptionRequest
-              >()
+              const pendingRedemptions = new Map<string, RedemptionRequest>()
 
               const pendingRedemption1 = MockBridge.buildRedemptionKey(
                 walletPublicKeyHash,
@@ -527,7 +520,7 @@ describe("Redemptions", () => {
         )
 
         context("when a custom concurrency limit is provided", () => {
-          const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+          const amount: bigint = 1000000n // 0.01 BTC
 
           beforeEach(async () => {
             result = await redemptionsService.findWalletForRedemption(
@@ -568,7 +561,7 @@ describe("Redemptions", () => {
         }
 
         public async findWalletForRedemption(
-          amount: BigNumber,
+          amount: bigint,
           redeemerOutputScript: Hex,
           concurrencyLimit?: number
         ): Promise<{
@@ -610,7 +603,7 @@ describe("Redemptions", () => {
           const pendingRedemption =
             findWalletForRedemptionData.pendingRedemption
 
-          const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+          const amount: bigint = 1000000n // 0.01 BTC
 
           it("should return the clean wallet without calling determineWalletMainUtxo for the colliding wallet", async () => {
             const bitcoinClient = new MockBitcoinClient()
@@ -645,10 +638,7 @@ describe("Redemptions", () => {
             )
 
             // Set up pending redemption collision for the colliding wallet.
-            const pendingRedemptions = new Map<
-              BigNumberish,
-              RedemptionRequest
-            >()
+            const pendingRedemptions = new Map<string, RedemptionRequest>()
             const key = MockBridge.buildRedemptionKey(
               collidingWallet.event.walletPublicKeyHash,
               pendingRedemption.redeemerOutputScript
@@ -697,8 +687,8 @@ describe("Redemptions", () => {
 
       class TestRelayRedemptionsService extends RedemptionsService {
         public async relayRedemptionRequestToL1(
-          amount: BigNumber,
-          encodedVm: BytesLike,
+          amount: bigint,
+          encodedVm: Hex | Uint8Array,
           l2ChainName: L2Chain,
           redeemerOutputScript: string
         ): Promise<{ targetChainTxHash: Hex }> {
@@ -742,8 +732,8 @@ describe("Redemptions", () => {
       // Shared across tests A1, A3, and A4.
       class FallbackRelayService extends RedemptionsService {
         public async relayRedemptionRequestToL1(
-          amount: BigNumber,
-          encodedVm: BytesLike,
+          amount: bigint,
+          encodedVm: Hex | Uint8Array,
           l2ChainName: L2Chain,
           redeemerOutputScript: string
         ): Promise<{ targetChainTxHash: Hex }> {
@@ -761,8 +751,8 @@ describe("Redemptions", () => {
       }
 
       // Test data
-      const testAmount = BigNumber.from("100000000000000000") // 0.1 TBTC (1e17)
-      const testEncodedVm = "0x1234567890abcdef" // Mock Wormhole VAA
+      const testAmount = 100000000000000000n // 0.1 TBTC (1e17)
+      const testEncodedVm = Hex.from("0x1234567890abcdef") // Mock Wormhole VAA
       const testL2ChainName: L2Chain = "Base"
       // P2PKH output script from test data
       const testRedeemerOutputScript =
@@ -802,7 +792,7 @@ describe("Redemptions", () => {
           requestRedemption: async (
             walletPubKey: Hex,
             mainUtxo: BitcoinUtxo,
-            _encodedVm: BytesLike
+            _encodedVm: Hex | Uint8Array
           ) => {
             if (onRequestRedemption) {
               onRequestRedemption(walletPubKey, mainUtxo)
@@ -826,7 +816,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: wallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   wallet.data.mainUtxo
                 ),
@@ -877,10 +867,7 @@ describe("Redemptions", () => {
               findWalletForRedemptionData.walletWithPendingRedemption
             const cleanWallet = findWalletForRedemptionData.liveWallet
 
-            const pendingRedemptions = new Map<
-              BigNumberish,
-              RedemptionRequest
-            >()
+            const pendingRedemptions = new Map<string, RedemptionRequest>()
             const pendingScript =
               findWalletForRedemptionData.pendingRedemption.redeemerOutputScript
 
@@ -911,8 +898,8 @@ describe("Redemptions", () => {
             // (pending first, clean second).
             class MultiWalletTestService extends RedemptionsService {
               public async relayRedemptionRequestToL1(
-                amount: BigNumber,
-                encodedVm: BytesLike,
+                amount: bigint,
+                encodedVm: Hex | Uint8Array,
                 l2ChainName: L2Chain,
                 redeemerOutputScript: string
               ): Promise<{ targetChainTxHash: Hex }> {
@@ -933,9 +920,9 @@ describe("Redemptions", () => {
                     outputIndex: w.data.mainUtxo.outputIndex,
                     value: w.data.mainUtxo.value.toString(),
                   },
-                  walletBTCBalance: w.data.mainUtxo.value
-                    .sub(w.data.pendingRedemptionsValue)
-                    .toString(),
+                  walletBTCBalance: (
+                    w.data.mainUtxo.value - w.data.pendingRedemptionsValue
+                  ).toString(),
                 }))
               }
             }
@@ -1002,7 +989,7 @@ describe("Redemptions", () => {
             {
               state: WalletState.Live,
               walletPublicKey: wallet.data.walletPublicKey,
-              pendingRedemptionsValue: BigNumber.from(0),
+              pendingRedemptionsValue: 0n,
               mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                 wallet.data.mainUtxo
               ),
@@ -1045,7 +1032,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: wallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   wallet.data.mainUtxo
                 ),
@@ -1099,8 +1086,8 @@ describe("Redemptions", () => {
           // fallback by throwing if findWalletForRedemption is called.
           class ApiSuccessGuardService extends RedemptionsService {
             public async relayRedemptionRequestToL1(
-              amount: BigNumber,
-              encodedVm: BytesLike,
+              amount: bigint,
+              encodedVm: Hex | Uint8Array,
               l2ChainName: L2Chain,
               redeemerOutputScript: string
             ): Promise<{ targetChainTxHash: Hex }> {
@@ -1138,7 +1125,7 @@ describe("Redemptions", () => {
 
           class WalletValidationGuardService extends RedemptionsService {
             public async determineValidRedemptionWallet(
-              amount: BigNumber,
+              amount: bigint,
               potentialCandidateWallets: Array<any>,
               redeemerAddressOrScript?: string
             ): Promise<any> {
@@ -1178,7 +1165,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: wallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   wallet.data.mainUtxo
                 ),
@@ -1219,7 +1206,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: wallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   wallet.data.mainUtxo
                 ),
@@ -1284,16 +1271,14 @@ describe("Redemptions", () => {
             const bitcoinClient = new MockBitcoinClient()
             bitcoinClient.network = BitcoinNetwork.Mainnet
             const wallet = findWalletForRedemptionData.liveWallet
-            const amountInSatoshi = testAmount.div(
-              BigNumber.from("10000000000")
-            )
+            const amountInSatoshi = testAmount / 10_000_000_000n
 
             tbtcContracts.bridge.setWallet(
               wallet.event.walletPublicKeyHash.toPrefixedString(),
               {
                 state: WalletState.Live,
                 walletPublicKey: wallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   wallet.data.mainUtxo
                 ),
@@ -1302,7 +1287,7 @@ describe("Redemptions", () => {
 
             class ApiBalanceGuardService extends RedemptionsService {
               public async determineValidRedemptionWallet(
-                amount: BigNumber,
+                amount: bigint,
                 potentialCandidateWallets: Array<any>,
                 redeemerAddressOrScript?: string
               ): Promise<any> {
@@ -1333,7 +1318,7 @@ describe("Redemptions", () => {
                       outputIndex: wallet.data.mainUtxo.outputIndex,
                       value: wallet.data.mainUtxo.value.toString(),
                     },
-                    walletBTCBalance: amountInSatoshi.sub(1).toString(),
+                    walletBTCBalance: (amountInSatoshi - 1n).toString(),
                   },
                 ],
                 testRedeemerOutputScript
@@ -1348,9 +1333,7 @@ describe("Redemptions", () => {
             const staleWallet =
               findWalletForRedemptionData.walletWithPendingRedemption
             const liveWallet = findWalletForRedemptionData.liveWallet
-            const amountInSatoshi = testAmount.div(
-              BigNumber.from("10000000000")
-            )
+            const amountInSatoshi = testAmount / 10_000_000_000n
             const staleWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
               staleWallet.data.walletPublicKey
             )
@@ -1367,7 +1350,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: staleWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   staleWallet.data.mainUtxo
                 ),
@@ -1378,7 +1361,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: liveWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1419,9 +1402,7 @@ describe("Redemptions", () => {
             const overReservedWallet =
               findWalletForRedemptionData.walletWithPendingRedemption
             const liveWallet = findWalletForRedemptionData.liveWallet
-            const amountInSatoshi = testAmount.div(
-              BigNumber.from("10000000000")
-            )
+            const amountInSatoshi = testAmount / 10_000_000_000n
             const overReservedWalletPublicKeyHash =
               BitcoinHashUtils.computeHash160(
                 overReservedWallet.data.walletPublicKey
@@ -1432,7 +1413,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: overReservedWallet.data.walletPublicKey,
-                pendingRedemptionsValue: liveWallet.data.mainUtxo.value.add(1),
+                pendingRedemptionsValue: liveWallet.data.mainUtxo.value + 1n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1443,7 +1424,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: liveWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1483,9 +1464,7 @@ describe("Redemptions", () => {
             bitcoinClient.network = BitcoinNetwork.Mainnet
             const nonLiveWallet = findWalletForRedemptionData.nonLiveWallet
             const liveWallet = findWalletForRedemptionData.liveWallet
-            const amountInSatoshi = testAmount.div(
-              BigNumber.from("10000000000")
-            )
+            const amountInSatoshi = testAmount / 10_000_000_000n
             const nonLiveWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
               nonLiveWallet.data.walletPublicKey
             )
@@ -1495,7 +1474,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Unknown,
                 walletPublicKey: nonLiveWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1506,7 +1485,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: liveWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1547,9 +1526,7 @@ describe("Redemptions", () => {
             const mismatchedWallet =
               findWalletForRedemptionData.walletWithPendingRedemption
             const liveWallet = findWalletForRedemptionData.liveWallet
-            const amountInSatoshi = testAmount.div(
-              BigNumber.from("10000000000")
-            )
+            const amountInSatoshi = testAmount / 10_000_000_000n
             const mismatchedWalletPublicKeyHash =
               BitcoinHashUtils.computeHash160(
                 mismatchedWallet.data.walletPublicKey
@@ -1560,7 +1537,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: liveWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1571,7 +1548,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: liveWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),
@@ -1675,7 +1652,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: cleanWallet.data.walletPublicKey,
-                pendingRedemptionsValue: BigNumber.from(0),
+                pendingRedemptionsValue: 0n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   cleanWallet.data.mainUtxo
                 ),
@@ -1683,10 +1660,7 @@ describe("Redemptions", () => {
             )
 
             // Set up pending redemption collision for the first wallet.
-            const pendingRedemptions = new Map<
-              BigNumberish,
-              RedemptionRequest
-            >()
+            const pendingRedemptions = new Map<string, RedemptionRequest>()
             const key = MockBridge.buildRedemptionKey(
               collidingWallet.event.walletPublicKeyHash,
               pendingRedemption.redeemerOutputScript
@@ -1741,8 +1715,8 @@ describe("Redemptions", () => {
         // The try/catch then falls back to on-chain, which also fails.
         class EmptyWalletTestService extends RedemptionsService {
           public async relayRedemptionRequestToL1(
-            amount: BigNumber,
-            encodedVm: BytesLike,
+            amount: bigint,
+            encodedVm: Hex | Uint8Array,
             l2ChainName: L2Chain,
             redeemerOutputScript: string
           ): Promise<{ targetChainTxHash: Hex }> {
@@ -1899,7 +1873,7 @@ describe("Redemptions", () => {
           outputs: Object.entries(outputs).map(
             ([scriptPubKey, value], index) => ({
               outputIndex: index,
-              value: BigNumber.from(value),
+              value: BigInt(value),
               scriptPubKey: Hex.from(scriptPubKey),
             })
           ),
@@ -2087,7 +2061,7 @@ describe("Redemptions", () => {
                     "ea374ab6842723c647c3fc0ab281ca0641eaa768576cf9df695ca5b827140214"
                   ),
                   outputIndex: 1,
-                  value: BigNumber.from(200000),
+                  value: 200000n,
                 },
               },
               {
@@ -2098,7 +2072,7 @@ describe("Redemptions", () => {
                     "05dabb0291c0a6aa522de5ded5cb6d14ee2159e7ff109d3ef0f21de128b56b94"
                   ),
                   outputIndex: 0,
-                  value: BigNumber.from(100000),
+                  value: 100000n,
                 },
               },
               {
@@ -2109,7 +2083,7 @@ describe("Redemptions", () => {
                     "3ca4ae3f8ee3b48949192bc7a146c8d9862267816258c85e02a44678364551e1"
                   ),
                   outputIndex: 0,
-                  value: BigNumber.from(100000),
+                  value: 100000n,
                 },
               },
               {
@@ -2120,7 +2094,7 @@ describe("Redemptions", () => {
                     "230a19d8867ff3f5b409e924d9dd6413188e215f9bb52f1c47de6154dac42267"
                   ),
                   outputIndex: 1,
-                  value: BigNumber.from(200000),
+                  value: 200000n,
                 },
               },
             ]
@@ -2206,7 +2180,7 @@ function prepareRedemptionsService(mainUtxo: BitcoinUtxo) {
   tbtcContracts.bridge.setWallet(walletPublicKeyHash.toPrefixedString(), {
     state: WalletState.Live,
     walletPublicKey,
-    pendingRedemptionsValue: BigNumber.from(0),
+    pendingRedemptionsValue: 0n,
     mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(mainUtxo),
   } as Wallet)
 
@@ -2270,7 +2244,7 @@ export async function runRedemptionScenario(
   bitcoinClient.rawTransactions = rawTransactions
 
   tbtcContracts.bridge.setPendingRedemptions(
-    new Map<BigNumberish, RedemptionRequest>(
+    new Map<string, RedemptionRequest>(
       data.pendingRedemptions.map((redemption) => [
         redemption.redemptionKey,
         redemption.pendingRedemption,

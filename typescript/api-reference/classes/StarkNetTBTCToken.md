@@ -89,7 +89,7 @@ ___
 
 ### balanceOf
 
-▸ **balanceOf**(`identifier`): `Promise`\<`BigNumber`\>
+▸ **balanceOf**(`identifier`): `Promise`\<`bigint`\>
 
 Returns the balance of the given identifier.
 
@@ -101,9 +101,9 @@ Returns the balance of the given identifier.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
-The balance as a BigNumber
+The balance as a bigint
 
 #### Implementation of
 
@@ -117,7 +117,7 @@ ___
 
 ### getBalance
 
-▸ **getBalance**(`identifier`): `Promise`\<`BigNumber`\>
+▸ **getBalance**(`identifier`): `Promise`\<`bigint`\>
 
 Gets the balance for a StarkNet address.
 
@@ -129,9 +129,9 @@ Gets the balance for a StarkNet address.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
-The balance as a BigNumber
+The balance as a bigint
 
 **`Throws`**
 
@@ -187,7 +187,7 @@ ___
 
 ### totalSupply
 
-▸ **totalSupply**(`_identifier`): `Promise`\<`BigNumber`\>
+▸ **totalSupply**(`_identifier`): `Promise`\<`bigint`\>
 
 Returns the total supply of the token.
 
@@ -199,9 +199,9 @@ Returns the total supply of the token.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
-The total supply as a BigNumber
+The total supply as a bigint
 
 **`Throws`**
 

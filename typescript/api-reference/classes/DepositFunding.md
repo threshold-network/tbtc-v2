@@ -67,9 +67,9 @@ the underlying deposit script.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | The target Bitcoin network. |
-| `amount` | `BigNumber` | Deposit amount in satoshis. |
-| `inputUtxos` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `BigNumber`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md)[] | UTXOs to be used for funding the deposit transaction. So far only P2WPKH UTXO inputs are supported. |
-| `fee` | `BigNumber` | Transaction fee to be subtracted from the sum of the UTXOs' values. |
+| `amount` | `bigint` | Deposit amount in satoshis. |
+| `inputUtxos` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `bigint`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md)[] | UTXOs to be used for funding the deposit transaction. So far only P2WPKH UTXO inputs are supported. |
+| `fee` | `bigint` | Transaction fee to be subtracted from the sum of the UTXOs' values. |
 | `depositorPrivateKey` | `string` | Bitcoin private key of the depositor. Must be able to unlock input UTXOs. |
 
 #### Returns
@@ -116,9 +116,9 @@ using the underlying deposit script.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `amount` | `BigNumber` | Deposit amount in satoshis. |
+| `amount` | `bigint` | Deposit amount in satoshis. |
 | `inputUtxos` | [`BitcoinUtxo`](../README.md#bitcoinutxo)[] | UTXOs to be used for funding the deposit transaction. So far only P2WPKH UTXO inputs are supported. |
-| `fee` | `BigNumber` | The value that should be subtracted from the sum of the UTXOs values and used as the transaction fee. |
+| `fee` | `bigint` | The value that should be subtracted from the sum of the UTXOs values and used as the transaction fee. |
 | `depositorPrivateKey` | `string` | Bitcoin private key of the depositor. |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) | Bitcoin client used to interact with the network. |
 

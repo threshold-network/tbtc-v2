@@ -1,15 +1,13 @@
-import { TBTC as TBTCTypechain } from "../../../typechain/TBTC"
+import { encodeAbiParameters } from "viem"
 import { ChainIdentifier, Chains, TBTCToken } from "../contracts"
-import { defaultAbiCoder } from "@ethersproject/abi"
-import { BigNumber } from "@ethersproject/bignumber"
-import { ContractTransaction } from "@ethersproject/contracts"
+
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-  EthersTransactionUtils,
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
 } from "./adapter"
 import { EthereumAddress } from "./address"
 
@@ -21,25 +19,22 @@ import LocalTBTCTokenDeployment from "@keep-network/tbtc-v2/artifacts/TBTC.json"
  * Implementation of the Ethereum TBTC v2 token handle.
  * @see {TBTCToken} for reference.
  */
-export class EthereumTBTCToken
-  extends EthersContractHandle<TBTCTypechain>
-  implements TBTCToken
-{
+export class EthereumTBTCToken extends EvmContractHandle implements TBTCToken {
   constructor(
-    config: EthersContractConfig,
+    config: EthereumContractConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
-    let deployment: EthersContractDeployment
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Local:
-        deployment = LocalTBTCTokenDeployment
+        deployment = asDeployment(LocalTBTCTokenDeployment)
         break
       case Chains.Ethereum.Sepolia:
-        deployment = SepoliaTBTCTokenDeployment
+        deployment = asDeployment(SepoliaTBTCTokenDeployment)
         break
       case Chains.Ethereum.Mainnet:
-        deployment = MainnetTBTCTokenDeployment
+        deployment = asDeployment(MainnetTBTCTokenDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -53,17 +48,21 @@ export class EthereumTBTCToken
    * @see {TBTCToken#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {TBTCToken#totalSupply}
    */
-  async totalSupply(blockNumber?: number): Promise<BigNumber> {
-    return this._instance.totalSupply({
-      blockTag: blockNumber ?? "latest",
-    })
+  async totalSupply(blockNumber?: number): Promise<bigint> {
+    const totalSupply = await this._read<number | bigint>(
+      "totalSupply",
+      [],
+      blockNumber !== undefined ? { blockNumber } : undefined
+    )
+
+    return BigInt(totalSupply)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -74,14 +73,14 @@ export class EthereumTBTCToken
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex> {
-    const redeemer = await this._instance?.signer?.getAddress()
+    const { account: redeemer } = await this._connection()
     if (!redeemer) {
       throw new Error("Signer not provided")
     }
 
-    const vault = await this._instance.owner()
+    const vault = await this._read<string>("owner")
     const extraData = this.buildRequestRedemptionData(
       EthereumAddress.from(redeemer),
       walletPublicKey,
@@ -89,18 +88,11 @@ export class EthereumTBTCToken
       redeemerOutputScript
     )
 
-    const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
-      async () => {
-        return await this._instance.approveAndCall(
-          vault,
-          amount,
-          extraData.toPrefixedString()
-        )
-      },
-      this._totalRetryAttempts
-    )
-
-    return Hex.from(tx.hash)
+    return this._write("approveAndCall", [
+      vault,
+      amount,
+      extraData.toPrefixedString(),
+    ])
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -124,15 +116,22 @@ export class EthereumTBTCToken
     )
 
     return Hex.from(
-      defaultAbiCoder.encode(
-        ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+      encodeAbiParameters(
         [
-          redeemer.identifierHex,
-          walletPublicKeyHash,
-          _mainUtxo.txHash,
+          { type: "address" },
+          { type: "bytes20" },
+          { type: "bytes32" },
+          { type: "uint32" },
+          { type: "uint64" },
+          { type: "bytes" },
+        ],
+        [
+          `0x${redeemer.identifierHex}` as `0x${string}`,
+          walletPublicKeyHash as `0x${string}`,
+          _mainUtxo.txHash as `0x${string}`,
           _mainUtxo.txOutputIndex,
           _mainUtxo.txOutputValue,
-          prefixedRawRedeemerOutputScript,
+          prefixedRawRedeemerOutputScript as `0x${string}`,
         ]
       )
     )
