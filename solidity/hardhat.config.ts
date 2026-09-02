@@ -307,7 +307,7 @@ const config: HardhatUserConfig = {
     disambiguatePaths: false,
     runOnCompile: true,
     strict: true,
-    except: ["BridgeStub$"],
+    except: ["BridgeStub$", "ReservationStrandingExecutor$"],
   },
   mocha: {
     timeout: 60_000,
