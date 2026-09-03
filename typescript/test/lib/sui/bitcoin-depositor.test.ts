@@ -161,32 +161,32 @@ describe("SUI Bitcoin Depositor", () => {
       }
     })
 
-    it.skip("should initialize deposit successfully", async () => {
-      // Skipping: Dynamic import mocking not supported in test environment
+    it("should initialize deposit successfully", async () => {
       const result = await depositor.initializeDeposit(
         depositTx,
         depositOutputIndex,
         deposit
       )
 
-      expect(result.toString()).to.equal("mocktransactiondigest123") // Hex.toString() removes 0x
-
-      // Verify transaction building
-      expect(mockTransaction.moveCall.calledOnce).to.be.true
-      const moveCallArg = mockTransaction.moveCall.getCall(0).args[0]
-      expect(moveCallArg.target).to.equal(
-        `${packageId}::BitcoinDepositor::initialize_deposit`
-      )
-      expect(moveCallArg.arguments).to.have.length(3)
+      expect(result.digest).to.equal("0xmocktransactiondigest123")
+      expect(result.effects.status.status).to.equal("success")
 
       // Verify transaction execution on client
       expect(mockClient.signAndExecuteTransaction.calledOnce).to.be.true
       const execArg = mockClient.signAndExecuteTransaction.getCall(0).args[0]
       expect(execArg.signer).to.equal(mockSigner)
-      expect(execArg.transaction).to.equal(mockTransaction)
       expect(execArg.options.showEffects).to.be.true
       expect(execArg.options.showEvents).to.be.true
       expect(execArg.options.showObjectChanges).to.be.true
+
+      // Verify transaction building
+      const txData = execArg.transaction.getData()
+      expect(txData.commands).to.have.length(1)
+      const command = txData.commands[0]
+      expect(command.$kind).to.equal("MoveCall")
+      expect(command.MoveCall.module).to.equal("BitcoinDepositor")
+      expect(command.MoveCall.function).to.equal("initialize_deposit")
+      expect(command.MoveCall.arguments).to.have.length(3)
 
       // Verify waitForTransaction was called
       expect(mockClient.waitForTransaction.calledOnce).to.be.true
@@ -194,17 +194,26 @@ describe("SUI Bitcoin Depositor", () => {
       expect(waitArg.digest).to.equal("0xmocktransactiondigest123")
     })
 
-    it.skip("should use deposit owner from extra data", async () => {
-      // Skipping: Dynamic import mocking not supported in test environment
+    it("should use deposit owner from extra data", async () => {
       await depositor.initializeDeposit(depositTx, depositOutputIndex, deposit)
 
-      const moveCallArg = mockTransaction.moveCall.getCall(0).args[0]
+      const execArg = mockClient.signAndExecuteTransaction.getCall(0).args[0]
+      const txData = execArg.transaction.getData()
       // The third argument should be the deposit owner from extra data
-      expect(moveCallArg.arguments[2]).to.exist
+      expect(txData.commands[0].MoveCall.arguments[2]).to.exist
+      const ownerInput =
+        txData.inputs[txData.commands[0].MoveCall.arguments[2].Input]
+      expect(ownerInput.$kind).to.equal("Pure")
+      const rawBytes = Buffer.from(ownerInput.Pure.bytes, "base64")
+      const decodedOwner = depositor
+        .extraDataEncoder()
+        .decodeDepositOwner(deposit.extraData!)
+      expect(rawBytes.subarray(1).toString("hex")).to.equal(
+        decodedOwner.identifierHex
+      )
     })
 
-    it.skip("should use set deposit owner when extra data is missing", async () => {
-      // Skipping: Dynamic import mocking not supported in test environment
+    it("should use set deposit owner when extra data is missing", async () => {
       const owner = SuiAddress.from("0x" + "7".repeat(64))
       depositor.setDepositOwner(owner)
 
@@ -212,13 +221,18 @@ describe("SUI Bitcoin Depositor", () => {
 
       await depositor.initializeDeposit(depositTx, depositOutputIndex, deposit)
 
-      const moveCallArg = mockTransaction.moveCall.getCall(0).args[0]
-      expect(moveCallArg.arguments[2]).to.exist
+      const execArg = mockClient.signAndExecuteTransaction.getCall(0).args[0]
+      const txData = execArg.transaction.getData()
+      expect(txData.commands[0].MoveCall.arguments[2]).to.exist
+      const ownerInput =
+        txData.inputs[txData.commands[0].MoveCall.arguments[2].Input]
+      expect(ownerInput.$kind).to.equal("Pure")
+      const rawBytes = Buffer.from(ownerInput.Pure.bytes, "base64")
+      expect(rawBytes.subarray(1).toString("hex")).to.equal(owner.identifierHex)
     })
 
-    it.skip("should handle transaction failure", async () => {
-      // Skipping: Dynamic import mocking not supported in test environment
-      mockClient.signAndExecuteTransaction.resolves({
+    it("should handle transaction failure", async () => {
+      mockClient.waitForTransaction.resolves({
         digest: "0xfailed123",
         effects: {
           status: {
@@ -234,8 +248,7 @@ describe("SUI Bitcoin Depositor", () => {
     })
 
     it.skip("should handle SDK import failure", async () => {
-      // Skipping: Dynamic import mocking not supported in test environment
-      // Override the import stub to simulate failure
+      // Skipping: Dynamic import syntax (import()) cannot be stubbed in Node.js ESM without custom loader hooks
       importStub
         .withArgs("@mysten/sui/transactions")
         .rejects(new Error("Module not found"))
@@ -248,8 +261,7 @@ describe("SUI Bitcoin Depositor", () => {
       )
     })
 
-    it.skip("should ignore vault parameter", async () => {
-      // Skipping: Dynamic import mocking not supported in test environment
+    it("should ignore vault parameter", async () => {
       const vault = SuiAddress.from("0x" + "8".repeat(64))
 
       const result = await depositor.initializeDeposit(
@@ -259,11 +271,12 @@ describe("SUI Bitcoin Depositor", () => {
         vault // This should be ignored
       )
 
-      expect(result.toString()).to.equal("mocktransactiondigest123") // Hex.toString() removes 0x
+      expect(result.digest).to.equal("0xmocktransactiondigest123")
 
       // Verify vault is not included in the transaction
-      const moveCallArg = mockTransaction.moveCall.getCall(0).args[0]
-      expect(moveCallArg.arguments).to.have.length(3) // Only 3 args, no vault
+      const execArg = mockClient.signAndExecuteTransaction.getCall(0).args[0]
+      const txData = execArg.transaction.getData()
+      expect(txData.commands[0].MoveCall.arguments).to.have.length(3) // Only 3 args, no vault
     })
 
     it("should reject missing deposit owner before building transaction", async () => {
@@ -286,11 +299,38 @@ describe("SUI Bitcoin Depositor", () => {
         events: [],
       })
 
-      await expect(
-        depositor.initializeDeposit(depositTx, depositOutputIndex, deposit)
-      ).to.be.rejectedWith(
-        SuiError,
+      let thrownError: SuiError | undefined
+      try {
+        await depositor.initializeDeposit(
+          depositTx,
+          depositOutputIndex,
+          deposit
+        )
+      } catch (error) {
+        thrownError = error as SuiError
+      }
+
+      expect(thrownError).to.be.instanceOf(SuiError)
+      expect(thrownError?.message).to.include(
         "DepositInitialized event not found in transaction"
+      )
+      expect((thrownError?.cause as any)?.digest).to.equal(
+        "0xmocktransactiondigest123"
+      )
+
+      // Verify third argument (deposit owner) on the reachable path
+      const execArg = mockClient.signAndExecuteTransaction.getCall(0).args[0]
+      const txData = execArg.transaction.getData()
+      expect(txData.commands[0].MoveCall.arguments).to.have.length(3)
+      const ownerInput =
+        txData.inputs[txData.commands[0].MoveCall.arguments[2].Input]
+      expect(ownerInput.$kind).to.equal("Pure")
+      const rawBytes = Buffer.from(ownerInput.Pure.bytes, "base64")
+      const decodedOwner = depositor
+        .extraDataEncoder()
+        .decodeDepositOwner(deposit.extraData!)
+      expect(rawBytes.subarray(1).toString("hex")).to.equal(
+        decodedOwner.identifierHex
       )
     })
   })

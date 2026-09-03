@@ -198,7 +198,13 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
       )
 
       if (!depositEvent) {
-        throw new SuiError("DepositInitialized event not found in transaction")
+        throw new SuiError(
+          "DepositInitialized event not found in transaction",
+          {
+            digest: result.digest,
+            indexedTransaction,
+          }
+        )
       }
 
       // Return the indexed transaction result which has all the proper fields
