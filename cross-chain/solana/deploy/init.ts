@@ -125,13 +125,11 @@ async function run(): Promise<void> {
   // Point to devnet addresses by default
   let ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_TESTNET
   let OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_TESTNET
-  let POLYGON_GATEWAY = consts.POLYGON_GATEWAY_ADDRESS_TESTNET
   let BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_TESTNET
   let SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_TESTNET
   if (process.env.CLUSTER === "mainnet") {
     ARBITRUM_GATEWAY = consts.ARBITRUM_GATEWAY_ADDRESS_MAINNET
     OPTIMISM_GATEWAY = consts.OPTIMISM_GATEWAY_ADDRESS_MAINNET
-    POLYGON_GATEWAY = consts.POLYGON_GATEWAY_ADDRESS_MAINNET
     BASE_GATEWAY = consts.BASE_GATEWAY_ADDRESS_MAINNET
     SOLANA_GATEWAY = consts.SOLANA_GATEWAY_ADDRESS_MAINNET
   }
@@ -188,33 +186,6 @@ async function run(): Promise<void> {
   console.log(
     "Updated Solana gateway with Optimism..",
     Array.from(new PublicKey(OPTIMISM_GATEWAY).toBuffer())
-  )
-
-  // Updating with Polygon
-  const polyArgs = {
-    chain: consts.WH_POLYGON_CHAIN_ID,
-    address: Array.from(Buffer.alloc(32, POLYGON_GATEWAY, "hex")),
-  }
-
-  const encodedPolyChain = Buffer.alloc(2)
-  encodedPolyChain.writeUInt16LE(consts.WH_POLYGON_CHAIN_ID)
-  const gatewayPolyInfo = PublicKey.findProgramAddressSync(
-    [Buffer.from("gateway-info"), encodedPolyChain],
-    wormholeGatewayProgram.programId
-  )[0]
-
-  await wormholeGatewayProgram.methods
-    .updateGatewayAddress(polyArgs)
-    .accounts({
-      custodian: minter,
-      gatewayInfo: gatewayPolyInfo,
-      authority,
-    })
-    .rpc()
-
-  console.log(
-    "Updated Solana gateway with Polygon..",
-    Array.from(new PublicKey(POLYGON_GATEWAY).toBuffer())
   )
 
   // Updating with BASE

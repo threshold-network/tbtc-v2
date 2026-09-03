@@ -1,0 +1,128 @@
+name: Cross-chain Solana
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "cross-chain/solana/**"
+      - ".github/workflows/cross-chain-solana.yml"
+  pull_request:
+
+jobs:
+  contracts-detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      path-filter: ${{ steps.filter.outputs.path-filter }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+
+      - uses: dorny/paths-filter@v2
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            path-filter:
+              - './cross-chain/solana/**'
+              - './.github/workflows/cross-chain-solana.yml'
+
+  # Builds the Solana programs (tbtc + wormhole-gateway) with the real SBF
+  # toolchain and runs the full anchor (ts-mocha) integration suite against a
+  # local validator that clones Wormhole / Token Bridge state from mainnet-beta.
+  #
+  # TOOLCHAIN PINNING IS LOAD-BEARING. The programs hard-pin
+  # `solana-program = "=1.14"` (see programs/*/Cargo.toml + Cargo.lock @ 1.14.22).
+  # Solana 1.16 changed the CPI `Instruction` memory layout (StableInstruction),
+  # so building the pinned 1.14 crate with 1.16-era SBF platform-tools
+  # miscompiles the CPI glue and the base `tbtc initialize` CPI into MPL Token
+  # Metadata aborts with a garbage instruction-data length, failing the whole
+  # suite. The fix is a fully-consistent 1.14 stack: Solana 1.14.x CLI (validator
+  # + cargo-build-sbf) with Anchor 0.28.0. The 1.14 sbf-tools' bundled cargo is
+  # linked against OpenSSL 1.1, which modern runners no longer ship, so we stage
+  # libssl.so.1.1 / libcrypto.so.1.1 on LD_LIBRARY_PATH (no root needed).
+  contracts-build-and-test:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cross-chain/solana
+    env:
+      SOLANA_VERSION: "1.14.29"
+      ANCHOR_VERSION: "0.28.0"
+      # Anchor 0.28 and its build deps predate current stable Rust; 1.75.0 is the
+      # last host toolchain that compiles anchor-cli and this dependency tree.
+      RUST_VERSION: "1.75.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      # A workaround for transitive dependencies that use the obsolete git://
+      # prefix instead of the recommended https://
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+
+      # The Solana 1.14 SBF platform-tools ship a bundled cargo/rustc dynamically
+      # linked against libssl.so.1.1 (OpenSSL 1.1). ubuntu-latest ships OpenSSL 3
+      # only, so stage the 1.1 runtime from a focal package (extract, no install)
+      # and expose it via LD_LIBRARY_PATH for the build step.
+      - name: Stage OpenSSL 1.1 runtime for legacy SBF tools
+        run: |
+          curl -sSfL -o /tmp/libssl11.deb \
+            "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb"
+          echo "09ee28588a1fb5613ddc6c26a992d5a76931b3cf22c022930da413a5e580599e /tmp/libssl11.deb" | sha256sum -c -
+          dpkg -x /tmp/libssl11.deb "$HOME/libssl11"
+          echo "LD_LIBRARY_PATH=$HOME/libssl11/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain "$RUST_VERSION" --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Solana ${{ env.SOLANA_VERSION }}
+        run: |
+          # release.solana.com is decommissioned (Solana Labs -> Anza migration);
+          # install the pinned 1.14.x build straight from the solana-labs GitHub
+          # release assets. `curl -f` fails the step loudly on a bad download.
+          curl -sSfL -o /tmp/solana.tar.bz2 \
+            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          mkdir -p "$HOME/solana"
+          tar -xjf /tmp/solana.tar.bz2 -C "$HOME/solana"
+          echo "$HOME/solana/solana-release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor ${{ env.ANCHOR_VERSION }}
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag "v${ANCHOR_VERSION}" anchor-cli --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18.x"
+          cache: "npm"
+          cache-dependency-path: cross-chain/solana/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Create a local wallet for the test validator
+        run: |
+          solana-keygen new --no-bip39-passphrase --force --silent \
+            --outfile "$HOME/.config/solana/id.json"
+          solana config set -u localhost
+
+      - name: Verify toolchain
+        run: |
+          solana --version
+          anchor --version
+          rustc --version
+
+      - name: Anchor build
+        run: anchor build --arch sbf
+
+      - name: Anchor test
+        run: anchor test --skip-build

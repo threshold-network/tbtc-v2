@@ -17,6 +17,12 @@ pub enum WormholeGatewayError {
     #[msg("0x0 recipient not allowed")]
     ZeroRecipient = 0x30,
 
+    #[msg("0x0 gateway not allowed")]
+    ZeroGateway = 0x32,
+
+    #[msg("Gateway disabled")]
+    GatewayDisabled = 0x34,
+
     #[msg("Not enough wormhole tBTC in the gateway to bridge")]
     NotEnoughWrappedTbtc = 0x40,
 

@@ -658,6 +658,10 @@ export async function sendTbtcGatewayIx(
 
 type SendTbtcWrappedContext = {
   custodian?: PublicKey;
+  // Defaults to the canonical gateway-info PDA for the recipient chain. That
+  // PDA may be uninitialized for gateway-less chains; the program tolerates
+  // that. The account is mandatory (seeds-pinned) so it cannot be omitted.
+  gatewayInfo?: PublicKey;
   wrappedTbtcToken?: PublicKey;
   wrappedTbtcMint?: PublicKey;
   tbtcMint?: PublicKey;
@@ -692,6 +696,7 @@ export async function sendTbtcWrappedIx(
   const program = workspace.WormholeGateway as Program<WormholeGateway>;
   let {
     custodian,
+    gatewayInfo,
     wrappedTbtcToken,
     wrappedTbtcMint,
     tbtcMint,
@@ -713,6 +718,10 @@ export async function sendTbtcWrappedIx(
 
   if (custodian === undefined) {
     custodian = getCustodianPDA();
+  }
+
+  if (gatewayInfo === undefined) {
+    gatewayInfo = getGatewayInfoPDA(args.recipientChain);
   }
 
   if (wrappedTbtcToken === undefined) {
@@ -787,6 +796,7 @@ export async function sendTbtcWrappedIx(
     .sendTbtcWrapped(args)
     .accounts({
       custodian,
+      gatewayInfo,
       wrappedTbtcToken,
       wrappedTbtcMint,
       tbtcMint,

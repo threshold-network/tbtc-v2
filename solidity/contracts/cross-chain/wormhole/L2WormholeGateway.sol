@@ -75,10 +75,19 @@ contract L2WormholeGateway is
     /// @notice Canonical tBTC token.
     L2TBTC public tbtc;
 
+    /// @notice Reserved gateway value that blocks outbound sends for a chain.
+    /// @dev A zero gateway means the target chain has no Wormhole tBTC
+    ///      gateway and should receive raw Wormhole tBTC. This non-zero
+    ///      sentinel is used when governance needs to explicitly disable a
+    ///      route without falling back to raw Wormhole tBTC sends.
+    bytes32 public constant DISABLED_GATEWAY = bytes32(uint256(1));
+
     /// @notice Maps Wormhole chain ID to the Wormhole tBTC gateway address on
     ///         that chain. For example, this chain's ID should be mapped to
-    ///         this contract's address. If there is no Wormhole tBTC gateway
-    ///         address on the given chain, there is no entry in this mapping.
+    ///         this contract's address. If there is no Wormhole tBTC gateway on
+    ///         the given chain, there is no entry in this mapping. Governance
+    ///         can set this mapping to `DISABLED_GATEWAY` to block sends to a
+    ///         deprecated chain.
     ///         The mapping holds addresses in a Wormhole-specific format, where
     ///         Ethereum address is left-padded with zeros.
     mapping(uint16 => bytes32) public gateways;
@@ -180,12 +189,13 @@ contract L2WormholeGateway is
         // Check again after dropping the dust.
         require(amount != 0, "Amount too low to bridge");
 
+        bytes32 gateway = gateways[recipientChain];
+        require(gateway != DISABLED_GATEWAY, "Gateway disabled");
+
         require(
             bridgeToken.balanceOf(address(this)) >= amount,
             "Not enough wormhole tBTC in the gateway to bridge"
         );
-
-        bytes32 gateway = gateways[recipientChain];
 
         emit WormholeTbtcSent(
             amount,
@@ -269,8 +279,9 @@ contract L2WormholeGateway is
         uint32 nonce,
         bytes calldata payload
     ) external payable nonReentrant returns (uint64) {
+        bytes32 gateway = gateways[recipientNativeChain];
         require(
-            gateways[recipientNativeChain] == bytes32(0),
+            gateway == bytes32(0),
             "No Wormhole tBTC gateway on the native chain"
         );
         require(recipient != bytes32(0), "0x0 recipient not allowed");
