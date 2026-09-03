@@ -116,4 +116,7 @@ interface IBridge {
             uint96 redemptionTimeoutSlashingAmount,
             uint32 redemptionTimeoutNotifierRewardMultiplier
         );
+
+    /// @dev See {Bridge#getRedemptionWatchtower}
+    function getRedemptionWatchtower() external view returns (address);
 }

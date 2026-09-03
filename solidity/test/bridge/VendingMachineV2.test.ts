@@ -26,7 +26,7 @@ describe("VendingMachineV2", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer } = await waffle.loadFixture(bridgeFixture))
+    ;({ deployer } = await bridgeFixture())
     tbtcV1 = await helpers.contracts.getContract("TBTCToken")
     tbtcV2 = await helpers.contracts.getContract("TBTC")
     vendingMachineV2 = await helpers.contracts.getContract("VendingMachineV2")

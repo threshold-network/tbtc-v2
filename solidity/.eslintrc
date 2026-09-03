@@ -13,7 +13,15 @@
     "new-cap": "off",
     "import/no-extraneous-dependencies": "off",
     "@typescript-eslint/no-use-before-define": "off",
-    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }]
+    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }],
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "waffle",
+        "property": "loadFixture",
+        "message": "waffle.loadFixture discards the boolean evm_revert returns and can hand back stale fixture data. Use loadFixture from '../helpers/fixture' (or deployments.createFixture for hardhat-deploy fixtures) instead."
+      }
+    ]
   },
   "overrides": [
     {

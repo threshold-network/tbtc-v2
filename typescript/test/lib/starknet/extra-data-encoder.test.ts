@@ -6,6 +6,7 @@ import { Hex } from "../../../src/lib/utils"
 
 describe("StarkNetExtraDataEncoder", () => {
   let encoder: StarkNetExtraDataEncoder
+  const validFullLengthAddress = "0x07" + "f".repeat(62)
 
   beforeEach(() => {
     encoder = new StarkNetExtraDataEncoder()
@@ -22,10 +23,10 @@ describe("StarkNetExtraDataEncoder", () => {
     })
 
     it("should encode a full-length StarkNet address", () => {
-      const address = StarkNetAddress.from("0x" + "f".repeat(64))
+      const address = StarkNetAddress.from(validFullLengthAddress)
       const encoded = encoder.encodeDepositOwner(address)
 
-      expect(encoded.toPrefixedString()).to.equal("0x" + "f".repeat(64))
+      expect(encoded.toPrefixedString()).to.equal(validFullLengthAddress)
     })
 
     it("should encode a short StarkNet address with proper padding", () => {
@@ -83,11 +84,11 @@ describe("StarkNetExtraDataEncoder", () => {
     })
 
     it("should decode full-length hex to StarkNet address", () => {
-      const extraData = Hex.from("0x" + "f".repeat(64))
+      const extraData = Hex.from(validFullLengthAddress)
       const decoded = encoder.decodeDepositOwner(extraData)
 
       expect(decoded).to.be.instanceOf(StarkNetAddress)
-      expect(decoded.identifierHex).to.equal("f".repeat(64))
+      expect(decoded.identifierHex).to.equal(validFullLengthAddress.slice(2))
     })
 
     it("should throw error for invalid length hex", () => {
@@ -138,7 +139,7 @@ describe("StarkNetExtraDataEncoder", () => {
     })
 
     it("should handle maximum length addresses", () => {
-      const originalAddress = StarkNetAddress.from("0x" + "e".repeat(64))
+      const originalAddress = StarkNetAddress.from(validFullLengthAddress)
       const encoded = encoder.encodeDepositOwner(originalAddress)
       const decoded = encoder.decodeDepositOwner(encoded)
 

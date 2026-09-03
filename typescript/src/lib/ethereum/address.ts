@@ -1,5 +1,5 @@
 import { ChainIdentifier } from "../contracts"
-import { utils } from "ethers"
+import { getAddress } from "@ethersproject/address"
 
 /**
  * Represents an Ethereum address.
@@ -13,7 +13,7 @@ export class EthereumAddress implements ChainIdentifier {
     let validAddress: string
 
     try {
-      validAddress = utils.getAddress(address)
+      validAddress = getAddress(address)
     } catch (e) {
       throw new Error(`Invalid Ethereum address`)
     }
