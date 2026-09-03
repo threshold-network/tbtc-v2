@@ -749,10 +749,6 @@ library Reservation {
                 "Reanchor cooldown in effect"
             );
         }
-        require(
-            block.timestamp < reservation.dissolutionEligibleAt,
-            "Reservation is dissolution-eligible"
-        );
         /* solhint-enable not-rely-on-time */
 
         {

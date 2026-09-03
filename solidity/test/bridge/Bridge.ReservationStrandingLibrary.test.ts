@@ -2715,7 +2715,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Reservation is not active")
     })
 
-    it("rejects when reservation is dissolution-eligible", async () => {
+    it("succeeds when reservation is dissolution-eligible (re-anchor is unbounded in time, m1-b-implementation.md section 1.5)", async () => {
       const pastEligibleKey = `0x${"ac".repeat(32)}`
       await executor.seedReservation(
         pastEligibleKey,
@@ -2727,17 +2727,50 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      // Time travel past dissolutionEligibleAt (365 + 30 days)
+      // Time travel past dissolutionEligibleAt (365 + 30 days). Variant B
+      // deletes the dissolution-eligibility timing gate on re-anchor, so
+      // this must still succeed.
       await ethers.provider.send("evm_increaseTime", [400 * 86400])
       await ethers.provider.send("evm_mine", [])
 
-      await expect(
-        executor.requestReservationReanchor(
-          pastEligibleKey,
-          targetWallet,
-          false
-        )
-      ).to.be.revertedWith("Reservation is dissolution-eligible")
+      const tx = await executor.requestReservationReanchor(
+        pastEligibleKey,
+        targetWallet,
+        false
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+        reservationActionStateEnum.Pending
+      )
+
+      const parsedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return reservationInterface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .filter((e) => e !== null)
+
+      const requested = parsedEvents.find(
+        (e) => e!.name === "ReservationReanchorRequested"
+      )
+      expect(requested, "ReservationReanchorRequested event missing").to.not.be
+        .undefined
+      expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
+      expect(requested!.args.requestNonce).to.equal(1)
+      expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
+      expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
+      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
     })
 
     it("rejects when source wallet is Live and call is not privileged", async () => {
