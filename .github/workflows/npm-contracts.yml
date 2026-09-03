@@ -29,7 +29,9 @@ jobs:
           cache-dependency-path: solidity/yarn.lock
 
       - name: Enable Corepack
-        run: corepack enable
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
 
       # We need this step because the `@keep-network/tbtc` which we update in
       # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
@@ -42,9 +44,9 @@ jobs:
       - name: Resolve latest contracts
         run: |
           yarn up --exact \
-            @keep-network/ecdsa \
-            @keep-network/random-beacon \
-            @keep-network/tbtc
+            '@keep-network/ecdsa@development' \
+            '@keep-network/random-beacon@development' \
+            '@keep-network/tbtc@development'
 
       # Deploy contracts to a local network to generate deployment artifacts that
       # are required by dashboard compilation.
