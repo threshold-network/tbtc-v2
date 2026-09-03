@@ -71,6 +71,10 @@ contract ReservationStrandingExecutor {
         self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
     }
 
+    /// @notice Forwards `Reservation.notifyReservationRedemptionTimedOut`.
+    ///         Reverts when the action is not a Redemption in the
+    ///         `Pending` state, the reservation is not `ActionPending`, or
+    ///         the snapshotted timeout has not yet elapsed.
     function notifyReservationRedemptionTimedOut(
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
@@ -81,6 +85,10 @@ contract ReservationStrandingExecutor {
         );
     }
 
+    /// @notice Forwards `Reservation.notifyReservationDissolutionTimedOut`.
+    ///         Reverts when the action is not a Dissolution in the
+    ///         `Pending` state, the reservation is not `ActionPending`, or
+    ///         the snapshotted timeout has not yet elapsed.
     function notifyReservationDissolutionTimedOut(
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
@@ -176,6 +184,25 @@ contract ReservationStrandingExecutor {
         }
     }
 
+    /// @notice Seeds a wallet with a main UTXO hash, allowing moveFunds to route a Live wallet into MovingFunds.
+    function seedWalletWithMainUtxo(
+        bytes20 walletPubKeyHash,
+        bytes32 ecdsaWalletID,
+        Wallets.WalletState state,
+        bytes32 mainUtxoHash
+    ) external {
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            walletPubKeyHash
+        ];
+        wallet.ecdsaWalletID = ecdsaWalletID;
+        wallet.state = state;
+        wallet.createdAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
+        wallet.mainUtxoHash = mainUtxoHash;
+        if (state == Wallets.WalletState.Live) {
+            self.liveWalletsCount++;
+        }
+    }
+
     /// @notice Inserts a `ReservationRequest` with full lifecycle metadata
     ///         so the stranding paths can locate their cross-reference
     ///         counters and emit the canonical recovery evidence.
@@ -188,6 +215,52 @@ contract ReservationStrandingExecutor {
         uint32 anchorTxOutputIndex,
         Reservation.ReservationState state
     ) external {
+        _seedReservation(
+            reservationKey,
+            owner,
+            walletPubKeyHash,
+            anchorAmount,
+            anchorTxHash,
+            anchorTxOutputIndex,
+            state,
+            0
+        );
+    }
+
+    /// @notice Inserts a `ReservationRequest` with full lifecycle metadata
+    ///         and an explicit `requestNonce`.
+    function seedReservationWithNonce(
+        uint256 reservationKey,
+        address owner,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount,
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex,
+        Reservation.ReservationState state,
+        uint64 requestNonce
+    ) external {
+        _seedReservation(
+            reservationKey,
+            owner,
+            walletPubKeyHash,
+            anchorAmount,
+            anchorTxHash,
+            anchorTxOutputIndex,
+            state,
+            requestNonce
+        );
+    }
+
+    function _seedReservation(
+        uint256 reservationKey,
+        address owner,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount,
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex,
+        Reservation.ReservationState state,
+        uint64 requestNonce
+    ) internal {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
@@ -199,7 +272,7 @@ contract ReservationStrandingExecutor {
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = anchorTxOutputIndex;
         reservation.state = state;
-        reservation.requestNonce = 0;
+        reservation.requestNonce = requestNonce;
         reservation.expiresAt = uint32(block.timestamp) + 365 days; // solhint-disable-line not-rely-on-time
         reservation.dissolutionEligibleAt =
             uint32(block.timestamp) + // solhint-disable-line not-rely-on-time
@@ -386,6 +459,18 @@ contract ReservationStrandingExecutor {
         returns (Reservation.ReservationState)
     {
         return self.reservations[reservationKey].state;
+    }
+
+    function retryCredit(uint256 reservationKey) external view returns (bool) {
+        return self.reservations[reservationKey].retryCredit;
+    }
+
+    function reservationRetryCreditActionNonce(uint256 reservationKey)
+        external
+        view
+        returns (uint64)
+    {
+        return self.reservationRetryCreditActionNonce[reservationKey];
     }
 
     function walletState(bytes20 walletPubKeyHash)

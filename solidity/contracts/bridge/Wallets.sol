@@ -275,6 +275,43 @@ library Wallets {
         }
     }
 
+    /// @notice Slashes a wallet in the Closing state for a reservation
+    ///         redemption or dissolution timeout. `notifyWalletRedemptionTimeout`
+    ///         above cannot be reused for this: it requires Live, MovingFunds,
+    ///         or Terminated and reverts for a Closing wallet. Without this
+    ///         function, a wallet could dodge the redemption-timeout slashing
+    ///         consequence entirely by reaching Closing before the timeout is
+    ///         reported. Deliberately scoped to the reservation-timeout call
+    ///         sites (`Reservation.sol`) rather than folded into
+    ///         `notifyWalletRedemptionTimeout` itself, so the base protocol's
+    ///         own redemption-timeout flow (`Redemption.sol`, which also calls
+    ///         `notifyWalletRedemptionTimeout`) keeps its existing Live/
+    ///         MovingFunds/Terminated-only contract unchanged.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    /// @param walletMembersIDs Identifiers of the wallet signing group members.
+    /// @dev Requirements:
+    ///      - The wallet must be in the `Closing` state.
+    function notifyClosingWalletRedemptionTimeout(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint32[] calldata walletMembersIDs
+    ) internal {
+        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+        require(
+            wallet.state == WalletState.Closing,
+            "Wallet must be in Closing state"
+        );
+
+        // slither-disable-next-line reentrancy-no-eth
+        self.ecdsaWalletRegistry.seize(
+            self.redemptionTimeoutSlashingAmount,
+            self.redemptionTimeoutNotifierRewardMultiplier,
+            msg.sender,
+            wallet.ecdsaWalletID,
+            walletMembersIDs
+        );
+    }
+
     /// @notice Handles a notification about a wallet heartbeat failure and
     ///         triggers the wallet moving funds process.
     /// @param publicKeyX Wallet's public key's X coordinate.

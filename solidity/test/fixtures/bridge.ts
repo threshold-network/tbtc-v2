@@ -1,6 +1,5 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import { smock, FakeContract } from "@defi-wonderland/smock"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   Bank,
@@ -19,11 +18,14 @@ import type {
   RebateStaking,
   IERC20,
 } from "../../typechain"
+import { createMock } from "../helpers/mock"
+
+import type { Mock } from "../helpers/mock"
 
 /**
  * Common fixture for tests suites targeting the Bridge contract.
  */
-export default async function bridgeFixture(): Promise<{
+async function bridgeFixture(): Promise<{
   deployer: SignerWithAddress
   governance: SignerWithAddress
   spvMaintainer: SignerWithAddress
@@ -35,13 +37,15 @@ export default async function bridgeFixture(): Promise<{
   vendingMachine: VendingMachine
   tbtcVault: TBTCVault
   bank: Bank & BankStub
-  relay: FakeContract<IRelay>
-  walletRegistry: FakeContract<IWalletRegistry>
+  relay: Mock<IRelay>
+  walletRegistry: Mock<IWalletRegistry>
   bridge: Bridge & BridgeStub
   reimbursementPool: ReimbursementPool
   maintainerProxy: MaintainerProxy
   bridgeGovernance: BridgeGovernance
   redemptionWatchtower: RedemptionWatchtower
+  t: IERC20
+  rebateStaking: RebateStaking
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }> {
   await deployments.fixture()
@@ -82,7 +86,7 @@ export default async function bridgeFixture(): Promise<{
   const bridgeGovernance: BridgeGovernance =
     await helpers.contracts.getContract("BridgeGovernance")
 
-  const walletRegistry = await smock.fake<IWalletRegistry>("IWalletRegistry", {
+  const walletRegistry = await createMock<IWalletRegistry>("IWalletRegistry", {
     address: await (await bridge.contractReferences()).ecdsaWalletRegistry,
   })
   // Fund the `walletRegistry` account so it's possible to mock sending requests
@@ -99,7 +103,7 @@ export default async function bridgeFixture(): Promise<{
     "MaintainerProxy"
   )
 
-  const relay = await smock.fake<IRelay>("IRelay", {
+  const relay = await createMock<IRelay>("IRelay", {
     address: await (await bridge.contractReferences()).relay,
   })
 
@@ -171,3 +175,26 @@ export default async function bridgeFixture(): Promise<{
     deployBridge,
   }
 }
+
+/**
+ * Built with `deployments.createFixture` rather than exported bare for
+ * `waffle.loadFixture`, because the two snapshot stacks collide.
+ *
+ * This fixture runs `deployments.fixture()` and only afterwards installs mock
+ * bytecode over the real `WalletRegistry` and `LightRelay` addresses with
+ * `hardhat_setCode`. A bare `deployments.fixture()` elsewhere in the run —
+ * `test/bridge/Deployment.test.ts` does exactly that — reverts to
+ * hardhat-deploy's snapshot from *below* those mocks and invalidates every
+ * snapshot taken after it.
+ *
+ * waffle's loader discards the boolean `evm_revert` returns, so from that
+ * point on it hands back cached handles over state where the mocks no longer
+ * exist, and a `relay.getX.returns(...)` becomes a call to the real
+ * `LightRelay`, which has no such selector and no fallback.
+ * `deployments.createFixture` checks that boolean and re-runs the fixture
+ * instead, which is the property this needs.
+ *
+ * This was harmless while smock's fakes lived in the JavaScript process, where
+ * no `evm_revert` could remove them. Putting mocks on the chain made it fatal.
+ */
+export default deployments.createFixture(bridgeFixture)

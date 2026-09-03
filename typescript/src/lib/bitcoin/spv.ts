@@ -1,6 +1,6 @@
 import { BitcoinTx, BitcoinTxHash, extractBitcoinRawTxVectors } from "./tx"
 import { BitcoinClient } from "./client"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import {
   BitcoinHeader,
   BitcoinHeaderSerializer,

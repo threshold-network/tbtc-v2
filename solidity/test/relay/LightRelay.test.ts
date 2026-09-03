@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
@@ -13,6 +13,7 @@ import { concatenateHexStrings } from "../helpers/contract-test-helpers"
 import headers from "./headersWithRetarget.json"
 import reorgHeaders from "./headersReorgAndRetarget.json"
 import longHeaders from "./longHeaders.json"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -129,7 +130,7 @@ describe("LightRelay", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, relay } = await waffle.loadFixture(fixture))
+    ;({ governance, thirdParty, relay } = await loadFixture(fixture))
   })
 
   //

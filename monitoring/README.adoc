@@ -76,9 +76,11 @@ focuses on a specific chain block window. The window's starting block is
 determined based on the previous run's end block held by the *Persistence*
 component (the so-called checkpoint block). The starting block is also
 decremented by a constant factor of 12 to cover possible chain reorganizations.
-The window's ending block is always the latest mined block (i.e. the chain tip).
-For example, assuming that initial checkpoint block is 100, the loop will look
-as follows:
+The window's ending block is the latest mined block (i.e. the chain tip) unless
+the backlog is larger than the maximum block range (10,000 blocks) processed in
+a single run. In that case, the ending block is capped and the checkpoint
+advances only to the last block that was actually scanned. For example, assuming that initial
+checkpoint block is 100, the loop will look as follows:
 
 - Run 1: Start block 100 - 12 = 88, end block 150
 - Run 2: Start block 150 - 12 = 138, end block 155
@@ -99,6 +101,44 @@ This way the monitoring tool guarantees to not miss any system events.
 However, such a solution can produce duplicated system events. To prevent
 that, the *Manager* component contains a deduplication logic that leverages
 the *Persistence* component to filter out already handled system events.
+
+=== Sentry delivery failures
+
+The Sentry receiver is intentionally fail-closed. A run fails if Sentry does not
+accept a warning or critical system event, or if the event is not flushed before
+the receiver returns. When that happens, the checkpoint block is not advanced
+and the next run will rescan the same block range.
+
+This behavior prevents silent alert loss but means a Sentry outage, disabled
+Sentry project, invalid DSN, or rate limit can halt monitoring progress until
+delivery recovers. Operators should:
+
+- confirm the Sentry DSN and project are enabled,
+- check Sentry rate limits and network reachability from the monitoring
+  environment,
+- rerun or wait for the monitoring loop after Sentry recovers, and
+- expect catch-up to proceed in capped block-range increments if the checkpoint
+  is stale.
+
+=== Dispatch coverage failures
+
+The monitoring manager is fail-closed on dispatch coverage. A run fails if a
+system event produced by a monitor is not accepted (handled or deduplicated) by
+any receiver that attempted delivery. When that happens, the checkpoint block is
+not advanced and the next run will rescan the same block range.
+
+Events explicitly ignored by all registered receivers do not trigger a coverage
+failure. This is expected in partial-receiver deployments -- for example, if
+only the Sentry receiver is configured, informational events will not produce
+coverage errors because Sentry only accepts warning and critical events.
+
+If monitoring halts with a coverage failure, check that:
+
+- all active receivers are healthy (dispatch errors will appear earlier in the
+  same run's log),
+- the receiver configuration covers every event type emitted by active
+  monitors, and
+- no new monitor event types were recently added without a matching receiver.
 
 == Build and deployment
 

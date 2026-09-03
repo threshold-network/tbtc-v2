@@ -1,9 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -11,8 +11,8 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
-
-chai.use(smock.matchers)
+import { createMock } from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -43,19 +43,19 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     const relayer = await ethers.getSigner(accounts[1])
     const user = await ethers.getSigner(accounts[2])
 
-    const bridge = await smock.fake<IBridge>("IBridge")
+    const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
       await ethers.getContractFactory("TestERC20")
     ).deploy()
-    const tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault", {
+    const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       address: tbtcVaultAddress,
     })
-    tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.address)
 
-    const nttManager = await smock.fake(
+    const nttManager = await createMock(
       "contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager"
     )
-    const reimbursementPool = await smock.fake<ReimbursementPool>(
+    const reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )
 
@@ -99,11 +99,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
   let user: SignerWithAddress
-  let bridge: FakeContract<IBridge>
+  let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
-  let tbtcVault: FakeContract<ITBTCVault>
-  let nttManager: FakeContract<unknown>
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let tbtcVault: Mock<ITBTCVault>
+  let nttManager: Mock<unknown>
+  let reimbursementPool: Mock<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
   before(async () => {
@@ -118,7 +118,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       nttManager,
       reimbursementPool,
       l1BtcDepositorNtt,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   beforeEach(async () => {
