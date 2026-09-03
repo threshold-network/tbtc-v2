@@ -208,10 +208,7 @@ describe("Bridge - Reservation stranding", () => {
     bridgeGovernanceSigner = await impersonateContract(
       await bridge.governance()
     )
-    refundLocktime = `0x${toLE(
-      (await lastBlockTime()) + 4000 * 24 * 60 * 60,
-      4
-    )}`
+    refundLocktime = `0x${toLE((await lastBlockTime()) + 89 * 24 * 60 * 60, 4)}`
 
     await bridge
       .connect(bridgeGovernanceSigner)
@@ -605,7 +602,9 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -617,7 +616,9 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
   })
 
@@ -667,10 +668,10 @@ describe("Bridge - Reservation stranding", () => {
 
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
 
-      // The deposit's refundLocktime was baked in 4000 days from
+      // The deposit's refundLocktime was baked in 89 days from
       // fixture setup. Going forward by (refundLocktime - now + 1)
       // lands us past the deposit's refund deadline.
-      const targetTime = (await lastBlockTime()) + 4000 * 24 * 60 * 60 + 2
+      const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
       await increaseTime(
         BigNumber.from(targetTime)
           .sub(await lastBlockTime())
@@ -722,11 +723,11 @@ describe("Bridge - Reservation stranding", () => {
       await bridge.setDepositRevealAheadPeriod(3600)
       const { depositKey } = await revealReservedDeposit()
 
-      // The deposit's refundLocktime was baked in 4000 days from
+      // The deposit's refundLocktime was baked in 89 days from
       // fixture setup. Going forward by (refundLocktime - now + 1)
       // is the simplest deterministic time travel that lands us past
       // both the reveal-ahead period AND the deposit's refund deadline.
-      const targetTime = (await lastBlockTime()) + 4000 * 24 * 60 * 60 + 2
+      const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
       await increaseTime(
         BigNumber.from(targetTime)
           .sub(await lastBlockTime())
@@ -759,7 +760,7 @@ describe("Bridge - Reservation stranding", () => {
       // Clear the unconditional refund-deadline check first (see the
       // `refundDeadlineValidated` tests above) so this test isolates the
       // acceptance-authorization-pending rejection specifically.
-      const targetTime = (await lastBlockTime()) + 4000 * 24 * 60 * 60 + 2
+      const targetTime = (await lastBlockTime()) + 89 * 24 * 60 * 60 + 2
       await increaseTime(
         BigNumber.from(targetTime)
           .sub(await lastBlockTime())

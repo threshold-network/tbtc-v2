@@ -489,7 +489,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("strands an Active reservation on a Closed wallet", async () => {
@@ -624,7 +626,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when the custodying wallet is in MovingFunds state", async () => {
@@ -652,7 +656,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when both the reservation and wallet conditions are wrong", async () => {

@@ -30,6 +30,12 @@ const depositLocktime = 30 * day
 // the chain.
 let redemptionRequestDefaultAnchorTime = 0
 
+// Anchor for `createTestDeposit`'s default `revealedAt`. Captured from the
+// chain's own clock (not `Date.now()`) at the start of the
+// `validateDepositSweepProposal` describe block below, for the same reason
+// as `redemptionRequestDefaultAnchorTime` above.
+let depositRevealDefaultAnchorTime = 0
+
 const emptyDepositExtraInfo = {
   fundingTx: {
     version: "0x00000000",
@@ -70,6 +76,8 @@ describe("WalletProposalValidator", () => {
 
     before(async () => {
       await createSnapshot()
+
+      depositRevealDefaultAnchorTime = await lastBlockTime()
 
       await bridge.depositParameters.returns([0, 0, bridgeDepositTxMaxFee, 0])
     })
@@ -2890,10 +2898,13 @@ const createTestDeposit = (
   let resolvedRevealedAt = revealedAt
 
   if (!resolvedRevealedAt) {
-    // If the deposit reveal time is not explicitly set, use `now - 1 day` to
-    // ensure deposit minimum age is achieved by default.
-    const now = Math.floor(Date.now() / 1000)
-    resolvedRevealedAt = now - day
+    // If the deposit reveal time is not explicitly set, use
+    // `chainTime - 1 day` to ensure deposit minimum age is achieved by
+    // default. Anchored to the chain's own clock (captured once per
+    // `validateDepositSweepProposal` run), not `Date.now()`, since
+    // `block.timestamp` can be far ahead of real wall-clock time by the
+    // point this file runs.
+    resolvedRevealedAt = depositRevealDefaultAnchorTime - day
   }
 
   const refundableAt = resolvedRevealedAt + depositLocktime

@@ -171,7 +171,7 @@ before(async () => {
   )
   reservationVault = await helpers.contracts.getContract("ReservationVault")
   bridgeGovernanceSigner = await impersonateContract(await bridge.governance())
-  refundLocktime = `0x${toLE((await lastBlockTime()) + 4000 * 24 * 60 * 60, 4)}`
+  refundLocktime = `0x${toLE((await lastBlockTime()) + 89 * 24 * 60 * 60, 4)}`
 
   await bridge
     .connect(bridgeGovernanceSigner)
