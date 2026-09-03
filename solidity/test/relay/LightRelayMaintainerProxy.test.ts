@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, deployments, helpers, waffle } from "hardhat"
+import { ethers, deployments, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction, BigNumber } from "ethers"
@@ -12,8 +12,9 @@ import type {
 } from "../../typechain"
 import { concatenateHexStrings } from "../helpers/contract-test-helpers"
 import longHeaders from "./longHeaders.json"
+import { loadFixture } from "../helpers/fixture"
 
-const { provider } = waffle
+const { provider } = ethers
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -67,7 +68,7 @@ describe("LightRelayMaintainerProxy", () => {
       reimbursementPool,
       lightRelayMaintainerProxy,
       lightRelay,
-    } = await waffle.loadFixture(fixture))
+    } = await loadFixture(fixture))
 
     await deployer.sendTransaction({
       to: reimbursementPool.address,

@@ -22,9 +22,8 @@ import "./Reservation.sol";
 ///         `ReservationRouter` and reached through the Bridge's fallback via
 ///         `delegatecall`, so callers use this interface against the Bridge
 ///         address itself — the Bridge contract type does not declare them.
-/// @dev Milestone 1 trims the `#1094` interface: redemption, dissolution,
-///      veto and renewal entry points are deferred. Adds the genuinely new
-///      `activeReservationsCount` view.
+/// @dev In milestone 1, redemption, dissolution, veto, and renewal entry
+///      points are deferred to a later milestone.
 interface IReservationBridge {
     /// @notice See `ReservationRouter.requestReservationAcceptance`.
     function requestReservationAcceptance(
@@ -53,6 +52,10 @@ interface IReservationBridge {
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
     ) external;
+
+    /// @notice See `ReservationRouter.notifyReservationAcceptanceTimedOut`.
+    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
+        external;
 
     /// @notice See `ReservationRouter.updateReservationParameters`.
     function updateReservationParameters(

@@ -31,11 +31,10 @@
 // a stale/replaced anchor (via `requireCurrentSourceAnchor` in
 // ReservationProofs.sol).
 
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract } from "ethers"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import type {
   Bank,
   BankStub,
@@ -50,9 +49,8 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
-
-chai.use(smock.matchers)
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -117,8 +115,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
   let deployer: SignerWithAddress
 
   let bank: Bank & BankStub
-  let relay: FakeContract<IRelay>
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let relay: Mock<IRelay>
+  let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let reservationRouter: ReservationRouter
   let reimbursementPool: ReimbursementPool
@@ -157,7 +155,7 @@ describe("Bridge - Reservation source-anchor binding", () => {
       reimbursementPool,
       tbtc,
       tbtcVault,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // Reservation router functions (`updateReservationParameters`,
     // `requestReservation*`, `submitReservationProof`, etc.) are declared
@@ -207,8 +205,8 @@ describe("Bridge - Reservation source-anchor binding", () => {
         RESERVATION_RENEWAL_WINDOW
       )
 
-    relay.getCurrentEpochDifficulty.returns(0)
-    relay.getPrevEpochDifficulty.returns(0)
+    await relay.getCurrentEpochDifficulty.returns(0)
+    await relay.getPrevEpochDifficulty.returns(0)
 
     await bridge.setDepositDustThreshold(10000)
     await bridge.setDepositTxMaxFee(2000)

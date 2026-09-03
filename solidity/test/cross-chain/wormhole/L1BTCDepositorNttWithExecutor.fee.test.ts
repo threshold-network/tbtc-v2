@@ -7,6 +7,8 @@ import type {
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 import { to1ePrecision } from "../../helpers/contract-test-helpers"
 
@@ -21,6 +23,8 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
+  let underlyingNttManager: MockNttManager
   let owner: SignerWithAddress
 
   before(async () => {
@@ -41,13 +45,22 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.address)
 
-    // Mock NTT managers with simple objects
-    const nttManagerWithExecutor = {
-      address: ethers.Wallet.createRandom().address,
-    }
-    const underlyingNttManager = {
-      address: ethers.Wallet.createRandom().address,
-    }
+    // Deploy proper mock NTT managers
+    const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
+      "MockNttManagerWithExecutor"
+    )
+    nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
+
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
+
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following StarkNet pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -70,7 +83,15 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
+
+    // Set default parameters to match test fee args
+    await depositor.setDefaultParameters(
+      600000,
+      100,
+      owner.address,
+      0,
+      ethers.constants.AddressZero
+    )
   })
 
   beforeEach(async () => {
@@ -123,7 +144,13 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
       }
 
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.be.revertedWith(
         "Real signed quote from Wormhole Executor API is required"
       )
@@ -144,7 +171,13 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
 
       // Should succeed with mock parameters
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify parameters are set

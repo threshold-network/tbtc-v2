@@ -1,4 +1,4 @@
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
@@ -21,7 +21,7 @@ describe("Bridge - Governance", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridgeGovernance, bridge } =
-      await waffle.loadFixture(bridgeFixture))
+      await bridgeFixture())
   })
 
   describe("beginGovernanceDelayUpdate", () => {
@@ -107,7 +107,7 @@ describe("Bridge - Governance", () => {
             .connect(governance)
             .beginGovernanceDelayUpdate(7331)
 
-          await helpers.time.increaseTime(constants.governanceDelay)
+          await helpers.time.increaseTime(constants.governanceDelay + 1)
 
           tx = await bridgeGovernance
             .connect(governance)

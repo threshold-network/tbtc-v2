@@ -40,8 +40,8 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
+// Set optimizer runs to 200 for BridgeGovernance (matching
+// ecdsaSolidityCompilerConfig, for cross-environment solc-default reproducibility).
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
@@ -68,7 +68,6 @@ const bridgeCompilerConfig = {
     outputSelection: storageLayoutOutputSelection,
   },
 }
-
 // Configuration for testing environment.
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
@@ -122,6 +121,23 @@ const config: HardhatUserConfig = {
 
   networks: {
     hardhat: {
+      // Configuration of a test mock is a transaction, and Hardhat advances
+      // the clock one second per block. smock configured fakes in-process and
+      // advanced it not at all, so suites asserting on a boundary cannot
+      // absorb the difference — WalletProposalValidator stubs a 7200s delay,
+      // advances time by exactly 7200 and requires
+      // `block.timestamp > requestedAt + minAge` to be false.
+      //
+      // With this on, `test/helpers/mock.ts` pins the next block's timestamp
+      // to the current one before each configuration write, so configuring a
+      // mock does not move the clock.
+      allowBlocksWithSameTimestamp: true,
+      // Recording a mocked call SSTOREs its calldata, which smock did not have
+      // to pay for — it kept the call log in JavaScript. Deposit finalization
+      // fans out to several mocked contracts in one transaction, and the
+      // default limit leaves no room for that bookkeeping on top of the work
+      // being measured.
+      blockGasLimit: 100_000_000,
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,

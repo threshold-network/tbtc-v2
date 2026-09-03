@@ -3,13 +3,7 @@
  * have zero historical coverage in tbtc-v2 PR #1104 (refs/pull/1104/head @
  * 1a636939) and were not ported into `Bridge.ReservationSettlement.test.ts`
  * (PR G of the m1 UTXO-reservations milestone): `notifyReservationStranded`
- * and `notifyStaleReservedDeposit`. Both live on `Reservation.sol`
- * (`/tmp/m1-g/solidity/contracts/bridge/Reservation.sol`):
- *   - `notifyReservationStranded`    -> lines 901-920 (with
- *     `strandReservation` at 1123-1162 and the `ReservationStranded` event
- *     at 305-310)
- *   - `notifyStaleReservedDeposit`   -> lines 850-883 (with the
- *     `ReservedDepositMarkedStale` event at 304)
+ * and `notifyStaleReservedDeposit`. Both live on `Reservation.sol`.
  *
  * Scope (m1, PR G, `m1/bridge-integration-seams`):
  *   - `notifyReservationStranded` happy path: Active reservation on
@@ -19,10 +13,15 @@
  *   - Rejects when the reservation is not Active (already Stranded after
  *     a previous call; Unknown after a reveal without an acceptance
  *     request).
- *   - Rejects when the wallet is not Terminated (Live, MovingFunds).
- *   - `notifyStaleReservedDeposit` happy path with `refundDeadlineValidated
- *     = false` (the disabled-validation path the contract comment calls
- *     out explicitly): succeeds without time travel.
+ *   - Rejects when the wallet is not Terminated or Closed (Live,
+ *     MovingFunds). Closing is deliberately excluded: it remains a valid
+ *     `requestReservationReanchor` source state, so stranding it too would
+ *     race a legitimate reanchor with a permissionless strand.
+ *   - `notifyStaleReservedDeposit` rejects immediately when
+ *     `refundDeadlineValidated = false` (the disabled-validation path)
+ *     but the reveal-captured refund deadline has not yet elapsed, and
+ *     succeeds once it has: the deadline applies unconditionally,
+ *     regardless of the validated flag.
  *   - `notifyStaleReservedDeposit` happy path with `refundDeadlineValidated
  *     = true` (the standard reveal-ahead-enabled path): succeeds once the
  *     refund deadline has elapsed.
@@ -67,11 +66,10 @@
 // Stranding tests for `notifyReservationStranded` and
 // `notifyStaleReservedDeposit`.
 
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract } from "ethers"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import type {
   Bank,
   BankStub,
@@ -86,9 +84,8 @@ import type {
   TBTC,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
-
-chai.use(smock.matchers)
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -152,8 +149,8 @@ describe("Bridge - Reservation stranding", () => {
   let deployer: SignerWithAddress
 
   let bank: Bank & BankStub
-  let relay: FakeContract<IRelay>
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let relay: Mock<IRelay>
+  let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let reservationRouter: ReservationRouter
   let reimbursementPool: ReimbursementPool
@@ -192,7 +189,7 @@ describe("Bridge - Reservation stranding", () => {
       reimbursementPool,
       tbtc,
       tbtcVault,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // Reservation router functions (`updateReservationParameters`,
     // `requestReservation*`, `submitReservationProof`, etc.) are declared
@@ -242,8 +239,8 @@ describe("Bridge - Reservation stranding", () => {
         RESERVATION_RENEWAL_WINDOW
       )
 
-    relay.getCurrentEpochDifficulty.returns(0)
-    relay.getPrevEpochDifficulty.returns(0)
+    await relay.getCurrentEpochDifficulty.returns(0)
+    await relay.getPrevEpochDifficulty.returns(0)
 
     await bridge.setDepositDustThreshold(10000)
     await bridge.setDepositTxMaxFee(2000)
@@ -608,7 +605,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not closing, closed or terminated")
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -620,7 +617,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not closing, closed or terminated")
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
   })
 
@@ -638,13 +635,17 @@ describe("Bridge - Reservation stranding", () => {
       await restoreSnapshot()
     })
 
-    it("marks a pending reserved deposit stale immediately when refundDeadlineValidated is false (reveal-ahead disabled)", async () => {
+    it("rejects immediately when refundDeadlineValidated is false and the deadline has not elapsed (reveal-ahead disabled)", async () => {
       // Default fixture state: `bridge.setDepositRevealAheadPeriod(0)`
       // in `before` means `refundDeadlineValidated = false` for any
-      // reserved deposit revealed here. The contract comment on
-      // `notifyStaleReservedDeposit` calls this out: with reveal-ahead
-      // validation disabled at reveal, the deposit can be marked stale
-      // immediately, matching the disabled protection.
+      // reserved deposit revealed here. Reserved deposits still capture
+      // the exact Bitcoin-script refund deadline at reveal even when
+      // reveal-ahead validation is disabled (see `Deposit._revealDeposit`'s
+      // `else if (isReserved)` branch), and `notifyStaleReservedDeposit`
+      // enforces that deadline unconditionally - the same way
+      // `requestReservationAcceptance` already treats
+      // `reservedDeposit.refundDeadline` unconditionally. The disabled
+      // validation flag does not bypass the deadline check.
       //
       // We must NOT call `requestReservationAcceptance` here - that would
       // park a Pending action on the position and bounce the call off
@@ -653,6 +654,28 @@ describe("Bridge - Reservation stranding", () => {
       const { depositKey } = await revealReservedDeposit()
 
       expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
+
+      await expect(
+        reservationRouter.notifyStaleReservedDeposit(depositKey)
+      ).to.be.revertedWith("Deposit refund deadline has not elapsed")
+
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
+    })
+
+    it("succeeds once the deadline has elapsed when refundDeadlineValidated is false (reveal-ahead disabled)", async () => {
+      const { depositKey } = await revealReservedDeposit()
+
+      expect(await reservationRouter.pendingReservedDeposits()).to.equal(1)
+
+      // The deposit's refundLocktime was baked in 4000 days from
+      // fixture setup. Going forward by (refundLocktime - now + 1)
+      // lands us past the deposit's refund deadline.
+      const targetTime = (await lastBlockTime()) + 4000 * 24 * 60 * 60 + 2
+      await increaseTime(
+        BigNumber.from(targetTime)
+          .sub(await lastBlockTime())
+          .toNumber()
+      )
 
       await expect(reservationRouter.notifyStaleReservedDeposit(depositKey))
         .to.emit(reservationRouter, "ReservedDepositMarkedStale")
@@ -732,6 +755,16 @@ describe("Bridge - Reservation stranding", () => {
 
       const action = await reservationRouter.reservationActions(depositKey, 1)
       expect(action.state).to.equal(ActionState.Pending)
+
+      // Clear the unconditional refund-deadline check first (see the
+      // `refundDeadlineValidated` tests above) so this test isolates the
+      // acceptance-authorization-pending rejection specifically.
+      const targetTime = (await lastBlockTime()) + 4000 * 24 * 60 * 60 + 2
+      await increaseTime(
+        BigNumber.from(targetTime)
+          .sub(await lastBlockTime())
+          .toNumber()
+      )
 
       await expect(
         reservationRouter.notifyStaleReservedDeposit(depositKey)

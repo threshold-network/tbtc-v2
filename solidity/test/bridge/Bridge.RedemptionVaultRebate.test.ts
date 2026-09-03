@@ -1,12 +1,12 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import chai, { expect } from "chai"
+import { expect } from "chai"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
-import type { FakeContract } from "@defi-wonderland/smock"
-import { smock } from "@defi-wonderland/smock"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 import type {
   Bank,
   BankStub,
@@ -20,8 +20,6 @@ import type {
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
-
-chai.use(smock.matchers)
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -102,7 +100,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let walletRegistry: Mock<IWalletRegistry>
 
   let redemptionTimeout: number
 
@@ -118,7 +116,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       t,
       rebateStaking,
       walletRegistry,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // Set the redemption dust threshold to 0.001 BTC (10x smaller than
     // the initial value) to save test Bitcoins.
@@ -365,7 +363,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         )
         initialRedeemerBalance = await bank.balanceOf(redeemerAddress)
 
-        await increaseTime(redemptionTimeout)
+        await increaseTime(redemptionTimeout + 1)
 
         tx = await bridge
           .connect(thirdParty)
@@ -377,7 +375,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       after(async () => {
-        walletRegistry.seize.reset()
+        await walletRegistry.seize.reset()
         await restoreSnapshot()
       })
 
@@ -430,7 +428,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         )
         initialRedeemerBalance = await bank.balanceOf(redeemerAddress)
 
-        await increaseTime(redemptionTimeout)
+        await increaseTime(redemptionTimeout + 1)
 
         tx = await bridge
           .connect(thirdParty)
@@ -442,7 +440,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       after(async () => {
-        walletRegistry.seize.reset()
+        await walletRegistry.seize.reset()
         await restoreSnapshot()
       })
 
@@ -1107,7 +1105,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
     let vetoRedeemerAddress: string
     let vetoRedeemerSigner: SignerWithAddress
-    let watchtower: FakeContract<IRedemptionWatchtower>
+    let watchtower: Mock<IRedemptionWatchtower>
     let watchtowerSigner: SignerWithAddress
 
     before(async () => {
@@ -1137,11 +1135,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       // Stake T tokens for the redeemer so rebate accounting is active.
       await stakeTokens(t, rebateStaking, deployer, vetoRedeemerSigner)
 
-      // Deploy a fake watchtower and impersonate it as the caller.
-      watchtower = await smock.fake<IRedemptionWatchtower>(
+      // Deploy a mock watchtower and impersonate it as the caller.
+      watchtower = await createMock<IRedemptionWatchtower>(
         "IRedemptionWatchtower"
       )
-      watchtower.isSafeRedemption.returns(true)
+      await watchtower.isSafeRedemption.returns(true)
 
       watchtowerSigner = await impersonateAccount(watchtower.address, {
         from: governance,
@@ -1154,7 +1152,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     })
 
     after(async () => {
-      watchtower.isSafeRedemption.reset()
+      await watchtower.isSafeRedemption.reset()
       await restoreSnapshot()
     })
 

@@ -463,13 +463,12 @@ library BridgeState {
         // cap turns that silent cliff into a revert. Genuinely new in
         // milestone 1.
         // (Forward design note: the wallet-closing-requires-zero-reservation
-        // -count invariant this comment assumes is NOT YET ENFORCED in
-        // Wallets.sol in this branch. It cannot be enforced yet: the
-        // permissionless release path for an active reservation whose
-        // wallet wants to retire, `notifyReservationStranded`, does not
-        // exist here and lands with the wallet-lifecycle integration PR.
-        // The gate and its release path must ship together, or a wallet
-        // holding a reservation could never close.)
+        // -count invariant this comment assumes is not yet enforced in
+        // Wallets.sol in this branch. The permissionless release path
+        // `notifyReservationStranded` exists and is router-reachable as of
+        // this PR; only the Wallets.sol-side closing gate preventing a
+        // wallet with active reservations from being marked closeable remains
+        // outstanding.)
         uint32 maxActiveReservations;
         // Collection of all reservations indexed by the deposit key of the
         // underlying reserved deposit, i.e.

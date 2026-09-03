@@ -1,8 +1,9 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
 import type { Contract } from "ethers"
+import { walletState } from "../fixtures"
 
-async function deployStub(): Promise<Contract> {
+async function deployTestReservation(): Promise<Contract> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
@@ -11,69 +12,55 @@ async function deployStub(): Promise<Contract> {
   })
   const reservation = await Reservation.deploy()
 
-  const Stub = await ethers.getContractFactory("ReservationStub", {
-    libraries: { Reservation: reservation.address },
-  })
+  const TestReservationFactory = await ethers.getContractFactory(
+    "TestReservation",
+    {
+      libraries: { Reservation: reservation.address },
+    }
+  )
 
-  return Stub.deploy()
+  return TestReservationFactory.deploy()
 }
 
 describe("Reservation - occupancy tracking", () => {
-  let stub: Contract
+  let testReservation: Contract
 
   beforeEach(async () => {
-    stub = await deployStub()
+    testReservation = await deployTestReservation()
   })
 
-  // Reservation.sol:578 - PENDING: requires seeding more governance parameters
-  // (reservationActionTimeout, reservationMinAmount, reservationTxMaxFee)
-  // than fit cleanly on the stub's external surface. requestReservationAcceptance
-  // requires those parameters to compute a non-empty signing window before it
-  // ever increments activeReservationsCount. Coverage requires either exposing
-  // the missing parameter setters or driving the request path through the
-  // full Bridge governance; both belong with the Bridge-integration PR.
-  it.skip(
-    "PENDING: requestReservationAcceptance requires full parameter setup (Reservation.sol:578)"
-  )
+  // Covered by solidity/test/bridge/Reservation.test.ts ("requestReservationAcceptance > should increment activeReservationsCount", lines 717-743)
 
-  // Reservation.sol:777 - PENDING: requires seeding a full ReservationAction
-  // record (17 fields). The action record has more fields than fit on the EVM
-  // stack to seed in one call, and notifyReservationActionTimeout reverts
-  // without a Pending action. Coverage requires either a proof harness or
-  // splitting the seed seam into per-field setters; both belong with the
-  // Bridge-integration PR.
-  it.skip(
-    "PENDING: notifyReservationActionTimeout requires seeded ReservationAction record (Reservation.sol:777)"
-  )
+  // Covered by Reservation.test.ts (notifyReservationActionTimeout)
+  it.skip("Covered by Reservation.test.ts (notifyReservationActionTimeout)")
 
-  // Reservation.sol:1136 - COVERED (externally callable; P0 fix widened to
-  // accept Closing/Closed). Seeds a minimal Active reservation + Closed wallet,
-  // pre-loads the three reservation accounting counters the strand will
-  // decrement, calls notifyReservationStranded, and asserts the counter drops
-  // to zero and the canonical ReservationStranded event emits with all four
-  // arguments.
+  // Reservation.sol - COVERED (externally callable; accepts Terminated/Closed).
+  // Seeds a minimal Active reservation + Closed or Terminated wallet, pre-loads
+  // the three reservation accounting counters the strand will decrement, calls
+  // notifyReservationStranded, and asserts the counter drops to zero and the
+  // canonical ReservationStranded event emits with all four arguments.
   it("notifyReservationStranded decrements counter on a Closed wallet", async () => {
-    await stub.setMaxActiveReservations(5)
-    await stub.setActiveReservationsCount(1)
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
 
     const walletPubKeyHash = `0x${"1".repeat(40)}`
-    await stub.setWalletReservationsCount(walletPubKeyHash, 1)
-    await stub.setWalletReservationsAmount(walletPubKeyHash, 100)
-    await stub.setReservationTotalAmount(100)
-    await stub.seedWalletState(walletPubKeyHash, 4 /* Closed */)
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closed)
 
     const reservationKey = 1
-    await stub.seedReservation(
+    await testReservation.setReservationFullState(
       reservationKey,
       ethers.constants.AddressZero,
-      100,
-      1000,
       walletPubKeyHash,
-      1 /* Active */
+      100,
+      1 /* Active */,
+      1
     )
 
-    await expect(stub.notifyReservationStranded(reservationKey))
-      .to.emit(stub, "ReservationStranded")
+    await expect(testReservation.notifyReservationStranded(reservationKey))
+      .to.emit(testReservation, "ReservationStranded")
       .withArgs(
         reservationKey,
         walletPubKeyHash,
@@ -81,30 +68,97 @@ describe("Reservation - occupancy tracking", () => {
         100
       )
 
-    expect(await stub.getActiveReservationsCount()).to.equal(0)
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
 
-  // ReservationProofs.sol:270 - PENDING: prepareReservationForSettlement is
-  // internal, takes a `ReservationRequest storage` reference. No external entry
-  // point exists and the stub cannot forward internal functions. Coverage
-  // requires either exposing the function or driving it through a full SPV
-  // proof harness.
-  it.skip(
-    "PENDING: prepareReservationForSettlement requires proof harness (ReservationProofs.sol:270)"
-  )
+  it("notifyReservationStranded decrements counter on a Terminated wallet", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
 
-  // ReservationProofs.sol:479 - PENDING: settleAcceptance is internal, takes
-  // a `ReservationAction storage` reference plus proof data. No external entry
-  // point exists and the stub cannot forward internal functions. Coverage
-  // requires either exposing the function or driving it through a full SPV
-  // proof harness.
-  it.skip(
-    "PENDING: settleAcceptance requires proof harness (ReservationProofs.sol:479)"
-  )
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(
+      walletPubKeyHash,
+      walletState.Terminated
+    )
 
-  // ReservationProofs.sol:821 - PENDING: unwindPendingAction is internal and
-  // only reachable via the SPV proof paths above. Same harness dependency.
-  it.skip(
-    "PENDING: unwindPendingAction requires proof harness (ReservationProofs.sol:821)"
-  )
+    const reservationKey = 1
+    await testReservation.setReservationFullState(
+      reservationKey,
+      ethers.constants.AddressZero,
+      walletPubKeyHash,
+      100,
+      1 /* Active */,
+      1
+    )
+
+    await expect(testReservation.notifyReservationStranded(reservationKey))
+      .to.emit(testReservation, "ReservationStranded")
+      .withArgs(
+        reservationKey,
+        walletPubKeyHash,
+        ethers.constants.AddressZero,
+        100
+      )
+
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+  })
+
+  it("notifyReservationStranded reverts on a Closing wallet", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
+
+    const reservationKey = 1
+    await testReservation.setReservationFullState(
+      reservationKey,
+      ethers.constants.AddressZero,
+      walletPubKeyHash,
+      100,
+      1 /* Active */,
+      1
+    )
+
+    await expect(
+      testReservation.notifyReservationStranded(reservationKey)
+    ).to.be.revertedWith("Wallet is not terminated or closed")
+  })
+
+  it("notifyReservationStranded reverts on a Live wallet", async () => {
+    await testReservation.setMaxActiveReservations(5)
+    await testReservation.setActiveReservationsCount(1)
+
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
+    await testReservation.setReservationTotalAmount(100)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Live)
+
+    const reservationKey = 1
+    await testReservation.setReservationFullState(
+      reservationKey,
+      ethers.constants.AddressZero,
+      walletPubKeyHash,
+      100,
+      1 /* Active */,
+      1
+    )
+
+    await expect(
+      testReservation.notifyReservationStranded(reservationKey)
+    ).to.be.revertedWith("Wallet is not terminated or closed")
+  })
+
+  // Covered by solidity/test/bridge/Reservation.test.ts ("prepareReservationForSettlement should restore capacity for a late-settled stranded reservation", lines 1514-1534)
+
+  // Covered by solidity/test/bridge/ReservationProofs.test.ts ("settleAcceptance > should strand during full late settleAcceptance against Closed wallet", lines 1552-1574)
+
+  // Covered by solidity/test/bridge/ReservationProofs.test.ts ("unwindPendingAction", lines 1039-1140)
 })

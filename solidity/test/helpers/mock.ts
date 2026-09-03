@@ -27,6 +27,15 @@ import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
  * behavioural difference from smock and the reason the migration touches call
  * sites at all.
  *
+ * A transaction also mines a block, and Hardhat advances the clock a second
+ * per block, where smock advanced it not at all. Suites that assert on a
+ * boundary cannot absorb that: WalletProposalValidator stubs a 7200 second
+ * delay, advances time by exactly 7200 and requires
+ * `block.timestamp > requestedAt + minAge` to be false — any drift inverts it.
+ * So every write below pins the next block's timestamp to the current one,
+ * which needs `allowBlocksWithSameTimestamp` in hardhat.config.ts and is why
+ * this package is on hardhat >= 2.19.
+ *
  * Semantics follow Foundry's `vm.mockCall` deliberately: an exact-calldata
  * entry wins over a selector-wide default, and an unconfigured function
  * returns the zero value of its return type, matching smock.
@@ -39,10 +48,25 @@ import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
  * `reset` does not disturb.
  */
 
+/**
+ * Runs a configuration transaction without advancing the chain clock.
+ *
+ * `allowBlocksWithSameTimestamp` only *permits* a block to reuse the previous
+ * timestamp; it does not make it happen. Determinism comes from setting the
+ * next timestamp explicitly, so that is done here rather than left to how fast
+ * the machine happens to be.
+ */
+async function withoutAdvancingTime<T>(write: () => Promise<T>): Promise<T> {
+  const { timestamp } = await ethers.provider.getBlock("latest")
+  await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp])
+  return write()
+}
 /** A recorded call, decoded against the mocked interface. */
 export interface MockCall {
   /** Decoded arguments, in declaration order. */
   args: unknown[]
+  /** `msg.value` the call carried, as smock's `getCall(n).value` did. */
+  value: BigNumber
 }
 
 /** Configuration and inspection handle for one function of a mock. */
@@ -80,8 +104,23 @@ export type Mock<T> = {
   wallet: Signer
   /** Underlying deployed `MockContract`, for anything this helper does not wrap. */
   mockContract: Contract
+  /**
+   * The mocked interface bound to `signer`, as smock's `FakeContract.connect`
+   * was. smock's fake extended `ethers.Contract` and inherited this; the proxy
+   * here resolves only the mocked ABI and the keys above, so without it
+   * `mock.connect(someone)` is `undefined`.
+   */
+  connect(signer: Signer): Contract
   /** Drops all configured responses and all recorded calls. */
   reset(): Promise<void>
+  /**
+   * Turns call recording on or off.
+   *
+   * Recording costs real gas — smock zeroed gas for faked calls, this mock
+   * SSTOREs the calldata — so a test asserting on the gas of the contract
+   * under test should switch it off first, or it measures the mock too.
+   */
+  setRecording(enabled: boolean): Promise<void>
 }
 
 /** Selectors of `MockContract`'s own administrative entry points. */
@@ -200,19 +239,41 @@ function zeroValueFor(type: ParamType): unknown {
   return 0
 }
 
+/**
+ * Shapes a configured return value the way `defaultAbiCoder` wants it.
+ *
+ * smock accepted a named object for a multi-output function — Bridge's
+ * `depositParameters` returns four values and is configured as
+ * `{ depositDustThreshold, depositTreasuryFeeDivisor, ... }`. The coder wants
+ * those positionally, so they are mapped back by output name. A single-output
+ * function is different: an object there is a struct, and the coder handles it.
+ */
+function toPositional(outputs: ParamType[], value: unknown): unknown[] {
+  if (outputs.length === 1) {
+    return [value]
+  }
+
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (value !== null && typeof value === "object") {
+    const named = value as Record<string, unknown>
+    return outputs.map((output, index) =>
+      output.name && output.name in named ? named[output.name] : named[index]
+    )
+  }
+
+  return [value]
+}
 function encodeReturn(fragment: FunctionFragment, value: unknown): string {
   if (fragment.outputs === null || fragment.outputs.length === 0) {
     return "0x"
   }
 
-  // A single-output function is configured with a bare value; a multi-output
-  // one with an array, as smock did.
-  const values =
-    fragment.outputs.length === 1 && !Array.isArray(value) ? [value] : value
-
   return ethers.utils.defaultAbiCoder.encode(
     fragment.outputs,
-    values as unknown[]
+    toPositional(fragment.outputs, value)
   )
 }
 
@@ -245,11 +306,23 @@ export async function createMock<T>(
   const targetInterface = new ethers.utils.Interface(targetArtifact.abi)
 
   const mockFactory = await ethers.getContractFactory("MockContract")
-  let mockContract = await mockFactory.deploy()
+  // Deploying is a transaction too, and a mock is routinely created inside a
+  // `before` hook after the test has already captured a baseline timestamp.
+  let mockContract = await withoutAdvancingTime(() => mockFactory.deploy())
   await mockContract.deployed()
 
   assertNoSelectorCollision(targetInterface, mockContract.interface, target)
 
+  if (options.address !== undefined) {
+    // Move the deployed bytecode to the requested address, before anything is
+    // configured. `hardhat_setCode` copies code and not storage, and every
+    // configuration below — the base returns, the non-recording flags, and
+    // later every `returns`/`whenCalledWith` — is storage. Configuring first
+    // and relocating afterwards left a pinned mock with none of it.
+    const code = await ethers.provider.getCode(mockContract.address)
+    await ethers.provider.send("hardhat_setCode", [options.address, code])
+    mockContract = mockContract.attach(options.address)
+  }
   // Install the response of last resort for every function, so an unstubbed
   // one answers with a correctly sized zero instead of reverting the caller.
   const baseFragments = Object.values(targetInterface.functions)
@@ -264,7 +337,9 @@ export async function createMock<T>(
           fragment.outputs.map((output) => zeroValueFor(output))
         )
   )
-  await mockContract.__mock__setBaseReturns(baseSelectors, baseReturns)
+  await withoutAdvancingTime(() =>
+    mockContract.__mock__setBaseReturns(baseSelectors, baseReturns)
+  )
 
   // Flag the read-only functions. Solidity reaches them by STATICCALL, where
   // the storage write recording needs is impossible, so the mock must not even
@@ -278,15 +353,9 @@ export async function createMock<T>(
     )
     .map((fragment) => targetInterface.getSighash(fragment))
   if (nonRecordingSelectors.length > 0) {
-    await mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
-  }
-
-  if (options.address !== undefined) {
-    // Move the deployed bytecode to the requested address. The mock's storage
-    // starts empty there, which is what a freshly configured mock expects.
-    const code = await ethers.provider.getCode(mockContract.address)
-    await ethers.provider.send("hardhat_setCode", [options.address, code])
-    mockContract = mockContract.attach(options.address)
+    await withoutAdvancingTime(() =>
+      mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
+    )
   }
 
   await ethers.provider.send("hardhat_impersonateAccount", [
@@ -324,42 +393,66 @@ export async function createMock<T>(
       behaviour: "return" | "revert",
       payload: unknown
     ): Promise<void> => {
-      const callData = targetInterface.encodeFunctionData(
-        fragment,
-        args as never[]
-      )
-
-      if (behaviour === "return") {
-        await mockContract.__mock__setReturnForCalldata(
-          callData,
-          encodeReturn(fragment, payload)
+      let callData: string
+      try {
+        callData = targetInterface.encodeFunctionData(fragment, args as never[])
+      } catch (error) {
+        // smock stored `whenCalledWith` arguments as JavaScript values and
+        // compared them after decoding, so arguments that are not valid for
+        // the signature simply never matched and the call fell through to the
+        // selector-wide default. Encoding them up front turns the same
+        // situation into a thrown error, which would fail tests that pass
+        // today for reasons unrelated to this migration — a value converted to
+        // a Wormhole address twice, for instance, is 44 bytes where the
+        // signature wants 32.
+        //
+        // Keep smock's outcome — an entry that can never match — but say so,
+        // because it does mean the narrowing in that test is dead.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `mock: ${target}.${name} whenCalledWith(...) arguments cannot be ` +
+            "encoded for this signature, so the entry can never match and " +
+            `is being skipped: ${(error as Error).message.split("(")[0].trim()}`
         )
-      } else {
-        await mockContract.__mock__setRevertForCalldata(
-          callData,
-          encodeRevert(payload as string | undefined)
-        )
+        return
       }
+
+      await withoutAdvancingTime(() =>
+        behaviour === "return"
+          ? mockContract.__mock__setReturnForCalldata(
+              callData,
+              encodeReturn(fragment, payload)
+            )
+          : mockContract.__mock__setRevertForCalldata(
+              callData,
+              encodeRevert(payload as string | undefined)
+            )
+      )
     }
 
-    const decodeCall = (callData: string): MockCall => ({
+    const decodeCall = (callData: string, value: BigNumber): MockCall => ({
       args: Array.from(
         targetInterface.decodeFunctionData(fragment, callData)
       ) as unknown[],
+      value,
     })
 
     return {
       async returns(value?: unknown): Promise<void> {
-        await mockContract.__mock__setReturnForSelector(
-          selector,
-          encodeReturn(fragment, value)
+        await withoutAdvancingTime(() =>
+          mockContract.__mock__setReturnForSelector(
+            selector,
+            encodeReturn(fragment, value)
+          )
         )
       },
 
       async reverts(reason?: string): Promise<void> {
-        await mockContract.__mock__setRevertForSelector(
-          selector,
-          encodeRevert(reason)
+        await withoutAdvancingTime(() =>
+          mockContract.__mock__setRevertForSelector(
+            selector,
+            encodeRevert(reason)
+          )
         )
       },
 
@@ -371,7 +464,9 @@ export async function createMock<T>(
       },
 
       async reset(): Promise<void> {
-        await mockContract.__mock__resetSelector(selector)
+        await withoutAdvancingTime(() =>
+          mockContract.__mock__resetSelector(selector)
+        )
       },
 
       async callCount(): Promise<number> {
@@ -385,11 +480,11 @@ export async function createMock<T>(
       async getCall(index: number): Promise<MockCall> {
         refuseIfReadOnly()
 
-        const callData: string = await mockContract.__mock__callForSelectorAt(
-          selector,
-          index
-        )
-        return decodeCall(callData)
+        const [callData, value] = await Promise.all([
+          mockContract.__mock__callForSelectorAt(selector, index),
+          mockContract.__mock__callValueForSelectorAt(selector, index),
+        ])
+        return decodeCall(callData as string, value as BigNumber)
       },
 
       async getCalls(): Promise<MockCall[]> {
@@ -402,11 +497,11 @@ export async function createMock<T>(
         for (let i = 0; i < Number(count); i++) {
           // Sequential on purpose: ordering is the point of this accessor.
           // eslint-disable-next-line no-await-in-loop
-          const callData: string = await mockContract.__mock__callForSelectorAt(
-            selector,
-            i
-          )
-          calls.push(decodeCall(callData))
+          const [callData, value] = await Promise.all([
+            mockContract.__mock__callForSelectorAt(selector, i),
+            mockContract.__mock__callValueForSelectorAt(selector, i),
+          ])
+          calls.push(decodeCall(callData as string, value as BigNumber))
         }
 
         return calls
@@ -425,8 +520,20 @@ export async function createMock<T>(
     address: mockContract.address,
     wallet,
     mockContract,
+    connect(signer: Signer): Contract {
+      return new ethers.Contract(
+        mockContract.address,
+        targetArtifact.abi,
+        signer
+      )
+    },
     async reset(): Promise<void> {
-      await mockContract.__mock__reset()
+      await withoutAdvancingTime(() => mockContract.__mock__reset())
+    },
+    async setRecording(enabled: boolean): Promise<void> {
+      await withoutAdvancingTime(() =>
+        mockContract.__mock__setRecording(enabled)
+      )
     },
   }
 
@@ -484,12 +591,50 @@ export async function expectCalledOnce(fn: MockedFunction): Promise<void> {
   expect(await counted(fn), "expected exactly one call").to.equal(1)
 }
 
+/** `expect(fake.fn).to.not.have.been.called` */
+export async function expectNotCalled(fn: MockedFunction): Promise<void> {
+  expect(await counted(fn), "expected no calls").to.equal(0)
+}
+
+/** `expect(fake.fn).to.have.been.calledThrice` */
+export async function expectCalledThrice(fn: MockedFunction): Promise<void> {
+  expect(await counted(fn), "expected exactly three calls").to.equal(3)
+}
 /** `expect(fake.fn).to.have.been.calledTwice` */
 export async function expectCalledTwice(fn: MockedFunction): Promise<void> {
   expect(await counted(fn), "expected exactly two calls").to.equal(2)
 }
 
 /** `expect(fake.fn).to.have.been.calledOnceWith(...args)` */
+/**
+ * Puts one recorded or expected argument into a comparable form.
+ *
+ * The two sides never arrive in the same representation. ethers decodes an ABI
+ * integer to a `BigNumber` above 48 bits and to a plain `number` at or below
+ * it, so a `uint256` argument reaches this as a `BigNumber` while the
+ * `uint32` getter the test compared it against yields a `number`; and a struct
+ * or dynamic array puts both one level down, where the previous top-level-only
+ * check never looked. smock compared `BigNumberish` values numerically at any
+ * depth, so both shapes used to pass.
+ *
+ * Numerics are wrapped rather than rendered bare, so that a genuine string
+ * argument of `"100"` still fails against a numeric `100`. Everything else —
+ * addresses, bytes, booleans — is left exactly as it came, because for those
+ * the two sides already agree and loosening the comparison would only hide a
+ * real mismatch.
+ */
+function normalizeForComparison(value: unknown): unknown {
+  if (BigNumber.isBigNumber(value)) {
+    return { numeric: value.toString() }
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return { numeric: value.toString() }
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeForComparison)
+  }
+  return value
+}
 export async function expectCalledOnceWith(
   fn: MockedFunction,
   args: unknown[]
@@ -501,14 +646,8 @@ export async function expectCalledOnceWith(
   expect(call.args.length, "argument count").to.equal(args.length)
   args.forEach((expected, index) => {
     const actual = call.args[index]
-    // Comparing loosely on purpose: ethers hands back BigNumber for numeric
-    // arguments and checksummed strings for addresses, and the call sites
-    // being migrated pass plain numbers and lower-case addresses.
-    expect(
-      BigNumber.isBigNumber(actual) ? actual.toString() : actual,
-      `argument ${index}`
-    ).to.deep.equal(
-      BigNumber.isBigNumber(expected) ? expected.toString() : expected
+    expect(normalizeForComparison(actual), `argument ${index}`).to.deep.equal(
+      normalizeForComparison(expected)
     )
   })
 }

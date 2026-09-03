@@ -1,7 +1,6 @@
 import crypto from "crypto"
 import { ethers, helpers } from "hardhat"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { BigNumber, BigNumberish, BytesLike } from "ethers"
 import type {
   Bridge,
@@ -10,8 +9,8 @@ import type {
 } from "../../typechain"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
-
-chai.use(smock.matchers)
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -45,14 +44,14 @@ const emptyDepositExtraInfo = {
 }
 
 describe("WalletProposalValidator", () => {
-  let bridge: FakeContract<Bridge>
+  let bridge: Mock<Bridge>
 
   let walletProposalValidator: WalletProposalValidator
 
   before(async () => {
     const { deployer } = await helpers.signers.getNamedSigners()
 
-    bridge = await smock.fake<Bridge>("Bridge")
+    bridge = await createMock<Bridge>("Bridge")
 
     const WalletProposalValidator = await ethers.getContractFactory(
       "WalletProposalValidator"
@@ -72,11 +71,11 @@ describe("WalletProposalValidator", () => {
     before(async () => {
       await createSnapshot()
 
-      bridge.depositParameters.returns([0, 0, bridgeDepositTxMaxFee, 0])
+      await bridge.depositParameters.returns([0, 0, bridgeDepositTxMaxFee, 0])
     })
 
     after(async () => {
-      bridge.depositParameters.reset()
+      await bridge.depositParameters.reset()
 
       await restoreSnapshot()
     })
@@ -106,7 +105,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -120,7 +119,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -160,7 +159,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -174,7 +173,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -270,7 +269,7 @@ describe("WalletProposalValidator", () => {
                         false
                       )
 
-                      bridge.deposits
+                      await bridge.deposits
                         .whenCalledWith(
                           depositKey(
                             depositOne.key.fundingTxHash,
@@ -279,7 +278,7 @@ describe("WalletProposalValidator", () => {
                         )
                         .returns(depositOne.request)
 
-                      bridge.deposits
+                      await bridge.deposits
                         .whenCalledWith(
                           depositKey(
                             depositTwo.key.fundingTxHash,
@@ -290,7 +289,7 @@ describe("WalletProposalValidator", () => {
                     })
 
                     after(async () => {
-                      bridge.deposits.reset()
+                      await bridge.deposits.reset()
 
                       await restoreSnapshot()
                     })
@@ -339,7 +338,7 @@ describe("WalletProposalValidator", () => {
                           false
                         )
 
-                        bridge.deposits
+                        await bridge.deposits
                           .whenCalledWith(
                             depositKey(
                               depositOne.key.fundingTxHash,
@@ -348,7 +347,7 @@ describe("WalletProposalValidator", () => {
                           )
                           .returns(depositOne.request)
 
-                        bridge.deposits
+                        await bridge.deposits
                           .whenCalledWith(
                             depositKey(
                               depositTwo.key.fundingTxHash,
@@ -359,7 +358,7 @@ describe("WalletProposalValidator", () => {
                       })
 
                       after(async () => {
-                        bridge.deposits.reset()
+                        await bridge.deposits.reset()
 
                         await restoreSnapshot()
                       })
@@ -413,7 +412,7 @@ describe("WalletProposalValidator", () => {
                       )
 
                       // Deposit one is a proper one.
-                      bridge.deposits
+                      await bridge.deposits
                         .whenCalledWith(
                           depositKey(
                             depositOne.key.fundingTxHash,
@@ -423,7 +422,7 @@ describe("WalletProposalValidator", () => {
                         .returns(depositOne.request)
 
                       // Simulate the deposit two is not revealed.
-                      bridge.deposits
+                      await bridge.deposits
                         .whenCalledWith(
                           depositKey(
                             depositTwo.key.fundingTxHash,
@@ -437,7 +436,7 @@ describe("WalletProposalValidator", () => {
                     })
 
                     after(async () => {
-                      bridge.deposits.reset()
+                      await bridge.deposits.reset()
 
                       await restoreSnapshot()
                     })
@@ -484,7 +483,7 @@ describe("WalletProposalValidator", () => {
                         )
 
                         // Deposit one is a proper one.
-                        bridge.deposits
+                        await bridge.deposits
                           .whenCalledWith(
                             depositKey(
                               depositOne.key.fundingTxHash,
@@ -495,7 +494,7 @@ describe("WalletProposalValidator", () => {
 
                         // Simulate the deposit two has just been revealed thus not
                         // achieved the min age yet.
-                        bridge.deposits
+                        await bridge.deposits
                           .whenCalledWith(
                             depositKey(
                               depositTwo.key.fundingTxHash,
@@ -509,7 +508,7 @@ describe("WalletProposalValidator", () => {
                       })
 
                       after(async () => {
-                        bridge.deposits.reset()
+                        await bridge.deposits.reset()
 
                         await restoreSnapshot()
                       })
@@ -556,7 +555,7 @@ describe("WalletProposalValidator", () => {
                           )
 
                           // Deposit one is a proper one.
-                          bridge.deposits
+                          await bridge.deposits
                             .whenCalledWith(
                               depositKey(
                                 depositOne.key.fundingTxHash,
@@ -566,7 +565,7 @@ describe("WalletProposalValidator", () => {
                             .returns(depositOne.request)
 
                           // Simulate the deposit two has already been swept.
-                          bridge.deposits
+                          await bridge.deposits
                             .whenCalledWith(
                               depositKey(
                                 depositTwo.key.fundingTxHash,
@@ -580,7 +579,7 @@ describe("WalletProposalValidator", () => {
                         })
 
                         after(async () => {
-                          bridge.deposits.reset()
+                          await bridge.deposits.reset()
 
                           await restoreSnapshot()
                         })
@@ -625,7 +624,7 @@ describe("WalletProposalValidator", () => {
                                     true
                                   )
 
-                                  bridge.deposits
+                                  await bridge.deposits
                                     .whenCalledWith(
                                       depositKey(
                                         deposit.key.fundingTxHash,
@@ -636,7 +635,7 @@ describe("WalletProposalValidator", () => {
                                 })
 
                                 after(async () => {
-                                  bridge.deposits.reset()
+                                  await bridge.deposits.reset()
 
                                   await restoreSnapshot()
                                 })
@@ -687,7 +686,7 @@ describe("WalletProposalValidator", () => {
                                     false // Produce a non-witness deposit with 20-byte script
                                   )
 
-                                  bridge.deposits
+                                  await bridge.deposits
                                     .whenCalledWith(
                                       depositKey(
                                         deposit.key.fundingTxHash,
@@ -698,7 +697,7 @@ describe("WalletProposalValidator", () => {
                                 })
 
                                 after(async () => {
-                                  bridge.deposits.reset()
+                                  await bridge.deposits.reset()
 
                                   await restoreSnapshot()
                                 })
@@ -753,7 +752,7 @@ describe("WalletProposalValidator", () => {
                                     true // Produce a witness deposit with 32-byte script
                                   )
 
-                                  bridge.deposits
+                                  await bridge.deposits
                                     .whenCalledWith(
                                       depositKey(
                                         deposit.key.fundingTxHash,
@@ -764,7 +763,7 @@ describe("WalletProposalValidator", () => {
                                 })
 
                                 after(async () => {
-                                  bridge.deposits.reset()
+                                  await bridge.deposits.reset()
 
                                   await restoreSnapshot()
                                 })
@@ -846,7 +845,7 @@ describe("WalletProposalValidator", () => {
                                     depositRevealedAt
                                   )
 
-                                  bridge.deposits
+                                  await bridge.deposits
                                     .whenCalledWith(
                                       depositKey(
                                         depositOne.key.fundingTxHash,
@@ -855,7 +854,7 @@ describe("WalletProposalValidator", () => {
                                     )
                                     .returns(depositOne.request)
 
-                                  bridge.deposits
+                                  await bridge.deposits
                                     .whenCalledWith(
                                       depositKey(
                                         depositTwo.key.fundingTxHash,
@@ -866,7 +865,7 @@ describe("WalletProposalValidator", () => {
                                 })
 
                                 after(async () => {
-                                  bridge.deposits.reset()
+                                  await bridge.deposits.reset()
 
                                   await restoreSnapshot()
                                 })
@@ -930,7 +929,7 @@ describe("WalletProposalValidator", () => {
                                         false
                                       )
 
-                                      bridge.deposits
+                                      await bridge.deposits
                                         .whenCalledWith(
                                           depositKey(
                                             depositOne.key.fundingTxHash,
@@ -939,7 +938,7 @@ describe("WalletProposalValidator", () => {
                                         )
                                         .returns(depositOne.request)
 
-                                      bridge.deposits
+                                      await bridge.deposits
                                         .whenCalledWith(
                                           depositKey(
                                             depositTwo.key.fundingTxHash,
@@ -950,7 +949,7 @@ describe("WalletProposalValidator", () => {
                                     })
 
                                     after(async () => {
-                                      bridge.deposits.reset()
+                                      await bridge.deposits.reset()
 
                                       await restoreSnapshot()
                                     })
@@ -1014,7 +1013,7 @@ describe("WalletProposalValidator", () => {
                                             false
                                           )
 
-                                          bridge.deposits
+                                          await bridge.deposits
                                             .whenCalledWith(
                                               depositKey(
                                                 depositOne.key.fundingTxHash,
@@ -1024,7 +1023,7 @@ describe("WalletProposalValidator", () => {
                                             )
                                             .returns(depositOne.request)
 
-                                          bridge.deposits
+                                          await bridge.deposits
                                             .whenCalledWith(
                                               depositKey(
                                                 depositTwo.key.fundingTxHash,
@@ -1036,7 +1035,7 @@ describe("WalletProposalValidator", () => {
                                         })
 
                                         after(async () => {
-                                          bridge.deposits.reset()
+                                          await bridge.deposits.reset()
 
                                           await restoreSnapshot()
                                         })
@@ -1100,7 +1099,7 @@ describe("WalletProposalValidator", () => {
                                                 false
                                               )
 
-                                              bridge.deposits
+                                              await bridge.deposits
                                                 .whenCalledWith(
                                                   depositKey(
                                                     depositOne.key
@@ -1111,7 +1110,7 @@ describe("WalletProposalValidator", () => {
                                                 )
                                                 .returns(depositOne.request)
 
-                                              bridge.deposits
+                                              await bridge.deposits
                                                 .whenCalledWith(
                                                   depositKey(
                                                     depositTwo.key
@@ -1122,7 +1121,7 @@ describe("WalletProposalValidator", () => {
                                                 )
                                                 .returns(depositTwo.request)
 
-                                              bridge.deposits
+                                              await bridge.deposits
                                                 .whenCalledWith(
                                                   depositKey(
                                                     depositThree.key
@@ -1135,7 +1134,7 @@ describe("WalletProposalValidator", () => {
                                             })
 
                                             after(async () => {
-                                              bridge.deposits.reset()
+                                              await bridge.deposits.reset()
 
                                               await restoreSnapshot()
                                             })
@@ -1204,7 +1203,7 @@ describe("WalletProposalValidator", () => {
                                                 "0xa9b38ea6435c8941d6eda6a46b68e3e2117196995bd154ab55196396b03d9bda"
                                               )
 
-                                              bridge.deposits
+                                              await bridge.deposits
                                                 .whenCalledWith(
                                                   depositKey(
                                                     depositOne.key
@@ -1215,7 +1214,7 @@ describe("WalletProposalValidator", () => {
                                                 )
                                                 .returns(depositOne.request)
 
-                                              bridge.deposits
+                                              await bridge.deposits
                                                 .whenCalledWith(
                                                   depositKey(
                                                     depositTwo.key
@@ -1226,7 +1225,7 @@ describe("WalletProposalValidator", () => {
                                                 )
                                                 .returns(depositTwo.request)
 
-                                              bridge.deposits
+                                              await bridge.deposits
                                                 .whenCalledWith(
                                                   depositKey(
                                                     depositThree.key
@@ -1239,7 +1238,7 @@ describe("WalletProposalValidator", () => {
                                             })
 
                                             after(async () => {
-                                              bridge.deposits.reset()
+                                              await bridge.deposits.reset()
 
                                               await restoreSnapshot()
                                             })
@@ -1306,7 +1305,7 @@ describe("WalletProposalValidator", () => {
 
       redemptionRequestDefaultAnchorTime = await lastBlockTime()
 
-      bridge.redemptionParameters.returns([
+      await bridge.redemptionParameters.returns([
         0,
         0,
         0,
@@ -1318,7 +1317,7 @@ describe("WalletProposalValidator", () => {
     })
 
     after(async () => {
-      bridge.redemptionParameters.reset()
+      await bridge.redemptionParameters.reset()
 
       await restoreSnapshot()
     })
@@ -1348,7 +1347,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -1362,7 +1361,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -1398,7 +1397,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -1412,7 +1411,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -1514,7 +1513,7 @@ describe("WalletProposalValidator", () => {
                     requestTwo = createTestRedemptionRequest(walletPubKeyHash)
 
                     // Request one is a proper one.
-                    bridge.pendingRedemptions
+                    await bridge.pendingRedemptions
                       .whenCalledWith(
                         redemptionKey(
                           requestOne.key.walletPubKeyHash,
@@ -1524,7 +1523,7 @@ describe("WalletProposalValidator", () => {
                       .returns(requestOne.content)
 
                     // Simulate the request two is non-pending.
-                    bridge.pendingRedemptions
+                    await bridge.pendingRedemptions
                       .whenCalledWith(
                         redemptionKey(
                           requestTwo.key.walletPubKeyHash,
@@ -1538,7 +1537,7 @@ describe("WalletProposalValidator", () => {
                   })
 
                   after(async () => {
-                    bridge.pendingRedemptions.reset()
+                    await bridge.pendingRedemptions.reset()
 
                     await restoreSnapshot()
                   })
@@ -1580,7 +1579,7 @@ describe("WalletProposalValidator", () => {
                             createTestRedemptionRequest(walletPubKeyHash)
 
                           // Request one is a proper one.
-                          bridge.pendingRedemptions
+                          await bridge.pendingRedemptions
                             .whenCalledWith(
                               redemptionKey(
                                 requestOne.key.walletPubKeyHash,
@@ -1591,7 +1590,7 @@ describe("WalletProposalValidator", () => {
 
                           // Simulate the request two has just been created thus not
                           // achieved the min age yet.
-                          bridge.pendingRedemptions
+                          await bridge.pendingRedemptions
                             .whenCalledWith(
                               redemptionKey(
                                 requestTwo.key.walletPubKeyHash,
@@ -1605,7 +1604,7 @@ describe("WalletProposalValidator", () => {
                         })
 
                         after(async () => {
-                          bridge.pendingRedemptions.reset()
+                          await bridge.pendingRedemptions.reset()
 
                           await restoreSnapshot()
                         })
@@ -1634,7 +1633,7 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when immaturity is caused by watchtower's delay violation",
                       () => {
-                        let watchtower: FakeContract<IRedemptionWatchtower>
+                        let watchtower: Mock<IRedemptionWatchtower>
                         let requestOne
                         let requestTwo
 
@@ -1653,7 +1652,7 @@ describe("WalletProposalValidator", () => {
                           )
 
                           // Request one is a proper one.
-                          bridge.pendingRedemptions
+                          await bridge.pendingRedemptions
                             .whenCalledWith(
                               redemptionKey(
                                 requestOne.key.walletPubKeyHash,
@@ -1664,7 +1663,7 @@ describe("WalletProposalValidator", () => {
 
                           // Simulate the request two has just been created thus not
                           // achieved the min age yet.
-                          bridge.pendingRedemptions
+                          await bridge.pendingRedemptions
                             .whenCalledWith(
                               redemptionKey(
                                 requestTwo.key.walletPubKeyHash,
@@ -1673,15 +1672,15 @@ describe("WalletProposalValidator", () => {
                             )
                             .returns(requestTwo.content)
 
-                          watchtower = await smock.fake<IRedemptionWatchtower>(
+                          watchtower = await createMock<IRedemptionWatchtower>(
                             "IRedemptionWatchtower"
                           )
-                          bridge.getRedemptionWatchtower.returns(
+                          await bridge.getRedemptionWatchtower.returns(
                             watchtower.address
                           )
 
                           const redemptionOneDelay = 3600
-                          watchtower.getRedemptionDelay
+                          await watchtower.getRedemptionDelay
                             .whenCalledWith(
                               buildRedemptionKey(
                                 requestOne.key.walletPubKeyHash,
@@ -1691,7 +1690,7 @@ describe("WalletProposalValidator", () => {
                             .returns(redemptionOneDelay)
 
                           const redemptionTwoDelay = 7200
-                          watchtower.getRedemptionDelay
+                          await watchtower.getRedemptionDelay
                             .whenCalledWith(
                               buildRedemptionKey(
                                 requestTwo.key.walletPubKeyHash,
@@ -1706,9 +1705,9 @@ describe("WalletProposalValidator", () => {
                         })
 
                         after(async () => {
-                          bridge.getRedemptionWatchtower.reset()
-                          watchtower.getRedemptionDelay.reset()
-                          bridge.pendingRedemptions.reset()
+                          await bridge.getRedemptionWatchtower.reset()
+                          await watchtower.getRedemptionDelay.reset()
+                          await bridge.pendingRedemptions.reset()
 
                           await restoreSnapshot()
                         })
@@ -1769,7 +1768,7 @@ describe("WalletProposalValidator", () => {
                             requestCreatedAt
                           )
 
-                          bridge.pendingRedemptions
+                          await bridge.pendingRedemptions
                             .whenCalledWith(
                               redemptionKey(
                                 requestOne.key.walletPubKeyHash,
@@ -1778,7 +1777,7 @@ describe("WalletProposalValidator", () => {
                             )
                             .returns(requestOne.content)
 
-                          bridge.pendingRedemptions
+                          await bridge.pendingRedemptions
                             .whenCalledWith(
                               redemptionKey(
                                 requestTwo.key.walletPubKeyHash,
@@ -1789,7 +1788,7 @@ describe("WalletProposalValidator", () => {
                         })
 
                         after(async () => {
-                          bridge.pendingRedemptions.reset()
+                          await bridge.pendingRedemptions.reset()
 
                           await restoreSnapshot()
                         })
@@ -1845,7 +1844,7 @@ describe("WalletProposalValidator", () => {
                                   4499
                                 )
 
-                                bridge.pendingRedemptions
+                                await bridge.pendingRedemptions
                                   .whenCalledWith(
                                     redemptionKey(
                                       requestOne.key.walletPubKeyHash,
@@ -1854,7 +1853,7 @@ describe("WalletProposalValidator", () => {
                                   )
                                   .returns(requestOne.content)
 
-                                bridge.pendingRedemptions
+                                await bridge.pendingRedemptions
                                   .whenCalledWith(
                                     redemptionKey(
                                       requestTwo.key.walletPubKeyHash,
@@ -1865,7 +1864,7 @@ describe("WalletProposalValidator", () => {
                               })
 
                               after(async () => {
-                                bridge.pendingRedemptions.reset()
+                                await bridge.pendingRedemptions.reset()
 
                                 await restoreSnapshot()
                               })
@@ -1915,7 +1914,7 @@ describe("WalletProposalValidator", () => {
                                   4500
                                 )
 
-                                bridge.pendingRedemptions
+                                await bridge.pendingRedemptions
                                   .whenCalledWith(
                                     redemptionKey(
                                       requestOne.key.walletPubKeyHash,
@@ -1924,7 +1923,7 @@ describe("WalletProposalValidator", () => {
                                   )
                                   .returns(requestOne.content)
 
-                                bridge.pendingRedemptions
+                                await bridge.pendingRedemptions
                                   .whenCalledWith(
                                     redemptionKey(
                                       requestTwo.key.walletPubKeyHash,
@@ -1935,7 +1934,7 @@ describe("WalletProposalValidator", () => {
                               })
 
                               after(async () => {
-                                bridge.pendingRedemptions.reset()
+                                await bridge.pendingRedemptions.reset()
 
                                 await restoreSnapshot()
                               })
@@ -1990,7 +1989,7 @@ describe("WalletProposalValidator", () => {
                                     2500 // necessary to pass the fee share validation
                                   )
 
-                                  bridge.pendingRedemptions
+                                  await bridge.pendingRedemptions
                                     .whenCalledWith(
                                       redemptionKey(
                                         requestOne.key.walletPubKeyHash,
@@ -1999,7 +1998,7 @@ describe("WalletProposalValidator", () => {
                                     )
                                     .returns(requestOne.content)
 
-                                  bridge.pendingRedemptions
+                                  await bridge.pendingRedemptions
                                     .whenCalledWith(
                                       redemptionKey(
                                         requestTwo.key.walletPubKeyHash,
@@ -2008,7 +2007,7 @@ describe("WalletProposalValidator", () => {
                                     )
                                     .returns(requestTwo.content)
 
-                                  bridge.pendingRedemptions
+                                  await bridge.pendingRedemptions
                                     .whenCalledWith(
                                       redemptionKey(
                                         requestThree.key.walletPubKeyHash,
@@ -2019,7 +2018,7 @@ describe("WalletProposalValidator", () => {
                                 })
 
                                 after(async () => {
-                                  bridge.pendingRedemptions.reset()
+                                  await bridge.pendingRedemptions.reset()
 
                                   await restoreSnapshot()
                                 })
@@ -2062,7 +2061,7 @@ describe("WalletProposalValidator", () => {
 
                               requestTestData.forEach((requestTest) => {
                                 context(requestTest.testName, () => {
-                                  let watchtower: FakeContract<IRedemptionWatchtower>
+                                  let watchtower: Mock<IRedemptionWatchtower>
                                   let requestOne
                                   let requestTwo
 
@@ -2079,7 +2078,7 @@ describe("WalletProposalValidator", () => {
                                       5000 // necessary to pass the fee share validation
                                     )
 
-                                    bridge.pendingRedemptions
+                                    await bridge.pendingRedemptions
                                       .whenCalledWith(
                                         redemptionKey(
                                           requestOne.key.walletPubKeyHash,
@@ -2088,7 +2087,7 @@ describe("WalletProposalValidator", () => {
                                       )
                                       .returns(requestOne.content)
 
-                                    bridge.pendingRedemptions
+                                    await bridge.pendingRedemptions
                                       .whenCalledWith(
                                         redemptionKey(
                                           requestTwo.key.walletPubKeyHash,
@@ -2099,11 +2098,11 @@ describe("WalletProposalValidator", () => {
 
                                     if (requestTest.watchtower) {
                                       watchtower =
-                                        await smock.fake<IRedemptionWatchtower>(
+                                        await createMock<IRedemptionWatchtower>(
                                           "IRedemptionWatchtower"
                                         )
 
-                                      bridge.getRedemptionWatchtower.returns(
+                                      await bridge.getRedemptionWatchtower.returns(
                                         watchtower.address
                                       )
 
@@ -2115,7 +2114,7 @@ describe("WalletProposalValidator", () => {
                                       // ensure that the delay is preserved
                                       // at the moment of the proposal validation.
                                       // A value of 2 hours will be a good fit.
-                                      watchtower.getRedemptionDelay.returns(
+                                      await watchtower.getRedemptionDelay.returns(
                                         7200 // 2 hours
                                       )
                                     }
@@ -2123,11 +2122,11 @@ describe("WalletProposalValidator", () => {
 
                                   after(async () => {
                                     if (requestTest.watchtower) {
-                                      bridge.getRedemptionWatchtower.reset()
-                                      watchtower.getRedemptionDelay.reset()
+                                      await bridge.getRedemptionWatchtower.reset()
+                                      await watchtower.getRedemptionDelay.reset()
                                     }
 
-                                    bridge.pendingRedemptions.reset()
+                                    await bridge.pendingRedemptions.reset()
 
                                     await restoreSnapshot()
                                   })
@@ -2192,7 +2191,7 @@ describe("WalletProposalValidator", () => {
     before(async () => {
       await createSnapshot()
 
-      bridge.movingFundsParameters.returns([
+      await bridge.movingFundsParameters.returns([
         movingFundsTxMaxTotalFee,
         movingFundsDustThreshold,
         0,
@@ -2208,7 +2207,7 @@ describe("WalletProposalValidator", () => {
     })
 
     after(async () => {
-      bridge.movingFundsParameters.reset()
+      await bridge.movingFundsParameters.reset()
 
       await restoreSnapshot()
     })
@@ -2242,7 +2241,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID: HashZero,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -2256,7 +2255,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -2282,7 +2281,7 @@ describe("WalletProposalValidator", () => {
         before(async () => {
           await createSnapshot()
 
-          bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+          await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
             ecdsaWalletID: HashZero,
             mainUtxoHash: HashZero,
             pendingRedemptionsValue: 0,
@@ -2297,7 +2296,7 @@ describe("WalletProposalValidator", () => {
         })
 
         after(async () => {
-          bridge.wallets.reset()
+          await bridge.wallets.reset()
 
           await restoreSnapshot()
         })
@@ -2321,7 +2320,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID: HashZero,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -2337,7 +2336,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -2363,7 +2362,7 @@ describe("WalletProposalValidator", () => {
             before(async () => {
               await createSnapshot()
 
-              bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+              await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
                 ecdsaWalletID: HashZero,
                 // Use zero hash so that the wallet's main UTXO is considered
                 // not set. This will be interpreted as the wallet having BTC
@@ -2380,7 +2379,7 @@ describe("WalletProposalValidator", () => {
             })
 
             after(async () => {
-              bridge.wallets.reset()
+              await bridge.wallets.reset()
 
               await restoreSnapshot()
             })
@@ -2405,7 +2404,7 @@ describe("WalletProposalValidator", () => {
             before(async () => {
               await createSnapshot()
 
-              bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+              await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
                 ecdsaWalletID: HashZero,
                 mainUtxoHash:
                   // Use any non-zero hash to indicate the wallet has a main UTXO.
@@ -2421,7 +2420,7 @@ describe("WalletProposalValidator", () => {
             })
 
             after(async () => {
-              bridge.wallets.reset()
+              await bridge.wallets.reset()
 
               await restoreSnapshot()
             })
@@ -2452,22 +2451,24 @@ describe("WalletProposalValidator", () => {
                 before(async () => {
                   await createSnapshot()
 
-                  bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
-                    ecdsaWalletID: HashZero,
-                    mainUtxoHash:
-                      "0x757a5ca2a1e5fff2f2a51c073cb88c097603285fcfa52cb58473704647fa7edb",
-                    pendingRedemptionsValue: 0,
-                    createdAt: 0,
-                    movingFundsRequestedAt: 0,
-                    closingStartedAt: 0,
-                    pendingMovedFundsSweepRequestsCount: 0,
-                    state: walletState.MovingFunds,
-                    movingFundsTargetWalletsCommitmentHash: targetWalletsHash,
-                  })
+                  await bridge.wallets
+                    .whenCalledWith(walletPubKeyHash)
+                    .returns({
+                      ecdsaWalletID: HashZero,
+                      mainUtxoHash:
+                        "0x757a5ca2a1e5fff2f2a51c073cb88c097603285fcfa52cb58473704647fa7edb",
+                      pendingRedemptionsValue: 0,
+                      createdAt: 0,
+                      movingFundsRequestedAt: 0,
+                      closingStartedAt: 0,
+                      pendingMovedFundsSweepRequestsCount: 0,
+                      state: walletState.MovingFunds,
+                      movingFundsTargetWalletsCommitmentHash: targetWalletsHash,
+                    })
                 })
 
                 after(async () => {
-                  bridge.wallets.reset()
+                  await bridge.wallets.reset()
 
                   await restoreSnapshot()
                 })
@@ -2499,21 +2500,23 @@ describe("WalletProposalValidator", () => {
               () => {
                 before(async () => {
                   await createSnapshot()
-                  bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
-                    ecdsaWalletID: HashZero,
-                    mainUtxoHash: walletMainUtxoHash,
-                    pendingRedemptionsValue: 0,
-                    createdAt: 0,
-                    movingFundsRequestedAt: 0,
-                    closingStartedAt: 0,
-                    pendingMovedFundsSweepRequestsCount: 0,
-                    state: walletState.MovingFunds,
-                    movingFundsTargetWalletsCommitmentHash: targetWalletsHash,
-                  })
+                  await bridge.wallets
+                    .whenCalledWith(walletPubKeyHash)
+                    .returns({
+                      ecdsaWalletID: HashZero,
+                      mainUtxoHash: walletMainUtxoHash,
+                      pendingRedemptionsValue: 0,
+                      createdAt: 0,
+                      movingFundsRequestedAt: 0,
+                      closingStartedAt: 0,
+                      pendingMovedFundsSweepRequestsCount: 0,
+                      state: walletState.MovingFunds,
+                      movingFundsTargetWalletsCommitmentHash: targetWalletsHash,
+                    })
                 })
 
                 after(async () => {
-                  bridge.wallets.reset()
+                  await bridge.wallets.reset()
 
                   await restoreSnapshot()
                 })
@@ -2585,7 +2588,7 @@ describe("WalletProposalValidator", () => {
     before(async () => {
       await createSnapshot()
 
-      bridge.movingFundsParameters.returns([
+      await bridge.movingFundsParameters.returns([
         0,
         0,
         0,
@@ -2601,7 +2604,7 @@ describe("WalletProposalValidator", () => {
     })
 
     after(async () => {
-      bridge.movingFundsParameters.reset()
+      await bridge.movingFundsParameters.reset()
 
       await restoreSnapshot()
     })
@@ -2631,7 +2634,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID: HashZero,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -2645,7 +2648,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -2683,7 +2686,7 @@ describe("WalletProposalValidator", () => {
           before(async () => {
             await createSnapshot()
 
-            bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+            await bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
               ecdsaWalletID: HashZero,
               mainUtxoHash: HashZero,
               pendingRedemptionsValue: 0,
@@ -2697,7 +2700,7 @@ describe("WalletProposalValidator", () => {
           })
 
           after(async () => {
-            bridge.wallets.reset()
+            await bridge.wallets.reset()
 
             await restoreSnapshot()
           })
@@ -2731,7 +2734,7 @@ describe("WalletProposalValidator", () => {
                     movingFundsTxOutputIndex
                   )
 
-                  bridge.movedFundsSweepRequests
+                  await bridge.movedFundsSweepRequests
                     .whenCalledWith(requestKey)
                     .returns({
                       // Use random wallet public key hash.
@@ -2744,7 +2747,7 @@ describe("WalletProposalValidator", () => {
                 })
 
                 after(async () => {
-                  bridge.movedFundsSweepRequests.reset()
+                  await bridge.movedFundsSweepRequests.reset()
 
                   await restoreSnapshot()
                 })
@@ -2775,7 +2778,7 @@ describe("WalletProposalValidator", () => {
                     movingFundsTxOutputIndex
                   )
 
-                  bridge.movedFundsSweepRequests
+                  await bridge.movedFundsSweepRequests
                     .whenCalledWith(requestKey)
                     .returns({
                       walletPubKeyHash,
@@ -2786,7 +2789,7 @@ describe("WalletProposalValidator", () => {
                 })
 
                 after(async () => {
-                  bridge.movedFundsSweepRequests.reset()
+                  await bridge.movedFundsSweepRequests.reset()
 
                   await restoreSnapshot()
                 })

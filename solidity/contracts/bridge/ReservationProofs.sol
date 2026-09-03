@@ -199,7 +199,7 @@ library ReservationProofs {
                 expectedType != Reservation.ActionType.Acceptance ||
                 /* solhint-disable-next-line not-rely-on-time */
                 block.timestamp <=
-                uint256(action.timeoutAt) + self.reservationTermSeconds,
+                uint256(action.timeoutAt) + action.termSeconds,
             "Late acceptance settlement window expired"
         );
     }

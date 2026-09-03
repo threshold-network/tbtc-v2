@@ -1,6 +1,7 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { loadFixture } from "../helpers/fixture"
 
 import type { Bank, TBTC, TBTCVault, ReservationVault } from "../../typechain"
 
@@ -55,8 +56,9 @@ describe("ReservationVault", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, account1, bank, tbtc, tbtcVault, vault } =
-      await waffle.loadFixture(fixture))
+    ;({ bridge, account1, bank, tbtc, tbtcVault, vault } = await loadFixture(
+      fixture
+    ))
   })
 
   describe("constructor", () => {
