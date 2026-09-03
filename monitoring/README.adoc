@@ -120,26 +120,6 @@ delivery recovers. Operators should:
 - expect catch-up to proceed in capped block-range increments if the checkpoint
   is stale.
 
-=== Dispatch coverage failures
-
-The monitoring manager is fail-closed on dispatch coverage. A run fails if a
-system event produced by a monitor is not accepted (handled or deduplicated) by
-any receiver that attempted delivery. When that happens, the checkpoint block is
-not advanced and the next run will rescan the same block range.
-
-Events explicitly ignored by all registered receivers do not trigger a coverage
-failure. This is expected in partial-receiver deployments -- for example, if
-only the Sentry receiver is configured, informational events will not produce
-coverage errors because Sentry only accepts warning and critical events.
-
-If monitoring halts with a coverage failure, check that:
-
-- all active receivers are healthy (dispatch errors will appear earlier in the
-  same run's log),
-- the receiver configuration covers every event type emitted by active
-  monitors, and
-- no new monitor event types were recently added without a matching receiver.
-
 == Build and deployment
 
 === Prerequisites

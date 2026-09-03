@@ -51,6 +51,14 @@ test("Manager does not error when all receivers ignore a system event (partial-r
   assert.deepStrictEqual(report.errors, [])
 })
 
+test("Manager reports an error when no receivers are registered", async () => {
+  const manager = new Manager([monitor], [], persistence({}))
+  const report = await manager.check(100, 200)
+
+  assert.strictEqual(report.errors.length, 1)
+  assert.ok(report.errors[0].includes("no receivers registered"))
+})
+
 test("Manager reports dispatch error without coverage error when receiver throws", async () => {
   const receiver: Receiver = {
     id: () => "Throws",
