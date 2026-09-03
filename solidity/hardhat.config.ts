@@ -52,6 +52,23 @@ const bridgeGovernanceCompilerConfig = {
     outputSelection: storageLayoutOutputSelection,
   },
 }
+// Reduce the number of optimizer runs to keep Bridge.sol under the
+// EIP-170 24KB limit when the m1 reservation surface (router fallback,
+// governance setters, and parameter views) lands on top of the
+// isReservedDeposit view already wired in this branch. The shared
+// storageLayoutOutputSelection is required so the upgrade-safety test
+// in test/bridge/Bridge.StorageLayout.test.ts keeps the storage layout
+// in build info.
+const bridgeCompilerConfig = {
+  version: "0.8.17",
+  settings: {
+    optimizer: {
+      enabled: true,
+      runs: 200, // Reversion to default 1000 attempted and re-measured as infeasible post router-split: 24835 bytes > 24576 limit.
+    },
+    outputSelection: storageLayoutOutputSelection,
+  },
+}
 // Configuration for testing environment.
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
@@ -85,6 +102,7 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      "contracts/bridge/Bridge.sol": bridgeCompilerConfig,
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {

@@ -356,6 +356,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     }
 
     /// @notice Updates the vault fee parameters.
+    /// @param _initiationFeeBps The new initiation fee, in basis points.
+    /// @param _extensionFeeBps The new extension fee, in basis points.
+    /// @param _redemptionFeeBps The new redemption fee, in basis points.
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance),
     ///      - Each fee must not exceed `MAX_FEE_BASIS_POINTS`.

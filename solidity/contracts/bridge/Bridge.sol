@@ -32,6 +32,7 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./IReservationBridge.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
@@ -1625,6 +1626,16 @@ contract Bridge is
         return self.deposits[depositKey];
     }
 
+    /// @notice Returns whether the deposit was routed to the reservation
+    ///         vault that was configured at reveal time.
+    function isReservedDeposit(uint256 depositKey)
+        external
+        view
+        returns (bool)
+    {
+        return self.pendingReservedDeposit[depositKey].isReserved;
+    }
+
     /// @notice Collection of all pending redemption requests indexed by
     ///         redemption key built as
     ///         `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
@@ -2079,5 +2090,65 @@ contract Bridge is
     ) external {
         // The caller is checked in the internal function.
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    /// @notice Sets the reservation router address (can only be set once).
+    /// @param _reservationRouter Address of the reservation router contract.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Reservation router address must not be already set,
+    ///      - Reservation router address must not be 0x0.
+    function setReservationRouter(address _reservationRouter)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setReservationRouter(_reservationRouter);
+    }
+
+    /// @notice Returns the address of the reservation router, or the zero
+    ///         address if it has not been set yet.
+    function getReservationRouter() external view returns (address) {
+        return self.reservationRouter;
+    }
+
+    /// @notice Fallback entry point for reservation surface calls.
+    ///         `delegatecall`s the incoming `msg.data` to
+    ///         `self.reservationRouter`, executing the router code on the
+    ///         Bridge's own storage. This is what makes the router's
+    ///         reservation selectors reachable at the Bridge address without
+    ///         redeclaring them here (which is forbidden by `ReservationRouter`
+    ///         invariant 2 — NO SELECTOR SHADOWING).
+    /// @dev The router's selectors are disjoint from those declared on this
+    ///      contract by construction, with one documented exception for the
+    ///      shared `Governable`/`Initializable` base functions the router
+    ///      inherits to keep its storage layout aligned with the Bridge's
+    ///      (see `ReservationRouter` invariant 2); a selector-disjointness
+    ///      test guards everything else, so the fallback only ever sees
+    ///      calls that the Bridge itself does not match.
+    ///      If no router has been set, every call reverts with "Reservation
+    ///      router not set".
+    // solhint-disable-next-line no-complex-fallback
+    fallback() external payable {
+        address router = self.reservationRouter;
+        require(router != address(0), "Reservation router not set");
+        /* solhint-disable avoid-low-level-calls */
+        // slither-disable-next-line controlled-delegatecall,low-level-calls
+        (bool success, bytes memory result) = router.delegatecall(msg.data);
+        /* solhint-enable avoid-low-level-calls */
+        if (!success) {
+            // Bubble up the router's revert reason (including custom errors)
+            /* solhint-disable no-inline-assembly */
+            // instead of collapsing every failure into one generic string.
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+            /* solhint-enable no-inline-assembly */
+        }
+        /* solhint-disable-next-line no-inline-assembly */
+        assembly {
+            returndatacopy(0, 0, returndatasize())
+            return(0, returndatasize())
+        }
     }
 }

@@ -1,7 +1,15 @@
-import { ethers } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import type { Contract } from "ethers"
+import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type {
+  Bridge,
+  BridgeGovernance,
+  ReservationRouter,
+} from "../../typechain"
+import { constants } from "../fixtures"
+import bridgeFixture from "../fixtures/bridge"
 
 // `Reservation.MIN_RESERVATION_TERM`.
 const MIN_RESERVATION_TERM = 90 * 24 * 60 * 60
@@ -35,9 +43,7 @@ async function deployTestReservation(): Promise<Contract> {
 
   const TestReservationFactory = await ethers.getContractFactory(
     "TestReservation",
-    {
-      libraries: { Reservation: reservation.address },
-    }
+    { libraries: { Reservation: reservation.address } }
   )
 
   return TestReservationFactory.deploy()
@@ -242,6 +248,77 @@ describe("Reservation - amount cap versus slot capacity", () => {
       await expect(
         setTotalAmount(testReservation, slotCapacity + 1)
       ).to.be.revertedWith(CAPACITY_REVERT)
+    })
+  })
+})
+
+// Everything above drives the raw `Reservation` library layer directly
+// through the `TestReservation` harness, bypassing `BridgeGovernance`
+// entirely. That leaves the governance ceremony's own argument forwarding
+// unverified: `BridgeGovernance.finalizeReservationCapsUpdate` reads the
+// staged `ReservationCapsData` and forwards its three fields, by position,
+// to `IReservationBridge.updateReservationCaps`. A transposition bug in
+// that forwarding (e.g. swapping two staged fields) would pass every test
+// above undetected, since none of them go through `BridgeGovernance`.
+describe("Reservation - governance ceremony argument forwarding", () => {
+  let governance: SignerWithAddress
+  let bridge: Bridge
+  let bridgeGovernance: BridgeGovernance
+  let reservationRouter: ReservationRouter
+
+  before(async () => {
+    const fixture = await bridgeFixture()
+    governance = fixture.governance
+    bridge = fixture.bridge
+    bridgeGovernance = fixture.bridgeGovernance
+
+    // Attach the router ABI to the Bridge's own address: reservation-router
+    // calls reach the Bridge's fallback and execute via `delegatecall` on
+    // Bridge storage, exactly like the production caller path.
+    reservationRouter = await ethers.getContractAt(
+      "ReservationRouter",
+      bridge.address
+    )
+  })
+
+  describe("finalizeReservationCapsUpdate", () => {
+    // Chosen so the product stays above the `reservationMaxTotalAmount`
+    // already set by the deploy-time governance ceremony
+    // (`97_set_reservation_parameters.ts`), so finalizing does not trip
+    // `Reservation.validateReservationCapsInvariant`.
+    const newMaxReservationsAmountPerWallet = 2_000_000
+    const newReservationMaxSingleAmount = 100_000
+    const newMaxActiveReservations = 200
+
+    before(async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginReservationCapsUpdate(
+          newMaxReservationsAmountPerWallet,
+          newReservationMaxSingleAmount,
+          newMaxActiveReservations
+        )
+
+      await helpers.time.increaseTime(constants.governanceDelay)
+
+      await bridgeGovernance.connect(governance).finalizeReservationCapsUpdate()
+    })
+
+    it("forwards each staged field to its own on-chain slot, not a transposed one", async () => {
+      const caps = await reservationRouter.reservationCaps()
+      expect(
+        caps.maxReservationsAmountPerWallet,
+        "maxReservationsAmountPerWallet"
+      ).to.equal(newMaxReservationsAmountPerWallet)
+      expect(
+        caps.reservationMaxSingleAmount,
+        "reservationMaxSingleAmount"
+      ).to.equal(newReservationMaxSingleAmount)
+
+      const { maxActive } = await reservationRouter.activeReservationsCount()
+      expect(maxActive, "maxActiveReservations").to.equal(
+        newMaxActiveReservations
+      )
     })
   })
 })

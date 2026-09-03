@@ -49,9 +49,11 @@ library BridgeState {
         // deposits retain it even when reveal-ahead validation is disabled,
         // because acceptance must enforce the validator's refund margin.
         uint32 refundDeadline;
-        // True if the global reveal-ahead policy validated the deadline.
-        // Later stale cleanup uses this bit to preserve the disabled policy's
-        // historical behavior; acceptance always uses the exact deadline.
+        // True if the global reveal-ahead policy validated the deadline at
+        // reveal time. Reveal-time provenance metadata only -- no
+        // production code path branches on it; `notifyStaleReservedDeposit`
+        // and `ReservationProofs` compare `block.timestamp` against
+        // `refundDeadline` unconditionally and only ever clear this flag.
         bool refundDeadlineValidated;
     }
 
@@ -603,6 +605,7 @@ library BridgeState {
     // used by the Bridge contract following the same pattern as other
     // parameter events.
     event RebateStakingSet(address rebateStaking);
+    event ReservationRouterSet(address reservationRouter);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -1102,5 +1105,35 @@ library BridgeState {
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Sets the reservation router address. The router is the
+    ///         delegatecall extension of the Bridge holding the
+    ///         UTXO-reservation external surface; it is settable exactly
+    ///         once because replacing the address afterwards is
+    ///         equivalent to a Bridge implementation upgrade (the
+    ///         fallback delegatecall dispatches unknown selectors onto
+    ///         arbitrary code, so changing it requires the same ceremony
+    ///         as any other Bridge logic change).
+    /// @param _reservationRouter Address of the reservation router.
+    /// @dev Requirements:
+    ///      - Reservation router address must not be already set,
+    ///      - Reservation router address must not be 0x0.
+    function setReservationRouter(
+        Storage storage self,
+        address _reservationRouter
+    ) internal {
+        require(
+            self.reservationRouter == address(0),
+            "Reservation router already set"
+        );
+
+        require(
+            _reservationRouter != address(0),
+            "Reservation router address must not be 0x0"
+        );
+
+        self.reservationRouter = _reservationRouter;
+        emit ReservationRouterSet(_reservationRouter);
     }
 }

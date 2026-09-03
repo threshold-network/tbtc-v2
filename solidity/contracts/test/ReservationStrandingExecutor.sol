@@ -322,9 +322,10 @@ contract ReservationStrandingExecutor {
     }
 
     /// @notice Inserts a pending reserved deposit with both the
-    ///         reveal-ahead-validated and unvalidated shapes. The
-    ///         `notifyStaleReservedDeposit` path branches on
-    ///         `refundDeadlineValidated` so both shapes need coverage.
+    ///         reveal-ahead-validated and unvalidated shapes.
+    ///         `refundDeadlineValidated` is reveal-time provenance metadata
+    ///         only; `notifyStaleReservedDeposit` does not branch on it, but
+    ///         both shapes are seeded here for parity with reveal-time state.
     function seedPendingReservedDeposit(
         uint256 depositKey,
         bytes20 walletPubKeyHash,

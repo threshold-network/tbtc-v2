@@ -80,13 +80,48 @@ event ReservationCapsUpdated(
 );
 ```
 
+`ReservationReanchored` event signature change (ReservationRouter):
+
+```solidity
+// #1094
+event ReservationReanchored(
+    uint256 indexed reservationKey,
+    uint64 requestNonce,
+    bytes20 indexed newWalletPubKeyHash,
+    bytes32 newAnchorTxHash,
+    uint64 newAnchorAmount
+);
+
+// Milestone 1 (this PR)
+event ReservationReanchored(
+    uint256 indexed reservationKey,
+    uint64 requestNonce,
+    bytes20 indexed newWalletPubKeyHash,
+    bytes32 newAnchorTxHash,
+    uint64 newAnchorAmount,
+    uint64 minerFee
+);
+
+```
+
 Off-chain tooling updates required:
 
-- Governance proposal builders (Defender, Safe Transaction Builder, Tenderly, custom multisend helpers) — regenerate the encoded calldata with the 3-argument signature.
-- Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields. Backward-compatible decoders will read the new field as the next positional argument; forward-compatible decoders ignore unknown fields.
-- Monitoring alerts and circuit breakers keyed on `ReservationCapsUpdated` — confirm the alerts still fire on the new 3-field signature.
+- Governance proposal builders (Defender, Safe Transaction Builder, Tenderly, custom multisend helpers) — regenerate the encoded calldata with the 3-argument signature for `updateReservationCaps`.
+- Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields for `ReservationCapsUpdated` and 6 fields for `ReservationReanchored` (appended `minerFee` field). Backward-compatible decoders will read the new fields as the next positional argument; forward-compatible decoders ignore unknown fields. Note that off-chain indexers watching the pre-PR `ReservationReanchored` event signature will silently stop matching events until updated.
+- Monitoring alerts and circuit breakers keyed on `ReservationCapsUpdated` or `ReservationReanchored` — confirm the alerts still fire on the new signatures.
 
 `IReservationBridge` in this PR includes the updated 3-argument `updateReservationCaps` declaration; consumers that bind through it are forward-compatible automatically.
+
+---
+
+## Tracked Follow-up: Quantify External-Router Alternative Bytecode Delta
+
+The PR design rationale rejects a "genuinely external router with its own storage/authority interface" alternative (where the Bridge delegates or calls out to an external contract with its own authority) based on a qualitative argument: "more new Bridge bytecode than the refactor removes" (due to needing a wide set of privileged Bridge mutator callbacks).
+
+Unlike the other two rejected alternatives (the naive port at 26,529B and the optimizer-only override), this alternative was not empirically measured with hard bytecode numbers in the PR body. With the Bridge currently at ~22,870B / 24,576B (leaving limited bytecode margin), the router-fallback design commits most remaining budget based on this qualitative claim.
+
+**Tracked milestone-2 debt (non-blocking for milestone 1):**
+Before milestone 2 ships, a short technical spike should be conducted to empirically quantify the bytecode delta of the callback-authority/external-router alternative. This will apply the same empirical rigor used for the other two architectural comparisons and validate whether the delegatecall-router pattern remains the optimal long-term seam as more reservation lifecycle features (dissolution, veto, dedicated redemptions) are added in milestone 2.
 
 ---
 

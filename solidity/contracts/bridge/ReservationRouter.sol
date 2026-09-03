@@ -69,8 +69,15 @@ import "./ReservationProofs.sol";
 ///
 ///      2. NO SELECTOR SHADOWING. A selector defined by the Bridge never
 ///         reaches the router (the fallback only sees unmatched calls). The
-///         router must not declare a function the Bridge also declares; a
-///         selector-disjointness test guards this.
+///         router must not declare a function the Bridge also declares that
+///         differs in behavior; a selector-disjointness test guards this,
+///         with one documented exception: the `Governable`/`Initializable`
+///         base functions (e.g. `governance()`, `transferGovernance`) are
+///         inherited identically by both contracts to keep their storage
+///         layouts aligned for invariant 1 -- their router-side copies are
+///         permanently unreachable through the fallback (the Bridge's own
+///         copy always answers first) and are inert, so the collision is
+///         benign and excluded from the disjointness check by name.
 ///
 ///      3. NO STANDALONE AUTHORITY. Calling the router directly (not via the
 ///         Bridge fallback) executes on the router's own, empty storage:
@@ -127,7 +134,13 @@ contract ReservationRouter is Governable, Initializable {
         uint64 requestNonce,
         bytes20 indexed newWalletPubKeyHash,
         bytes32 newAnchorTxHash,
-        uint64 newAnchorAmount
+        uint64 newAnchorAmount,
+        uint64 minerFee
+    );
+
+    event ReservationAcceptanceTimedOut(
+        uint256 indexed reservationKey,
+        uint64 requestNonce
     );
 
     event ReservationActionTimedOut(
@@ -276,8 +289,8 @@ contract ReservationRouter is Governable, Initializable {
     ///         releasing the capacity it reserved so a fresh generation can
     ///         be requested for the deposit. The timed-out generation
     ///         remains settleable: if its anchor transaction later confirms
-    ///         on Bitcoin, `submitReservationAcceptanceProof` settles it as
-    ///         a late acceptance instead of reverting.
+    ///         on Bitcoin, `submitReservationProof` settles it as a late
+    ///         acceptance instead of reverting.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit, which doubles as the reservation key.
     /// @dev Requirements:
@@ -352,11 +365,13 @@ contract ReservationRouter is Governable, Initializable {
         self.notifyStaleReservedDeposit(depositKey);
     }
 
-    /// @notice Marks a reservation custodied by a terminated or closed wallet
-    ///         as stranded: an idle position closes, capacity is released and
-    ///         the owner's minted balance remains an ordinary pooled claim.
-    ///         Pending actions remain proof-eligible and cannot be stranded.
-    ///         See `Reservation.notifyReservationStranded`.
+    /// @notice Marks a reservation custodied by a terminated or closed
+    ///         wallet as stranded, or one custodied by a closing wallet once
+    ///         the reservation's dissolution-eligible timestamp has passed:
+    ///         an idle position closes, capacity is released and the
+    ///         owner's minted balance remains an ordinary pooled claim.
+    ///         Pending actions remain proof-eligible and cannot be
+    ///         stranded. See `Reservation.notifyReservationStranded`.
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external {
         self.notifyReservationStranded(reservationKey);
