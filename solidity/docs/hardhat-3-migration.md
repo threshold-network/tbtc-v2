@@ -3,6 +3,8 @@
 Status: **still blocked, but on a clock.** This document records what was
 measured, so the next attempt starts from facts rather than a guess.
 
+Assessment baseline: July 2026 (against commit `3cfc4e4` / hardhat 2.29 on Node 24).
+
 Hardhat 2 has a stated end of life: the earlier of Hegota mainnet activation or
 **1 June 2027**. It gets Glamsterdam support and bug and security fixes until
 then. So this is not a question of whether the migration is worth it — it is a
@@ -34,12 +36,9 @@ Hardhat only supports ESM projects.
 Please make sure you have `"type": "module"` in your package.json.
 ```
 
-The `solidity` package is CommonJS throughout — `hardhat.config.ts`, 60 deploy
-scripts, 89 files under `test/` and `tasks/`.
+> Superseded earlier figure: "The `solidity` package is CommonJS throughout — `hardhat.config.ts`, 60 deploy scripts, 89 files under `test/` and `tasks/`."
 
-That description was wrong, and it was the largest number in this document.
-Measured across all 151 TypeScript files in `deploy`, `test` and `tasks`, plus
-the config:
+That description was superseded: at the time of measurement there were 151 TypeScript files across `deploy` (60), `test` (89), and `tasks` (2), plus `hardhat.config.ts` (with the test suite subsequently standing at 92 files in `test/`). Measured across those 151 files:
 
 | CommonJS construct     | files  |
 | ---------------------- | ------ |
@@ -59,7 +58,7 @@ files — six of which are deploy scripts, three marked DEPRECATED — with the
 
 That is an afternoon, not a quarter. ESM is not the blocker; the plugins are.
 
-**Most plugins have no Hardhat 3 line.** Measured today:
+**Most plugins have no Hardhat 3 line.** Measured at time of assessment (July 2026):
 
 | plugin                            | latest        | peer `hardhat` | HH3 |
 | --------------------------------- | ------------- | -------------- | --- |
@@ -91,7 +90,7 @@ had before:
 1. Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack. This
    is the real body of work: `hardhat-ethers@4` is ready, the waffle matchers
    are not, so every assertion moves to `hardhat-chai-matchers` or the viem
-   toolbox. 89 test files. Which of the two, and on what prerequisites, is
+   toolbox. 92 test files (originally 89 prior to helper and test additions). Which of the two, and on what prerequisites, is
    settled below in "Replacing waffle: viem or ethers v6".
 2. Port the deploy layer to `hardhat-deploy@2` / rocketh. 60 scripts and the
    tests that consume their fixtures.
@@ -156,7 +155,7 @@ a reversible decision — possible at all.
 **The matchers, because there are none on Hardhat 2.** The prerelease
 `@nomicfoundation/hardhat-viem-matchers` was renamed:
 `@nomicfoundation/hardhat-viem-assertions` went stable as `3.0.0` on 13 August
-2025 and is at `3.1.2` today. It is maintained, not abandoned — it simply
+2025 and was at `3.1.2` at the time of assessment. It is maintained, not abandoned — it simply
 peer-depends on `hardhat@^3.8.0`, so there is nothing installable here. So
 `revertedWith`, `emit`, `withArgs` and `not.emit` are hand-written:
 `test/helpers/viem.ts`, 295 lines, once for the suite. Two matchers the suite
@@ -169,8 +168,7 @@ as its decimal string, which let the string `"100"` satisfy a `uint256`
 carrying `100` and the number `100` satisfy a `string` parameter carrying
 `"100"`. Normalisation is now keyed on the declared ABI type and tagged with
 it, so coercion still happens within a type and cannot happen across two.
-`test/helpers/viem.test.ts` is the fourteen cases that hold that line, checked
-in rather than run once and described — a matcher that cannot fail is worse
+`test/helpers/viem.test.ts` contained the fourteen cases that hold that line (preserved in spike commit `3cfc4e4`, not present in this tree) — a matcher that cannot fail is worse
 than no matcher, because it makes every test using it pass unconditionally.
 
 The migrated file went from 532 to 647 lines: 310 added, 195 removed.
@@ -215,15 +213,12 @@ plugin writing into `paths.artifacts` would do it — but it was not obvious.
 
 ### The part that does not work yet
 
-`@nomicfoundation/hardhat-viem@2.1.4` is current for the Hardhat 2 line and was
-published on 21 July 2026 — five days before this measurement — so the Hardhat
-2 support is maintained, not abandoned. It runs correctly here. What does not
+`@nomicfoundation/hardhat-viem@2.1.4` was published on 21 July 2026 (five days before this measurement) as the current Hardhat 2 release line, so Hardhat 2 support was maintained, not abandoned. It runs correctly here. What does not
 work is the types, and it takes four changes to fix, not one.
 
-**TypeScript 4.6 cannot parse viem's declarations.** The package is pinned at
-`^4.5.4`. viem and `abitype` require `>=5.0.4` and `ox` requires `>=5.4.0`;
-all three use syntax 4.6 rejects outright:
-
+**TypeScript 4.6 could not parse viem's declarations at the time.** The package was pinned at
+`^4.5.4` (the toolchain is pinned to TypeScript `^6.0.3` today, so this specific blocker is retired). viem and `abitype` require `>=5.0.4` and `ox` requires `>=5.4.0`;
+all three use syntax 4.6 rejected outright:
 | `tsc` invocation          | before | after adding the plugin |
 | ------------------------- | ------ | ----------------------- |
 | `-p tsconfig.json`        | 40     | **4167**                |
@@ -253,16 +248,15 @@ misspelled function name, are both caught. `paths.artifacts` also has to join
 the tsconfig `include`, or the generated `ContractTypesMap` is not in the
 program and every handle falls back to an untyped index signature.
 
-So the prerequisite chain for a typed viem suite is: **TypeScript 5.x**,
-`skipLibCheck: true`, `strict: true`, and `./build` in `include`. With all four,
+So the prerequisite chain for a typed viem suite was: **TypeScript 5+** (now satisfied: bumped to TypeScript `^6.0.3`),
+**`skipLibCheck: true`** (now satisfied in `solidity/tsconfig.json`), `strict: true` (unmet), and `./build` in `include` (unmet). With all four,
 the three files from the spike typecheck clean. Without them the tests still
 _run_ — `ts-node` is transpile-only here — but nothing is checked.
 
-`strict` is the expensive one. Turning it on raises **378** errors in the 151
+`strict` is the expensive one. Turning it on raises **378** errors under TypeScript 5.9.3 (on TypeScript 6.0.3, roughly 7,700 diagnostics wait behind `strict` as recorded in `solidity/tsconfig.json`) in the 151
 TypeScript files that predate the spike — concentrated in 34 of them, six in
 `test/helpers/mock.ts`, the rest in code written years before the flag was
 considered.
-
 ### What ethers v6 costs instead
 
 The comparison is not viem against the status quo, it is viem against the other
@@ -294,9 +288,8 @@ assertion sites move rather than being rewritten.
 It does need TypeScript 5, though, and an earlier revision of this document said
 it did not — listing the bump as a viem-only cost. Measured while doing the
 migration: typechain v6 types a contract method as `TypedContractMethod`, and on
-the pinned TypeScript 4.6 a conditional type cannot resolve against it, so the
-mock helper's whole configuration surface stays invisible.
-
+the previously pinned TypeScript 4.6 a conditional type could not resolve against it, so the
+mock helper's whole configuration surface stayed invisible.
 |                  | errors | `reset` / `returns` / `whenCalledWith` |
 | ---------------- | ------ | -------------------------------------- |
 | TypeScript 4.6.2 | 2741   | 343 / 228 / 174                        |
@@ -305,8 +298,7 @@ mock helper's whole configuration surface stays invisible.
 So TypeScript 5 is a shared prerequisite of both paths rather than a
 differentiator. What still separates them is `strict` — viem's contract types
 collapse to `never` without it, ethers v6 does not care — and that is the
-expensive half, at 378 errors in files that predate it.
-
+expensive half, raising 378 errors under TS 5.9.3 (~7,700 diagnostics under TS 6.0.3) in files that predate it.
 ### The two paths differ in shape, not only in cost
 
 This was measured after the decision below was first written, and it does not
@@ -334,10 +326,10 @@ which some files are on ethers v6 and the rest still run.
 |                       | viem                                                           | ethers v6                             |
 | --------------------- | -------------------------------------------------------------- | ------------------------------------- |
 | coexists with waffle  | yes — 26 tests green beside 2971 waffle tests                  | **no**                                |
-| migration shape       | file by file, reversible at any point                          | 92 files in one commit                |
+| migration shape       | file by file, reversible at any point                          | 92 files in `test/` in one commit     |
 | call sites            | one file at a time                                             | ~5000, measured below                 |
 | matchers on Hardhat 2 | none; 295 hand-written lines                                   | `hardhat-chai-matchers@2.1.2`, stable |
-| prerequisites         | TypeScript 5, `strict`, `skipLibCheck`, `./build` in `include` | none                                  |
+| prerequisites         | `strict: true`, `./build` in `include` (TypeScript 6.0.3 and `skipLibCheck` already satisfied) | none                                  |
 
 The ethers v6 surface across the 92 files in `test/`:
 
@@ -370,22 +362,23 @@ on offer here.
 **Migrate `solidity/` to ethers v6 with `@nomicfoundation/hardhat-chai-matchers`,
 and keep viem to `typescript/`, where `#1036` is already taking it.**
 
-The spike does not say viem is unworkable — it works, at runtime, today, next
-to everything else. It says the two paths are not comparable in cost. viem
-carries a four-item prerequisite chain whose expensive link, `strict`, is 378
-errors of unrelated cleanup, and its assertion layer would be ours to maintain on Hardhat 2
+The spike does not say viem is unworkable — it proved viable at runtime beside
+everything else during the spike. It says the two paths are not comparable in cost. viem
+carries a prerequisite chain whose expensive link, `strict`, is 378
+errors under TS 5.9.3 (~7,700 diagnostics under TS 6.0.3) of unrelated cleanup, and its assertion layer would be ours to maintain on Hardhat 2
 until Hardhat 3, where Nomic's `hardhat-viem-assertions` takes over.
 ethers v6 carries none of that and lands on a library with a released Hardhat 3
 version.
 
 Two things follow that are worth doing regardless of which way this goes:
 
-- The TypeScript 5 and `strict` work is worth scheduling on its own merits.
-  If it lands first, this decision is worth revisiting — most of viem's cost
-  is that chain, not viem.
-- `test/helpers/viem.ts` and the interop test are preserved in the immutable
+- The `strict` work is worth scheduling on its own merits (the TypeScript 6 and
+  `skipLibCheck` prerequisites are already satisfied). If `strict` lands, this decision
+  is worth revisiting — the remainder of viem's prerequisite cost was that chain,
+  not viem itself.
+- `test/helpers/viem.ts`, `test/helpers/viem.test.ts`, and the interop test are preserved in the immutable
   [`3cfc4e4`](https://github.com/threshold-network/tbtc-v2/commit/3cfc4e4e0b9d87f40ee12474f3a361ee1084366f)
-  spike commit. If the decision is revisited, the matchers and the proof that
+  spike commit (note that these files were part of the spike only and are not present in this tree). If the decision is revisited, the matchers and the proof that
   the mock needs no port are the two things that would otherwise be redone.
 - The incomplete ethers v6 migration is preserved at
   [`c367c63`](https://github.com/threshold-network/tbtc-v2/commit/c367c63c00ddfaed91d6f14bb3c34714a02bad95)
@@ -428,7 +421,7 @@ independently with no dependency change at all.
 ## The suite was not green, and this document said it was
 
 An earlier revision closed by calling the suite green on hardhat 2.29 and
-Node 24. It was not, and CI had been saying so for as long as the stack existed:
+Node 24. During development of the `#1063`–`#1070` PR stack (which subsequently landed as a single collapsed commit on `dev`), CI initially reported failing states before the fixes landed:
 
 | PR      | Node | CI before                               |
 | ------- | ---- | --------------------------------------- |
@@ -442,8 +435,8 @@ the `deployed ReimbursementPool contract not found` error that accounted for
 all 23. The regression entered at `#1063`, the smock removal itself; `#1064`'s
 toolchain bump repaired 86 of the 188 rather than causing any.
 
-It is fixed, in three commits on `#1063`. **2971 passing, 31 pending, 0
-failing**, three consecutive runs. The four defects, and what each was:
+It was fixed across the stack, resulting in the shipped collapsed state on `dev` of **2971 passing, 31 pending, 0
+failing** across three consecutive runs under hardhat 2.29 / Node 24 / TS 6.0.3. The four defects found and resolved during that work were:
 
 **A `deployments.fixture()` rollback un-installed the fixture's mocks — 43.**
 `test/fixtures/bridge.ts` ran `deployments.fixture()` and only then installed
@@ -517,7 +510,6 @@ Three things found on the way, worth knowing:
   unnoticed because its `before` hook was failing. The other 33 now measure
   MockContract's dispatch cost too and are worth revisiting as a group.
 
-`#1063` itself remains red — 2624 passing, 119 failing, down from 188. What is
-left there is fixed by `#1064`'s toolchain bump and by nothing else, because
-`#1063` deliberately pins hardhat 2.19.5 and `#1064` removes the pin. From
-`#1064` onward the stack is green.
+`#1063` itself remained red at the time — 2624 passing, 119 failing, down from 188. What was
+left there was fixed by `#1064`'s toolchain bump and by nothing else, because
+`#1063` deliberately pinned hardhat 2.19.5 and `#1064` removed the pin. In the shipped, collapsed commit on `dev` combining this entire stack under hardhat 2.29, Node 24, and TypeScript 6.0.3, the entire test suite is green (2971 passing, 31 pending, 0 failing).
