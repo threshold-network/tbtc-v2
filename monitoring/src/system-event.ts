@@ -235,10 +235,6 @@ export class Manager {
       }
     })
 
-    if (this.receivers.length === 0 && systemEvents.length !== 0) {
-      errors.push("no receivers registered; system events cannot be delivered")
-    }
-
     const handledSystemEvents = await this.persistence.handledSystemEvents()
 
     const dispatches = await Promise.allSettled(
@@ -255,6 +251,39 @@ export class Manager {
       } else {
         errors.push(`cannot dispatch system event: ${result.reason}`)
       }
+    })
+
+    const dispatchedSystemEventKeys = new Set(
+      systemEventsAcks
+        .filter((ack) => ack.status === "handled" || ack.status === "duplicate")
+        .map((ack) => Deduplicator.systemEventKey(ack.systemEvent))
+    )
+
+    // Index ack statuses by event key to detect partial-deployment cases.
+    const ackStatusesByKey = new Map<string, Set<SystemEventAck["status"]>>()
+    systemEventsAcks.forEach((ack) => {
+      const key = Deduplicator.systemEventKey(ack.systemEvent)
+      const statuses =
+        ackStatusesByKey.get(key) ?? new Set<SystemEventAck["status"]>()
+      statuses.add(ack.status)
+      ackStatusesByKey.set(key, statuses)
+    })
+
+    systemEvents.forEach((systemEvent) => {
+      const key = Deduplicator.systemEventKey(systemEvent)
+      if (dispatchedSystemEventKeys.has(key)) return
+      const statuses = ackStatusesByKey.get(key) ?? new Set()
+      // Skip if every receiver ignored this event (no receiver is configured
+      // for this event type -- valid in partial-receiver deployments) or if all
+      // dispatches were rejected and already recorded as errors above.
+      if (
+        statuses.size === 0 ||
+        (statuses.size === 1 && statuses.has("ignored"))
+      )
+        return
+      errors.push(
+        `system event was not handled by any receiver: ${systemEvent.title}`
+      )
     })
 
     return {
