@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, waffle } from "hardhat"
+import { artifacts, ethers, waffle } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import type { Interface } from "ethers/lib/utils"
