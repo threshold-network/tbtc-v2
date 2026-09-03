@@ -2793,7 +2793,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Reservation is not active")
     })
 
-    it("succeeds when reservation is dissolution-eligible (re-anchor is unbounded in time per m1-b-implementation.md §6)", async () => {
+    it("succeeds when reservation is dissolution-eligible (re-anchor is unbounded in time per m1-b-implementation.md §4.4)", async () => {
       const pastEligibleKey = `0x${"ac".repeat(32)}`
       await executor.seedReservation(
         pastEligibleKey,
