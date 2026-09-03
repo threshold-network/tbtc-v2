@@ -60,9 +60,15 @@ contract ReservationStrandingExecutor {
     }
 
     /// @notice Forwards the `Reservation.notifyReservationActionTimeout`
-    ///         library function (Reanchor timeout only).
-    function notifyReservationActionTimeout(uint256 reservationKey) external {
-        self.notifyReservationActionTimeout(reservationKey);
+    ///         library function (Reanchor timeout only). `walletMembersIDs`
+    ///         is unused on this path (Reanchor timeout never slashes) but
+    ///         threaded through for signature parity with the production
+    ///         entry point; pass an empty array.
+    function notifyReservationActionTimeout(
+        uint256 reservationKey,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
     }
 
     /// @notice Forwards `Reservation.notifyReservationRedemptionTimedOut`.

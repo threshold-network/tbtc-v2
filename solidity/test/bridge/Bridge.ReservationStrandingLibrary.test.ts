@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, waffle } from "hardhat"
+import { artifacts, ethers, waffle } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import type { Interface } from "ethers/lib/utils"
@@ -61,9 +61,14 @@ async function deployExecutor(): Promise<ReservationStrandingExecutor> {
   // functions have the `external` visibility modifier). The bytecode of
   // the `ReservationStrandingExecutor` test contract embeds a
   // placeholder for the Reservation library because of the `using
-  // Reservation for BridgeState.Storage` declaration (which is also used
-  // inside `ReservationProofs.sol`). The Reservation library must
-  // therefore be deployed before the executor and linked into it.
+  // Reservation for BridgeState.Storage` declaration. `Reservation.sol`
+  // no longer calls into `ReservationProofs` (the router calls
+  // `ReservationProofs.submitReservationProof` directly instead), so
+  // `Reservation` needs no library linking of its own. The executor's
+  // own direct calls into `submitReservationAcceptanceProof`/
+  // `submitReservationReanchorProof` are `internal` and get inlined at
+  // compile time, so the executor itself only needs `Reservation`
+  // linked, not `ReservationProofs`.
   const ReservationFactory = await ethers.getContractFactory("Reservation")
   const reservation = await ReservationFactory.deploy()
   await reservation.deployed()
@@ -444,7 +449,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(stranded!.args!.anchorAmount).to.equal(anchorAmount)
     })
 
-    it("strands an Active reservation on a Closing wallet", async () => {
+    it("rejects when the custodying wallet is Closing", async () => {
+      // Closing is no longer an accepted wallet state for stranding: it is
+      // also independently acceptable to `requestReservationReanchor`,
+      // and a wallet with `mainUtxoHash == 0` can be permissionlessly
+      // driven into `Closing` via `notifyWalletCloseable`, which would
+      // otherwise let a Closing-wallet strand front-run a legitimate
+      // reanchor in a deterministic two-transaction sequence.
       const walletPubKeyHash = `0x${"12".repeat(20)}` as `0x${string}`
       const reservationKey = `0x${"ab".repeat(32)}`
       const owner = ethers.Wallet.createRandom().address
@@ -467,57 +478,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      expect(await executor.reservationState(reservationKey)).to.equal(
-        reservationStateEnum.Active
-      )
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        1
-      )
-      expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
-      ).to.equal(anchorAmount)
-      expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(1)
-
-      const tx: ContractTransaction = await executor.notifyReservationStranded(
-        reservationKey
-      )
-
-      expect(await executor.reservationState(reservationKey)).to.equal(
-        reservationStateEnum.Stranded
-      )
-      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
-        0
-      )
-      expect(
-        await executor.walletReservationsAmount(walletPubKeyHash)
-      ).to.equal(0)
-      expect(await executor.reservationTotalAmount()).to.equal(0)
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(0)
-      expect(await executor.walletReservationKeyIndex(reservationKey)).to.equal(
-        0
-      )
-      const anchorUtxoHash = ethers.utils.solidityKeccak256(
-        ["bytes32", "uint32"],
-        [anchorTxHash, anchorTxOutputIndex]
-      )
-      expect(await executor.reservationsByAnchorUtxo(anchorUtxoHash)).to.equal(
-        0
-      )
-
-      const receipt = await tx.wait()
-      const stranded = receipt.events?.find(
-        (e) => e.event === "ReservationStranded"
-      )
-      expect(stranded, "ReservationStranded event missing").to.not.be.undefined
-      expect(stranded!.args!.reservationKey).to.equal(reservationKey)
-      expect(stranded!.args!.walletPubKeyHash).to.equal(walletPubKeyHash)
-      expect(stranded!.args!.owner).to.equal(owner)
-      expect(stranded!.args!.anchorAmount).to.equal(anchorAmount)
+      await expect(
+        executor.notifyReservationStranded(reservationKey)
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("strands an Active reservation on a Closed wallet", async () => {
@@ -625,7 +588,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Reservation is not active")
     })
 
-    it("rejects when the custodying wallet is not Closing, Closed, or Terminated", async () => {
+    it("rejects when the custodying wallet is not Terminated or Closed", async () => {
       const walletPubKeyHash = `0x${"55".repeat(20)}` as `0x${string}`
       const reservationKey = `0x${"cc".repeat(32)}`
       const owner = ethers.Wallet.createRandom().address
@@ -652,7 +615,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not closing, closed or terminated")
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("rejects when the custodying wallet is in MovingFunds state", async () => {
@@ -680,7 +643,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not closing, closed or terminated")
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("rejects when both the reservation and wallet conditions are wrong", async () => {
@@ -905,9 +868,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
   })
 
   describe("notifyStaleReservedDeposit", () => {
-    it("marks a pending reserved deposit stale when refundDeadlineValidated is false", async () => {
-      // When the reveal-ahead policy is disabled the deposit is marked
-      // stale immediately, matching the disabled protection.
+    it("rejects when refundDeadlineValidated is false but the deadline has not elapsed", async () => {
+      // The refundDeadlineValidated flag no longer bypasses the deadline
+      // check: the deadline must elapse unconditionally, matching what
+      // `requestReservationAcceptance` already enforces unconditionally.
       const walletPubKeyHash = `0x${"e1".repeat(20)}` as `0x${string}`
       const depositKey = `0x${"f1".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
@@ -929,31 +893,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         walletPubKeyHash
       )
 
-      const tx: ContractTransaction = await executor.notifyStaleReservedDeposit(
-        depositKey
-      )
-      const receipt = await tx.wait()
-
-      // Pending deposit cleared.
-      expect(await executor.pendingReservedDepositWallet(depositKey)).to.equal(
-        ZERO_BYTES20
-      )
-      expect(
-        await executor.pendingReservedDepositDeadline(depositKey)
-      ).to.equal(0)
-      expect(
-        await executor.pendingReservedDepositValidated(depositKey)
-      ).to.equal(false)
-      expect(await executor.pendingReservedDeposits()).to.equal(0)
-
-      // ReservedDepositMarkedStale fires with the deposit key.
-      expect(
-        receipt.events?.filter((e) => e.event === "ReservedDepositMarkedStale")
-      ).to.have.lengthOf(1)
-      const stale = receipt.events?.find(
-        (e) => e.event === "ReservedDepositMarkedStale"
-      )
-      expect(stale!.args!.depositKey).to.equal(depositKey)
+      await expect(
+        executor.notifyStaleReservedDeposit(depositKey)
+      ).to.be.revertedWith("Deposit refund deadline has not elapsed")
     })
 
     it("marks a pending reserved deposit stale when refundDeadline has elapsed and refundDeadlineValidated is true", async () => {
@@ -1059,23 +1001,22 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const depositKeyA = `0x${"a7".repeat(32)}`
       const depositKeyB = `0x${"b7".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
-      const futureDeadline =
-        Number(
-          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
-        ) + 3600
+      // Elapsed deadline: the check is unconditional now, so both calls
+      // must clear it regardless of the refundDeadlineValidated flag.
+      const elapsedDeadline = 1
 
       await executor.seedDeposit(depositKeyA, depositor)
       await executor.seedPendingReservedDeposit(
         depositKeyA,
         walletPubKeyHash,
-        futureDeadline,
+        elapsedDeadline,
         false
       )
       await executor.seedDeposit(depositKeyB, depositor)
       await executor.seedPendingReservedDeposit(
         depositKeyB,
         walletPubKeyHash,
-        futureDeadline,
+        elapsedDeadline,
         false
       )
 
@@ -1146,7 +1087,10 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
       await ethers.provider.send("evm_mine", [])
 
-      const tx = await executor.notifyReservationActionTimeout(reservationKey)
+      const tx = await executor.notifyReservationActionTimeout(
+        reservationKey,
+        []
+      )
       const receipt = await tx.wait()
 
       const reanchorTimedOut = receipt.events?.filter(
@@ -1196,7 +1140,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.notifyReservationActionTimeout(reservationKey)
+        executor.notifyReservationActionTimeout(reservationKey, [])
       ).to.be.revertedWith("Action has not timed out")
     })
   })
@@ -2571,8 +2515,11 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     let reservationInterface: Interface
 
     beforeEach(async () => {
-      const ReservationFactory = await ethers.getContractFactory("Reservation")
-      reservationInterface = ReservationFactory.interface
+      // Only the ABI is needed here (for event decoding via parseLog
+      // below), so read the artifact directly rather than constructing a
+      // ContractFactory, which would require linking ReservationProofs.
+      const reservationArtifact = await artifacts.readArtifact("Reservation")
+      reservationInterface = new ethers.utils.Interface(reservationArtifact.abi)
 
       await setReservationConfig(executor.address, {
         reservationTxMaxFee: txMaxFee,

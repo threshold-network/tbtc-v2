@@ -40,6 +40,11 @@ contract TestReservation {
         address indexed owner,
         uint64 anchorAmount
     );
+    event ReservationCapsUpdated(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount,
+        uint32 maxActiveReservations
+    );
 
     /// @notice Initialize a deposit reservation producer stub.
     /// @dev Sets up `pendingReservedDeposit`, increments `pendingReservedDeposits`,
@@ -270,6 +275,10 @@ contract TestReservation {
         );
     }
 
+    function notifyReservationStranded(uint256 reservationKey) external {
+        Reservation.notifyReservationStranded(state, reservationKey);
+    }
+
     function addWalletReservationKey(
         bytes20 walletPubKeyHash,
         uint256 reservationKey
@@ -369,6 +378,21 @@ contract TestReservation {
 
     function pendingReservedDeposits() external view returns (uint64) {
         return state.pendingReservedDeposits;
+    }
+
+    /// @notice Returns the three fields the slot-capacity invariant relates.
+    function caps()
+        external
+        view
+        returns (
+            uint64 reservationMaxTotalAmount,
+            uint64 reservationMaxSingleAmount,
+            uint32 maxActiveReservations
+        )
+    {
+        reservationMaxTotalAmount = state.reservationMaxTotalAmount;
+        reservationMaxSingleAmount = state.reservationMaxSingleAmount;
+        maxActiveReservations = state.maxActiveReservations;
     }
 
     function getReservationByAnchorUtxo(
@@ -553,6 +577,44 @@ contract TestReservation {
         state.maxReservationsPerWallet = maxReservationsPerWallet;
     }
 
+    function updateReservationParameters(
+        address reservationVault,
+        uint64 reservationMinAmount,
+        uint64 reservationTxMaxFee,
+        uint32 reservationTermSeconds,
+        uint32 reservationDissolutionDelay,
+        uint64 reservationMaxTotalAmount,
+        uint32 maxReservationsPerWallet,
+        uint32 reservationActionTimeout,
+        uint32 reservationRenewalWindowSeconds
+    ) external {
+        Reservation.updateReservationParameters(
+            state,
+            reservationVault,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            reservationTermSeconds,
+            reservationDissolutionDelay,
+            reservationMaxTotalAmount,
+            maxReservationsPerWallet,
+            reservationActionTimeout,
+            reservationRenewalWindowSeconds
+        );
+    }
+
+    function updateReservationCaps(
+        uint64 maxReservationsAmountPerWallet,
+        uint64 reservationMaxSingleAmount,
+        uint32 maxActiveReservations
+    ) external {
+        Reservation.updateReservationCaps(
+            state,
+            maxReservationsAmountPerWallet,
+            reservationMaxSingleAmount,
+            maxActiveReservations
+        );
+    }
+
     function seedPendingReservedDeposit(
         uint256 depositKey,
         bool isReserved,
@@ -634,8 +696,15 @@ contract TestReservation {
         );
     }
 
-    function notifyReservationActionTimeout(uint256 reservationKey) external {
-        Reservation.notifyReservationActionTimeout(state, reservationKey);
+    function notifyReservationActionTimeout(
+        uint256 reservationKey,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        Reservation.notifyReservationActionTimeout(
+            state,
+            reservationKey,
+            walletMembersIDs
+        );
     }
 
     function notifyReservationAcceptanceTimedOut(uint256 reservationKey)

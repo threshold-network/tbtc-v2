@@ -392,6 +392,7 @@ describe("ReservationProofs", () => {
         buildReservationAction({
           actionType: 1, // Acceptance
           state: 3, // TimedOut
+          timeoutAt: 4294967295 - termSeconds, // far-future so M16's late-settle window has not expired
         })
       )
 
@@ -859,6 +860,7 @@ describe("ReservationProofs", () => {
           actionType: 1, // Acceptance
           state: 3, // TimedOut
           amount: depositAmount,
+          timeoutAt: 4294967295 - termSeconds, // M16 late-settle window not expired
         })
       )
 
@@ -927,6 +929,7 @@ describe("ReservationProofs", () => {
           actionType: 1, // Acceptance
           state: 3, // TimedOut
           amount: depositAmount,
+          timeoutAt: 4294967295 - termSeconds, // M16 late-settle window not expired
         })
       )
 
@@ -1271,6 +1274,7 @@ describe("ReservationProofs", () => {
           actionType: 1, // Acceptance
           state: 3, // TimedOut
           amount: depositAmount,
+          timeoutAt: 4294967295 - termSeconds, // M16 late-settle window not expired
         })
       )
     })

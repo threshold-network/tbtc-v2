@@ -189,6 +189,19 @@ library ReservationProofs {
             "Action is not settleable"
         );
         late = action.state == Reservation.ActionState.TimedOut;
+        // Bound late acceptance settlement (M15 deferral mitigation):
+        // a timed-out acceptance action may be settled late only within
+        // the reservation term following its timeout. Reanchor late
+        // settlement is left unbounded here because the reanchor wallet-
+        // stranding path handles late reanchor lifetimes separately.
+        require(
+            !late ||
+                expectedType != Reservation.ActionType.Acceptance ||
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp <=
+                uint256(action.timeoutAt) + action.termSeconds,
+            "Late acceptance settlement window expired"
+        );
     }
 
     /// @notice Converts a settlement into the existing stranded-position
