@@ -21,11 +21,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     // For TransparentUpgradeableProxy, we need to call the admin functions directly
     // The proxy exposes admin(), upgradeTo(), and changeAdmin() functions
-    
+
     // First, let's check the current admin of both proxies
     const proxyAdminABI = [
       "function admin() external view returns (address)",
-      "function changeAdmin(address newAdmin) external"
+      "function changeAdmin(address newAdmin) external",
     ]
 
     // Create contract instances for the proxies
@@ -52,7 +52,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       await tx1.wait()
       console.log("  ✅ Token Pool Proxy admin transferred successfully!")
     } catch (error: any) {
-      console.log(`  ❌ Failed to transfer Token Pool Proxy admin: ${error.message}`)
+      console.log(
+        `  ❌ Failed to transfer Token Pool Proxy admin: ${error.message}`
+      )
     }
 
     console.log("\n=== Admin Transfer Complete ===")
@@ -62,8 +64,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("\nIMPORTANT: The deployer address can no longer:")
     console.log("  - Call admin functions on the proxies")
     console.log("  - Upgrade the contracts")
-    console.log("\nTo configure the token pools, use a different address (not the admin)")
-
+    console.log(
+      "\nTo configure the token pools, use a different address (not the admin)"
+    )
   } catch (error) {
     console.error("Error in admin transfer:", error)
     throw error
@@ -73,4 +76,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["TransferProxyAdmin"]
-func.dependencies = ["BurnFromMintTokenPoolUpgradeable", "OptimismMintableUpgradableTBTC"]
+// BOB CCIP support is deprecated. Keep this script for historical reference
+// without mutating BOB CCIP token-pool ownership.
+func.skip = async () => true

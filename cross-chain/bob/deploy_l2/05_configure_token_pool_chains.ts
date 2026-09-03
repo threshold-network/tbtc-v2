@@ -19,9 +19,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     await ethers.getSigner(deployer)
   )
 
-  const ETHEREUM_CHAIN_SELECTOR = "16015286601757825753"
-  const ETHEREUM_POOL = "0x5b1D134fc62395AA3148128454C1a65B213334CD"
-  const ETHEREUM_TBTC = "0x517f2982701695D4E52f1ECFBEf3ba31Df470161"
+  // Verified against live BOB-mainnet state (BurnFromMintTokenPoolUpgradeable
+  // proxy on BOB): the selector and remote pool/token below previously used
+  // Ethereum Sepolia's chain selector and unrelated addresses instead of
+  // Ethereum mainnet's. Corrected to the real values so this script remains
+  // an accurate historical record.
+  const ETHEREUM_CHAIN_SELECTOR = "5009297550715157269"
+  const ETHEREUM_POOL = "0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6"
+  const ETHEREUM_TBTC = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
 
   const encodedEthereumPool = ethers.utils.defaultAbiCoder.encode(
     ["address"],
@@ -141,5 +146,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 }
 
 func.tags = ["ConfigureTokenPoolChains"]
+// BOB CCIP support is deprecated. Keep this script for historical reference
+// without configuring new BOB CCIP routes. Unconditional: running this on
+// hardhat/localhost reverts with "admin cannot fallback to proxy target"
+// because the deployer signer used here is also the proxy admin set by
+// 03_deploy_burn_from_mint_token_pool.ts, and OpenZeppelin's
+// TransparentUpgradeableProxy blocks the admin from calling implementation
+// functions. Fixing that signer/admin conflict is out of scope for this
+// deprecation and would need its own review.
+func.skip = async () => true
 
 export default func
