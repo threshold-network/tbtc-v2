@@ -22,6 +22,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./Reservation.sol";
+import "./ReservationProofs.sol";
 
 /// @title Bridge reservation router
 /// @notice Holds the external UTXO-reservation surface of the Bridge. The
@@ -234,10 +235,8 @@ contract ReservationRouter is Governable, Initializable {
     /// @notice Single entry point for reservation lifecycle SPV proofs
     ///         retained in milestone 1: anchor acceptance and re-anchoring.
     ///         Settles the named action generation. See
-    ///         `ReservationProofs.submitReservationProof` (reached through
-    ///         the `Reservation` library so this contract links exactly one
-    ///         external library) and the individual handlers for detailed
-    ///         requirements.
+    ///         `ReservationProofs.submitReservationProof` and the individual
+    ///         handlers for detailed requirements.
     /// @param proofType The type of the submitted proof, see
     ///        `ReservationProofs.ProofType`.
     /// @param txInfo Bitcoin transaction data.
@@ -255,7 +254,8 @@ contract ReservationRouter is Governable, Initializable {
         uint256 reservationKey,
         uint64 requestNonce
     ) external onlySpvMaintainer {
-        self.submitReservationProof(
+        ReservationProofs.submitReservationProof(
+            self,
             proofType,
             txInfo,
             proof,
@@ -282,6 +282,27 @@ contract ReservationRouter is Governable, Initializable {
         uint32[] calldata walletMembersIDs
     ) external {
         self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
+    }
+
+    /// @notice Permissionlessly reports a pending acceptance authorization
+    ///         as timed out once its authorization window has elapsed,
+    ///         releasing the capacity it reserved so a fresh generation can
+    ///         be requested for the deposit. The timed-out generation
+    ///         remains settleable: if its anchor transaction later confirms
+    ///         on Bitcoin, `submitReservationProof` settles it as a late
+    ///         acceptance instead of reverting.
+    /// @param reservationKey The deposit key of the revealed reserved
+    ///        deposit, which doubles as the reservation key.
+    /// @dev Requirements:
+    ///      - The reservation's current generation must be a pending
+    ///        acceptance authorization (`ActionType.Acceptance`,
+    ///        `ActionState.Pending`),
+    ///      - `block.timestamp` must be at or after the generation's
+    ///        `timeoutAt`.
+    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
+        external
+    {
+        self.notifyReservationAcceptanceTimedOut(reservationKey);
     }
 
     /// @notice Updates parameters of reservations, including the
@@ -342,21 +363,6 @@ contract ReservationRouter is Governable, Initializable {
     /// @param depositKey The deposit key of the reserved deposit.
     function notifyStaleReservedDeposit(uint256 depositKey) external {
         self.notifyStaleReservedDeposit(depositKey);
-    }
-
-    /// @notice Permissionlessly reports a pending acceptance authorization
-    ///         as timed out once its authorization window has elapsed,
-    ///         releasing the capacity it reserved so a fresh generation can
-    ///         be requested for the deposit. The timed-out generation
-    ///         remains settleable: a late anchor proof still settles via
-    ///         `submitReservationProof`. See
-    ///         `Reservation.notifyReservationAcceptanceTimedOut`.
-    /// @param reservationKey The deposit key of the revealed reserved
-    ///        deposit, which doubles as the reservation key.
-    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
-        external
-    {
-        self.notifyReservationAcceptanceTimedOut(reservationKey);
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed

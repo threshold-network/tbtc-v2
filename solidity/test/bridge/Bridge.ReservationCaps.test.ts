@@ -38,9 +38,7 @@ async function deployTestReservation(): Promise<Contract> {
   const ReservationProofs = await ethers.getContractFactory("ReservationProofs")
   const reservationProofs = await ReservationProofs.deploy()
 
-  const Reservation = await ethers.getContractFactory("Reservation", {
-    libraries: { ReservationProofs: reservationProofs.address },
-  })
+  const Reservation = await ethers.getContractFactory("Reservation")
   const reservation = await Reservation.deploy()
 
   const TestReservationFactory = await ethers.getContractFactory(

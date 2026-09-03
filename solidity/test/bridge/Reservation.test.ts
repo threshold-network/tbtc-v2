@@ -64,11 +64,7 @@ describe("Reservation", () => {
     const reservationProofsLibrary = await ReservationProofsFactory.connect(
       deployer
     ).deploy()
-    const ReservationFactory = await ethers.getContractFactory("Reservation", {
-      libraries: {
-        ReservationProofs: reservationProofsLibrary.address,
-      },
-    })
+    const ReservationFactory = await ethers.getContractFactory("Reservation")
     const reservationLibrary = await ReservationFactory.connect(
       deployer
     ).deploy()
