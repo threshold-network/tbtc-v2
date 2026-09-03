@@ -244,6 +244,8 @@ contract Bridge is
         address newRebateStaking
     );
 
+    event SponsoredDepositorSet(address indexed depositor, bool sponsored);
+
     /// @notice Emitted when a deposit's vault field is corrected via governance.
     /// @dev This event is used for transparency when fixing deposits that were
     ///      revealed with incorrect vault targets.
@@ -2035,6 +2037,36 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
+    }
+
+    /// @notice Adds or removes a depositor contract from the sponsored
+    ///         depositor allowlist. When a depositor is on the list, reveals
+    ///         it submits route the `RebateStaking` rebate to the L1 address
+    ///         decoded from `extraData` rather than to the depositor contract
+    ///         itself. Intended for direct-L1-receiver relays such as
+    ///         `NativeBTCDepositor`. Must not be enabled for cross-chain
+    ///         depositors whose `extraData` is an L2 user identifier rather
+    ///         than an L1 staker.
+    /// @param depositor Address of the depositor contract.
+    /// @param sponsored New allowlist membership.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Depositor address must not be 0x0.
+    function setSponsoredDepositor(address depositor, bool sponsored)
+        external
+        onlyGovernance
+    {
+        self.setSponsoredDepositor(depositor, sponsored);
+    }
+
+    /// @notice Returns whether `depositor` is on the sponsored depositor
+    ///         allowlist.
+    function isSponsoredDepositor(address depositor)
+        external
+        view
+        returns (bool)
+    {
+        return self.sponsoredDepositors[depositor];
     }
 
     /// @notice Sets the redemption watchtower address.
