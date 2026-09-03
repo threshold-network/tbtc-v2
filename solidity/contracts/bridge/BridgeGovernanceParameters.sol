@@ -1624,6 +1624,15 @@ library BridgeGovernanceParameters {
     ///      milestone 1. `maxCumulativeReanchorFee` is similarly stored
     ///      only. See `Reservation.updateReservationParameters` for the
     ///      underlying validation requirements.
+    /// @param _newReservationVault New reservation vault address.
+    /// @param _newReservationMinAmount New reservation minimum amount.
+    /// @param _newReservationTxMaxFee New reservation transaction max fee.
+    /// @param _newReservationTermSeconds New reservation term in seconds.
+    /// @param _newReservationDissolutionDelay New reservation dissolution delay.
+    /// @param _newReservationMaxTotalAmount New reservation max total amount.
+    /// @param _newMaxReservationsPerWallet New max reservations per wallet.
+    /// @param _newReservationActionTimeout New reservation action timeout.
+    /// @param _newReservationRenewalWindowSeconds New reservation renewal window in seconds.
     function beginReservationParametersUpdate(
         ReservationData storage self,
         address _newReservationVault,
@@ -1698,6 +1707,9 @@ library BridgeGovernanceParameters {
     ///         check enforced by `Reservation.updateReservationParameters`
     ///         (`reservationMaxTotalAmount <= maxActiveReservations *
     ///         reservationMaxSingleAmount`).
+    /// @param _newMaxReservationsAmountPerWallet New max reservations amount per wallet.
+    /// @param _newReservationMaxSingleAmount New reservation max single amount.
+    /// @param _newMaxActiveReservations New max active reservations.
     function beginReservationCapsUpdate(
         ReservationCapsData storage self,
         uint64 _newMaxReservationsAmountPerWallet,
@@ -1720,6 +1732,9 @@ library BridgeGovernanceParameters {
     }
 
     /// @notice Finalizes the reservation caps update process.
+    /// @dev The staged values are read by the caller before this call; this
+    ///      function only enforces the governance delay and clears the
+    ///      staged change along with all staged reservation caps.
     function finalizeReservationCapsUpdate(
         ReservationCapsData storage self,
         uint256 governanceDelay

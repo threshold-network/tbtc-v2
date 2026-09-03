@@ -2092,14 +2092,7 @@ contract Bridge is
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
     }
 
-    /// @notice Sets the reservation router address.
-    ///         UTXO-reservation external surface of the Bridge and is reached
-    ///         via the `fallback` function below using `delegatecall`. The
-    ///         reservation selectors declared on the router stay disjoint
-    ///         from those declared here per `ReservationRouter` invariant 2
-    ///         (selector shadowing forbidden), so this fallback is the
-    ///         single, well-defined entry point for reservation surface
-    ///         calls at the Bridge address.
+    /// @notice Sets the reservation router address (can only be set once).
     /// @param _reservationRouter Address of the reservation router contract.
     /// @dev Requirements:
     ///      - The caller must be the governance,
@@ -2130,6 +2123,7 @@ contract Bridge is
     ///      contract by construction (and a selector-disjointness test
     ///      guards it), so the fallback only ever sees calls that the Bridge
     ///      itself does not match. If no router has been set, every call
+    ///      reverts with "Reservation router not set".
     // solhint-disable-next-line no-complex-fallback
     fallback() external payable {
         address router = self.reservationRouter;

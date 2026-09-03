@@ -1819,6 +1819,15 @@ contract BridgeGovernance is Ownable {
     ///         staged together since they are applied atomically via a
     ///         single Bridge call.
     /// @dev Can be called only by the contract owner.
+    /// @param _newReservationVault New reservation vault address.
+    /// @param _newReservationMinAmount New reservation minimum amount.
+    /// @param _newReservationTxMaxFee New reservation transaction max fee.
+    /// @param _newReservationTermSeconds New reservation term in seconds.
+    /// @param _newReservationDissolutionDelay New reservation dissolution delay.
+    /// @param _newReservationMaxTotalAmount New reservation max total amount.
+    /// @param _newMaxReservationsPerWallet New max reservations per wallet.
+    /// @param _newReservationActionTimeout New reservation action timeout.
+    /// @param _newReservationRenewalWindowSeconds New reservation renewal window in seconds.
     function beginReservationParametersUpdate(
         address _newReservationVault,
         uint64 _newReservationMinAmount,
@@ -1871,6 +1880,9 @@ contract BridgeGovernance is Ownable {
     ///         to satisfy the relational check in
     ///         `Reservation.updateReservationParameters`.
     /// @dev Can be called only by the contract owner.
+    /// @param _newMaxReservationsAmountPerWallet New max reservations amount per wallet.
+    /// @param _newReservationMaxSingleAmount New reservation max single amount.
+    /// @param _newMaxActiveReservations New max active reservations.
     function beginReservationCapsUpdate(
         uint64 _newMaxReservationsAmountPerWallet,
         uint64 _newReservationMaxSingleAmount,

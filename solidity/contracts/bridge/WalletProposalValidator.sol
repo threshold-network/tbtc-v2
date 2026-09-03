@@ -935,17 +935,6 @@ contract WalletProposalValidator {
         uint256 reanchorTxFee;
     }
 
-    /// @notice Helper structure representing a reservation dissolution
-    ///         proposal.
-    struct ReservationDissolutionProposal {
-        // 20-byte public key hash of the wallet custodying the reservation.
-        bytes20 walletPubKeyHash;
-        // Key of the reservation to dissolve.
-        uint256 reservationKey;
-        // Proposed BTC fee for the dissolution transaction.
-        uint256 dissolutionTxFee;
-    }
-
     /// @notice View function encapsulating the main rules of a valid
     ///         reservation anchor proposal.
     /// @param proposal The anchor proposal to validate.
@@ -970,15 +959,8 @@ contract WalletProposalValidator {
         (
             address reservationVault,
             uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-
-        ) = IReservationBridge(address(bridge)).reservationParameters();
+            uint64 reservationTxMaxFee
+        ) = reservationVaultAndFees();
 
         require(reservationVault != address(0), "Reservations are disabled");
 
@@ -1050,8 +1032,8 @@ contract WalletProposalValidator {
         );
         require(
             /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp <
-                depositRefundableTimestamp - DEPOSIT_REFUND_SAFETY_MARGIN,
+            block.timestamp + DEPOSIT_REFUND_SAFETY_MARGIN <
+                depositRefundableTimestamp,
             "Deposit refund safety margin is not preserved"
         );
 
@@ -1063,8 +1045,36 @@ contract WalletProposalValidator {
         return true;
     }
 
+    /// @notice Fetches the reservation vault address and fee parameters
+    ///         shared by the reservation anchor and re-anchor proposal
+    ///         validators.
+    /// @return reservationVault The reservation vault address.
+    /// @return reservationMinAmount The minimum reservation amount.
+    /// @return reservationTxMaxFee The maximum reservation transaction fee.
+    function reservationVaultAndFees()
+        internal
+        view
+        returns (
+            address reservationVault,
+            uint64 reservationMinAmount,
+            uint64 reservationTxMaxFee
+        )
+    {
+        (
+            reservationVault,
+            reservationMinAmount,
+            reservationTxMaxFee,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+
+        ) = IReservationBridge(address(bridge)).reservationParameters();
+    }
+
     /// @notice View function encapsulating the main rules of a valid
-    ///         reservation re-anchor    /// @notice View function encapsulating the main rules of a valid
     ///         reservation re-anchor proposal.
     /// @param proposal The re-anchor proposal to validate.
     /// @return True if the proposal is valid. Reverts otherwise.
@@ -1090,8 +1100,22 @@ contract WalletProposalValidator {
             "Reservation is not active"
         );
         require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp >= reservation.reanchorCooldownUntil,
+            "Reanchor cooldown in effect"
+        );
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp < reservation.dissolutionEligibleAt,
+            "Reservation is dissolution-eligible"
+        );
+        require(
             reservation.walletPubKeyHash == proposal.sourceWalletPubKeyHash,
             "Reservation custodied by different wallet"
+        );
+        require(
+            proposal.targetWalletPubKeyHash != proposal.sourceWalletPubKeyHash,
+            "Target wallet must differ from the source wallet"
         );
 
         require(
@@ -1100,9 +1124,11 @@ contract WalletProposalValidator {
             "Target wallet must be in Live state"
         );
 
-        (, , uint64 reservationTxMaxFee, , , , , , , ) = IReservationBridge(
-            address(bridge)
-        ).reservationParameters();
+        (
+            ,
+            uint64 reservationMinAmount,
+            uint64 reservationTxMaxFee
+        ) = reservationVaultAndFees();
         require(
             proposal.reanchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
@@ -1111,11 +1137,16 @@ contract WalletProposalValidator {
             proposal.reanchorTxFee <= reservationTxMaxFee,
             "Proposed transaction fee is too high"
         );
+        require(
+            reservation.anchorAmount >
+                reservationTxMaxFee + reservationMinAmount,
+            "Reanchor would fall below the minimum reservation amount"
+        );
 
         return true;
     }
 
-    /// @notice Reverts unless the given wallet is in the Live    /// @notice Reverts unless the given wallet is in the Live or MovingFunds
+    /// @notice Reverts unless the given wallet is in the Live or MovingFunds
     ///         state.
     function requireWalletLiveOrMovingFunds(bytes20 walletPubKeyHash)
         internal
