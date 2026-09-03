@@ -2905,7 +2905,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@openzeppelin/upgrades-core@npm:^1.27.0":
+"@openzeppelin/upgrades-core@npm:1.46.0":
   version: 1.46.0
   resolution: "@openzeppelin/upgrades-core@npm:1.46.0"
   dependencies:
