@@ -1,6 +1,5 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { smock, FakeContract } from "@defi-wonderland/smock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, BigNumberish } from "ethers"
 import {
@@ -10,9 +9,11 @@ import {
   Bank,
 } from "../../typechain"
 import { SingleP2SHDeposit } from "../data/deposit-sweep"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 describe("ReservationProofs", () => {
-  let relay: FakeContract<IRelay>
+  let relay: Mock<IRelay>
   let testReservationProofs: TestReservationProofs
   let mockReservationVault: MockReservationVault
   let bank: Bank
@@ -148,7 +149,7 @@ describe("ReservationProofs", () => {
       deployer
     ).deploy(bank.address)) as TestReservationProofs
 
-    relay = await smock.fake<IRelay>("IRelay")
+    relay = await createMock<IRelay>("IRelay")
     await testReservationProofs.setRelay(relay.address)
 
     await bank.connect(deployer).updateBridge(testReservationProofs.address)
@@ -1659,8 +1660,8 @@ describe("ReservationProofs", () => {
           txMaxFee: 0,
         })
       )
-      relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-      relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+      await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+      await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
     })
 
     it("should settle through submitReservationProof with a real, valid SPV proof", async () => {

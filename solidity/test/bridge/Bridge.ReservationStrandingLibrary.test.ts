@@ -1,16 +1,17 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, waffle } from "hardhat"
-import chai, { expect } from "chai"
-import { Contract, ContractTransaction } from "ethers"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
+import { BigNumber, Contract, ContractTransaction } from "ethers"
+import type { Interface } from "ethers/lib/utils"
+import { createMock, expectCalledOnce, expectNotCalled } from "../helpers/mock"
 
+import type { Mock } from "../helpers/mock"
 import type {
   ReservationStrandingExecutor,
   IWalletRegistry,
 } from "../../typechain"
 
-chai.use(smock.matchers)
 const ZERO_BYTES20 = `0x${"00".repeat(20)}`
 
 // Reservation.ReservationState enum values (matches `Reservation.sol`).
@@ -82,18 +83,18 @@ async function setReservationConfig(
   executorAddress: string,
   params: {
     reservationVault?: string
-    reservationMinAmount?: number | ethers.BigNumber
-    reservationTxMaxFee?: number | ethers.BigNumber
+    reservationMinAmount?: number | BigNumber
+    reservationTxMaxFee?: number | BigNumber
     reservationTermSeconds?: number
     reservationDissolutionDelay?: number
-    reservationMaxTotalAmount?: number | ethers.BigNumber
-    reservationTotalAmount?: number | ethers.BigNumber
+    reservationMaxTotalAmount?: number | BigNumber
+    reservationTotalAmount?: number | BigNumber
     maxReservationsPerWallet?: number
     reservationRouter?: string
     reservationActionTimeout?: number
     reservationRenewalWindowSeconds?: number
-    maxReservationsAmountPerWallet?: number | ethers.BigNumber
-    reservationMaxSingleAmount?: number | ethers.BigNumber
+    maxReservationsAmountPerWallet?: number | BigNumber
+    reservationMaxSingleAmount?: number | BigNumber
   }
 ) {
   if (
@@ -308,9 +309,9 @@ async function setReservationConfig(
 
 async function seedDepositWithVault(
   executor: ReservationStrandingExecutor,
-  depositKey: string | number | ethers.BigNumber,
+  depositKey: string | number | BigNumber,
   depositor: string,
-  amount: number | ethers.BigNumber = 1_000_000,
+  amount: number | BigNumber = 1_000_000,
   revealedAt?: number,
   vault?: string
 ) {
@@ -1410,8 +1411,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
     })
     it("Redemption: skips wallet slashing when wallet is Closed (non-redeemable)", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 105
@@ -1488,8 +1489,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       // ECDSA wallet registry slashing functions NOT called
-      expect(walletRegistry.seize).not.to.have.been.called
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectNotCalled(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
     })
 
     it("Dissolution: reverts to Active and clears pending dissolution", async () => {
@@ -1558,8 +1559,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("Dissolution: escalates MovingFunds wallet to Terminated and clears pending dissolution", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 106
@@ -1636,13 +1637,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut).to.have.lengthOf(1)
 
       // Slashed and closed in registry
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).to.have.been.calledOnce
+      await expectCalledOnce(walletRegistry.seize)
+      await expectCalledOnce(walletRegistry.closeWallet)
     })
 
     it("Dissolution: escalates wallet transitioning to Closing to Terminated and clears pending dissolution", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 107
@@ -1723,8 +1724,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut).to.have.lengthOf(1)
 
       // Slashed and closed in registry
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).to.have.been.calledOnce
+      await expectCalledOnce(walletRegistry.seize)
+      await expectCalledOnce(walletRegistry.closeWallet)
     })
   })
   describe("requestReservationReanchor", () => {
@@ -1739,7 +1740,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     const actionTimeout = 6 * 3600
     const maxPerWallet = 5
     const maxAmountPerWallet = 50_000_000
-    let reservationInterface: ethers.utils.Interface
+    let reservationInterface: Interface
 
     beforeEach(async () => {
       const ReservationFactory = await ethers.getContractFactory("Reservation")
