@@ -19,8 +19,13 @@ import {
   DepositRequest,
   Chains,
 } from "../contracts"
-import { Event as EthersEvent } from "@ethersproject/contracts"
-import { BigNumber, constants, ContractTransaction, utils } from "ethers"
+import {
+  ContractTransaction,
+  Event as EthersEvent,
+} from "@ethersproject/contracts"
+import { BigNumber } from "@ethersproject/bignumber"
+import { AddressZero } from "@ethersproject/constants"
+import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { backoffRetrier, Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
@@ -118,7 +123,7 @@ export class EthereumBridge
         refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
         refundLocktime: Hex.from(event.args!.refundLocktime),
         vault:
-          event.args!.vault === constants.AddressZero
+          event.args!.vault === AddressZero
             ? undefined
             : EthereumAddress.from(event.args!.vault),
       }
@@ -208,10 +213,10 @@ export class EthereumBridge
     ]).toString("hex")}`
     // Build the redemption key by using the 0x-prefixed wallet PKH and
     // prefixed output script.
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "bytes20"],
       [
-        utils.solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
+        solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
         `0x${walletPublicKeyHash.toString()}`,
       ]
     )
@@ -309,9 +314,7 @@ export class EthereumBridge
       txOutputValue: mainUtxo.value,
     }
 
-    const vaultParam = vault
-      ? `0x${vault.identifierHex}`
-      : constants.AddressZero
+    const vaultParam = vault ? `0x${vault.identifierHex}` : AddressZero
 
     const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
       async () => {
@@ -475,7 +478,7 @@ export class EthereumBridge
       .reverse()
       .toPrefixedString()
 
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "uint32"],
       [prefixedReversedDepositTxHash, depositOutputIndex]
     )
@@ -493,7 +496,7 @@ export class EthereumBridge
       depositor: EthereumAddress.from(deposit.depositor),
       amount: BigNumber.from(deposit.amount),
       vault:
-        deposit.vault === constants.AddressZero
+        deposit.vault === AddressZero
           ? undefined
           : EthereumAddress.from(deposit.vault),
       revealedAt: BigNumber.from(deposit.revealedAt).toNumber(),
@@ -648,7 +651,7 @@ export class EthereumBridge
    */
   buildUtxoHash(utxo: BitcoinUtxo): Hex {
     return Hex.from(
-      utils.solidityKeccak256(
+      solidityKeccak256(
         ["bytes32", "uint32", "uint64"],
         [
           utxo.transactionHash.reverse().toPrefixedString(),
@@ -669,8 +672,9 @@ export class EthereumBridge
   ): Promise<RedemptionRequestedEvent[]> {
     // FIXME: Filtering by indexed walletPubKeyHash field may not work
     //        until https://github.com/ethers-io/ethers.js/pull/4244 is
-    //        included in the currently used version of ethers.js.
-    //        Ultimately, we should upgrade ethers.js to include that fix.
+    //        included in the @ethersproject/contracts/@ethersproject/abi
+    //        v5 packages. Ethers v6 contains the referenced fix, but this SDK
+    //        targets v5 types.
     //        Short-term, we can workaround the problem as presented in:
     //        https://github.com/threshold-network/token-dashboard/blob/main/src/threshold-ts/tbtc/index.ts#L1041C1-L1093C1
     const events: EthersEvent[] = await this.getEvents(
@@ -735,7 +739,7 @@ export function packRevealDepositParameters(
     walletPubKeyHash: deposit.walletPublicKeyHash.toPrefixedString(),
     refundPubKeyHash: deposit.refundPublicKeyHash.toPrefixedString(),
     refundLocktime: deposit.refundLocktime.toPrefixedString(),
-    vault: vault ? `0x${vault.identifierHex}` : constants.AddressZero,
+    vault: vault ? `0x${vault.identifierHex}` : AddressZero,
   }
 
   const extraData: string | undefined = deposit.extraData?.toPrefixedString()

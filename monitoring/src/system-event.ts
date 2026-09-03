@@ -23,7 +23,7 @@ export type ReceiverId = string
 export interface SystemEventAck {
   receiverId: ReceiverId
   systemEvent: SystemEvent
-  status: "handled" | "ignored"
+  status: "handled" | "ignored" | "duplicate"
 }
 
 export interface Receiver {
@@ -96,7 +96,7 @@ class Deduplicator implements Receiver {
       return {
         receiverId: this.id(),
         systemEvent,
-        status: "ignored",
+        status: "duplicate",
       }
     }
 
@@ -125,6 +125,10 @@ export interface ManagerReport {
 
 // Our expectation on how deep can chain reorganization be.
 const reorgDepthBlocks = 12
+
+// Limit a single catch-up pass to keep stale checkpoints from producing
+// unbounded node queries and alert fanout.
+const maxBlockRange = 10000
 
 export class Manager {
   private monitors: Monitor[]
@@ -158,7 +162,7 @@ export class Manager {
       fromBlock =
         fromBlock - reorgDepthBlocks > 0 ? fromBlock - reorgDepthBlocks : 0
 
-      const toBlock = latestBlock
+      const toBlock = Math.min(latestBlock, fromBlock + maxBlockRange)
 
       const { systemEventsAcks, errors } = await this.check(fromBlock, toBlock)
 
@@ -189,7 +193,7 @@ export class Manager {
 
       if (errors.length === 0) {
         try {
-          await this.persistence.updateCheckpointBlock(latestBlock)
+          await this.persistence.updateCheckpointBlock(toBlock)
         } catch (error) {
           errors.push(`cannot update checkpoint block: ${error}`)
         }
@@ -224,15 +228,10 @@ export class Manager {
     )
 
     checks.forEach((result) => {
-      switch (result.status) {
-        case "fulfilled": {
-          systemEvents.push(...result.value)
-          break
-        }
-        case "rejected": {
-          errors.push(`cannot check system events monitor: ${result.reason}`)
-          break
-        }
+      if (result.status === "fulfilled") {
+        systemEvents.push(...result.value)
+      } else {
+        errors.push(`cannot check system events monitor: ${result.reason}`)
       }
     })
 
@@ -247,16 +246,44 @@ export class Manager {
     const systemEventsAcks: SystemEventAck[] = []
 
     dispatches.forEach((result) => {
-      switch (result.status) {
-        case "fulfilled": {
-          systemEventsAcks.push(result.value)
-          break
-        }
-        case "rejected": {
-          errors.push(`cannot dispatch system event: ${result.reason}`)
-          break
-        }
+      if (result.status === "fulfilled") {
+        systemEventsAcks.push(result.value)
+      } else {
+        errors.push(`cannot dispatch system event: ${result.reason}`)
       }
+    })
+
+    const dispatchedSystemEventKeys = new Set(
+      systemEventsAcks
+        .filter((ack) => ack.status === "handled" || ack.status === "duplicate")
+        .map((ack) => Deduplicator.systemEventKey(ack.systemEvent))
+    )
+
+    // Index ack statuses by event key to detect partial-deployment cases.
+    const ackStatusesByKey = new Map<string, Set<SystemEventAck["status"]>>()
+    systemEventsAcks.forEach((ack) => {
+      const key = Deduplicator.systemEventKey(ack.systemEvent)
+      const statuses =
+        ackStatusesByKey.get(key) ?? new Set<SystemEventAck["status"]>()
+      statuses.add(ack.status)
+      ackStatusesByKey.set(key, statuses)
+    })
+
+    systemEvents.forEach((systemEvent) => {
+      const key = Deduplicator.systemEventKey(systemEvent)
+      if (dispatchedSystemEventKeys.has(key)) return
+      const statuses = ackStatusesByKey.get(key) ?? new Set()
+      // Skip if every receiver ignored this event (no receiver is configured
+      // for this event type -- valid in partial-receiver deployments) or if all
+      // dispatches were rejected and already recorded as errors above.
+      if (
+        statuses.size === 0 ||
+        (statuses.size === 1 && statuses.has("ignored"))
+      )
+        return
+      errors.push(
+        `system event was not handled by any receiver: ${systemEvent.title}`
+      )
     })
 
     return {

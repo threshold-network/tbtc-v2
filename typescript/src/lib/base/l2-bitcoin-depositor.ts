@@ -15,7 +15,7 @@ import { EthereumAddress, packRevealDepositParameters } from "../ethereum"
 import { EthereumCrossChainExtraDataEncoder } from "../ethereum/l1-bitcoin-depositor"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 import BaseL2BitcoinDepositorDeployment from "./artifacts/base/BaseL2BitcoinDepositor.json"
 import BaseSepoliaL2BitcoinDepositorDeployment from "./artifacts/baseSepolia/BaseL2BitcoinDepositor.json"

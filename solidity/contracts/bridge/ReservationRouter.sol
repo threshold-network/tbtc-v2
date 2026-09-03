@@ -22,6 +22,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./Reservation.sol";
+import "./ReservationProofs.sol";
 
 /// @title Bridge reservation router
 /// @notice Holds the external UTXO-reservation surface of the Bridge. The
@@ -50,8 +51,9 @@ import "./Reservation.sol";
 ///         set of privileged Bridge mutator callbacks — more new Bridge
 ///         bytecode than the refactor removes, and a brand-new authority
 ///         surface to audit. The delegatecall extension keeps the current
-///         model: no new trusted party, no Bank changes, no ABI change for
-///         off-chain clients.
+///         model: no new trusted party, no Bank changes, no new contract
+///         address for off-chain clients; callers keep using the reservation
+///         ABI at the Bridge address.
 /// @dev Security invariants, enforced by construction and by tests:
 ///
 ///      1. STORAGE PARITY. The router inherits the same storage-bearing
@@ -85,7 +87,7 @@ import "./Reservation.sol";
 ///         authority exactly where it is today: with the proxy admin, not
 ///         with the parameter governance.
 contract ReservationRouter is Governable, Initializable {
-    /// @notice This router is standalone/unreachable until the Bridge-integration PR lands.
+
     using BridgeState for BridgeState.Storage;
     using Reservation for BridgeState.Storage;
 
@@ -176,11 +178,6 @@ contract ReservationRouter is Governable, Initializable {
         uint32 maxActiveReservations
     );
 
-    /// @dev Emitted by the eventual Bridge.setReservationRouter (out of scope
-    ///      for this PR; arrives with the Bridge-integration PR). Declared here
-    ///      because library events are not part of any contract ABI under
-    ///      solc 0.8.17.
-    event ReservationRouterSet(address reservationRouter);
 
     modifier onlySpvMaintainer() {
         require(
@@ -227,10 +224,8 @@ contract ReservationRouter is Governable, Initializable {
     /// @notice Single entry point for reservation lifecycle SPV proofs
     ///         retained in milestone 1: anchor acceptance and re-anchoring.
     ///         Settles the named action generation. See
-    ///         `ReservationProofs.submitReservationProof` (reached through
-    ///         the `Reservation` library so this contract links exactly one
-    ///         external library) and the individual handlers for detailed
-    ///         requirements.
+    ///         `ReservationProofs.submitReservationProof` and the individual
+    ///         handlers for detailed requirements.
     /// @param proofType The type of the submitted proof, see
     ///        `ReservationProofs.ProofType`.
     /// @param txInfo Bitcoin transaction data.
@@ -248,7 +243,8 @@ contract ReservationRouter is Governable, Initializable {
         uint256 reservationKey,
         uint64 requestNonce
     ) external onlySpvMaintainer {
-        self.submitReservationProof(
+        ReservationProofs.submitReservationProof(
+            self,
             proofType,
             txInfo,
             proof,
@@ -258,18 +254,18 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
-    /// @notice Notifies that the pending action of the given reservation
-    ///         has timed out. Writes the terminal, late-proof-accepting
-    ///         record, releases reserved capacity and locks, refunds the
-    ///         escrowed claim for redemptions, and slashes the wallet for
-    ///         redemption and dissolution timeouts. See
+    /// @notice Reports a pending reservation action as timed out once its
+    ///         authorization window has elapsed. In milestone 1, releases
+    ///         the target-wallet capacity reserved by a pending Reanchor
+    ///         request, restores the reservation to Active under the source
+    ///         wallet, and applies a re-anchor cooldown. Non-Reanchor action
+    ///         types revert with "Unsupported action type for timeout". See
     ///         `Reservation.notifyReservationActionTimeout`.
     /// @param reservationKey The key of the reservation with the timed out
     ///        action.
     /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members; only consulted on the slashing paths (redemption
-    ///        and dissolution timeouts). Unreachable in milestone 1 (redemption
-    ///        and dissolution timeouts do not occur); pass an empty array.
+    ///        members. Unused in milestone 1 (only Reanchor timeouts occur,
+    ///        which need no signing-group lookup); pass an empty array.
     function notifyReservationActionTimeout(
         uint256 reservationKey,
         uint32[] calldata walletMembersIDs
@@ -277,11 +273,32 @@ contract ReservationRouter is Governable, Initializable {
         self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
     }
 
+    /// @notice Permissionlessly reports a pending acceptance authorization
+    ///         as timed out once its authorization window has elapsed,
+    ///         releasing the capacity it reserved so a fresh generation can
+    ///         be requested for the deposit. The timed-out generation
+    ///         remains settleable: if its anchor transaction later confirms
+    ///         on Bitcoin, `submitReservationAcceptanceProof` settles it as
+    ///         a late acceptance instead of reverting.
+    /// @param reservationKey The deposit key of the revealed reserved
+    ///        deposit, which doubles as the reservation key.
+    /// @dev Requirements:
+    ///      - The reservation's current generation must be a pending
+    ///        acceptance authorization (`ActionType.Acceptance`,
+    ///        `ActionState.Pending`),
+    ///      - `block.timestamp` must be at or after the generation's
+    ///        `timeoutAt`.
+    function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
+        external
+    {
+        self.notifyReservationAcceptanceTimedOut(reservationKey);
+    }
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as UTXO reservations.
     /// @param reservationVault Address of the reservation vault. Can only be
-    ///        changed while there are no active reservations.
+    ///        changed while there are no active reservations and no pending
+    ///        reserved deposits.
     /// @param reservationMinAmount New value of the reservation minimum
     ///        amount in satoshis.
     /// @param reservationTxMaxFee New value of the reservation transaction
@@ -336,12 +353,11 @@ contract ReservationRouter is Governable, Initializable {
         self.notifyStaleReservedDeposit(depositKey);
     }
 
-    /// @notice Marks a reservation custodied by a terminated, closing, or
-    ///         closed wallet as stranded: an idle position closes, capacity
-    ///         is released and the owner's minted balance remains an ordinary
-    ///         pooled claim. Pending actions remain proof-eligible and
-    ///         cannot be stranded. See
-    ///         `Reservation.notifyReservationStranded`.
+    /// @notice Marks a reservation custodied by a terminated or closed wallet
+    ///         as stranded: an idle position closes, capacity is released and
+    ///         the owner's minted balance remains an ordinary pooled claim.
+    ///         Pending actions remain proof-eligible and cannot be stranded.
+    ///         See `Reservation.notifyReservationStranded`.
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external {
         self.notifyReservationStranded(reservationKey);

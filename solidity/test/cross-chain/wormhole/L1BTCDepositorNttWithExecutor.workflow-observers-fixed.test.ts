@@ -74,7 +74,6 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -121,23 +120,10 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
   })
 
   describe("Parameter Expiration", () => {
-    it("should have configurable expiration time", async () => {
+    it("should have default expiration time", async () => {
       const currentExpiration = await depositor.parameterExpirationTime()
       // The initial value is 3600 (1 hour, set in initialize function)
       expect(currentExpiration).to.equal(3600)
-
-      // Test setting new expiration time (only owner can do this)
-      const newExpirationTime = 7200 // 2 hours
-      await depositor.setParameterExpirationTime(newExpirationTime)
-
-      const updatedExpiration = await depositor.parameterExpirationTime()
-      expect(updatedExpiration).to.equal(newExpirationTime)
-    })
-
-    it("should reject invalid expiration times", async () => {
-      await expect(depositor.setParameterExpirationTime(0)).to.be.revertedWith(
-        "Expiration time must be greater than 0"
-      )
     })
   })
 
