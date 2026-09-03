@@ -7,6 +7,8 @@ import { SolanaAddress } from "./address"
 
 export * from "./address"
 export * from "./extra-data-encoder"
+export * from "./solana-depositor-interface"
+export * from "./solana-tbtc-token"
 
 /**
  * Loads Solana implementation of tBTC cross-chain interfaces using
@@ -21,8 +23,25 @@ export async function loadSolanaCrossChainInterfaces(
   solanaProvider: AnchorProvider,
   genesisHash: Chains.Solana
 ): Promise<DestinationChainInterfaces> {
-  if (!solanaProvider.wallet || !solanaProvider.wallet.publicKey) {
+  if (
+    !solanaProvider ||
+    !solanaProvider.wallet ||
+    !solanaProvider.wallet.publicKey
+  ) {
     throw new Error("No connected wallet found in the provided AnchorProvider.")
+  }
+
+  if (!genesisHash) {
+    throw new Error("Genesis hash is required.")
+  }
+
+  const validGenesisHashes = Object.values(Chains.Solana)
+  if (!validGenesisHashes.includes(genesisHash)) {
+    throw new Error(
+      `Unsupported Solana genesis hash: ${genesisHash}. Expected one of: ${validGenesisHashes.join(
+        ", "
+      )}`
+    )
   }
 
   const providerGenesisHash = await solanaProvider.connection.getGenesisHash()

@@ -1,4 +1,4 @@
-import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor"
+import { AnchorProvider } from "@coral-xyz/anchor"
 import { PublicKey, Transaction } from "@solana/web3.js"
 import { BigNumber } from "@ethersproject/bignumber"
 import {
@@ -17,11 +17,10 @@ import { SolanaAddress } from "./address"
  * - Fetches balances & total supply via SPL Token.
  * - Manually creates a user’s ATA if needed (no direct Keypair usage).
  */
-export class SolanaTBTCToken
-  extends Program
-  implements DestinationChainTBTCToken
-{
-  private tbtcMint: PublicKey
+export class SolanaTBTCToken implements DestinationChainTBTCToken {
+  readonly #provider: AnchorProvider
+  readonly #programId: PublicKey
+  readonly #tbtcMint: PublicKey
 
   constructor(provider: AnchorProvider) {
     if (!provider.wallet || !provider.wallet.publicKey) {
@@ -29,31 +28,22 @@ export class SolanaTBTCToken
         "SolanaTBTCToken requires a connected wallet with a public key."
       )
     }
-    // TODO: Update to proper Anchor v0.30+ API. This change is unrelated to the
-    // cross-chain redemption fix in this commit, but the build was failing due to
-    // a pre-existing Anchor library incompatibility. The Program constructor
-    // signature changed and no longer accepts programId as a separate parameter.
-    // The `as unknown as Idl` cast works around IDL type mismatch (TS2352) and
-    // removing programId from super() fixes the constructor signature (TS2345).
-    // Proper fix: investigate Anchor v0.30+ API for correct Program instantiation.
-    const programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
-    // @ts-ignore - IDL type mismatch with Anchor version, but works at runtime
-    super(SolanaTBTCTokenIdl as unknown as Idl, provider)
+    this.#provider = provider
+    this.#programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
     // derive your mint:
-    this.tbtcMint = PublicKey.findProgramAddressSync(
+    this.#tbtcMint = PublicKey.findProgramAddressSync(
       [Buffer.from("tbtc-mint")],
-      programId
+      this.#programId
     )[0]
   }
-
   // eslint-disable-next-line valid-jsdoc
   /**
    * get the chain identifier from the program ID:
    */
   getChainIdentifier(): ChainIdentifier {
-    return SolanaAddress.from(this.programId.toBase58())
+    return SolanaAddress.from(this.#programId.toBase58())
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -63,35 +53,37 @@ export class SolanaTBTCToken
    * using a transaction signed by the connected wallet.
    */
   async balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
-    if (!(this.provider as AnchorProvider).wallet?.publicKey) {
+    if (!this.#provider.wallet?.publicKey) {
       throw new Error("No wallet connected.")
     }
 
-    const userPubkey = new PublicKey(identifier.identifierHex)
+    const userPubkey = new PublicKey(
+      Buffer.from(identifier.identifierHex, "hex")
+    )
 
-    // Derive the ATA for (this.tbtcMint, userPubkey):
-    const ataAddr = getAssociatedTokenAddressSync(this.tbtcMint, userPubkey)
+    // Derive the ATA for (this.#tbtcMint, userPubkey):
+    const ataAddr = getAssociatedTokenAddressSync(this.#tbtcMint, userPubkey)
 
     // Check if it exists:
-    const ataInfo = await this.provider.connection.getAccountInfo(ataAddr)
+    const ataInfo = await this.#provider.connection.getAccountInfo(ataAddr)
     if (!ataInfo) {
       // Build a transaction to create the ATA:
       const tx = new Transaction().add(
         createAssociatedTokenAccountInstruction(
-          (this.provider as AnchorProvider).wallet.publicKey, // Payer (must be a real signer)
+          this.#provider.wallet.publicKey, // Payer (must be a real signer)
           ataAddr,
           userPubkey,
-          this.tbtcMint
+          this.#tbtcMint
         )
       )
 
       // Send and confirm the transaction. The Anchor provider will
       // prompt your wallet to sign it.
-      await (this.provider as AnchorProvider).sendAndConfirm(tx)
+      await this.#provider.sendAndConfirm(tx)
     }
 
     // Now fetch the token balance in that ATA:
-    const balanceInfo = await this.provider.connection.getTokenAccountBalance(
+    const balanceInfo = await this.#provider.connection.getTokenAccountBalance(
       ataAddr
     )
     return BigNumber.from(balanceInfo.value.amount)
@@ -102,7 +94,7 @@ export class SolanaTBTCToken
    * Fetches the total supply from the TBTC mint’s SPL Token account.
    */
   async totalSupply(): Promise<BigNumber> {
-    const mintInfo = await getMint(this.provider.connection, this.tbtcMint)
+    const mintInfo = await getMint(this.#provider.connection, this.#tbtcMint)
     // `mintInfo.supply` is a bigint, so convert to BigNumber:
     return BigNumber.from(mintInfo.supply.toString())
   }
