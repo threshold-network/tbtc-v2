@@ -1,16 +1,17 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, waffle } from "hardhat"
-import chai, { expect } from "chai"
-import { Contract, ContractTransaction } from "ethers"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
+import { BigNumber, Contract, ContractTransaction } from "ethers"
+import type { Interface } from "ethers/lib/utils"
+import { createMock, expectCalledOnce, expectNotCalled } from "../helpers/mock"
 
+import type { Mock } from "../helpers/mock"
 import type {
   ReservationStrandingExecutor,
   IWalletRegistry,
 } from "../../typechain"
 
-chai.use(smock.matchers)
 const ZERO_BYTES20 = `0x${"00".repeat(20)}`
 
 // Reservation.ReservationState enum values (matches `Reservation.sol`).
@@ -84,18 +85,18 @@ async function setReservationConfig(
   executorAddress: string,
   params: {
     reservationVault?: string
-    reservationMinAmount?: number | ethers.BigNumber
-    reservationTxMaxFee?: number | ethers.BigNumber
+    reservationMinAmount?: number | BigNumber
+    reservationTxMaxFee?: number | BigNumber
     reservationTermSeconds?: number
     reservationDissolutionDelay?: number
-    reservationMaxTotalAmount?: number | ethers.BigNumber
-    reservationTotalAmount?: number | ethers.BigNumber
+    reservationMaxTotalAmount?: number | BigNumber
+    reservationTotalAmount?: number | BigNumber
     maxReservationsPerWallet?: number
     reservationRouter?: string
     reservationActionTimeout?: number
     reservationRenewalWindowSeconds?: number
-    maxReservationsAmountPerWallet?: number | ethers.BigNumber
-    reservationMaxSingleAmount?: number | ethers.BigNumber
+    maxReservationsAmountPerWallet?: number | BigNumber
+    reservationMaxSingleAmount?: number | BigNumber
   }
 ) {
   if (
@@ -310,9 +311,9 @@ async function setReservationConfig(
 
 async function seedDepositWithVault(
   executor: ReservationStrandingExecutor,
-  depositKey: string | number | ethers.BigNumber,
+  depositKey: string | number | BigNumber,
   depositor: string,
-  amount: number | ethers.BigNumber = 1_000_000,
+  amount: number | BigNumber = 1_000_000,
   revealedAt?: number,
   vault?: string
 ) {
@@ -1420,8 +1421,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
     })
     it("Redemption: skips wallet slashing when wallet is Closed (non-redeemable)", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 105
@@ -1501,13 +1502,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       // ECDSA wallet registry slashing functions NOT called
-      expect(walletRegistry.seize).not.to.have.been.called
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectNotCalled(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
     })
 
     it("Redemption: slashes wallet when wallet is in MovingFunds state", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 110
@@ -1560,7 +1561,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
       expect(actionTimedOut).to.have.lengthOf(1)
 
-      expect(walletRegistry.seize).to.have.been.calledOnce
+      await expectCalledOnce(walletRegistry.seize)
       expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
@@ -1568,8 +1569,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("Redemption: slashes wallet and preserves Closing state when wallet is already Closing", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 115
@@ -1631,8 +1632,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
 
       // Slashed in registry with the provided member IDs, but not closed/terminated
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectCalledOnce(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
 
       // Wallet remains in Closing state (not Terminated or Live)
       expect(await executor.walletState(walletPubKeyHash)).to.equal(
@@ -1957,8 +1958,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("Dissolution: escalates MovingFunds wallet to Terminated and clears pending dissolution", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 106
@@ -2035,13 +2036,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut).to.have.lengthOf(1)
 
       // Slashed and closed in registry
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).to.have.been.calledOnce
+      await expectCalledOnce(walletRegistry.seize)
+      await expectCalledOnce(walletRegistry.closeWallet)
     })
 
     it("Dissolution: transitions Live wallet with main UTXO to MovingFunds on first failure", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 122
@@ -2114,13 +2115,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
       expect(actionTimedOut).to.have.lengthOf(1)
 
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectCalledOnce(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
     })
 
     it("Dissolution: slashes but does not terminate a Live wallet that transitions to Closing on its first failure", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 107
@@ -2202,13 +2203,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut).to.have.lengthOf(1)
 
       // Slashed in registry but not closed/terminated
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectCalledOnce(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
     })
 
     it("Dissolution: slashes but does not terminate a wallet that was already Closing before the call", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 116
@@ -2293,13 +2294,13 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
 
       // Slashed in registry with member IDs, but not closed/terminated
-      expect(walletRegistry.seize).to.have.been.calledOnce
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectCalledOnce(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
     })
 
     it("Dissolution: skips wallet slashing when wallet is Closed (non-redeemable)", async () => {
-      const walletRegistry: FakeContract<IWalletRegistry> =
-        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      const walletRegistry: Mock<IWalletRegistry> =
+        await createMock<IWalletRegistry>("IWalletRegistry")
       await executor.setEcdsaWalletRegistry(walletRegistry.address)
 
       const reservationKey = 117
@@ -2380,8 +2381,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
 
       // ECDSA wallet registry slashing functions NOT called
-      expect(walletRegistry.seize).not.to.have.been.called
-      expect(walletRegistry.closeWallet).not.to.have.been.called
+      await expectNotCalled(walletRegistry.seize)
+      await expectNotCalled(walletRegistry.closeWallet)
     })
 
     it("Dissolution: reverts when action is not Dissolution", async () => {
@@ -2567,7 +2568,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     const actionTimeout = 6 * 3600
     const maxPerWallet = 5
     const maxAmountPerWallet = 50_000_000
-    let reservationInterface: ethers.utils.Interface
+    let reservationInterface: Interface
 
     beforeEach(async () => {
       const ReservationFactory = await ethers.getContractFactory("Reservation")

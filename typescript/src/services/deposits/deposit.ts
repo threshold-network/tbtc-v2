@@ -15,7 +15,7 @@ import {
 } from "../../lib/bitcoin"
 import { payments, Stack, script, opcodes } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 /**
  * Component representing an instance of the tBTC v2 deposit process.
