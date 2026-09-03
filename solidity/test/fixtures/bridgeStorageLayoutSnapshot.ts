@@ -93,7 +93,7 @@ export type BridgeStateStorageSnapshot = {
   structMembers: Record<string, StorageMember[]>
 }
 
-export function extractStructMembersFromMapping(
+function extractStructMembersFromMapping(
   layout: StorageLayout,
   selfMembers: StorageEntry[],
   mappingLabel: string

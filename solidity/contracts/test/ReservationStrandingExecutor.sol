@@ -209,6 +209,52 @@ contract ReservationStrandingExecutor {
         uint32 anchorTxOutputIndex,
         Reservation.ReservationState state
     ) external {
+        _seedReservation(
+            reservationKey,
+            owner,
+            walletPubKeyHash,
+            anchorAmount,
+            anchorTxHash,
+            anchorTxOutputIndex,
+            state,
+            0
+        );
+    }
+
+    /// @notice Inserts a `ReservationRequest` with full lifecycle metadata
+    ///         and an explicit `requestNonce`.
+    function seedReservationWithNonce(
+        uint256 reservationKey,
+        address owner,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount,
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex,
+        Reservation.ReservationState state,
+        uint64 requestNonce
+    ) external {
+        _seedReservation(
+            reservationKey,
+            owner,
+            walletPubKeyHash,
+            anchorAmount,
+            anchorTxHash,
+            anchorTxOutputIndex,
+            state,
+            requestNonce
+        );
+    }
+
+    function _seedReservation(
+        uint256 reservationKey,
+        address owner,
+        bytes20 walletPubKeyHash,
+        uint64 anchorAmount,
+        bytes32 anchorTxHash,
+        uint32 anchorTxOutputIndex,
+        Reservation.ReservationState state,
+        uint64 requestNonce
+    ) internal {
         Reservation.ReservationRequest storage reservation = self.reservations[
             reservationKey
         ];
@@ -220,7 +266,7 @@ contract ReservationStrandingExecutor {
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = anchorTxOutputIndex;
         reservation.state = state;
-        reservation.requestNonce = 0;
+        reservation.requestNonce = requestNonce;
         reservation.expiresAt = uint32(block.timestamp) + 365 days; // solhint-disable-line not-rely-on-time
         reservation.dissolutionEligibleAt =
             uint32(block.timestamp) + // solhint-disable-line not-rely-on-time

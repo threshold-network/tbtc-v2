@@ -1224,19 +1224,20 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         ZERO_BYTES32,
         walletStateEnum.Terminated
       )
-      await executor.seedReservation(
+      await executor.seedReservationWithNonce(
         reservationKey,
         redeemer,
         walletPubKeyHash,
         amount,
         ZERO_BYTES32,
         0,
-        reservationStateEnum.ActionPending
+        reservationStateEnum.ActionPending,
+        requestNonce
       )
 
       await executor.seedPendingReservationAction(
         reservationKey,
-        0,
+        requestNonce,
         reservationActionTypeEnum.Redemption,
         walletPubKeyHash,
         amount,
@@ -1261,6 +1262,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         (e) => e.event === "ReservationRedemptionTimedOut"
       )
       expect(actionTimedOut).to.have.lengthOf(1)
+      expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
 
       // Assert minting retry credit (feePaid=true)
       const retryCreditMinted = receipt.events?.filter(
@@ -1273,8 +1275,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(await executor.retryCredit(reservationKey)).to.be.true
       expect(
         await executor.reservationRetryCreditActionNonce(reservationKey)
-      ).to.equal(0)
-
+      ).to.equal(requestNonce)
       // Escrowed balance moved from the executor to the redeemer.
       expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
       expect(await bankStub.balanceOf(executor.address)).to.equal(0)
@@ -1284,6 +1285,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
     it("Redemption: mints retry credit, transfers balance, and emits events (feePaid=false, usedRetryCredit=true)", async () => {
       const reservationKey = 103
+      const requestNonce = 2
       const amount = 1_000_000
       const redeemer = ethers.Wallet.createRandom().address
       const walletPubKeyHash = `0x${"d3".repeat(20)}` as `0x${string}`
@@ -1297,19 +1299,20 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         ZERO_BYTES32,
         walletStateEnum.Terminated
       )
-      await executor.seedReservation(
+      await executor.seedReservationWithNonce(
         reservationKey,
         redeemer,
         walletPubKeyHash,
         amount,
         ZERO_BYTES32,
         0,
-        reservationStateEnum.ActionPending
+        reservationStateEnum.ActionPending,
+        requestNonce
       )
 
       await executor.seedPendingReservationActionWithRetryCredit(
         reservationKey,
-        0,
+        requestNonce,
         reservationActionTypeEnum.Redemption,
         walletPubKeyHash,
         amount,
@@ -1330,11 +1333,11 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const receipt = await tx.wait()
 
       // Events
-      expect(
-        receipt.events?.filter(
-          (e) => e.event === "ReservationRedemptionTimedOut"
-        )
-      ).to.have.lengthOf(1)
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationRedemptionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+      expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
 
       // Assert minting retry credit (usedRetryCredit=true)
       const retryCreditMinted = receipt.events?.filter(
@@ -1347,8 +1350,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(await executor.retryCredit(reservationKey)).to.be.true
       expect(
         await executor.reservationRetryCreditActionNonce(reservationKey)
-      ).to.equal(0)
-      expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
+      ).to.equal(requestNonce)
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
       )
@@ -1431,6 +1433,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
           await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
         ) + 100
 
+      // Seed wallet in Closed state. Pins the accepted-design decision that
+      // a Closed wallet silently receives neither slash nor notifier reward
+      // (signing group already disbanded and stake already withdrawn).
       await executor.seedWallet(
         walletPubKeyHash,
         ZERO_BYTES32,
@@ -1557,6 +1562,88 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       expect(walletRegistry.seize).to.have.been.calledOnce
       expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+    })
+
+    it("Redemption: slashes wallet and preserves Closing state when wallet is already Closing", async () => {
+      const walletRegistry: FakeContract<IWalletRegistry> =
+        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(walletRegistry.address)
+
+      const reservationKey = 115
+      const requestNonce = 1
+      const amount = 1_000_000
+      const redeemer = ethers.Wallet.createRandom().address
+      const walletPubKeyHash = `0x${"e5".repeat(20)}` as `0x${string}`
+      const walletMembersIDs = [1, 2, 3]
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      // Seed wallet in Closing state before the call. This exercises the
+      // `else if (walletState == Wallets.WalletState.Closing)` branch of
+      // `_slashWalletIfRedeemable`, which routes through
+      // `Wallets.notifyClosingWalletRedemptionTimeout`.
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Closing
+      )
+      await executor.seedReservationWithNonce(
+        reservationKey,
+        redeemer,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending,
+        requestNonce
+      )
+
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        requestNonce,
+        reservationActionTypeEnum.Redemption,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        true,
+        redeemer
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+      await bankStub.setBalance(executor.address, amount)
+
+      const tx = await executor.notifyReservationRedemptionTimedOut(
+        reservationKey,
+        walletMembersIDs
+      )
+      const receipt = await tx.wait()
+
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationRedemptionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+      expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
+
+      // Slashed in registry with the provided member IDs, but not closed/terminated
+      expect(walletRegistry.seize).to.have.been.calledOnce
+      expect(walletRegistry.closeWallet).not.to.have.been.called
+
+      // Wallet remains in Closing state (not Terminated or Live)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.Closing
+      )
+
+      // Escrowed balance moved from the executor to the redeemer
+      expect(await bankStub.balanceOf(redeemer)).to.equal(amount)
+      expect(await bankStub.balanceOf(executor.address)).to.equal(0)
+
+      // Reservation resets to Active
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
       )
@@ -1751,14 +1838,15 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         ZERO_BYTES32,
         walletStateEnum.Terminated
       )
-      await executor.seedReservation(
+      await executor.seedReservationWithNonce(
         reservationKey,
         ethers.Wallet.createRandom().address,
         walletPubKeyHash,
         amount,
         ZERO_BYTES32,
         0,
-        reservationStateEnum.ActionPending
+        reservationStateEnum.ActionPending,
+        requestNonce
       )
       await executor.seedWalletPendingDissolution(
         walletPubKeyHash,
@@ -1766,7 +1854,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
       await executor.seedPendingReservationActionWithRetryCredit(
         reservationKey,
-        0, // Must match reservation.requestNonce (default 0)
+        requestNonce,
         reservationActionTypeEnum.Dissolution,
         walletPubKeyHash,
         amount,
@@ -1800,6 +1888,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         (e) => e.event === "ReservationDissolutionTimedOut"
       )
       expect(actionTimedOut).to.have.lengthOf(1)
+      expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
     })
 
     it("Dissolution: preserves pending dissolution marker when wallet marker belongs to another reservation", async () => {
@@ -2114,6 +2203,184 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       // Slashed in registry but not closed/terminated
       expect(walletRegistry.seize).to.have.been.calledOnce
+      expect(walletRegistry.closeWallet).not.to.have.been.called
+    })
+
+    it("Dissolution: slashes but does not terminate a wallet that was already Closing before the call", async () => {
+      const walletRegistry: FakeContract<IWalletRegistry> =
+        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(walletRegistry.address)
+
+      const reservationKey = 116
+      const requestNonce = 1
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"e6".repeat(20)}` as `0x${string}`
+      const walletMembersIDs = [1, 2, 3]
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      // Seed wallet in Closing state before the call. This pins the accepted-design
+      // leniency decision that a wallet already Closing before the timeout call
+      // is slashed via notifyClosingWalletRedemptionTimeout but NOT terminated by
+      // dissolution timeout (walletWasMovingFunds is false).
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Closing
+      )
+      await executor.seedReservationWithNonce(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending,
+        requestNonce
+      )
+      await executor.seedWalletPendingDissolution(
+        walletPubKeyHash,
+        reservationKey
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        requestNonce,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(reservationKey)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.Closing
+      )
+
+      // Advance time past timeoutAt
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.notifyReservationDissolutionTimedOut(
+        reservationKey,
+        walletMembersIDs
+      )
+      const receipt = await tx.wait()
+
+      // Reservation resets to Active
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      // Pending dissolution cleared
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(0)
+      // Wallet remains Closing (slashed-but-not-terminated, pinning accepted design)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.Closing
+      )
+
+      // Event emitted
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationDissolutionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+      expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
+
+      // Slashed in registry with member IDs, but not closed/terminated
+      expect(walletRegistry.seize).to.have.been.calledOnce
+      expect(walletRegistry.closeWallet).not.to.have.been.called
+    })
+
+    it("Dissolution: skips wallet slashing when wallet is Closed (non-redeemable)", async () => {
+      const walletRegistry: FakeContract<IWalletRegistry> =
+        await smock.fake<IWalletRegistry>("IWalletRegistry")
+      await executor.setEcdsaWalletRegistry(walletRegistry.address)
+
+      const reservationKey = 117
+      const requestNonce = 1
+      const amount = 1_000_000
+      const walletPubKeyHash = `0x${"e7".repeat(20)}` as `0x${string}`
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      // Seed wallet in Closed state. Pins the accepted-design decision that
+      // a Closed wallet silently receives neither slash nor notifier reward
+      // (signing group already disbanded and stake already withdrawn).
+      await executor.seedWallet(
+        walletPubKeyHash,
+        ZERO_BYTES32,
+        walletStateEnum.Closed
+      )
+      await executor.seedReservationWithNonce(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        walletPubKeyHash,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending,
+        requestNonce
+      )
+      await executor.seedWalletPendingDissolution(
+        walletPubKeyHash,
+        reservationKey
+      )
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        requestNonce,
+        reservationActionTypeEnum.Dissolution,
+        walletPubKeyHash,
+        amount,
+        timeoutAt,
+        false,
+        ZERO_BYTES20
+      )
+
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(reservationKey)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.Closed
+      )
+
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.notifyReservationDissolutionTimedOut(
+        reservationKey,
+        []
+      )
+      const receipt = await tx.wait()
+
+      // Reservation resets to Active
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      // Pending dissolution cleared
+      expect(
+        await executor.walletPendingDissolution(walletPubKeyHash)
+      ).to.equal(0)
+      // Wallet state unchanged (remains Closed)
+      expect(await executor.walletState(walletPubKeyHash)).to.equal(
+        walletStateEnum.Closed
+      )
+
+      const actionTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationDissolutionTimedOut"
+      )
+      expect(actionTimedOut).to.have.lengthOf(1)
+      expect(actionTimedOut![0].args!.requestNonce).to.equal(requestNonce)
+
+      // ECDSA wallet registry slashing functions NOT called
+      expect(walletRegistry.seize).not.to.have.been.called
       expect(walletRegistry.closeWallet).not.to.have.been.called
     })
 

@@ -8,6 +8,7 @@ import {
   extractBridgeStateStorageSnapshot,
   BridgeStateStorageSnapshot,
   StorageLayout,
+  StorageMember,
 } from "../test/fixtures/bridgeStorageLayoutSnapshot"
 
 type UpgradeStorageLayout = Parameters<typeof assertStorageUpgradeSafe>[0]
@@ -29,6 +30,12 @@ const SNAPSHOT_COMMENT =
  */
 function toTypeId(typeStr: string): string {
   if (!typeStr) return "t_unknown"
+  const arrayMatch = typeStr.match(/^(.*)\[(\d*)\]$/)
+  if (arrayMatch) {
+    const base = arrayMatch[1].trim()
+    const len = arrayMatch[2]
+    return `t_array(${toTypeId(base)})${len || "dyn"}_storage`
+  }
   if (typeStr.startsWith("contract ")) {
     const name = typeStr.slice("contract ".length).trim()
     return `t_contract(${name})`
@@ -36,6 +43,10 @@ function toTypeId(typeStr: string): string {
   if (typeStr.startsWith("struct ")) {
     const name = typeStr.slice("struct ".length).trim()
     return `t_struct(${name})`
+  }
+  if (typeStr.startsWith("enum ")) {
+    const name = typeStr.slice("enum ".length).trim()
+    return `t_enum(${name})`
   }
   if (typeStr.startsWith("mapping(") && typeStr.endsWith(")")) {
     const inner = typeStr.slice("mapping(".length, -1)
@@ -46,28 +57,143 @@ function toTypeId(typeStr: string): string {
       return `t_mapping(${toTypeId(keyStr)},${toTypeId(valStr)})`
     }
   }
-  const arrayMatch = typeStr.match(/^(.*)\[(\d*)\]$/)
-  if (arrayMatch) {
-    const base = arrayMatch[1].trim()
-    const len = arrayMatch[2]
-    return `t_array(${toTypeId(base)})${len || "dyn"}_storage`
-  }
   return `t_${typeStr}`
 }
 
 /**
- * Wraps snapshot members as a minimal `{ storage, types }` layout object
- * expected by OpenZeppelin's assertStorageUpgradeSafe.
+ * Recursively registers a type and any nested types (mapping keys/values, array
+ * base types, struct members) into the types map expected by
+ * assertStorageUpgradeSafe.
+ */
+function registerType(
+  types: StorageLayout["types"],
+  setType: (id: string, entry: StorageLayout["types"][string]) => void,
+  structMembersMap: Record<string, StorageMember[]>,
+  typeStr: string,
+  numberOfBytes?: string
+): string {
+  const typeId = toTypeId(typeStr)
+  if (!typeStr) return typeId
+
+  // Array handling
+  const arrayMatch = typeStr.match(/^(.*)\[(\d*)\]$/)
+  if (arrayMatch) {
+    const baseStr = arrayMatch[1].trim()
+    const len = arrayMatch[2]
+    const baseTypeId = registerType(types, setType, structMembersMap, baseStr)
+    setType(typeId, {
+      label: typeStr,
+      numberOfBytes:
+        numberOfBytes || (len ? String(parseInt(len, 10) * 32) : "32"),
+      encoding: len ? "inplace" : "dynamic_array",
+      base: baseTypeId,
+    })
+    return typeId
+  }
+
+  // Mapping handling
+  if (typeStr.startsWith("mapping(") && typeStr.endsWith(")")) {
+    const inner = typeStr.slice("mapping(".length, -1)
+    const arrowIdx = inner.indexOf("=>")
+    if (arrowIdx !== -1) {
+      const keyStr = inner.slice(0, arrowIdx).trim()
+      const valStr = inner.slice(arrowIdx + 2).trim()
+      const keyTypeId = registerType(types, setType, structMembersMap, keyStr)
+      const valTypeId = registerType(types, setType, structMembersMap, valStr)
+      setType(typeId, {
+        label: typeStr,
+        numberOfBytes: numberOfBytes || "32",
+        encoding: "mapping",
+        key: keyTypeId,
+        value: valTypeId,
+      })
+      return typeId
+    }
+  }
+
+  // Struct handling
+  if (typeStr.startsWith("struct ")) {
+    const name = typeStr.slice("struct ".length).trim()
+    const matchingKey = Object.keys(structMembersMap).find(
+      (k) => k === name || name.endsWith(`.${k}`) || k.endsWith(`.${name}`)
+    )
+    if (matchingKey && structMembersMap[matchingKey]) {
+      const sMembers = structMembersMap[matchingKey]
+      const maxSlot =
+        sMembers.length > 0
+          ? Math.max(...sMembers.map((m) => parseInt(m.slot, 10) || 0))
+          : 0
+      const structBytes = numberOfBytes || String((maxSlot + 1) * 32)
+      const members = sMembers.map((sm) => {
+        const smTypeId = registerType(
+          types,
+          setType,
+          structMembersMap,
+          sm.type,
+          sm.numberOfBytes
+        )
+        return {
+          label: sm.label,
+          slot: sm.slot,
+          offset: sm.offset,
+          type: smTypeId,
+        }
+      })
+      setType(typeId, {
+        label: typeStr,
+        numberOfBytes: structBytes,
+        encoding: "inplace",
+        members,
+      })
+      const shortTypeId = `t_struct(${matchingKey})`
+      if (!types[shortTypeId]) {
+        setType(shortTypeId, {
+          label: `struct ${matchingKey}`,
+          numberOfBytes: structBytes,
+          encoding: "inplace",
+          members,
+        })
+      }
+      return typeId
+    }
+  }
+
+  // Default / Contract / Enum / Primitive type
+  if (!types[typeId] || (numberOfBytes && !types[typeId].numberOfBytes)) {
+    setType(typeId, {
+      label: typeStr,
+      numberOfBytes: numberOfBytes || "32",
+      encoding: "inplace",
+    })
+  }
+
+  return typeId
+}
+
+/**
+ * Wraps snapshot members as a `{ storage, types }` layout object expected
+ * by OpenZeppelin's assertStorageUpgradeSafe, fully registering struct members
+ * and mapping value types so internal struct changes can be validated.
  */
 function snapshotToLayout(snapshot: BridgeStateStorageSnapshot): StorageLayout {
   const types: StorageLayout["types"] = {}
+  const setType = (id: string, entry: StorageLayout["types"][string]) => {
+    types[id] = entry
+  }
+  const structMembersMap = snapshot.structMembers || {}
+
+  Object.keys(structMembersMap).forEach((structName) => {
+    registerType(types, setType, structMembersMap, `struct ${structName}`)
+  })
+
   const storage = snapshot.members.map((m) => {
-    const typeId = toTypeId(m.type)
-    types[typeId] = {
-      label: m.type,
-      numberOfBytes: m.numberOfBytes || "32",
-      encoding: "inplace",
-    }
+    const typeId = registerType(
+      types,
+      setType,
+      structMembersMap,
+      m.type,
+      m.numberOfBytes
+    )
     return {
       label: m.label,
       slot: m.slot,
