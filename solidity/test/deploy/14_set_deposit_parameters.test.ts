@@ -253,6 +253,28 @@ describe("Deploy Script 14: deposit parameters", () => {
     }
 
     expect(error?.message).to.equal(
+      "Deposit reveal-ahead period update is already pending (pending value 100 does not match target 12960000)"
+    )
+  })
+
+  it("throws without warning when pending deposit reveal-ahead period update matches target", async () => {
+    const { mockHre } = createMockHre({
+      bridgeGovernance,
+      depositRevealAheadPeriod: BigNumber.from("12960000").add(1),
+      pendingUpdate: {
+        newDepositRevealAheadPeriod: DEPOSIT_REVEAL_AHEAD_PERIOD,
+        timestamp: BigNumber.from("1000"),
+      },
+    })
+
+    let error: Error | undefined
+    try {
+      await func(mockHre)
+    } catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error?.message).to.equal(
       "Deposit reveal-ahead period update is already pending"
     )
   })
