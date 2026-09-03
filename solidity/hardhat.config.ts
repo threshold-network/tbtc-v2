@@ -47,6 +47,7 @@ const bridgeGovernanceCompilerConfig = {
   settings: {
     optimizer: {
       enabled: true,
+      runs: 200,
     },
     outputSelection: storageLayoutOutputSelection,
   },
@@ -63,7 +64,7 @@ const bridgeCompilerConfig = {
   settings: {
     optimizer: {
       enabled: true,
-      runs: 200, // Reduced from main compiler's 1000 to keep Bridge.sol under EIP-170 24KB limit with m1 reservation surface.
+      runs: 200, // Reversion to default 1000 attempted and re-measured as infeasible post router-split: 24835 bytes > 24576 limit.
     },
     outputSelection: storageLayoutOutputSelection,
   },

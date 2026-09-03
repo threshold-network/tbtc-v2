@@ -29,8 +29,8 @@ import type { DeployFunction } from "hardhat-deploy/types"
  * places this script exactly there.
  */
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
-  const { deployments, getNamedAccounts, helpers } = hre
-  const { deploy, execute } = deployments
+  const { deployments, getNamedAccounts, helpers, ethers } = hre
+  const { deploy, execute, read, log } = deployments
   const { deployer } = await getNamedAccounts()
 
   const deployOptions = {
@@ -57,12 +57,26 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     },
   })
 
-  await execute(
+  // `setReservationRouter` is write-once and reverts with "Reservation
+  // router already set" on a second call, so a retry of a
+  // partially-failed deploy pipeline must not re-invoke it once the
+  // Bridge already points at a router.
+  const currentReservationRouter = await read(
     "Bridge",
-    { from: deployer, log: true, waitConfirmations: 1 },
-    "setReservationRouter",
-    reservationRouter.address
+    { from: deployer },
+    "getReservationRouter"
   )
+
+  if (currentReservationRouter === ethers.constants.AddressZero) {
+    await execute(
+      "Bridge",
+      { from: deployer, log: true, waitConfirmations: 1 },
+      "setReservationRouter",
+      reservationRouter.address
+    )
+  } else {
+    log(`Bridge reservation router already set to ${currentReservationRouter}`)
+  }
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(ReservationProofs)

@@ -31,10 +31,14 @@ import type { DeployFunction } from "hardhat-deploy/types"
  * `beginReservationParametersUpdate` — there is no separate
  * `setReservationVault` setter.
  *
- * Test-network shortcut: on test/hardhat/local networks where the
- * timelock is bypassed, this script may begin and finalize in the same
- * deploy run. On mainnet, this script begins only; a separate runbook
- * step finalizes after the timelock.
+ * Test-network shortcut: on local development networks (hardhat,
+ * localhost, development, system_tests) where the timelock is bypassed,
+ * this script may begin and finalize in the same deploy run. On live
+ * non-mainnet networks (e.g. sepolia) this script runs the `begin*`
+ * steps only; the `finalize*` steps must be executed separately after
+ * the governance delay elapses (60s on sepolia, 48h on mainnet).
+ * Mainnet is skipped entirely via `func.skip` until the timelock is
+ * reviewed for production use.
  *
  * The vault deploys with `redemptionsPaused == true` by design; this
  * script does NOT unpause. Unpause is a separate governance action
@@ -73,7 +77,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // Settle the setter-ordering hazard. Reservation.sol defaults
   // `reservationMaxTotalAmount` to 0, so the relational check in the
   // finalizer passes trivially.
-  deployments.log("[1/3] begin/finalize updateReservationCaps")
+  deployments.log("[1/3] beginReservationCapsUpdate")
   await execute(
     "BridgeGovernance",
     { from: governance, log: true, waitConfirmations: 1 },
@@ -83,19 +87,28 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
     ethers.BigNumber.from("100") // maxActiveReservations
   )
-  await passGovernanceDelay()
-  await execute(
-    "BridgeGovernance",
-    { from: governance, log: true, waitConfirmations: 1 },
-    "finalizeReservationCapsUpdate"
-  )
+  if (isLocalNetwork) {
+    await passGovernanceDelay()
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "finalizeReservationCapsUpdate"
+    )
+  } else {
+    const delay = await read("BridgeGovernance", "governanceDelays", 0)
+    deployments.log(
+      `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationCapsUpdate | ` +
+        `Args: () | Governance delay: ${delay.toString()}s | ` +
+        "Run separately after delay elapses"
+    )
+  }
 
   // ----- Step 2: begin/finalize updateReservationParameters --------------
   // `reservationVault` (the first arg) is set here — no separate
   // `setReservationVault` setter exists. Total must fit under the
   // `maxActiveReservations * reservationMaxSingleAmount` product set in
   // step 1 (100 * 100000 = 10_000_000).
-  deployments.log("[2/3] begin/finalize updateReservationParameters")
+  deployments.log("[2/3] beginReservationParametersUpdate")
   await execute(
     "BridgeGovernance",
     { from: governance, log: true, waitConfirmations: 1 },
@@ -110,12 +123,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("86400"), // reservationActionTimeout
     ethers.BigNumber.from("86400") // reservationRenewalWindowSeconds
   )
-  await passGovernanceDelay()
-  await execute(
-    "BridgeGovernance",
-    { from: governance, log: true, waitConfirmations: 1 },
-    "finalizeReservationParametersUpdate"
-  )
+  if (isLocalNetwork) {
+    await passGovernanceDelay()
+    await execute(
+      "BridgeGovernance",
+      { from: governance, log: true, waitConfirmations: 1 },
+      "finalizeReservationParametersUpdate"
+    )
+  } else {
+    const delay = await read("BridgeGovernance", "governanceDelays", 0)
+    deployments.log(
+      `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationParametersUpdate | ` +
+        `Args: () | Governance delay: ${delay.toString()}s | ` +
+        "Run separately after delay elapses"
+    )
+  }
 
   // ----- Step 3: setVaultStatus true (activate the vault) ----------------
   // Final activation step. Until this runs, deposits cannot be revealed
