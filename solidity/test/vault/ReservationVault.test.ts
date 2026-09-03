@@ -258,6 +258,24 @@ describe("ReservationVault", () => {
     })
   })
 
+  describe("redeemReservation", () => {
+    it("should revert when redemptions are paused", async () => {
+      expect(await vault.redemptionsPaused()).to.equal(true)
+      await expect(vault.redeemReservation(0, 100_000)).to.be.revertedWith(
+        "Redemptions are paused"
+      )
+    })
+  })
+
+  describe("retryRedeemReservation", () => {
+    it("should revert when redemptions are paused", async () => {
+      expect(await vault.redemptionsPaused()).to.equal(true)
+      await expect(vault.retryRedeemReservation(0, 0)).to.be.revertedWith(
+        "Redemptions are paused"
+      )
+    })
+  })
+
   describe("receiveBalanceApproval", () => {
     it("should always revert", async () => {
       await expect(

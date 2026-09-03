@@ -118,11 +118,30 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     event InKindFeeDebtRepaid(address indexed payer, uint64 amountSat);
 
     event FeeReserveTargetUpdated(uint256 feeReserveTarget);
-
     event FeesSwept(address indexed recipient, uint256 amountTbtc);
+
+    /// @notice Emitted when a reservation owner requests an in-kind
+    ///         redemption of a reservation the caller owns. M2 will
+    ///         emit this; M1 has no reachable redemption code path.
+    event ReservedRedemptionInitiated(
+        address indexed redeemer,
+        uint256 indexed reservationKey,
+        uint256 amountSat,
+        bool isRetry
+    );
 
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
+        _;
+    }
+
+    /// @notice Gates the redemption initiation entry points. Mirrors the
+    ///         renewal pattern: a freshly deployed vault starts with this
+    ///         modifier's condition true; governance is the only path that
+    ///         ever flips it. Settlement-path functions must never include
+    ///         this check.
+    modifier whenRedemptionsNotPaused() {
+        require(!redemptionsPaused, "Redemptions are paused");
         _;
     }
 
@@ -352,6 +371,42 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
             _extensionFeeBps,
             _redemptionFeeBps
         );
+    }
+
+    /// @notice Initiates an in-kind redemption of `amountSat` of the
+    ///         reservation's `mintedAmount`. Caller must be the
+    ///         reservation owner. Gated by `redemptionsPaused`.
+    /// @dev Reserved-redemption entry point. M1 ships
+    ///      paused-by-default, so this reverts on every call today;
+    ///      M2 will unmute the pause and add the body that drives the
+    ///      Bridge's `requestReservedRedemption` path. The function
+    ///      shape is fixed now to keep the M2 wiring unchanged.
+    function redeemReservation(uint256 reservationKey, uint256)
+        external
+        whenRedemptionsNotPaused
+    {
+        require(
+            msg.sender == bridge.reservations(reservationKey).owner,
+            "Caller is not the reservation owner"
+        );
+        revert("Reserved redemption not enabled in milestone 1");
+    }
+
+    /// @notice Re-runs a redemption using the reservation's single-use
+    ///         fee-free retry entitlement, granted when a prior
+    ///         fee-paid redemption generation timed out through wallet
+    ///         fault. Caller must be the reservation owner. Gated by
+    ///         `redemptionsPaused`.
+    /// @dev See `redeemReservation` for the same M1/M2 rationale.
+    function retryRedeemReservation(uint256 reservationKey, uint64)
+        external
+        whenRedemptionsNotPaused
+    {
+        require(
+            msg.sender == bridge.reservations(reservationKey).owner,
+            "Caller is not the reservation owner"
+        );
+        revert("Reserved redemption retry not enabled in milestone 1");
     }
 
     /// @notice Pauses all future redemptions. Restrictive and monotonic:
