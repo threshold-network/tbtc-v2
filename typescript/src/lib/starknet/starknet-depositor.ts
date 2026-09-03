@@ -160,6 +160,21 @@ export class StarkNetRelayerDepositConflictError extends Error {
     this.name = "StarkNetRelayerDepositConflictError"
   }
 }
+/**
+ * Thrown when a relayer reveal operation is aborted via AbortSignal.
+ */
+export class StarkNetRelayerAbortedError extends Error {
+  constructor(message = "Relayer request aborted") {
+    super(message)
+    this.name = "StarkNetRelayerAbortedError"
+  }
+}
+
+/**
+ * @deprecated Use StarkNetRelayerAbortedError instead
+ */
+export const RelayerAbortedError = StarkNetRelayerAbortedError
+export type RelayerAbortedError = StarkNetRelayerAbortedError
 
 /**
  * Configuration for StarkNetBitcoinDepositor
@@ -354,7 +369,7 @@ function isCanonicalDepositId(value: unknown): value is string {
 function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
-      reject(new Error("Aborted"))
+      reject(new StarkNetRelayerAbortedError("Relayer request aborted"))
       return
     }
     const timer = setTimeout(resolve, ms)
@@ -362,7 +377,7 @@ function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
       "abort",
       () => {
         clearTimeout(timer)
-        reject(new Error("Aborted"))
+        reject(new StarkNetRelayerAbortedError("Relayer request aborted"))
       },
       { once: true }
     )
@@ -614,6 +629,12 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       vault
     )
 
+    if (!this.#depositOwner) {
+      throw new Error(
+        "L2 deposit owner must be set before initializing deposit"
+      )
+    }
+
     const depositOwner = deposit.extraData
       ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
       : this.#depositOwner
@@ -624,7 +645,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       )
     }
 
-    const l2SenderOwner = this.#depositOwner ?? depositOwner
+    const l2SenderOwner = this.#depositOwner
 
     // Format addresses for relayer
     const formattedL2DepositOwner = this.formatStarkNetAddressAsBytes32(
@@ -732,6 +753,16 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       } catch (error: any) {
         lastError = error
 
+        if (
+          signal?.aborted ||
+          error?.code === "ERR_CANCELED" ||
+          error?.name === "CanceledError" ||
+          axios.isCancel?.(error) ||
+          error instanceof StarkNetRelayerAbortedError
+        ) {
+          throw new StarkNetRelayerAbortedError("Relayer request aborted")
+        }
+
         // A 409 means the relayer already has a record of this deposit.
         // That alone is not proof L1 initialization succeeded, so it can
         // never be converted into a fabricated Hex or TransactionReceipt.
@@ -743,7 +774,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
             signal
           )
         }
-
         // Check if error is retryable and we have retries left
         if (attempt < maxRetries && this.isRetryableError(error)) {
           console.log(
@@ -816,7 +846,10 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
 
     let status: StarkNetRelayerDepositStatus | undefined
     let statusVerified = false
-    let depositIdMismatch = false
+    let depositIdMismatch =
+      locallyDerivedDepositId !== undefined &&
+      depositIdFromRelayer !== undefined &&
+      depositIdFromRelayer !== locallyDerivedDepositId
 
     if (depositIdToQuery) {
       try {
@@ -847,13 +880,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
             locallyDerivedDepositId !== undefined &&
             depositIdToQuery === locallyDerivedDepositId
 
-          if (
-            !statusVerified &&
-            locallyDerivedDepositId !== undefined &&
-            depositIdFromRelayer !== undefined &&
-            depositIdFromRelayer !== locallyDerivedDepositId
-          ) {
-            depositIdMismatch = true
+          if (depositIdMismatch) {
             console.warn(
               "Relayer-reported deposit ID does not match the SDK's " +
                 `locally-derived deposit ID (relayer: ${depositIdFromRelayer}, ` +
@@ -968,7 +995,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
         `The relayer reports this deposit${idSuffix} already exists, but its ` +
         "reported deposit ID does not match the ID the SDK independently " +
         "derived from the funding transaction, so its status could not be " +
-        "trusted. This may indicate a relayer/SDK ID-derivation mismatch; " +
+        "verified or trusted. This may indicate a relayer/SDK ID-derivation mismatch; " +
         "check the deposit status independently before retrying."
       )
     }
@@ -1013,9 +1040,16 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * @returns Formatted error message
    */
   private formatRelayerError(error: any): string {
+    if (
+      error instanceof StarkNetRelayerAbortedError ||
+      error?.code === "ERR_CANCELED" ||
+      error?.name === "CanceledError"
+    ) {
+      return "Relayer request aborted"
+    }
+
     // Check if it's an Axios error
     const isAxiosError = error.isAxiosError || axios.isAxiosError?.(error)
-
     if (isAxiosError || error.code === "ECONNABORTED") {
       // Handle timeout errors
       if (error.code === "ECONNABORTED") {

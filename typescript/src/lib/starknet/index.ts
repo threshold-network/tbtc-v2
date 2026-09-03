@@ -24,12 +24,21 @@ export * from "./abi"
  */
 const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
   [Chains.StarkNet.Mainnet]:
-    "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
+    "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32", // TODO: verify against deployed StarkNet mainnet tBTC contract
   [Chains.StarkNet.Sepolia]:
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
   // Test chain ID
   ["0x534e5f544553544e4554"]:
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276", // Using Sepolia address for tests
+}
+
+// Validate contract addresses shape at load time (0x + 64 hex characters)
+for (const [chain, address] of Object.entries(TBTC_CONTRACT_ADDRESSES)) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(address)) {
+    throw new Error(
+      `Invalid tBTC contract address for chain ${chain}: expected 0x followed by 64 hex characters, got ${address}`
+    )
+  }
 }
 
 /**
@@ -126,7 +135,7 @@ export const loadStarkNetCrossChainContracts = loadStarkNetCrossChainInterfaces
  * @returns Resolves when the provider's chain ID matches; never resolves a value.
  * @throws Error if the provider's chain ID does not match.
  */
-async function validateProviderChain(
+export async function validateProviderChain(
   provider: StarkNetProvider,
   expectedChainId: string
 ): Promise<void> {
@@ -144,7 +153,7 @@ async function validateProviderChain(
  * @returns The provider's normalized chain ID.
  * @throws Error if the provider does not expose `getChainId`.
  */
-async function resolveProviderChainId(
+export async function resolveProviderChainId(
   provider: StarkNetProvider
 ): Promise<string> {
   if ("getChainId" in provider && typeof provider.getChainId === "function") {
