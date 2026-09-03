@@ -126,7 +126,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     event FeeReserveTargetUpdated(uint256 feeReserveTarget);
     event FeesSwept(address indexed recipient, uint256 amountTbtc);
 
-
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
         _;
