@@ -20,7 +20,6 @@ import "./BridgeState.sol";
 import "./Deposit.sol";
 import "./Wallets.sol";
 import "./WalletProposalValidatorConstants.sol";
-import "./ReservationProofs.sol";
 
 /// @title Bridge UTXO reservations — control plane
 /// @notice The library handles the request/authorization side of UTXO

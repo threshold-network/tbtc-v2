@@ -36,10 +36,10 @@ import "../token/TBTC.sol";
 ///         into the pooled supply, they are anchored by the wallet and
 ///         redeemable in-kind. When the Bridge proves a reservation's anchor
 ///         transaction, it credits the gross anchored amount to this vault,
-///         which mints TBTC gross to the reservation owner and collects all
-///         protocol fees as explicit TBTC transfers -- reservation claims
-///         are never netted, so the claim surrendered at redemption always
-///         equals the sats earmarked on-chain.
+///         which mints TBTC gross and forwards it to depositors minus the
+///         initiation fee. The initiation fee is retained in the vault as
+///         the in-kind fee reserve until `sweepFees` moves the excess over
+///         `feeReserveTarget` to governance's recipient.
 /// @dev The vault deliberately keeps no claim registry of its own -- the
 ///      Bridge's reservation records are the single source of truth and are
 ///      consulted for ownership checks.
@@ -66,11 +66,13 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     uint16 public initiationFeeBps;
     /// @notice Extension fee in basis points of the gross amount, charged
     ///         per custody term extension.
+    /// @dev Unused in milestone 1; reserved for the sibling wiring PR.
     uint16 public extensionFeeBps;
     /// @notice Redemption fee in basis points of the gross amount, charged
     ///         when the in-kind redemption is requested. Priced at parity
     ///         with the pooled redemption fee; not re-charged on retries
     ///         after wallet-fault timeouts.
+    /// @dev Unused in milestone 1; reserved for the sibling wiring PR.
     uint16 public redemptionFeeBps;
 
     /// @notice True while redemptions are paused. A fresh vault starts
@@ -86,6 +88,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         finances the Bitcoin miner fees of re-anchor and dissolution
     ///         transactions — the settlements where no party surrenders
     ///         TBTC — keeping total supply matched to the Bitcoin backing.
+    /// @dev Note that fee retention in TBTC token units may leave a
+    ///      sub-satoshi remainder due to 18-decimal to satoshi truncation
+    ///      when financing in-kind fees. Governance should account for this
+    ///      satoshi-granularity floor when sizing the target.
     uint256 public feeReserveTarget;
 
     /// @notice Outstanding in-kind fee debt in satoshi: miner fees of
@@ -120,26 +126,18 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     event FeeReserveTargetUpdated(uint256 feeReserveTarget);
     event FeesSwept(address indexed recipient, uint256 amountTbtc);
 
-    /// @notice Emitted when a reservation owner requests an in-kind
-    ///         redemption of a reservation the caller owns. M2 will
-    ///         emit this; M1 has no reachable redemption code path.
-    event ReservedRedemptionInitiated(
-        address indexed redeemer,
-        uint256 indexed reservationKey,
-        uint256 amountSat,
-        bool isRetry
-    );
 
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
         _;
     }
 
-    /// @notice Gates the redemption initiation entry points. Mirrors the
-    ///         renewal pattern: a freshly deployed vault starts with this
-    ///         modifier's condition true; governance is the only path that
-    ///         ever flips it. Settlement-path functions must never include
-    ///         this check.
+    /// @notice Gates the redemption initiation entry points. A freshly
+    ///         deployed vault starts paused, so this modifier rejects every
+    ///         call. Governance is the only path that ever flips it.
+    ///         Settlement-path functions must never include this check.
+    ///         Currently gates nothing reachable in milestone 1 and exists to
+    ///         fix the milestone 2 storage layout and governance surface.
     modifier whenRedemptionsNotPaused() {
         require(!redemptionsPaused, "Redemptions are paused");
         _;
@@ -168,15 +166,13 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         tbtcToken = _tbtcVault.tbtcToken();
         bridge = _bridge;
 
-        // Fee schedule (see the UTXO reservation design): the endpoints
-        // are priced at parity with the pooled path -- a 20 bps mint leg
-        // inside the 40 bps initiation fee and a 20 bps redemption fee --
-        // so the only premium being purchased is the 20 bps/yr custody fee
-        // (the remainder of the initiation fee prepays the first year). An
-        // N-year holding pays 40 + 20N bps against the pooled 40 bps round
-        // trip: strictly premium at every horizon. The minimum reservation
-        // size, not this schedule, is the governance dial that keeps the
-        // carry fee covering per-position lifecycle costs.
+        // Fee schedule: an initiation fee of 40 bps, an extension fee of
+        // 20 bps/yr, and a redemption fee of 20 bps. Compared against the
+        // pooled baseline (0 bps deposit treasury fee, 5 bps redemption
+        // treasury fee), an N-year holding pays 40 + 20N bps: strictly
+        // premium at every horizon. The minimum reservation size, not this
+        // schedule, is the governance dial that keeps the carry fee covering
+        // per-position lifecycle costs.
         initiationFeeBps = 40;
         extensionFeeBps = 20;
         redemptionFeeBps = 20;
@@ -189,19 +185,30 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
     /// @notice Called by the Bank when the Bridge proves a reservation's
     ///         anchor transaction and credits the gross anchored amount to
-    ///         this vault. Mints TBTC gross and forwards it to the
-    ///         reservation owner minus the initiation fee, which is
-    ///         transferred to the Bridge treasury.
+    ///         this vault. Mints TBTC gross and forwards it to depositors
+    ///         minus the initiation fee. The initiation fee is retained in the
+    ///         vault as the in-kind fee reserve until `sweepFees` moves the
+    ///         excess over `feeReserveTarget` to governance's recipient.
     /// @dev The gross amount is always minted so the total TBTC supply
     ///      created against the reservation equals the sats earmarked
-    ///      on-chain; the fee is an explicit transfer, never a netted
-    ///      credit.
+    ///      on-chain; depositors receive gross minus fee.
+    /// @dev KNOWN GAP (tracked, not fixed here): this function trusts every
+    ///      Bank-routed credit unconditionally -- it has no reservationKey
+    ///      parameter and cannot verify the credit corresponds to a
+    ///      Bridge-proven reservation anchor. This is unreachable today
+    ///      because no deploy script yet marks this vault `isVaultTrusted`.
+    ///      MUST be resolved (a dedicated Bridge-only credit entry point, or
+    ///      an ordinary-sweep guard in `DepositSweep`) before the vault
+    ///      activation PR calls `setVaultStatus(vault, true)`.
     function receiveBalanceIncrease(
         address[] calldata depositors,
         uint256[] calldata depositedAmounts
     ) external override onlyBank {
         require(depositors.length != 0, "No depositors specified");
-
+        require(
+            depositors.length == depositedAmounts.length,
+            "Arrays must have the same length"
+        );
         uint256 totalSat = 0;
         for (uint256 i = 0; i < depositedAmounts.length; i++) {
             totalSat += depositedAmounts[i];
@@ -212,12 +219,9 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         bank.approveBalance(address(tbtcVault), totalSat);
         tbtcVault.mint(totalSat * SATOSHI_MULTIPLIER);
 
-        uint256 totalFee = 0;
-
         for (uint256 i = 0; i < depositors.length; i++) {
             uint256 grossTbtc = depositedAmounts[i] * SATOSHI_MULTIPLIER;
             uint256 fee = (grossTbtc * initiationFeeBps) / BASIS_POINTS;
-            totalFee += fee;
 
             IERC20(tbtcToken).safeTransfer(depositors[i], grossTbtc - fee);
 
@@ -236,11 +240,11 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
     /// @notice Finances an in-kind Bitcoin miner fee of a settled
     ///         re-anchor or dissolution transaction: burns TBTC equal to
-    ///         the fee from the vault's fee reserve together with the
-    ///         corresponding Bank balance, so total supply shrinks in
-    ///         lockstep with the Bitcoin backing. Called by the Bridge
-    ///         during settlement.
-    /// @param feeSat The in-kind fee in satoshi.
+    ///         the fee from the vault's entire current TBTC balance (not bounded
+    ///         by feeReserveTarget, which only gates what sweepFees can remove)
+    ///         together with the corresponding Bank balance, so total supply
+    ///         shrinks in lockstep with the Bitcoin backing. Called by the
+    ///         Bridge during settlement.
     /// @dev Requirements:
     ///      - The caller must be the Bridge.
     ///
@@ -257,20 +261,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
             return;
         }
 
-        uint256 reserveTbtc = tbtcToken.balanceOf(address(this));
-        uint64 coverableSat = uint64(
-            Math.min(uint256(feeSat), reserveTbtc / SATOSHI_MULTIPLIER)
-        );
-
-        if (coverableSat > 0) {
-            uint256 burnTbtc = uint256(coverableSat) * SATOSHI_MULTIPLIER;
-            IERC20(tbtcToken).safeIncreaseAllowance(
-                address(tbtcVault),
-                burnTbtc
-            );
-            tbtcVault.unmint(burnTbtc);
-            bank.decreaseBalance(coverableSat);
-        }
+        uint64 coverableSat = _burnFromReserve(feeSat);
 
         uint64 shortfallSat = feeSat - coverableSat;
         if (shortfallSat > 0) {
@@ -290,10 +281,12 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @param amountSat The debt amount in satoshi to repay; capped at the
     ///        outstanding debt.
     function repayInKindFeeDebt(uint64 amountSat) external {
+        require(inKindFeeDebtSat > 0, "No debt to repay");
+        require(amountSat > 0, "Amount must not be zero");
+
         uint64 repaySat = uint64(
             Math.min(uint256(amountSat), uint256(inKindFeeDebtSat))
         );
-        require(repaySat > 0, "No debt to repay");
 
         uint256 repayTbtc = uint256(repaySat) * SATOSHI_MULTIPLIER;
         IERC20(tbtcToken).safeTransferFrom(
@@ -320,6 +313,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///        decimals).
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance).
+    ///
+    ///      Note: Updates apply instantly for milestone 1, matching the
+    ///      ReservationRouter parameter-update precedent, pending a possible
+    ///      future governance delay extension.
     function updateFeeReserveTarget(uint256 _feeReserveTarget)
         external
         onlyOwner
@@ -329,19 +326,32 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     }
 
     /// @notice Sweeps fee revenue exceeding the reserve target to the
-    ///         given recipient (normally the Bridge treasury).
+    ///         given recipient (normally the Bridge treasury). Any outstanding
+    ///         in-kind fee debt is first repaid from the vault's current TBTC
+    ///         balance before computing the sweepable excess.
     /// @param recipient The recipient of the swept fees.
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance),
-    ///      - The vault TBTC balance must exceed the reserve target.
+    ///      - The vault TBTC balance (after satisfying outstanding debt) must
+    ///        exceed the reserve target.
     function sweepFees(address recipient) external onlyOwner {
         require(recipient != address(0), "Recipient must not be zero");
+
+        if (inKindFeeDebtSat > 0) {
+            uint64 repaidSat = _burnFromReserve(inKindFeeDebtSat);
+            if (repaidSat > 0) {
+                // slither-disable-next-line reentrancy-no-eth,reentrancy-benign
+                inKindFeeDebtSat -= repaidSat;
+                // slither-disable-next-line reentrancy-events
+                emit InKindFeeDebtRepaid(address(this), repaidSat);
+            }
+        }
+
         uint256 balance = tbtcToken.balanceOf(address(this));
         require(balance > feeReserveTarget, "Nothing above the reserve target");
 
         uint256 amount = balance - feeReserveTarget;
         IERC20(tbtcToken).safeTransfer(recipient, amount);
-        // The TBTC token is a trusted protocol contract.
         // slither-disable-next-line reentrancy-events
         emit FeesSwept(recipient, amount);
     }
@@ -350,6 +360,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance),
     ///      - Each fee must not exceed `MAX_FEE_BASIS_POINTS`.
+    ///
+    ///      Note: Updates apply instantly for milestone 1, matching the
+    ///      ReservationRouter parameter-update precedent, pending a possible
+    ///      future governance delay extension.
     function updateFees(
         uint16 _initiationFeeBps,
         uint16 _extensionFeeBps,
@@ -375,15 +389,16 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
     /// @notice Initiates an in-kind redemption of `amountSat` of the
     ///         reservation's `mintedAmount`. Caller must be the
-    ///         reservation owner. Gated by `redemptionsPaused`.
-    /// @dev Reserved-redemption entry point. M1 ships
-    ///      paused-by-default, so this reverts on every call today;
-    ///      M2 will unmute the pause and add the body that drives the
-    ///      Bridge's `requestReservedRedemption` path. The function
-    ///      shape is fixed now to keep the M2 wiring unchanged.
-    function redeemReservation(uint256 reservationKey, uint256)
+    ///         reservation owner.
+    /// @param reservationKey The key of the reservation to redeem.
+    /// @param amountSat The redemption amount in satoshi.
+    /// @dev Reserved-redemption entry point. Milestone 1 unconditionally
+    ///      reverts; milestone 2 will add the body that drives the
+    ///      Bridge's `requestReservedRedemption` path. The amountSat parameter
+    ///      is accepted for milestone 2 ABI stability and ignored in milestone 1.
+    // solhint-disable-next-line no-unused-vars
+    function redeemReservation(uint256 reservationKey, uint256 amountSat)
         external
-        whenRedemptionsNotPaused
     {
         require(
             msg.sender == bridge.reservations(reservationKey).owner,
@@ -395,12 +410,15 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @notice Re-runs a redemption using the reservation's single-use
     ///         fee-free retry entitlement, granted when a prior
     ///         fee-paid redemption generation timed out through wallet
-    ///         fault. Caller must be the reservation owner. Gated by
-    ///         `redemptionsPaused`.
-    /// @dev See `redeemReservation` for the same M1/M2 rationale.
-    function retryRedeemReservation(uint256 reservationKey, uint64)
+    ///         fault. Caller must be the reservation owner.
+    /// @param reservationKey The key of the reservation to retry.
+    /// @param amountSat The redemption amount in satoshi.
+    /// @dev See `redeemReservation` for the same M1/M2 rationale. The
+    ///      amountSat parameter is accepted for milestone 2 ABI stability
+    ///      and ignored in milestone 1.
+    // solhint-disable-next-line no-unused-vars
+    function retryRedeemReservation(uint256 reservationKey, uint64 amountSat)
         external
-        whenRedemptionsNotPaused
     {
         require(
             msg.sender == bridge.reservations(reservationKey).owner,
@@ -431,5 +449,28 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         bytes calldata
     ) external pure override {
         revert("Balance approvals not supported");
+    }
+
+    /// @dev Burns up to `amountSat` of TBTC from the vault's current balance
+    ///      and decreases the corresponding Bank balance. Returns the amount
+    ///      of satoshi actually burned.
+    function _burnFromReserve(uint64 amountSat)
+        internal
+        returns (uint64 burnedSat)
+    {
+        uint256 reserveTbtc = tbtcToken.balanceOf(address(this));
+        burnedSat = uint64(
+            Math.min(uint256(amountSat), reserveTbtc / SATOSHI_MULTIPLIER)
+        );
+
+        if (burnedSat > 0) {
+            uint256 burnTbtc = uint256(burnedSat) * SATOSHI_MULTIPLIER;
+            IERC20(tbtcToken).safeIncreaseAllowance(
+                address(tbtcVault),
+                burnTbtc
+            );
+            tbtcVault.unmint(burnTbtc);
+            bank.decreaseBalance(burnedSat);
+        }
     }
 }
