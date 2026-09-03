@@ -1,8 +1,8 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { loadFixture } from "../helpers/fixture"
 import { constants } from "../fixtures"
 import { toSatoshis } from "../helpers/contract-test-helpers"
 
@@ -14,6 +14,8 @@ import type {
   TestERC20,
   TestERC721,
 } from "../../typechain"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { to1e18 } = helpers.number
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -24,7 +26,7 @@ const ZERO_ADDRESS = ethers.constants.AddressZero
 const fixture = async () => {
   const [deployer, governance] = await ethers.getSigners()
 
-  const bridge = await smock.fake<Bridge>("Bridge")
+  const bridge = await createMock<Bridge>("Bridge")
   // Fund the `bridge` account so it's possible to mock sending requests
   // from it.
   await deployer.sendTransaction({
@@ -63,7 +65,7 @@ const fixture = async () => {
 }
 
 describe("TBTCVault", () => {
-  let bridge: FakeContract<Bridge>
+  let bridge: Mock<Bridge>
   let governance: SignerWithAddress
   let bank: Bank
   let vault: TBTCVault
@@ -78,9 +80,7 @@ describe("TBTCVault", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, governance, bank, vault, tbtc } = await waffle.loadFixture(
-      fixture
-    ))
+    ;({ bridge, governance, bank, vault, tbtc } = await loadFixture(fixture))
 
     const accounts = await getUnnamedAccounts()
     account1 = await ethers.getSigner(accounts[0])
@@ -1267,7 +1267,7 @@ describe("TBTCVault", () => {
       })
 
       it("should calculate correct satoshi amount", async () => {
-        const { satoshis } = await await vault.amountToSatoshis(amount)
+        const { satoshis } = await vault.amountToSatoshis(amount)
         expect(satoshis).to.equal(ethers.BigNumber.from("100000000")) // 1 BTC in satoshi
       })
     })
@@ -1287,7 +1287,7 @@ describe("TBTCVault", () => {
       })
 
       it("should calculate correct satoshi amount", async () => {
-        const { satoshis } = await await vault.amountToSatoshis(amount)
+        const { satoshis } = await vault.amountToSatoshis(amount)
         expect(satoshis).to.equal(ethers.BigNumber.from("110000000")) // 1.1 BTC in satoshi
       })
     })

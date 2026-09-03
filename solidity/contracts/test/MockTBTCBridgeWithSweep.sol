@@ -170,4 +170,13 @@ contract MockTBTCBridgeWithSweep is IBridge {
         redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
         redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
     }
+
+    function getRedemptionWatchtower()
+        external
+        pure
+        override
+        returns (address)
+    {
+        return address(0);
+    }
 }
