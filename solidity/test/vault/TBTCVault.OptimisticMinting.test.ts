@@ -1777,7 +1777,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             fundingTxHash,
             2
           )
-          f.mockBridge.deposits.whenCalledWith(firstDepositID).returns({
+          await f.mockBridge.deposits.whenCalledWith(firstDepositID).returns({
             depositor: depositorAddress,
             amount: 1000,
             revealedAt: await lastBlockTime(),
@@ -1786,7 +1786,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             sweptAt: 0,
             extraData: ethers.constants.HashZero,
           })
-          f.mockBridge.deposits.whenCalledWith(secondDepositID).returns({
+          await f.mockBridge.deposits.whenCalledWith(secondDepositID).returns({
             depositor: depositorAddress,
             amount: 2000,
             revealedAt: await lastBlockTime(),
@@ -1885,7 +1885,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             fundingTxHash,
             1
           )
-          f.mockBridge.deposits.whenCalledWith(firstDepositID).returns({
+          await f.mockBridge.deposits.whenCalledWith(firstDepositID).returns({
             depositor: depositorAddress,
             amount: 1000,
             revealedAt: await lastBlockTime(),
