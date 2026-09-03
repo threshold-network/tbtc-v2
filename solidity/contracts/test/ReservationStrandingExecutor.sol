@@ -451,6 +451,13 @@ contract ReservationStrandingExecutor {
         self.walletPendingDissolution[walletPubKeyHash] = reservationKey;
     }
 
+    function seedReservationCooldown(
+        uint256 reservationKey,
+        uint32 cooldownUntil
+    ) external {
+        self.reservations[reservationKey].reanchorCooldownUntil = cooldownUntil;
+    }
+
     // --- read helpers used by tests ---------------------------------------
 
     function reservationState(uint256 reservationKey)

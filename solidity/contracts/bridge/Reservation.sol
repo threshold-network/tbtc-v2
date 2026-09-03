@@ -206,6 +206,17 @@ library Reservation {
         // sum would exceed the uint32 ceiling - starting somewhat before
         // February 7th 2106, proportional to the delay applied on top of
         // expiresAt's own margin.
+        // As of this milestone, this field's only on-chain reader —
+        // re-anchor's `< dissolutionEligibleAt` gate in
+        // `requestReservationReanchor` — has been removed. The field is
+        // written by `settleAcceptance` (ReservationProofs.sol:579) but
+        // read by nothing in m1. It must continue to be written anyway: per
+        // m1-b-implementation.md §4.4, storage-complete means written, not
+        // merely declared, and this field is a commitment held in storage
+        // for m2's dissolution feature to honour. m2 must independently
+        // decide whether to restore an eligibility gate on re-anchor when
+        // dissolution ships; this PR's removal defers that design decision
+        // without answering it.
         uint32 dissolutionEligibleAt;
         // Cumulative satoshi lost to Bitcoin miner fees across all
         // re-anchor hops of this reservation. Will be written on every
@@ -717,7 +728,6 @@ library Reservation {
     ///        away from Live wallets.
     /// @dev Requirements:
     ///      - The reservation must be Active,
-    ///      - The reservation must not yet be dissolution-eligible,
     ///      - The source wallet must be in the MovingFunds or Closing state
     ///        (the primary re-anchor path for MovingFunds/Closing is
     ///        permissionless by design, not gated), or Live with the
@@ -730,6 +740,10 @@ library Reservation {
     ///        move; the capacity is reserved by this call and released if
     ///        the authorization times out,
     ///      - The target wallet's amount capacity must allow the move.
+    /// @dev Re-anchor is intentionally unbounded in time in milestone 1,
+    ///      with no dissolution path available yet. Milestone 2 must
+    ///      decide whether to reintroduce a time-based eligibility gate on
+    ///      re-anchor when dissolution ships (see m1-b-implementation.md §6).
     function requestReservationReanchor(
         BridgeState.Storage storage self,
         uint256 reservationKey,
@@ -750,10 +764,6 @@ library Reservation {
                 "Reanchor cooldown in effect"
             );
         }
-        require(
-            block.timestamp < reservation.dissolutionEligibleAt,
-            "Reservation is dissolution-eligible"
-        );
         /* solhint-enable not-rely-on-time */
 
         {
@@ -1335,6 +1345,7 @@ library Reservation {
             "Amount cap exceeds slot capacity"
         );
     }
+
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as UTXO reservations.
@@ -1502,5 +1513,4 @@ library Reservation {
             maxActiveReservations
         );
     }
-
 }

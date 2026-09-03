@@ -1143,6 +1143,84 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         executor.notifyReservationActionTimeout(reservationKey, [])
       ).to.be.revertedWith("Action has not timed out")
     })
+
+    it("releases target wallet capacity on Reanchor timeout even after the reservation is dissolution-eligible", async () => {
+      // Confirms that the timeout path is not gated by dissolutionEligibleAt,
+      // mirroring the removal of that gate from requestReservationReanchor.
+      const sourceWallet = `0x${"c1".repeat(20)}` as `0x${string}`
+      const targetWallet = `0x${"c2".repeat(20)}` as `0x${string}`
+      const reservationKey = 5
+      const amount = 1_000_000
+      const timeoutAt =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 100
+
+      await executor.seedReservation(
+        reservationKey,
+        ethers.Wallet.createRandom().address,
+        sourceWallet,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.ActionPending
+      )
+
+      // Seed a second reservation directly on the target wallet to give it
+      // pre-existing reserved capacity to release.
+      await executor.seedReservation(
+        6,
+        ethers.Wallet.createRandom().address,
+        targetWallet,
+        amount,
+        ZERO_BYTES32,
+        0,
+        reservationStateEnum.Active
+      )
+
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        amount
+      )
+
+      // Seed the reanchor action for reservationKey 5 to targetWallet.
+      await executor.seedPendingReservationAction(
+        reservationKey,
+        0,
+        reservationActionTypeEnum.Reanchor,
+        targetWallet,
+        amount,
+        timeoutAt,
+        true,
+        ethers.Wallet.createRandom().address
+      )
+
+      // Time travel past both dissolutionEligibleAt and timeoutAt.
+      await ethers.provider.send("evm_increaseTime", [400 * 86400])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.notifyReservationActionTimeout(
+        reservationKey,
+        []
+      )
+      const receipt = await tx.wait()
+
+      const reanchorTimedOut = receipt.events?.filter(
+        (e) => e.event === "ReservationReanchorTimedOut"
+      )
+      expect(reanchorTimedOut).to.have.lengthOf(1)
+      expect(reanchorTimedOut![0].args!.reservationKey).to.equal(reservationKey)
+      expect(reanchorTimedOut![0].args!.requestNonce).to.equal(0)
+
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(0)
+      // Reanchor timeout must not touch the source wallet's own counters —
+      // only the target wallet's reserved capacity is released.
+      expect(await executor.walletReservationsAmount(sourceWallet)).to.equal(
+        amount
+      )
+    })
   })
   describe("notifyReservationRedemptionTimedOut and notifyReservationDissolutionTimedOut", () => {
     let bankStub: any // Using 'any' for simplicity, or could import Contract
@@ -2715,7 +2793,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Reservation is not active")
     })
 
-    it("rejects when reservation is dissolution-eligible", async () => {
+    it("succeeds when reservation is dissolution-eligible (re-anchor is unbounded in time per m1-b-implementation.md §4.4)", async () => {
       const pastEligibleKey = `0x${"ac".repeat(32)}`
       await executor.seedReservation(
         pastEligibleKey,
@@ -2727,17 +2805,258 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      // Time travel past dissolutionEligibleAt (365 + 30 days)
+      // Time travel past dissolutionEligibleAt (365 + 30 days). Variant B
+      // deletes the dissolution-eligibility timing gate on re-anchor, so
+      // this must still succeed.
       await ethers.provider.send("evm_increaseTime", [400 * 86400])
       await ethers.provider.send("evm_mine", [])
 
+      const tx = await executor.requestReservationReanchor(
+        pastEligibleKey,
+        targetWallet,
+        false
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+        reservationActionStateEnum.Pending
+      )
+
+      const parsedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return reservationInterface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .filter((e) => e !== null)
+
+      const requested = parsedEvents.find(
+        (e) => e!.name === "ReservationReanchorRequested"
+      )
+      expect(requested, "ReservationReanchorRequested event missing").to.not.be
+        .undefined
+      expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
+      expect(requested!.args.requestNonce).to.equal(1)
+      expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
+      expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
+      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+    })
+
+    it("succeeds with re-anchor unbounded far into the future (10 years past dissolution eligibility)", async () => {
+      const farFutureKey = `0x${"ad".repeat(32)}`
+      await executor.seedReservation(
+        farFutureKey,
+        owner,
+        sourceWallet,
+        anchorAmount,
+        anchorTxHash,
+        anchorTxOutputIndex,
+        reservationStateEnum.Active
+      )
+
+      // Time travel 10 years past dissolutionEligibleAt. Proves re-anchor
+      // is unbounded by time, not just past one arbitrary boundary.
+      await ethers.provider.send("evm_increaseTime", [3650 * 86400])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.requestReservationReanchor(
+        farFutureKey,
+        targetWallet,
+        false
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(farFutureKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+      expect(await executor.actionState(farFutureKey, 1)).to.equal(
+        reservationActionStateEnum.Pending
+      )
+
+      const parsedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return reservationInterface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .filter((e) => e !== null)
+
+      const requested = parsedEvents.find(
+        (e) => e!.name === "ReservationReanchorRequested"
+      )
+      expect(requested, "ReservationReanchorRequested event missing").to.not.be
+        .undefined
+      expect(requested!.args.reservationKey).to.equal(farFutureKey)
+      expect(requested!.args.requestNonce).to.equal(1)
+      expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
+      expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
+      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+    })
+
+    it("succeeds when reservation is dissolution-eligible and source wallet is Live with a privileged caller", async () => {
+      const pastEligibleKey = `0x${"ae".repeat(32)}`
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Live
+      )
+      await executor.seedReservation(
+        pastEligibleKey,
+        owner,
+        sourceWallet,
+        anchorAmount,
+        anchorTxHash,
+        anchorTxOutputIndex,
+        reservationStateEnum.Active
+      )
+
+      // Time travel past dissolutionEligibleAt (365 + 30 days).
+      await ethers.provider.send("evm_increaseTime", [400 * 86400])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.requestReservationReanchor(
+        pastEligibleKey,
+        targetWallet,
+        true
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+        reservationActionStateEnum.Pending
+      )
+
+      const parsedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return reservationInterface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .filter((e) => e !== null)
+
+      const requested = parsedEvents.find(
+        (e) => e!.name === "ReservationReanchorRequested"
+      )
+      expect(requested, "ReservationReanchorRequested event missing").to.not.be
+        .undefined
+      expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
+      expect(requested!.args.requestNonce).to.equal(1)
+      expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
+      expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
+      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+    })
+
+    it("succeeds when reservation is dissolution-eligible and source wallet is Closing", async () => {
+      const pastEligibleKey = `0x${"af".repeat(32)}`
+      await executor.seedWallet(
+        sourceWallet,
+        ZERO_BYTES32,
+        walletStateEnum.Closing
+      )
+      await executor.seedReservation(
+        pastEligibleKey,
+        owner,
+        sourceWallet,
+        anchorAmount,
+        anchorTxHash,
+        anchorTxOutputIndex,
+        reservationStateEnum.Active
+      )
+
+      // Time travel past dissolutionEligibleAt (365 + 30 days).
+      await ethers.provider.send("evm_increaseTime", [400 * 86400])
+      await ethers.provider.send("evm_mine", [])
+
+      const tx = await executor.requestReservationReanchor(
+        pastEligibleKey,
+        targetWallet,
+        false
+      )
+      const receipt = await tx.wait()
+
+      expect(await executor.reservationState(pastEligibleKey)).to.equal(
+        reservationStateEnum.ActionPending
+      )
+      expect(await executor.walletReservationsCount(targetWallet)).to.equal(1)
+      expect(await executor.walletReservationsAmount(targetWallet)).to.equal(
+        anchorAmount
+      )
+      expect(await executor.actionState(pastEligibleKey, 1)).to.equal(
+        reservationActionStateEnum.Pending
+      )
+
+      const parsedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return reservationInterface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .filter((e) => e !== null)
+
+      const requested = parsedEvents.find(
+        (e) => e!.name === "ReservationReanchorRequested"
+      )
+      expect(requested, "ReservationReanchorRequested event missing").to.not.be
+        .undefined
+      expect(requested!.args.reservationKey).to.equal(pastEligibleKey)
+      expect(requested!.args.requestNonce).to.equal(1)
+      expect(requested!.args.sourceWalletPubKeyHash).to.equal(sourceWallet)
+      expect(requested!.args.targetWalletPubKeyHash).to.equal(targetWallet)
+      expect(requested!.args.txMaxFee).to.equal(txMaxFee)
+    })
+    it("rejects when reanchor cooldown is in effect", async () => {
+      const cooldownKey = `0x${"b0".repeat(32)}`
+      await executor.seedReservation(
+        cooldownKey,
+        owner,
+        sourceWallet,
+        anchorAmount,
+        anchorTxHash,
+        anchorTxOutputIndex,
+        reservationStateEnum.Active
+      )
+
+      // Time travel past dissolutionEligibleAt first, then set the cooldown
+      // to a timestamp still in the future relative to the new block time,
+      // so the cooldown genuinely outlives the dissolution-eligibility
+      // boundary instead of expiring before the call under test.
+      await ethers.provider.send("evm_increaseTime", [400 * 86400])
+      await ethers.provider.send("evm_mine", [])
+
+      const futureTimestamp =
+        Number(
+          await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
+        ) + 1000
+      await executor.seedReservationCooldown(cooldownKey, futureTimestamp)
+
       await expect(
-        executor.requestReservationReanchor(
-          pastEligibleKey,
-          targetWallet,
-          false
-        )
-      ).to.be.revertedWith("Reservation is dissolution-eligible")
+        executor.requestReservationReanchor(cooldownKey, targetWallet, false)
+      ).to.be.revertedWith("Reanchor cooldown in effect")
     })
 
     it("rejects when source wallet is Live and call is not privileged", async () => {
