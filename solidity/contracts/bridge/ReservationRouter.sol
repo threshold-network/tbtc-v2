@@ -353,11 +353,12 @@ contract ReservationRouter is Governable, Initializable {
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
-    ///         wallet as stranded: an idle position closes, capacity
-    ///         is released and the owner's minted balance remains an ordinary
-    ///         pooled claim. Pending actions remain proof-eligible and
-    ///         cannot be stranded. See
-    ///         `Reservation.notifyReservationStranded`.
+    ///         wallet as stranded, or one custodied by a closing wallet once
+    ///         the reservation's dissolution-eligible timestamp has passed:
+    ///         an idle position closes, capacity is released and the
+    ///         owner's minted balance remains an ordinary pooled claim.
+    ///         Pending actions remain proof-eligible and cannot be
+    ///         stranded. See `Reservation.notifyReservationStranded`.
     /// @param reservationKey The key of the stranded reservation.
     function notifyReservationStranded(uint256 reservationKey) external {
         self.notifyReservationStranded(reservationKey);
