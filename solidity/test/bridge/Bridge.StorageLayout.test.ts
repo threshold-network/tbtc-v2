@@ -1,4 +1,3 @@
-import { artifacts } from "hardhat"
 import { expect } from "chai"
 import { assertStorageUpgradeSafe } from "@openzeppelin/upgrades-core"
 import * as fs from "fs"
@@ -11,180 +10,15 @@ import bridgeTIP109HotfixDeployment from "../../deployments/mainnet/BridgeTIP109
 // PR intentionally changes BridgeState.Storage's layout, and a CI failure here
 // on an unrelated PR means that PR unexpectedly touched shared storage layout.
 import bridgeStateStorageSnapshot from "../fixtures/BridgeState.storageLayout.snapshot.json"
-
-type StorageEntry = {
-  label: string
-  offset: number
-  slot: string
-  type: string
-}
-
-type StorageLayout = {
-  storage: StorageEntry[]
-  types: Record<
-    string,
-    {
-      label: string
-      encoding: string
-      numberOfBytes: string
-      members?: StorageEntry[]
-      key?: string
-      value?: string
-      base?: string
-    }
-  >
-}
+import {
+  getBridgeStorageLayout,
+  bridgeStateEntry,
+  bridgeStateLayout,
+  extractBridgeStateStorageSnapshot,
+  StorageLayout,
+} from "../fixtures/bridgeStorageLayoutSnapshot"
 
 type UpgradeStorageLayout = Parameters<typeof assertStorageUpgradeSafe>[0]
-
-async function getBridgeStorageLayout(): Promise<StorageLayout> {
-  const sourceName = "contracts/bridge/Bridge.sol"
-  const contractName = "Bridge"
-  // Bridge is compiled in multiple optimizer jobs and its final artifact can
-  // point at a job without storageLayout output. BridgeState's artifact points
-  // at the validation-enabled job that also contains the compiled Bridge.
-  const buildInfo = await artifacts.getBuildInfo(
-    "contracts/bridge/BridgeState.sol:BridgeState"
-  )
-  if (!buildInfo) {
-    throw new Error(`No build info for ${sourceName}:${contractName}`)
-  }
-
-  const layout = (
-    buildInfo.output.contracts[sourceName][contractName] as {
-      storageLayout?: StorageLayout
-    }
-  ).storageLayout
-  if (!layout) {
-    throw new Error(`No storage layout for ${sourceName}:${contractName}`)
-  }
-
-  return layout
-}
-
-function bridgeStateEntry(layout: StorageLayout): StorageEntry {
-  const bridgeState = layout.storage.find((entry) => entry.label === "self")
-  if (!bridgeState) {
-    throw new Error("BridgeState.Storage entry not found")
-  }
-  return bridgeState
-}
-
-function bridgeStateLayout(layout: StorageLayout): StorageLayout {
-  const bridgeState = bridgeStateEntry(layout)
-
-  const bridgeStateType = layout.types[bridgeState.type]
-  if (!bridgeStateType?.members) {
-    throw new Error("BridgeState.Storage members not found")
-  }
-
-  // Bridge stores its state in one library struct. Flatten that struct for
-  // OpenZeppelin 1.x so its normal gap-consumption algorithm validates the
-  // real member slots; that release rejects every nested-struct append before
-  // applying the nested struct's own __gap semantics.
-  return {
-    storage: bridgeStateType.members,
-    types: layout.types,
-  }
-}
-
-type StorageMember = {
-  label: string
-  slot: string
-  offset: number
-  type: string
-  numberOfBytes?: string
-}
-
-type BridgeStateStorageSnapshot = {
-  _comment?: string
-  self: {
-    slot: string
-    offset: number
-    type: string
-  }
-  members: StorageMember[]
-  structMembers: Record<string, StorageMember[]>
-}
-
-function extractStructMembersFromMapping(
-  layout: StorageLayout,
-  selfMembers: StorageEntry[],
-  mappingLabel: string
-): StorageMember[] {
-  const mappingMember = selfMembers.find((m) => m.label === mappingLabel)
-  if (!mappingMember) {
-    throw new Error(`BridgeState.Storage member '${mappingLabel}' not found`)
-  }
-  const mappingType = layout.types[mappingMember.type]
-  if (!mappingType?.value) {
-    throw new Error(
-      `Mapping value type for member '${mappingLabel}' not found in layout.types`
-    )
-  }
-  const structType = layout.types[mappingType.value]
-  if (!structType?.members) {
-    throw new Error(
-      `Struct members for mapping '${mappingLabel}' (${mappingType.value}) not found in layout.types`
-    )
-  }
-
-  return structType.members.map((m) => {
-    const typeInfo = layout.types[m.type]
-    return {
-      label: m.label,
-      slot: m.slot,
-      offset: m.offset,
-      type: typeInfo ? typeInfo.label : m.type,
-      numberOfBytes: typeInfo ? typeInfo.numberOfBytes : undefined,
-    }
-  })
-}
-
-function extractBridgeStateStorageSnapshot(
-  layout: StorageLayout
-): BridgeStateStorageSnapshot {
-  const self = bridgeStateEntry(layout)
-  const selfType = layout.types[self.type]
-  if (!selfType?.members) {
-    throw new Error("BridgeState.Storage members not found")
-  }
-
-  return {
-    self: {
-      slot: self.slot,
-      offset: self.offset,
-      type: selfType.label || self.type,
-    },
-    members: selfType.members.map((m) => {
-      const typeInfo = layout.types[m.type]
-      return {
-        label: m.label,
-        slot: m.slot,
-        offset: m.offset,
-        type: typeInfo ? typeInfo.label : m.type,
-        numberOfBytes: typeInfo ? typeInfo.numberOfBytes : undefined,
-      }
-    }),
-    structMembers: {
-      PendingReservedDeposit: extractStructMembersFromMapping(
-        layout,
-        selfType.members,
-        "pendingReservedDeposit"
-      ),
-      ReservationRequest: extractStructMembersFromMapping(
-        layout,
-        selfType.members,
-        "reservations"
-      ),
-      ReservationAction: extractStructMembersFromMapping(
-        layout,
-        selfType.members,
-        "reservationActions"
-      ),
-    },
-  }
-}
 
 function readEnumMemberOrder(
   relativeContractPath: string,
@@ -351,17 +185,17 @@ describe("Bridge storage layout", () => {
 
     expect(currentSnapshot.self).to.deep.equal(
       bridgeStateStorageSnapshot.self,
-      "BridgeState 'self' slot/offset/type has changed"
+      "BridgeState 'self' slot/offset/type has changed. Run 'yarn update-storage-layout-snapshot' (from solidity/) to regenerate after an intentional layout change."
     )
 
     expect(currentSnapshot.members).to.deep.equal(
       bridgeStateStorageSnapshot.members,
-      "BridgeState.Storage members layout (labels, slots, offsets, types) has changed"
+      "BridgeState.Storage members layout (labels, slots, offsets, types) has changed. Run 'yarn update-storage-layout-snapshot' (from solidity/) to regenerate after an intentional layout change."
     )
 
     expect(currentSnapshot.structMembers).to.deep.equal(
       bridgeStateStorageSnapshot.structMembers,
-      "BridgeState.Storage struct members layout (labels, slots, offsets, types) has changed"
+      "BridgeState.Storage struct members layout (labels, slots, offsets, types) has changed. Run 'yarn update-storage-layout-snapshot' (from solidity/) to regenerate after an intentional layout change."
     )
   })
 })

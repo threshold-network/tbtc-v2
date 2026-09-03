@@ -28,6 +28,7 @@
     "lint:fix:sol": "solhint 'contracts/**/*.sol' --fix",
     "test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test",
     "test:integration": "NODE_ENV=integration-test USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test ./test/integration/*.test.ts",
+    "update-storage-layout-snapshot": "hardhat run scripts/update-storage-layout-snapshot.ts",
     "prepack": "tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts",
     "prepublishOnly": "./scripts/prepare-artifacts.sh --network $npm_config_network"
   },
