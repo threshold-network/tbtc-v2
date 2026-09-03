@@ -42,6 +42,7 @@ In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and a o
 - **Operational timeline considerations:** Whether the Milestone 1 launch is expected to reach reservation term expiry before Milestone 2 ships is an open operational question that the deploying team and governance should confirm prior to setting initial term lengths and occupancy limits.
 
 ---
+
 ## ABI Coordination
 
 `updateReservationCaps` signature change:

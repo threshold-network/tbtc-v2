@@ -87,7 +87,6 @@ import "./ReservationProofs.sol";
 ///         authority exactly where it is today: with the proxy admin, not
 ///         with the parameter governance.
 contract ReservationRouter is Governable, Initializable {
-
     using BridgeState for BridgeState.Storage;
     using Reservation for BridgeState.Storage;
 
@@ -177,7 +176,6 @@ contract ReservationRouter is Governable, Initializable {
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations
     );
-
 
     modifier onlySpvMaintainer() {
         require(
@@ -293,6 +291,7 @@ contract ReservationRouter is Governable, Initializable {
     {
         self.notifyReservationAcceptanceTimedOut(reservationKey);
     }
+
     /// @notice Updates parameters of reservations, including the
     ///         reservation vault address. Deposits revealed with the
     ///         reservation vault address are treated as UTXO reservations.
