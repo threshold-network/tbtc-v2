@@ -33,6 +33,14 @@ interface IReservationFeeFinancer {
     ///         verify the burn from this call alone; a non-conforming vault
     ///         must be caught before it is wired up (governance-gated
     ///         `reservationVault`/`isVaultTrusted`), not at call time.
+    /// @dev KNOWN GAP (tracked, not fixed here): nothing currently enforces
+    ///      that "caught before wired up" claim -- if `reservationVault` is
+    ///      ever set to a codeless/non-implementing address,
+    ///      `financeInKindFee` silently no-ops instead of reverting. The
+    ///      vault activation PR (the one that wires `reservationVault` via
+    ///      `Reservation.updateReservationParameters`) MUST add a
+    ///      conformance probe (e.g. ERC165 or a magic-constant call) at
+    ///      that wiring site before trusting a new vault address.
     /// @param feeSat The in-kind fee in satoshi.
     function financeInKindFee(uint64 feeSat) external;
 }
