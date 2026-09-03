@@ -39,21 +39,19 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     waitConfirmations: 1,
   }
 
-  // `ReservationProofs` is linked into `Reservation`, which in turn is the
-  // single external library the router links (`ReservationRouter` reaches the
-  // proof handlers through `Reservation`).
+  // `ReservationRouter` links both `Reservation` (its storage-mutating
+  // reservation logic) and `ReservationProofs` (its external
+  // `submitReservationProof` entry point, called directly -- see
+  // `ReservationRouter.sol`). `Reservation` itself no longer references
+  // `ReservationProofs` and needs no library link.
   const ReservationProofs = await deploy("ReservationProofs", deployOptions)
-  const Reservation = await deploy("Reservation", {
-    ...deployOptions,
-    libraries: {
-      ReservationProofs: ReservationProofs.address,
-    },
-  })
+  const Reservation = await deploy("Reservation", deployOptions)
 
   const reservationRouter = await deploy("ReservationRouter", {
     ...deployOptions,
     libraries: {
       Reservation: Reservation.address,
+      ReservationProofs: ReservationProofs.address,
     },
   })
 
