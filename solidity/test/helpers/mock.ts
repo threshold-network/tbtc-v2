@@ -133,11 +133,29 @@ function adminSelectors(mockInterface: Interface): Set<string> {
 }
 
 /**
+ * Property names reserved by the `Mock<T>` handle. A mocked interface function
+ * sharing one of these names would be shadowed by the handle's own properties
+ * in the Proxy.
+ */
+const RESERVED_HANDLE_KEYS: Record<string, true> = {
+  address: true,
+  wallet: true,
+  mockContract: true,
+  connect: true,
+  reset: true,
+  setRecording: true,
+}
+
+/**
  * `MockContract` answers the mocked interface through its fallback, so its own
  * `__mock__*` entry points share the selector space with whatever is being
  * mocked. A four-byte collision would silently shadow a real function, which
  * would be a very confusing test failure. It cannot happen by accident, but it
  * costs nothing to prove rather than assume.
+ *
+ * Likewise, the Proxy handle exposes its own JS properties (`address`,
+ * `wallet`, `mockContract`, `connect`, `reset`, `setRecording`), so a mocked
+ * function with one of those names would be shadowed by the handle.
  */
 function assertNoSelectorCollision(
   target: Interface,
@@ -146,13 +164,20 @@ function assertNoSelectorCollision(
 ): void {
   const reserved = adminSelectors(mockInterface)
 
-  Object.keys(target.functions).forEach((signature) => {
+  Object.entries(target.functions).forEach(([signature, fragment]) => {
     const selector = target.getSighash(signature)
     if (reserved.has(selector)) {
       throw new Error(
         `${targetName}.${signature} has selector ${selector}, which collides ` +
           "with a MockContract administrative function. This mock cannot " +
           "represent that interface."
+      )
+    }
+
+    if (RESERVED_HANDLE_KEYS[fragment.name]) {
+      throw new Error(
+        `${targetName}.${fragment.name} collides with a Mock handle ` +
+          "property name. This mock cannot represent that interface."
       )
     }
   })
@@ -397,24 +422,10 @@ export async function createMock<T>(
       try {
         callData = targetInterface.encodeFunctionData(fragment, args as never[])
       } catch (error) {
-        // smock stored `whenCalledWith` arguments as JavaScript values and
-        // compared them after decoding, so arguments that are not valid for
-        // the signature simply never matched and the call fell through to the
-        // selector-wide default. Encoding them up front turns the same
-        // situation into a thrown error, which would fail tests that pass
-        // today for reasons unrelated to this migration — a value converted to
-        // a Wormhole address twice, for instance, is 44 bytes where the
-        // signature wants 32.
-        //
-        // Keep smock's outcome — an entry that can never match — but say so,
-        // because it does mean the narrowing in that test is dead.
-        // eslint-disable-next-line no-console
-        console.warn(
+        throw new Error(
           `mock: ${target}.${name} whenCalledWith(...) arguments cannot be ` +
-            "encoded for this signature, so the entry can never match and " +
-            `is being skipped: ${(error as Error).message.split("(")[0].trim()}`
+            `encoded for this signature: ${(error as Error).message}`
         )
-        return
       }
 
       await withoutAdvancingTime(() =>

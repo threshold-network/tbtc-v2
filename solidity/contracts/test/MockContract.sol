@@ -107,8 +107,6 @@ contract MockContract {
         bool recordingDisabled;
     }
 
-    /// @dev keccak256("tbtc.test.MockContract.state.v1") - 1, masked, per the
-    ///      ERC-7201 convention.
     /// @dev Gas handed to the recording self-call.
     ///
     ///      An explicit cap matters more than the value. try/catch does not
@@ -116,9 +114,14 @@ contract MockContract {
     ///      is left, so if recording runs out, the caller is left with too
     ///      little to continue and the whole transaction reverts. Capping it
     ///      means a failed recording costs this much and nothing more, which
-    ///      keeps recording genuinely best-effort. Generous enough for any
-    ///      realistic calldata.
-    uint256 private constant RECORD_GAS_STIPEND = 1_000_000;
+    ///      keeps recording genuinely best-effort. The stipend scales with
+    ///      calldata length (base stipend plus per-byte component) to ensure
+    ///      calldata beyond 1.5KB can be stored while remaining bounded.
+    uint256 private constant RECORD_GAS_BASE_STIPEND = 500_000;
+    uint256 private constant RECORD_GAS_PER_BYTE = 1_000;
+
+    /// @dev keccak256("tbtc.test.MockContract.state.v1") - 1, masked, per the
+    ///      ERC-7201 convention.
     bytes32 private constant STATE_SLOT =
         0xdd9627cd601a6555f69239ac336fba8db95c419564b84ebb3ee2c21fed88ae00;
 
@@ -418,13 +421,19 @@ contract MockContract {
         //
         // The try/catch still guards the rest: a state-changing function is
         // also reached statically under `eth_call`/`callStatic`.
+        //
+        // The gas stipend scales with payload size (base + per-byte component)
+        // so that large calldata payloads (e.g. SPV proofs > 1.5KB) have
+        // sufficient gas for storage without unbounded consumption.
         if (
             !_state().recordingDisabled &&
             !_state().nonRecording[__mock__selectorOf(msg.data)]
         ) {
+            uint256 stipend = RECORD_GAS_BASE_STIPEND +
+                (msg.data.length * RECORD_GAS_PER_BYTE);
             // solhint-disable-next-line no-empty-blocks
             try
-                this.__mock__record{gas: RECORD_GAS_STIPEND}(
+                this.__mock__record{gas: stipend}(
                     msg.data,
                     msg.value
                 )
