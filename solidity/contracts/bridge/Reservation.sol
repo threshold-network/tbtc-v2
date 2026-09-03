@@ -1242,11 +1242,16 @@ library Reservation {
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
     ///      - The custodying wallet must be in the Terminated or Closed state,
-    ///      - The reservation must be Active. Closing is deliberately
-    ///        excluded: `requestReservationReanchor` accepts a Closing
-    ///        source wallet, so allowing a Closing wallet to also be
-    ///        stranded here would race a legitimate reanchor with a
-    ///        permissionless strand.
+    ///        or in the Closing state once the reservation's
+    ///        `dissolutionEligibleAt` has passed (i.e., `block.timestamp >=
+    ///        reservation.dissolutionEligibleAt`). Closing is excluded before
+    ///        that point: `requestReservationReanchor` accepts a Closing source
+    ///        wallet, so allowing a Closing wallet to also be stranded here
+    ///        would race a legitimate reanchor with a permissionless strand.
+    ///        Once `dissolutionEligibleAt` passes, `requestReservationReanchor`
+    ///        itself blocks reanchor (see `requestReservationReanchor` lines
+    ///        753-756), so no race remains and Closing becomes eligible for
+    ///        stranding, providing a milestone-1 release path.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1264,8 +1269,11 @@ library Reservation {
             .state;
         require(
             walletState == Wallets.WalletState.Terminated ||
-                walletState == Wallets.WalletState.Closed,
-            "Wallet is not terminated or closed"
+                walletState == Wallets.WalletState.Closed ||
+                (walletState == Wallets.WalletState.Closing &&
+                    /* solhint-disable-next-line not-rely-on-time */
+                    block.timestamp >= reservation.dissolutionEligibleAt),
+            "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 
         strandReservation(self, reservation, reservationKey);

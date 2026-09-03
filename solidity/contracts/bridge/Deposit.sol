@@ -21,6 +21,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./RebateStaking.sol";
+import "./WalletProposalValidatorConstants.sol";
 import "./Wallets.sol";
 
 /// @title Bridge deposit
@@ -164,7 +165,11 @@ library Deposit {
     ///      - `reveal.refundLocktime` must be the refund locktime used in the
     ///        P2(W)SH BTC deposit transaction,
     ///      - BTC deposit for the given `fundingTxHash`, `fundingOutputIndex`
-    ///        can be revealed only one time.
+    ///        can be revealed only one time,
+    ///      - If `reveal.vault` is the reservation vault, `reveal.refundLocktime`
+    ///        must not decode to a timestamp further than
+    ///        `reservationTermSeconds` plus the deposit refund safety margin
+    ///        beyond the reveal time.
     ///
     ///      If any of these requirements is not met, the wallet _must_ refuse
     ///      to sweep the deposit and the depositor has to wait until the
@@ -225,6 +230,26 @@ library Deposit {
             refundDeadline = BTCUtils.reverseUint32(
                 uint32(reveal.refundLocktime)
             );
+        }
+
+        if (isReserved) {
+            // Reserved deposits are accepted permissionlessly, without an
+            // SPV proof, and immediately increment `pendingReservedDeposits`,
+            // which blocks governance from changing `reservationVault` (see
+            // `Reservation.updateReservationParameters`) until every pending
+            // record clears. Cap the refund deadline so a reserved deposit
+            // that is never anchored is always able to self-clear via
+            // parking the guard indefinitely with a far-future locktime.
+            /* solhint-disable not-rely-on-time */
+            require(
+                refundDeadline <=
+                    block.timestamp +
+                        self.reservationTermSeconds +
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
+                "Refund locktime too far in the future for a reservation"
+            );
+            /* solhint-enable not-rely-on-time */
         }
 
         bytes memory expectedScript;

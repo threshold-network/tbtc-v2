@@ -49,9 +49,11 @@ library BridgeState {
         // deposits retain it even when reveal-ahead validation is disabled,
         // because acceptance must enforce the validator's refund margin.
         uint32 refundDeadline;
-        // True if the global reveal-ahead policy validated the deadline.
-        // Later stale cleanup uses this bit to preserve the disabled policy's
-        // historical behavior; acceptance always uses the exact deadline.
+        // True if the global reveal-ahead policy validated the deadline at
+        // reveal time. Reveal-time provenance metadata only -- no
+        // production code path branches on it; `notifyStaleReservedDeposit`
+        // and `ReservationProofs` compare `block.timestamp` against
+        // `refundDeadline` unconditionally and only ever clear this flag.
         bool refundDeadlineValidated;
     }
 
