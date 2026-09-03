@@ -194,8 +194,8 @@ describeFork(
     // pre-best-effort implementation lacks it entirely).
     //
     // This requires fixture infrastructure not yet present in this package:
-    //   - `@defi-wonderland/smock` (an existing repo test library, declared in
-    //     the solidity/starknet/sei packages) to fake the live Bridge and
+    //   - `solidity/contracts/test/MockContract.sol` + `solidity/test/helpers/mock.ts`
+    //     (the current repo mock infrastructure) to mock the live Bridge and
     //     TBTCVault at their real cached on-chain addresses so the
     //     `_finalizeDeposit` external reads (`deposits`, `depositParameters`,
     //     `optimisticMinting*`) resolve under the contract's control;
