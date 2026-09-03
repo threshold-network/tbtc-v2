@@ -1763,9 +1763,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       // below), so read the artifact directly rather than constructing a
       // ContractFactory, which would require linking ReservationProofs.
       const reservationArtifact = await artifacts.readArtifact("Reservation")
-      reservationInterface = new ethers.utils.Interface(
-        reservationArtifact.abi
-      )
+      reservationInterface = new ethers.utils.Interface(reservationArtifact.abi)
 
       await setReservationConfig(executor.address, {
         reservationTxMaxFee: txMaxFee,
