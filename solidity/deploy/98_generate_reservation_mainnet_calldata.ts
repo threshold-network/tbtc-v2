@@ -175,15 +175,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Configuration values for initial bootstrap
   // These are example values; operators should adjust per governance decision.
   // The script logs calldata so it can be copied into a Safe transaction builder.
-  const PER_WALLET_CAP = 100_000_000_000n // 100 BTC in satoshis (example)
-  const SINGLE_AMOUNT_CAP = 10_000_000_000n // 10 BTC in satoshis (example)
+  const PER_WALLET_CAP = BigInt(100_000_000_000) // 100 BTC in satoshis (example)
+  const SINGLE_AMOUNT_CAP = BigInt(10_000_000_000) // 10 BTC in satoshis (example)
   const MAX_ACTIVE = 1000 // example
 
-  const RES_MIN_AMOUNT = 1_000_000n // 0.01 BTC in satoshis (example)
-  const RES_TX_MAX_FEE = 500_000n // example
+  const RES_MIN_AMOUNT = BigInt(1_000_000) // 0.01 BTC in satoshis (example)
+  const RES_TX_MAX_FEE = BigInt(500_000) // example
   const RES_TERM_SECONDS = 2_592_000 // 30 days
   const RES_DISSOLUTION_DELAY = 86_400 // 1 day
-  const RES_MAX_TOTAL_AMOUNT = 1_000_000_000_000n // 1000 BTC in satoshis (example)
+  const RES_MAX_TOTAL_AMOUNT = BigInt(1_000_000_000_000) // 1000 BTC in satoshis (example)
   const MAX_RESERVATIONS_PER_WALLET = 10
   const RES_ACTION_TIMEOUT = 86_400 // 1 day
   const RES_RENEWAL_WINDOW = 604_800 // 7 days
