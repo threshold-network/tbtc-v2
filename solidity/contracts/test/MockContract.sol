@@ -433,10 +433,7 @@ contract MockContract {
                 (msg.data.length * RECORD_GAS_PER_BYTE);
             // solhint-disable-next-line no-empty-blocks
             try
-                this.__mock__record{gas: stipend}(
-                    msg.data,
-                    msg.value
-                )
+                this.__mock__record{gas: stipend}(msg.data, msg.value)
             {} catch {}
         }
 

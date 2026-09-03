@@ -219,10 +219,10 @@ work is the types, and it takes four changes to fix, not one.
 **TypeScript 4.6 could not parse viem's declarations at the time.** The package was pinned at
 `^4.5.4` (the toolchain is pinned to TypeScript `^6.0.3` today, so this specific blocker is retired). viem and `abitype` require `>=5.0.4` and `ox` requires `>=5.4.0`;
 all three use syntax 4.6 rejected outright:
-| `tsc` invocation          | before | after adding the plugin |
+| `tsc` invocation | before | after adding the plugin |
 | ------------------------- | ------ | ----------------------- |
-| `-p tsconfig.json`        | 40     | **4167**                |
-| `-p tsconfig.export.json` | 1      | **4167**                |
+| `-p tsconfig.json` | 40 | **4167** |
+| `-p tsconfig.export.json` | 1 | **4167** |
 
 The second matters more than the first: `tsconfig.export.json` excludes
 `./test` but still compiles `hardhat.config.ts`, and it is what `yarn prepack`
@@ -257,6 +257,7 @@ _run_ — `ts-node` is transpile-only here — but nothing is checked.
 TypeScript files that predate the spike — concentrated in 34 of them, six in
 `test/helpers/mock.ts`, the rest in code written years before the flag was
 considered.
+
 ### What ethers v6 costs instead
 
 The comparison is not viem against the status quo, it is viem against the other
@@ -290,15 +291,16 @@ it did not — listing the bump as a viem-only cost. Measured while doing the
 migration: typechain v6 types a contract method as `TypedContractMethod`, and on
 the previously pinned TypeScript 4.6 a conditional type could not resolve against it, so the
 mock helper's whole configuration surface stayed invisible.
-|                  | errors | `reset` / `returns` / `whenCalledWith` |
+| | errors | `reset` / `returns` / `whenCalledWith` |
 | ---------------- | ------ | -------------------------------------- |
-| TypeScript 4.6.2 | 2741   | 343 / 228 / 174                        |
-| TypeScript 5.9.3 | 1910   | 0 / 0 / 0                              |
+| TypeScript 4.6.2 | 2741 | 343 / 228 / 174 |
+| TypeScript 5.9.3 | 1910 | 0 / 0 / 0 |
 
 So TypeScript 5 is a shared prerequisite of both paths rather than a
 differentiator. What still separates them is `strict` — viem's contract types
 collapse to `never` without it, ethers v6 does not care — and that is the
 expensive half, raising 378 errors under TS 5.9.3 (~7,700 diagnostics under TS 6.0.3) in files that predate it.
+
 ### The two paths differ in shape, not only in cost
 
 This was measured after the decision below was first written, and it does not
@@ -323,12 +325,12 @@ through `@nomicfoundation/hardhat-ethers@3`, while waffle needs v5, and a
 package alias does not satisfy a peer range. So there is no configuration in
 which some files are on ethers v6 and the rest still run.
 
-|                       | viem                                                           | ethers v6                             |
-| --------------------- | -------------------------------------------------------------- | ------------------------------------- |
-| coexists with waffle  | yes — 26 tests green beside 2971 waffle tests                  | **no**                                |
-| migration shape       | file by file, reversible at any point                          | 92 files in `test/` in one commit     |
-| call sites            | one file at a time                                             | ~5000, measured below                 |
-| matchers on Hardhat 2 | none; 295 hand-written lines                                   | `hardhat-chai-matchers@2.1.2`, stable |
+|                       | viem                                                                                           | ethers v6                             |
+| --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------- |
+| coexists with waffle  | yes — 26 tests green beside 2971 waffle tests                                                  | **no**                                |
+| migration shape       | file by file, reversible at any point                                                          | 92 files in `test/` in one commit     |
+| call sites            | one file at a time                                                                             | ~5000, measured below                 |
+| matchers on Hardhat 2 | none; 295 hand-written lines                                                                   | `hardhat-chai-matchers@2.1.2`, stable |
 | prerequisites         | `strict: true`, `./build` in `include` (TypeScript 6.0.3 and `skipLibCheck` already satisfied) | none                                  |
 
 The ethers v6 surface across the 92 files in `test/`:

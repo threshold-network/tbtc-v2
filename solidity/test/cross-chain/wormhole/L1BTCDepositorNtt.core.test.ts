@@ -393,7 +393,10 @@ describe("L1BTCDepositorNtt Core Functions", () => {
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns([revealedAt, finalizedAt])
 
-          await nttManager.quoteDeliveryPrice.returns([[], BigNumber.from(50000)])
+          await nttManager.quoteDeliveryPrice.returns([
+            [],
+            BigNumber.from(50000),
+          ])
           await nttManager.transfer.returns(123)
 
           await l1BtcDepositorNtt
