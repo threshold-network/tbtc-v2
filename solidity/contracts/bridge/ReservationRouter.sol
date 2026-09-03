@@ -68,8 +68,15 @@ import "./Reservation.sol";
 ///
 ///      2. NO SELECTOR SHADOWING. A selector defined by the Bridge never
 ///         reaches the router (the fallback only sees unmatched calls). The
-///         router must not declare a function the Bridge also declares; a
-///         selector-disjointness test guards this.
+///         router must not declare a function the Bridge also declares that
+///         differs in behavior; a selector-disjointness test guards this,
+///         with one documented exception: the `Governable`/`Initializable`
+///         base functions (e.g. `governance()`, `transferGovernance`) are
+///         inherited identically by both contracts to keep their storage
+///         layouts aligned for invariant 1 -- their router-side copies are
+///         permanently unreachable through the fallback (the Bridge's own
+///         copy always answers first) and are inert, so the collision is
+///         benign and excluded from the disjointness check by name.
 ///
 ///      3. NO STANDALONE AUTHORITY. Calling the router directly (not via the
 ///         Bridge fallback) executes on the router's own, empty storage:

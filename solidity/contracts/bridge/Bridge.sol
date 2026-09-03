@@ -2120,10 +2120,14 @@ contract Bridge is
     ///         redeclaring them here (which is forbidden by `ReservationRouter`
     ///         invariant 2 — NO SELECTOR SHADOWING).
     /// @dev The router's selectors are disjoint from those declared on this
-    ///      contract by construction (and a selector-disjointness test
-    ///      guards it), so the fallback only ever sees calls that the Bridge
-    ///      itself does not match. If no router has been set, every call
-    ///      reverts with "Reservation router not set".
+    ///      contract by construction, with one documented exception for the
+    ///      shared `Governable`/`Initializable` base functions the router
+    ///      inherits to keep its storage layout aligned with the Bridge's
+    ///      (see `ReservationRouter` invariant 2); a selector-disjointness
+    ///      test guards everything else, so the fallback only ever sees
+    ///      calls that the Bridge itself does not match.
+    ///      If no router has been set, every call reverts with "Reservation
+    ///      router not set".
     // solhint-disable-next-line no-complex-fallback
     fallback() external payable {
         address router = self.reservationRouter;
