@@ -41,7 +41,7 @@ jobs:
 
       - name: Resolve latest contracts
         run: |
-          yarn upgrade --exact \
+          yarn up --exact \
             @keep-network/ecdsa \
             @keep-network/tbtc-v2
 

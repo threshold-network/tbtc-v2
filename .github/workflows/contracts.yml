@@ -200,7 +200,7 @@ jobs:
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
           ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
-          yarn upgrade \
+          yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
             "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
             "@keep-network/tbtc@${ENVIRONMENT}"
@@ -359,7 +359,7 @@ jobs:
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
           ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
-          yarn upgrade \
+          yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
             "@keep-network/ecdsa@${ECDSA_CONTRACTS_VERSION}" \
             "@keep-network/tbtc@${ENVIRONMENT}"
