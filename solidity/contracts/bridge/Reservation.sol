@@ -784,9 +784,9 @@ library Reservation {
             "Reanchor authorization has no signing window"
         );
         // Request-time amount floor: with `maxCumulativeReanchorFee` unenforced
-        // in m1, this is the only on-chain bound on cumulative fee grinding —
-        // each hop may spend up to `txMaxFee`, so repeated re-anchors could
-        // wind the anchor down to the settlement-time dust floor without it.
+        // in m1, this is the only on-chain bound on cumulative fee grinding
+        // (each hop may spend up to `txMaxFee`, so repeated re-anchors could
+        // wind the anchor down to the settlement-time dust floor without it).
         // Requiring the anchor to stay above `minAmount + txMaxFee` caps the
         // grind at (initial anchor - minAmount). Restored per adjudication
         // reversing review finding [6] (which had dropped the `minAmount`
