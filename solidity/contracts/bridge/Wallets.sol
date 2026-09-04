@@ -275,6 +275,38 @@ library Wallets {
         }
     }
 
+    /// @notice Slashes a wallet in the Closing state that failed its
+    ///         redemption duty, mirroring `notifyWalletRedemptionTimeout`'s
+    ///         slashing branch (Closing wallets cannot pass that function's
+    ///         state gate, but reaching Closing must not let the wallet
+    ///         dodge the slashing consequence). No `moveFunds` is performed:
+    ///         a Closing wallet is already past moving.
+    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
+    /// @param walletMembersIDs Identifiers of the wallet signing group
+    ///        members, consulted for the slashing path.
+    /// @dev Requirements:
+    ///      - The wallet must be in the `Closing` state.
+    function notifyClosingWalletRedemptionTimeout(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint32[] calldata walletMembersIDs
+    ) internal {
+        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+        require(
+            wallet.state == WalletState.Closing,
+            "Wallet must be in Closing state"
+        );
+
+        // slither-disable-next-line reentrancy-no-eth
+        self.ecdsaWalletRegistry.seize(
+            self.redemptionTimeoutSlashingAmount,
+            self.redemptionTimeoutNotifierRewardMultiplier,
+            msg.sender,
+            wallet.ecdsaWalletID,
+            walletMembersIDs
+        );
+    }
+
     /// @notice Handles a notification about a wallet heartbeat failure and
     ///         triggers the wallet moving funds process.
     /// @param publicKeyX Wallet's public key's X coordinate.
