@@ -106,6 +106,7 @@ library Reservation {
     }
 
     /// @notice Type of a reservation action generation.
+    /// @dev Redemption and Dissolution values are kept for m2 storage/layout stability.
     enum ActionType {
         None,
         Acceptance,
@@ -385,16 +386,6 @@ library Reservation {
         uint32 maxActiveReservations
     );
 
-    event ReservationRedemptionTimedOut(
-        uint256 indexed reservationKey,
-        uint64 requestNonce
-    );
-
-    event ReservationDissolutionTimedOut(
-        uint256 indexed reservationKey,
-        uint64 requestNonce
-    );
-
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
 
@@ -613,22 +604,22 @@ library Reservation {
         );
         self.reservationTotalAmount = newTotal;
 
-        uint32 walletCount = self.walletReservationsCount[walletPubKeyHash] + 1;
+        uint32 walletCount = self.walletReservationInfo[walletPubKeyHash].count + 1;
         require(
             self.maxReservationsPerWallet == 0 ||
                 walletCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
-        self.walletReservationsCount[walletPubKeyHash] = walletCount;
+        self.walletReservationInfo[walletPubKeyHash].count = walletCount;
 
-        uint64 walletAmount = self.walletReservationsAmount[walletPubKeyHash] +
+        uint64 walletAmount = self.walletReservationInfo[walletPubKeyHash].amount +
             deposit.amount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 walletAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self.walletReservationsAmount[walletPubKeyHash] = walletAmount;
+        self.walletReservationInfo[walletPubKeyHash].amount = walletAmount;
 
         uint64 requestNonce = ++reservation.requestNonce;
 
@@ -707,8 +698,8 @@ library Reservation {
         bytes20 targetWalletPubKeyHash = action.targetWalletPubKeyHash;
         uint64 amount = action.amount;
         self.reservationTotalAmount -= amount;
-        self.walletReservationsCount[targetWalletPubKeyHash] -= 1;
-        self.walletReservationsAmount[targetWalletPubKeyHash] -= amount;
+        self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
+        self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
         self.activeReservationsCount -= 1;
 
         emit ReservationAcceptanceTimedOut(reservationKey, requestNonce);
@@ -822,25 +813,25 @@ library Reservation {
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
-        uint32 targetCount = self.walletReservationsCount[
+        uint32 targetCount = self.walletReservationInfo[
             targetWalletPubKeyHash
-        ] + 1;
+        ].count + 1;
         require(
             self.maxReservationsPerWallet == 0 ||
                 targetCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
-        self.walletReservationsCount[targetWalletPubKeyHash] = targetCount;
+        self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
 
-        uint64 targetAmount = self.walletReservationsAmount[
+        uint64 targetAmount = self.walletReservationInfo[
             targetWalletPubKeyHash
-        ] + reservation.anchorAmount;
+        ].amount + reservation.anchorAmount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 targetAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self.walletReservationsAmount[targetWalletPubKeyHash] = targetAmount;
+        self.walletReservationInfo[targetWalletPubKeyHash].amount = targetAmount;
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -912,8 +903,8 @@ library Reservation {
         // reservation stays custodied there. A late proof of this
         // generation re-takes the released target capacity (see
         // `ReservationProofs.submitReservationReanchorProof`).
-        self.walletReservationsCount[action.targetWalletPubKeyHash] -= 1;
-        self.walletReservationsAmount[action.targetWalletPubKeyHash] -= action
+        self.walletReservationInfo[action.targetWalletPubKeyHash].count -= 1;
+        self.walletReservationInfo[action.targetWalletPubKeyHash].amount -= action
             .amount;
 
         reservation.state = ReservationState.Active;
@@ -928,238 +919,6 @@ library Reservation {
             reservationKey,
             reservation.requestNonce
         );
-    }
-
-    /// @notice Permissionlessly reports a reservation's pending redemption
-    ///         generation as timed out once its authorization window has
-    ///         elapsed: restores the reservation to `Active` so a fresh
-    ///         redemption may be requested, mints a fee-free retry
-    ///         entitlement when the generation had paid the fee or had
-    ///         itself consumed one (returning the credit), and
-    ///         propagates wallet consequences (slashing follows the
-    ///         regular redemption timeout rules).
-    /// @dev Returns the redemption generation's escrowed claim to
-    ///      `action.redeemer` as Bank balance, regardless of whether the
-    ///      wallet was slashable: the redeemer's entitlement to the
-    ///      escrowed amount does not depend on the wallet's post-timeout
-    ///      lifecycle state.
-    /// @param reservationKey The key of the reservation whose current
-    ///        pending generation timed out.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members, consulted for the slashing path.
-    /// @dev Requirements:
-    ///      - The reservation's current generation must be a `Redemption`
-    ///        action in the `Pending` state,
-    ///      - The reservation itself must be in the `ActionPending` state,
-    ///      - Its snapshotted `timeoutAt` must have elapsed.
-    function notifyReservationRedemptionTimedOut(
-        BridgeState.Storage storage self,
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        ReservationRequest storage reservation = self.reservations[
-            reservationKey
-        ];
-        uint64 requestNonce = reservation.requestNonce;
-        ReservationAction storage action = getAction(
-            self,
-            reservationKey,
-            requestNonce
-        );
-
-        require(
-            action.actionType == ActionType.Redemption,
-            "Unsupported action type for timeout"
-        );
-        require(
-            reservation.state == ReservationState.ActionPending,
-            "Reservation is not in ActionPending state"
-        );
-        require(action.state == ActionState.Pending, "Action is not pending");
-        /* solhint-disable not-rely-on-time */
-        require(
-            block.timestamp >= action.timeoutAt,
-            "Action has not timed out"
-        );
-        /* solhint-enable not-rely-on-time */
-
-        action.state = ActionState.TimedOut;
-        reservation.state = ReservationState.Active;
-
-        if (action.feePaid || action.usedRetryCredit) {
-            reservation.retryCredit = true;
-            self.reservationRetryCreditActionNonce[
-                reservationKey
-            ] = requestNonce;
-            emit ReservationRetryCreditMinted(reservationKey);
-        }
-
-        bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
-        _slashWalletIfRedeemable(self, walletPubKeyHash, walletMembersIDs);
-
-        // Return the escrowed balance to the redeemer as Bank balance.
-        self.bank.transferBalance(action.redeemer, action.amount);
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservationRedemptionTimedOut(reservationKey, requestNonce);
-    }
-
-    /// @notice Slashes a wallet for a reservation redemption or
-    ///         dissolution timeout when its current state makes it
-    ///         eligible. Live, MovingFunds, and Terminated wallets are
-    ///         routed through the regular redemption-timeout path (Live and
-    ///         MovingFunds slash the operators and reward the notifier;
-    ///         Terminated is a true no-op, routed through only so callers
-    ///         don't have to special-case it). A wallet that has moved to
-    ///         Closing cannot use that path -- `notifyWalletRedemptionTimeout`
-    ///         only accepts Live, MovingFunds, or Terminated and reverts
-    ///         otherwise -- but reaching Closing must not let it dodge the
-    ///         slashing consequence it would otherwise face, so it is slashed
-    ///         directly here, mirroring `notifyWalletRedemptionTimeout`'s
-    ///         own slashing branch. A Closed wallet is left untouched
-    ///         intentionally: no slash occurs because the signing group is
-    ///         already disbanded via `finalizeWalletClosing`, and no notifier
-    ///         reward is paid because stake was already withdrawn and there
-    ///         is nothing left to seize -- a permissionless monitor reporting
-    ///         a legitimately-late Closed-wallet timeout gets no reward by
-    ///         design, not by oversight.
-    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members, consulted for the slashing path.
-    /// @return walletState The pre-call lifecycle state of the wallet.
-    function _slashWalletIfRedeemable(
-        BridgeState.Storage storage self,
-        bytes20 walletPubKeyHash,
-        uint32[] calldata walletMembersIDs
-    ) internal returns (Wallets.WalletState) {
-        Wallets.Wallet storage wallet = self.registeredWallets[
-            walletPubKeyHash
-        ];
-        Wallets.WalletState walletState = wallet.state;
-
-        if (
-            walletState == Wallets.WalletState.Live ||
-            walletState == Wallets.WalletState.MovingFunds ||
-            walletState == Wallets.WalletState.Terminated
-        ) {
-            self.notifyWalletRedemptionTimeout(
-                walletPubKeyHash,
-                walletMembersIDs
-            );
-        } else if (walletState == Wallets.WalletState.Closing) {
-            self.notifyClosingWalletRedemptionTimeout(
-                walletPubKeyHash,
-                walletMembersIDs
-            );
-        }
-
-        return walletState;
-    }
-
-    /// @notice Permissionlessly reports a reservation's pending dissolution
-    ///         generation as timed out once its authorization window has
-    ///         elapsed: restores the reservation to `Active` so a fresh
-    ///         dissolution may be requested, and propagates wallet
-    ///         consequences. A wallet failing its dissolution duty is
-    ///         slashed like a wallet failing a redemption: dissolution is
-    ///         the mechanism that makes term + grace a hard stranding
-    ///         bound. A Live wallet enters MovingFunds on its first
-    ///         failure and keeps the ordinary moving-funds deadline (a
-    ///         Live wallet with no main UTXO begins closing instead, per
-    ///         `Wallets.moveFunds`); a wallet already in MovingFunds has
-    ///         now also refused the terminal cleanup of its residual
-    ///         anchor, so it is terminated at the dissolution bound.
-    /// @param reservationKey The key of the reservation whose current
-    ///        pending generation timed out.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members, consulted for the slashing path.
-    /// @dev Requirements:
-    ///      - The reservation's current generation must be a `Dissolution`
-    ///        action in the `Pending` state,
-    ///      - The reservation itself must be in the `ActionPending` state,
-    ///      - Its snapshotted `timeoutAt` must have elapsed.
-    function notifyReservationDissolutionTimedOut(
-        BridgeState.Storage storage self,
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        ReservationRequest storage reservation = self.reservations[
-            reservationKey
-        ];
-        uint64 requestNonce = reservation.requestNonce;
-        ReservationAction storage action = getAction(
-            self,
-            reservationKey,
-            requestNonce
-        );
-
-        require(
-            action.actionType == ActionType.Dissolution,
-            "Unsupported action type for timeout"
-        );
-        require(
-            reservation.state == ReservationState.ActionPending,
-            "Reservation is not in ActionPending state"
-        );
-        require(action.state == ActionState.Pending, "Action is not pending");
-        /* solhint-disable not-rely-on-time */
-        require(
-            block.timestamp >= action.timeoutAt,
-            "Action has not timed out"
-        );
-        /* solhint-enable not-rely-on-time */
-
-        action.state = ActionState.TimedOut;
-        reservation.state = ReservationState.Active;
-
-        // NOTE: this reads `reservation.walletPubKeyHash` (the reservation's
-        // live/current custodying wallet), not `action.targetWalletPubKeyHash`.
-        // For a Dissolution action, `targetWalletPubKeyHash` is documented as
-        // "the custodying wallet itself" (see the field's declaration above),
-        // but no function in this file currently produces a Dissolution
-        // action and populates it -- only `requestReservationAcceptance` and
-        // `requestReservationReanchor` do, for their own action types. Until
-        // a `requestReservationDissolution` request-side function lands and
-        // is verified to always set that snapshot, reading it here would
-        // silently degrade to `bytes20(0)` for every real dissolution,
-        // skipping the marker clear and slashing below entirely.
-        bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
-
-        // Only clear the wallet's pending-dissolution marker if it still
-        // points at THIS reservation: a newer request for a different
-        // reservation may have since claimed the wallet's single-slot
-        // marker, and this timeout must not clear that unrelated claim.
-        if (self.walletPendingDissolution[walletPubKeyHash] == reservationKey) {
-            delete self.walletPendingDissolution[walletPubKeyHash];
-        }
-
-        Wallets.WalletState walletState = _slashWalletIfRedeemable(
-            self,
-            walletPubKeyHash,
-            walletMembersIDs
-        );
-        bool walletWasMovingFunds = walletState ==
-            Wallets.WalletState.MovingFunds;
-
-        // A Live wallet enters MovingFunds on its first failure and keeps
-        // the ordinary moving-funds deadline. A wallet already in
-        // MovingFunds has now also refused the terminal cleanup of its
-        // residual anchor, so terminate it at the dissolution bound.
-        // Gated on the PRE-call state only: the slashing call above may
-        // itself have just moved a Live wallet into MovingFunds or
-        // Closing, and neither of those transitions is itself a second
-        // dissolution failure, so they must not trigger termination on
-        // this same call. Likewise, a wallet that was already Closing
-        // before this call is intentionally slashed (via
-        // `_slashWalletIfRedeemable`'s Closing branch) but not terminated
-        // by this gate -- this is accepted, deliberate leniency (matching
-        // this function's first-failure-is-lenient design), not an oversight.
-        if (walletWasMovingFunds) {
-            self.terminateWallet(walletPubKeyHash);
-        }
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservationDissolutionTimedOut(reservationKey, requestNonce);
     }
 
     /// @notice Appends a reservation key to a wallet's enumeration list.
@@ -1211,8 +970,8 @@ library Reservation {
         uint64 anchorAmount = reservation.anchorAmount;
 
         if (!evidenceAlreadyEmitted) {
-            self.walletReservationsCount[walletPubKeyHash] -= 1;
-            self.walletReservationsAmount[walletPubKeyHash] -= anchorAmount;
+            self.walletReservationInfo[walletPubKeyHash].count -= 1;
+            self.walletReservationInfo[walletPubKeyHash].amount -= anchorAmount;
             self.reservationTotalAmount -= anchorAmount;
             self.activeReservationsCount -= 1; // The stranded reservation was counted at request time.
             removeWalletReservationKey(self, walletPubKeyHash, reservationKey);

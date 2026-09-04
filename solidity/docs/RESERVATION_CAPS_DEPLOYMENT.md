@@ -16,7 +16,7 @@ Changes relative to #1094:
 
 During the initial bootstrap of the reservation subsystem, calling `updateReservationCaps` **before** `updateReservationParameters` is recommended as the safe runbook default.
 
-While calling `updateReservationParameters` first is accepted during initial bootstrap because `self.reservationMaxSingleAmount` and `self.maxActiveReservations` are still zero (the slot-capacity check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` short-circuits when either operand is zero), calling in the reverse order introduces a potential hazard: if the subsequent `updateReservationCaps` call sets caps whose product `maxActiveReservations * reservationMaxSingleAmount` cannot accommodate the already-committed `reservationMaxTotalAmount`, that subsequent `updateReservationCaps` call will revert with `Amount cap exceeds slot capacity`. (Any call order succeeds if `reservationMaxSingleAmount` is set to zero, since a zero single-amount cap disables the slot-capacity ceiling check entirely, or if the parameters happen to satisfy the invariant regardless of order.)
+While calling `updateReservationParameters` first is accepted during initial bootstrap because `self.reservationMaxSingleAmount` and `self.maxActiveReservations` are still zero (the slot-capacity check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` short-circuits when either operand is zero), calling in the reverse order introduces a potential hazard: if the subsequent `updateReservationCaps` call sets caps whose product `maxActiveReservations * reservationMaxSingleAmount` cannot accommodate the already-committed `reservationMaxTotalAmount`, that subsequent `updateReservationCaps` call will revert with `Amount cap exceeds slot capacity`. (Any call order succeeds if `reservationMaxSingleAmount` is set to zero, since a zero single-amount cap disables the relational check).
 
 Safe operational sequence:
 
@@ -29,17 +29,55 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 
 ---
 
+## Irreversible Vault Activation Warning
+
+> ⚠️ **IRREVERSIBLE CONFIGURATION WARNING: MANDATORY GOVERNANCE SIGN-OFF**
+>
+> Once any reservation is accepted, `ReservationVault` can **never** be swapped, upgraded, or repointed to a patched version.
+>
+> The vault re-point gate in `Bridge.updateReservationParameters` requires:
+> ```solidity
+> self.reservationTotalAmount == 0 && self.pendingReservedDeposits == 0
+> ```
+> Under Milestone 1 (variant B), this state is reachable **only** via complete wallet termination / stranding / acceptance timeouts, because voluntary early exits (such as redemptions or dissolutions) are deferred to Milestone 2.
+>
+> Setting a non-zero `reservationVault` in `updateReservationParameters` and accepting the first reservation permanently locks in that vault contract for the entire lifetime of live reservations. Explicit governance and deployer sign-off acknowledging this irreversibility is **required** prior to the activation ceremony.
+
+---
+
 ## Occupancy Lifecycle and Capacity Management (maxActiveReservations)
 
-In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and a one-way ratchet:
+In Milestone 1, `maxActiveReservations` acts as an occupancy launch gate and capacity ceiling:
 
-- **One-way occupancy ratchet in M1:** Once reservation requests are authorized and accepted on-chain, the active reservation count increments. There is no documented release procedure in Milestone 1 once occupancy saturates, because voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2.
-- **Underlying tBTC funds are not locked:** This occupancy ratchet applies only to the accounting position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault redemption path. Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
+- **Occupancy lifecycle and release paths in M1:** Once reservation requests are authorized and accepted on-chain, `activeReservationsCount` increments. Voluntary protocol-level exits from an accepted reservation position (such as dissolution, veto, and dedicated reservation redemptions) are deferred to Milestone 2. However, `activeReservationsCount` is decremented on the two variant-B release paths that exist in M1: acceptance timeout (when acceptance proofs expire) and stranding (when a wallet closes or terminates). Thus, while not a strictly monotonic one-way ratchet, capacity releases occur exclusively through non-voluntary timeout/stranding paths rather than depositor-initiated exits.
+- **Underlying tBTC funds are not locked:** This occupancy accounting applies only to the position of the dedicated-UTXO reservation. Depositor funds are not locked: upon `settleAcceptance`, the depositor is already credited liquid tBTC via the standard Bridge/vault deposit-crediting (mint) path (this mint/credit flow is completely unrelated to the distinct `redeemReservation` feature, which is disabled in Milestone 1). Only the dedicated-UTXO reservation position itself lacks an early voluntary close mechanism in M1.
+- **Wallet-closing gate dependency (incomplete safety story):** The safety story for `maxActiveReservations` assumes that as wallets retire, capacity is safely bounded without stranding. However, the wallet-closing precondition (`walletReservationsCount == 0`) is NOT yet enforced in `Wallets.sol` (`beginWalletClosing` / `moveFunds`) on this branch. Until this gate lands, the occupancy safety story remains incomplete because a wallet with live reservation anchors could begin closing without all reservations first being re-anchored or cleared.
 - **Procedure for raising capacity:** When active occupancy saturates or additional headroom is required, governance can raise the occupancy limit by calling `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, newMaxActiveReservations)` with a higher `newMaxActiveReservations` value.
 - **Sizing constraint:** Any update to `maxActiveReservations` or `reservationMaxSingleAmount` must maintain the Decision 1 relational invariant:
   `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount`
   (unless `reservationMaxSingleAmount == 0`, which disables the amount cap). If lowering caps or raising `reservationMaxTotalAmount`, governance must ensure the new slot capacity accommodates `reservationMaxTotalAmount`.
 - **Operational timeline considerations:** Whether the Milestone 1 launch is expected to reach reservation term expiry before Milestone 2 ships is an open operational question that the deploying team and governance should confirm prior to setting initial term lengths and occupancy limits.
+
+### Monitoring and Alerting (Occupancy & Risk Signals)
+
+To ensure proactive capacity management and safe operational oversight:
+
+- **Occupancy Signal & Calculation:** Effective system occupancy is defined as:
+  $$\text{Occupancy} = \frac{\text{activeReservationsCount}}{\text{liveWalletsCount} \times \text{maxReservationsPerWallet}}$$
+  Relative to the governance cap, occupancy is evaluated against `maxActiveReservations` (the slot capacity floor).
+- **Event-Driven Telemetry:** The `ReservationOccupancyChanged(uint32 activeReservationsCount)` event enables off-chain indexers, subgraphs, and dashboards to track occupancy from logs alone without relying on continuous chain polling of `activeReservationsCount()`.
+- **Recommended Alert Thresholds:**
+  - **Warning Alert (70% of capacity):** Triggered when `activeReservationsCount` reaches 70% of `maxActiveReservations` (or 70% of the live-wallet slot floor). Governance and operators should review current demand and prepare a cap increase transaction if needed.
+  - **Critical / Page Alert (90% of capacity):** Triggered when `activeReservationsCount` reaches 90% of capacity. Immediate operator attention is required; new reservation acceptances will revert if the cap is reached before governance raises `maxActiveReservations`.
+
+### Permissionless Re-Anchor Target Selection (Accepted Risk)
+
+When a source wallet enters `MovingFunds` or `Closing`, calling `requestReservationReanchor` is permissionless and allows the caller to designate any Live wallet as the target wallet:
+
+- **Mechanics:** Target-side capacity (`walletReservationInfo[target].count` and `walletReservationInfo[target].amount`) is reserved immediately at request time, before the source wallet signs or executes the Bitcoin transaction.
+- **Risk Profile:** A malicious or griefing caller can temporarily occupy reservation slots on a chosen Live target wallet for up to `reservationActionTimeout` seconds at zero cost beyond gas, preventing other incoming reservations from targeting that wallet during the timeout window.
+- **Accepted Risk Rationale:** The risk is cooldown-bounded by `reservationActionTimeout` (after which capacity is released via `notifyReservationReanchorTimeout`). Furthermore, successful execution requires the source wallet's cooperation to sign the re-anchor transaction on Bitcoin.
+- **Monitoring Note:** Off-chain monitors should track repeated re-anchor requests against specific target wallets that are not followed by re-anchor proof submissions, alerting operators to potential griefing patterns.
 
 ---
 
@@ -122,6 +160,10 @@ Unlike the other two rejected alternatives (the naive port at 26,529B and the op
 
 **Tracked milestone-2 debt (non-blocking for milestone 1):**
 Before milestone 2 ships, a short technical spike should be conducted to empirically quantify the bytecode delta of the callback-authority/external-router alternative. This will apply the same empirical rigor used for the other two architectural comparisons and validate whether the delegatecall-router pattern remains the optimal long-term seam as more reservation lifecycle features (dissolution, veto, dedicated redemptions) are added in milestone 2.
+
+## Storage Layout and Tracked Follow-ups
+
+- **BridgeState Storage Slot 34 Packing:** In `BridgeState.sol`, storage slot 34 currently packs three fields (`maxActiveReservations`, `activeReservationsCount`, and `strandingCooldownSeconds` / adjacent fields), leaving 16 spare bytes unused out of the 32-byte slot. This layout is append-only and verified safe, but leaves a minor packing inefficiency against the rationed `__gap` budget. To avoid modifying an already-verified upgradeable storage layout in this PR, a field reordering to fill the 16 spare bytes is tracked for a follow-up PR prior to the next `__gap` reduction.
 
 ---
 

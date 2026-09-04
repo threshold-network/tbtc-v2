@@ -39,14 +39,6 @@ contract ReservationStrandingExecutor {
         uint256 indexed reservationKey,
         uint64 requestNonce
     );
-    event ReservationRedemptionTimedOut(
-        uint256 indexed reservationKey,
-        uint64 requestNonce
-    );
-    event ReservationDissolutionTimedOut(
-        uint256 indexed reservationKey,
-        uint64 requestNonce
-    );
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
 
     /// @notice Forwards the `Reservation.notifyReservationStranded` library
@@ -71,33 +63,6 @@ contract ReservationStrandingExecutor {
         self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
     }
 
-    /// @notice Forwards `Reservation.notifyReservationRedemptionTimedOut`.
-    ///         Reverts when the action is not a Redemption in the
-    ///         `Pending` state, the reservation is not `ActionPending`, or
-    ///         the snapshotted timeout has not yet elapsed.
-    function notifyReservationRedemptionTimedOut(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservationRedemptionTimedOut(
-            reservationKey,
-            walletMembersIDs
-        );
-    }
-
-    /// @notice Forwards `Reservation.notifyReservationDissolutionTimedOut`.
-    ///         Reverts when the action is not a Dissolution in the
-    ///         `Pending` state, the reservation is not `ActionPending`, or
-    ///         the snapshotted timeout has not yet elapsed.
-    function notifyReservationDissolutionTimedOut(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservationDissolutionTimedOut(
-            reservationKey,
-            walletMembersIDs
-        );
-    }
 
     function setBank(address bankAddress) external {
         self.bank = Bank(bankAddress);
@@ -283,8 +248,8 @@ contract ReservationStrandingExecutor {
         self.walletReservationKeyIndex[reservationKey] = self
             .walletReservationKeys[walletPubKeyHash]
             .length;
-        self.walletReservationsCount[walletPubKeyHash] += 1;
-        self.walletReservationsAmount[walletPubKeyHash] += anchorAmount;
+        self.walletReservationInfo[walletPubKeyHash].count += 1;
+        self.walletReservationInfo[walletPubKeyHash].amount += anchorAmount;
         self.reservationTotalAmount += anchorAmount;
         // `activeReservationsCount` is only ever freed by an acceptance
         // timeout or by `strandReservation` (see `Reservation.sol`); every
@@ -502,7 +467,7 @@ contract ReservationStrandingExecutor {
         view
         returns (uint32)
     {
-        return self.walletReservationsCount[walletPubKeyHash];
+        return self.walletReservationInfo[walletPubKeyHash].count;
     }
 
     function walletReservationsAmount(bytes20 walletPubKeyHash)
@@ -510,7 +475,7 @@ contract ReservationStrandingExecutor {
         view
         returns (uint64)
     {
-        return self.walletReservationsAmount[walletPubKeyHash];
+        return self.walletReservationInfo[walletPubKeyHash].amount;
     }
 
     function reservationTotalAmount() external view returns (uint64) {

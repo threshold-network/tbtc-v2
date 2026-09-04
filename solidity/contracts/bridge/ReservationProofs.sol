@@ -309,10 +309,10 @@ library ReservationProofs {
         );
 
         self.reservationTotalAmount += reservation.anchorAmount;
-        self.walletReservationsCount[reservation.walletPubKeyHash] += 1;
-        self.walletReservationsAmount[
+        self.walletReservationInfo[reservation.walletPubKeyHash].count += 1;
+        self.walletReservationInfo[
             reservation.walletPubKeyHash
-        ] += reservation.anchorAmount;
+        ].amount += reservation.anchorAmount;
         self.activeReservationsCount += 1;
     }
 
@@ -534,10 +534,10 @@ library ReservationProofs {
             // Deliberately no cap check: caps are request-time throttles
             // and the anchor is already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
-            self.walletReservationsCount[targetWalletPubKeyHash] += 1;
-            self.walletReservationsAmount[
+            self.walletReservationInfo[targetWalletPubKeyHash].count += 1;
+            self.walletReservationInfo[
                 targetWalletPubKeyHash
-            ] += anchorAmount;
+            ].amount += anchorAmount;
             // The timeout also released activeReservationsCount (see
             // `Reservation.notifyReservationAcceptanceTimedOut`); re-take it
             // so a late-settled acceptance is still counted against the cap
@@ -553,7 +553,7 @@ library ReservationProofs {
             // (deposit value) and the actual anchor value (miner fee).
             uint64 feeDelta = action.amount - anchorAmount;
             self.reservationTotalAmount -= feeDelta;
-            self.walletReservationsAmount[targetWalletPubKeyHash] -= feeDelta;
+            self.walletReservationInfo[targetWalletPubKeyHash].amount -= feeDelta;
         }
 
         Reservation.ReservationRequest storage reservation = self.reservations[
@@ -723,8 +723,8 @@ library ReservationProofs {
             // The timeout released the target wallet's reserved count and
             // amount; re-take them. Deliberately no cap check (see
             // acceptance).
-            self.walletReservationsCount[newWalletPubKeyHash] += 1;
-            self.walletReservationsAmount[newWalletPubKeyHash] += reservation
+            self.walletReservationInfo[newWalletPubKeyHash].count += 1;
+            self.walletReservationInfo[newWalletPubKeyHash].amount += reservation
                 .anchorAmount;
 
             // A newer pending generation references an anchor this
@@ -747,11 +747,11 @@ library ReservationProofs {
         // target wallet's were reserved at request time (or re-taken
         // above). The target reserved the pre-hop anchor value; release
         // the miner-fee delta.
-        self.walletReservationsCount[reservation.walletPubKeyHash] -= 1;
-        self.walletReservationsAmount[
+        self.walletReservationInfo[reservation.walletPubKeyHash].count -= 1;
+        self.walletReservationInfo[
             reservation.walletPubKeyHash
-        ] -= reservation.anchorAmount;
-        self.walletReservationsAmount[newWalletPubKeyHash] -= (reservation
+        ].amount -= reservation.anchorAmount;
+        self.walletReservationInfo[newWalletPubKeyHash].amount -= (reservation
             .anchorAmount - newAnchorAmount);
 
         uint64 minerFee = reservation.anchorAmount - newAnchorAmount;
@@ -833,15 +833,13 @@ library ReservationProofs {
     ///         consumed, so the generation can never settle. Its reserved
     ///         capacity and locks are released and it is terminally marked
     ///         `Superseded`.
-    /// @param restoreRetryCredit True when the settlement superseding this
-    ///        generation is itself a late re-anchor (the only path that
-    ///        returns a consumed retry entitlement per the field's
-    ///        contract); false from the late-acceptance unwind path, which
-    ///        never restores the entitlement.
+    /// @param restoreRetryCredit Unused in milestone 1 (reserved for milestone 2
+    ///        redemption retry-credit restoration).
     function unwindPendingAction(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
         uint256 reservationKey,
+        // solhint-disable-next-line no-unused-vars
         bool restoreRetryCredit
     ) internal {
         uint64 pendingNonce = reservation.requestNonce;
@@ -856,38 +854,15 @@ library ReservationProofs {
 
         pendingAction.state = Reservation.ActionState.Superseded;
 
-        if (pendingAction.actionType == Reservation.ActionType.Redemption) {
-            if (restoreRetryCredit && pendingAction.usedRetryCredit) {
-                reservation.retryCredit = true;
-                emit ReservationRetryCreditMinted(reservationKey);
-            }
-
-            // Return the escrowed balance: the redeemer surrendered it for
-            // an anchor that no longer exists.
-            self.bank.transferBalance(
-                pendingAction.redeemer,
-                pendingAction.amount
-            );
-        } else if (
+        if (
             pendingAction.actionType == Reservation.ActionType.Reanchor
         ) {
             bytes20 targetWalletPubKeyHash = pendingAction
                 .targetWalletPubKeyHash;
-            self.walletReservationsCount[targetWalletPubKeyHash] -= 1;
-            self.walletReservationsAmount[
+            self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
+            self.walletReservationInfo[
                 targetWalletPubKeyHash
-            ] -= pendingAction.amount;
-        } else if (
-            pendingAction.actionType == Reservation.ActionType.Dissolution
-        ) {
-            if (
-                self.walletPendingDissolution[reservation.walletPubKeyHash] ==
-                reservationKey
-            ) {
-                delete self.walletPendingDissolution[
-                    reservation.walletPubKeyHash
-                ];
-            }
+            ].amount -= pendingAction.amount;
         } else if (
             pendingAction.actionType == Reservation.ActionType.Acceptance
         ) {
@@ -897,8 +872,8 @@ library ReservationProofs {
                 .targetWalletPubKeyHash;
             uint64 amount = pendingAction.amount;
             self.reservationTotalAmount -= amount;
-            self.walletReservationsCount[targetWalletPubKeyHash] -= 1;
-            self.walletReservationsAmount[targetWalletPubKeyHash] -= amount;
+            self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
+            self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
             self.activeReservationsCount -= 1;
         }
 

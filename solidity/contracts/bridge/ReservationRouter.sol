@@ -138,15 +138,14 @@ contract ReservationRouter is Governable, Initializable {
         uint64 minerFee
     );
 
-    event ReservationAcceptanceTimedOut(
+    event ReservationReanchorTimedOut(
         uint256 indexed reservationKey,
         uint64 requestNonce
     );
 
-    event ReservationActionTimedOut(
+    event ReservationAcceptanceTimedOut(
         uint256 indexed reservationKey,
-        uint64 requestNonce,
-        Reservation.ActionType actionType
+        uint64 requestNonce
     );
 
     event ReservationActionSuperseded(
@@ -405,17 +404,21 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
-    /// @notice Returns the amount-denominated reservation caps.
+    /// @notice Returns the reservation caps: per-wallet anchor amount cap,
+    ///         single-reservation maximum amount, and global open-position
+    ///         occupancy cap.
     function reservationCaps()
         external
         view
         returns (
             uint64 maxReservationsAmountPerWallet,
-            uint64 reservationMaxSingleAmount
+            uint64 reservationMaxSingleAmount,
+            uint32 maxActiveReservations
         )
     {
         maxReservationsAmountPerWallet = self.maxReservationsAmountPerWallet;
         reservationMaxSingleAmount = self.reservationMaxSingleAmount;
+        maxActiveReservations = self.maxActiveReservations;
     }
 
     /// @notice Returns the total satoshi amount of reservation anchors
@@ -427,7 +430,7 @@ contract ReservationRouter is Governable, Initializable {
         view
         returns (uint64)
     {
-        return self.walletReservationsAmount[walletPubKeyHash];
+        return self.walletReservationInfo[walletPubKeyHash].amount;
     }
 
     /// @notice Returns the number of reservations custodied by the given
@@ -438,7 +441,7 @@ contract ReservationRouter is Governable, Initializable {
         view
         returns (uint32)
     {
-        return self.walletReservationsCount[walletPubKeyHash];
+        return self.walletReservationInfo[walletPubKeyHash].count;
     }
 
     /// @notice Returns the reservation keys custodied by the given wallet.

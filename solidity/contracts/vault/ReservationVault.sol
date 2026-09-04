@@ -81,6 +81,15 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         affects settlement, re-anchoring or dissolution.
     bool public redemptionsPaused;
 
+    /// @notice True while all renewals are paused. A fresh vault starts
+    ///         paused; governance unpauses as part of activation. Pausing
+    ///         only removes future renewal opportunities — it never
+    ///         affects settlement, re-anchoring or dissolution.
+    bool public renewalsPaused;
+
+    /// @notice Indicates if the given address is a Guardian. Guardians can
+    ///         pause redemptions and renewals.
+    mapping(address => bool) public isGuardian;
     /// @notice TBTC amount (18 decimals) of custody-fee revenue the vault
     ///         retains as the in-kind fee reserve. All protocol fees
     ///         accumulate in the vault; `sweepFees` can move only the
@@ -107,6 +116,15 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @notice Emitted when redemptions are unpaused.
     event ReservationRedemptionsUnpaused(address indexed caller);
 
+    /// @notice Emitted when renewals are paused.
+    event ReservationRenewalsPaused(address indexed caller);
+
+    /// @notice Emitted when renewals are unpaused.
+    event ReservationRenewalsUnpaused(address indexed caller);
+
+    event GuardianAdded(address indexed guardian);
+    event GuardianRemoved(address indexed guardian);
+
     event ReservationCreditProcessed(
         address indexed owner,
         uint256 satAmount,
@@ -131,14 +149,36 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         _;
     }
 
+    modifier onlyGuardian() {
+        require(isGuardian[msg.sender], "Caller is not a guardian");
+        _;
+    }
+
+    modifier onlyOwnerOrGuardian() {
+        require(
+            owner() == msg.sender || isGuardian[msg.sender],
+            "Caller is not the owner or guardian"
+        );
+        _;
+    }
+
     /// @notice Gates the redemption initiation entry points. A freshly
     ///         deployed vault starts paused, so this modifier rejects every
-    ///         call. Governance is the only path that ever flips it.
-    ///         Settlement-path functions must never include this check.
-    ///         Currently gates nothing reachable in milestone 1 and exists to
-    ///         fix the milestone 2 storage layout and governance surface.
+    ///         call. Governance or a guardian can pause; only governance
+    ///         can unpause. Settlement-path functions must never include this
+    ///         check.
     modifier whenRedemptionsNotPaused() {
         require(!redemptionsPaused, "Redemptions are paused");
+        _;
+    }
+
+    /// @notice Gates the renewal initiation entry points. A freshly
+    ///         deployed vault starts paused, so this modifier rejects every
+    ///         call. Governance or a guardian can pause; only governance
+    ///         can unpause. Settlement-path functions must never include this
+    ///         check.
+    modifier whenRenewalsNotPaused() {
+        require(!renewalsPaused, "Renewals are paused");
         _;
     }
 
@@ -176,10 +216,11 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         extensionFeeBps = 20;
         redemptionFeeBps = 20;
 
-        // A fresh vault starts with redemptions paused; governance unpauses
-        // as part of the activation ceremony, after ownership has been
-        // transferred out of the deployer's hands.
+        // A fresh vault starts with redemptions and renewals paused;
+        // governance unpauses as part of the activation ceremony, after
+        // ownership has been transferred out of the deployer's hands.
         redemptionsPaused = true;
+        renewalsPaused = true;
     }
 
     /// @notice Called by the Bank when the Bridge proves a reservation's
@@ -401,6 +442,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     // solhint-disable-next-line no-unused-vars
     function redeemReservation(uint256 reservationKey, uint256 amountSat)
         external
+        whenRedemptionsNotPaused
     {
         require(
             msg.sender == bridge.reservations(reservationKey).owner,
@@ -421,6 +463,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     // solhint-disable-next-line no-unused-vars
     function retryRedeemReservation(uint256 reservationKey, uint64 amountSat)
         external
+        whenRedemptionsNotPaused
     {
         require(
             msg.sender == bridge.reservations(reservationKey).owner,
@@ -429,9 +472,26 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         revert("Reserved redemption retry not enabled in milestone 1");
     }
 
+    /// @notice Renews the custody term of the caller's reservation by
+    ///         exactly one current term. Caller must be the reservation owner.
+    /// @param reservationKey The key of the reservation to renew.
+    /// @dev Reserved-custody-extension entry point. Milestone 1 unconditionally
+    ///      reverts; milestone 2 will wire the real renewal flow through the
+    ///      router's `extendReservation`.
+    function extendCustody(uint256 reservationKey)
+        external
+        whenRenewalsNotPaused
+    {
+        require(
+            msg.sender == bridge.reservations(reservationKey).owner,
+            "Caller is not the reservation owner"
+        );
+        revert("Custody extension not enabled in milestone 1");
+    }
+
     /// @notice Pauses all future redemptions. Restrictive and monotonic:
-    ///         callable by the owner (governance), effective immediately.
-    function pauseRedemptions() external onlyOwner {
+    ///         callable by the guardian or the owner, effective immediately.
+    function pauseRedemptions() external onlyOwnerOrGuardian {
         redemptionsPaused = true;
         emit ReservationRedemptionsPaused(msg.sender);
     }
@@ -440,6 +500,33 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     function unpauseRedemptions() external onlyOwner {
         redemptionsPaused = false;
         emit ReservationRedemptionsUnpaused(msg.sender);
+    }
+
+    /// @notice Pauses all future renewals. Restrictive and monotonic:
+    ///         callable by the guardian or the owner, effective immediately.
+    function pauseRenewals() external onlyOwnerOrGuardian {
+        renewalsPaused = true;
+        emit ReservationRenewalsPaused(msg.sender);
+    }
+
+    /// @notice Unpauses renewals. Restorative: owner (governance) only.
+    function unpauseRenewals() external onlyOwner {
+        renewalsPaused = false;
+        emit ReservationRenewalsUnpaused(msg.sender);
+    }
+
+    /// @notice Adds the address to the Guardian set.
+    function addGuardian(address guardian) external onlyOwner {
+        require(!isGuardian[guardian], "This address is already a guardian");
+        isGuardian[guardian] = true;
+        emit GuardianAdded(guardian);
+    }
+
+    /// @notice Removes the address from the Guardian set.
+    function removeGuardian(address guardian) external onlyOwner {
+        require(isGuardian[guardian], "This address is not a guardian");
+        delete isGuardian[guardian];
+        emit GuardianRemoved(guardian);
     }
 
     /// @notice The reservation vault does not support the balance approval

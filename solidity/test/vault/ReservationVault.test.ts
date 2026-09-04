@@ -167,11 +167,44 @@ describe("ReservationVault", () => {
       await restoreSnapshot()
     })
 
-    context("when called by a non-owner", () => {
+    context("when called by a non-owner and non-guardian", () => {
       it("should revert", async () => {
         await expect(
           vault.connect(account1).pauseRedemptions()
-        ).to.be.revertedWith("Ownable: caller is not the owner")
+        ).to.be.revertedWith("Caller is not the owner or guardian")
+      })
+    })
+
+    context("when called by a guardian", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.addGuardian(account2.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set redemptionsPaused to true when it was false", async () => {
+        await vault.unpauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(false)
+
+        await vault.connect(account2).pauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(true)
+      })
+
+      it("should be a no-op when redemptionsPaused is already true", async () => {
+        expect(await vault.redemptionsPaused()).to.equal(true)
+
+        await vault.connect(account2).pauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(true)
+      })
+
+      it("should emit ReservationRedemptionsPaused event", async () => {
+        await vault.unpauseRedemptions()
+        await expect(vault.connect(account2).pauseRedemptions())
+          .to.emit(vault, "ReservationRedemptionsPaused")
+          .withArgs(account2.address)
       })
     })
 
@@ -215,6 +248,23 @@ describe("ReservationVault", () => {
       it("should revert", async () => {
         await expect(
           vault.connect(account1).unpauseRedemptions()
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by a guardian", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.addGuardian(account2.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          vault.connect(account2).unpauseRedemptions()
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -877,8 +927,33 @@ describe("ReservationVault", () => {
   describe("redeemReservation", () => {
     const reservationKey = 42
 
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
     context("when called by a non-owner of the reservation", () => {
-      it("should revert", async () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert with pause message while redemptions are paused", async () => {
+        expect(await vault.redemptionsPaused()).to.equal(true)
+        await expect(
+          vault.connect(account1).redeemReservation(reservationKey, 100_000)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
+
+      it("should revert with ownership message while redemptions are unpaused", async () => {
+        await vault.unpauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
           vault.connect(account1).redeemReservation(reservationKey, 100_000)
         ).to.be.revertedWith("Caller is not the reservation owner")
@@ -898,14 +973,43 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should revert with the milestone-1 message while redemptions are paused", async () => {
+      it("should revert with pause message while redemptions are paused", async () => {
         expect(await vault.redemptionsPaused()).to.equal(true)
+        await expect(
+          vault.connect(account1).redeemReservation(reservationKey, 100_000)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
+
+      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
+        await vault.unpauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
           vault.connect(account1).redeemReservation(reservationKey, 100_000)
         ).to.be.revertedWith("Reserved redemption not enabled in milestone 1")
       })
+    })
 
-      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
+    context("pause state distinguishability", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.reservations
+          .whenCalledWith(reservationKey)
+          .returns(reservationWithOwner(account1.address))
+      })
+
+      after(async () => {
+        await bridge.reservations.reset()
+        await restoreSnapshot()
+      })
+
+      it("should distinguish between paused and unpaused states", async () => {
+        // While paused, reverts with "Redemptions are paused"
+        expect(await vault.redemptionsPaused()).to.equal(true)
+        await expect(
+          vault.connect(account1).redeemReservation(reservationKey, 100_000)
+        ).to.be.revertedWith("Redemptions are paused")
+
+        // While unpaused, reverts with milestone-1 disabled string
         await vault.unpauseRedemptions()
         expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
@@ -918,8 +1022,33 @@ describe("ReservationVault", () => {
   describe("retryRedeemReservation", () => {
     const reservationKey = 43
 
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
     context("when called by a non-owner of the reservation", () => {
-      it("should revert", async () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert with pause message while redemptions are paused", async () => {
+        expect(await vault.redemptionsPaused()).to.equal(true)
+        await expect(
+          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
+
+      it("should revert with ownership message while redemptions are unpaused", async () => {
+        await vault.unpauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
           vault.connect(account1).retryRedeemReservation(reservationKey, 0)
         ).to.be.revertedWith("Caller is not the reservation owner")
@@ -939,16 +1068,45 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should revert with the milestone-1 message while redemptions are paused", async () => {
+      it("should revert with pause message while redemptions are paused", async () => {
         expect(await vault.redemptionsPaused()).to.equal(true)
+        await expect(
+          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
+
+      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
+        await vault.unpauseRedemptions()
+        expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
           vault.connect(account1).retryRedeemReservation(reservationKey, 0)
         ).to.be.revertedWith(
           "Reserved redemption retry not enabled in milestone 1"
         )
       })
+    })
 
-      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
+    context("pause state distinguishability", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.reservations
+          .whenCalledWith(reservationKey)
+          .returns(reservationWithOwner(account1.address))
+      })
+
+      after(async () => {
+        await bridge.reservations.reset()
+        await restoreSnapshot()
+      })
+
+      it("should distinguish between paused and unpaused states", async () => {
+        // While paused, reverts with "Redemptions are paused"
+        expect(await vault.redemptionsPaused()).to.equal(true)
+        await expect(
+          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
+        ).to.be.revertedWith("Redemptions are paused")
+
+        // While unpaused, reverts with milestone-1 disabled string
         await vault.unpauseRedemptions()
         expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(

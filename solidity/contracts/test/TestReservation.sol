@@ -109,14 +109,14 @@ contract TestReservation {
     function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
         external
     {
-        state.walletReservationsCount[walletPubKeyHash] = count;
+        state.walletReservationInfo[walletPubKeyHash].count = count;
     }
 
     function setWalletReservationsAmount(
         bytes20 walletPubKeyHash,
         uint64 amount
     ) external {
-        state.walletReservationsAmount[walletPubKeyHash] = amount;
+        state.walletReservationInfo[walletPubKeyHash].amount = amount;
     }
 
     function setActiveReservationsCount(uint32 count) external {
@@ -357,7 +357,7 @@ contract TestReservation {
         view
         returns (uint32)
     {
-        return state.walletReservationsCount[walletPubKeyHash];
+        return state.walletReservationInfo[walletPubKeyHash].count;
     }
 
     function walletReservationsAmount(bytes20 walletPubKeyHash)
@@ -365,7 +365,7 @@ contract TestReservation {
         view
         returns (uint64)
     {
-        return state.walletReservationsAmount[walletPubKeyHash];
+        return state.walletReservationInfo[walletPubKeyHash].amount;
     }
 
     function reservationTotalAmount() external view returns (uint64) {
@@ -553,8 +553,8 @@ contract TestReservation {
         uint32 count,
         uint64 amount
     ) external {
-        state.walletReservationsCount[walletPubKeyHash] = count;
-        state.walletReservationsAmount[walletPubKeyHash] = amount;
+        state.walletReservationInfo[walletPubKeyHash].count = count;
+        state.walletReservationInfo[walletPubKeyHash].amount = amount;
     }
 
     function setGlobalReservationCounters(

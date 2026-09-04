@@ -539,10 +539,10 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "walletReservationsCount",
+      "label": "walletReservationInfo",
       "slot": "37",
       "offset": 0,
-      "type": "mapping(bytes20 => uint32)",
+      "type": "mapping(bytes20 => struct BridgeState.WalletReservationInfo)",
       "numberOfBytes": "32"
     },
     {
@@ -567,46 +567,39 @@
       "numberOfBytes": "32"
     },
     {
-      "label": "walletReservationsAmount",
-      "slot": "41",
-      "offset": 0,
-      "type": "mapping(bytes20 => uint64)",
-      "numberOfBytes": "32"
-    },
-    {
       "label": "walletReservationKeys",
-      "slot": "42",
+      "slot": "41",
       "offset": 0,
       "type": "mapping(bytes20 => uint256[])",
       "numberOfBytes": "32"
     },
     {
       "label": "walletReservationKeyIndex",
-      "slot": "43",
+      "slot": "42",
       "offset": 0,
       "type": "mapping(uint256 => uint256)",
       "numberOfBytes": "32"
     },
     {
       "label": "reservationRetryCreditActionNonce",
-      "slot": "44",
+      "slot": "43",
       "offset": 0,
       "type": "mapping(uint256 => uint64)",
       "numberOfBytes": "32"
     },
     {
       "label": "reservationMaxBackingFractionBps",
-      "slot": "45",
+      "slot": "44",
       "offset": 0,
       "type": "uint256",
       "numberOfBytes": "32"
     },
     {
       "label": "__gap",
-      "slot": "46",
+      "slot": "45",
       "offset": 0,
-      "type": "uint256[32]",
-      "numberOfBytes": "1024"
+      "type": "uint256[33]",
+      "numberOfBytes": "1056"
     }
   ],
   "structMembers": {

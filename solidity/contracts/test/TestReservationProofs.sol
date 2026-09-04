@@ -339,14 +339,14 @@ contract TestReservationProofs {
     function setWalletReservationsCount(bytes20 walletPubKeyHash, uint32 count)
         external
     {
-        state.walletReservationsCount[walletPubKeyHash] = count;
+        state.walletReservationInfo[walletPubKeyHash].count = count;
     }
 
     function setWalletReservationsAmount(
         bytes20 walletPubKeyHash,
         uint64 amount
     ) external {
-        state.walletReservationsAmount[walletPubKeyHash] = amount;
+        state.walletReservationInfo[walletPubKeyHash].amount = amount;
     }
 
     function setPendingReservedDeposits(uint64 count) external {
@@ -473,7 +473,7 @@ contract TestReservationProofs {
         view
         returns (uint32)
     {
-        return state.walletReservationsCount[walletPubKeyHash];
+        return state.walletReservationInfo[walletPubKeyHash].count;
     }
 
     function getWalletReservationsAmount(bytes20 walletPubKeyHash)
@@ -481,7 +481,7 @@ contract TestReservationProofs {
         view
         returns (uint64)
     {
-        return state.walletReservationsAmount[walletPubKeyHash];
+        return state.walletReservationInfo[walletPubKeyHash].amount;
     }
 
     function getPendingReservedDeposits() external view returns (uint64) {

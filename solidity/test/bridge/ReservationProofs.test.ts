@@ -1072,74 +1072,6 @@ describe("ReservationProofs", () => {
       ).to.be.revertedWith("No pending action to unwind")
     })
 
-    it("should unwind pending redemption and refund escrow balance", async () => {
-      const redemptionNonce = 1
-      const escrowAmount = 50000000
-
-      // Fund test contract in bank so it can transfer balance
-      await bank.connect(deployer).updateBridge(deployer.address)
-      await bank
-        .connect(deployer)
-        .increaseBalance(testReservationProofs.address, escrowAmount)
-      await bank.connect(deployer).updateBridge(testReservationProofs.address)
-
-      await testReservationProofs.setReservationAction(
-        sampleReservationKey,
-        redemptionNonce,
-        buildReservationAction({
-          targetWalletPubKeyHash: "0x0000000000000000000000000000000000000000",
-          actionType: 2, // Redemption
-          state: 1, // Pending
-          feePaid: true,
-          redeemer: redeemer.address,
-          amount: escrowAmount,
-          usedRetryCredit: true,
-        })
-      )
-
-      await testReservationProofs.setReservation(
-        sampleReservationKey,
-        buildReservationRequest({
-          owner: depositor.address,
-          mintedAmount: depositAmount,
-          acceptedAt: 1000,
-          walletPubKeyHash,
-          anchorAmount: depositAmount,
-          expiresAt: 1000 + termSeconds,
-          anchorTxHash: sampleAnchorTxHash,
-          anchorTxOutputIndex: 0,
-          state: 2, // ActionPending
-          requestNonce: redemptionNonce,
-          retryCredit: false,
-          dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
-          cumulativeReanchorFee: 0,
-        })
-      )
-
-      // Unwind redemption with restoreRetryCredit = true
-      const tx = await testReservationProofs.unwindPendingAction(
-        sampleReservationKey,
-        true
-      )
-
-      // Balance refunded to redeemer
-      expect(await bank.balanceOf(redeemer.address)).to.equal(escrowAmount)
-
-      // Retry credit restored
-      const reservation = await testReservationProofs.getReservation(
-        sampleReservationKey
-      )
-      expect(reservation.retryCredit).to.be.true
-
-      // Events emitted
-      await expect(tx)
-        .to.emit(testReservationProofs, "ReservationRetryCreditMinted")
-        .withArgs(sampleReservationKey)
-      await expect(tx)
-        .to.emit(testReservationProofs, "ReservationActionSuperseded")
-        .withArgs(sampleReservationKey, redemptionNonce)
-    })
-
     it("should unwind pending reanchor action", async () => {
       const reanchorNonce = 1
       const reanchorTargetWallet = `0x${"33".repeat(20)}`
@@ -1196,56 +1128,6 @@ describe("ReservationProofs", () => {
       expect(
         await testReservationProofs.getWalletReservationsAmount(
           reanchorTargetWallet
-        )
-      ).to.equal(0)
-    })
-
-    it("should unwind pending dissolution action", async () => {
-      const dissolutionNonce = 1
-
-      await testReservationProofs.setReservationAction(
-        sampleReservationKey,
-        dissolutionNonce,
-        buildReservationAction({
-          targetWalletPubKeyHash: walletPubKeyHash,
-          actionType: 4, // Dissolution
-          state: 1, // Pending
-          amount: depositAmount,
-        })
-      )
-
-      await testReservationProofs.setReservation(
-        sampleReservationKey,
-        buildReservationRequest({
-          owner: depositor.address,
-          mintedAmount: depositAmount,
-          acceptedAt: 1000,
-          walletPubKeyHash,
-          anchorAmount: depositAmount,
-          expiresAt: 1000 + termSeconds,
-          anchorTxHash: sampleAnchorTxHash,
-          anchorTxOutputIndex: 0,
-          state: 2, // ActionPending
-          requestNonce: dissolutionNonce,
-          retryCredit: false,
-          dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
-          cumulativeReanchorFee: 0,
-        })
-      )
-
-      await testReservationProofs.setWalletPendingDissolution(
-        walletPubKeyHash,
-        sampleReservationKey
-      )
-
-      await testReservationProofs.unwindPendingAction(
-        sampleReservationKey,
-        false
-      )
-
-      expect(
-        await testReservationProofs.getWalletPendingDissolution(
-          walletPubKeyHash
         )
       ).to.equal(0)
     })
