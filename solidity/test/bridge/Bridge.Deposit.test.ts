@@ -15,6 +15,8 @@ import type {
   IVault,
   BridgeGovernance,
   RebateStaking,
+  ReservationRouter,
+  ReservationVault,
 } from "../../typechain"
 import type {
   DepositRevealInfoStruct,
@@ -59,6 +61,8 @@ describe("Bridge - Deposit", () => {
   ) => Promise<[Contract, Deployment]>
 
   let deployer: SignerWithAddress
+  let reservationRouter: ReservationRouter
+  let reservationVault: ReservationVault
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -88,6 +92,16 @@ describe("Bridge - Deposit", () => {
     await bridgeGovernance
       .connect(governance)
       .setRebateStaking(rebateStaking.address)
+
+    // Initialize reservation router and vault for isReservedDeposit tests
+    reservationRouter = await ethers.getContractAt(
+      "ReservationRouter",
+      bridge.address
+    )
+    reservationVault = await helpers.contracts.getContract("ReservationVault")
+    await bridgeGovernance
+      .connect(governance)
+      .setVaultStatus(reservationVault.address, true)
   })
 
   type RevealDepositFixture = {
@@ -1127,6 +1141,145 @@ describe("Bridge - Deposit", () => {
             ).to.be.revertedWith("Wallet must be in Live state")
           })
         })
+      })
+    })
+  })
+
+  context("isReservedDeposit", () => {
+    const { P2SHFundingTx, reveal } = revealDepositFixture
+    let depositor: SignerWithAddress
+
+    before(async () => {
+      await createSnapshot()
+
+      depositor = await impersonateAccount(
+        revealDepositFixture.depositorAddress,
+        {
+          from: governance,
+          value: 10,
+        }
+      )
+
+      // Trust the original fixture vault too, for the "regular vault" case
+      // below (the reservation vault is already trusted by the outer
+      // "before all" hook).
+      await bridgeGovernance
+        .connect(governance)
+        .setVaultStatus(reveal.vault, true)
+
+      // Set up wallet as Live
+      await bridge.setWallet(reveal.walletPubKeyHash, {
+        ecdsaWalletID: ethers.constants.HashZero,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when deposit is revealed with reservation vault", () => {
+      let depositKey: string
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        // Reveal a deposit with the reservation vault
+        const revealWithReservationVault = { ...reveal }
+        revealWithReservationVault.vault = reservationVault.address
+
+        tx = await bridge
+          .connect(depositor)
+          .revealDeposit(P2SHFundingTx, revealWithReservationVault)
+
+        depositKey = ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [
+            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+            reveal.fundingOutputIndex,
+          ]
+        )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should return true for isReservedDeposit", async () => {
+        expect(await bridge.isReservedDeposit(depositKey)).to.equal(true)
+      })
+    })
+
+    context(
+      "when deposit is revealed with a regular vault (not reservation vault)",
+      () => {
+        let depositKey: string
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+
+          // Reveal a deposit with a regular vault (the original reveal.vault)
+          tx = await bridge
+            .connect(depositor)
+            .revealDeposit(P2SHFundingTx, reveal)
+
+          depositKey = ethers.utils.solidityKeccak256(
+            ["bytes32", "uint32"],
+            [
+              "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+              reveal.fundingOutputIndex,
+            ]
+          )
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should return false for isReservedDeposit", async () => {
+          expect(await bridge.isReservedDeposit(depositKey)).to.equal(false)
+        })
+      }
+    )
+
+    context("when deposit is revealed with no vault (ZERO_ADDRESS)", () => {
+      let depositKey: string
+      let tx: ContractTransaction
+      let nonRoutedReveal: DepositRevealInfoStruct
+
+      before(async () => {
+        await createSnapshot()
+
+        nonRoutedReveal = { ...reveal }
+        nonRoutedReveal.vault = ZERO_ADDRESS
+        tx = await bridge
+          .connect(depositor)
+          .revealDeposit(P2SHFundingTx, nonRoutedReveal)
+
+        depositKey = ethers.utils.solidityKeccak256(
+          ["bytes32", "uint32"],
+          [
+            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+            reveal.fundingOutputIndex,
+          ]
+        )
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should return false for isReservedDeposit", async () => {
+        expect(await bridge.isReservedDeposit(depositKey)).to.equal(false)
       })
     })
   })
