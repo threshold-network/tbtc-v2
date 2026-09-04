@@ -379,7 +379,7 @@ library Wallets {
         // ultimately; its reservations must first be re-anchored to other
         // wallets or dissolved into the main UTXO.
         require(
-            self.walletReservationsCount[walletPubKeyHash] == 0,
+            self.walletReservationInfo[walletPubKeyHash].count == 0,
             "Wallet still custodies reservations"
         );
 

@@ -760,6 +760,7 @@ library Reservation {
 
         uint64 anchorAmount = reservation.anchorAmount;
         uint64 txMaxFee = self.reservationTxMaxFee;
+        uint64 minAmount = self.reservationMinAmount;
 
         /* solhint-disable-next-line not-rely-on-time */
         uint32 timeoutAt = uint32(block.timestamp) +
@@ -782,9 +783,17 @@ library Reservation {
                         .REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Reanchor authorization has no signing window"
         );
+        // Request-time amount floor: with `maxCumulativeReanchorFee` unenforced
+        // in m1, this is the only on-chain bound on cumulative fee grinding —
+        // each hop may spend up to `txMaxFee`, so repeated re-anchors could
+        // wind the anchor down to the settlement-time dust floor without it.
+        // Requiring the anchor to stay above `minAmount + txMaxFee` caps the
+        // grind at (initial anchor - minAmount). Restored per adjudication
+        // reversing review finding [6] (which had dropped the `minAmount`
+        // term; its rationale did not account for the cumulative exposure).
         require(
-            anchorAmount > txMaxFee,
-            "Re-anchor amount below the dust floor"
+            anchorAmount > txMaxFee + minAmount,
+            "Reanchor would fall below the minimum reservation amount"
         );
 
         // Reserve the target wallet's count and amount capacity; the
