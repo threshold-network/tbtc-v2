@@ -93,6 +93,11 @@ library ReservationProofs {
     );
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
+    // Emitted whenever the global active-reservation count changes, letting
+    // indexers track occupancy against maxActiveReservations from logs alone.
+    // Declared here and in `Reservation` (same signature, same topic0)
+    // because each emitting library must declare its own events.
+    event ReservationOccupancyChanged(uint32 activeReservationsCount);
 
     event ReservationLateSettled(
         uint256 indexed reservationKey,
@@ -233,10 +238,12 @@ library ReservationProofs {
             walletState == Wallets.WalletState.Closed ||
             walletState == Wallets.WalletState.Terminated
         ) {
-            if (evidenceAlreadyEmitted) {
-                reservation.state = Reservation.ReservationState.Stranded;
-            }
-            self.strandReservation(reservation, reservationKey);
+            Reservation.strandReservation(
+                self,
+                reservation,
+                reservationKey,
+                !evidenceAlreadyEmitted
+            );
         }
     }
 
@@ -260,7 +267,12 @@ library ReservationProofs {
             targetWalletState == Wallets.WalletState.Closed ||
             targetWalletState == Wallets.WalletState.Terminated
         ) {
-            self.strandReservation(reservation, reservationKey);
+            Reservation.strandReservation(
+                self,
+                reservation,
+                reservationKey,
+                true
+            );
         }
     }
 
@@ -314,6 +326,7 @@ library ReservationProofs {
             reservation.walletPubKeyHash
         ].amount += reservation.anchorAmount;
         self.activeReservationsCount += 1;
+        emit ReservationOccupancyChanged(self.activeReservationsCount);
     }
 
     /// @notice Reverts unless the reservation still points at the exact
@@ -543,6 +556,7 @@ library ReservationProofs {
             // so a late-settled acceptance is still counted against the cap
             // and `strandReservation`'s later release stays balanced.
             self.activeReservationsCount += 1;
+            emit ReservationOccupancyChanged(self.activeReservationsCount);
             emit ReservationLateSettled(
                 reservationKey,
                 requestNonce,
@@ -611,15 +625,7 @@ library ReservationProofs {
             reservationKey,
             false
         );
-        // If the target wallet retired on the on-time path, strand.
-        if (!late) {
-            strandIfTargetWalletClosed(
-                self,
-                reservation,
-                reservationKey,
-                action.targetWalletPubKeyHash
-            );
-        }
+
 
         // Credit the gross anchored amount through the vault the deposit was
         // revealed to, but only if that vault is still trusted: governance
@@ -743,44 +749,14 @@ library ReservationProofs {
             );
         }
 
-        // The source wallet's count and amount are released now; the
-        // target wallet's were reserved at request time (or re-taken
-        // above). The target reserved the pre-hop anchor value; release
-        // the miner-fee delta.
-        self.walletReservationInfo[reservation.walletPubKeyHash].count -= 1;
-        self.walletReservationInfo[
-            reservation.walletPubKeyHash
-        ].amount -= reservation.anchorAmount;
-        self.walletReservationInfo[newWalletPubKeyHash].amount -= (reservation
-            .anchorAmount - newAnchorAmount);
-
-        uint64 minerFee = reservation.anchorAmount - newAnchorAmount;
-
-        // The miner fee reduces the on-chain earmarked amount.
-        self.reservationTotalAmount -= minerFee;
-
-        // Record the per-hop fee before the claim is written down below.
-        // Afterwards the original anchor value is unrecoverable and
-        // `ReservationReanchored` carries only the new anchor amount, so
-        // this total could not be reconstructed from later state. No
-        // ceiling is enforced in milestone 1: the per-reservation lifetime
-        // fee budget is unbounded until a post-milestone-1 governance cap
-        // lands.
-        reservation.cumulativeReanchorFee += minerFee;
-
-        reservation.walletPubKeyHash = newWalletPubKeyHash;
-        reservation.anchorAmount = newAnchorAmount;
-        // The claim always equals the anchor: the miner fee is financed
-        // from the vault's custody-fee reserve (which burns supply in
-        // lockstep with the backing loss), and the claim is written down
-        // to the new anchor value. The owner's redemption surrender
-        // shrinks accordingly — rotation costs are borne by the custody
-        // fee that was priced for them, not by the owner and not by the
-        // peg.
-        reservation.mintedAmount = newAnchorAmount;
-        reservation.anchorTxHash = reanchorTxHash;
-        reservation.anchorTxOutputIndex = 0;
-        reservation.state = Reservation.ReservationState.Active;
+        uint64 minerFee = settleReanchorAccounting(
+            self,
+            reservation,
+            reservationKey,
+            newWalletPubKeyHash,
+            newAnchorAmount,
+            reanchorTxHash
+        );
 
         action.state = Reservation.ActionState.Settled;
 
@@ -801,21 +777,6 @@ library ReservationProofs {
             evidenceAlreadyEmitted
         );
 
-        // The shared helper above only strands the late branch, matching
-        // the acceptance settlement semantics it is reused from. An
-        // on-time re-anchor proof needs the same safety net: the target
-        // wallet may have started retiring between request and proof, and
-        // without this check the position would stay `Active` under a
-        // wallet that can no longer manage the anchor.
-        if (!late) {
-            strandIfTargetWalletClosed(
-                self,
-                reservation,
-                reservationKey,
-                newWalletPubKeyHash
-            );
-        }
-
         // Financing the in-kind miner fee is the only call to untrusted code
         // in this function; it runs last, after every internal effect and
         // stranding check has committed, so a malicious or buggy vault
@@ -825,6 +786,59 @@ library ReservationProofs {
             IReservationFeeFinancer(self.deposits[reservationKey].vault)
                 .financeInKindFee(minerFee);
         }
+    }
+
+    /// @notice Releases the source wallet's count and amount, applies the
+    ///         miner-fee delta, migrates the position's wallet enumeration
+    ///         and reverse anchor index to the new wallet, and rewrites the
+    ///         reservation's custody/anchor fields to the settled re-anchor.
+    ///         The target wallet's capacity was reserved at request time
+    ///         (or re-taken on the late path); the target reserved the
+    ///         pre-hop anchor value, so only the miner-fee delta is
+    ///         released here. The miner fee also reduces the on-chain
+    ///         earmarked amount and is recorded on the reservation since
+    ///         `ReservationReanchored` carries only the new anchor amount
+    ///         (no per-hop fee ceiling is enforced in milestone 1).
+    /// @return minerFee The in-kind fee paid for this hop, needed by the
+    ///         caller for the event and fee financing.
+    function settleReanchorAccounting(
+        BridgeState.Storage storage self,
+        Reservation.ReservationRequest storage reservation,
+        uint256 reservationKey,
+        bytes20 newWalletPubKeyHash,
+        uint64 newAnchorAmount,
+        bytes32 reanchorTxHash
+    ) internal returns (uint64 minerFee) {
+        bytes20 oldWalletPubKeyHash = reservation.walletPubKeyHash;
+        uint64 oldAnchorAmount = reservation.anchorAmount;
+        minerFee = oldAnchorAmount - newAnchorAmount;
+
+        self.walletReservationInfo[oldWalletPubKeyHash].count -= 1;
+        self.walletReservationInfo[oldWalletPubKeyHash].amount -= oldAnchorAmount;
+        self.walletReservationInfo[newWalletPubKeyHash].amount -= minerFee;
+        self.reservationTotalAmount -= minerFee;
+        reservation.cumulativeReanchorFee += minerFee;
+
+        Reservation.removeWalletReservationKey(
+            self,
+            oldWalletPubKeyHash,
+            reservationKey
+        );
+        Reservation.addWalletReservationKey(
+            self,
+            newWalletPubKeyHash,
+            reservationKey
+        );
+        self.reservationsByAnchorUtxo[
+            uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))
+        ] = reservationKey;
+
+        reservation.walletPubKeyHash = newWalletPubKeyHash;
+        reservation.anchorAmount = newAnchorAmount;
+        reservation.mintedAmount = newAnchorAmount;
+        reservation.anchorTxHash = reanchorTxHash;
+        reservation.anchorTxOutputIndex = 0;
+        reservation.state = Reservation.ReservationState.Active;
     }
 
     /// @notice Unwinds the position's current pending generation during a
@@ -857,26 +871,22 @@ library ReservationProofs {
         if (
             pendingAction.actionType == Reservation.ActionType.Reanchor
         ) {
-            bytes20 targetWalletPubKeyHash = pendingAction
-                .targetWalletPubKeyHash;
-            self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
-            self.walletReservationInfo[
-                targetWalletPubKeyHash
-            ].amount -= pendingAction.amount;
+            Reservation.releaseReanchorTargetCapacity(
+                self,
+                pendingAction.targetWalletPubKeyHash,
+                pendingAction.amount
+            );
         } else if (
             pendingAction.actionType == Reservation.ActionType.Acceptance
         ) {
             // A superseded acceptance authorization releases the capacity it
             // reserved against its target wallet at request time.
-            bytes20 targetWalletPubKeyHash = pendingAction
-                .targetWalletPubKeyHash;
-            uint64 amount = pendingAction.amount;
-            self.reservationTotalAmount -= amount;
-            self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
-            self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
-            self.activeReservationsCount -= 1;
+            Reservation.releaseAcceptanceCapacity(
+                self,
+                pendingAction.targetWalletPubKeyHash,
+                pendingAction.amount
+            );
         }
-
         // The Bank is a trusted protocol contract; the refund above cannot
         // reenter in a way that makes this event misleading.
         // slither-disable-next-line reentrancy-events

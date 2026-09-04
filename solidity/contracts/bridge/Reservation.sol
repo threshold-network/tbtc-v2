@@ -388,6 +388,11 @@ library Reservation {
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
+    // Emitted whenever the global active-reservation count changes, letting
+    // indexers track occupancy against maxActiveReservations from logs alone.
+    // Declared here and in `ReservationProofs` (same signature, same topic0)
+    // because each emitting library must declare its own events.
+    event ReservationOccupancyChanged(uint32 activeReservationsCount);
 
     /// @notice Computes the storage key of the action record of the given
     ///         reservation generation.
@@ -528,9 +533,11 @@ library Reservation {
             "Wallet must be in Live state"
         );
 
+        uint64 txMaxFee = self.reservationTxMaxFee;
+        uint64 minAmount = self.reservationMinAmount;
+
         require(
-            deposit.amount >=
-                self.reservationMinAmount + self.reservationTxMaxFee,
+            deposit.amount >= minAmount + txMaxFee,
             "Deposit amount too small for a reservation"
         );
 
@@ -576,7 +583,7 @@ library Reservation {
                 uint256(reservedDeposit.refundDeadline) -
                     WalletProposalValidatorConstants
                         .DEPOSIT_REFUND_SAFETY_MARGIN,
-            "Acceptance authorization has no signing window"
+            "Deposit refund deadline allows no signing window"
         );
 
         require(
@@ -587,39 +594,9 @@ library Reservation {
 
         // Occupancy: number of open reservation positions across all
         // wallets. Zero disables the cap until governance sets it.
-        require(
-            self.maxActiveReservations == 0 ||
-                self.activeReservationsCount < self.maxActiveReservations,
-            "Active reservations cap exceeded"
-        );
-        self.activeReservationsCount += 1;
-
         // Reserve capacity using the deposit value as the upper bound of
         // the anchor value; the settlement releases the miner-fee delta.
-        uint64 newTotal = self.reservationTotalAmount + deposit.amount;
-        require(
-            self.reservationMaxTotalAmount == 0 ||
-                newTotal <= self.reservationMaxTotalAmount,
-            "Total reserved amount cap exceeded"
-        );
-        self.reservationTotalAmount = newTotal;
-
-        uint32 walletCount = self.walletReservationInfo[walletPubKeyHash].count + 1;
-        require(
-            self.maxReservationsPerWallet == 0 ||
-                walletCount <= self.maxReservationsPerWallet,
-            "Wallet reservations cap exceeded"
-        );
-        self.walletReservationInfo[walletPubKeyHash].count = walletCount;
-
-        uint64 walletAmount = self.walletReservationInfo[walletPubKeyHash].amount +
-            deposit.amount;
-        require(
-            self.maxReservationsAmountPerWallet == 0 ||
-                walletAmount <= self.maxReservationsAmountPerWallet,
-            "Wallet reserved amount cap exceeded"
-        );
-        self.walletReservationInfo[walletPubKeyHash].amount = walletAmount;
+        reserveAcceptanceCapacity(self, walletPubKeyHash, deposit.amount);
 
         uint64 requestNonce = ++reservation.requestNonce;
 
@@ -633,7 +610,7 @@ library Reservation {
         /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
         action.timeoutAt = timeoutAt;
-        action.txMaxFee = self.reservationTxMaxFee;
+        action.txMaxFee = txMaxFee;
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = deposit.amount;
         action.termSeconds = self.reservationTermSeconds;
@@ -697,10 +674,7 @@ library Reservation {
         // request time.
         bytes20 targetWalletPubKeyHash = action.targetWalletPubKeyHash;
         uint64 amount = action.amount;
-        self.reservationTotalAmount -= amount;
-        self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
-        self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
-        self.activeReservationsCount -= 1;
+        releaseAcceptanceCapacity(self, targetWalletPubKeyHash, amount);
 
         emit ReservationAcceptanceTimedOut(reservationKey, requestNonce);
     }
@@ -784,6 +758,9 @@ library Reservation {
             "Target wallet must be in Live state"
         );
 
+        uint64 anchorAmount = reservation.anchorAmount;
+        uint64 txMaxFee = self.reservationTxMaxFee;
+
         /* solhint-disable-next-line not-rely-on-time */
         uint32 timeoutAt = uint32(block.timestamp) +
             self.reservationActionTimeout;
@@ -806,9 +783,8 @@ library Reservation {
             "Reanchor authorization has no signing window"
         );
         require(
-            reservation.anchorAmount >
-                self.reservationTxMaxFee + self.reservationMinAmount,
-            "Reanchor would fall below the minimum reservation amount"
+            anchorAmount > txMaxFee,
+            "Re-anchor amount below the dust floor"
         );
 
         // Reserve the target wallet's count and amount capacity; the
@@ -825,7 +801,7 @@ library Reservation {
 
         uint64 targetAmount = self.walletReservationInfo[
             targetWalletPubKeyHash
-        ].amount + reservation.anchorAmount;
+        ].amount + anchorAmount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 targetAmount <= self.maxReservationsAmountPerWallet,
@@ -846,9 +822,9 @@ library Reservation {
         /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
         action.timeoutAt = timeoutAt;
-        action.txMaxFee = self.reservationTxMaxFee;
+        action.txMaxFee = txMaxFee;
         action.targetWalletPubKeyHash = targetWalletPubKeyHash;
-        action.amount = reservation.anchorAmount;
+        action.amount = anchorAmount;
         action.sourceAnchorUtxoHash = anchorUtxoHash(reservation);
 
         emit ReservationReanchorRequested(
@@ -903,22 +879,93 @@ library Reservation {
         // reservation stays custodied there. A late proof of this
         // generation re-takes the released target capacity (see
         // `ReservationProofs.submitReservationReanchorProof`).
-        self.walletReservationInfo[action.targetWalletPubKeyHash].count -= 1;
-        self.walletReservationInfo[action.targetWalletPubKeyHash].amount -= action
-            .amount;
+        releaseReanchorTargetCapacity(
+            self,
+            action.targetWalletPubKeyHash,
+            action.amount
+        );
 
         reservation.state = ReservationState.Active;
 
         /* solhint-disable not-rely-on-time */
         reservation.reanchorCooldownUntil =
             uint32(block.timestamp) +
-            self.reservationActionTimeout;
+            (action.timeoutAt - action.requestedAt);
         /* solhint-enable not-rely-on-time */
 
         emit ReservationReanchorTimedOut(
             reservationKey,
             reservation.requestNonce
         );
+    }
+
+    /// @notice Reserves the wallet, global and occupancy capacity for an
+    ///         acceptance generation, enforcing every cap and emitting the
+    ///         occupancy signal. Mirrors `releaseAcceptanceCapacity`; the
+    ///         settlement releases the miner-fee delta.
+    function reserveAcceptanceCapacity(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 amount
+    ) internal {
+        require(
+            self.maxActiveReservations == 0 ||
+                self.activeReservationsCount < self.maxActiveReservations,
+            "Active reservations cap exceeded"
+        );
+        self.activeReservationsCount += 1;
+        emit ReservationOccupancyChanged(self.activeReservationsCount);
+
+        uint64 newTotal = self.reservationTotalAmount + amount;
+        require(
+            self.reservationMaxTotalAmount == 0 ||
+                newTotal <= self.reservationMaxTotalAmount,
+            "Total reserved amount cap exceeded"
+        );
+        self.reservationTotalAmount = newTotal;
+
+        uint32 walletCount =
+            self.walletReservationInfo[walletPubKeyHash].count + 1;
+        require(
+            self.maxReservationsPerWallet == 0 ||
+                walletCount <= self.maxReservationsPerWallet,
+            "Wallet reservations cap exceeded"
+        );
+        self.walletReservationInfo[walletPubKeyHash].count = walletCount;
+
+        uint64 walletAmount =
+            self.walletReservationInfo[walletPubKeyHash].amount + amount;
+        require(
+            self.maxReservationsAmountPerWallet == 0 ||
+                walletAmount <= self.maxReservationsAmountPerWallet,
+            "Wallet reserved amount cap exceeded"
+        );
+        self.walletReservationInfo[walletPubKeyHash].amount = walletAmount;
+    }
+
+    /// @notice Releases the global and per-wallet capacity allocated for an
+    ///         accepted or pending-acceptance reservation position.
+    function releaseAcceptanceCapacity(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        uint64 amount
+    ) internal {
+        self.walletReservationInfo[walletPubKeyHash].count -= 1;
+        self.walletReservationInfo[walletPubKeyHash].amount -= amount;
+        self.reservationTotalAmount -= amount;
+        self.activeReservationsCount -= 1;
+        emit ReservationOccupancyChanged(self.activeReservationsCount);
+    }
+
+    /// @notice Releases the per-wallet capacity reserved for a target wallet
+    ///         during a pending re-anchor action.
+    function releaseReanchorTargetCapacity(
+        BridgeState.Storage storage self,
+        bytes20 targetWalletPubKeyHash,
+        uint64 amount
+    ) internal {
+        self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
+        self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
     }
 
     /// @notice Appends a reservation key to a wallet's enumeration list.
@@ -962,18 +1009,16 @@ library Reservation {
     function strandReservation(
         BridgeState.Storage storage self,
         ReservationRequest storage reservation,
-        uint256 reservationKey
+        uint256 reservationKey,
+        bool emitEvidence
     ) internal {
-        bool evidenceAlreadyEmitted = reservation.state ==
+        bool alreadyStranded = reservation.state ==
             ReservationState.Stranded;
         bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
         uint64 anchorAmount = reservation.anchorAmount;
 
-        if (!evidenceAlreadyEmitted) {
-            self.walletReservationInfo[walletPubKeyHash].count -= 1;
-            self.walletReservationInfo[walletPubKeyHash].amount -= anchorAmount;
-            self.reservationTotalAmount -= anchorAmount;
-            self.activeReservationsCount -= 1; // The stranded reservation was counted at request time.
+        if (!alreadyStranded) {
+            releaseAcceptanceCapacity(self, walletPubKeyHash, anchorAmount);
             removeWalletReservationKey(self, walletPubKeyHash, reservationKey);
             delete self.reservationsByAnchorUtxo[
                 uint256(
@@ -985,13 +1030,15 @@ library Reservation {
                     )
                 )
             ];
+            reservation.state = ReservationState.Stranded;
         }
-        reservation.state = ReservationState.Stranded;
 
         // A late dissolution proof can reconstruct and then release the
         // accounting of an already-stranded position. Preserve the original
-        // recovery evidence instead of emitting a second compensation claim.
-        if (!evidenceAlreadyEmitted) {
+        // recovery evidence instead of emitting a second compensation claim:
+        // the evidence is emitted at most once per position, regardless of
+        // the caller's flag.
+        if (emitEvidence && !alreadyStranded) {
             // slither-disable-next-line reentrancy-events
             emit ReservationStranded(
                 reservationKey,
@@ -1000,6 +1047,35 @@ library Reservation {
                 anchorAmount
             );
         }
+    }
+
+    /// @notice Overload of strandReservation that defaults emitEvidence to true.
+    function strandReservation(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation,
+        uint256 reservationKey
+    ) internal {
+        strandReservation(self, reservation, reservationKey, true);
+    }
+
+    /// @notice Closes a reservation: releases wallet, global and occupancy
+    ///         capacity (via the shared `releaseAcceptanceCapacity` helper,
+    ///         so a closed position stops counting against
+    ///         `maxActiveReservations` exactly like a stranded one), and
+    ///         marks the reservation as Closed.
+    /// @dev Intended for milestone 2 settlement call sites:
+    ///      - Reserved redemption settlement (PR #1112 / m2-redemption)
+    ///      - Reservation dissolution settlement (PR #1114 / m2-dissolution)
+    function closeReservation(
+        BridgeState.Storage storage self,
+        ReservationRequest storage reservation
+    ) internal {
+        releaseAcceptanceCapacity(
+            self,
+            reservation.walletPubKeyHash,
+            reservation.anchorAmount
+        );
+        reservation.state = ReservationState.Closed;
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
@@ -1044,7 +1120,7 @@ library Reservation {
             "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
         );
 
-        strandReservation(self, reservation, reservationKey);
+        strandReservation(self, reservation, reservationKey, true);
     }
 
     /// @notice Marks a revealed reserved deposit as stale so it stops
@@ -1183,6 +1259,12 @@ library Reservation {
         );
 
         if (reservationVault != self.reservationVault) {
+            if (reservationVault != address(0)) {
+                require(
+                    self.maxActiveReservations > 0,
+                    "Max active reservations must be greater than zero"
+                );
+            }
             require(
                 self.reservationTotalAmount == 0,
                 "Active reservations exist"

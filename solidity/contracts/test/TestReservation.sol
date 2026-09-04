@@ -271,7 +271,23 @@ contract TestReservation {
         Reservation.strandReservation(
             state,
             state.reservations[reservationKey],
-            reservationKey
+            reservationKey,
+            true
+        );
+    }
+
+    // Named distinctly from `strandReservation` so the harness's external
+    // surface has no overloads (typechain emits overloaded methods under
+    // quoted signature names only, which breaks plain-name callers).
+    function strandReservationWithEvidence(
+        uint256 reservationKey,
+        bool emitEvidence
+    ) external {
+        Reservation.strandReservation(
+            state,
+            state.reservations[reservationKey],
+            reservationKey,
+            emitEvidence
         );
     }
 

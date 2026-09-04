@@ -606,11 +606,6 @@ library BridgeState {
     event RebateStakingSet(address rebateStaking);
     event ReservationRouterSet(address reservationRouter);
 
-    // Event emitted when active reservations count changes. Declared in this
-    // library for observability; emission sites live in Reservation.sol and
-    // ReservationProofs.sol.
-    event ReservationOccupancyChanged(uint32 activeReservationsCount);
-
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
     ///        satoshis. It is the minimal amount that can be requested to

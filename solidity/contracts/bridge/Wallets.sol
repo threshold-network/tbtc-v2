@@ -581,32 +581,37 @@ library Wallets {
     }
 
     /// @notice Requests a wallet to move their funds. If the wallet balance
-    ///         is zero, the wallet closing begins immediately. If the move
-    ///         funds request refers to the current active wallet, such a wallet
-    ///         is no longer considered active and the active wallet slot
-    ///         is unset allowing to trigger a new wallet creation immediately.
+    ///         is zero and the wallet has no active reservations, the wallet
+    ///         closing begins immediately. If the move funds request refers to
+    ///         the current active wallet, such a wallet is no longer considered
+    ///         active and the active wallet slot is unset allowing to trigger a
+    ///         new wallet creation immediately.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the Live state.
     ///
-    ///      RFC 13 (which ships with a later milestone PR and is not yet in
-    ///      this branch's docs/rfc/) requires that a wallet cannot begin
-    ///      closing while it still custodies UTXO reservations (active or
-    ///      acceptance-pending, tracked via `walletReservationInfo[wallet].count`). This
-    ///      is NOT YET ENFORCED here: the permissionless release path for a
-    ///      stranded active reservation (`notifyReservationStranded`) exists
-    ///      and is router-reachable as of this PR; only the wallet-closing-side
-    ///      gate preventing a wallet with active reservations from being marked
-    ///      closeable remains outstanding.
+    ///      A wallet cannot begin closing while it still custodies UTXO
+    ///      reservations (active or acceptance-pending, tracked via
+    ///      `walletReservationInfo[wallet].count`). The permissionless release
+    ///      path for a stranded active reservation (`notifyReservationStranded`)
+    ///      exists and is router-reachable as of this PR, and the zero-reservation
+    ///      count closing gate is enforced in `beginWalletClosing` and
+    ///      `finalizeWalletClosing`. A wallet whose main UTXO is zero but still
+    ///      custodies reservations enters MovingFunds so that `WalletMovingFunds`
+    ///      is emitted to trigger re-anchoring of any remaining reservations.
     function moveFunds(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
-        if (wallet.mainUtxoHash == bytes32(0)) {
-            // If the wallet has no main UTXO, that means its BTC balance
-            // is zero and the wallet closing should begin immediately.
+        if (
+            wallet.mainUtxoHash == bytes32(0) &&
+            self.walletReservationInfo[walletPubKeyHash].count == 0
+        ) {
+            // If the wallet has no main UTXO and no active reservations,
+            // that means its BTC balance is zero and the wallet closing
+            // should begin immediately.
             beginWalletClosing(self, walletPubKeyHash);
         } else {
             // Otherwise, initialize the moving funds process.
@@ -632,11 +637,17 @@ library Wallets {
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the
-    ///        MovingFunds state.
+    ///        MovingFunds state,
+    ///      - The wallet must not hold any reservations.
     function beginWalletClosing(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        require(
+            self.walletReservationInfo[walletPubKeyHash].count == 0,
+            "Wallet has active reservations"
+        );
+
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         // Initialize the closing period.
         wallet.state = WalletState.Closing;
@@ -651,11 +662,17 @@ library Wallets {
     ///         the ECDSA registry about this fact.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
-    ///      - The caller must make sure that the wallet is in the Closing state.
+    ///      - The caller must make sure that the wallet is in the Closing state,
+    ///      - The wallet must not hold any reservations.
     function finalizeWalletClosing(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
+        require(
+            self.walletReservationInfo[walletPubKeyHash].count == 0,
+            "Wallet has active reservations"
+        );
+
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         wallet.state = WalletState.Closed;

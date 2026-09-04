@@ -1469,7 +1469,10 @@ describe("Reservation", () => {
       ).to.equal(0)
     })
 
-    it("should strand a Terminated settlement without double-releasing when evidence was already emitted", async () => {
+    it("should handle an already-stranded settlement without double-releasing or re-emitting evidence", async () => {
+      // Matches the docblock at ReservationProofs.sol:220-224: when a lineage
+      // was already stranded before this proof arrives, calling strand with
+      // evidenceAlreadyEmitted=true should not double-release accounting or emit duplicate evidence.
       const key = 106
       await testReservation.setWalletState(walletPubKeyHash, 5) // 5 = Terminated
       await testReservation.setReservationFullState(
@@ -1477,20 +1480,54 @@ describe("Reservation", () => {
         owner,
         walletPubKeyHash,
         anchorAmount,
-        2, // ActionPending (the pre-restore state; counters were already
-        // released once and must not be released again)
+        4, // Stranded (already stranded before proof arrived)
         requestNonce
       )
-      await testReservation.strandLateSettlementIfTargetWalletClosed(
+      const tx = await testReservation.strandLateSettlementIfTargetWalletClosed(
         key,
         true // evidenceAlreadyEmitted
       )
       expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
-      // Counters default to zero and must stay zero: evidenceAlreadyEmitted
-      // means strandReservation must skip the decrement this time.
       expect(
         await testReservation.walletReservationsCount(walletPubKeyHash)
       ).to.equal(0)
+      await expect(tx).to.not.emit(testReservation, "ReservationStranded")
+    })
+
+    it("should release capacity for a non-stranded settlement even when evidence was already emitted", async () => {
+      // Decoupling finding: release on pre-call state, event on the flag.
+      // A non-Stranded position releases its capacity regardless of evidenceAlreadyEmitted,
+      // while the flag suppresses duplicate event emission.
+      const key = 107
+      await testReservation.setWalletState(walletPubKeyHash, 5) // 5 = Terminated
+      await testReservation.setReservationFullState(
+        key,
+        owner,
+        walletPubKeyHash,
+        anchorAmount,
+        1, // Active
+        requestNonce
+      )
+      await testReservation.setWalletReservationsCounters(
+        walletPubKeyHash,
+        1,
+        anchorAmount
+      )
+      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
+      const tx = await testReservation.strandLateSettlementIfTargetWalletClosed(
+        key,
+        true // evidenceAlreadyEmitted
+      )
+      expect(await testReservation.reservationState(key)).to.equal(4) // Stranded
+      expect(
+        await testReservation.walletReservationsCount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(
+        await testReservation.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(await testReservation.reservationTotalAmount()).to.equal(0)
+      expect(await testReservation.activeReservationsCount()).to.equal(0)
+      await expect(tx).to.not.emit(testReservation, "ReservationStranded")
     })
 
     it("prepareReservationForSettlement should no-op for a non-stranded settleable reservation", async () => {
@@ -1704,12 +1741,14 @@ describe("Reservation", () => {
       )
 
       // Set the pending Reanchor action for (reservationKey, requestNonce) with timeoutAt in the past
+      const requestedAt = 0 // default uninitialized value in action struct
+      const timeoutAt = 1 // timeoutAt: far in the past
       await testReservation.setFullAction(
         reservationKey,
         requestNonce,
         actionType.Reanchor,
         actionState.Pending,
-        1, // timeoutAt: far in the past
+        timeoutAt,
         targetWalletPubKeyHash,
         amount
       )
@@ -1759,10 +1798,10 @@ describe("Reservation", () => {
         reservationState.Active
       )
 
-      // 5. Reanchor cooldown is set to block.timestamp + reservationActionTimeout
+      // 5. Reanchor cooldown is set to block.timestamp + (action.timeoutAt - action.requestedAt)
       const res = await testReservation.getReservation(reservationKey)
       expect(res.reanchorCooldownUntil).to.equal(
-        block.timestamp + actionTimeout
+        block.timestamp + (timeoutAt - requestedAt)
       )
     })
 
