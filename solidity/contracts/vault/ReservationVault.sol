@@ -478,7 +478,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         uint256 reservationKey,
         bytes calldata redeemerOutputScript,
         uint256 maxFeeTbtc
-    ) external {
+    ) external whenRedemptionsNotPaused {
         Reservation.ReservationRequest memory reservation = bridge.reservations(
             reservationKey
         );
@@ -554,7 +554,7 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     function retryRedeemReservation(
         uint256 reservationKey,
         bytes calldata redeemerOutputScript
-    ) external {
+    ) external whenRedemptionsNotPaused {
         Reservation.ReservationRequest memory reservation = bridge.reservations(
             reservationKey
         );
@@ -602,7 +602,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///      - The caller must be the reservation owner,
     ///      - The caller must have approved this vault for the extension
     ///        fee in TBTC.
-    function extendCustody(uint256 reservationKey) external {
+    function extendCustody(uint256 reservationKey)
+        external
+        whenRenewalsNotPaused
+    {
         Reservation.ReservationRequest memory reservation = bridge.reservations(
             reservationKey
         );

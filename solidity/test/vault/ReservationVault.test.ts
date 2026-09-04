@@ -3,7 +3,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
 import { loadFixture } from "../helpers/fixture"
-import { createMock } from "../helpers/mock"
+import { createMock, expectCalledOnceWith } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 
 import type {
@@ -935,10 +935,30 @@ describe("ReservationVault", () => {
 
     before(async () => {
       await createSnapshot()
+      await vault.unpauseRedemptions()
     })
 
     after(async () => {
       await restoreSnapshot()
+    })
+
+    context("while redemptions are paused", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.pauseRedemptions()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert before checking ownership", async () => {
+        await expect(
+          vault
+            .connect(account1)
+            .redeemReservation(reservationKey, redeemerOutputScript, fee)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
     })
 
     context("when called by a non-owner of the reservation", () => {
@@ -1050,10 +1070,30 @@ describe("ReservationVault", () => {
 
     before(async () => {
       await createSnapshot()
+      await vault.unpauseRedemptions()
     })
 
     after(async () => {
       await restoreSnapshot()
+    })
+
+    context("while redemptions are paused", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.pauseRedemptions()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert before checking ownership", async () => {
+        await expect(
+          vault
+            .connect(account1)
+            .retryRedeemReservation(reservationKey, redeemerOutputScript)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
     })
 
     context("when called by a non-owner of the reservation", () => {
@@ -1119,6 +1159,108 @@ describe("ReservationVault", () => {
         expect(await tbtc.balanceOf(account2.address)).to.equal(
           treasuryBalanceBefore
         )
+      })
+    })
+  })
+
+  describe("extendCustody", () => {
+    const reservationKey = 44
+    const amountSat = 100000
+    const grossTbtc = satsToTbtc(amountSat)
+    // Default schedule: 20 bps extension fee.
+    const fee = grossTbtc.mul(20).div(10000)
+
+    before(async () => {
+      await createSnapshot()
+      await vault.unpauseRenewals()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    context("while renewals are paused", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.pauseRenewals()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert before checking ownership", async () => {
+        await expect(
+          vault.connect(account1).extendCustody(reservationKey)
+        ).to.be.revertedWith("Renewals are paused")
+      })
+    })
+
+    context("when called by a non-owner of the reservation", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.reservations
+          .whenCalledWith(reservationKey)
+          .returns(reservationWithOwner(account1.address))
+      })
+
+      after(async () => {
+        await bridge.reservations.reset()
+        await restoreSnapshot()
+      })
+
+      it("should revert with ownership message", async () => {
+        await expect(
+          vault.connect(account2).extendCustody(reservationKey)
+        ).to.be.revertedWith("Caller is not the reservation owner")
+      })
+    })
+
+    context("when called by the reservation owner", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.reservations.whenCalledWith(reservationKey).returns({
+          ...reservationWithOwner(account1.address),
+          mintedAmount: amountSat,
+        })
+        await bridge.treasury.returns(account2.address)
+
+        // One acceptance-sized credit is far more TBTC than the small
+        // extension fee requires; it just needs to fund the approval.
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(
+            vault.address,
+            [account1.address],
+            [amountSat]
+          )
+
+        await tbtc.connect(account1).approve(vault.address, fee)
+      })
+
+      after(async () => {
+        await bridge.reservations.reset()
+        await bridge.treasury.reset()
+        await restoreSnapshot()
+      })
+
+      it("should charge the extension fee to the treasury and call through to the Bridge", async () => {
+        const ownerBalanceBefore = await tbtc.balanceOf(account1.address)
+        const treasuryBalanceBefore = await tbtc.balanceOf(account2.address)
+
+        const tx = await vault.connect(account1).extendCustody(reservationKey)
+
+        await expect(tx)
+          .to.emit(vault, "CustodyExtended")
+          .withArgs(reservationKey, account1.address, fee)
+
+        expect(await tbtc.balanceOf(account1.address)).to.equal(
+          ownerBalanceBefore.sub(fee)
+        )
+        expect(await tbtc.balanceOf(account2.address)).to.equal(
+          treasuryBalanceBefore.add(fee)
+        )
+        await expectCalledOnceWith(bridge.extendReservation, [reservationKey])
       })
     })
   })

@@ -151,6 +151,13 @@ describe("Bridge - Reserved redemption", () => {
       bridge.address
     )
     reservationVault = await helpers.contracts.getContract("ReservationVault")
+    const vaultOwnerSigner = await impersonateContract(
+      await reservationVault.owner()
+    )
+    // The vault starts with redemptions/renewals paused; unpause once for
+    // the whole suite the same way governance would after deploy.
+    await reservationVault.connect(vaultOwnerSigner).unpauseRedemptions()
+    await reservationVault.connect(vaultOwnerSigner).unpauseRenewals()
     bridgeGovernanceSigner = await impersonateContract(
       await bridge.governance()
     )
