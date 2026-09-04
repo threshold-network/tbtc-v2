@@ -150,6 +150,19 @@ describe("Reservation - amount cap versus slot capacity", () => {
         testReservation.updateReservationCaps(0, 0, 0)
       ).to.be.revertedWith("Active reservations cap must be greater than zero")
     })
+
+    it("returns all three caps via reservationCaps() after updateReservationCaps (round-trip)", async () => {
+      const a = 10_000_000
+      const b = 1_000_000
+      const c = 5
+
+      await testReservation.updateReservationCaps(a, b, c)
+
+      const caps = await testReservation.reservationCaps()
+      expect(caps.maxReservationsAmountPerWallet).to.equal(a)
+      expect(caps.reservationMaxSingleAmount).to.equal(b)
+      expect(caps.maxActiveReservations).to.equal(c)
+    })
   })
 
   // Either cap set to zero means that cap is disabled, so there is no

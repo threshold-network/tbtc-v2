@@ -7,8 +7,10 @@ import {
   TestReservationProofs,
   MockReservationVault,
   Bank,
+  IReservationFeeFinancer,
 } from "../../typechain"
 import { SingleP2SHDeposit } from "../data/deposit-sweep"
+import { MovedFundsSweepWithoutMainUtxo as movedFundsSweepData } from "../data/moving-funds"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 
@@ -1591,6 +1593,213 @@ describe("ReservationProofs", () => {
       )
       expect(reservation.state).to.equal(0) // still Unknown, no mutation
       expect(await mockReservationVault.totalReceived()).to.equal(0)
+    })
+
+    it("should settle re-anchor SPV proof, migrate wallet enumeration, update reverse anchor index, and strand cleanly", async () => {
+      // 1. Seed the acceptance-settled position anchored at the utxo the
+      // re-anchor spends. The fixture chain is
+      // `MovedFundsSweepWithoutMainUtxo`: sweepTx (proved below) spends
+      // movedFundsSweepRequest (txHash, 0) and pays the fixture wallet.
+      // A separate acceptance SPV leg cannot be chained from the available
+      // datasets, so the acceptance-settled state is modeled directly with
+      // the fixture's exact values (anchor 18500 -> new anchor 16500,
+      // miner fee 2000).
+      const oldAnchorTxHash = movedFundsSweepData.movedFundsSweepRequest.txHash
+      const oldAnchorUtxoKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [oldAnchorTxHash, 0]
+      )
+      // The source wallet must differ from the re-anchor target. The deposit
+      // reveal's wallet happens to equal the fixture wallet, so use a
+      // distinct address; nothing in the re-anchor path ties the source
+      // wallet to the deposit reveal.
+      const oldWalletPubKeyHash = `0x${"aa".repeat(20)}`
+      const newWalletPubKeyHash = movedFundsSweepData.wallet.pubKeyHash
+      const newAnchorTxHash = movedFundsSweepData.sweepTx.hash
+      const newAnchorUtxoKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [newAnchorTxHash, 0]
+      )
+      const reanchorNonce = 2
+      const reanchorAmount = 18500
+      const newAnchorAmount = 16500
+      const minerFee = reanchorAmount - newAnchorAmount // 2000 sats
+
+      // Seed the deposit and reservation records the settlement path reads:
+      // the deposit's vault receives the in-kind miner fee financing call,
+      // and the pre-hop wallet/index state must be balanced for the releases
+      // the settlement performs.
+      await testReservationProofs.initializeProducerStub(
+        anchorReservationKey,
+        oldWalletPubKeyHash,
+        200000,
+        depositor.address,
+        anchorAmount,
+        mockReservationVault.address
+      )
+      await testReservationProofs.setActiveReservationsCount(1)
+      await testReservationProofs.setReservationTotalAmount(reanchorAmount)
+      await testReservationProofs.setWalletReservationsCount(
+        oldWalletPubKeyHash,
+        1
+      )
+      await testReservationProofs.setWalletReservationsAmount(
+        oldWalletPubKeyHash,
+        reanchorAmount
+      )
+      await testReservationProofs.addWalletReservationKey(
+        oldWalletPubKeyHash,
+        anchorReservationKey
+      )
+      await testReservationProofs.setReservationByAnchorUtxo(
+        oldAnchorUtxoKey,
+        anchorReservationKey
+      )
+
+      // Pre-reanchor assertions
+      expect(
+        await testReservationProofs.getReservationByAnchorUtxo(oldAnchorUtxoKey)
+      ).to.equal(anchorReservationKey)
+      const preReanchorKeys =
+        await testReservationProofs.getWalletReservationKeys(
+          oldWalletPubKeyHash
+        )
+      expect(preReanchorKeys.length).to.equal(1)
+      expect(preReanchorKeys[0]).to.equal(anchorReservationKey)
+
+      // Setup target wallet and Reanchor action
+      await testReservationProofs.setWalletState(newWalletPubKeyHash, 1) // Live
+      await testReservationProofs.setReservationAction(
+        anchorReservationKey,
+        reanchorNonce,
+        buildReservationAction({
+          targetWalletPubKeyHash: newWalletPubKeyHash,
+          actionType: 3, // Reanchor
+          state: 1, // Pending
+          amount: reanchorAmount,
+          txMaxFee: 5000,
+          sourceAnchorUtxoHash: oldAnchorUtxoKey,
+        })
+      )
+
+      // Target wallet capacity booked at request time
+      await testReservationProofs.setWalletReservationsCount(
+        newWalletPubKeyHash,
+        1
+      )
+      await testReservationProofs.setWalletReservationsAmount(
+        newWalletPubKeyHash,
+        reanchorAmount
+      )
+
+      // Update position current generation to reanchorNonce
+      await testReservationProofs.setReservation(
+        anchorReservationKey,
+        buildReservationRequest({
+          owner: depositor.address,
+          state: 2, // ActionPending (pending re-anchor generation)
+          requestNonce: reanchorNonce,
+          walletPubKeyHash: oldWalletPubKeyHash,
+          anchorAmount: reanchorAmount,
+          anchorTxHash: oldAnchorTxHash,
+          anchorTxOutputIndex: 0,
+        })
+      )
+
+      // 2. Submit Re-anchor SPV Proof
+      await relay.getCurrentEpochDifficulty.returns(
+        movedFundsSweepData.chainDifficulty
+      )
+      await relay.getPrevEpochDifficulty.returns(
+        movedFundsSweepData.chainDifficulty
+      )
+
+      const reanchorTx = await testReservationProofs.submitReservationProof(
+        2, // ProofType.Reanchor
+        movedFundsSweepData.sweepTx,
+        movedFundsSweepData.sweepProof,
+        movedFundsSweepData.mainUtxo,
+        anchorReservationKey,
+        reanchorNonce
+      )
+
+      await expect(reanchorTx)
+        .to.emit(testReservationProofs, "ReservationReanchored")
+        .withArgs(
+          anchorReservationKey,
+          reanchorNonce,
+          newWalletPubKeyHash,
+          newAnchorTxHash,
+          newAnchorAmount,
+          minerFee
+        )
+
+      // The in-kind miner fee is financed from the vault's custody-fee reserve.
+      expect(await mockReservationVault.inKindFeesFinanced()).to.equal(minerFee)
+
+      // (a) Reverse anchor index: new anchor maps to key, old anchor returns 0
+      expect(
+        await testReservationProofs.getReservationByAnchorUtxo(newAnchorUtxoKey)
+      ).to.equal(anchorReservationKey)
+      expect(
+        await testReservationProofs.getReservationByAnchorUtxo(oldAnchorUtxoKey)
+      ).to.equal(0)
+
+      // (b) Wallet enumeration: migrated to new wallet, old wallet is empty
+      const migratedKeys = await testReservationProofs.getWalletReservationKeys(
+        newWalletPubKeyHash
+      )
+      expect(migratedKeys.length).to.equal(1)
+      expect(migratedKeys[0]).to.equal(anchorReservationKey)
+      expect(
+        await testReservationProofs.getWalletReservationKeys(
+          oldWalletPubKeyHash
+        )
+      ).to.deep.equal([])
+
+      // (c) Subsequent strand of re-anchored reservation succeeds without panic
+      await testReservationProofs.setWalletState(newWalletPubKeyHash, 5) // Terminated
+      const strandTx = await testReservationProofs.strandReservation(
+        anchorReservationKey
+      )
+
+      await expect(strandTx)
+        .to.emit(testReservationProofs, "ReservationStranded")
+        .withArgs(
+          anchorReservationKey,
+          newWalletPubKeyHash,
+          depositor.address,
+          newAnchorAmount
+        )
+
+      const strandedReservation = await testReservationProofs.getReservation(
+        anchorReservationKey
+      )
+      expect(strandedReservation.state).to.equal(4) // Stranded
+      expect(
+        await testReservationProofs.getWalletReservationsCount(
+          newWalletPubKeyHash
+        )
+      ).to.equal(0)
+      expect(
+        await testReservationProofs.getWalletReservationsAmount(
+          newWalletPubKeyHash
+        )
+      ).to.equal(0)
+      expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
+        0
+      )
+      expect(await testReservationProofs.getReservationTotalAmount()).to.equal(
+        0
+      )
+      expect(
+        await testReservationProofs.getWalletReservationKeys(
+          newWalletPubKeyHash
+        )
+      ).to.deep.equal([])
+      expect(
+        await testReservationProofs.getReservationByAnchorUtxo(newAnchorUtxoKey)
+      ).to.equal(0)
     })
   })
 

@@ -1,38 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 pragma solidity 0.8.17;
+
+import "./TestReservation.sol";
 import "../bridge/BridgeState.sol";
 import "../bridge/Deposit.sol";
 import "../bridge/Reservation.sol";
 import "../bridge/ReservationProofs.sol";
 import "../bridge/Wallets.sol";
-import "../bank/Bank.sol";
-import {IWalletRegistry as EcdsaWalletRegistry} from "@keep-network/ecdsa/contracts/api/IWalletRegistry.sol";
+import "../bridge/BitcoinTx.sol";
 
 /// @title Reservation stranding executor
 /// @notice Helper contract exposing library functions from `Reservation.sol` and
 ///         `ReservationProofs.sol` for direct test-driven development and
 ///         coverage in isolation.
-/// @dev This contract holds an isolated `BridgeState.Storage` reference, allowing
-///      the library functions to run against local, pre-populated storage without
-///      a full Bridge deployment. It provides forwarders to the library
-///      functions and `seed*` helpers for pre-positioning storage state.
-contract ReservationStrandingExecutor {
+/// @dev Inherits `TestReservation` to reuse shared storage and forwarders, adding
+///      stranding/reanchor-specific forwarders and seed helpers for test positioning.
+contract ReservationStrandingExecutor is TestReservation {
     using Reservation for BridgeState.Storage;
     using ReservationProofs for BridgeState.Storage;
-
-    BridgeState.Storage internal self;
 
     // The library emits these events. They are redeclared here so the
     // executor's ABI carries the canonical signatures for the test
     // surface (filters and event parsing in Typechain / ethers).
-    event ReservationStranded(
-        uint256 indexed reservationKey,
-        bytes20 indexed walletPubKeyHash,
-        address indexed owner,
-        uint64 anchorAmount
-    );
-
     event ReservedDepositMarkedStale(uint256 indexed depositKey);
 
     event ReservationReanchorTimedOut(
@@ -41,44 +31,14 @@ contract ReservationStrandingExecutor {
     );
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
 
-    /// @notice Forwards the `Reservation.notifyReservationStranded` library
-    ///         function. Reverts with the library's exact message when the
-    ///         reservation is not Active or the wallet is not Closing,
-    ///         Closed, or Terminated.
-    ///         "Wallet is not closing, closed or terminated" is the revert
-    ///         message.
-    function notifyReservationStranded(uint256 reservationKey) external {
-        self.notifyReservationStranded(reservationKey);
-    }
-
-    /// @notice Forwards the `Reservation.notifyReservationActionTimeout`
-    ///         library function (Reanchor timeout only). `walletMembersIDs`
-    ///         is unused on this path (Reanchor timeout never slashes) but
-    ///         threaded through for signature parity with the production
-    ///         entry point; pass an empty array.
-    function notifyReservationActionTimeout(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
-    }
-
-
-    function setBank(address bankAddress) external {
-        self.bank = Bank(bankAddress);
-    }
-
-    function setEcdsaWalletRegistry(address registryAddress) external {
-        self.ecdsaWalletRegistry = EcdsaWalletRegistry(registryAddress);
-    }
-
     function submitReservationAcceptanceProof(
         BitcoinTx.Info calldata anchorTx,
         BitcoinTx.Proof calldata anchorProof,
         uint256 reservationKey,
         uint64 requestNonce
     ) external {
-        self.submitReservationAcceptanceProof(
+        ReservationProofs.submitReservationAcceptanceProof(
+            state,
             anchorTx,
             anchorProof,
             reservationKey,
@@ -92,7 +52,8 @@ contract ReservationStrandingExecutor {
         uint256 reservationKey,
         uint64 requestNonce
     ) external {
-        self.submitReservationReanchorProof(
+        ReservationProofs.submitReservationReanchorProof(
+            state,
             reanchorTx,
             reanchorProof,
             reservationKey,
@@ -107,14 +68,7 @@ contract ReservationStrandingExecutor {
     ///         is already swept, or when an acceptance authorization is
     ///         pending.
     function notifyStaleReservedDeposit(uint256 depositKey) external {
-        self.notifyStaleReservedDeposit(depositKey);
-    }
-
-    function requestReservationAcceptance(
-        uint256 reservationKey,
-        bytes20 walletPubKeyHash
-    ) external {
-        self.requestReservationAcceptance(reservationKey, walletPubKeyHash);
+        Reservation.notifyStaleReservedDeposit(state, depositKey);
     }
 
     function requestReservationReanchor(
@@ -122,7 +76,8 @@ contract ReservationStrandingExecutor {
         bytes20 targetWalletPubKeyHash,
         bool privileged
     ) external {
-        self.requestReservationReanchor(
+        Reservation.requestReservationReanchor(
+            state,
             reservationKey,
             targetWalletPubKeyHash,
             privileged
@@ -136,16 +91,16 @@ contract ReservationStrandingExecutor {
     function seedWallet(
         bytes20 walletPubKeyHash,
         bytes32 ecdsaWalletID,
-        Wallets.WalletState state
+        Wallets.WalletState walletStateVal
     ) external {
-        Wallets.Wallet storage wallet = self.registeredWallets[
+        Wallets.Wallet storage wallet = state.registeredWallets[
             walletPubKeyHash
         ];
         wallet.ecdsaWalletID = ecdsaWalletID;
-        wallet.state = state;
+        wallet.state = walletStateVal;
         wallet.createdAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
-        if (state == Wallets.WalletState.Live) {
-            self.liveWalletsCount++;
+        if (walletStateVal == Wallets.WalletState.Live) {
+            state.liveWalletsCount++;
         }
     }
 
@@ -153,18 +108,18 @@ contract ReservationStrandingExecutor {
     function seedWalletWithMainUtxo(
         bytes20 walletPubKeyHash,
         bytes32 ecdsaWalletID,
-        Wallets.WalletState state,
+        Wallets.WalletState walletStateVal,
         bytes32 mainUtxoHash
     ) external {
-        Wallets.Wallet storage wallet = self.registeredWallets[
+        Wallets.Wallet storage wallet = state.registeredWallets[
             walletPubKeyHash
         ];
         wallet.ecdsaWalletID = ecdsaWalletID;
-        wallet.state = state;
+        wallet.state = walletStateVal;
         wallet.createdAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
         wallet.mainUtxoHash = mainUtxoHash;
-        if (state == Wallets.WalletState.Live) {
-            self.liveWalletsCount++;
+        if (walletStateVal == Wallets.WalletState.Live) {
+            state.liveWalletsCount++;
         }
     }
 
@@ -178,7 +133,7 @@ contract ReservationStrandingExecutor {
         uint64 anchorAmount,
         bytes32 anchorTxHash,
         uint32 anchorTxOutputIndex,
-        Reservation.ReservationState state
+        Reservation.ReservationState reservationStateVal
     ) external {
         _seedReservation(
             reservationKey,
@@ -187,7 +142,7 @@ contract ReservationStrandingExecutor {
             anchorAmount,
             anchorTxHash,
             anchorTxOutputIndex,
-            state,
+            reservationStateVal,
             0
         );
     }
@@ -201,7 +156,7 @@ contract ReservationStrandingExecutor {
         uint64 anchorAmount,
         bytes32 anchorTxHash,
         uint32 anchorTxOutputIndex,
-        Reservation.ReservationState state,
+        Reservation.ReservationState reservationStateVal,
         uint64 requestNonce
     ) external {
         _seedReservation(
@@ -211,7 +166,7 @@ contract ReservationStrandingExecutor {
             anchorAmount,
             anchorTxHash,
             anchorTxOutputIndex,
-            state,
+            reservationStateVal,
             requestNonce
         );
     }
@@ -223,10 +178,10 @@ contract ReservationStrandingExecutor {
         uint64 anchorAmount,
         bytes32 anchorTxHash,
         uint32 anchorTxOutputIndex,
-        Reservation.ReservationState state,
+        Reservation.ReservationState reservationStateVal,
         uint64 requestNonce
     ) internal {
-        Reservation.ReservationRequest storage reservation = self.reservations[
+        Reservation.ReservationRequest storage reservation = state.reservations[
             reservationKey
         ];
         reservation.owner = owner;
@@ -236,7 +191,7 @@ contract ReservationStrandingExecutor {
         reservation.anchorAmount = anchorAmount;
         reservation.anchorTxHash = anchorTxHash;
         reservation.anchorTxOutputIndex = anchorTxOutputIndex;
-        reservation.state = state;
+        reservation.state = reservationStateVal;
         reservation.requestNonce = requestNonce;
         reservation.expiresAt = uint32(block.timestamp) + 365 days; // solhint-disable-line not-rely-on-time
         reservation.dissolutionEligibleAt =
@@ -244,24 +199,24 @@ contract ReservationStrandingExecutor {
             365 days +
             30 days;
 
-        self.walletReservationKeys[walletPubKeyHash].push(reservationKey);
-        self.walletReservationKeyIndex[reservationKey] = self
+        state.walletReservationKeys[walletPubKeyHash].push(reservationKey);
+        state.walletReservationKeyIndex[reservationKey] = state
             .walletReservationKeys[walletPubKeyHash]
             .length;
-        self.walletReservationInfo[walletPubKeyHash].count += 1;
-        self.walletReservationInfo[walletPubKeyHash].amount += anchorAmount;
-        self.reservationTotalAmount += anchorAmount;
+        state.walletReservationInfo[walletPubKeyHash].count += 1;
+        state.walletReservationInfo[walletPubKeyHash].amount += anchorAmount;
+        state.reservationTotalAmount += anchorAmount;
         // `activeReservationsCount` is only ever freed by an acceptance
         // timeout or by `strandReservation` (see `Reservation.sol`); every
         // other state, including a normally-Closed reservation, still
         // occupies its slot. Mirror that here so tests seeding a
         // pre-Stranded reservation directly don't make `strandReservation`
         // underflow the counter on its unconditional decrement.
-        if (state != Reservation.ReservationState.Stranded) {
-            self.activeReservationsCount += 1;
+        if (reservationStateVal != Reservation.ReservationState.Stranded) {
+            state.activeReservationsCount += 1;
         }
 
-        self.reservationsByAnchorUtxo[
+        state.reservationsByAnchorUtxo[
             uint256(
                 keccak256(abi.encodePacked(anchorTxHash, anchorTxOutputIndex))
             )
@@ -271,8 +226,11 @@ contract ReservationStrandingExecutor {
     /// @notice Inserts a revealed-but-not-swept `DepositRequest`. Used by
     ///         `notifyStaleReservedDeposit` rejection paths that check
     ///         `sweptAt == 0`.
-    function seedDeposit(uint256 depositKey, address depositor) external {
-        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
+    /// @dev Named distinctly from the inherited `seedDeposit` (5-arg) so the
+    ///      harness surface has no overloads (typechain emits overloaded
+    ///      methods under quoted signature names only).
+    function seedDepositBasic(uint256 depositKey, address depositor) external {
+        Deposit.DepositRequest storage deposit = state.deposits[depositKey];
         deposit.depositor = depositor;
         deposit.amount = 1_000_000;
         deposit.revealedAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
@@ -282,7 +240,7 @@ contract ReservationStrandingExecutor {
     ///         "Deposit already swept" rejection path of
     ///         `notifyStaleReservedDeposit`.
     function seedSweptDeposit(uint256 depositKey) external {
-        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
+        Deposit.DepositRequest storage deposit = state.deposits[depositKey];
         deposit.sweptAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
@@ -291,19 +249,22 @@ contract ReservationStrandingExecutor {
     ///         `refundDeadlineValidated` is reveal-time provenance metadata
     ///         only; `notifyStaleReservedDeposit` does not branch on it, but
     ///         both shapes are seeded here for parity with reveal-time state.
-    function seedPendingReservedDeposit(
+    // Named distinctly from the inherited `seedPendingReservedDeposit`
+    // (uint256,bool,bytes20,uint32) so the harness surface has no overloads
+    // (typechain emits overloaded methods under quoted signature names only).
+    function seedPendingReservedDepositBasic(
         uint256 depositKey,
         bytes20 walletPubKeyHash,
         uint32 refundDeadline,
         bool refundDeadlineValidated
     ) external {
-        BridgeState.PendingReservedDeposit storage pending = self
+        BridgeState.PendingReservedDeposit storage pending = state
             .pendingReservedDeposit[depositKey];
         pending.isReserved = true;
         pending.walletPubKeyHash = walletPubKeyHash;
         pending.refundDeadline = refundDeadline;
         pending.refundDeadlineValidated = refundDeadlineValidated;
-        self.pendingReservedDeposits += 1;
+        state.pendingReservedDeposits += 1;
     }
 
     /// @notice Inserts an `ActionState.Pending` reservation action so the
@@ -312,7 +273,7 @@ contract ReservationStrandingExecutor {
     function seedPendingAction(uint256 reservationKey, uint64 requestNonce)
         external
     {
-        Reservation.ReservationAction storage action = self.reservationActions[
+        Reservation.ReservationAction storage action = state.reservationActions[
             Reservation.actionKey(reservationKey, requestNonce)
         ];
         action.actionType = Reservation.ActionType.Acceptance;
@@ -327,20 +288,20 @@ contract ReservationStrandingExecutor {
     function seedReservationActionState(
         uint256 reservationKey,
         uint64 requestNonce,
-        Reservation.ActionType actionType,
-        Reservation.ActionState state
+        Reservation.ActionType actionTypeVal,
+        Reservation.ActionState actionStateVal
     ) external {
-        Reservation.ReservationAction storage action = self.reservationActions[
+        Reservation.ReservationAction storage action = state.reservationActions[
             Reservation.actionKey(reservationKey, requestNonce)
         ];
-        action.actionType = actionType;
-        action.state = state;
+        action.actionType = actionTypeVal;
+        action.state = actionStateVal;
     }
 
     function _seedPendingReservationAction(
         uint256 reservationKey,
         uint64 requestNonce,
-        Reservation.ActionType actionType,
+        Reservation.ActionType actionTypeVal,
         bytes20 targetWalletPubKeyHash,
         uint64 amount,
         uint32 timeoutAt,
@@ -348,10 +309,10 @@ contract ReservationStrandingExecutor {
         address redeemer,
         bool usedRetryCredit
     ) internal {
-        Reservation.ReservationAction storage action = self.reservationActions[
+        Reservation.ReservationAction storage action = state.reservationActions[
             Reservation.actionKey(reservationKey, requestNonce)
         ];
-        action.actionType = actionType;
+        action.actionType = actionTypeVal;
         action.state = Reservation.ActionState.Pending;
         /* solhint-disable-next-line not-rely-on-time */
         action.requestedAt = uint32(block.timestamp);
@@ -366,7 +327,7 @@ contract ReservationStrandingExecutor {
     function seedPendingReservationAction(
         uint256 reservationKey,
         uint64 requestNonce,
-        Reservation.ActionType actionType,
+        Reservation.ActionType actionTypeVal,
         bytes20 targetWalletPubKeyHash,
         uint64 amount,
         uint32 timeoutAt,
@@ -376,7 +337,7 @@ contract ReservationStrandingExecutor {
         _seedPendingReservationAction(
             reservationKey,
             requestNonce,
-            actionType,
+            actionTypeVal,
             targetWalletPubKeyHash,
             amount,
             timeoutAt,
@@ -389,7 +350,7 @@ contract ReservationStrandingExecutor {
     function seedPendingReservationActionWithRetryCredit(
         uint256 reservationKey,
         uint64 requestNonce,
-        Reservation.ActionType actionType,
+        Reservation.ActionType actionTypeVal,
         bytes20 targetWalletPubKeyHash,
         uint64 amount,
         uint32 timeoutAt,
@@ -400,7 +361,7 @@ contract ReservationStrandingExecutor {
         _seedPendingReservationAction(
             reservationKey,
             requestNonce,
-            actionType,
+            actionTypeVal,
             targetWalletPubKeyHash,
             amount,
             timeoutAt,
@@ -414,28 +375,22 @@ contract ReservationStrandingExecutor {
         bytes20 walletPubKeyHash,
         uint256 reservationKey
     ) external {
-        self.walletPendingDissolution[walletPubKeyHash] = reservationKey;
+        state.walletPendingDissolution[walletPubKeyHash] = reservationKey;
     }
 
     function seedReservationCooldown(
         uint256 reservationKey,
         uint32 cooldownUntil
     ) external {
-        self.reservations[reservationKey].reanchorCooldownUntil = cooldownUntil;
+        state
+            .reservations[reservationKey]
+            .reanchorCooldownUntil = cooldownUntil;
     }
 
     // --- read helpers used by tests ---------------------------------------
 
-    function reservationState(uint256 reservationKey)
-        external
-        view
-        returns (Reservation.ReservationState)
-    {
-        return self.reservations[reservationKey].state;
-    }
-
     function retryCredit(uint256 reservationKey) external view returns (bool) {
-        return self.reservations[reservationKey].retryCredit;
+        return state.reservations[reservationKey].retryCredit;
     }
 
     function reservationRetryCreditActionNonce(uint256 reservationKey)
@@ -443,15 +398,7 @@ contract ReservationStrandingExecutor {
         view
         returns (uint64)
     {
-        return self.reservationRetryCreditActionNonce[reservationKey];
-    }
-
-    function walletState(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (Wallets.WalletState)
-    {
-        return self.registeredWallets[walletPubKeyHash].state;
+        return state.reservationRetryCreditActionNonce[reservationKey];
     }
 
     function walletPendingDissolution(bytes20 walletPubKeyHash)
@@ -459,59 +406,7 @@ contract ReservationStrandingExecutor {
         view
         returns (uint256)
     {
-        return self.walletPendingDissolution[walletPubKeyHash];
-    }
-
-    function walletReservationsCount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint32)
-    {
-        return self.walletReservationInfo[walletPubKeyHash].count;
-    }
-
-    function walletReservationsAmount(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint64)
-    {
-        return self.walletReservationInfo[walletPubKeyHash].amount;
-    }
-
-    function reservationTotalAmount() external view returns (uint64) {
-        return self.reservationTotalAmount;
-    }
-
-    function walletReservationKeysLength(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256)
-    {
-        return self.walletReservationKeys[walletPubKeyHash].length;
-    }
-
-    function walletReservationKeyAt(bytes20 walletPubKeyHash, uint256 index)
-        external
-        view
-        returns (uint256)
-    {
-        return self.walletReservationKeys[walletPubKeyHash][index];
-    }
-
-    function walletReservationKeyIndex(uint256 reservationKey)
-        external
-        view
-        returns (uint256)
-    {
-        return self.walletReservationKeyIndex[reservationKey];
-    }
-
-    function reservationsByAnchorUtxo(bytes32 anchorUtxoHash)
-        external
-        view
-        returns (uint256)
-    {
-        return self.reservationsByAnchorUtxo[uint256(anchorUtxoHash)];
+        return state.walletPendingDissolution[walletPubKeyHash];
     }
 
     function pendingReservedDepositWallet(uint256 depositKey)
@@ -519,7 +414,7 @@ contract ReservationStrandingExecutor {
         view
         returns (bytes20)
     {
-        return self.pendingReservedDeposit[depositKey].walletPubKeyHash;
+        return state.pendingReservedDeposit[depositKey].walletPubKeyHash;
     }
 
     function pendingReservedDepositDeadline(uint256 depositKey)
@@ -527,7 +422,7 @@ contract ReservationStrandingExecutor {
         view
         returns (uint32)
     {
-        return self.pendingReservedDeposit[depositKey].refundDeadline;
+        return state.pendingReservedDeposit[depositKey].refundDeadline;
     }
 
     function pendingReservedDepositValidated(uint256 depositKey)
@@ -535,23 +430,6 @@ contract ReservationStrandingExecutor {
         view
         returns (bool)
     {
-        return self.pendingReservedDeposit[depositKey].refundDeadlineValidated;
-    }
-
-    function pendingReservedDeposits() external view returns (uint64) {
-        return self.pendingReservedDeposits;
-    }
-
-    function actionState(uint256 reservationKey, uint64 requestNonce)
-        external
-        view
-        returns (Reservation.ActionState)
-    {
-        return
-            self
-                .reservationActions[
-                    Reservation.actionKey(reservationKey, requestNonce)
-                ]
-                .state;
+        return state.pendingReservedDeposit[depositKey].refundDeadlineValidated;
     }
 }

@@ -8,6 +8,8 @@ import "../bridge/ReservationProofs.sol";
 import "../bridge/Wallets.sol";
 import "../bridge/WalletProposalValidatorConstants.sol";
 import "../bridge/BitcoinTx.sol";
+import "../bank/Bank.sol";
+import {IWalletRegistry as EcdsaWalletRegistry} from "@keep-network/ecdsa/contracts/api/IWalletRegistry.sol";
 
 /// @title TestReservation
 /// @notice Test harness for the Reservation and ReservationProofs library
@@ -44,6 +46,19 @@ contract TestReservation {
         uint64 maxReservationsAmountPerWallet,
         uint64 reservationMaxSingleAmount,
         uint32 maxActiveReservations
+    );
+    event ReservationOccupancyChanged(uint32 activeReservationsCount);
+    event WalletMovingFunds(
+        bytes32 indexed ecdsaWalletID,
+        bytes20 indexed walletPubKeyHash
+    );
+    event WalletClosing(
+        bytes32 indexed ecdsaWalletID,
+        bytes20 indexed walletPubKeyHash
+    );
+    event WalletClosed(
+        bytes32 indexed ecdsaWalletID,
+        bytes20 indexed walletPubKeyHash
     );
 
     /// @notice Initialize a deposit reservation producer stub.
@@ -521,6 +536,10 @@ contract TestReservation {
         state.registeredWallets[walletPubKeyHash].state = newState;
     }
 
+    function setLiveWalletsCount(uint32 count) external {
+        state.liveWalletsCount = count;
+    }
+
     function strandLateSettlementIfTargetWalletClosed(
         uint256 reservationKey,
         bool evidenceAlreadyEmitted
@@ -742,5 +761,103 @@ contract TestReservation {
             )
         );
         state.spentMainUTXOs[anchorUtxoKey] = spent;
+    }
+
+    function setBank(address bankAddress) external {
+        state.bank = Bank(bankAddress);
+    }
+
+    function setEcdsaWalletRegistry(address registryAddress) external {
+        state.ecdsaWalletRegistry = EcdsaWalletRegistry(registryAddress);
+    }
+
+    function moveFunds(bytes20 walletPubKeyHash) external {
+        Wallets.moveFunds(state, walletPubKeyHash);
+    }
+
+    function beginWalletClosing(bytes20 walletPubKeyHash) external {
+        Wallets.beginWalletClosing(state, walletPubKeyHash);
+    }
+
+    function finalizeWalletClosing(bytes20 walletPubKeyHash) external {
+        Wallets.finalizeWalletClosing(state, walletPubKeyHash);
+    }
+
+    function setWalletMainUtxo(bytes20 walletPubKeyHash, bytes32 mainUtxoHash)
+        external
+    {
+        state.registeredWallets[walletPubKeyHash].mainUtxoHash = mainUtxoHash;
+    }
+
+    function setWalletEcdsaWalletId(
+        bytes20 walletPubKeyHash,
+        bytes32 ecdsaWalletID
+    ) external {
+        state.registeredWallets[walletPubKeyHash].ecdsaWalletID = ecdsaWalletID;
+    }
+
+    function walletState(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (Wallets.WalletState)
+    {
+        return state.registeredWallets[walletPubKeyHash].state;
+    }
+
+    function walletReservationInfo(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint32 count, uint64 amount)
+    {
+        return (
+            state.walletReservationInfo[walletPubKeyHash].count,
+            state.walletReservationInfo[walletPubKeyHash].amount
+        );
+    }
+
+    function reservationCaps()
+        external
+        view
+        returns (
+            uint64 maxReservationsAmountPerWallet,
+            uint64 reservationMaxSingleAmount,
+            uint32 maxActiveReservations
+        )
+    {
+        maxReservationsAmountPerWallet = state.maxReservationsAmountPerWallet;
+        reservationMaxSingleAmount = state.reservationMaxSingleAmount;
+        maxActiveReservations = state.maxActiveReservations;
+    }
+
+    function walletReservationKeysLength(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (uint256)
+    {
+        return state.walletReservationKeys[walletPubKeyHash].length;
+    }
+
+    function walletReservationKeyAt(bytes20 walletPubKeyHash, uint256 index)
+        external
+        view
+        returns (uint256)
+    {
+        return state.walletReservationKeys[walletPubKeyHash][index];
+    }
+
+    function walletReservationKeyIndex(uint256 reservationKey)
+        external
+        view
+        returns (uint256)
+    {
+        return state.walletReservationKeyIndex[reservationKey];
+    }
+
+    function reservationsByAnchorUtxo(bytes32 anchorUtxoHash)
+        external
+        view
+        returns (uint256)
+    {
+        return state.reservationsByAnchorUtxo[uint256(anchorUtxoHash)];
     }
 }

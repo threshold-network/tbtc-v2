@@ -320,7 +320,7 @@ async function seedDepositWithVault(
   revealedAt?: number,
   vault?: string
 ) {
-  await executor.seedDeposit(depositKey, depositor)
+  await executor.seedDepositBasic(depositKey, depositor)
 
   const currentRevealedAt =
     revealedAt ??
@@ -884,8 +884,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
           await ethers.provider.getBlock("latest").then((b) => b!.timestamp)
         ) + 3600
 
-      await executor.seedDeposit(depositKey, depositor)
-      await executor.seedPendingReservedDeposit(
+      await executor.seedDepositBasic(depositKey, depositor)
+      await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
         futureDeadline,
@@ -907,8 +907,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const depositKey = `0x${"f2".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
 
-      await executor.seedDeposit(depositKey, depositor)
-      await executor.seedPendingReservedDeposit(
+      await executor.seedDepositBasic(depositKey, depositor)
+      await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
         // Deadline strictly in the past so the deadline-elapsed check
@@ -941,9 +941,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const depositKey = `0x${"f4".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
 
-      await executor.seedDeposit(depositKey, depositor)
+      await executor.seedDepositBasic(depositKey, depositor)
       await executor.seedSweptDeposit(depositKey)
-      await executor.seedPendingReservedDeposit(
+      await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
         0,
@@ -960,9 +960,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const depositKey = `0x${"f5".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
 
-      await executor.seedDeposit(depositKey, depositor)
+      await executor.seedDepositBasic(depositKey, depositor)
       // Far-future deadline so the elapsed check fails deterministically.
-      await executor.seedPendingReservedDeposit(
+      await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
         0xffffffff,
@@ -979,8 +979,8 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       const depositKey = `0x${"f6".repeat(32)}`
       const depositor = ethers.Wallet.createRandom().address
 
-      await executor.seedDeposit(depositKey, depositor)
-      await executor.seedPendingReservedDeposit(
+      await executor.seedDepositBasic(depositKey, depositor)
+      await executor.seedPendingReservedDepositBasic(
         depositKey,
         walletPubKeyHash,
         0,
@@ -1009,15 +1009,15 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       // must clear it regardless of the refundDeadlineValidated flag.
       const elapsedDeadline = 1
 
-      await executor.seedDeposit(depositKeyA, depositor)
-      await executor.seedPendingReservedDeposit(
+      await executor.seedDepositBasic(depositKeyA, depositor)
+      await executor.seedPendingReservedDepositBasic(
         depositKeyA,
         walletPubKeyHash,
         elapsedDeadline,
         false
       )
-      await executor.seedDeposit(depositKeyB, depositor)
-      await executor.seedPendingReservedDeposit(
+      await executor.seedDepositBasic(depositKeyB, depositor)
+      await executor.seedPendingReservedDepositBasic(
         depositKeyB,
         walletPubKeyHash,
         elapsedDeadline,

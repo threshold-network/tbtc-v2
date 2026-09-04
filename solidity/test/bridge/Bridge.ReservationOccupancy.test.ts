@@ -27,11 +27,81 @@ describe("Reservation - occupancy tracking", () => {
     testReservation = await deployTestReservation()
   })
 
-  // Covered by solidity/test/bridge/Reservation.test.ts ("requestReservationAcceptance > should increment activeReservationsCount", lines 717-743)
+  it("requestReservationAcceptance increments activeReservationsCount and emits ReservationOccupancyChanged", async () => {
+    const [deployer, depositor] = await ethers.getSigners()
+    const reservationKey = 101
+    const walletPubKeyHash = `0x${"2".repeat(40)}`
+    const vault = `0x${"3".repeat(40)}`
+    const now = (await ethers.provider.getBlock("latest")).timestamp
 
-  // Covered by Reservation.test.ts (notifyReservationActionTimeout)
-  it.skip("Covered by Reservation.test.ts (notifyReservationActionTimeout)")
+    await testReservation.setGovernanceParameters(100, 100, 10000, 0)
+    await testReservation.setReservationVault(vault)
+    await testReservation.setWalletState(walletPubKeyHash, walletState.Live)
+    await testReservation.setDeposit(
+      reservationKey,
+      depositor.address,
+      1000,
+      now - 3 * 60 * 60,
+      vault
+    )
+    await testReservation.seedPendingReservedDeposit(
+      reservationKey,
+      true,
+      walletPubKeyHash,
+      now + 200000
+    )
 
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+
+    await expect(
+      testReservation
+        .connect(depositor)
+        .requestReservationAcceptance(reservationKey, walletPubKeyHash)
+    )
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(1)
+
+    expect(await testReservation.activeReservationsCount()).to.equal(1)
+  })
+
+  it("notifyReservationAcceptanceTimedOut decrements activeReservationsCount and emits ReservationOccupancyChanged", async () => {
+    const reservationKey = 102
+    const walletPubKeyHash = `0x${"2".repeat(40)}`
+    const now = (await ethers.provider.getBlock("latest")).timestamp
+
+    await testReservation.setActiveReservationsCount(1)
+    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
+    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 1000)
+    await testReservation.setReservationTotalAmount(1000)
+    // The timeout path reads the reservation's current request nonce to find
+    // the action; seed the record so it resolves to the Acceptance action.
+    await testReservation.setReservationFullState(
+      reservationKey,
+      ethers.constants.AddressZero,
+      walletPubKeyHash,
+      1000,
+      1 /* Active */,
+      1 /* requestNonce */
+    )
+
+    await testReservation.setFullAction(
+      reservationKey,
+      1,
+      1 /* Acceptance */,
+      1 /* Pending */,
+      now - 10,
+      walletPubKeyHash,
+      1000
+    )
+
+    await expect(
+      testReservation.notifyReservationAcceptanceTimedOut(reservationKey)
+    )
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(0)
+
+    expect(await testReservation.activeReservationsCount()).to.equal(0)
+  })
   // Reservation.sol - COVERED (externally callable; accepts Terminated/Closed).
   // Seeds a minimal Active reservation + Closed or Terminated wallet, pre-loads
   // the three reservation accounting counters the strand will decrement, calls
@@ -65,7 +135,8 @@ describe("Reservation - occupancy tracking", () => {
         ethers.constants.AddressZero,
         100
       )
-
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
 
@@ -100,7 +171,8 @@ describe("Reservation - occupancy tracking", () => {
         ethers.constants.AddressZero,
         100
       )
-
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(0)
     expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
 
@@ -206,6 +278,31 @@ describe("Reservation - occupancy tracking", () => {
     ).to.be.revertedWith(
       "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
     )
+  })
+
+  it("prepareReservationForSettlement restores activeReservationsCount on late settlement of stranded reservation and emits ReservationOccupancyChanged", async () => {
+    const reservationKey = 103
+    const walletPubKeyHash = `0x${"1".repeat(40)}`
+    const anchorTxHash = `0x${"a".repeat(64)}`
+
+    await testReservation.setActiveReservationsCount(0)
+    await testReservation.setReservationFullState(
+      reservationKey,
+      ethers.constants.AddressZero,
+      walletPubKeyHash,
+      1000,
+      4 /* Stranded */,
+      1
+    )
+    await testReservation.setReservationAnchor(reservationKey, anchorTxHash, 0)
+
+    await expect(
+      testReservation.prepareReservationForSettlement(reservationKey, true)
+    )
+      .to.emit(testReservation, "ReservationOccupancyChanged")
+      .withArgs(1)
+
+    expect(await testReservation.activeReservationsCount()).to.equal(1)
   })
 
   // Covered by solidity/test/bridge/Reservation.test.ts ("prepareReservationForSettlement should restore capacity for a late-settled stranded reservation", lines 1514-1534)

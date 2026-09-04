@@ -1,8 +1,10 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { TestReservation } from "../../typechain"
+import { TestReservation, IWalletRegistry } from "../../typechain"
 import { walletState } from "../fixtures"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { AddressZero, HashZero } = ethers.constants
@@ -1996,6 +1998,104 @@ describe("Reservation", () => {
         await testReservation.walletReservationsAmount(walletPubKeyHash)
       ).to.equal(1000)
       expect(await testReservation.activeReservationsCount()).to.equal(1)
+    })
+  })
+
+  describe("Wallets movingFunds and closing gates with reservations", () => {
+    const testWalletPubKeyHash = `0x${"44".repeat(20)}`
+    const testEcdsaWalletId = ethers.utils.hexZeroPad("0x44", 32)
+    let mockWalletRegistry: Mock<IWalletRegistry>
+
+    beforeEach(async () => {
+      mockWalletRegistry = await createMock<IWalletRegistry>("IWalletRegistry")
+      await testReservation.setEcdsaWalletRegistry(mockWalletRegistry.address)
+      await testReservation.registerWallet(
+        testWalletPubKeyHash,
+        walletState.Live
+      )
+      await testReservation.setWalletEcdsaWalletId(
+        testWalletPubKeyHash,
+        testEcdsaWalletId
+      )
+    })
+
+    it("routes Live wallet with zero main UTXO and active reservations to MovingFunds", async () => {
+      await testReservation.setWalletMainUtxo(
+        testWalletPubKeyHash,
+        ethers.constants.HashZero
+      )
+      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
+      await testReservation.setWalletReservationsAmount(
+        testWalletPubKeyHash,
+        100000
+      )
+      await testReservation.setLiveWalletsCount(1)
+
+      const tx = await testReservation.moveFunds(testWalletPubKeyHash)
+
+      expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
+        walletState.MovingFunds
+      )
+      await expect(tx)
+        .to.emit(testReservation, "WalletMovingFunds")
+        .withArgs(testEcdsaWalletId, testWalletPubKeyHash)
+    })
+
+    it("routes Live wallet with zero main UTXO and zero reservations directly to Closing", async () => {
+      await testReservation.setWalletMainUtxo(
+        testWalletPubKeyHash,
+        ethers.constants.HashZero
+      )
+      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 0)
+      await testReservation.setLiveWalletsCount(1)
+
+      const tx = await testReservation.moveFunds(testWalletPubKeyHash)
+
+      expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
+        walletState.Closing
+      )
+      await expect(tx).to.not.emit(testReservation, "WalletMovingFunds")
+      await expect(tx)
+        .to.emit(testReservation, "WalletClosing")
+        .withArgs(testEcdsaWalletId, testWalletPubKeyHash)
+    })
+
+    it("reverts beginWalletClosing when wallet has active reservations", async () => {
+      await testReservation.setWalletState(
+        testWalletPubKeyHash,
+        walletState.MovingFunds
+      )
+      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
+
+      await expect(
+        testReservation.beginWalletClosing(testWalletPubKeyHash)
+      ).to.be.revertedWith("Wallet has active reservations")
+    })
+
+    it("reverts finalizeWalletClosing when wallet has active reservations and closes when zero", async () => {
+      await testReservation.setWalletState(
+        testWalletPubKeyHash,
+        walletState.Closing
+      )
+      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
+
+      await expect(
+        testReservation.finalizeWalletClosing(testWalletPubKeyHash)
+      ).to.be.revertedWith("Wallet has active reservations")
+
+      // Clear reservation count
+      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 0)
+
+      const tx = await testReservation.finalizeWalletClosing(
+        testWalletPubKeyHash
+      )
+
+      expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
+        walletState.Closed
+      )
+      await expect(tx)
+        .to.emit(testReservation, "WalletClosed")
+        .withArgs(testEcdsaWalletId, testWalletPubKeyHash)
     })
   })
 })

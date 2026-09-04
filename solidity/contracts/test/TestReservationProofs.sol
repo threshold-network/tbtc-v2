@@ -16,6 +16,13 @@ contract MockReservationVault is IVault {
     uint256 public totalReceived;
     address[] public lastDepositors;
     uint256[] public lastAmounts;
+    // In-kind miner fees financed by the re-anchor settlement path; the mock
+    // records them so tests can assert the financing leg without token logic.
+    uint256 public inKindFeesFinanced;
+
+    function financeInKindFee(uint64 feeSat) external {
+        inKindFeesFinanced += feeSat;
+    }
 
     constructor(address _bank) {
         bank = _bank;
@@ -70,6 +77,15 @@ contract TestReservationProofs {
     );
 
     event ReservationRetryCreditMinted(uint256 indexed reservationKey);
+
+    event ReservationReanchored(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes20 indexed newWalletPubKeyHash,
+        bytes32 newAnchorTxHash,
+        uint64 newAnchorAmount,
+        uint64 minerFee
+    );
 
     event ReservationLateSettled(
         uint256 indexed reservationKey,
@@ -358,6 +374,12 @@ contract TestReservationProofs {
         uint256 reservationKey
     ) external {
         state.walletPendingDissolution[walletPubKeyHash] = reservationKey;
+    }
+
+    function setReservationByAnchorUtxo(uint256 utxoKey, uint256 reservationKey)
+        external
+    {
+        state.reservationsByAnchorUtxo[utxoKey] = reservationKey;
     }
 
     function addWalletReservationKey(
