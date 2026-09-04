@@ -867,6 +867,22 @@
         "type": "uint32",
         "numberOfBytes": "4"
       }
+    ],
+    "WalletReservationInfo": [
+      {
+        "label": "amount",
+        "slot": "0",
+        "offset": 0,
+        "type": "uint64",
+        "numberOfBytes": "8"
+      },
+      {
+        "label": "count",
+        "slot": "0",
+        "offset": 8,
+        "type": "uint32",
+        "numberOfBytes": "4"
+      }
     ]
   }
 }

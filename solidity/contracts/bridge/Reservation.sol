@@ -1052,32 +1052,41 @@ library Reservation {
         }
     }
 
-    /// @notice Overload of strandReservation that defaults emitEvidence to true.
-    function strandReservation(
-        BridgeState.Storage storage self,
-        ReservationRequest storage reservation,
-        uint256 reservationKey
-    ) internal {
-        strandReservation(self, reservation, reservationKey, true);
-    }
-
     /// @notice Closes a reservation: releases wallet, global and occupancy
-    ///         capacity (via the shared `releaseAcceptanceCapacity` helper,
-    ///         so a closed position stops counting against
-    ///         `maxActiveReservations` exactly like a stranded one), and
-    ///         marks the reservation as Closed.
-    /// @dev Intended for milestone 2 settlement call sites:
+    ///         capacity, removes the position from its wallet's enumeration
+    ///         and the reverse anchor index, and marks the reservation as
+    ///         Closed. Mirrors `strandReservation`'s release surface so an
+    ///         m2 close leaves the same invariants a strand does.
+    /// @param reservationKey The key of the reservation to close.
+    /// @dev Intended for milestone 2 settlement call sites (both currently
+    ///      unreachable in m1; the call sites pass the key):
     ///      - Reserved redemption settlement (PR #1112 / m2-redemption)
     ///      - Reservation dissolution settlement (PR #1114 / m2-dissolution)
     function closeReservation(
         BridgeState.Storage storage self,
-        ReservationRequest storage reservation
+        ReservationRequest storage reservation,
+        uint256 reservationKey
     ) internal {
         releaseAcceptanceCapacity(
             self,
             reservation.walletPubKeyHash,
             reservation.anchorAmount
         );
+        removeWalletReservationKey(
+            self,
+            reservation.walletPubKeyHash,
+            reservationKey
+        );
+        delete self.reservationsByAnchorUtxo[
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        reservation.anchorTxHash,
+                        reservation.anchorTxOutputIndex
+                    )
+                )
+            )
+        ];
         reservation.state = ReservationState.Closed;
     }
 

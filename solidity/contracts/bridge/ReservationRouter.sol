@@ -189,6 +189,8 @@ contract ReservationRouter is Governable, Initializable {
         uint32 maxActiveReservations
     );
 
+    event ReservationOccupancyChanged(uint32 activeReservationsCount);
+
     modifier onlySpvMaintainer() {
         require(
             self.isSpvMaintainer[msg.sender],

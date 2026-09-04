@@ -224,7 +224,8 @@ contract TestReservationProofs {
         Reservation.strandReservation(
             state,
             state.reservations[reservationKey],
-            reservationKey
+            reservationKey,
+            true
         );
     }
 

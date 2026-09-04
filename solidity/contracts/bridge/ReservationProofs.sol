@@ -279,11 +279,13 @@ library ReservationProofs {
     /// @notice Validates the position can settle the loaded action and, for a
     ///         timed-out generation whose position was already stranded,
     ///         reconstructs the source anchor's tracking before settlement.
-    /// @dev Stranding releases the global and wallet accounting, enumeration,
-    ///      and reverse anchor index. A transaction confirmed before stranding
-    ///      must still settle, so the proof transaction atomically restores
-    ///      those surfaces before the ordinary settlement path consumes or
-    ///      moves them. Caps are request-time throttles and are deliberately
+    /// @dev Stranding releases the global and wallet accounting counters. A
+    ///      transaction confirmed before stranding must still settle, so the
+    ///      proof transaction atomically restores those counters before the
+    ///      ordinary settlement path consumes or moves them. The enumeration
+    ///      entry and reverse anchor index stay released: the settlement path
+    ///      re-adds them where it owns the position afterward. Caps are
+    ///      request-time throttles and are deliberately
     ///      not re-checked for an already-confirmed Bitcoin transaction.
     function prepareReservationForSettlement(
         BridgeState.Storage storage self,
