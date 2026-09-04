@@ -233,37 +233,6 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
-    /// @notice Requests an in-kind reserved redemption of a reservation's
-    ///         anchor outpoint. Must be called by the reservation vault,
-    ///         which collects the redemption fee, unmints the gross TBTC
-    ///         claim and escrows it into the Bridge via the Bank before
-    ///         this call. See `Reservation.requestReservedRedemption`.
-    /// @param reservationKey The key of the reservation to redeem.
-    /// @param redeemer The address able to claim the escrowed balance back
-    ///        should the redemption time out or be vetoed.
-    /// @param redeemerOutputScript The redeemer's length-prefixed output
-    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
-    /// @param feePaid True when the redemption fee was collected by the
-    ///        vault; a fee-paid generation that times out through the
-    ///        wallet's fault mints the retry entitlement.
-    /// @param useRetryCredit True when this request consumes the
-    ///        reservation's single-use, fee-free retry entitlement.
-    function requestReservedRedemption(
-        uint256 reservationKey,
-        address redeemer,
-        bytes calldata redeemerOutputScript,
-        bool feePaid,
-        bool useRetryCredit
-    ) external {
-        self.requestReservedRedemption(
-            reservationKey,
-            redeemer,
-            redeemerOutputScript,
-            feePaid,
-            useRetryCredit
-        );
-    }
-
     /// @notice Single entry point for reservation lifecycle SPV proofs
     ///         retained in milestone 1: anchor acceptance and re-anchoring.
     ///         Settles the named action generation. See
@@ -314,53 +283,6 @@ contract ReservationRouter is Governable, Initializable {
         uint32[] calldata walletMembersIDs
     ) external {
         self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
-    }
-
-    /// @notice Permissionlessly reports a reservation's pending redemption
-    ///         generation as timed out once its authorization window has
-    ///         elapsed: restores the reservation to Active, mints the
-    ///         fee-free retry entitlement when the generation had paid the
-    ///         fee or had itself consumed one, propagates the wallet
-    ///         consequences (slashing follows the regular redemption
-    ///         timeout rules) and returns the escrowed claim to the
-    ///         redeemer as Bank balance. See
-    ///         `Reservation.notifyReservationRedemptionTimedOut`.
-    /// @param reservationKey The key of the reservation.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members, consulted for the slashing path.
-    function notifyReservationRedemptionTimedOut(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservationRedemptionTimedOut(
-            reservationKey,
-            walletMembersIDs
-        );
-    }
-
-    /// @notice Finalizes a reserved-redemption veto: marks the generation
-    ///         `Vetoed` and returns the escrowed gross amount to the
-    ///         watchtower, which holds the withdrawable remainder for the
-    ///         redeemer after the freeze period and burns the penalty fee.
-    ///         Must be called by the redemption watchtower. See
-    ///         `Reservation.notifyReservedRedemptionVeto`.
-    /// @param reservationKey The key of the reservation.
-    /// @param requestNonce The vetoed redemption generation.
-    function notifyReservedRedemptionVeto(
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) external {
-        self.notifyReservedRedemptionVeto(reservationKey, requestNonce);
-    }
-
-    /// @notice Extends the custody term of a reservation by the current
-    ///         term parameter, re-granting the dissolution eligibility
-    ///         window from the new expiry. Must be called by the
-    ///         reservation vault, which collects the extension fee. See
-    ///         `Reservation.extendReservation`.
-    /// @param reservationKey The key of the reservation to extend.
-    function extendReservation(uint256 reservationKey) external {
-        self.extendReservation(reservationKey);
     }
 
     /// @notice Permissionlessly reports a pending acceptance authorization

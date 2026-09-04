@@ -37,30 +37,6 @@ interface IReservationBridge {
         bytes20 targetWalletPubKeyHash
     ) external;
 
-    /// @notice See `ReservationRouter.requestReservedRedemption`.
-    function requestReservedRedemption(
-        uint256 reservationKey,
-        address redeemer,
-        bytes calldata redeemerOutputScript,
-        bool feePaid,
-        bool useRetryCredit
-    ) external;
-
-    /// @notice See `ReservationRouter.notifyReservationRedemptionTimedOut`.
-    function notifyReservationRedemptionTimedOut(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external;
-
-    /// @notice See `ReservationRouter.notifyReservedRedemptionVeto`.
-    function notifyReservedRedemptionVeto(
-        uint256 reservationKey,
-        uint64 requestNonce
-    ) external;
-
-    /// @notice See `ReservationRouter.extendReservation`.
-    function extendReservation(uint256 reservationKey) external;
-
     /// @notice See `ReservationRouter.submitReservationProof`.
     function submitReservationProof(
         uint8 proofType,
