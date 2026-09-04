@@ -816,6 +816,9 @@ describe("Bridge - Reserved redemption", () => {
       )
     }
 
+    const vetoKeyOf = (key: BigNumber | number, nonce: number): string =>
+      ethers.utils.solidityKeccak256(["uint256", "uint64"], [key, nonce])
+
     before(async () => {
       await createSnapshot()
       await wireReservations()
@@ -977,6 +980,51 @@ describe("Bridge - Reserved redemption", () => {
           .connect(guardianSigners[0])
           .raiseReservedObjection(reservationKey, 1)
       ).to.be.revertedWith("Redemption veto delay period expired")
+    })
+
+    it("pays the withdrawable remainder to the redeemer after the freeze period", async () => {
+      // `updateDelayPolicy` sets the penalty divisor to 20: 5% of the
+      // escrowed amount is burned as the penalty, the remainder stays
+      // withdrawable by the redeemer through the shared
+      // `withdrawVetoedFunds` path once the freeze period elapses.
+      await updateDelayPolicy(
+        await redemptionWatchtower.defaultDelay(),
+        await redemptionWatchtower.levelOneDelay(),
+        await redemptionWatchtower.levelTwoDelay(),
+        0
+      )
+      await requestRedemption()
+
+      await redemptionWatchtower
+        .connect(guardianSigners[0])
+        .raiseReservedObjection(reservationKey, 1)
+      await redemptionWatchtower
+        .connect(guardianSigners[1])
+        .raiseReservedObjection(reservationKey, 1)
+      await redemptionWatchtower
+        .connect(guardianSigners[2])
+        .raiseReservedObjection(reservationKey, 1)
+
+      const vetoKey = vetoKeyOf(reservationKey, 1)
+      const veto = await redemptionWatchtower.vetoProposals(vetoKey)
+      const expectedWithdrawable = amountSat.sub(amountSat.div(20))
+      expect(veto.withdrawableAmount).to.equal(expectedWithdrawable)
+
+      // The veto freeze period is strict (`> finalizedAt + vetoFreezePeriod`).
+      await increaseTime((await redemptionWatchtower.vetoFreezePeriod()) + 1)
+
+      const redeemerBalanceBefore = await bank.balanceOf(thirdParty.address)
+      await redemptionWatchtower
+        .connect(thirdParty)
+        .withdrawVetoedFunds(vetoKey)
+
+      expect(await bank.balanceOf(thirdParty.address)).to.equal(
+        redeemerBalanceBefore.add(expectedWithdrawable)
+      )
+      // The withdrawable amount is consumed by the withdrawal.
+      expect(
+        (await redemptionWatchtower.vetoProposals(vetoKey)).withdrawableAmount
+      ).to.equal(0)
     })
   })
 
