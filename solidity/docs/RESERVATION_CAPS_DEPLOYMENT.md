@@ -36,9 +36,11 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 > Once any reservation is accepted, `ReservationVault` can **never** be swapped, upgraded, or repointed to a patched version.
 >
 > The vault re-point gate in `Bridge.updateReservationParameters` requires:
+>
 > ```solidity
 > self.reservationTotalAmount == 0 && self.pendingReservedDeposits == 0
 > ```
+>
 > Under Milestone 1 (variant B), this state is reachable **only** via complete wallet termination / stranding / acceptance timeouts, because voluntary early exits (such as redemptions or dissolutions) are deferred to Milestone 2.
 >
 > Setting a non-zero `reservationVault` in `updateReservationParameters` and accepting the first reservation permanently locks in that vault contract for the entire lifetime of live reservations. Explicit governance and deployer sign-off acknowledging this irreversibility is **required** prior to the activation ceremony.

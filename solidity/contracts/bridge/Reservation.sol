@@ -789,9 +789,9 @@ library Reservation {
 
         // Reserve the target wallet's count and amount capacity; the
         // source wallet's are released at settlement (or kept on timeout).
-        uint32 targetCount = self.walletReservationInfo[
-            targetWalletPubKeyHash
-        ].count + 1;
+        uint32 targetCount = self
+            .walletReservationInfo[targetWalletPubKeyHash]
+            .count + 1;
         require(
             self.maxReservationsPerWallet == 0 ||
                 targetCount <= self.maxReservationsPerWallet,
@@ -799,15 +799,17 @@ library Reservation {
         );
         self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
 
-        uint64 targetAmount = self.walletReservationInfo[
-            targetWalletPubKeyHash
-        ].amount + anchorAmount;
+        uint64 targetAmount = self
+            .walletReservationInfo[targetWalletPubKeyHash]
+            .amount + anchorAmount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 targetAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self.walletReservationInfo[targetWalletPubKeyHash].amount = targetAmount;
+        self
+            .walletReservationInfo[targetWalletPubKeyHash]
+            .amount = targetAmount;
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -924,8 +926,9 @@ library Reservation {
         );
         self.reservationTotalAmount = newTotal;
 
-        uint32 walletCount =
-            self.walletReservationInfo[walletPubKeyHash].count + 1;
+        uint32 walletCount = self
+            .walletReservationInfo[walletPubKeyHash]
+            .count + 1;
         require(
             self.maxReservationsPerWallet == 0 ||
                 walletCount <= self.maxReservationsPerWallet,
@@ -933,8 +936,9 @@ library Reservation {
         );
         self.walletReservationInfo[walletPubKeyHash].count = walletCount;
 
-        uint64 walletAmount =
-            self.walletReservationInfo[walletPubKeyHash].amount + amount;
+        uint64 walletAmount = self
+            .walletReservationInfo[walletPubKeyHash]
+            .amount + amount;
         require(
             self.maxReservationsAmountPerWallet == 0 ||
                 walletAmount <= self.maxReservationsAmountPerWallet,
@@ -1012,8 +1016,7 @@ library Reservation {
         uint256 reservationKey,
         bool emitEvidence
     ) internal {
-        bool alreadyStranded = reservation.state ==
-            ReservationState.Stranded;
+        bool alreadyStranded = reservation.state == ReservationState.Stranded;
         bytes20 walletPubKeyHash = reservation.walletPubKeyHash;
         uint64 anchorAmount = reservation.anchorAmount;
 

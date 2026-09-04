@@ -63,7 +63,6 @@ library BridgeState {
         uint32 count;
     }
 
-
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;

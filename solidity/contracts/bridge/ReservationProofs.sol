@@ -322,9 +322,9 @@ library ReservationProofs {
 
         self.reservationTotalAmount += reservation.anchorAmount;
         self.walletReservationInfo[reservation.walletPubKeyHash].count += 1;
-        self.walletReservationInfo[
-            reservation.walletPubKeyHash
-        ].amount += reservation.anchorAmount;
+        self
+            .walletReservationInfo[reservation.walletPubKeyHash]
+            .amount += reservation.anchorAmount;
         self.activeReservationsCount += 1;
         emit ReservationOccupancyChanged(self.activeReservationsCount);
     }
@@ -548,9 +548,9 @@ library ReservationProofs {
             // and the anchor is already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
             self.walletReservationInfo[targetWalletPubKeyHash].count += 1;
-            self.walletReservationInfo[
-                targetWalletPubKeyHash
-            ].amount += anchorAmount;
+            self
+                .walletReservationInfo[targetWalletPubKeyHash]
+                .amount += anchorAmount;
             // The timeout also released activeReservationsCount (see
             // `Reservation.notifyReservationAcceptanceTimedOut`); re-take it
             // so a late-settled acceptance is still counted against the cap
@@ -567,7 +567,9 @@ library ReservationProofs {
             // (deposit value) and the actual anchor value (miner fee).
             uint64 feeDelta = action.amount - anchorAmount;
             self.reservationTotalAmount -= feeDelta;
-            self.walletReservationInfo[targetWalletPubKeyHash].amount -= feeDelta;
+            self
+                .walletReservationInfo[targetWalletPubKeyHash]
+                .amount -= feeDelta;
         }
 
         Reservation.ReservationRequest storage reservation = self.reservations[
@@ -625,7 +627,6 @@ library ReservationProofs {
             reservationKey,
             false
         );
-
 
         // Credit the gross anchored amount through the vault the deposit was
         // revealed to, but only if that vault is still trusted: governance
@@ -730,8 +731,9 @@ library ReservationProofs {
             // amount; re-take them. Deliberately no cap check (see
             // acceptance).
             self.walletReservationInfo[newWalletPubKeyHash].count += 1;
-            self.walletReservationInfo[newWalletPubKeyHash].amount += reservation
-                .anchorAmount;
+            self
+                .walletReservationInfo[newWalletPubKeyHash]
+                .amount += reservation.anchorAmount;
 
             // A newer pending generation references an anchor this
             // transaction just consumed; unwind it.
@@ -814,7 +816,9 @@ library ReservationProofs {
         minerFee = oldAnchorAmount - newAnchorAmount;
 
         self.walletReservationInfo[oldWalletPubKeyHash].count -= 1;
-        self.walletReservationInfo[oldWalletPubKeyHash].amount -= oldAnchorAmount;
+        self
+            .walletReservationInfo[oldWalletPubKeyHash]
+            .amount -= oldAnchorAmount;
         self.walletReservationInfo[newWalletPubKeyHash].amount -= minerFee;
         self.reservationTotalAmount -= minerFee;
         reservation.cumulativeReanchorFee += minerFee;
@@ -868,9 +872,7 @@ library ReservationProofs {
 
         pendingAction.state = Reservation.ActionState.Superseded;
 
-        if (
-            pendingAction.actionType == Reservation.ActionType.Reanchor
-        ) {
+        if (pendingAction.actionType == Reservation.ActionType.Reanchor) {
             Reservation.releaseReanchorTargetCapacity(
                 self,
                 pendingAction.targetWalletPubKeyHash,

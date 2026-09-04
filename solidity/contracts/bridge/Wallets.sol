@@ -275,7 +275,6 @@ library Wallets {
         }
     }
 
-
     /// @notice Handles a notification about a wallet heartbeat failure and
     ///         triggers the wallet moving funds process.
     /// @param publicKeyX Wallet's public key's X coordinate.
