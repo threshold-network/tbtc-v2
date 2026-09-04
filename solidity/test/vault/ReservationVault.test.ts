@@ -3,7 +3,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
 import { loadFixture } from "../helpers/fixture"
-import { createMock } from "../helpers/mock"
+import { createMock, expectCalledOnceWith } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 
 import type {
@@ -926,13 +926,39 @@ describe("ReservationVault", () => {
 
   describe("redeemReservation", () => {
     const reservationKey = 42
+    const amountSat = 100000
+    const grossTbtc = satsToTbtc(amountSat)
+    // Default schedule: 20 bps redemption fee.
+    const fee = grossTbtc.mul(20).div(10000)
+    const redeemerOutputScript =
+      "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
 
     before(async () => {
       await createSnapshot()
+      await vault.unpauseRedemptions()
     })
 
     after(async () => {
       await restoreSnapshot()
+    })
+
+    context("while redemptions are paused", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.pauseRedemptions()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert before checking ownership", async () => {
+        await expect(
+          vault
+            .connect(account1)
+            .redeemReservation(reservationKey, redeemerOutputScript, fee)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
     })
 
     context("when called by a non-owner of the reservation", () => {
@@ -944,18 +970,13 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
-
       it("should revert with ownership message while redemptions are unpaused", async () => {
         await vault.unpauseRedemptions()
         expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
+          vault
+            .connect(account1)
+            .redeemReservation(reservationKey, redeemerOutputScript, fee)
         ).to.be.revertedWith("Caller is not the reservation owner")
       })
     })
@@ -963,71 +984,116 @@ describe("ReservationVault", () => {
     context("when called by the reservation owner", () => {
       before(async () => {
         await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
+        await bridge.reservations.whenCalledWith(reservationKey).returns({
+          ...reservationWithOwner(account1.address),
+          mintedAmount: amountSat,
+        })
+        await bridge.treasury.returns(account2.address)
+
+        // Two acceptance-sized credits: the owner receives the gross TBTC
+        // (minus the initiation fee) twice and the TBTCVault receives the
+        // corresponding Bank balance, so the unmint leg of the redemption
+        // has backing to return to this vault.
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(
+            vault.address,
+            [account1.address],
+            [amountSat]
+          )
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(
+            vault.address,
+            [account1.address],
+            [amountSat]
+          )
+
+        await tbtc.connect(account1).approve(vault.address, grossTbtc.add(fee))
       })
 
       after(async () => {
         await bridge.reservations.reset()
+        await bridge.treasury.reset()
         await restoreSnapshot()
       })
 
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Redemptions are paused")
+      it("should surrender gross TBTC, charge the redemption fee, and leave the escrowed Bank balance at the vault", async () => {
+        const ownerBalanceBefore = await tbtc.balanceOf(account1.address)
+        const bankBalanceBefore = await bank.balanceOf(vault.address)
+        const treasuryBalanceBefore = await tbtc.balanceOf(account2.address)
+
+        const tx = await vault
+          .connect(account1)
+          .redeemReservation(reservationKey, redeemerOutputScript, fee)
+
+        await expect(tx)
+          .to.emit(vault, "ReservedRedemptionInitiated")
+          .withArgs(reservationKey, account1.address, grossTbtc, fee)
+
+        // The owner surrendered the gross amount plus the fee...
+        expect(await tbtc.balanceOf(account1.address)).to.equal(
+          ownerBalanceBefore.sub(grossTbtc.add(fee))
+        )
+        // ...the fee was forwarded to the treasury...
+        expect(await tbtc.balanceOf(account2.address)).to.equal(
+          treasuryBalanceBefore.add(fee)
+        )
+        // ...and the unmint leg moved the gross Bank balance out of the
+        // TBTCVault into this vault, ready for the Bridge to escrow on
+        // `requestReservedRedemption`.
+        expect(await bank.balanceOf(vault.address)).to.equal(
+          bankBalanceBefore.add(amountSat)
+        )
       })
 
-      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
+      it("should reject a redemption whose fee exceeds the caller's bound", async () => {
+        const ownerBalanceBefore = await tbtc.balanceOf(account1.address)
         await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Reserved redemption not enabled in milestone 1")
-      })
-    })
+          vault
+            .connect(account1)
+            .redeemReservation(reservationKey, redeemerOutputScript, fee.sub(1))
+        ).to.be.revertedWith("Fee exceeds the caller's bound")
 
-    context("pause state distinguishability", () => {
-      before(async () => {
-        await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
-      })
-
-      after(async () => {
-        await bridge.reservations.reset()
-        await restoreSnapshot()
-      })
-
-      it("should distinguish between paused and unpaused states", async () => {
-        // While paused, reverts with "Redemptions are paused"
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Redemptions are paused")
-
-        // While unpaused, reverts with milestone-1 disabled string
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Reserved redemption not enabled in milestone 1")
+        expect(await tbtc.balanceOf(account1.address)).to.equal(
+          ownerBalanceBefore
+        )
       })
     })
   })
 
   describe("retryRedeemReservation", () => {
     const reservationKey = 43
+    const amountSat = 100000
+    const redeemerOutputScript =
+      "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
 
     before(async () => {
       await createSnapshot()
+      await vault.unpauseRedemptions()
     })
 
     after(async () => {
       await restoreSnapshot()
+    })
+
+    context("while redemptions are paused", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.pauseRedemptions()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert before checking ownership", async () => {
+        await expect(
+          vault
+            .connect(account1)
+            .retryRedeemReservation(reservationKey, redeemerOutputScript)
+        ).to.be.revertedWith("Redemptions are paused")
+      })
     })
 
     context("when called by a non-owner of the reservation", () => {
@@ -1039,18 +1105,13 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
-
       it("should revert with ownership message while redemptions are unpaused", async () => {
         await vault.unpauseRedemptions()
         expect(await vault.redemptionsPaused()).to.equal(false)
         await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
+          vault
+            .connect(account1)
+            .retryRedeemReservation(reservationKey, redeemerOutputScript)
         ).to.be.revertedWith("Caller is not the reservation owner")
       })
     })
@@ -1058,35 +1119,84 @@ describe("ReservationVault", () => {
     context("when called by the reservation owner", () => {
       before(async () => {
         await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
+        await bridge.reservations.whenCalledWith(reservationKey).returns({
+          ...reservationWithOwner(account1.address),
+          mintedAmount: amountSat,
+        })
+        await bridge.treasury.returns(account2.address)
+
+        // The retry draws from the caller's Bank balance: the state a
+        // timed-out redemption leaves the owner in (the Bridge refunds
+        // the escrow as Bank balance).
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalance(account1.address, amountSat)
+        await bank.connect(account1).approveBalance(vault.address, amountSat)
       })
 
       after(async () => {
         await bridge.reservations.reset()
+        await bridge.treasury.reset()
         await restoreSnapshot()
       })
 
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
+      it("should surrender the gross amount as Bank balance without charging the fee", async () => {
+        const treasuryBalanceBefore = await tbtc.balanceOf(account2.address)
 
-      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith(
-          "Reserved redemption retry not enabled in milestone 1"
+        const tx = await vault
+          .connect(account1)
+          .retryRedeemReservation(reservationKey, redeemerOutputScript)
+
+        await expect(tx)
+          .to.emit(vault, "ReservedRedemptionInitiated")
+          .withArgs(reservationKey, account1.address, satsToTbtc(amountSat), 0)
+
+        // The gross amount moved from the owner's Bank balance to this
+        // vault, ready for the Bridge to escrow.
+        expect(await bank.balanceOf(vault.address)).to.equal(amountSat)
+        expect(await bank.balanceOf(account1.address)).to.equal(0)
+        // No fee is re-charged on retry.
+        expect(await tbtc.balanceOf(account2.address)).to.equal(
+          treasuryBalanceBefore
         )
       })
     })
+  })
 
-    context("pause state distinguishability", () => {
+  describe("extendCustody", () => {
+    const reservationKey = 44
+    const amountSat = 100000
+    const grossTbtc = satsToTbtc(amountSat)
+    // Default schedule: 20 bps extension fee.
+    const fee = grossTbtc.mul(20).div(10000)
+
+    before(async () => {
+      await createSnapshot()
+      await vault.unpauseRenewals()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    context("while renewals are paused", () => {
+      before(async () => {
+        await createSnapshot()
+        await vault.pauseRenewals()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert before checking ownership", async () => {
+        await expect(
+          vault.connect(account1).extendCustody(reservationKey)
+        ).to.be.revertedWith("Renewals are paused")
+      })
+    })
+
+    context("when called by a non-owner of the reservation", () => {
       before(async () => {
         await createSnapshot()
         await bridge.reservations
@@ -1099,21 +1209,58 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should distinguish between paused and unpaused states", async () => {
-        // While paused, reverts with "Redemptions are paused"
-        expect(await vault.redemptionsPaused()).to.equal(true)
+      it("should revert with ownership message", async () => {
         await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Redemptions are paused")
+          vault.connect(account2).extendCustody(reservationKey)
+        ).to.be.revertedWith("Caller is not the reservation owner")
+      })
+    })
 
-        // While unpaused, reverts with milestone-1 disabled string
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith(
-          "Reserved redemption retry not enabled in milestone 1"
+    context("when called by the reservation owner", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.reservations.whenCalledWith(reservationKey).returns({
+          ...reservationWithOwner(account1.address),
+          mintedAmount: amountSat,
+        })
+        await bridge.treasury.returns(account2.address)
+
+        // One acceptance-sized credit is far more TBTC than the small
+        // extension fee requires; it just needs to fund the approval.
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(
+            vault.address,
+            [account1.address],
+            [amountSat]
+          )
+
+        await tbtc.connect(account1).approve(vault.address, fee)
+      })
+
+      after(async () => {
+        await bridge.reservations.reset()
+        await bridge.treasury.reset()
+        await restoreSnapshot()
+      })
+
+      it("should charge the extension fee to the treasury and call through to the Bridge", async () => {
+        const ownerBalanceBefore = await tbtc.balanceOf(account1.address)
+        const treasuryBalanceBefore = await tbtc.balanceOf(account2.address)
+
+        const tx = await vault.connect(account1).extendCustody(reservationKey)
+
+        await expect(tx)
+          .to.emit(vault, "CustodyExtended")
+          .withArgs(reservationKey, account1.address, fee)
+
+        expect(await tbtc.balanceOf(account1.address)).to.equal(
+          ownerBalanceBefore.sub(fee)
         )
+        expect(await tbtc.balanceOf(account2.address)).to.equal(
+          treasuryBalanceBefore.add(fee)
+        )
+        await expectCalledOnceWith(bridge.extendReservation, [reservationKey])
       })
     })
   })

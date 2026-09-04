@@ -225,8 +225,11 @@ describe("ReservationProofs", () => {
       ).to.be.revertedWith("Unsupported reservation proof type")
     })
 
-    it("should revert if proof type is not supported (Redemption, Dissolution)", async () => {
-      // ProofType.Redemption = 1
+    it("should route Redemption proofs to the reserved-redemption path", async () => {
+      // ProofType.Redemption = 1 is now supported: the dispatcher routes
+      // it to `submitReservedRedemptionProof`, which fails deeper on the
+      // fixture's missing action record ("Action type mismatch") rather
+      // than on the unsupported-type gate.
       await expect(
         testReservationProofs.submitReservationProof(
           1,
@@ -236,9 +239,11 @@ describe("ReservationProofs", () => {
           sampleReservationKey,
           1
         )
-      ).to.be.revertedWith("Unsupported reservation proof type")
+      ).to.be.revertedWith("Action type mismatch")
+    })
 
-      // ProofType.Dissolution = 3
+    it("should revert if proof type is not supported (Dissolution)", async () => {
+      // ProofType.Dissolution = 3 remains unsupported in milestone 1.
       await expect(
         testReservationProofs.submitReservationProof(
           3,
