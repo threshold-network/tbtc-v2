@@ -3106,7 +3106,7 @@ __metadata:
 
 "@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch":
   version: 1.46.0
-  resolution: "@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch::version=1.46.0&hash=8bb3b9"
+  resolution: "@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch::version=1.46.0&hash=4fe69b"
   dependencies:
     "@nomicfoundation/slang": "npm:^0.18.3"
     bignumber.js: "npm:^9.1.2"
