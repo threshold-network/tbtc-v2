@@ -1,3 +1,4 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -73,7 +74,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.target)
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.target
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -84,7 +87,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       100,
       owner.address,
       0,
-      ethers.constants.AddressZero
+      ethers.ZeroAddress
     )
   })
 
@@ -158,9 +161,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt1 = await tx1.wait()
-      const event1 = receipt1.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )
+      const event1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")
       const initialNonce = event1?.args?.nonce
 
       // Second call should refresh parameters (not block)
@@ -172,9 +175,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt2 = await tx2.wait()
-      const event2 = receipt2.events?.find(
-        (e) => e.event === "ExecutorParametersRefreshed"
-      )
+      const event2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersRefreshed")
 
       // Should emit ExecutorParametersRefreshed event
       expect(event2).to.not.be.undefined
@@ -406,9 +409,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt1 = await tx1.wait()
-      const event1 = receipt1.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )
+      const event1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")
       const initialNonce = event1?.args?.nonce
 
       // Try to set second parameters - should refresh with ExecutorParametersRefreshed event
@@ -420,9 +423,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt2 = await tx2.wait()
-      const event2 = receipt2.events?.find(
-        (e) => e.event === "ExecutorParametersRefreshed"
-      )
+      const event2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersRefreshed")
 
       // Should emit ExecutorParametersRefreshed event with correct parameters
       expect(event2).to.not.be.undefined

@@ -307,7 +307,7 @@ describe("TBTCVault", () => {
     context("when called not by the governance", () => {
       it("should revert", async () => {
         await expect(
-          vault.recoverERC721(testToken.target, account1.address, 1, [])
+          vault.recoverERC721(testToken.target, account1.address, 1, "0x")
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -323,7 +323,7 @@ describe("TBTCVault", () => {
 
         await vault
           .connect(governance)
-          .recoverERC721(testToken.target, account1.address, 1, [])
+          .recoverERC721(testToken.target, account1.address, 1, "0x")
       })
 
       after(async () => {
@@ -709,7 +709,12 @@ describe("TBTCVault", () => {
         await expect(
           vault
             .connect(account1)
-            .receiveApproval(account1.address, to1e18(1), account1.address, [])
+            .receiveApproval(
+              account1.address,
+              to1e18(1),
+              account1.address,
+              "0x"
+            )
         ).to.be.revertedWith("Token is not TBTC")
       })
     })
@@ -719,7 +724,7 @@ describe("TBTCVault", () => {
         await expect(
           vault
             .connect(account1)
-            .receiveApproval(account1.address, to1e18(1), tbtc.target, [])
+            .receiveApproval(account1.address, to1e18(1), tbtc.target, "0x")
         ).to.be.revertedWith("Only TBTC caller allowed")
       })
     })
@@ -738,7 +743,7 @@ describe("TBTCVault", () => {
           await vault.connect(account1).mint(mintedAmount)
           tx = await tbtc
             .connect(account1)
-            .approveAndCall(vault.target, unmintedAmount, [])
+            .approveAndCall(vault.target, unmintedAmount, "0x")
         })
 
         after(async () => {
@@ -780,7 +785,7 @@ describe("TBTCVault", () => {
           await vault.connect(account1).mint(mintedAmount)
           transaction = await tbtc
             .connect(account1)
-            .approveAndCall(vault.target, unmintedAmount, [])
+            .approveAndCall(vault.target, unmintedAmount, "0x")
         })
 
         after(async () => {
@@ -820,12 +825,12 @@ describe("TBTCVault", () => {
         await expect(
           vault
             .connect(bridge.wallet)
-            .receiveBalanceApproval(account1.address, amount, [])
+            .receiveBalanceApproval(account1.address, amount, "0x")
         ).to.be.revertedWith("Caller is not the Bank")
         await expect(
           vault
             .connect(account1)
-            .receiveBalanceApproval(account1.address, amount, [])
+            .receiveBalanceApproval(account1.address, amount, "0x")
         ).to.be.revertedWith("Caller is not the Bank")
       })
     })
@@ -835,7 +840,9 @@ describe("TBTCVault", () => {
 
       it("should revert", async () => {
         await expect(
-          bank.connect(account1).approveBalanceAndCall(vault.target, amount, [])
+          bank
+            .connect(account1)
+            .approveBalanceAndCall(vault.target, amount, "0x")
         ).to.be.revertedWith("Amount exceeds balance in the bank")
       })
     })
@@ -851,17 +858,17 @@ describe("TBTCVault", () => {
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, toSatoshis(4), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(4), "0x")
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, toSatoshis(10), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(10), "0x")
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, toSatoshis(5), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(5), "0x")
         )
       })
 
@@ -906,27 +913,27 @@ describe("TBTCVault", () => {
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, toSatoshis(2), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(2), "0x")
         )
         transactions.push(
           await bank
             .connect(account2)
-            .approveBalanceAndCall(vault.target, toSatoshis(4), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(4), "0x")
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, toSatoshis(1), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(1), "0x")
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, toSatoshis(1), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(1), "0x")
         )
         transactions.push(
           await bank
             .connect(account2)
-            .approveBalanceAndCall(vault.target, toSatoshis(1), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(1), "0x")
         )
       })
 
@@ -1161,10 +1168,10 @@ describe("TBTCVault", () => {
           // Mint some TBTC to increase the balance of TBTCVault
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.target, initialBalance, [])
+            .approveBalanceAndCall(vault.target, initialBalance, "0x")
           await bank
             .connect(account2)
-            .approveBalanceAndCall(vault.target, initialBalance, [])
+            .approveBalanceAndCall(vault.target, initialBalance, "0x")
         })
 
         after(async () => {

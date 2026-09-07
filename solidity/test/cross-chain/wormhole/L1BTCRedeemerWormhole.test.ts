@@ -2,7 +2,7 @@ import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { Contract, ContractTransactionResponse } from "ethers"
+import { BaseContract, ContractTransactionResponse } from "ethers"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IWormholeTokenBridge,
@@ -39,10 +39,10 @@ const toTBTC = (satoshiAmount: bigint) =>
 // error-decode state (proxies can surface the error as raw selector data).
 const expectRevertWithCustomError = async (
   promise: Promise<unknown>,
-  contract: Contract,
+  contract: BaseContract,
   errorName: string
 ) => {
-  const selector = contract.interface.getSighash(`${errorName}()`)
+  const { selector } = contract.interface.getError(`${errorName}()`)
   try {
     await promise
   } catch (error: unknown) {
@@ -162,14 +162,14 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _tbtcToken = tbtcDeployment[0] as L2TBTC
+    const _tbtcToken = tbtcDeployment[0] as unknown as L2TBTC
 
     // The deployer of L2TBTC is its owner. The owner needs to add itself as a minter.
     await _tbtcToken.connect(_deployer).addMinter(_deployer.address)
     await _tbtcToken.waitForDeployment()
 
     // Set the tbtcToken on the MockTBTCVault
-    await _tbtcVault.setTbtcToken(_tbtcToken.target)
+    await _tbtcVault.getFunction("setTbtcToken")(_tbtcToken.target)
 
     const _wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
@@ -200,7 +200,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       }
     )
     const _l1BtcRedeemer =
-      l1BtcRedeemerWormholeDeployment[0] as MockL1BTCRedeemerWormhole
+      l1BtcRedeemerWormholeDeployment[0] as unknown as MockL1BTCRedeemerWormhole
 
     const currentOwner = await _l1BtcRedeemer.owner()
     console.log(
@@ -630,7 +630,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           l1BtcRedeemer
             .connect(governance)
             .setRecoveryAddress(ethers.ZeroAddress)
-        ).to.be.revertedWith("ZeroAddress")
+        ).to.be.revertedWithCustomError(l1BtcRedeemer, "ZeroAddress")
       })
 
       context("when called by the owner", () => {
@@ -675,7 +675,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           l1BtcRedeemer
             .connect(governance)
             .rescueBankBalance(treasury.address, rescueAmount)
-        ).to.be.revertedWith("RecoveryAddressNotSet")
+        ).to.be.revertedWithCustomError(l1BtcRedeemer, "RecoveryAddressNotSet")
       })
 
       context("when a recovery address is set", () => {
@@ -695,7 +695,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             l1BtcRedeemer
               .connect(governance)
               .rescueBankBalance(thirdParty.address, rescueAmount)
-          ).to.be.revertedWith("RecipientNotRecoveryAddress")
+          ).to.be.revertedWithCustomError(
+            l1BtcRedeemer,
+            "RecipientNotRecoveryAddress"
+          )
         })
 
         it("should reject an amount above the available balance", async () => {
@@ -1882,7 +1885,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     it("should estimate gas for redemption without reimbursement", async () => {
       const estimatedGas = await l1BtcRedeemer
         .connect(relayer)
-        .estimateGas.requestRedemption(
+        .requestRedemption.estimateGas(
           exampleWalletPubKeyHash,
           exampleMainUtxo,
           "0x1234567890"
@@ -1902,7 +1905,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
       const estimatedGas = await l1BtcRedeemer
         .connect(relayer)
-        .estimateGas.requestRedemption(
+        .requestRedemption.estimateGas(
           exampleWalletPubKeyHash,
           exampleMainUtxo,
           "0x1234567890"
@@ -1969,10 +1972,10 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _tbtcToken = tbtcDeployment[0] as L2TBTC
+    const _tbtcToken = tbtcDeployment[0] as unknown as L2TBTC
     await _tbtcToken.connect(_deployer).addMinter(_deployer.address)
     await _tbtcToken.waitForDeployment()
-    await _tbtcVault.setTbtcToken(_tbtcToken.target)
+    await _tbtcVault.getFunction("setTbtcToken")(_tbtcToken.target)
 
     const MockTBTCBridgeFactory = await ethers.getContractFactory(
       "MockTBTCBridge"
@@ -2004,7 +2007,8 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _l1BtcRedeemer = l1BtcRedeemerDeployment[0] as L1BTCRedeemerWormhole
+    const _l1BtcRedeemer =
+      l1BtcRedeemerDeployment[0] as unknown as L1BTCRedeemerWormhole
 
     await _l1BtcRedeemer
       .connect(_deployer)
@@ -2055,7 +2059,7 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
           l1BtcRedeemer
             .connect(governance)
             .setRecoveryAddress(ethers.ZeroAddress)
-        ).to.be.revertedWith("ZeroAddress")
+        ).to.be.revertedWithCustomError(l1BtcRedeemer, "ZeroAddress")
       })
 
       context("when called by the owner", () => {
@@ -2100,7 +2104,7 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
           l1BtcRedeemer
             .connect(governance)
             .rescueBankBalance(treasury.address, rescueAmount)
-        ).to.be.revertedWith("RecoveryAddressNotSet")
+        ).to.be.revertedWithCustomError(l1BtcRedeemer, "RecoveryAddressNotSet")
       })
 
       context("when a recovery address is set", () => {
@@ -2120,7 +2124,10 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
             l1BtcRedeemer
               .connect(governance)
               .rescueBankBalance(thirdParty.address, rescueAmount)
-          ).to.be.revertedWith("RecipientNotRecoveryAddress")
+          ).to.be.revertedWithCustomError(
+            l1BtcRedeemer,
+            "RecipientNotRecoveryAddress"
+          )
         })
 
         it("should reject an amount above the available balance", async () => {
@@ -2190,7 +2197,10 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
         l1BtcRedeemer
           .connect(governance)
           .withdrawVetoedFunds(exampleRedemptionKey)
-      ).to.be.revertedWith("RedemptionWatchtowerNotSet")
+      ).to.be.revertedWithCustomError(
+        l1BtcRedeemer,
+        "RedemptionWatchtowerNotSet"
+      )
     })
 
     context("when a redemption watchtower is configured", () => {

@@ -1,10 +1,10 @@
+import { toNumber, Contract, ContractTransactionResponse } from "ethers"
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { Contract, ContractTransactionResponse } from "ethers"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 import type {
@@ -16,6 +16,7 @@ import type {
   IRedemptionWatchtower,
   IWalletRegistry,
   RebateStaking,
+  TestERC20,
 } from "../../typechain"
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -79,7 +80,7 @@ async function setupWallet(
  * Mints T tokens for an account, approves, and stakes them in RebateStaking.
  */
 async function stakeTokens(
-  t: Contract,
+  t: TestERC20,
   rebateStaking: RebateStaking,
   minter: HardhatEthersSigner,
   staker: HardhatEthersSigner,
@@ -98,7 +99,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   let bank: Bank & BankStub
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let walletRegistry: Mock<IWalletRegistry>
 
@@ -125,7 +126,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     await bridgeGovernance
       .connect(governance)
       .beginMovingFundsDustThresholdUpdate(20000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeMovingFundsDustThresholdUpdate()
@@ -133,7 +134,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     await bridgeGovernance
       .connect(governance)
       .beginRedemptionTxMaxFeeUpdate(10000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeRedemptionTxMaxFeeUpdate()
@@ -142,7 +143,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       .connect(governance)
       .setRebateStaking(rebateStaking.target)
 
-    redemptionTimeout = (await bridge.redemptionParameters()).redemptionTimeout
+    redemptionTimeout = toNumber(
+      (await bridge.redemptionParameters()).redemptionTimeout
+    )
   })
 
   describe("receiveBalanceApproval with rebate staking", () => {
@@ -183,7 +186,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       // Get a signer for the redeemer address so we can stake T tokens.
       redeemerSigner = await impersonateAccount(redeemerAddress, {
         from: deployer,
-        value: 10,
+        value: 10n,
       })
 
       // Give the balance owner enough Bank balance for all vault-path
@@ -609,11 +612,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         firstStakerSigner = await impersonateAccount(firstStakerAddress, {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         secondStakerSigner = await impersonateAccount(secondStakerAddress, {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
 
         await stakeTokens(t, rebateStaking, deployer, firstStakerSigner)
@@ -721,7 +724,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         victimSigner = await impersonateAccount(victimAddress, {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
 
         await stakeTokens(t, rebateStaking, deployer, victimSigner)
@@ -776,11 +779,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const formerStaker = await impersonateAccount(accounts[17], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const victim = await impersonateAccount(accounts[18], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const attacker = thirdParty
 
@@ -790,7 +793,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .setRebateAuthorization(attacker.address, true)
 
         await rebateStaking.connect(formerStaker).startUnstaking(stakeAmount)
-        await increaseTime(await rebateStaking.unstakingPeriod())
+        await increaseTime(toNumber(await rebateStaking.unstakingPeriod()))
         await rebateStaking
           .connect(formerStaker)
           .finalizeUnstaking(formerStaker.address)
@@ -855,11 +858,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const oldStaker = await impersonateAccount(accounts[19], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const newStaker = await impersonateAccount(accounts[20], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const attacker = thirdParty
 
@@ -952,11 +955,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const formerStaker = await impersonateAccount(accounts[21], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const victim = await impersonateAccount(accounts[22], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const attacker = thirdParty
 
@@ -965,7 +968,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .connect(formerStaker)
           .setRebateAuthorization(attacker.address, true)
         await rebateStaking.connect(formerStaker).startUnstaking(stakeAmount)
-        await increaseTime(await rebateStaking.unstakingPeriod())
+        await increaseTime(toNumber(await rebateStaking.unstakingPeriod()))
         await rebateStaking
           .connect(formerStaker)
           .finalizeUnstaking(formerStaker.address)
@@ -1027,11 +1030,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const accounts = await getUnnamedAccounts()
         const staker = await impersonateAccount(accounts[23], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
         const delegatee = await impersonateAccount(accounts[24], {
           from: deployer,
-          value: 10,
+          value: 10n,
         })
 
         await stakeTokens(t, rebateStaking, deployer, staker)
@@ -1116,7 +1119,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
       vetoRedeemerSigner = await impersonateAccount(vetoRedeemerAddress, {
         from: deployer,
-        value: 10,
+        value: 10n,
       })
 
       // Set up the wallet as Live with a non-zero ecdsaWalletID.
@@ -1142,7 +1145,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
       watchtowerSigner = await impersonateAccount(watchtower.address, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       await bridgeGovernance

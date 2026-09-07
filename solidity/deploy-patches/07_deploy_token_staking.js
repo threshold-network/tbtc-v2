@@ -37,13 +37,11 @@ const func = async function (hre) {
         constructorArgs: tokenStakingConstructorArgs,
       }
     )
-    tokenStakingAddress = tokenStaking.address
+    tokenStakingAddress = await tokenStaking.getAddress()
     log(`Deployed TokenStaking with TransparentProxy at ${tokenStakingAddress}`)
 
     const implementationInterface = tokenStaking.interface
-    const jsonAbi = implementationInterface.format(
-      hardhat.ethers.utils.FormatTypes.json
-    )
+    const jsonAbi = implementationInterface.formatJson()
 
     let parsedAbi
     try {

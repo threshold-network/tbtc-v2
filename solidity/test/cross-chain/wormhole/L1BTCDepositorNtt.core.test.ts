@@ -11,14 +11,14 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
-import type {
-  BitcoinTxInfoStruct,
-  DepositRevealInfoStruct,
-} from "../../../typechain/L2BTCDepositorWormhole"
+import type { IBridgeTypes as IBridgeTypesTypes } from "../../../typechain/contracts/cross-chain/wormhole/L2BTCDepositorWormhole"
 import { to1ePrecision } from "../../helpers/contract-test-helpers"
 import { createMock } from "../../helpers/mock"
 import type { Mock } from "../../helpers/mock"
 import type { FakeNttManager } from "./fake-ntt-manager"
+
+type BitcoinTxInfoStruct = IBridgeTypesTypes.BitcoinTxInfoStruct
+type DepositRevealInfoStruct = IBridgeTypesTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -96,7 +96,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         },
       }
     )
-    const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
+    const l1BtcDepositorNtt = deployment[0] as unknown as L1BTCDepositorNtt
 
     await l1BtcDepositorNtt
       .connect(deployer)
@@ -258,8 +258,8 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       context("when the L2 deposit owner is non-zero", () => {
         context("when the requested vault is not TBTCVault", () => {
           it("should revert", async () => {
-            const corruptedReveal = JSON.parse(
-              JSON.stringify(initializeDepositFixture.reveal)
+            const corruptedReveal = structuredClone(
+              initializeDepositFixture.reveal
             )
             corruptedReveal.vault = ethers.ZeroAddress
 

@@ -2,7 +2,7 @@ import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { Contract, ContractTransactionResponse } from "ethers"
+import { BaseContract, ContractTransactionResponse } from "ethers"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IL2WormholeGateway,
@@ -18,16 +18,16 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Returns hexString padded on the left with zeros to 32 bytes.
 const toWormholeFormat = (address: string): string =>
-  ethers.hexlify(ethers.zeroPad(address, 32))
+  ethers.hexlify(ethers.zeroPadValue(address, 32))
 
 // Assert a no-argument custom error revert without depending on hardhat's
 // error-decode state (proxies can surface the error as raw selector data).
 const expectRevertWithCustomError = async (
   promise: Promise<unknown>,
-  contract: Contract,
+  contract: BaseContract,
   errorName: string
 ) => {
-  const selector = contract.interface.getSighash(`${errorName}()`)
+  const { selector } = contract.interface.getError(`${errorName}()`)
   try {
     await promise
   } catch (error: unknown) {
@@ -111,7 +111,7 @@ describe("L2BTCRedeemerWormhole", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _tbtc = tbtcDeployment[0] as L2TBTC
+    const _tbtc = tbtcDeployment[0] as unknown as L2TBTC
 
     // The deployer of L2TBTC is its owner. The owner needs to add itself as a minter.
     await _tbtc.connect(_deployer).addMinter(_deployer.address)
@@ -131,7 +131,8 @@ describe("L2BTCRedeemerWormhole", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _l2BtcRedeemer = l2RedeemerDeployment[0] as L2BTCRedeemerWormhole
+    const _l2BtcRedeemer =
+      l2RedeemerDeployment[0] as unknown as L2BTCRedeemerWormhole
 
     // Transfer ownership from the deployer (initial owner) to governance
     await _l2BtcRedeemer
@@ -314,7 +315,7 @@ describe("L2BTCRedeemerWormhole", () => {
         await expectRevertWithCustomError(
           l2BtcRedeemer
             .connect(governance)
-            .updateMinimumRedemptionAmount(ethers.Zero),
+            .updateMinimumRedemptionAmount(BigInt(0)),
           l2BtcRedeemer,
           "MinimumRedemptionAmountZero"
         )
@@ -518,7 +519,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
         const sequence = await l2BtcRedeemer
           .connect(user)
-          .callStatic.requestRedemption(
+          .requestRedemption.staticCall(
             exampleAmount,
             l1ChainId,
             exampleRedeemerOutputScript,

@@ -11,7 +11,7 @@ import type {
 
 import bridgeFixture from "../fixtures/bridge"
 
-const { AddressZero } = ethers.constants
+const { ZeroAddress: AddressZero } = ethers
 
 describe("Bridge - Rebate staking recovery upgrade", () => {
   let deployer: HardhatEthersSigner
@@ -37,13 +37,13 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
     expect(await bridge.getRebateStaking()).to.equal(rebateStaking.target)
 
     const bridgeLibraries = {
-      Deposit: (await helpers.contracts.getContract("Deposit")).address,
+      Deposit: (await helpers.contracts.getContract("Deposit")).target,
       DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
-        .address,
-      Redemption: (await helpers.contracts.getContract("Redemption")).address,
-      Wallets: (await helpers.contracts.getContract("Wallets")).address,
-      Fraud: (await helpers.contracts.getContract("Fraud")).address,
-      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).address,
+        .target,
+      Redemption: (await helpers.contracts.getContract("Redemption")).target,
+      Wallets: (await helpers.contracts.getContract("Wallets")).target,
+      Fraud: (await helpers.contracts.getContract("Fraud")).target,
+      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).target,
     }
 
     const bridgeFactory = await ethers.getContractFactory("BridgeStub", {
@@ -54,12 +54,15 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
     const newImplementation = await bridgeFactory.deploy()
     await newImplementation.waitForDeployment()
 
-    const proxyAdmin = await upgrades.admin.getInstance()
+    const proxyAdmin = await ethers.getContractAt(
+      "ProxyAdmin",
+      await (await upgrades.admin.getInstance()).getAddress()
+    )
     const proxyAdminWithUpgrade = await ethers.getContractAt(
       [
         "function upgradeAndCall(address proxy, address implementation, bytes data)",
       ],
-      proxyAdmin.address,
+      proxyAdmin.target,
       esdm
     )
 

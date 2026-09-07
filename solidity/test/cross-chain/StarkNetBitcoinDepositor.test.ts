@@ -80,7 +80,7 @@ describe("StarkNetBitcoinDepositor", () => {
     )
     starkGateBridge = await MockStarkGateBridge.deploy()
 
-    fixture = loadFixture(tbtcVault.target)
+    fixture = loadFixture(await tbtcVault.getAddress())
 
     // Deploy main contract with proxy
     const StarkNetBitcoinDepositor = await ethers.getContractFactory(
@@ -97,7 +97,9 @@ describe("StarkNetBitcoinDepositor", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = StarkNetBitcoinDepositor.attach(proxy.target)
+    depositor = StarkNetBitcoinDepositor.attach(
+      proxy.target
+    ) as StarkNetBitcoinDepositor
   })
 
   describe("Initialization", () => {
@@ -273,7 +275,7 @@ describe("StarkNetBitcoinDepositor", () => {
     })
 
     it("should revert with excessive fee", async () => {
-      const excessiveFee = INITIAL_MESSAGE_FEE.add(1)
+      const excessiveFee = INITIAL_MESSAGE_FEE + 1n
 
       await expect(
         depositor.finalizeDeposit(depositKey, { value: excessiveFee })
@@ -283,7 +285,7 @@ describe("StarkNetBitcoinDepositor", () => {
     it("should revert when the fee drifts after the caller's quote", async () => {
       const quotedFee = INITIAL_MESSAGE_FEE
       await starkGateBridge.setEstimateDepositFeeWeiReturn(
-        INITIAL_MESSAGE_FEE.add(1)
+        INITIAL_MESSAGE_FEE + 1n
       )
 
       await expect(

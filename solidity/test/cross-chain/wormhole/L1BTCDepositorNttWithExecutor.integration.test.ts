@@ -1,3 +1,4 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -72,8 +73,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
       bridge.target,
       tbtcVault.target,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
     await proxy.waitForDeployment()
@@ -304,9 +305,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt = await tx.wait()
-      const event = receipt.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )
+      const event = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")
 
       expect(event).to.not.be.undefined
       expect(event?.args?.sender).to.equal(user.address)

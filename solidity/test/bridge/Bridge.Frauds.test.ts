@@ -1,12 +1,16 @@
+import {
+  toNumber,
+  AddressLike,
+  SigningKey,
+  ContractTransactionResponse,
+  BytesLike,
+} from "ethers"
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { SigningKey } from "ethers/lib/utils"
 import { expect } from "chai"
-import { ContractTransactionResponse } from "ethers"
-import { BytesLike } from "@ethersproject/bytes"
 import type { IWalletRegistry, Bridge, BridgeStub } from "../../typechain"
 import {
   wallet as fraudWallet,
@@ -33,12 +37,12 @@ const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
  *  may not match waffle's `instanceof Contract` (duplicate ethers), breaking `getAddressOf`.
  */
 function etherBalanceAccount(
-  address: string,
+  address: AddressLike,
   provider: typeof ethers.provider
 ) {
   return {
     provider,
-    getAddress: async () => address,
+    getAddress: async () => ethers.resolveAddress(address),
   }
 }
 
@@ -50,9 +54,9 @@ describe("Bridge - Fraud", () => {
   let bridge: Bridge & BridgeStub
 
   let fraudChallengeDepositAmount: bigint
-  let fraudChallengeDefeatTimeout: number
+  let fraudChallengeDefeatTimeout: bigint
   let fraudSlashingAmount: bigint
-  let fraudNotifierRewardMultiplier: number
+  let fraudNotifierRewardMultiplier: bigint
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -110,7 +114,7 @@ describe("Bridge - Fraud", () => {
               it("should transfer ether from the caller to the bridge", async () => {
                 await expect(tx).to.changeEtherBalance(
                   thirdParty,
-                  fraudChallengeDepositAmount * -1
+                  fraudChallengeDepositAmount * -1n
                 )
                 await expect(tx).to.changeEtherBalance(
                   etherBalanceAccount(bridge.target, ethers.provider),
@@ -564,9 +568,9 @@ describe("Bridge - Fraud", () => {
       // prefix to the signed message. The format of the heartbeat message is
       // the same no matter on which host chain TBTC is deployed.
       heartbeatWalletSigningKey = new ethers.SigningKey(wallet.privateKey)
-      // Public key obtained as `wallet.publicKey` is an uncompressed key,
+      // Public key obtained as `wallet.signingKey.publicKey` is an uncompressed key,
       // prefixed with `0x04`. To compute raw ECDSA key, we need to drop `0x04`.
-      heartbeatWalletPublicKey = `0x${wallet.publicKey.substring(4)}`
+      heartbeatWalletPublicKey = `0x${wallet.signingKey.publicKey.substring(4)}`
 
       const walletID = keccak256(heartbeatWalletPublicKey)
       const walletPublicKeyX = `0x${heartbeatWalletPublicKey.substring(2, 66)}`
@@ -598,7 +602,7 @@ describe("Bridge - Fraud", () => {
             await createSnapshot()
 
             const signature = ethers.Signature.from(
-              heartbeatWalletSigningKey.signDigest(sighash)
+              heartbeatWalletSigningKey.sign(sighash)
             )
 
             await bridge
@@ -636,7 +640,7 @@ describe("Bridge - Fraud", () => {
           it("should send the ether deposited by the challenger to the treasury", async () => {
             await expect(tx).to.changeEtherBalance(
               etherBalanceAccount(bridge.target, ethers.provider),
-              fraudChallengeDepositAmount * -1
+              fraudChallengeDepositAmount * -1n
             )
             await expect(tx).to.changeEtherBalance(
               treasury,
@@ -660,7 +664,7 @@ describe("Bridge - Fraud", () => {
             await createSnapshot()
 
             const signature = ethers.Signature.from(
-              heartbeatWalletSigningKey.signDigest(sighash)
+              heartbeatWalletSigningKey.sign(sighash)
             )
 
             await bridge
@@ -701,7 +705,7 @@ describe("Bridge - Fraud", () => {
           await createSnapshot()
 
           const signature = ethers.Signature.from(
-            heartbeatWalletSigningKey.signDigest(sighash)
+            heartbeatWalletSigningKey.sign(sighash)
           )
 
           await bridge
@@ -748,7 +752,7 @@ describe("Bridge - Fraud", () => {
           await createSnapshot()
 
           const signature = ethers.Signature.from(
-            heartbeatWalletSigningKey.signDigest(sighash)
+            heartbeatWalletSigningKey.sign(sighash)
           )
 
           await bridge
@@ -762,7 +766,7 @@ describe("Bridge - Fraud", () => {
               }
             )
 
-          await increaseTime(fraudChallengeDefeatTimeout)
+          await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
           await bridge
             .connect(thirdParty)
@@ -799,7 +803,7 @@ describe("Bridge - Fraud", () => {
         await createSnapshot()
 
         const signature = ethers.Signature.from(
-          heartbeatWalletSigningKey.signDigest(sighash)
+          heartbeatWalletSigningKey.sign(sighash)
         )
 
         await bridge
@@ -901,7 +905,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      fraudChallengeDepositAmount * -1
+                      fraudChallengeDepositAmount * -1n
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1037,7 +1041,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      fraudChallengeDepositAmount * -1
+                      fraudChallengeDepositAmount * -1n
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1175,7 +1179,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      fraudChallengeDepositAmount * -1
+                      fraudChallengeDepositAmount * -1n
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1311,7 +1315,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      fraudChallengeDepositAmount * -1
+                      fraudChallengeDepositAmount * -1n
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1523,7 +1527,7 @@ describe("Bridge - Fraud", () => {
               }
             )
 
-          await increaseTime(fraudChallengeDefeatTimeout)
+          await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
           await bridge
             .connect(thirdParty)
@@ -1680,7 +1684,7 @@ describe("Bridge - Fraud", () => {
                         }
                       )
 
-                    await increaseTime(fraudChallengeDefeatTimeout)
+                    await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
                     await test.additionalSetup()
 
@@ -1716,7 +1720,7 @@ describe("Bridge - Fraud", () => {
                   it("should return the deposited ether to the challenger", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      fraudChallengeDepositAmount * -1
+                      fraudChallengeDepositAmount * -1n
                     )
                     await expect(tx).to.changeEtherBalance(
                       thirdParty,
@@ -1792,7 +1796,7 @@ describe("Bridge - Fraud", () => {
                   }
                 )
 
-              await increaseTime(fraudChallengeDefeatTimeout)
+              await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
               // Then, the state of the wallet changes to the Terminated
               // state.
@@ -1828,7 +1832,7 @@ describe("Bridge - Fraud", () => {
             it("should return the deposited ether to the challenger", async () => {
               await expect(tx).to.changeEtherBalance(
                 etherBalanceAccount(bridge.target, ethers.provider),
-                fraudChallengeDepositAmount * -1
+                fraudChallengeDepositAmount * -1n
               )
               await expect(tx).to.changeEtherBalance(
                 thirdParty,
@@ -1896,7 +1900,7 @@ describe("Bridge - Fraud", () => {
                         }
                       )
 
-                    await increaseTime(fraudChallengeDefeatTimeout)
+                    await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
                     // Then, the state of the wallet changes to the tested
                     // state.
@@ -1961,7 +1965,7 @@ describe("Bridge - Fraud", () => {
                 }
               )
 
-            await increaseTime(fraudChallengeDefeatTimeout - 2)
+            await increaseTime(toNumber(fraudChallengeDefeatTimeout - 2n))
           })
 
           after(async () => {
@@ -2075,7 +2079,7 @@ describe("Bridge - Fraud", () => {
                 }
               )
 
-            await increaseTime(fraudChallengeDefeatTimeout)
+            await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
             await bridge
               .connect(thirdParty)

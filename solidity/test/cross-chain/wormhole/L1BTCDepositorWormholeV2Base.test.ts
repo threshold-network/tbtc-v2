@@ -1,4 +1,4 @@
-import type { BytesLike } from "@ethersproject/bytes"
+import type { BytesLike } from "ethers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -85,7 +85,8 @@ describe("L1BTCDepositorWormholeV2Base", () => {
         },
       }
     )
-    const l1BtcDepositor = deployment[0] as L1BTCDepositorWormholeV2Base
+    const l1BtcDepositor =
+      deployment[0] as unknown as L1BTCDepositorWormholeV2Base
 
     await l1BtcDepositor.connect(deployer).transferOwnership(governance.address)
 
@@ -558,6 +559,9 @@ describe("L1BTCDepositorWormholeV2Base", () => {
             .connect(relayer)
             .finalizeDeposit(initializeDepositFixture.depositKey, {
               value: messageFee,
+              // Exercise both refund calls; estimation can allow the caught
+              // deferred refund to run out of gas.
+              gasLimit: 2_000_000,
             })
         })
 

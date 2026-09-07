@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   MockNttManager,
   MockNttManagerWithExecutor,
@@ -13,20 +13,20 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 const WORMHOLE_CHAIN_SEI = 32
-const DEFAULT_NONCE = ethers.utils.formatBytes32String("nonce")
+const DEFAULT_NONCE = ethers.encodeBytes32String("nonce")
 
 const encodeDestinationChainReceiver = (
   chainId: number,
   recipient: string
 ): string =>
-  ethers.utils.hexConcat([
-    ethers.utils.hexZeroPad(ethers.utils.hexlify(chainId), 2),
-    ethers.utils.hexZeroPad(recipient, 30),
+  ethers.concat([
+    ethers.zeroPadValue(ethers.toBeHex(chainId), 2),
+    ethers.zeroPadValue(recipient, 30),
   ])
 
 describe("L1BTCDepositorNttWithExecutor - hardening", () => {
   let depositor: TestL1BTCDepositorNttWithExecutor
-  let owner: SignerWithAddress
+  let owner: HardhatEthersSigner
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
@@ -46,7 +46,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
       "MockNttManagerWithExecutor"
@@ -65,15 +65,15 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
 
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = TestDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as TestL1BTCDepositorNttWithExecutor
 
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -88,7 +88,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
   })
 
   const executorArgs = (refundAddress: string) => ({
-    value: ethers.utils.parseEther("0.01"),
+    value: ethers.parseEther("0.01"),
     refundAddress,
     signedQuote: `0x${"a".repeat(64)}`,
     instructions: `0x${"b".repeat(32)}`,
@@ -96,7 +96,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
 
   const zeroFeeArgs = {
     dbps: 0,
-    payee: ethers.constants.AddressZero,
+    payee: ethers.ZeroAddress,
   }
 
   it("should require minimum executor payment", async () => {
@@ -107,7 +107,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       user.address
     )
     const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-      underlyingNttManager.address,
+      underlyingNttManager.target,
       WORMHOLE_CHAIN_SEI,
       "0x",
       args,
@@ -119,13 +119,13 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       depositor
         .connect(user)
         .transferTbtcWithExecutor(
-          ethers.utils.parseEther("1"),
+          ethers.parseEther("1"),
           receiver,
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
           WORMHOLE_CHAIN_SEI,
-          { value: requiredPayment.sub(1) }
+          { value: requiredPayment - 1n }
         )
     ).to.be.revertedWith("Payment must exactly match executor service quote")
 
@@ -134,13 +134,13 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       depositor
         .connect(user)
         .transferTbtcWithExecutor(
-          ethers.utils.parseEther("1"),
+          ethers.parseEther("1"),
           receiver,
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
           WORMHOLE_CHAIN_SEI,
-          { value: requiredPayment.add(1) }
+          { value: requiredPayment + 1n }
         )
     ).to.be.revertedWith("Payment must exactly match executor service quote")
 
@@ -149,7 +149,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       depositor
         .connect(user)
         .transferTbtcWithExecutor(
-          ethers.utils.parseEther("1"),
+          ethers.parseEther("1"),
           receiver,
           args,
           zeroFeeArgs,
@@ -168,7 +168,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       user.address
     )
     const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-      underlyingNttManager.address,
+      underlyingNttManager.target,
       WORMHOLE_CHAIN_SEI,
       "0x",
       args,
@@ -179,7 +179,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       depositor
         .connect(user)
         .transferTbtcWithExecutor(
-          ethers.utils.parseEther("1"),
+          ethers.parseEther("1"),
           receiver,
           args,
           zeroFeeArgs,
@@ -189,7 +189,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
         )
     ).to.emit(depositor, "TokensTransferredNttWithExecutor")
 
-    expect(await ethers.provider.getBalance(depositor.address)).to.equal(0)
+    expect(await ethers.provider.getBalance(depositor.target)).to.equal(0)
   })
 
   describe("setExecutorParameters (staging consistency)", () => {
@@ -199,7 +199,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
         50,
         owner.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
     })
 
@@ -245,7 +245,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       payee: user.address,
     }
     const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-      underlyingNttManager.address,
+      underlyingNttManager.target,
       WORMHOLE_CHAIN_SEI,
       "0x",
       args,
@@ -256,7 +256,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       depositor
         .connect(user)
         .transferTbtcWithExecutor(
-          ethers.utils.parseEther("1"),
+          ethers.parseEther("1"),
           receiver,
           args,
           feeArgs,
@@ -282,7 +282,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           nonZeroFeeBps,
           feeRecipient,
           0,
-          ethers.constants.AddressZero
+          ethers.ZeroAddress
         )
     })
 
@@ -298,7 +298,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
         payee: feeRecipient,
       }
       const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-        underlyingNttManager.address,
+        underlyingNttManager.target,
         WORMHOLE_CHAIN_SEI,
         "0x",
         args,
@@ -309,7 +309,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
         depositor
           .connect(user)
           .transferTbtcWithExecutor(
-            ethers.utils.parseEther("1"),
+            ethers.parseEther("1"),
             receiver,
             args,
             feeArgs,
@@ -332,7 +332,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
         payee: imposter.address, // wrong payee
       }
       const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
-        underlyingNttManager.address,
+        underlyingNttManager.target,
         WORMHOLE_CHAIN_SEI,
         "0x",
         args,
@@ -343,7 +343,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
         depositor
           .connect(user)
           .transferTbtcWithExecutor(
-            ethers.utils.parseEther("1"),
+            ethers.parseEther("1"),
             receiver,
             args,
             feeArgs,
@@ -369,12 +369,12 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       await expect(
         depositor.connect(user).setExecutorParameters(
           {
-            value: ethers.utils.parseEther("0.01"),
+            value: ethers.parseEther("0.01"),
             refundAddress: attacker.address, // not the caller
             signedQuote: validSignedQuote,
             instructions: validInstructions,
           },
-          { dbps: 0, payee: ethers.constants.AddressZero },
+          { dbps: 0, payee: ethers.ZeroAddress },
           WORMHOLE_CHAIN_SEI
         )
       ).to.be.revertedWith("Executor refund address must be caller")
@@ -385,12 +385,12 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       await expect(
         depositor.connect(user).setExecutorParameters(
           {
-            value: ethers.utils.parseEther("0.01"),
+            value: ethers.parseEther("0.01"),
             refundAddress: user.address,
             signedQuote: validSignedQuote,
             instructions: validInstructions,
           },
-          { dbps: 0, payee: ethers.constants.AddressZero },
+          { dbps: 0, payee: ethers.ZeroAddress },
           WORMHOLE_CHAIN_SEI
         )
       ).to.emit(depositor, "ExecutorParametersSet")

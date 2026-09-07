@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers } from "hardhat"
 import type { BigNumberish } from "ethers"
-import { utils } from "ethers"
+import { ethers as utils } from "ethers"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type { Mock } from "../helpers/mock"
@@ -21,7 +21,7 @@ import {
   updateWalletRegistryDkgResultChallengePeriodLength,
 } from "./utils/ecdsa-wallet-registry"
 import { produceRelayEntry } from "./utils/fake-random-beacon"
-import { UTXOStruct } from "../../typechain/Bridge"
+import type { BitcoinTx as BitcoinTxTypes } from "../../typechain/contracts/bridge/Bridge"
 import {
   walletPublicKey,
   walletPubKeyHash,
@@ -31,6 +31,8 @@ import {
 } from "./data/integration"
 import { fixture } from "./utils/fixture"
 import { constants } from "../fixtures"
+
+type UTXOStruct = BitcoinTxTypes.UTXOStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
@@ -119,7 +121,7 @@ describeFn("Integration Test - Full flow", async () => {
 
       describe("when a deposit is revealed", async () => {
         before(async () => {
-          revealDepositData.reveal.vault = tbtcVault.target
+          revealDepositData.reveal.vault = await tbtcVault.getAddress()
 
           // We use a deposit funding bitcoin transaction with a very low amount,
           // so we need to update the dust and redemption thresholds to be below it.
@@ -135,7 +137,7 @@ describeFn("Integration Test - Full flow", async () => {
             revealDepositData.depositor,
             {
               from: governance,
-              value: 10,
+              value: 10n,
             }
           )
 
@@ -220,7 +222,7 @@ describeFn("Integration Test - Full flow", async () => {
           // Request redemption
           const redeemer = await helpers.account.impersonateAccount(
             revealDepositData.depositor,
-            { from: deployer, value: 10 }
+            { from: deployer, value: 10n }
           )
 
           const newMainUtxo: UTXOStruct = {
@@ -250,10 +252,10 @@ describeFn("Integration Test - Full flow", async () => {
         })
 
         it("should create a pending redemption request", async () => {
-          const redemptionKey = utils.solidityKeccak256(
+          const redemptionKey = utils.solidityPackedKeccak256(
             ["bytes32", "bytes20"],
             [
-              utils.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+              utils.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
               walletPubKeyHash,
             ]
           )
