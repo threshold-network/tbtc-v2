@@ -11,7 +11,6 @@ import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
-import { ethers } from "ethers"
 import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
@@ -287,31 +286,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           hasReceipt: !!data.receipt,
         })
 
-        // Calculate deposit ID
-        let depositId: string | undefined
-        try {
-          // Get funding transaction hash - concatenate raw hex without 0x prefix
-          const fundingTxComponents =
-            depositTx.version.toString() +
-            depositTx.inputs.toString() +
-            depositTx.outputs.toString() +
-            depositTx.locktime.toString()
-
-          // Apply double SHA-256 (Bitcoin standard)
-          const fundingTxHash = ethers.utils.keccak256(
-            ethers.utils.keccak256("0x" + fundingTxComponents)
-          )
-
-          // Calculate deposit ID
-          const depositIdHash = ethers.utils.solidityKeccak256(
-            ["bytes32", "uint256"],
-            [fundingTxHash, depositOutputIndex]
-          )
-          depositId = ethers.BigNumber.from(depositIdHash).toString()
-        } catch (e) {
-          console.warn("Failed to calculate deposit ID:", e)
-        }
-
         // Validate response
         if (!data.success) {
           throw new Error(
@@ -330,9 +304,9 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           )
         }
 
-        // Log deposit ID if available
-        if (depositId) {
-          console.log(`Deposit initialized with ID: ${depositId}`)
+        // Use the relayer's authoritative deposit ID when provided.
+        if (data.depositId) {
+          console.log(`Deposit initialized with ID: ${data.depositId}`)
         }
 
         return data.receipt as TransactionReceipt

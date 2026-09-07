@@ -28,7 +28,7 @@ describe("StarkNetDepositor Payload Format", () => {
   })
 
   afterEach(() => {
-    axiosStub.restore()
+    sinon.restore()
   })
 
   it("should include destinationChainDepositOwner in payload", async () => {
@@ -202,47 +202,58 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(payload).to.have.property("l2Sender")
   })
 
-  it("should calculate deposit ID correctly", async () => {
-    // Mock console.log to capture deposit ID
-    const consoleLogStub = sinon.stub(console, "log")
+  for (const { title, depositId, expectedLogs } of [
+    {
+      title: "should log the deposit ID returned by the relayer",
+      depositId: "123456789",
+      expectedLogs: ["Deposit initialized with ID: 123456789"],
+    },
+    {
+      title: "should not invent a deposit ID when the relayer omits it",
+      depositId: undefined,
+      expectedLogs: [],
+    },
+  ]) {
+    it(title, async () => {
+      const consoleLogStub = sinon.stub(console, "log")
+      const receipt = {
+        transactionHash:
+          "0x366220f9853aa8ad83376bcb3fd9377da7b55f03fc3a3aa4aed7b57f7cc60745",
+        blockNumber: 8486402,
+      }
 
-    axiosStub.resolves({
-      data: {
-        success: true,
-        receipt: {
-          transactionHash:
-            "0x366220f9853aa8ad83376bcb3fd9377da7b55f03fc3a3aa4aed7b57f7cc60745",
-          blockNumber: 8486402,
-        },
-      },
+      axiosStub.resolves({
+        data: { success: true, depositId, receipt },
+      })
+
+      const depositTx: BitcoinRawTxVectors = {
+        version: Hex.from("02000000"),
+        inputs: Hex.from("01" + "a".repeat(64)),
+        outputs: Hex.from("02" + "e".repeat(64)),
+        locktime: Hex.from("00000000"),
+      }
+
+      const deposit: DepositReceipt = {
+        depositor: EthereumAddress.from("0x" + "0".repeat(40)),
+        walletPublicKeyHash: Hex.from(
+          "ef5a2946f294f1742a779c9ac034bc3fa5d417b8"
+        ),
+        refundPublicKeyHash: Hex.from(
+          "b4f19a044feea3aa4a7d3f494433a11d0f1c400e"
+        ),
+        blindingFactor: Hex.from("b3460f26eda61ad1"),
+        refundLocktime: Hex.from("a1faa569"),
+        extraData: Hex.from(testAddress),
+      }
+
+      const result = await depositor.initializeDeposit(depositTx, 0, deposit)
+
+      expect(result).to.equal(receipt)
+      const depositIdLogs = consoleLogStub
+        .getCalls()
+        .map((call) => call.args[0])
+        .filter((message) => message.startsWith("Deposit initialized with ID:"))
+      expect(depositIdLogs).to.deep.equal(expectedLogs)
     })
-
-    const depositTx: BitcoinRawTxVectors = {
-      version: Hex.from("02000000"),
-      inputs: Hex.from("01" + "a".repeat(64)),
-      outputs: Hex.from("02" + "e".repeat(64)),
-      locktime: Hex.from("00000000"),
-    }
-
-    const deposit: DepositReceipt = {
-      depositor: EthereumAddress.from("0x" + "0".repeat(40)),
-      walletPublicKeyHash: Hex.from("ef5a2946f294f1742a779c9ac034bc3fa5d417b8"),
-      refundPublicKeyHash: Hex.from("b4f19a044feea3aa4a7d3f494433a11d0f1c400e"),
-      blindingFactor: Hex.from("b3460f26eda61ad1"),
-      refundLocktime: Hex.from("a1faa569"),
-      extraData: Hex.from(testAddress),
-    }
-
-    await depositor.initializeDeposit(depositTx, 0, deposit)
-
-    // Verify deposit ID was logged
-    const depositIdLogCall = consoleLogStub
-      .getCalls()
-      .find((call) => call.args[0]?.includes("Deposit initialized with ID:"))
-
-    expect(depositIdLogCall).to.exist
-    expect(depositIdLogCall!.args[0]).to.include("Deposit initialized with ID:")
-
-    consoleLogStub.restore()
-  })
+  }
 })
