@@ -1,5 +1,14 @@
+const assert = require("assert/strict")
 const { execFileSync } = require("child_process")
-const { existsSync, mkdtempSync, rmSync, writeFileSync } = require("fs")
+const {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} = require("fs")
+const { createRequire } = require("module")
 const { tmpdir } = require("os")
 const { join, resolve } = require("path")
 const manifest = require("../package.json")
@@ -12,12 +21,12 @@ if (!existsSync(join(packageRoot, manifest.main))) {
   )
 }
 
-const consumerRoot = mkdtempSync(join(tmpdir(), "tbtc-sdk-consumer-"))
+const testRoot = mkdtempSync(join(tmpdir(), "tbtc-sdk-consumer-"))
 
 try {
   const output = execFileSync(
     "npm",
-    ["pack", "--json", "--pack-destination", consumerRoot],
+    ["pack", "--json", "--pack-destination", testRoot],
     {
       cwd: packageRoot,
       encoding: "utf8",
@@ -26,62 +35,93 @@ try {
   )
   const [{ filename }] = JSON.parse(output)
 
-  writeFileSync(
-    join(consumerRoot, "package.json"),
-    JSON.stringify({
-      name: "tbtc-sdk-consumer",
-      version: "1.0.0",
-      private: true,
-    })
-  )
+  const cases = [
+    { name: "without-manifest", initialized: false, strategy: "hoisted" },
+    { name: "initialized", initialized: true, strategy: "hoisted" },
+    { name: "nested", initialized: true, strategy: "nested" },
+  ]
 
-  const consumerOptions = {
-    cwd: consumerRoot,
-    // A consumer must resolve dependencies from its own installation.
-    env: { ...process.env, NODE_PATH: "", CI: "true" },
-    stdio: "inherit",
-  }
+  for (const { name, initialized, strategy } of cases) {
+    const consumerRoot = join(testRoot, name)
+    mkdirSync(consumerRoot)
+    if (initialized) {
+      writeFileSync(
+        join(consumerRoot, "package.json"),
+        JSON.stringify({
+          name: "tbtc-sdk-consumer",
+          version: "1.0.0",
+          private: true,
+        })
+      )
+    }
 
-  execFileSync(
-    "npm",
-    [
-      "install",
-      "--engine-strict",
-      "--ignore-scripts=false",
-      "--no-audit",
-      "--no-fund",
-      join(consumerRoot, filename),
-    ],
-    consumerOptions
-  )
+    assert.equal(existsSync(join(consumerRoot, "package.json")), initialized)
+    console.log(`Checking packed SDK install: ${name} (${strategy})`)
 
-  for (const subpath of Object.keys(manifest.exports)) {
-    const specifier = manifest.name + (subpath === "." ? "" : subpath.slice(1))
+    const consumerOptions = {
+      cwd: consumerRoot,
+      // A consumer must resolve dependencies from its own installation.
+      env: { ...process.env, NODE_PATH: "", CI: "true" },
+      stdio: "inherit",
+    }
 
-    // Use a separate process for each import so module caches cannot hide errors.
     execFileSync(
-      process.execPath,
-      ["--eval", "require(process.argv[1])", specifier],
-      consumerOptions
-    )
-    execFileSync(
-      process.execPath,
+      "npm",
       [
-        "--input-type=module",
-        "--eval",
-        "await import(process.argv[1])",
-        specifier,
+        "install",
+        `--install-strategy=${strategy}`,
+        "--engine-strict",
+        "--ignore-scripts=false",
+        "--no-audit",
+        "--no-fund",
+        join(testRoot, filename),
       ],
       consumerOptions
     )
-    console.log(`Loaded ${specifier} with require() and import()`)
-  }
 
-  execFileSync(
-    process.execPath,
-    [join(__dirname, "test-package-electrum.js"), manifest.name],
-    consumerOptions
-  )
+    // Verify that each case exercises the intended Electrum installation layout.
+    const consumerRequire = createRequire(join(consumerRoot, "package.json"))
+    const sdkRequire = createRequire(consumerRequire.resolve(manifest.name))
+    const dependencyRoot =
+      strategy === "nested"
+        ? join(consumerRoot, "node_modules", manifest.name)
+        : consumerRoot
+    assert.equal(
+      realpathSync(sdkRequire.resolve("electrum-client-js/package.json")),
+      realpathSync(
+        join(dependencyRoot, "node_modules/electrum-client-js/package.json")
+      )
+    )
+
+    for (const subpath of Object.keys(manifest.exports)) {
+      const specifier =
+        manifest.name + (subpath === "." ? "" : subpath.slice(1))
+
+      // Use a separate process for each import so module caches cannot hide errors.
+      execFileSync(
+        process.execPath,
+        ["--eval", "require(process.argv[1])", specifier],
+        consumerOptions
+      )
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          "await import(process.argv[1])",
+          specifier,
+        ],
+        consumerOptions
+      )
+      console.log(`Loaded ${specifier} with require() and import()`)
+    }
+
+    execFileSync(
+      process.execPath,
+      [join(__dirname, "test-package-electrum.js"), manifest.name],
+      consumerOptions
+    )
+  }
 } finally {
-  rmSync(consumerRoot, { recursive: true, force: true })
+  rmSync(testRoot, { recursive: true, force: true })
 }
