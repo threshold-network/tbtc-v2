@@ -95,7 +95,7 @@ const func: DeployFunction = async function deployBridge(
   if (hre.network.tags.tenderly) {
     await hre.tenderly.verify({
       name: "Bridge",
-      address: bridge.address,
+      address: await bridge.getAddress(),
     })
   }
 }

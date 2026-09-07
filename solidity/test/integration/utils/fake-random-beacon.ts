@@ -9,7 +9,7 @@ export async function fakeRandomBeacon(
   walletRegistry: WalletRegistry
 ): Promise<Mock<IRandomBeacon>> {
   const randomBeacon = await createMock<IRandomBeacon>("IRandomBeacon", {
-    address: await walletRegistry.callStatic.randomBeacon(),
+    address: await walletRegistry.randomBeacon.staticCall(),
   })
 
   await (
@@ -26,7 +26,7 @@ export async function produceRelayEntry(
   walletRegistry: WalletRegistry,
   randomBeacon: Mock<IRandomBeacon>
 ): Promise<BigNumberish> {
-  const relayEntry: BigNumberish = ethers.randomBytes(32)
+  const relayEntry: BigNumberish = ethers.toBigInt(ethers.randomBytes(32))
 
   // eslint-disable-next-line no-underscore-dangle
   await walletRegistry

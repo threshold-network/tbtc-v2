@@ -1,9 +1,10 @@
+import { toNumber, Contract, ContractTransactionResponse } from "ethers"
 /* eslint-disable no-underscore-dangle */
 import { ethers, helpers } from "hardhat"
 import chai, { assert, expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { Contract, ContractTransactionResponse } from "ethers"
 import { Deployment } from "hardhat-deploy/types"
+import { walletToStruct, to1ePrecision } from "../helpers/contract-test-helpers"
 import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
@@ -37,7 +38,6 @@ import {
 } from "../data/moving-funds"
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
-import { to1ePrecision } from "../helpers/contract-test-helpers"
 import { expectCalledOnceWith } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -58,13 +58,13 @@ describe("Bridge - Moving funds", () => {
     txProofDifficultyFactor: number
   ) => Promise<[Contract, Deployment]>
 
-  let movingFundsTimeoutResetDelay: number
-  let movingFundsTimeout: number
+  let movingFundsTimeoutResetDelay: bigint
+  let movingFundsTimeout: bigint
   let movingFundsTimeoutSlashingAmount: bigint
-  let movingFundsTimeoutNotifierRewardMultiplier: number
-  let movedFundsSweepTimeout: number
+  let movingFundsTimeoutNotifierRewardMultiplier: bigint
+  let movedFundsSweepTimeout: bigint
   let movedFundsSweepTimeoutSlashingAmount: bigint
-  let movedFundsSweepTimeoutNotifierRewardMultiplier: number
+  let movedFundsSweepTimeoutNotifierRewardMultiplier: bigint
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -245,7 +245,7 @@ describe("Bridge - Moving funds", () => {
                                               expectedTargetWalletsCount
                                             )
 
-                                          const provider = ethers.provider
+                                          const { provider } = ethers
 
                                           let initialCallerBalance: bigint
 
@@ -764,11 +764,13 @@ describe("Bridge - Moving funds", () => {
               // One second ahead of the `setWallet` block, which reuses its
               // parent's timestamp under `allowBlocksWithSameTimestamp`.
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                ...walletToStruct(
+                  await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                ),
                 movingFundsRequestedAt: (await lastBlockTime()) + 1,
               })
 
-              await increaseTime(movingFundsTimeoutResetDelay + 2)
+              await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
               tx = await bridge.resetMovingFundsTimeout(
                 ecdsaWalletTestData.pubKeyHash160
@@ -799,11 +801,13 @@ describe("Bridge - Moving funds", () => {
 
               // Set the timestamp of the block that contains the `setWallet` tx.
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                ...walletToStruct(
+                  await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                ),
                 movingFundsRequestedAt: (await lastBlockTime()) + 1,
               })
 
-              await increaseTime(movingFundsTimeoutResetDelay - 1)
+              await increaseTime(toNumber(movingFundsTimeoutResetDelay - 1n))
             })
 
             after(async () => {
@@ -830,11 +834,13 @@ describe("Bridge - Moving funds", () => {
                 // One second ahead of the `setWallet` block, which reuses its
                 // parent's timestamp under `allowBlocksWithSameTimestamp`.
                 await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                  ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                  ...walletToStruct(
+                    await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                  ),
                   movingFundsRequestedAt: (await lastBlockTime()) + 1,
                 })
 
-                await increaseTime(movingFundsTimeoutResetDelay + 2)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
                 // Reset for the first time.
                 await bridge.resetMovingFundsTimeout(
@@ -842,7 +848,7 @@ describe("Bridge - Moving funds", () => {
                 )
 
                 // The reset delay elapses again.
-                await increaseTime(movingFundsTimeoutResetDelay + 1)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay + 1n))
 
                 // The next reset.
                 tx = await bridge.resetMovingFundsTimeout(
@@ -878,11 +884,13 @@ describe("Bridge - Moving funds", () => {
                 // One second ahead of the `setWallet` block, which reuses its
                 // parent's timestamp under `allowBlocksWithSameTimestamp`.
                 await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-                  ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+                  ...walletToStruct(
+                    await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+                  ),
                   movingFundsRequestedAt: (await lastBlockTime()) + 1,
                 })
 
-                await increaseTime(movingFundsTimeoutResetDelay + 2)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
                 // Reset for the first time.
                 await bridge.resetMovingFundsTimeout(
@@ -890,7 +898,7 @@ describe("Bridge - Moving funds", () => {
                 )
 
                 // The reset delay has not elapsed again yet.
-                await increaseTime(movingFundsTimeoutResetDelay - 1)
+                await increaseTime(toNumber(movingFundsTimeoutResetDelay - 1n))
               })
 
               after(async () => {
@@ -942,7 +950,9 @@ describe("Bridge - Moving funds", () => {
 
           // Set an arbitrary non-zero commitment.
           await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
-            ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
+            ...walletToStruct(
+              await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+            ),
             movingFundsTargetWalletsCommitmentHash:
               ethers.solidityPackedKeccak256(
                 ["bytes20"],
@@ -1355,9 +1365,7 @@ describe("Bridge - Moving funds", () => {
                                                   // Pass a copy of the original data.
                                                   const modifiedData =
                                                     test.modifyData(
-                                                      JSON.parse(
-                                                        JSON.stringify(data)
-                                                      )
+                                                      structuredClone(data)
                                                     )
 
                                                   tx =
@@ -1388,9 +1396,7 @@ describe("Bridge - Moving funds", () => {
                                       "when target wallets commitment is not submitted",
                                       () => {
                                         const data: MovingFundsTestData =
-                                          JSON.parse(
-                                            JSON.stringify(SingleTargetWallet)
-                                          )
+                                          structuredClone(SingleTargetWallet)
 
                                         let tx: Promise<ContractTransactionResponse>
 
@@ -1452,9 +1458,7 @@ describe("Bridge - Moving funds", () => {
                                     testData.forEach((test) => {
                                       context(test.testName, () => {
                                         const data: MovingFundsTestData =
-                                          JSON.parse(
-                                            JSON.stringify(SingleTargetWallet)
-                                          )
+                                          structuredClone(SingleTargetWallet)
 
                                         let tx: Promise<ContractTransactionResponse>
 
@@ -1500,7 +1504,9 @@ describe("Bridge - Moving funds", () => {
                                     .connect(governance)
                                     .beginMovingFundsTxMaxTotalFeeUpdate(8999)
                                   await increaseTime(
-                                    await bridgeGovernance.governanceDelays(0)
+                                    toNumber(
+                                      await bridgeGovernance.governanceDelays(0)
+                                    )
                                   )
                                   await bridgeGovernance
                                     .connect(governance)
@@ -1620,9 +1626,8 @@ describe("Bridge - Moving funds", () => {
             context(
               "when the single input doesn't point to the wallet's main UTXO",
               () => {
-                const data: MovingFundsTestData = JSON.parse(
-                  JSON.stringify(SingleTargetWallet)
-                )
+                const data: MovingFundsTestData =
+                  structuredClone(SingleTargetWallet)
 
                 let tx: Promise<ContractTransactionResponse>
 
@@ -1762,9 +1767,7 @@ describe("Bridge - Moving funds", () => {
 
     context("when transaction proof is not valid", () => {
       context("when input vector is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1788,9 +1791,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when output vector is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1816,9 +1817,7 @@ describe("Bridge - Moving funds", () => {
       context(
         "when transaction is not on same level of merkle tree as coinbase",
         () => {
-          const data: MovingFundsTestData = JSON.parse(
-            JSON.stringify(SingleTargetWallet)
-          )
+          const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
           before(async () => {
             await createSnapshot()
@@ -1844,9 +1843,7 @@ describe("Bridge - Moving funds", () => {
       )
 
       context("when merkle proof is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1868,9 +1865,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when coinbase merkle proof is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1893,9 +1888,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when proof difficulty is not current nor previous", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1918,9 +1911,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain length is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1948,9 +1939,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain is not valid", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -1982,9 +1971,7 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when the work in the header is insufficient", () => {
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -2016,9 +2003,7 @@ describe("Bridge - Moving funds", () => {
         "when accumulated difficulty in headers chain is insufficient",
         () => {
           let otherBridge: BridgeStub
-          const data: MovingFundsTestData = JSON.parse(
-            JSON.stringify(SingleTargetWallet)
-          )
+          const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
           before(async () => {
             await createSnapshot()
@@ -2032,7 +2017,7 @@ describe("Bridge - Moving funds", () => {
             // to deem transaction proof validity. This scenario uses test
             // data which has only 6 confirmations. That should force the
             // failure we expect within this scenario.
-            otherBridge = (await deployBridge(12))[0] as BridgeStub
+            otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
             await otherBridge.setSpvMaintainerStatus(
               spvMaintainer.address,
               true
@@ -2068,9 +2053,7 @@ describe("Bridge - Moving funds", () => {
         // the transaction data (version, locktime, inputs, outputs)
         // length is 64 bytes or less.
 
-        const data: MovingFundsTestData = JSON.parse(
-          JSON.stringify(SingleTargetWallet)
-        )
+        const data: MovingFundsTestData = structuredClone(SingleTargetWallet)
 
         before(async () => {
           await createSnapshot()
@@ -2165,7 +2148,7 @@ describe("Bridge - Moving funds", () => {
           await walletRegistry.closeWallet.reset()
           await walletRegistry.seize.reset()
 
-          await increaseTime(movingFundsTimeout + 1)
+          await increaseTime(toNumber(movingFundsTimeout + 1n))
 
           tx = await bridge
             .connect(thirdParty)
@@ -2225,7 +2208,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movingFundsTimeout - 1)
+          await increaseTime(toNumber(movingFundsTimeout - 1n))
         })
 
         after(async () => {
@@ -3361,8 +3344,8 @@ describe("Bridge - Moving funds", () => {
 
     context("when transaction proof is not valid", () => {
       context("when input vector is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3387,8 +3370,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when output vector is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3415,8 +3398,8 @@ describe("Bridge - Moving funds", () => {
       context(
         "when transaction is not on same level of merkle tree as coinbase",
         () => {
-          const data: MovedFundsSweepTestData = JSON.parse(
-            JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+          const data: MovedFundsSweepTestData = structuredClone(
+            MovedFundsSweepWithoutMainUtxo
           )
 
           before(async () => {
@@ -3443,8 +3426,8 @@ describe("Bridge - Moving funds", () => {
       )
 
       context("when merkle proof is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3467,8 +3450,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when coinbase merkle proof is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3492,8 +3475,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when proof difficulty is not current nor previous", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3517,8 +3500,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain length is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3547,8 +3530,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when headers chain is not valid", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3581,8 +3564,8 @@ describe("Bridge - Moving funds", () => {
       })
 
       context("when the work in the header is insufficient", () => {
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3615,8 +3598,8 @@ describe("Bridge - Moving funds", () => {
         "when accumulated difficulty in headers chain is insufficient",
         () => {
           let otherBridge: Bridge
-          const data: MovedFundsSweepTestData = JSON.parse(
-            JSON.stringify(MovedFundsSweepWithMainUtxo)
+          const data: MovedFundsSweepTestData = structuredClone(
+            MovedFundsSweepWithMainUtxo
           )
 
           before(async () => {
@@ -3631,7 +3614,7 @@ describe("Bridge - Moving funds", () => {
             // to deem transaction proof validity. This scenario uses test
             // data which has only 6 confirmations. That should force the
             // failure we expect within this scenario.
-            otherBridge = (await deployBridge(12))[0] as BridgeStub
+            otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
             await otherBridge.setSpvMaintainerStatus(
               spvMaintainer.address,
               true
@@ -3666,8 +3649,8 @@ describe("Bridge - Moving funds", () => {
         // the transaction data (version, locktime, inputs, outputs)
         // length is 64 bytes or less.
 
-        const data: MovedFundsSweepTestData = JSON.parse(
-          JSON.stringify(MovedFundsSweepWithoutMainUtxo)
+        const data: MovedFundsSweepTestData = structuredClone(
+          MovedFundsSweepWithoutMainUtxo
         )
 
         before(async () => {
@@ -3753,7 +3736,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movedFundsSweepTimeout + 1)
+          await increaseTime(toNumber(movedFundsSweepTimeout + 1n))
         })
 
         after(async () => {
@@ -3836,9 +3819,11 @@ describe("Bridge - Moving funds", () => {
                   await bridge.setWallet(
                     movedFundsSweepRequest.walletPubKeyHash,
                     {
-                      ...(await bridge.wallets(
-                        movedFundsSweepRequest.walletPubKeyHash
-                      )),
+                      ...walletToStruct(
+                        await bridge.wallets(
+                          movedFundsSweepRequest.walletPubKeyHash
+                        )
+                      ),
                       state: test.walletState,
                     }
                   )
@@ -3943,9 +3928,9 @@ describe("Bridge - Moving funds", () => {
             await createSnapshot()
 
             await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
-              ...(await bridge.wallets(
-                movedFundsSweepRequest.walletPubKeyHash
-              )),
+              ...walletToStruct(
+                await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash)
+              ),
               state: walletState.Terminated,
             })
 
@@ -4016,9 +4001,11 @@ describe("Bridge - Moving funds", () => {
                   await bridge.setWallet(
                     movedFundsSweepRequest.walletPubKeyHash,
                     {
-                      ...(await bridge.wallets(
-                        movedFundsSweepRequest.walletPubKeyHash
-                      )),
+                      ...walletToStruct(
+                        await bridge.wallets(
+                          movedFundsSweepRequest.walletPubKeyHash
+                        )
+                      ),
                       state: test.walletState,
                     }
                   )
@@ -4049,7 +4036,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movedFundsSweepTimeout - 1)
+          await increaseTime(toNumber(movedFundsSweepTimeout - 1n))
         })
 
         after(async () => {
@@ -4254,7 +4241,7 @@ describe("Bridge - Moving funds", () => {
       // initialized the counter properly.
       assert(
         (await bridge.wallets(data.movedFundsSweepRequest.walletPubKeyHash))
-          .pendingMovedFundsSweepRequestsCount === 1,
+          .pendingMovedFundsSweepRequestsCount === 1n,
         "Pending moved funds request counter for the sweeping wallet should be set up to 1"
       )
     }

@@ -58,7 +58,7 @@ const func = async function (hre) {
 
   await helpers.ownable.transferOwnership(
     "EcdsaSortitionPool",
-    walletRegistry.address,
+    await walletRegistry.getAddress(),
     deployer
   )
 
@@ -73,7 +73,7 @@ const func = async function (hre) {
   if (hre.network.tags.tenderly) {
     await hre.tenderly.verify({
       name: "WalletRegistry",
-      address: walletRegistry.address,
+      address: await walletRegistry.getAddress(),
     })
   }
 }

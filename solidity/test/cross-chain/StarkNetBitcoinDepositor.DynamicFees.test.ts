@@ -64,7 +64,7 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
         },
       }
     )
-    starkNetDepositor = deployment[0] as StarkNetBitcoinDepositor
+    starkNetDepositor = deployment[0] as unknown as StarkNetBitcoinDepositor
   })
 
   describe("Dynamic Fee Implementation", () => {

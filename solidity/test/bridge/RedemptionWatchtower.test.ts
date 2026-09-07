@@ -1,7 +1,13 @@
+import {
+  toBigInt,
+  toNumber,
+  BigNumberish,
+  BytesLike,
+  ContractTransactionResponse,
+} from "ethers"
 import { helpers, ethers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { BigNumberish, BytesLike, ContractTransactionResponse } from "ethers"
 import type {
   Bank,
   BankStub,
@@ -20,7 +26,7 @@ const { impersonateAccount } = helpers.account
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
 
-/** Deep `eql` on full tuples fails when RPC returns a different `BigNumber` implementation. */
+/** Compare decoded tuple fields using the same integer and address representation. */
 function assertVetoProposalTuple(
   actual: Awaited<ReturnType<RedemptionWatchtower["vetoProposals"]>>,
   expected: {
@@ -33,9 +39,12 @@ function assertVetoProposalTuple(
   expect(ethers.getAddress(actual.redeemer)).to.equal(
     ethers.getAddress(expected.redeemer)
   )
-  expect(BigInt(actual.withdrawableAmount) === expected.withdrawableAmount).to
-    .be.true
-  expect(BigInt(actual.finalizedAt) === expected.finalizedAt).to.be.true
+  expect(
+    BigInt(actual.withdrawableAmount) ===
+      ethers.toBigInt(expected.withdrawableAmount)
+  ).to.be.true
+  expect(BigInt(actual.finalizedAt) === ethers.toBigInt(expected.finalizedAt))
+    .to.be.true
   expect(Number(actual.objectionsCount)).to.equal(expected.objectionsCount)
 }
 
@@ -230,7 +239,9 @@ describe("RedemptionWatchtower", () => {
           // Increase time to the moment the watchtower lifetime expires.
           // The `disableWatchtower` transaction should be mined exactly one
           // second after the lifetime expires.
-          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) + 1)
+          await increaseTime(
+            toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+          )
 
           // Disable the watchtower for the first time.
           await redemptionWatchtower.connect(thirdParty).disableWatchtower()
@@ -260,7 +271,9 @@ describe("RedemptionWatchtower", () => {
             // The `disableWatchtower` will be mined exactly at the moment
             // of the lifetime expiration which is one second too early
             // to disable the watchtower.
-            await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) - 1)
+            await increaseTime(
+              toNumber(lifetimeExpiresAt) - (await lastBlockTime()) - 1
+            )
           })
 
           after(async () => {
@@ -287,7 +300,9 @@ describe("RedemptionWatchtower", () => {
             // Increase time to the moment the watchtower lifetime expires.
             // The `disableWatchtower` transaction should be mined exactly one
             // second after the lifetime expires.
-            await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) + 1)
+            await increaseTime(
+              toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+            )
 
             tx = await redemptionWatchtower
               .connect(thirdParty)
@@ -468,8 +483,8 @@ describe("RedemptionWatchtower", () => {
     // redeemerOutputScript to avoid a collision and obtain different redemption
     // keys.
     const createLegacyRedemption = async () => {
-      const data: RedemptionTestData = JSON.parse(
-        JSON.stringify(SinglePendingRequestedRedemption)
+      const data: RedemptionTestData = structuredClone(
+        SinglePendingRequestedRedemption
       )
       data.redemptionRequests[0].redeemerOutputScript =
         "0x1976a9142cd680318747b720d67bf4246eb7403b476adb3488ac"
@@ -709,7 +724,7 @@ describe("RedemptionWatchtower", () => {
                 // The `disableWatchtower` transaction should be mined exactly one
                 // second after the lifetime expires.
                 await increaseTime(
-                  lifetimeExpiresAt - (await lastBlockTime()) + 1
+                  toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
                 )
 
                 // Disable the watchtower.
@@ -745,9 +760,15 @@ describe("RedemptionWatchtower", () => {
                 before(async () => {
                   await createSnapshot()
 
-                  defaultDelay = await redemptionWatchtower.defaultDelay()
-                  levelOneDelay = await redemptionWatchtower.levelOneDelay()
-                  levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+                  defaultDelay = toNumber(
+                    await redemptionWatchtower.defaultDelay()
+                  )
+                  levelOneDelay = toNumber(
+                    await redemptionWatchtower.levelOneDelay()
+                  )
+                  levelTwoDelay = toNumber(
+                    await redemptionWatchtower.levelTwoDelay()
+                  )
 
                   const redemptions = await createRedemptionRequests(
                     SinglePendingRequestedRedemption
@@ -887,8 +908,10 @@ describe("RedemptionWatchtower", () => {
                   const levelTwoDelay =
                     await redemptionWatchtower.levelTwoDelay()
                   const delayExpiresAt =
-                    legacyRedemption.requestedAt + levelTwoDelay
-                  await increaseTime(delayExpiresAt - (await lastBlockTime()))
+                    toBigInt(legacyRedemption.requestedAt) + levelTwoDelay
+                  await increaseTime(
+                    toNumber(delayExpiresAt - toBigInt(await lastBlockTime()))
+                  )
                 })
 
                 after(async () => {
@@ -1219,9 +1242,15 @@ describe("RedemptionWatchtower", () => {
               before(async () => {
                 await createSnapshot()
 
-                defaultDelay = await redemptionWatchtower.defaultDelay()
-                levelOneDelay = await redemptionWatchtower.levelOneDelay()
-                levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+                defaultDelay = toNumber(
+                  await redemptionWatchtower.defaultDelay()
+                )
+                levelOneDelay = toNumber(
+                  await redemptionWatchtower.levelOneDelay()
+                )
+                levelTwoDelay = toNumber(
+                  await redemptionWatchtower.levelTwoDelay()
+                )
 
                 const redemptions = await createRedemptionRequests(
                   SinglePendingRequestedRedemption
@@ -1623,7 +1652,9 @@ describe("RedemptionWatchtower", () => {
           // Increase time to the moment the watchtower lifetime expires.
           // The `disableWatchtower` transaction should be mined exactly one
           // second after the lifetime expires.
-          await increaseTime(lifetimeExpiresAt - (await lastBlockTime()) + 1)
+          await increaseTime(
+            toNumber(lifetimeExpiresAt) - (await lastBlockTime()) + 1
+          )
 
           // Disable the watchtower.
           await redemptionWatchtower.connect(thirdParty).disableWatchtower()
@@ -1831,12 +1862,14 @@ describe("RedemptionWatchtower", () => {
         guardians.map((g) => g.address)
       )
 
-      watchtowerLifetime = await redemptionWatchtower.watchtowerLifetime()
+      watchtowerLifetime = toNumber(
+        await redemptionWatchtower.watchtowerLifetime()
+      )
       vetoPenaltyFeeDivisor = 20 // Max value 5%
-      vetoFreezePeriod = await redemptionWatchtower.vetoFreezePeriod()
-      defaultDelay = await redemptionWatchtower.defaultDelay()
-      levelOneDelay = await redemptionWatchtower.levelOneDelay()
-      levelTwoDelay = await redemptionWatchtower.levelTwoDelay()
+      vetoFreezePeriod = toNumber(await redemptionWatchtower.vetoFreezePeriod())
+      defaultDelay = toNumber(await redemptionWatchtower.defaultDelay())
+      levelOneDelay = toNumber(await redemptionWatchtower.levelOneDelay())
+      levelTwoDelay = toNumber(await redemptionWatchtower.levelTwoDelay())
       waivedAmountLimit = await redemptionWatchtower.waivedAmountLimit()
     })
 
@@ -2127,9 +2160,7 @@ describe("RedemptionWatchtower", () => {
       // Create another redemption using the same SinglePendingRequestedRedemption
       // data. Use different redeemerOutputScript to avoid collision
       // with the first redemption.
-      const redemptionData = JSON.parse(
-        JSON.stringify(SinglePendingRequestedRedemption)
-      )
+      const redemptionData = structuredClone(SinglePendingRequestedRedemption)
       redemptionData.redemptionRequests[0].redeemerOutputScript =
         "0x17a914011beb6fb8499e075a57027fb0a58384f2d3f78487"
       // eslint-disable-next-line prefer-destructuring
@@ -2362,7 +2393,7 @@ describe("RedemptionWatchtower", () => {
 
       redeemerSigner = await impersonateAccount(redemption.redeemer, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
     })
 
@@ -2494,7 +2525,7 @@ describe("RedemptionWatchtower", () => {
               // of the freeze period expiration which is one second too early
               // to perform withdrawal.
               await increaseTime(
-                freezePeriodExpiresAt - (await lastBlockTime()) - 1
+                toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) - 1
               )
             })
 
@@ -2526,7 +2557,7 @@ describe("RedemptionWatchtower", () => {
               // The `withdrawVetoedFunds` transaction should be mined exactly one
               // second after the freeze period expiration.
               await increaseTime(
-                freezePeriodExpiresAt - (await lastBlockTime()) + 1
+                toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) + 1
               )
             })
 
@@ -2700,7 +2731,7 @@ describe("RedemptionWatchtower", () => {
             // of the freeze period expiration which is one second too early
             // to perform withdrawal.
             await increaseTime(
-              freezePeriodExpiresAt - (await lastBlockTime()) - 1
+              toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) - 1
             )
           })
 
@@ -2732,7 +2763,7 @@ describe("RedemptionWatchtower", () => {
             // The `withdrawVetoedFunds` transaction should be mined exactly one
             // second after the freeze period expiration.
             await increaseTime(
-              freezePeriodExpiresAt - (await lastBlockTime()) + 1
+              toNumber(freezePeriodExpiresAt) - (await lastBlockTime()) + 1
             )
           })
 
@@ -2790,7 +2821,7 @@ describe("RedemptionWatchtower", () => {
       /* eslint-disable no-await-in-loop */
       const redeemerSigner = await impersonateAccount(redeemer, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       await makeRedemptionAllowance(redeemerSigner, amount)
@@ -2819,7 +2850,7 @@ describe("RedemptionWatchtower", () => {
         walletPublicKeyHash: data.wallet.pubKeyHash.toString(),
         redeemerOutputScript: redeemerOutputScript.toString(),
         redeemer,
-        requestedAt,
+        requestedAt: toNumber(requestedAt),
         amount: BigInt(amount),
         treasuryFee,
       })

@@ -72,8 +72,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
       bridge.target,
       tbtcVault.target,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
     await proxy.waitForDeployment()
@@ -178,7 +178,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         1000,
         user.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const highFeeArgs = {
@@ -202,7 +202,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         10000,
         user.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const maxFeeArgs = {
@@ -237,7 +237,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         100,
         user.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const feeArgs1 = {
@@ -259,7 +259,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         100,
         feeRecipient.address,
         0,
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       const feeArgs2 = {

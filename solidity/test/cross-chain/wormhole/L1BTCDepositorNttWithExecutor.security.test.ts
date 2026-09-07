@@ -1,3 +1,4 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -643,7 +644,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
 
       const receiver = ethers.concat([
-        ethers.zeroPadValue(ethers.hexlify(WORMHOLE_CHAIN_DESTINATION), 2),
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_DESTINATION), 2),
         ethers.zeroPadValue(user.address, 30),
       ])
 
@@ -661,9 +662,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
       const receipt = await tx.wait()
-      const depositKey = receipt.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       // Verify parameters are set before finalization
       const [isSetBefore, nonceBefore] = await depositor
@@ -708,9 +709,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         .connect(user)
         .initializeDeposit(fundingTx, reveal2, receiver)
       const receipt2 = await tx2.wait()
-      const depositKey2 = receipt2.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       await expect(
         depositor
@@ -736,7 +737,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const instructions = `0x${"2".repeat(64)}`
       const executorValue = ethers.parseEther("0.01")
 
-      await maliciousReceiver.stageExecutorParameters(
+      await maliciousReceiver.getFunction("stageExecutorParameters")(
         executorValue,
         signedQuote,
         instructions,
@@ -760,8 +761,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       )
 
       const receiver = ethers.concat([
-        ethers.zeroPadValue(ethers.hexlify(WORMHOLE_CHAIN_DESTINATION), 2),
-        ethers.zeroPadValue(maliciousReceiver.target, 30),
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_DESTINATION), 2),
+        ethers.zeroPadValue(await maliciousReceiver.getAddress(), 30),
       ])
 
       const reveal = {
@@ -777,24 +778,30 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal, receiver)
       const receipt = await tx.wait()
-      const depositKey = receipt.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       // Configure malicious receiver to re-enter finalizeDeposit on the same depositKey during refund
-      await maliciousReceiver.setAttackConfig(depositKey, 0, false)
+      await maliciousReceiver.getFunction("setAttackConfig")(
+        depositKey,
+        0,
+        false
+      )
 
       // Finalize deposit through malicious receiver - during external refund to maliciousReceiver, receive() re-enters finalizeDeposit
-      await maliciousReceiver.finalize(depositKey, {
+      await maliciousReceiver.getFunction("finalize")(depositKey, {
         value: requiredPayment,
         gasLimit: 2_000_000,
       })
 
       // Verify reentrancy was attempted and failed due to Checks-Effects-Interactions deposit state
-      expect(await maliciousReceiver.attackAttempted()).to.be.true
-      expect(await maliciousReceiver.attackSucceeded()).to.be.false
+      expect(await maliciousReceiver.getFunction("attackAttempted")()).to.be
+        .true
+      expect(await maliciousReceiver.getFunction("attackSucceeded")()).to.be
+        .false
       const revertReason = decodeRevertReason(
-        await maliciousReceiver.lastRevertData()
+        await maliciousReceiver.getFunction("lastRevertData")()
       )
       expect(revertReason).to.equal("Wrong deposit state")
     })
@@ -816,7 +823,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const instructions = `0x${"2".repeat(64)}`
       const executorValue = ethers.parseEther("0.01")
 
-      await maliciousReceiver.stageExecutorParameters(
+      await maliciousReceiver.getFunction("stageExecutorParameters")(
         executorValue,
         signedQuote,
         instructions,
@@ -840,8 +847,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       )
 
       const receiver = ethers.concat([
-        ethers.zeroPadValue(ethers.hexlify(WORMHOLE_CHAIN_DESTINATION), 2),
-        ethers.zeroPadValue(maliciousReceiver.target, 30),
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_DESTINATION), 2),
+        ethers.zeroPadValue(await maliciousReceiver.getAddress(), 30),
       ])
 
       // Initialize two deposits
@@ -857,9 +864,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal1, receiver)
       const receipt1 = await tx1.wait()
-      const depositKey1 = receipt1.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       const reveal2 = {
         fundingOutputIndex: 1,
@@ -873,24 +880,30 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal2, receiver)
       const receipt2 = await tx2.wait()
-      const depositKey2 = receipt2.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       // Configure malicious receiver to attempt finalizing depositKey2 during depositKey1's refund
-      await maliciousReceiver.setAttackConfig(depositKey2, 0, false)
+      await maliciousReceiver.getFunction("setAttackConfig")(
+        depositKey2,
+        0,
+        false
+      )
 
       // Finalize depositKey1 through maliciousReceiver
-      await maliciousReceiver.finalize(depositKey1, {
+      await maliciousReceiver.getFunction("finalize")(depositKey1, {
         value: requiredPayment,
         gasLimit: 2_000_000,
       })
 
       // Verify reentrancy attempt was blocked by deleted parametersByNonce (PR #1031 CEI fix)
-      expect(await maliciousReceiver.attackAttempted()).to.be.true
-      expect(await maliciousReceiver.attackSucceeded()).to.be.false
+      expect(await maliciousReceiver.getFunction("attackAttempted")()).to.be
+        .true
+      expect(await maliciousReceiver.getFunction("attackSucceeded")()).to.be
+        .false
       const revertReason = decodeRevertReason(
-        await maliciousReceiver.lastRevertData()
+        await maliciousReceiver.getFunction("lastRevertData")()
       )
       expect(revertReason).to.equal("Executor parameters not set")
     })
@@ -912,7 +925,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const instructions = `0x${"2".repeat(64)}`
       const executorValue = ethers.parseEther("0.01")
 
-      await maliciousReceiver.stageExecutorParameters(
+      await maliciousReceiver.getFunction("stageExecutorParameters")(
         executorValue,
         signedQuote,
         instructions,
@@ -936,8 +949,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       )
 
       const receiver = ethers.concat([
-        ethers.zeroPadValue(ethers.hexlify(WORMHOLE_CHAIN_DESTINATION), 2),
-        ethers.zeroPadValue(maliciousReceiver.target, 30),
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_DESTINATION), 2),
+        ethers.zeroPadValue(await maliciousReceiver.getAddress(), 30),
       ])
 
       const reveal = {
@@ -953,16 +966,20 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal, receiver)
       const receipt = await tx.wait()
-      const depositKey = receipt.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       // Configure malicious receiver with bubbleUp = true
-      await maliciousReceiver.setAttackConfig(depositKey, 0, true)
+      await maliciousReceiver.getFunction("setAttackConfig")(
+        depositKey,
+        0,
+        true
+      )
 
       // When the reentrant call fails ("Wrong deposit state") and bubbles up, MockNttManagerWithExecutor refund fails
       await expect(
-        maliciousReceiver.finalize(depositKey, {
+        maliciousReceiver.getFunction("finalize")(depositKey, {
           value: requiredPayment,
           gasLimit: 2_000_000,
         })

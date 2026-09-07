@@ -1,8 +1,8 @@
+import { toNumber, ContractTransactionResponse } from "ethers"
 /* eslint-disable no-underscore-dangle */
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransactionResponse } from "ethers"
 import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
@@ -1002,7 +1002,9 @@ describe("Bridge - Wallets", () => {
           before(async () => {
             await createSnapshot()
 
-            await increaseTime((await bridge.walletParameters()).walletMaxAge)
+            await increaseTime(
+              toNumber((await bridge.walletParameters()).walletMaxAge)
+            )
           })
 
           after(async () => {
@@ -1455,7 +1457,7 @@ describe("Bridge - Wallets", () => {
           await createSnapshot()
 
           await increaseTime(
-            (await bridge.walletParameters()).walletClosingPeriod + 1
+            toNumber((await bridge.walletParameters()).walletClosingPeriod + 1n)
           )
 
           tx = await bridge.notifyWalletClosingPeriodElapsed(
@@ -1496,7 +1498,7 @@ describe("Bridge - Wallets", () => {
           await createSnapshot()
 
           await increaseTime(
-            (await bridge.walletParameters()).walletClosingPeriod - 1
+            toNumber((await bridge.walletParameters()).walletClosingPeriod - 1n)
           )
         })
 

@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import type { BigNumber, Signer } from "ethers"
+import type { Signer } from "ethers"
 import { constants } from "../fixtures"
 import type { TestERC20, TBTC, VendingMachine } from "../../typechain"
 
@@ -166,7 +166,7 @@ describe("VendingMachine", () => {
               await tokenHolder.getAddress(),
               initialBalance,
               tbtcV1.target,
-              []
+              "0x"
             )
         ).to.be.revertedWith("Only TBTC v1 caller allowed")
       })
@@ -181,7 +181,7 @@ describe("VendingMachine", () => {
               await tokenHolder.getAddress(),
               initialBalance,
               tbtcV2.target,
-              []
+              "0x"
             )
         ).to.be.revertedWith("Token is not TBTC v1")
       })
@@ -196,7 +196,7 @@ describe("VendingMachine", () => {
 
         tx = await tbtcV1
           .connect(tokenHolder)
-          .approveAndCall(vendingMachine.target, amount, [])
+          .approveAndCall(vendingMachine.target, amount, "0x")
       })
 
       after(async () => {
@@ -263,8 +263,8 @@ describe("VendingMachine", () => {
       context("when TBTC v2 owner has enough tokens", () => {
         context("when unminting entire TBTC v2 balance", () => {
           const unmintAmount = initialBalance
-          let v1StartBalance
-          let v2StartBalance
+          let v1StartBalance: bigint
+          let v2StartBalance: bigint
           let tx
 
           before(async () => {
@@ -290,16 +290,16 @@ describe("VendingMachine", () => {
           it("should burn unminted TBTC v2 tokens", async () => {
             expect(
               await tbtcV2.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v2StartBalance.sub(unmintAmount))
+            ).to.equal(v2StartBalance - unmintAmount)
             expect(await tbtcV2.totalSupply()).to.equal(
-              v2StartBalance.sub(unmintAmount)
+              v2StartBalance - unmintAmount
             )
           })
 
           it("should transfer unminted TBTC v1 tokens back to the owner", async () => {
             expect(
               await tbtcV1.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v1StartBalance.add(unmintAmount))
+            ).to.equal(v1StartBalance + unmintAmount)
           })
 
           it("should emit the Unminted event", async () => {
@@ -311,8 +311,8 @@ describe("VendingMachine", () => {
 
         context("when unminting part of TBTC v2 balance", () => {
           const unmintAmount = to1e18(1)
-          let v1StartBalance
-          let v2StartBalance
+          let v1StartBalance: bigint
+          let v2StartBalance: bigint
           let tx
 
           before(async () => {
@@ -338,16 +338,16 @@ describe("VendingMachine", () => {
           it("should burn unminted TBTC v2 tokens", async () => {
             expect(
               await tbtcV2.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v2StartBalance.sub(unmintAmount))
+            ).to.equal(v2StartBalance - unmintAmount)
             expect(await tbtcV2.totalSupply()).to.equal(
-              v2StartBalance.sub(unmintAmount)
+              v2StartBalance - unmintAmount
             )
           })
 
           it("should transfer unminted TBTC v1 tokens back to the owner", async () => {
             expect(
               await tbtcV1.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v1StartBalance.add(unmintAmount))
+            ).to.equal(v1StartBalance + unmintAmount)
           })
 
           it("should emit the Unminted event", async () => {
@@ -374,9 +374,9 @@ describe("VendingMachine", () => {
           const unmintAmount =
             (initialBalance * to1e18(1)) / (to1e18(1) + constants.unmintFee)
 
-          let fee
-          let v1StartBalance
-          let v2StartBalance
+          let fee: bigint
+          let v1StartBalance: bigint
+          let v2StartBalance: bigint
           let tx
 
           before(async () => {
@@ -403,16 +403,16 @@ describe("VendingMachine", () => {
           it("should burn unminted TBTC v2 tokens", async () => {
             expect(
               await tbtcV2.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v2StartBalance.sub(unmintAmount).sub(fee))
+            ).to.equal(v2StartBalance - unmintAmount - fee)
             expect(await tbtcV2.totalSupply()).to.equal(
-              v2StartBalance.sub(unmintAmount)
+              v2StartBalance - unmintAmount
             )
           })
 
           it("should transfer unminted TBTC v1 tokens back to the owner", async () => {
             expect(
               await tbtcV1.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v1StartBalance.add(unmintAmount))
+            ).to.equal(v1StartBalance + unmintAmount)
           })
 
           it("should emit the Unminted event", async () => {
@@ -425,9 +425,9 @@ describe("VendingMachine", () => {
         context("when unminting part of TBTC v2 balance", () => {
           const unmintAmount = to1e18(1)
 
-          let fee
-          let v1StartBalance
-          let v2StartBalance
+          let fee: bigint
+          let v1StartBalance: bigint
+          let v2StartBalance: bigint
           let tx
 
           before(async () => {
@@ -454,16 +454,16 @@ describe("VendingMachine", () => {
           it("should burn unminted TBTC v2 tokens", async () => {
             expect(
               await tbtcV2.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v2StartBalance.sub(unmintAmount).sub(fee))
+            ).to.equal(v2StartBalance - unmintAmount - fee)
             expect(await tbtcV2.totalSupply()).to.equal(
-              v2StartBalance.sub(unmintAmount)
+              v2StartBalance - unmintAmount
             )
           })
 
           it("should transfer unminted TBTC v1 tokens back to the owner", async () => {
             expect(
               await tbtcV1.balanceOf(await tokenHolder.getAddress())
-            ).to.equal(v1StartBalance.add(unmintAmount))
+            ).to.equal(v1StartBalance + unmintAmount)
           })
 
           it("should emit the Unminted event", async () => {
@@ -719,7 +719,7 @@ describe("VendingMachine", () => {
   })
 
   describe("initiateVendingMachineUpgrade", () => {
-    let newVendingMachine
+    let newVendingMachine: VendingMachine
 
     before(async () => {
       await createSnapshot()
@@ -742,7 +742,7 @@ describe("VendingMachine", () => {
         await expect(
           vendingMachine
             .connect(thirdParty)
-            .initiateVendingMachineUpgrade(newVendingMachine.address)
+            .initiateVendingMachineUpgrade(newVendingMachine.target)
         ).to.be.revertedWith("Caller is not authorized")
       })
     })
@@ -752,7 +752,7 @@ describe("VendingMachine", () => {
         await expect(
           vendingMachine
             .connect(keepCommunityMultiSig)
-            .initiateVendingMachineUpgrade(newVendingMachine.address)
+            .initiateVendingMachineUpgrade(newVendingMachine.target)
         ).to.be.revertedWith("Caller is not authorized")
       })
     })
@@ -776,7 +776,7 @@ describe("VendingMachine", () => {
 
           tx = await vendingMachine
             .connect(vendingMachineUpgradeInitiator)
-            .initiateVendingMachineUpgrade(newVendingMachine.address)
+            .initiateVendingMachineUpgrade(newVendingMachine.target)
         })
 
         after(async () => {
@@ -795,7 +795,7 @@ describe("VendingMachine", () => {
 
         it("should set the pending new vending machine address", async () => {
           expect(await vendingMachine.newVendingMachine()).to.equal(
-            newVendingMachine.address
+            newVendingMachine.target
           )
         })
 
@@ -811,7 +811,7 @@ describe("VendingMachine", () => {
           await expect(tx)
             .to.emit(vendingMachine, "VendingMachineUpgradeInitiated")
             .withArgs(
-              newVendingMachine.address,
+              newVendingMachine.target,
               await getBlockTime(tx.blockNumber)
             )
         })
@@ -859,7 +859,7 @@ describe("VendingMachine", () => {
 
       context("when upgrade process is initialized", () => {
         const tbtcV1Amount = to1e18(3)
-        let newVendingMachine
+        let newVendingMachine: VendingMachine
 
         before(async () => {
           await createSnapshot()
@@ -881,7 +881,7 @@ describe("VendingMachine", () => {
 
           await vendingMachine
             .connect(vendingMachineUpgradeInitiator)
-            .initiateVendingMachineUpgrade(newVendingMachine.address)
+            .initiateVendingMachineUpgrade(newVendingMachine.target)
         })
 
         after(async () => {
@@ -916,11 +916,11 @@ describe("VendingMachine", () => {
           })
 
           it("should transfer token ownership to the new VendingMachine", async () => {
-            expect(await tbtcV2.owner()).to.equal(newVendingMachine.address)
+            expect(await tbtcV2.owner()).to.equal(newVendingMachine.target)
           })
 
           it("should transfer all TBTC v1 to the new VendingMachine", async () => {
-            expect(await tbtcV1.balanceOf(newVendingMachine.address)).to.equal(
+            expect(await tbtcV1.balanceOf(newVendingMachine.target)).to.equal(
               tbtcV1Amount
             )
           })
@@ -928,7 +928,7 @@ describe("VendingMachine", () => {
           it("should emit VendingMachineUpgraded event", async () => {
             await expect(tx)
               .to.emit(vendingMachine, "VendingMachineUpgraded")
-              .withArgs(newVendingMachine.address)
+              .withArgs(newVendingMachine.target)
           })
 
           it("should reset the governance delay timer", async () => {

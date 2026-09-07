@@ -120,16 +120,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         bridgeGovernanceAddress
       )
 
-      const updatesCount = await bridgeGovernance.governanceUpdatesCount()
+      const updatesCount: bigint =
+        await bridgeGovernance.governanceUpdatesCount()
       console.log("\n   Checking for pending governance actions...")
       console.log("   Total governance updates:", updatesCount.toString())
 
-      if (updatesCount.gt(0)) {
+      if (updatesCount > 0) {
         // Check the latest update
         const latestUpdate = await bridgeGovernance.governanceUpdates(
-          updatesCount.sub(1)
+          updatesCount - BigInt(1)
         )
-        const timelockTimestamp = latestUpdate.timelock.toNumber()
+        const timelockTimestamp = ethers.toNumber(latestUpdate.timelock)
         const currentTimestamp = Math.floor(Date.now() / 1000)
 
         if (timelockTimestamp > currentTimestamp) {
@@ -185,8 +186,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     const bridge = await rebateStaking.bridge()
     const token = await rebateStaking.token()
-    const rollingWindow = await rebateStaking.rollingWindow()
-    const unstakingPeriod = await rebateStaking.unstakingPeriod()
+    const rollingWindow: bigint = await rebateStaking.rollingWindow()
+    const unstakingPeriod: bigint = await rebateStaking.unstakingPeriod()
     const rebatePerToken = await rebateStaking.rebatePerToken()
 
     console.log("✅ RebateStaking contract is deployed and configured:")
@@ -200,14 +201,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "   Rolling window:   ",
       rollingWindow.toString(),
       "seconds (",
-      rollingWindow.div(86400).toString(),
+      (rollingWindow / BigInt(86400)).toString(),
       "days)"
     )
     console.log(
       "   Unstaking period: ",
       unstakingPeriod.toString(),
       "seconds (",
-      unstakingPeriod.div(86400).toString(),
+      (unstakingPeriod / BigInt(86400)).toString(),
       "days)"
     )
     console.log(
