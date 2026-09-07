@@ -200,6 +200,8 @@ The behavior can be configured using the following env variables:
 
 |*LARGE_REDEMPTION_THRESHOLD_SAT* |Satoshi threshold used to determine which redemptions are large. Default: _1000000000_ |No
 
+|*REDEMPTION_TIMEOUT_WARNING_SECONDS* |Positive integer lead time for pending redemption deadline warnings. Default: _21600_ (6 hours); capped at the Bridge timeout. |No
+
 |*DATA_DIR_PATH* |Directory used to persist processing data. Default: _./data_ |No
 
 |*SENTRY_DSN* |DSN of the Sentry receiver. If not set, events are not dispatched to Sentry |No
@@ -208,6 +210,54 @@ The behavior can be configured using the following env variables:
 |===
 
 === Deployment
+
+==== Redemption lifecycle rollout
+
+The redemption lifecycle monitor adds proof-accepted notifications, pending
+request deadline warnings, expired-without-proof alerts, and accepted timeout
+report alerts. Configure both `DISCORD_WEBHOOK_URL` (informational events) and
+`SENTRY_DSN` (warnings and critical events) to deliver all four. A deployment with
+only one receiver intentionally ignores the event types supported by the other.
+
+Deadlines use Ethereum block timestamps and the Bridge's configured timeout,
+not an assumed block duration. Pending state and timeout parameters are read
+at the window's end block; the timeout is also read at the start block to
+handle changes made through governance. The RPC must support historical state
+for every replayed checkpoint. Unavailable state or logs fail the run and keep
+the checkpoint for retry. Log queries are split into batches of at most 5,000
+blocks. Tune the monitoring schedule and RPC limits against the request volume.
+
+The monitor queries requests whose warning or expiry crosses the current
+checkpoint window. On first installation, or when enabling this monitor on an
+existing checkpoint, it does not inventory requests that crossed their threshold
+before that window. Before relying on coverage:
+
+. Stop the scheduled job and back up `DATA_DIR_PATH/db.json` before changing its
+  checkpoint. Preserve the handled-event history for deduplication.
+. Select a historical block before the earliest warning/deadline requiring
+  backfill, at or after the Bridge deployment. Rewind `checkpointBlock` to that
+  block on a copy of the data directory and run with staging receivers. Every
+  monitor shares this checkpoint, so review the resulting notification volume.
+. Verify that proof acceptance reaches Discord and near-timeout, expiration,
+  and timeout-report events reach Sentry, including failed delivery followed by
+  retry. Run `yarn test` for deterministic boundary, reorg-overlap, and RPC
+  failure checks; these tests do not contact live receivers.
+. Apply the reviewed checkpoint to the stopped production job and resume it.
+  Catch-up advances in the Manager's bounded windows. Check pending requests
+  older than the chosen backfill range separately before declaring coverage.
+  The handled-event cache is bounded, so a sufficiently large replay can resend
+  notifications that have aged out of it.
+
+The service retains its published SDK 2.5 dependency. A narrow read-only contract
+adapter supplies lifecycle reads until the service can upgrade to an SDK release
+that exposes them; no unpublished SDK build or new runtime dependency is needed.
+Wallet proposal broadcasts are off-chain and require the wallet node telemetry
+described in `keep-core/docs/redemption-proposal-monitoring.adoc`. Complete those
+receiver and maintainer-alert rollout checks before closing keep-core issue #3664.
+
+To roll back, restore the previous monitoring image while preserving the data
+directory and its backup. Account for lifecycle notifications already delivered
+when replaying the checkpoint after re-enabling this monitor.
 
 ==== Docker image
 
