@@ -19,6 +19,8 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
 
   private readonly pendingBlockRangePath = "/pendingBlockRange"
 
+  private readonly pendingSystemEventsPath = "/pendingSystemEvents"
+
   private db: JsonDB
 
   constructor() {
@@ -50,6 +52,24 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
 
   async updatePendingBlockRange(range: BlockRange | null): Promise<void> {
     await this.db.push(this.pendingBlockRangePath, range)
+  }
+
+  async pendingSystemEvents(): Promise<
+    Record<SystemEventReceiverId, SystemEvent[]>
+  > {
+    if (!(await this.db.exists(this.pendingSystemEventsPath))) {
+      return {}
+    }
+    return this.db.getObject<Record<SystemEventReceiverId, SystemEvent[]>>(
+      this.pendingSystemEventsPath
+    )
+  }
+
+  async updatePendingSystemEvents(
+    systemEvents: Record<SystemEventReceiverId, SystemEvent[]>
+  ): Promise<void> {
+    // Pending notifications must not be truncated like the handled-event cache.
+    await this.db.push(this.pendingSystemEventsPath, systemEvents)
   }
 
   async handledSystemEvents(): Promise<

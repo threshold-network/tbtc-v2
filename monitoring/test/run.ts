@@ -7,6 +7,7 @@ process.env.ELECTRUM_URL = process.env.ELECTRUM_URL ?? "tcp://localhost:50001"
 async function main() {
   await import("./sentry-receiver.test")
   await import("./system-event-manager.test")
+  await import("./receiver-isolation.test")
   await import("./redemption-chain.test")
   await import("./redemption-lifecycle-monitor.test")
 

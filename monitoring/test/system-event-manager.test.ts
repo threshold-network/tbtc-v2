@@ -29,11 +29,16 @@ const monitor: Monitor = {
 function persistence(
   handledSystemEvents: Awaited<ReturnType<Persistence["handledSystemEvents"]>>
 ): Persistence {
+  let pendingEvents: Record<string, SystemEvent[]> = {}
   return {
     checkpointBlock: async () => 0,
     updateCheckpointBlock: async () => undefined,
     pendingBlockRange: async () => null,
     updatePendingBlockRange: async () => undefined,
+    pendingSystemEvents: async () => pendingEvents,
+    updatePendingSystemEvents: async (events) => {
+      pendingEvents = events
+    },
     handledSystemEvents: async () => handledSystemEvents,
     storeHandledSystemEvents: async () => undefined,
   }
@@ -132,7 +137,7 @@ test("Manager requires a durable range before checking, including a retry after 
   }
 })
 
-test("Manager retains a failed delivery range and deduplicates the receiver that already accepted it", async () => {
+test("Manager queues failed deliveries and deduplicates the receiver that already accepted them", async () => {
   const originalLatest = blocks.latestBlock
   let latestBlock = 150
   blocks.latestBlock = async () => latestBlock
@@ -178,16 +183,20 @@ test("Manager retains a failed delivery range and deduplicates the receiver that
       (await new Manager([monitor], receivers, state).trigger()).status,
       "failure"
     )
-    assert.strictEqual(checkpoint, 100)
-    assert.deepStrictEqual(pending, { fromBlock: 88, toBlock: 150 })
+    assert.strictEqual(checkpoint, 150)
+    assert.strictEqual(pending, null)
+    assert.deepStrictEqual(await state.pendingSystemEvents(), {
+      rejected: [systemEvent],
+    })
     latestBlock = 200
     reject = false
     assert.strictEqual(
       (await new Manager([monitor], receivers, state).trigger()).status,
       "success"
     )
-    assert.strictEqual(checkpoint, 150)
+    assert.strictEqual(checkpoint, 200)
     assert.strictEqual(pending, null)
+    assert.deepStrictEqual(await state.pendingSystemEvents(), {})
     assert.strictEqual(acceptedCalls, 1)
     assert.strictEqual(rejectedCalls, 2)
   } finally {

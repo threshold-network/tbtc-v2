@@ -219,6 +219,8 @@ test("overlapping windows deduplicate the same deadline alert through Manager", 
     updateCheckpointBlock: async () => undefined,
     pendingBlockRange: async () => null,
     updatePendingBlockRange: async () => undefined,
+    pendingSystemEvents: async () => ({}),
+    updatePendingSystemEvents: async () => undefined,
     handledSystemEvents: async () => ({ test: stored }),
     storeHandledSystemEvents: async () => undefined,
   }
@@ -255,6 +257,8 @@ test("a failed historical RPC read preserves the Manager checkpoint and retries 
     updatePendingBlockRange: async (range) => {
       pendingRange = range
     },
+    pendingSystemEvents: async () => ({}),
+    updatePendingSystemEvents: async () => undefined,
     handledSystemEvents: async () => ({}),
     storeHandledSystemEvents: async () => undefined,
   }
@@ -326,7 +330,7 @@ test("a rejected expiration survives restart and proof acceptance before retry",
     assert.strictEqual(attempts[0].title, "Redemption expired without proof")
     assert.strictEqual(
       await new SystemEventFilePersistence().checkpointBlock(),
-      110
+      111
     )
 
     latestBlock = 120
@@ -334,12 +338,11 @@ test("a rejected expiration survives restart and proof acceptance before retry",
     // Recreate both Manager and persistence, as the scheduled job does.
     const retried = await createManager().trigger()
     assert.strictEqual(retried.status, "success")
-    assert.strictEqual(retried.fromBlock, failed.fromBlock)
-    assert.strictEqual(retried.toBlock, failed.toBlock)
+    assert.strictEqual(retried.toBlock, 120)
     assert.deepStrictEqual(attempts[1], attempts[0])
     assert.strictEqual(
       await new SystemEventFilePersistence().checkpointBlock(),
-      111
+      120
     )
 
     const caughtUp = await createManager().trigger()
