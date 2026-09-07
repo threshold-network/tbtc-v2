@@ -1317,7 +1317,7 @@ Chain ID as a decimal string.
 
 #### Defined in
 
-[src/lib/ethereum/evm-connection.ts:271](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L271)
+[src/lib/ethereum/evm-connection.ts:256](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L256)
 
 ___
 
@@ -1448,8 +1448,10 @@ ___
 
 ▸ **ethereumAddressFromSigner**(`signer`): `Promise`\<[`EthereumAddress`](classes/EthereumAddress.md) \| `undefined`\>
 
-Resolves the Ethereum address tied to the given signer. The address
-cannot be resolved for signers that work in read-only mode.
+Resolves the Ethereum address tied to the given signer without querying
+its chain ID or initializing a connection. Locally available accounts
+can be resolved offline. The address cannot be resolved for signers that
+work in read-only mode.
 
 #### Parameters
 
@@ -1470,7 +1472,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[src/lib/ethereum/evm-connection.ts:285](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L285)
+[src/lib/ethereum/evm-connection.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L272)
 
 ___
 

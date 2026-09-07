@@ -147,6 +147,8 @@ export async function connectEvm(
  */
 async function doConnectEvm(signer: EthereumSigner): Promise<EvmConnection> {
   const candidate = signer as Record<string, unknown>
+  const address = await ethereumAddressFromSigner(signer)
+  const account = address ? getAddress(`0x${address.identifierHex}`) : undefined
 
   // Case 1: viem client. viem sets `type: "walletClient"` / `"publicClient"`
   // on clients created by `createWalletClient` / `createPublicClient`.
@@ -166,12 +168,10 @@ async function doConnectEvm(signer: EthereumSigner): Promise<EvmConnection> {
           transportOptions
         ),
       })
-      const account =
-        wallet.account?.address ?? (await wallet.getAddresses())[0]
       return {
         public: publicClient,
         wallet,
-        account: account !== undefined ? getAddress(account) : undefined,
+        account,
         chainId: String(await publicClient.getChainId()),
       }
     }
@@ -191,7 +191,6 @@ async function doConnectEvm(signer: EthereumSigner): Promise<EvmConnection> {
   if (candidate._isSigner === true) {
     const ethersSigner = signer as EthersV5SignerLike
     const bridge = ethersToEip1193(ethersSigner)
-    const account = getAddress(await ethersSigner.getAddress())
     const publicClient = createPublicClient({
       transport: custom(bridge, transportOptions),
     })
@@ -226,21 +225,7 @@ async function doConnectEvm(signer: EthereumSigner): Promise<EvmConnection> {
       transport: custom(provider, transportOptions),
     })
 
-    // Probe for accounts with `eth_accounts` only - the SDK must never
-    // trigger a wallet popup (`eth_requestAccounts`).
-    let accounts: string[] = []
-    try {
-      accounts = (await provider.request({
-        method: "eth_accounts",
-      })) as string[]
-    } catch {
-      // Providers without account support (plain RPC endpoints) stay
-      // read-only.
-      accounts = []
-    }
-
-    if (Array.isArray(accounts) && accounts.length > 0) {
-      const account = getAddress(accounts[0])
+    if (account !== undefined) {
       const wallet = createWalletClient({
         account,
         transport: custom(provider, transportOptions),
@@ -275,8 +260,10 @@ export async function chainIdFromSigner(
 }
 
 /**
- * Resolves the Ethereum address tied to the given signer. The address
- * cannot be resolved for signers that work in read-only mode.
+ * Resolves the Ethereum address tied to the given signer without querying
+ * its chain ID or initializing a connection. Locally available accounts
+ * can be resolved offline. The address cannot be resolved for signers that
+ * work in read-only mode.
  * @param signer The signer whose address should be resolved.
  * @returns Ethereum address or undefined for read-only signers.
  * @throws Throws an error if the address of the signer is not a proper
@@ -285,6 +272,48 @@ export async function chainIdFromSigner(
 export async function ethereumAddressFromSigner(
   signer: EthereumSigner
 ): Promise<EthereumAddress | undefined> {
-  const { account } = await connectEvm(signer)
-  return account !== undefined ? EthereumAddress.from(account) : undefined
+  if (typeof signer !== "object" || signer === null) {
+    throw new Error("Unsupported Ethereum signer/provider")
+  }
+
+  const candidate = signer as Record<string, unknown>
+  if (typeof candidate.request === "function") {
+    if (candidate.type === "walletClient") {
+      const wallet = signer as WalletClient
+      const account =
+        wallet.account?.address ?? (await wallet.getAddresses())[0]
+      return account !== undefined ? EthereumAddress.from(account) : undefined
+    }
+    if (candidate.type === "publicClient") {
+      return undefined
+    }
+  }
+
+  if (candidate._isSigner === true) {
+    return EthereumAddress.from(
+      await (signer as EthersV5SignerLike).getAddress()
+    )
+  }
+  if (candidate._isProvider === true) {
+    return undefined
+  }
+
+  if (typeof candidate.request === "function") {
+    // Only eth_accounts may be needed to discover an account; never prompt
+    // for authorization or require chain connectivity to resolve it.
+    let accounts: unknown
+    try {
+      accounts = await (signer as Eip1193Provider).request({
+        method: "eth_accounts",
+      })
+    } catch {
+      // Providers without account support stay read-only.
+      return undefined
+    }
+    return Array.isArray(accounts) && accounts.length > 0
+      ? EthereumAddress.from(accounts[0])
+      : undefined
+  }
+
+  throw new Error("Unsupported Ethereum signer/provider")
 }

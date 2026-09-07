@@ -385,7 +385,8 @@ export class EvmContractHandle {
     deployment: EvmContractDeployment,
     totalRetryAttempts = 3
   ) {
-    this._address = getAddress(config.address ?? deployment.address)
+    const address = EthereumAddress.from(config.address ?? deployment.address)
+    this._address = getAddress(`0x${address.identifierHex}`)
     this._abi = deployment.abi
     this._deployedAtBlockNumber =
       config.deployedAtBlockNumber ?? deployment.receipt.blockNumber
@@ -474,21 +475,22 @@ export class EvmContractHandle {
       logger?: ExecutionLoggerFn
     }
   ): Promise<Hex> {
-    const connection = await this._connRef.get()
-    const { wallet, account } = connection
-    if (!wallet || !account) {
-      throw new Error("Signer not provided")
-    }
-
     return backoffRetrier<Hex>(
       this._totalRetryAttempts,
       1000,
       opts?.logger,
-      opts?.nonRetryableErrors
-        ? skipRetryWhenMatched(opts.nonRetryableErrors)
-        : undefined
+      skipRetryWhenMatched([
+        /^Signer not provided$/,
+        ...(opts?.nonRetryableErrors ?? []),
+      ])
     )(async () => {
       try {
+        const connection = await this._connRef.get()
+        const { wallet, account } = connection
+        if (!wallet || !account) {
+          throw new Error("Signer not provided")
+        }
+
         const { request } = await connection.public.simulateContract({
           address: this._address,
           abi: this._abi,

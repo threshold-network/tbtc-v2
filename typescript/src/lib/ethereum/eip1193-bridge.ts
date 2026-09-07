@@ -1,3 +1,4 @@
+import { isHex } from "viem"
 import type {
   Eip1193Provider,
   EthersV5ProviderLike,
@@ -185,13 +186,21 @@ export function ethersToEip1193(
         case "eth_call": {
           const tx = params[0] as { to?: string; data?: string }
           const blockTag = toEthersBlockTag(params[1])
-          if (provider) {
-            return provider.call(tx, blockTag)
+          const caller = provider ?? signer
+          if (!caller) break
+          const data = await caller.call(tx, blockTag)
+          // ethers v5 call() may resolve with encoded revert data. ABI
+          // errors contain a four-byte selector followed by 32-byte words;
+          // successful ABI return values are word-aligned. Restore the
+          // RPC error so viem can decode standard and custom errors using
+          // the contract ABI, as ethers' decodeFunctionResult did.
+          if (isHex(data) && (data.length - 2) % 64 === 8) {
+            throw Object.assign(new Error("execution reverted"), {
+              code: 3,
+              data,
+            })
           }
-          if (signer) {
-            return signer.call(tx, blockTag)
-          }
-          break
+          return data
         }
         case "eth_getLogs": {
           if (!provider) break

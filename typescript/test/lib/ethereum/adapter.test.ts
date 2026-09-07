@@ -1,4 +1,5 @@
 import { expect } from "chai"
+import { stub } from "sinon"
 import type { Abi, Address } from "viem"
 import {
   asDeployment,
@@ -100,6 +101,49 @@ describe("EVM adapter", () => {
     handle = new TestContractHandle(config, testDeployment)
   })
 
+  describe("contract addresses", () => {
+    it("should reject an invalid checksum in a custom address before any RPC calls", () => {
+      expect(
+        () =>
+          new TestContractHandle(
+            {
+              signerOrProvider: mock.asSigner(),
+              address: testAddress.replace("Be", "be"),
+            },
+            testDeployment
+          )
+      ).to.throw("Invalid Ethereum address")
+      expect(mock.requests).to.be.empty
+    })
+
+    it("should validate an address from a deployment artifact", () => {
+      expect(
+        () =>
+          new TestContractHandle(
+            { signerOrProvider: mock.asSigner() },
+            { ...testDeployment, address: testAddress.replace("Be", "be") }
+          )
+      ).to.throw("Invalid Ethereum address")
+    })
+
+    for (const address of [
+      testAddress,
+      testAddress.toLowerCase(),
+      `0x${testAddress.slice(2).toUpperCase()}`,
+    ]) {
+      it(`should accept the valid contract address ${address}`, () => {
+        const configuredHandle = new TestContractHandle(
+          { signerOrProvider: mock.asSigner(), address },
+          testDeployment
+        )
+
+        expect(configuredHandle.getAddress().identifierHex).to.equal(
+          testAddress.slice(2).toLowerCase()
+        )
+      })
+    }
+  })
+
   describe("reads", () => {
     it("should decode a stubbed read result", async () => {
       mock.stubRead(testAddress, testAbi, "deposits", [123n], 5000n)
@@ -183,14 +227,95 @@ describe("EVM adapter", () => {
         testDeployment
       )
 
+      const messages: string[] = []
       let error: unknown
       try {
-        await readOnlyHandle.write("revealDeposit", [`0x${"ab".repeat(32)}`])
+        await readOnlyHandle.write("revealDeposit", [`0x${"ab".repeat(32)}`], {
+          logger: (message) => messages.push(message),
+        })
       } catch (e) {
         error = e
       }
 
       expect((error as Error).message).to.equal("Signer not provided")
+      expect(messages.some((message) => message.includes("retrying"))).to.be
+        .false
+      expect(mock.sentTransactions).to.be.empty
+    })
+
+    it("should retry connection initialization before simulating and sending a write", async () => {
+      const request = stub(mock, "request").callThrough()
+      const chainId = request.withArgs({ method: "eth_chainId" })
+      chainId.onFirstCall().rejects(new Error("Temporary chain ID failure"))
+      handle = new TestContractHandle(
+        { signerOrProvider: mock.asSigner() },
+        testDeployment
+      )
+      const blindingFactor = `0x${"ab".repeat(32)}` as const
+      mock.stubRead(
+        testAddress,
+        testAbi,
+        "revealDeposit",
+        [blindingFactor],
+        undefined
+      )
+
+      const hash = await handle.write("revealDeposit", [blindingFactor])
+
+      expect(hash.toPrefixedString()).to.match(/^0x[0-9a-f]{64}$/)
+      expect(chainId.callCount).to.equal(2)
+      expect(request.withArgs({ method: "eth_accounts" }).callCount).to.equal(2)
+      expect(
+        mock.requests.filter((r) => r.method === "eth_call")
+      ).to.have.lengthOf(1)
+      expect(mock.sentTransactions).to.have.lengthOf(1)
+    })
+
+    it("should apply the configured retry limit to connection failures", async () => {
+      const chainId = stub(mock, "request")
+        .callThrough()
+        .withArgs({ method: "eth_chainId" })
+        .rejects(new Error("Chain ID unavailable"))
+      const retryingHandle = new TestContractHandle(
+        { signerOrProvider: mock.asSigner() },
+        testDeployment,
+        1
+      )
+
+      let error: unknown
+      try {
+        await retryingHandle.write("revealDeposit", [`0x${"ab".repeat(32)}`])
+      } catch (e) {
+        error = e
+      }
+
+      expect((error as Error).message).to.include("Chain ID unavailable")
+      expect(chainId.callCount).to.equal(2)
+      expect(mock.sentTransactions).to.be.empty
+    })
+
+    it("should honor non-retryable errors during connection initialization", async () => {
+      const chainId = stub(mock, "request")
+        .callThrough()
+        .withArgs({ method: "eth_chainId" })
+        .rejects(new Error("Unsupported chain"))
+      handle = new TestContractHandle(
+        { signerOrProvider: mock.asSigner() },
+        testDeployment
+      )
+
+      let error: unknown
+      try {
+        await handle.write("revealDeposit", [`0x${"ab".repeat(32)}`], {
+          nonRetryableErrors: ["Unsupported chain"],
+        })
+      } catch (e) {
+        error = e
+      }
+
+      expect((error as Error).message).to.include("Unsupported chain")
+      expect(chainId.callCount).to.equal(1)
+      expect(mock.sentTransactions).to.be.empty
     })
 
     it("should short-circuit the retry loop when the revert matches a nonRetryableErrors entry", async () => {

@@ -1,4 +1,5 @@
 import { expect } from "chai"
+import { VoidSigner, Wallet } from "ethers"
 import {
   createPublicClient,
   createWalletClient,
@@ -517,6 +518,71 @@ describe("EVM connection", () => {
   })
 
   describe("ethereumAddressFromSigner", () => {
+    for (const signer of [
+      new Wallet(`0x${"11".repeat(32)}`),
+      new VoidSigner("0x000000000000000000000000000000000000dEaD"),
+    ]) {
+      it(`should resolve an offline ethers ${signer.constructor.name}`, async () => {
+        expect(signer.provider).to.be.null
+
+        const address = await ethereumAddressFromSigner(signer)
+
+        expect(address!.identifierHex).to.equal(
+          (await signer.getAddress()).slice(2).toLowerCase()
+        )
+      })
+    }
+
+    it("should resolve a bound viem account without accessing its transport", async () => {
+      const wallet = createWalletClient({
+        account: "0x000000000000000000000000000000000000dEaD",
+        transport: custom(
+          {
+            request: async () => {
+              throw new Error("RPC unavailable")
+            },
+          },
+          { retryCount: 0 }
+        ),
+      })
+
+      const address = await ethereumAddressFromSigner(wallet)
+
+      expect(address!.identifierHex).to.equal(
+        wallet.account.address.slice(2).toLowerCase()
+      )
+    })
+
+    it("should only query accounts for an unbound viem wallet", async () => {
+      const mock = new MockEvm()
+      const wallet = createWalletClient({ transport: custom(mock) })
+
+      const address = await ethereumAddressFromSigner(wallet)
+
+      expect(address!.identifierHex).to.equal(mock.account.slice(2))
+      expect(mock.requests.map((request) => request.method)).to.deep.equal([
+        "eth_accounts",
+      ])
+    })
+
+    it("should return undefined for an offline ethers provider", async () => {
+      const { provider, calls } = ethersProviderFake()
+      provider.getNetwork = async () => {
+        throw new Error("RPC unavailable")
+      }
+
+      expect(await ethereumAddressFromSigner(provider)).to.be.undefined
+      expect(calls).to.be.empty
+    })
+
+    it("should return undefined for a viem public client without accessing its transport", async () => {
+      const mock = new MockEvm()
+      const publicClient = createPublicClient({ transport: custom(mock) })
+
+      expect(await ethereumAddressFromSigner(publicClient)).to.be.undefined
+      expect(mock.requests).to.be.empty
+    })
+
     it("should resolve the address for write-capable signers", async () => {
       const mock = new MockEvm()
 
@@ -526,6 +592,9 @@ describe("EVM connection", () => {
       expect(address!.identifierHex).to.equal(
         mock.account.slice(2).toLowerCase()
       )
+      expect(mock.requests.map((request) => request.method)).to.deep.equal([
+        "eth_accounts",
+      ])
     })
 
     it("should return undefined for read-only signers", async () => {
