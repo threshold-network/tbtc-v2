@@ -147,9 +147,11 @@ yarn test:package
 
 This packs the SDK with npm, installs the tarball in a temporary project
 with engine checks enabled, and loads every public entrypoint with both
-`require()` and `import()`. Dependencies are resolved without the repository's
-Yarn lockfile or overrides. This check requires network access and runs in
-CI on Node.js 22.12.0 and the latest Node.js 22 release.
+`require()` and `import()`. It also checks that the installed Electrum dependency
+negotiates the protocol version first and delivers subscription notifications.
+Dependencies are resolved without the repository's Yarn lockfile or overrides,
+and install scripts run with the same error handling as CI. This check requires
+network access and runs in CI on Node.js 22.12.0 and the latest Node.js 22 release.
 
 ### Format
 

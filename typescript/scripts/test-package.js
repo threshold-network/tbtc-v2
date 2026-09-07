@@ -38,7 +38,7 @@ try {
   const consumerOptions = {
     cwd: consumerRoot,
     // A consumer must resolve dependencies from its own installation.
-    env: { ...process.env, NODE_PATH: "" },
+    env: { ...process.env, NODE_PATH: "", CI: "true" },
     stdio: "inherit",
   }
 
@@ -76,6 +76,12 @@ try {
     )
     console.log(`Loaded ${specifier} with require() and import()`)
   }
+
+  execFileSync(
+    process.execPath,
+    [join(__dirname, "test-package-electrum.js"), manifest.name],
+    consumerOptions
+  )
 } finally {
   rmSync(consumerRoot, { recursive: true, force: true })
 }
