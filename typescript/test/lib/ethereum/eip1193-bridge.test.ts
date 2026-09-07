@@ -5,6 +5,8 @@ import { encodeAbiParameters, encodeErrorResult, parseAbi } from "viem"
 import { ethersToEip1193 } from "../../../src/lib/ethereum/eip1193-bridge"
 import { EvmRevertError } from "../../../src/lib/ethereum/adapter"
 import { EthereumWalletRegistry } from "../../../src/lib/ethereum/wallet-registry"
+import { EthereumTBTCVault } from "../../../src/lib/ethereum/tbtc-vault"
+import { BitcoinTxHash } from "../../../src/lib/bitcoin"
 import { Chains } from "../../../src/lib/contracts"
 import { Hex } from "../../../src/lib/utils"
 
@@ -38,6 +40,174 @@ function fallbackProviderWithCall(call: () => Promise<string>) {
   })
   return { provider: new providers.FallbackProvider([upstream], 1), send }
 }
+
+/**
+ * Uses ethers' real JSON response processing to produce a SERVER_ERROR
+ * wrapper around an RPC error, without opening a network connection.
+ * @param error JSON-RPC error to serve from an in-memory data URL.
+ * @returns JsonRpcProvider and its recorded requests.
+ */
+function jsonRpcProviderWithError(error: {
+  code: number
+  message: string
+  data?: unknown
+}) {
+  const response = Buffer.from(
+    JSON.stringify({ jsonrpc: "2.0", id: 42, error })
+  ).toString("base64")
+  const provider = new providers.JsonRpcProvider(
+    `data:application/json;base64,${response}`,
+    1
+  )
+  const send = stub(provider, "send").callThrough()
+  send.withArgs("eth_chainId").resolves("0x1")
+  return { provider, send }
+}
+
+describe("ethers v5 JSON-RPC error compatibility", () => {
+  for (const input of ["provider", "signer"]) {
+    it(`should preserve the unregistered-wallet reason and skip retries through a JSON-RPC ${input}`, async () => {
+      const { provider, send } = jsonRpcProviderWithError({
+        code: 3,
+        message: "execution reverted",
+        data: revertData,
+      })
+      const registry = new EthereumWalletRegistry(
+        {
+          signerOrProvider:
+            input === "provider"
+              ? provider
+              : provider.getSigner(contractAddress),
+          address: contractAddress,
+        },
+        Chains.Ethereum.Mainnet
+      )
+
+      const error = await registry
+        .getWalletPublicKey(Hex.from("11".repeat(32)), true)
+        .catch((error: unknown) => error)
+
+      expect(error).to.be.instanceOf(EvmRevertError)
+      expect((error as EvmRevertError).reason).to.equal(reason)
+      expect(send.withArgs("eth_call").callCount).to.equal(1)
+    }).timeout(15000)
+  }
+
+  it("should preserve non-retryable write simulation reverts without sending a transaction", async () => {
+    const reason = "The deposit is already swept"
+    const { provider, send } = jsonRpcProviderWithError({
+      code: 3,
+      message: "execution reverted",
+      data: encodeErrorResult({
+        abi: parseAbi(["error Error(string)"]),
+        errorName: "Error",
+        args: [reason],
+      }),
+    })
+    const vault = new EthereumTBTCVault(
+      {
+        signerOrProvider: provider.getSigner(contractAddress),
+        address: contractAddress,
+      },
+      Chains.Ethereum.Mainnet
+    )
+
+    const error = await vault
+      .requestOptimisticMint(BitcoinTxHash.from("11".repeat(32)), 0)
+      .catch((error: unknown) => error)
+
+    expect(error).to.be.instanceOf(EvmRevertError)
+    expect((error as EvmRevertError).reason).to.equal(reason)
+    expect(send.withArgs("eth_call").callCount).to.equal(1)
+    expect(send.withArgs("eth_sendTransaction").callCount).to.equal(0)
+  }).timeout(15000)
+
+  it("should preserve the code, message, and data of non-revert RPC errors", async () => {
+    const rpcError = {
+      code: -32005,
+      message: "Query limit exceeded",
+      data: { limit: 1000 },
+    }
+    const { provider } = jsonRpcProviderWithError(rpcError)
+
+    const error = await ethersToEip1193(provider)
+      .request({ method: "eth_getLogs", params: [{}] })
+      .catch((error: unknown) => error)
+
+    expect(error).to.deep.include(rpcError)
+  })
+
+  it("should unwrap multiple ethers error layers to the original RPC error", async () => {
+    const rpcError = Object.assign(new Error("execution reverted"), {
+      code: 3,
+      data: revertData,
+    })
+    const wrapper = {
+      code: "SERVER_ERROR",
+      error: { code: "SERVER_ERROR", error: rpcError },
+    }
+    const { provider, send } = jsonRpcProviderWithError(rpcError)
+    send.withArgs("eth_call").rejects(wrapper)
+
+    const error = await ethersToEip1193(provider)
+      .request({ method: "eth_call", params: [] })
+      .catch((error: unknown) => error)
+
+    expect(error).to.equal(rpcError)
+  })
+
+  it("should preserve an already unwrapped RPC error", async () => {
+    const rpcError = Object.assign(new Error("execution reverted"), {
+      code: 3,
+      data: revertData,
+    })
+    const { provider, send } = jsonRpcProviderWithError(rpcError)
+    send.withArgs("eth_call").rejects(rpcError)
+
+    const error = await ethersToEip1193(provider)
+      .request({ method: "eth_call", params: [] })
+      .catch((error: unknown) => error)
+
+    expect(error).to.equal(rpcError)
+  })
+
+  it("should retain transport errors that contain no JSON-RPC error", async () => {
+    const transportError = Object.assign(new Error("missing response"), {
+      code: "SERVER_ERROR",
+      error: new Error("Connection closed"),
+    })
+    const { provider, send } = jsonRpcProviderWithError({
+      code: 3,
+      message: "execution reverted",
+    })
+    send.withArgs("eth_call").rejects(transportError)
+
+    const error = await ethersToEip1193(provider)
+      .request({ method: "eth_call", params: [] })
+      .catch((error: unknown) => error)
+
+    expect(error).to.equal(transportError)
+  })
+
+  it("should retain errors containing a cycle", async () => {
+    const cyclicError = Object.assign(new Error("missing response"), {
+      code: "SERVER_ERROR",
+      error: undefined as unknown,
+    })
+    cyclicError.error = cyclicError
+    const { provider, send } = jsonRpcProviderWithError({
+      code: 3,
+      message: "execution reverted",
+    })
+    send.withArgs("eth_call").rejects(cyclicError)
+
+    const error = await ethersToEip1193(provider)
+      .request({ method: "eth_call", params: [] })
+      .catch((error: unknown) => error)
+
+    expect(error).to.equal(cyclicError)
+  })
+})
 
 describe("ethers v5 call compatibility", () => {
   it("should preserve the unregistered-wallet reason and skip retries through a FallbackProvider", async () => {

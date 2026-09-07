@@ -103,6 +103,33 @@ function toRawReceipt(receipt: unknown): unknown {
 }
 
 /**
+ * Finds a JSON-RPC error inside ethers' SERVER_ERROR wrappers. The original
+ * numeric code, message, and data must reach viem for revert decoding.
+ * @param error Error rejected by an ethers provider.
+ * @returns The RPC error, or the original error if none is found.
+ */
+function unwrapEthersRpcError(error: unknown): unknown {
+  const seen = new Set<unknown>()
+  let current = error
+  while (
+    typeof current === "object" &&
+    current !== null &&
+    !seen.has(current)
+  ) {
+    const candidate = current as Record<string, unknown>
+    if (
+      typeof candidate.code === "number" &&
+      typeof candidate.message === "string"
+    ) {
+      return current
+    }
+    seen.add(current)
+    current = candidate.error
+  }
+  return error
+}
+
+/**
  * Wraps an ethers v5 Signer or Provider (duck-typed - the SDK does not
  * depend on ethers) into a minimal EIP-1193 provider that viem transports
  * can consume.
@@ -173,7 +200,11 @@ export function ethersToEip1193(
 
       // Fast path: raw RPC delegation to JsonRpcProvider-family providers.
       if (provider && typeof provider.send === "function") {
-        return provider.send(method, params)
+        try {
+          return await provider.send(method, params)
+        } catch (error: unknown) {
+          throw unwrapEthersRpcError(error)
+        }
       }
 
       // Slow path: translate the methods the SDK actually issues.
