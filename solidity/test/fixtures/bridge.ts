@@ -1,6 +1,6 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   Bank,
   BankStub,
@@ -17,6 +17,7 @@ import type {
   RedemptionWatchtower,
   RebateStaking,
   IERC20,
+  TestERC20,
 } from "../../typechain"
 import { createMock } from "../helpers/mock"
 
@@ -26,13 +27,13 @@ import type { Mock } from "../helpers/mock"
  * Common fixture for tests suites targeting the Bridge contract.
  */
 async function bridgeFixture(): Promise<{
-  deployer: SignerWithAddress
-  governance: SignerWithAddress
-  spvMaintainer: SignerWithAddress
-  thirdParty: SignerWithAddress
-  treasury: SignerWithAddress
-  redemptionWatchtowerManager: SignerWithAddress
-  guardians: SignerWithAddress[]
+  deployer: HardhatEthersSigner
+  governance: HardhatEthersSigner
+  spvMaintainer: HardhatEthersSigner
+  thirdParty: HardhatEthersSigner
+  treasury: HardhatEthersSigner
+  redemptionWatchtowerManager: HardhatEthersSigner
+  guardians: HardhatEthersSigner[]
   tbtc: TBTC
   vendingMachine: VendingMachine
   tbtcVault: TBTCVault
@@ -44,7 +45,7 @@ async function bridgeFixture(): Promise<{
   maintainerProxy: MaintainerProxy
   bridgeGovernance: BridgeGovernance
   redemptionWatchtower: RedemptionWatchtower
-  t: IERC20
+  t: TestERC20
   rebateStaking: RebateStaking
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }> {
@@ -73,7 +74,7 @@ async function bridgeFixture(): Promise<{
 
   const bank: Bank & BankStub = await helpers.contracts.getContract("Bank")
 
-  const t: IERC20 = await helpers.contracts.getContract("T")
+  const t: TestERC20 = await helpers.contracts.getContract<TestERC20>("T")
 
   const rebateStaking: RebateStaking = await helpers.contracts.getContract(
     "RebateStaking"
@@ -93,7 +94,7 @@ async function bridgeFixture(): Promise<{
   // from it.
   await deployer.sendTransaction({
     to: walletRegistry.address,
-    value: ethers.utils.parseEther("100"),
+    value: ethers.parseEther("100"),
   })
 
   const reimbursementPool: ReimbursementPool =
@@ -107,7 +108,7 @@ async function bridgeFixture(): Promise<{
     address: await (await bridge.contractReferences()).relay,
   })
 
-  await bank.connect(governance).updateBridge(bridge.address)
+  await bank.connect(governance).updateBridge(bridge.target)
 
   const redemptionWatchtower: RedemptionWatchtower =
     await helpers.contracts.getContract("RedemptionWatchtower")
@@ -120,25 +121,34 @@ async function bridgeFixture(): Promise<{
     helpers.upgrades.deployProxy(`Bridge_${randomBytes(8).toString("hex")}`, {
       contractName: "BridgeStub",
       initializerArgs: [
-        bank.address,
+        bank.target,
         relay.address,
         treasury.address,
         walletRegistry.address,
-        reimbursementPool.address,
+        reimbursementPool.target,
         txProofDifficultyFactor,
       ],
       factoryOpts: {
         signer: deployer,
         libraries: {
-          Deposit: (await helpers.contracts.getContract("Deposit")).address,
-          DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
-            .address,
-          Redemption: (await helpers.contracts.getContract("Redemption"))
-            .address,
-          Wallets: (await helpers.contracts.getContract("Wallets")).address,
-          Fraud: (await helpers.contracts.getContract("Fraud")).address,
-          MovingFunds: (await helpers.contracts.getContract("MovingFunds"))
-            .address,
+          Deposit: await (
+            await helpers.contracts.getContract("Deposit")
+          ).getAddress(),
+          DepositSweep: await (
+            await helpers.contracts.getContract("DepositSweep")
+          ).getAddress(),
+          Redemption: await (
+            await helpers.contracts.getContract("Redemption")
+          ).getAddress(),
+          Wallets: await (
+            await helpers.contracts.getContract("Wallets")
+          ).getAddress(),
+          Fraud: await (
+            await helpers.contracts.getContract("Fraud")
+          ).getAddress(),
+          MovingFunds: await (
+            await helpers.contracts.getContract("MovingFunds")
+          ).getAddress(),
         },
       },
       proxyOpts: {

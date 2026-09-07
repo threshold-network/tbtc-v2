@@ -6,15 +6,20 @@ import "./tasks"
 
 import "@keep-network/hardhat-helpers"
 import "@keep-network/hardhat-local-networks-config"
-import "@nomiclabs/hardhat-waffle"
-import "@nomiclabs/hardhat-etherscan"
+import "@nomicfoundation/hardhat-ethers"
+import "@nomicfoundation/hardhat-chai-matchers"
+import "@nomicfoundation/hardhat-verify"
 import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
 import "hardhat-deploy"
-import "@tenderly/hardhat-tenderly"
+import { setup as setupTenderly } from "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
+import "./tasks/typechain-external"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+
+// Preserve explicit verification in deploy scripts; do not wrap ethers transactions.
+setupTenderly({ automaticVerifications: false })
 
 // Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
 loadEnv({ path: path.join(__dirname, "..", ".env") })
@@ -103,6 +108,8 @@ const config: HardhatUserConfig = {
       // mock does not move the clock.
       allowBlocksWithSameTimestamp: true,
       blockGasLimit: 30_000_000,
+      // Keep the per-transaction gas estimation used by the ethers v5 signer.
+      gas: "auto",
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
@@ -296,9 +303,8 @@ const config: HardhatUserConfig = {
     keep: true,
   },
   etherscan: {
-    apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY,
-    },
+    // A single Etherscan key selects the V2 API for every supported chain.
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
   },
   contractSizer: {
     alphaSort: true,

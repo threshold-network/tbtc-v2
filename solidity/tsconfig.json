@@ -21,7 +21,7 @@
     // raise that target and prove the diff.
     "ignoreDeprecations": "6.0",
     "downlevelIteration": true,
-    "target": "ES2018",
+    "target": "ES2020",
     "module": "commonJS",
     "esModuleInterop": true,
     "resolveJsonModule": true,
