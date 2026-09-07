@@ -2,8 +2,8 @@
 import hre, { ethers } from "hardhat"
 import { expect } from "chai"
 
-import type { ContractTransaction } from "ethers"
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { ContractTransactionResponse } from "ethers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type { Mock } from "../helpers/mock"
 import type { Bridge, IRandomBeacon, WalletRegistry } from "../../typechain"
 
@@ -31,7 +31,7 @@ describeFn("Integration Test - Wallet Creation", async () => {
   let bridge: Bridge
   let walletRegistry: WalletRegistry
   let randomBeacon: Mock<IRandomBeacon>
-  let governance: SignerWithAddress
+  let governance: HardhatEthersSigner
 
   const dkgResultChallengePeriodLength = 10
 
@@ -53,12 +53,12 @@ describeFn("Integration Test - Wallet Creation", async () => {
   })
 
   describe("new wallet creation (happy path)", async () => {
-    let requestNewWalletTx: ContractTransaction
-    let walletRegistrationTx: ContractTransaction
+    let requestNewWalletTx: ContractTransactionResponse
+    let walletRegistrationTx: ContractTransactionResponse
 
     before(async () => {
       expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
 
       // `requestNewWallet` reaches the beacon, and this suite asserts on the

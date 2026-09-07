@@ -1,7 +1,7 @@
 import { ethers, helpers, upgrades } from "hardhat"
 import { expect } from "chai"
 
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   BridgeGovernance,
   RebateStaking,
@@ -14,9 +14,9 @@ import bridgeFixture from "../fixtures/bridge"
 const { AddressZero } = ethers.constants
 
 describe("Bridge - Rebate staking recovery upgrade", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let esdm: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let esdm: HardhatEthersSigner
 
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
@@ -32,9 +32,9 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
   it("repairs rebate staking during an upgrade", async () => {
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
 
-    expect(await bridge.getRebateStaking()).to.equal(rebateStaking.address)
+    expect(await bridge.getRebateStaking()).to.equal(rebateStaking.target)
 
     const bridgeLibraries = {
       Deposit: (await helpers.contracts.getContract("Deposit")).address,
@@ -52,7 +52,7 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
     })
 
     const newImplementation = await bridgeFactory.deploy()
-    await newImplementation.deployed()
+    await newImplementation.waitForDeployment()
 
     const proxyAdmin = await upgrades.admin.getInstance()
     const proxyAdminWithUpgrade = await ethers.getContractAt(
@@ -70,13 +70,13 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
 
     await expect(
       proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
     )
       .to.emit(bridge, "RebateStakingRepaired")
-      .withArgs(rebateStaking.address, AddressZero)
+      .withArgs(rebateStaking.target, AddressZero)
 
     expect(await bridge.getRebateStaking()).to.equal(AddressZero)
   })

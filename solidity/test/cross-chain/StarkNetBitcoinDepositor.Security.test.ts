@@ -19,7 +19,7 @@ describe("StarkNetBitcoinDepositor - Security & Edge Cases", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     const tbtcVault = await MockTBTCVault.deploy()
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     const MockStarkGateBridge = await ethers.getContractFactory(
       "MockStarkGateBridge"
@@ -35,18 +35,18 @@ describe("StarkNetBitcoinDepositor - Security & Edge Cases", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      starkGateBridge.address,
+      bridge.target,
+      tbtcVault.target,
+      starkGateBridge.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     const depositor = StarkNetBitcoinDepositor.attach(
-      proxy.address
+      proxy.target
     ) as StarkNetBitcoinDepositor
 
     // Check that it's initialized
     expect(await depositor.owner()).to.equal(owner.address)
-    expect(await depositor.starkGateBridge()).to.equal(starkGateBridge.address)
+    expect(await depositor.starkGateBridge()).to.equal(starkGateBridge.target)
   })
 })

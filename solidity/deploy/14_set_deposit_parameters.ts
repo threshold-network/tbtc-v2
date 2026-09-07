@@ -96,7 +96,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // as of TIP-109, the mainnet deposit and redemption treasury fee divisors
   // are both 500 (20 bps). Always query Bridge.depositParameters() and
   // Bridge.redemptionParameters() on-chain for current values.
-  const depositTreasuryFeeDivisor = ethers.BigNumber.from("0")
+  const depositTreasuryFeeDivisor = ethers.toBigInt("0")
 
   // Fetch the current values of other deposit parameters to keep them unchanged,
   // and to compare the live reveal-ahead period against the governance target below.

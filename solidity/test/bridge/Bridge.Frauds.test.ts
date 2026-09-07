@@ -2,10 +2,10 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
 import { expect } from "chai"
-import { BigNumber, ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
 import type { IWalletRegistry, Bridge, BridgeStub } from "../../typechain"
 import {
@@ -24,7 +24,7 @@ import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
-const { keccak256, sha256 } = ethers.utils
+const { keccak256, sha256 } = ethers
 
 const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
   fraudWallet
@@ -43,15 +43,15 @@ function etherBalanceAccount(
 }
 
 describe("Bridge - Fraud", () => {
-  let thirdParty: SignerWithAddress
-  let treasury: SignerWithAddress
+  let thirdParty: HardhatEthersSigner
+  let treasury: HardhatEthersSigner
 
   let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
 
-  let fraudChallengeDepositAmount: BigNumber
+  let fraudChallengeDepositAmount: bigint
   let fraudChallengeDefeatTimeout: number
-  let fraudSlashingAmount: BigNumber
+  let fraudSlashingAmount: bigint
   let fraudNotifierRewardMultiplier: number
 
   before(async () => {
@@ -74,22 +74,21 @@ describe("Bridge - Fraud", () => {
           "when the data needed for signature verification is correct",
           () => {
             context("when the fraud challenge does not exist yet", () => {
-              let tx: ContractTransaction
+              let tx: ContractTransactionResponse
 
               before(async () => {
                 await createSnapshot()
 
                 await bridge.setWallet(walletPublicKeyHash, {
-                  ecdsaWalletID: ethers.constants.HashZero,
-                  mainUtxoHash: ethers.constants.HashZero,
+                  ecdsaWalletID: ethers.ZeroHash,
+                  mainUtxoHash: ethers.ZeroHash,
                   pendingRedemptionsValue: 0,
                   createdAt: await lastBlockTime(),
                   movingFundsRequestedAt: 0,
                   closingStartedAt: 0,
                   pendingMovedFundsSweepRequestsCount: 0,
                   state: walletState.Live,
-                  movingFundsTargetWalletsCommitmentHash:
-                    ethers.constants.HashZero,
+                  movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                 })
 
                 tx = await bridge
@@ -111,10 +110,10 @@ describe("Bridge - Fraud", () => {
               it("should transfer ether from the caller to the bridge", async () => {
                 await expect(tx).to.changeEtherBalance(
                   thirdParty,
-                  fraudChallengeDepositAmount.mul(-1)
+                  fraudChallengeDepositAmount * -1
                 )
                 await expect(tx).to.changeEtherBalance(
-                  etherBalanceAccount(bridge.address, ethers.provider),
+                  etherBalanceAccount(bridge.target, ethers.provider),
                   fraudChallengeDepositAmount
                 )
               })
@@ -159,16 +158,15 @@ describe("Bridge - Fraud", () => {
                 await createSnapshot()
 
                 await bridge.setWallet(walletPublicKeyHash, {
-                  ecdsaWalletID: ethers.constants.HashZero,
-                  mainUtxoHash: ethers.constants.HashZero,
+                  ecdsaWalletID: ethers.ZeroHash,
+                  mainUtxoHash: ethers.ZeroHash,
                   pendingRedemptionsValue: 0,
                   createdAt: await lastBlockTime(),
                   movingFundsRequestedAt: 0,
                   closingStartedAt: 0,
                   pendingMovedFundsSweepRequestsCount: 0,
                   state: walletState.Live,
-                  movingFundsTargetWalletsCommitmentHash:
-                    ethers.constants.HashZero,
+                  movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                 })
 
                 await bridge
@@ -217,15 +215,15 @@ describe("Bridge - Fraud", () => {
           before(async () => {
             await createSnapshot()
             await bridge.setWallet(incorrectWalletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
           })
 
@@ -257,15 +255,15 @@ describe("Bridge - Fraud", () => {
           before(async () => {
             await createSnapshot()
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
           })
 
@@ -296,15 +294,15 @@ describe("Bridge - Fraud", () => {
           before(async () => {
             await createSnapshot()
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
           })
 
@@ -338,15 +336,15 @@ describe("Bridge - Fraud", () => {
           before(async () => {
             await createSnapshot()
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
           })
 
@@ -377,15 +375,15 @@ describe("Bridge - Fraud", () => {
         before(async () => {
           await createSnapshot()
           await bridge.setWallet(walletPublicKeyHash, {
-            ecdsaWalletID: ethers.constants.HashZero,
-            mainUtxoHash: ethers.constants.HashZero,
+            ecdsaWalletID: ethers.ZeroHash,
+            mainUtxoHash: ethers.ZeroHash,
             pendingRedemptionsValue: 0,
             createdAt: await lastBlockTime(),
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
             state: walletState.Live,
-            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+            movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
           })
         })
 
@@ -402,7 +400,7 @@ describe("Bridge - Fraud", () => {
                 data.preimageSha256,
                 data.signature,
                 {
-                  value: fraudChallengeDepositAmount.sub(1),
+                  value: fraudChallengeDepositAmount - 1n,
                 }
               )
           ).to.be.revertedWith("The amount of ETH deposited is too low")
@@ -414,15 +412,15 @@ describe("Bridge - Fraud", () => {
       before(async () => {
         await createSnapshot()
         await bridge.setWallet(walletPublicKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
-          mainUtxoHash: ethers.constants.HashZero,
+          ecdsaWalletID: ethers.ZeroHash,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.MovingFunds,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
       })
 
@@ -451,15 +449,15 @@ describe("Bridge - Fraud", () => {
         await createSnapshot()
 
         await bridge.setWallet(walletPublicKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
-          mainUtxoHash: ethers.constants.HashZero,
+          ecdsaWalletID: ethers.ZeroHash,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Closing,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
       })
 
@@ -506,16 +504,15 @@ describe("Bridge - Fraud", () => {
             before(async () => {
               await createSnapshot()
               await bridge.setWallet(walletPublicKeyHash, {
-                ecdsaWalletID: ethers.constants.HashZero,
-                mainUtxoHash: ethers.constants.HashZero,
+                ecdsaWalletID: ethers.ZeroHash,
+                mainUtxoHash: ethers.ZeroHash,
                 pendingRedemptionsValue: 0,
                 createdAt: await lastBlockTime(),
                 movingFundsRequestedAt: 0,
                 closingStartedAt: 0,
                 pendingMovedFundsSweepRequestsCount: 0,
                 state: test.walletState,
-                movingFundsTargetWalletsCommitmentHash:
-                  ethers.constants.HashZero,
+                movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
               })
             })
 
@@ -562,11 +559,11 @@ describe("Bridge - Fraud", () => {
       // call appropriate function to compute another signature. Also, we do not
       // use any BTC-specific data for this set of unit tests.
       const wallet = ethers.Wallet.createRandom()
-      // We use `ethers.utils.SigningKey` for a `Wallet` instead of
+      // We use `ethers.SigningKey` for a `Wallet` instead of
       // `Signer.signMessage` to do not add '\x19Ethereum Signed Message:\n'
       // prefix to the signed message. The format of the heartbeat message is
       // the same no matter on which host chain TBTC is deployed.
-      heartbeatWalletSigningKey = new ethers.utils.SigningKey(wallet.privateKey)
+      heartbeatWalletSigningKey = new ethers.SigningKey(wallet.privateKey)
       // Public key obtained as `wallet.publicKey` is an uncompressed key,
       // prefixed with `0x04`. To compute raw ECDSA key, we need to drop `0x04`.
       heartbeatWalletPublicKey = `0x${wallet.publicKey.substring(4)}`
@@ -595,12 +592,12 @@ describe("Bridge - Fraud", () => {
           const heartbeatMessageSha256 = sha256(heartbeatMessage)
           const sighash = sha256(heartbeatMessageSha256)
 
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
 
-            const signature = ethers.utils.splitSignature(
+            const signature = ethers.Signature.from(
               heartbeatWalletSigningKey.signDigest(sighash)
             )
 
@@ -638,8 +635,8 @@ describe("Bridge - Fraud", () => {
 
           it("should send the ether deposited by the challenger to the treasury", async () => {
             await expect(tx).to.changeEtherBalance(
-              etherBalanceAccount(bridge.address, ethers.provider),
-              fraudChallengeDepositAmount.mul(-1)
+              etherBalanceAccount(bridge.target, ethers.provider),
+              fraudChallengeDepositAmount * -1
             )
             await expect(tx).to.changeEtherBalance(
               treasury,
@@ -662,7 +659,7 @@ describe("Bridge - Fraud", () => {
           before(async () => {
             await createSnapshot()
 
-            const signature = ethers.utils.splitSignature(
+            const signature = ethers.Signature.from(
               heartbeatWalletSigningKey.signDigest(sighash)
             )
 
@@ -703,7 +700,7 @@ describe("Bridge - Fraud", () => {
         before(async () => {
           await createSnapshot()
 
-          const signature = ethers.utils.splitSignature(
+          const signature = ethers.Signature.from(
             heartbeatWalletSigningKey.signDigest(sighash)
           )
 
@@ -750,7 +747,7 @@ describe("Bridge - Fraud", () => {
         before(async () => {
           await createSnapshot()
 
-          const signature = ethers.utils.splitSignature(
+          const signature = ethers.Signature.from(
             heartbeatWalletSigningKey.signDigest(sighash)
           )
 
@@ -801,7 +798,7 @@ describe("Bridge - Fraud", () => {
       before(async () => {
         await createSnapshot()
 
-        const signature = ethers.utils.splitSignature(
+        const signature = ethers.Signature.from(
           heartbeatWalletSigningKey.signDigest(sighash)
         )
 
@@ -842,22 +839,21 @@ describe("Bridge - Fraud", () => {
                 "when the input is marked as correctly spent in the Bridge",
                 () => {
                   const data = nonWitnessSignSingleInputTx
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
                     await bridge.setSweptDeposits(data.deposits)
                     await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -904,8 +900,8 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      etherBalanceAccount(bridge.address, ethers.provider),
-                      fraudChallengeDepositAmount.mul(-1)
+                      etherBalanceAccount(bridge.target, ethers.provider),
+                      fraudChallengeDepositAmount * -1
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -930,16 +926,15 @@ describe("Bridge - Fraud", () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
 
                     await bridge
@@ -980,22 +975,21 @@ describe("Bridge - Fraud", () => {
                 "when the input is marked as correctly spent in the Bridge",
                 () => {
                   const data = nonWitnessSignMultipleInputsTx
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
                     await bridge.setSweptDeposits(data.deposits)
                     await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1042,8 +1036,8 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      etherBalanceAccount(bridge.address, ethers.provider),
-                      fraudChallengeDepositAmount.mul(-1)
+                      etherBalanceAccount(bridge.target, ethers.provider),
+                      fraudChallengeDepositAmount * -1
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1068,16 +1062,15 @@ describe("Bridge - Fraud", () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
 
                     await bridge
@@ -1120,22 +1113,21 @@ describe("Bridge - Fraud", () => {
                 "when the input is marked as correctly spent in the Bridge",
                 () => {
                   const data = witnessSignSingleInputTx
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
                     await bridge.setSweptDeposits(data.deposits)
                     await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1182,8 +1174,8 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      etherBalanceAccount(bridge.address, ethers.provider),
-                      fraudChallengeDepositAmount.mul(-1)
+                      etherBalanceAccount(bridge.target, ethers.provider),
+                      fraudChallengeDepositAmount * -1
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1208,16 +1200,15 @@ describe("Bridge - Fraud", () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
 
                     await bridge
@@ -1258,22 +1249,21 @@ describe("Bridge - Fraud", () => {
                 "when the input is marked as correctly spent in the Bridge",
                 () => {
                   const data = witnessSignMultipleInputTx
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
                     await bridge.setSweptDeposits(data.deposits)
                     await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1320,8 +1310,8 @@ describe("Bridge - Fraud", () => {
 
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      etherBalanceAccount(bridge.address, ethers.provider),
-                      fraudChallengeDepositAmount.mul(-1)
+                      etherBalanceAccount(bridge.target, ethers.provider),
+                      fraudChallengeDepositAmount * -1
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1346,16 +1336,15 @@ describe("Bridge - Fraud", () => {
                     await createSnapshot()
 
                     await bridge.setWallet(walletPublicKeyHash, {
-                      ecdsaWalletID: ethers.constants.HashZero,
-                      mainUtxoHash: ethers.constants.HashZero,
+                      ecdsaWalletID: ethers.ZeroHash,
+                      mainUtxoHash: ethers.ZeroHash,
                       pendingRedemptionsValue: 0,
                       createdAt: await lastBlockTime(),
                       movingFundsRequestedAt: 0,
                       closingStartedAt: 0,
                       pendingMovedFundsSweepRequestsCount: 0,
                       state: walletState.Live,
-                      movingFundsTargetWalletsCommitmentHash:
-                        ethers.constants.HashZero,
+                      movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                     })
 
                     await bridge
@@ -1402,15 +1391,15 @@ describe("Bridge - Fraud", () => {
             await createSnapshot()
 
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
             await bridge.setSweptDeposits(data.deposits)
             await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1455,15 +1444,15 @@ describe("Bridge - Fraud", () => {
           await createSnapshot()
 
           await bridge.setWallet(walletPublicKeyHash, {
-            ecdsaWalletID: ethers.constants.HashZero,
-            mainUtxoHash: ethers.constants.HashZero,
+            ecdsaWalletID: ethers.ZeroHash,
+            mainUtxoHash: ethers.ZeroHash,
             pendingRedemptionsValue: 0,
             createdAt: await lastBlockTime(),
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
             state: walletState.Live,
-            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+            movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
           })
           await bridge.setSweptDeposits(data.deposits)
           await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1507,15 +1496,15 @@ describe("Bridge - Fraud", () => {
           await createSnapshot()
 
           await bridge.setWallet(walletPublicKeyHash, {
-            ecdsaWalletID: ethers.constants.HashZero,
-            mainUtxoHash: ethers.constants.HashZero,
+            ecdsaWalletID: ethers.ZeroHash,
+            mainUtxoHash: ethers.ZeroHash,
             pendingRedemptionsValue: 0,
             createdAt: await lastBlockTime(),
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
             state: walletState.Live,
-            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+            movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
           })
           await bridge.setSweptDeposits(data.deposits)
           await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -1591,14 +1580,14 @@ describe("Bridge - Fraud", () => {
         context("when the fraud challenge has timed out", () => {
           const walletDraft = {
             ecdsaWalletID: ecdsaWalletTestData.walletID,
-            mainUtxoHash: ethers.constants.HashZero,
+            mainUtxoHash: ethers.ZeroHash,
             pendingRedemptionsValue: 0,
             createdAt: 0,
             movingFundsRequestedAt: 0,
             closingStartedAt: 0,
             pendingMovedFundsSweepRequestsCount: 0,
             state: walletState.Unknown,
-            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+            movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
           }
           const walletMembersIDs = [1, 2, 3, 4, 5]
 
@@ -1670,7 +1659,7 @@ describe("Bridge - Fraud", () => {
 
               testData.forEach((test) => {
                 context(test.testName, async () => {
-                  let tx: ContractTransaction
+                  let tx: ContractTransactionResponse
 
                   before(async () => {
                     await createSnapshot()
@@ -1726,8 +1715,8 @@ describe("Bridge - Fraud", () => {
 
                   it("should return the deposited ether to the challenger", async () => {
                     await expect(tx).to.changeEtherBalance(
-                      etherBalanceAccount(bridge.address, ethers.provider),
-                      fraudChallengeDepositAmount.mul(-1)
+                      etherBalanceAccount(bridge.target, ethers.provider),
+                      fraudChallengeDepositAmount * -1
                     )
                     await expect(tx).to.changeEtherBalance(
                       thirdParty,
@@ -1780,7 +1769,7 @@ describe("Bridge - Fraud", () => {
           )
 
           context("when the wallet is in the Terminated state", () => {
-            let tx: ContractTransaction
+            let tx: ContractTransactionResponse
 
             before(async () => {
               await createSnapshot()
@@ -1838,8 +1827,8 @@ describe("Bridge - Fraud", () => {
 
             it("should return the deposited ether to the challenger", async () => {
               await expect(tx).to.changeEtherBalance(
-                etherBalanceAccount(bridge.address, ethers.provider),
-                fraudChallengeDepositAmount.mul(-1)
+                etherBalanceAccount(bridge.target, ethers.provider),
+                fraudChallengeDepositAmount * -1
               )
               await expect(tx).to.changeEtherBalance(
                 thirdParty,
@@ -1945,15 +1934,15 @@ describe("Bridge - Fraud", () => {
             await createSnapshot()
 
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
             await bridge.setSweptDeposits(data.deposits)
             await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -2002,15 +1991,15 @@ describe("Bridge - Fraud", () => {
             await createSnapshot()
 
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
             await bridge.setSweptDeposits(data.deposits)
             await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -2059,15 +2048,15 @@ describe("Bridge - Fraud", () => {
             await createSnapshot()
 
             await bridge.setWallet(walletPublicKeyHash, {
-              ecdsaWalletID: ethers.constants.HashZero,
-              mainUtxoHash: ethers.constants.HashZero,
+              ecdsaWalletID: ethers.ZeroHash,
+              mainUtxoHash: ethers.ZeroHash,
               pendingRedemptionsValue: 0,
               createdAt: await lastBlockTime(),
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: walletState.Live,
-              movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
             await bridge.setSweptDeposits(data.deposits)
             await bridge.setSpentMainUtxos(data.spentMainUtxos)
@@ -2140,7 +2129,7 @@ describe("Bridge - Fraud", () => {
   })
 
   function buildChallengeKey(publicKey: BytesLike, sighash: BytesLike): string {
-    return ethers.utils.solidityKeccak256(
+    return ethers.solidityPackedKeccak256(
       ["bytes", "bytes32"],
       [publicKey, sighash]
     )

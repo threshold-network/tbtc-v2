@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import type {
   BridgeGovernance,
   Bridge,
@@ -13,8 +13,8 @@ import bridgeFixture from "../fixtures/bridge"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 describe("Bridge - Governance", () => {
-  let governance: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
   let bridgeGovernance: BridgeGovernance
   let bridge: Bridge
 
@@ -34,7 +34,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -98,7 +98,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -141,7 +141,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -156,7 +156,7 @@ describe("Bridge - Governance", () => {
       })
 
       it("should not update the bridge governance", async () => {
-        expect(await bridge.governance()).to.be.equal(bridgeGovernance.address)
+        expect(await bridge.governance()).to.be.equal(bridgeGovernance.target)
       })
 
       it("should not update the bridge governance owner", async () => {
@@ -220,7 +220,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -263,7 +263,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -339,7 +339,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -387,7 +387,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -465,7 +465,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -509,7 +509,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -579,7 +579,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -625,7 +625,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -703,7 +703,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -749,7 +749,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -829,7 +829,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -880,7 +880,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -962,7 +962,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1009,7 +1009,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1093,7 +1093,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1142,7 +1142,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1212,7 +1212,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1258,7 +1258,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1340,7 +1340,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1387,7 +1387,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1469,7 +1469,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1519,7 +1519,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1598,7 +1598,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1645,7 +1645,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1724,7 +1724,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1771,7 +1771,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1853,7 +1853,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -1898,7 +1898,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -1974,7 +1974,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2022,7 +2022,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2104,7 +2104,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2154,7 +2154,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2236,7 +2236,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2286,7 +2286,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2368,7 +2368,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2415,7 +2415,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2497,7 +2497,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2544,7 +2544,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2622,7 +2622,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2669,7 +2669,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2751,7 +2751,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2801,7 +2801,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -2883,7 +2883,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -2933,7 +2933,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3009,7 +3009,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3055,7 +3055,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3133,7 +3133,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3180,7 +3180,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3238,7 +3238,7 @@ describe("Bridge - Governance", () => {
         await bridgeGovernance
           .connect(governance)
           .beginWalletCreationMaxBtcBalanceUpdate(
-            constants.walletCreationMinBtcBalance.add(1)
+            constants.walletCreationMinBtcBalance + 1n
           )
 
         await helpers.time.increaseTime(constants.governanceDelay - 60) // -1min
@@ -3260,7 +3260,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3268,7 +3268,7 @@ describe("Bridge - Governance", () => {
           await bridgeGovernance
             .connect(governance)
             .beginWalletCreationMaxBtcBalanceUpdate(
-              constants.walletCreationMinBtcBalance.add(1)
+              constants.walletCreationMinBtcBalance + 1n
             )
 
           await helpers.time.increaseTime(constants.governanceDelay)
@@ -3286,14 +3286,14 @@ describe("Bridge - Governance", () => {
           const { walletCreationMaxBtcBalance } =
             await bridge.walletParameters()
           expect(walletCreationMaxBtcBalance).to.be.equal(
-            constants.walletCreationMinBtcBalance.add(1)
+            constants.walletCreationMinBtcBalance + 1n
           )
         })
 
         it("should emit WalletCreationMaxBtcBalanceUpdated event", async () => {
           await expect(tx)
             .to.emit(bridgeGovernance, "WalletCreationMaxBtcBalanceUpdated")
-            .withArgs(constants.walletCreationMinBtcBalance.add(1))
+            .withArgs(constants.walletCreationMinBtcBalance + 1n)
         })
       }
     )
@@ -3311,7 +3311,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3389,7 +3389,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3433,7 +3433,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3501,7 +3501,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3547,7 +3547,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3623,7 +3623,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3667,7 +3667,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3743,7 +3743,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3789,7 +3789,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3867,7 +3867,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -3913,7 +3913,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -3991,7 +3991,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -4035,7 +4035,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -4111,7 +4111,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -4157,7 +4157,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -4238,7 +4238,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -4286,7 +4286,7 @@ describe("Bridge - Governance", () => {
 
     context("when the caller is the owner", () => {
       let oldTreasury: string
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -4359,7 +4359,7 @@ describe("Bridge - Governance", () => {
     context(
       "when the update process is initialized and governance delay passed",
       () => {
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -4404,7 +4404,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -4444,7 +4444,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when caller is the owner", () => {
-      let tx: Promise<ContractTransaction>
+      let tx: Promise<ContractTransactionResponse>
 
       before(async () => {
         await createSnapshot()
@@ -4493,7 +4493,7 @@ describe("Bridge - Governance", () => {
         mockBridge = (await mockFactory
           .connect(governance)
           .deploy()) as MockBridgeWithRebateStaking
-        await mockBridge.deployed()
+        await mockBridge.waitForDeployment()
 
         // Deploy a fresh BridgeGovernance instance wired to the mock bridge
         // to isolate and verify the forwarding behaviour of
@@ -4509,10 +4509,10 @@ describe("Bridge - Governance", () => {
         localBridgeGovernance = (await govFactory
           .connect(governance)
           .deploy(
-            mockBridge.address,
+            mockBridge.target,
             constants.governanceDelay
           )) as BridgeGovernance
-        await localBridgeGovernance.deployed()
+        await localBridgeGovernance.waitForDeployment()
       })
 
       after(async () => {
@@ -4550,8 +4550,8 @@ describe("Bridge - Governance", () => {
 
       newBridgeGovernance = (await govFactory
         .connect(governance)
-        .deploy(bridge.address, constants.governanceDelay)) as BridgeGovernance
-      await newBridgeGovernance.deployed()
+        .deploy(bridge.target, constants.governanceDelay)) as BridgeGovernance
+      await newBridgeGovernance.waitForDeployment()
     })
 
     after(async () => {
@@ -4561,7 +4561,7 @@ describe("Bridge - Governance", () => {
     it("deploys, transfers governance, and wires rebate staking", async () => {
       await bridgeGovernance
         .connect(governance)
-        .beginBridgeGovernanceTransfer(newBridgeGovernance.address)
+        .beginBridgeGovernanceTransfer(newBridgeGovernance.target)
 
       await helpers.time.increaseTime(constants.governanceDelay)
 
@@ -4569,7 +4569,7 @@ describe("Bridge - Governance", () => {
         .connect(governance)
         .finalizeBridgeGovernanceTransfer()
 
-      expect(await bridge.governance()).to.equal(newBridgeGovernance.address)
+      expect(await bridge.governance()).to.equal(newBridgeGovernance.target)
 
       await newBridgeGovernance
         .connect(governance)

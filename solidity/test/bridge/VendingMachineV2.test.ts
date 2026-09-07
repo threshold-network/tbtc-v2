@@ -1,7 +1,7 @@
-import { ethers, waffle, helpers, getUnnamedAccounts } from "hardhat"
+import { ethers, helpers, getUnnamedAccounts } from "hardhat"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { ContractTransactionResponse } from "ethers"
 import bridgeFixture from "../fixtures/bridge"
 
 import type { TestERC20, TBTC, VendingMachineV2 } from "../../typechain"
@@ -14,10 +14,10 @@ describe("VendingMachineV2", () => {
   let tbtcV2: TBTC
   let vendingMachineV2: VendingMachineV2
 
-  let deployer: SignerWithAddress
-  let v1Redeemer: SignerWithAddress
-  let exchanger: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let v1Redeemer: HardhatEthersSigner
+  let exchanger: HardhatEthersSigner
+  let thirdParty: HardhatEthersSigner
 
   // 50 tBTC v2 deposited into the VendingMachineV2
   const initialV2Balance = to1e18(50)
@@ -38,7 +38,7 @@ describe("VendingMachineV2", () => {
 
     await tbtcV2
       .connect(deployer)
-      .mint(vendingMachineV2.address, initialV2Balance)
+      .mint(vendingMachineV2.target, initialV2Balance)
     await tbtcV1.connect(deployer).mint(exchanger.address, initialV1Balance)
   })
 
@@ -51,7 +51,7 @@ describe("VendingMachineV2", () => {
         // `initialV1Balance.add(1)` (see the test)
         await tbtcV2
           .connect(deployer)
-          .mint(vendingMachineV2.address, initialV2Balance) // twice the original
+          .mint(vendingMachineV2.target, initialV2Balance) // twice the original
       })
 
       after(async () => {
@@ -59,10 +59,8 @@ describe("VendingMachineV2", () => {
       })
 
       it("should revert", async () => {
-        const amount = initialV1Balance.add(1)
-        await tbtcV1
-          .connect(exchanger)
-          .approve(vendingMachineV2.address, amount)
+        const amount = initialV1Balance + 1n
+        await tbtcV1.connect(exchanger).approve(vendingMachineV2.target, amount)
         await expect(
           vendingMachineV2.connect(exchanger).exchange(amount)
         ).to.be.revertedWith("Transfer amount exceeds balance")
@@ -71,10 +69,8 @@ describe("VendingMachineV2", () => {
 
     context("when not enough tBTC v2 was deposited", () => {
       it("should revert", async () => {
-        const amount = initialV2Balance.add(1)
-        await tbtcV1
-          .connect(exchanger)
-          .approve(vendingMachineV2.address, amount)
+        const amount = initialV2Balance + 1n
+        await tbtcV1.connect(exchanger).approve(vendingMachineV2.target, amount)
         await expect(
           vendingMachineV2.connect(exchanger).exchange(amount)
         ).to.be.revertedWith(
@@ -88,14 +84,12 @@ describe("VendingMachineV2", () => {
       // unit tests; we take v1 balance to not revert the TX with
       // "Not enough tBTC v2 available in the Vending Machine"
       const amount = initialV2Balance
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
 
-        await tbtcV1
-          .connect(exchanger)
-          .approve(vendingMachineV2.address, amount)
+        await tbtcV1.connect(exchanger).approve(vendingMachineV2.target, amount)
         tx = await vendingMachineV2.connect(exchanger).exchange(amount)
       })
 
@@ -108,9 +102,7 @@ describe("VendingMachineV2", () => {
       })
 
       it("should transfer tBTC v1 tokens to the VendingMachineV2", async () => {
-        expect(await tbtcV1.balanceOf(vendingMachineV2.address)).is.equal(
-          amount
-        )
+        expect(await tbtcV1.balanceOf(vendingMachineV2.target)).is.equal(amount)
       })
 
       it("should emit Exchanged event", async () => {
@@ -124,15 +116,15 @@ describe("VendingMachineV2", () => {
       // initialV1Balance > initialV2Balance for the sake of the negative path
       // unit tests; we take v1 balance to not revert the TX with
       // "Not enough tBTC v2 available in the Vending Machine"
-      const amount = initialV2Balance.sub(to1e18(1))
-      let tx: ContractTransaction
+      const amount = initialV2Balance - to1e18(1)
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
 
         await tbtcV1
           .connect(exchanger)
-          .approve(vendingMachineV2.address, amount.add(to1e18(1)))
+          .approve(vendingMachineV2.target, amount + to1e18(1))
         tx = await vendingMachineV2.connect(exchanger).exchange(amount)
       })
 
@@ -145,9 +137,7 @@ describe("VendingMachineV2", () => {
       })
 
       it("should transfer tBTC v1 tokens to the VendingMachineV2", async () => {
-        expect(await tbtcV1.balanceOf(vendingMachineV2.address)).is.equal(
-          amount
-        )
+        expect(await tbtcV1.balanceOf(vendingMachineV2.target)).is.equal(amount)
       })
 
       it("should emit Exchanged event", async () => {
@@ -164,7 +154,7 @@ describe("VendingMachineV2", () => {
         await expect(
           vendingMachineV2
             .connect(exchanger)
-            .receiveApproval(exchanger.address, to1e18(1), tbtcV1.address, [])
+            .receiveApproval(exchanger.address, to1e18(1), tbtcV1.target, [])
         ).to.be.revertedWith("Only tBTC v1 caller allowed")
       })
     })
@@ -174,14 +164,14 @@ describe("VendingMachineV2", () => {
         await expect(
           vendingMachineV2
             .connect(exchanger)
-            .receiveApproval(exchanger.address, to1e18(1), tbtcV2.address, [])
+            .receiveApproval(exchanger.address, to1e18(1), tbtcV2.target, [])
         ).to.be.revertedWith("Token is not tBTC v1")
       })
     })
 
     context("when called via approveAndCall", () => {
       const amount = to1e18(2)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -189,7 +179,7 @@ describe("VendingMachineV2", () => {
         await tbtcV2.connect(deployer).mint(thirdParty.address, amount)
         tx = await tbtcV1
           .connect(exchanger)
-          .approveAndCall(vendingMachineV2.address, amount, [])
+          .approveAndCall(vendingMachineV2.target, amount, [])
       })
 
       after(async () => {
@@ -201,9 +191,7 @@ describe("VendingMachineV2", () => {
       })
 
       it("should transfer tBTC v1 tokens to the VendingMachineV2", async () => {
-        expect(await tbtcV1.balanceOf(vendingMachineV2.address)).is.equal(
-          amount
-        )
+        expect(await tbtcV1.balanceOf(vendingMachineV2.target)).is.equal(amount)
       })
 
       it("should emit Exchanged event", async () => {
@@ -217,7 +205,7 @@ describe("VendingMachineV2", () => {
   describe("depositTBTCV2", () => {
     context("when depositing entire allowance", () => {
       const amount = to1e18(21)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -225,7 +213,7 @@ describe("VendingMachineV2", () => {
         await tbtcV2.connect(deployer).mint(v1Redeemer.address, amount)
         await tbtcV2
           .connect(v1Redeemer)
-          .approve(vendingMachineV2.address, amount)
+          .approve(vendingMachineV2.target, amount)
 
         tx = await vendingMachineV2.connect(v1Redeemer).depositTbtcV2(amount)
       })
@@ -235,8 +223,8 @@ describe("VendingMachineV2", () => {
       })
 
       it("should transfer tBTC v2 to the VendingMachineV2", async () => {
-        expect(await tbtcV2.balanceOf(vendingMachineV2.address)).is.equal(
-          initialV2Balance.add(amount)
+        expect(await tbtcV2.balanceOf(vendingMachineV2.target)).is.equal(
+          initialV2Balance + amount
         )
       })
 
@@ -249,7 +237,7 @@ describe("VendingMachineV2", () => {
 
     context("when depositing part of the allowance", () => {
       const amount = to1e18(21)
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -257,7 +245,7 @@ describe("VendingMachineV2", () => {
         await tbtcV2.connect(deployer).mint(v1Redeemer.address, amount)
         await tbtcV2
           .connect(v1Redeemer)
-          .approve(vendingMachineV2.address, amount.add(to1e18(1)))
+          .approve(vendingMachineV2.target, amount + to1e18(1))
 
         tx = await vendingMachineV2.connect(v1Redeemer).depositTbtcV2(amount)
       })
@@ -267,8 +255,8 @@ describe("VendingMachineV2", () => {
       })
 
       it("should transfer tBTC v2 to the VendingMachineV2", async () => {
-        expect(await tbtcV2.balanceOf(vendingMachineV2.address)).is.equal(
-          initialV2Balance.add(amount)
+        expect(await tbtcV2.balanceOf(vendingMachineV2.target)).is.equal(
+          initialV2Balance + amount
         )
       })
 
@@ -286,12 +274,12 @@ describe("VendingMachineV2", () => {
         await expect(
           vendingMachineV2
             .connect(thirdParty)
-            .withdrawFunds(tbtcV1.address, thirdParty.address, to1e18(1))
+            .withdrawFunds(tbtcV1.target, thirdParty.address, to1e18(1))
         ).to.be.revertedWith("Ownable: caller is not the owner")
         await expect(
           vendingMachineV2
             .connect(thirdParty)
-            .withdrawFunds(tbtcV2.address, thirdParty.address, to1e18(1))
+            .withdrawFunds(tbtcV2.target, thirdParty.address, to1e18(1))
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -299,16 +287,16 @@ describe("VendingMachineV2", () => {
     context("when called by the owner", () => {
       context("when withdrawing tBTC v1 tokens", () => {
         const amount = to1e18(10)
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
 
-          await tbtcV1.connect(deployer).mint(vendingMachineV2.address, amount)
+          await tbtcV1.connect(deployer).mint(vendingMachineV2.target, amount)
 
           tx = await vendingMachineV2
             .connect(v1Redeemer)
-            .withdrawFunds(tbtcV1.address, thirdParty.address, amount)
+            .withdrawFunds(tbtcV1.target, thirdParty.address, amount)
         })
 
         it("should transfer tokens to the recipient", async () => {
@@ -318,22 +306,22 @@ describe("VendingMachineV2", () => {
         it("should emit Withdrawn event", async () => {
           await expect(tx)
             .to.emit(vendingMachineV2, "Withdrawn")
-            .withArgs(tbtcV1.address, thirdParty.address, amount)
+            .withArgs(tbtcV1.target, thirdParty.address, amount)
         })
       })
 
       context("when withdrawing tBTC v2 tokens", () => {
         const amount = to1e18(11)
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
 
-          await tbtcV2.connect(deployer).mint(vendingMachineV2.address, amount)
+          await tbtcV2.connect(deployer).mint(vendingMachineV2.target, amount)
 
           tx = await vendingMachineV2
             .connect(v1Redeemer)
-            .withdrawFunds(tbtcV2.address, thirdParty.address, amount)
+            .withdrawFunds(tbtcV2.target, thirdParty.address, amount)
         })
 
         it("should transfer tokens to the recipient", async () => {
@@ -343,7 +331,7 @@ describe("VendingMachineV2", () => {
         it("should emit Withdrawn event", async () => {
           await expect(tx)
             .to.emit(vendingMachineV2, "Withdrawn")
-            .withArgs(tbtcV2.address, thirdParty.address, amount)
+            .withArgs(tbtcV2.target, thirdParty.address, amount)
         })
       })
     })

@@ -139,7 +139,7 @@ async function registerOperators(
     )
     await authorizeApplication(
       staking,
-      walletRegistry.address,
+      walletRegistry.target,
       authorizer,
       stakingProvider.address,
       stakeAmount
@@ -225,7 +225,7 @@ async function createWallet(
   await randomBeacon.connect(submitter).approveDkgResult(dkgResult)
 
   const requestNewWalletTx = await bridge.requestNewWallet({
-    txHash: ethers.constants.HashZero,
+    txHash: ethers.ZeroHash,
     txOutputIndex: 0,
     txOutputValue: 0,
   })
@@ -239,7 +239,7 @@ async function createWallet(
   // eslint-disable-next-line no-underscore-dangle
   await walletRegistry
     .connect(governance)
-    .__beaconCallback(ethers.utils.randomBytes(32), 0)
+    .__beaconCallback(ethers.randomBytes(32), 0)
 
   await performEcdsaDkg(
     hre,

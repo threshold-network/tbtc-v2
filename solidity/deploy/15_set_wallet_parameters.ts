@@ -13,8 +13,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // are not sweeping so from the Bridge's perspective their balance is zero.
   //
   // 14 * 24 * 60 * 60 = 1209600 seconds
-  const walletCreationPeriod = ethers.BigNumber.from("1209600")
-  const walletCreationMinBtcBalance = ethers.BigNumber.from("0")
+  const walletCreationPeriod = ethers.toBigInt("1209600")
+  const walletCreationMinBtcBalance = ethers.toBigInt("0")
 
   // Fetch the current values of other wallet parameters to keep them unchanged.
   const walletParameters = await read("Bridge", "walletParameters")

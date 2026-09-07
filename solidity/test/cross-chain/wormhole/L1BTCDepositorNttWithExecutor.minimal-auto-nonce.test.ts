@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -24,9 +24,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: MockNttManager
-  let owner: SignerWithAddress
-  let user1: SignerWithAddress
-  let user2: SignerWithAddress
+  let owner: HardhatEthersSigner
+  let user1: HardhatEthersSigner
+  let user2: HardhatEthersSigner
 
   before(async () => {
     // Deploy mock contracts following working pattern
@@ -40,7 +40,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -64,20 +64,20 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -97,22 +97,22 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
   describe("Auto-Nonce Basic Functionality", () => {
     it("should allow multiple users to set parameters in parallel", async () => {
       const executorArgs1 = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.utils.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       // User 1 sets parameters
@@ -143,8 +143,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
       // Nonces should be different
       expect(nonce1).to.not.equal(nonce2)
-      expect(nonce1).to.not.equal(ethers.constants.HashZero)
-      expect(nonce2).to.not.equal(ethers.constants.HashZero)
+      expect(nonce1).to.not.equal(ethers.ZeroHash)
+      expect(nonce2).to.not.equal(ethers.ZeroHash)
 
       // Both users should have parameters set
       const [user1Set, user1Nonce] = await depositor
@@ -162,8 +162,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     it("should track nonce sequences per user", async () => {
       const baseExecutorArgs = {
-        value: ethers.utils.parseEther("0.01"),
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        value: ethers.parseEther("0.01"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
       const user1ExecutorArgs = {
@@ -177,7 +177,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       // User 1 sets parameters multiple times (clearing between calls)
@@ -220,22 +220,22 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     it("should provide workflow status information", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       // Initially no workflow
       const [hasWorkflow, nonce, timestamp] =
         await depositor.getUserWorkflowStatus(user1.address)
       expect(hasWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
 
       // Set parameters
@@ -256,20 +256,20 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
         await depositor.getUserWorkflowStatus(user1.address)
       expect(hasWorkflowAfter).to.be.true
       expect(nonceAfter).to.equal(expectedNonce)
-      expect(timestampAfter.toNumber()).to.be.greaterThan(0)
+      expect(ethers.toNumber(timestampAfter)).to.be.greaterThan(0)
     })
 
     it("should allow users to clear their own parameters", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.utils.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 
       const feeArgs = {
         dbps: 0,
-        payee: ethers.constants.AddressZero,
+        payee: ethers.ZeroAddress,
       }
 
       // Set parameters

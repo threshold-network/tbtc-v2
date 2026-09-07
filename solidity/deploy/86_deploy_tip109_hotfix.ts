@@ -202,11 +202,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Step 7: Discover ProxyAdmin and generate calldata ---
   console.log("\n--- Discovering ProxyAdmin ---")
-  const adminData = await ethers.provider.getStorageAt(
+  const adminData = await ethers.provider.getStorage(
     Bridge.address,
     EIP_1967_ADMIN_SLOT
   )
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin: ${proxyAdminAddress}`)
 
   if (proxyAdminAddress.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {

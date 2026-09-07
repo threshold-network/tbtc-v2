@@ -79,8 +79,8 @@ export interface RedemptionTestData {
  * Container for TBTC balance change during redemption test scenario.
  */
 export interface RedemptionBalanceChange {
-  beforeProof: BigNumber
-  afterProof: BigNumber
+  beforeProof: bigint
+  afterProof: bigint
 }
 
 /**

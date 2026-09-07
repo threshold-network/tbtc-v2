@@ -18,8 +18,8 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   let tbtcToken: MockTBTCToken
   let starkGateBridge: MockStarkGateBridge
 
-  const INITIAL_MESSAGE_FEE = ethers.utils.parseEther("0.01")
-  const STARKNET_TBTC_TOKEN = ethers.BigNumber.from("0x12345")
+  const INITIAL_MESSAGE_FEE = ethers.parseEther("0.01")
+  const STARKNET_TBTC_TOKEN = BigInt("0x12345")
 
   // Test fixture data
   const loadFixture = (vault: string) => ({
@@ -60,7 +60,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address) // Must set token before initializing depositor
+    await tbtcVault.setTbtcToken(tbtcToken.target) // Must set token before initializing depositor
 
     const MockStarkGateBridge = await ethers.getContractFactory(
       "MockStarkGateBridge"
@@ -76,13 +76,13 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      starkGateBridge.address,
+      bridge.target,
+      tbtcVault.target,
+      starkGateBridge.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = StarkNetBitcoinDepositor.attach(proxy.address)
+    depositor = StarkNetBitcoinDepositor.attach(proxy.target)
 
     // Verify initialization
     // console.log("Vault address:", tbtcVault.address)
@@ -110,9 +110,9 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   describe("_transferTbtc Implementation", () => {
     it.skip("should call deposit() instead of depositWithMessage() - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // RED: This test will fail because implementation still uses depositWithMessage
-      const fixture = loadFixture(tbtcVault.address)
+      const fixture = loadFixture(tbtcVault.target)
       const depositAmount = to1ePrecision(10000, 10) // 0.0001 BTC
-      // const starkNetRecipient = ethers.BigNumber.from(fixture.extraData)
+      // const starkNetRecipient = BigInt(fixture.extraData)
 
       // Initialize deposit
       await bridge.revealDepositWithExtraData(
@@ -133,7 +133,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
 
       // Setup for finalization - mint tBTC to the depositor
       // In real scenario, vault would mint to depositor after sweep
-      await tbtcToken.mint(depositor.address, depositAmount)
+      await tbtcToken.mint(depositor.target, depositAmount)
 
       // Debug logging
       // console.log("=== Debug Info ===")
@@ -163,15 +163,13 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
 
     it.skip("should not create empty message array - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // GREEN: This test verifies no empty array is created
-      const fixture = loadFixture(tbtcVault.address)
+      const fixture = loadFixture(tbtcVault.target)
       // Mock bridge uses 1 BTC = 100000000 satoshis
       // After treasury fee, the actual amount will be less
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
       const netSatoshis = satoshiAmount - treasuryFee
-      const depositAmount = ethers.BigNumber.from(netSatoshis).mul(
-        ethers.BigNumber.from(10).pow(10)
-      ) // Convert to 18 decimals
+      const depositAmount = BigInt(netSatoshis) * BigInt(10) ** 10n // Convert to 18 decimals
 
       // Initialize and finalize deposit
       await bridge.revealDepositWithExtraData(
@@ -188,14 +186,14 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       )
 
       await bridge.sweepDeposit(depositKey)
-      await tbtcToken.mint(depositor.address, depositAmount)
+      await tbtcToken.mint(depositor.target, depositAmount)
       await depositor.finalizeDeposit(depositKey, {
         value: INITIAL_MESSAGE_FEE,
       })
 
       // Verify deposit() was called with correct parameters
       const lastCall = await starkGateBridge.getLastDepositCall()
-      expect(lastCall.token).to.equal(tbtcToken.address)
+      expect(lastCall.token).to.equal(tbtcToken.target)
 
       // Verify the actual bridged amount (there's an optimistic minting fee)
       // The actual amount will be slightly less than expected
@@ -214,14 +212,12 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   describe("Gas Optimization Verification", () => {
     it.skip("should reduce gas usage by ~2000 - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // GREEN: This test will measure gas difference
-      const fixture = loadFixture(tbtcVault.address)
+      const fixture = loadFixture(tbtcVault.target)
       // Calculate expected amount based on MockBridgeForStarkNet
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
       const netSatoshis = satoshiAmount - treasuryFee
-      const depositAmount = ethers.BigNumber.from(netSatoshis).mul(
-        ethers.BigNumber.from(10).pow(10)
-      ) // Convert to 18 decimals
+      const depositAmount = BigInt(netSatoshis) * BigInt(10) ** 10n // Convert to 18 decimals
 
       // Initialize deposit
       await bridge.revealDepositWithExtraData(
@@ -238,7 +234,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       )
 
       await bridge.sweepDeposit(depositKey)
-      await tbtcToken.mint(depositor.address, depositAmount)
+      await tbtcToken.mint(depositor.target, depositAmount)
 
       // Measure gas for new implementation
       const tx = await depositor.finalizeDeposit(depositKey, {
@@ -257,15 +253,13 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   describe("Functionality Preservation", () => {
     it.skip("should maintain same functionality with deposit() - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // GREEN: Verify end-to-end functionality is preserved
-      const fixture = loadFixture(tbtcVault.address)
+      const fixture = loadFixture(tbtcVault.target)
       // Calculate expected amount based on MockBridgeForStarkNet
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
       const netSatoshis = satoshiAmount - treasuryFee
-      const depositAmount = ethers.BigNumber.from(netSatoshis).mul(
-        ethers.BigNumber.from(10).pow(10)
-      ) // Convert to 18 decimals
-      const starkNetRecipient = ethers.BigNumber.from(fixture.extraData)
+      const depositAmount = BigInt(netSatoshis) * BigInt(10) ** 10n // Convert to 18 decimals
+      const starkNetRecipient = BigInt(fixture.extraData)
 
       // Initialize deposit
       await bridge.revealDepositWithExtraData(
@@ -282,7 +276,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       )
 
       await bridge.sweepDeposit(depositKey)
-      await tbtcToken.mint(depositor.address, depositAmount)
+      await tbtcToken.mint(depositor.target, depositAmount)
 
       // Finalize deposit
       await depositor.finalizeDeposit(depositKey, {
@@ -291,7 +285,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
 
       // Verify correct behavior
       const lastDeposit = await starkGateBridge.getLastDepositCall()
-      expect(lastDeposit.token).to.equal(tbtcToken.address)
+      expect(lastDeposit.token).to.equal(tbtcToken.target)
 
       // Verify the actual bridged amount (there's an optimistic minting fee)
       expect(lastDeposit.amount).to.be.gt(0)
@@ -316,18 +310,18 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       // This test verifies that the implementation uses deposit() not depositWithMessage()
       // by checking the contract code directly
       const [signer] = await ethers.getSigners()
-      const testAmount = ethers.utils.parseEther("1")
+      const testAmount = ethers.parseEther("1")
 
       // Setup: mint tokens to the signer and approve the bridge
       await tbtcToken.mint(signer.address, testAmount)
-      await tbtcToken.approve(starkGateBridge.address, testAmount)
+      await tbtcToken.approve(starkGateBridge.target, testAmount)
 
       // The fact that our mock's deposit() function works proves the interface is correct
       const mockTx = await starkGateBridge.deposit(
-        tbtcToken.address,
+        tbtcToken.target,
         testAmount,
         123,
-        { value: ethers.utils.parseEther("0.1") }
+        { value: ethers.parseEther("0.1") }
       )
       await mockTx.wait()
 

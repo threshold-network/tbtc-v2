@@ -4,17 +4,17 @@ import { ethers } from "hardhat"
 // TODO: It is deprecated and `to1ePrecision` from the
 // https://github.com/keep-network/hardhat-helpers/blob/main/src/number.ts should
 // be used instead.
-export function to1ePrecision(n: number, precision: number): BigNumber {
-  const decimalMultiplier = ethers.BigNumber.from(10).pow(precision)
-  return ethers.BigNumber.from(n).mul(decimalMultiplier)
+export function to1ePrecision(n: number, precision: number): bigint {
+  const decimalMultiplier = BigInt(10) ** precision
+  return BigInt(n) * decimalMultiplier
 }
 
-export function to1e18(n: number): BigNumber {
-  const decimalMultiplier = ethers.BigNumber.from(10).pow(18)
-  return ethers.BigNumber.from(n).mul(decimalMultiplier)
+export function to1e18(n: number): bigint {
+  const decimalMultiplier = BigInt(10) ** 18n
+  return BigInt(n) * decimalMultiplier
 }
 
-export function toSatoshis(amountInBtc: number): BigNumber {
+export function toSatoshis(amountInBtc: number): bigint {
   return to1ePrecision(amountInBtc, 8)
 }
 

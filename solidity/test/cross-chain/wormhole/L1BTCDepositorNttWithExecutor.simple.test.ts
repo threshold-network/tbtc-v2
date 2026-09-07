@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -20,8 +20,8 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
 
   before(async () => {
     const { deployer: dep, governance: gov } =
@@ -40,7 +40,7 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects (following working pattern)
     const nttManagerWithExecutor = {
@@ -55,20 +55,20 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
       "L1BTCDepositorNttWithExecutor"
     )
     const depositorImpl = await L1BTCDepositorFactory.deploy()
-    await depositorImpl.deployed()
+    await depositorImpl.waitForDeployment()
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     l1BTCDepositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -86,26 +86,26 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
 
   describe("Basic Contract Deployment", () => {
     it("should deploy successfully", async () => {
-      expect(l1BTCDepositor.address).to.not.equal(ethers.constants.AddressZero)
+      expect(l1BTCDepositor.target).to.not.equal(ethers.ZeroAddress)
     })
 
     it("should have correct contract code", async () => {
-      const code = await ethers.provider.getCode(l1BTCDepositor.address)
+      const code = await ethers.provider.getCode(l1BTCDepositor.target)
       expect(code).to.not.equal("0x")
     })
   })
 
   describe("Initialization", () => {
     it("should be properly initialized", async () => {
-      expect(await l1BTCDepositor.bridge()).to.equal(bridge.address)
-      expect(await l1BTCDepositor.tbtcVault()).to.equal(tbtcVault.address)
+      expect(await l1BTCDepositor.bridge()).to.equal(bridge.target)
+      expect(await l1BTCDepositor.tbtcVault()).to.equal(tbtcVault.target)
     })
 
     it("should have correct default parameters", async () => {
       expect(await l1BTCDepositor.defaultDestinationGasLimit()).to.equal(500000)
       expect(await l1BTCDepositor.defaultExecutorFeeBps()).to.equal(0)
       expect(await l1BTCDepositor.defaultExecutorFeeRecipient()).to.equal(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
     })
 
@@ -120,8 +120,8 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
   describe("Zero Value Parameters", () => {
     it("should handle zero-value parameters correctly", async () => {
       // Test that we can create zero values without issues
-      const zeroAddress = ethers.constants.AddressZero
-      const zeroAmount = ethers.constants.Zero
+      const zeroAddress = ethers.ZeroAddress
+      const zeroAmount = 0n
 
       expect(zeroAddress).to.equal("0x0000000000000000000000000000000000000000")
       expect(zeroAmount.toString()).to.equal("0")
@@ -131,19 +131,19 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
       // Test creating executor args with zero values
       const executorArgs = {
         signedQuote: "0x",
-        value: ethers.constants.Zero,
+        value: 0n,
       }
 
       const feeArgs = {
-        gasLimit: ethers.constants.Zero,
-        feeBps: ethers.constants.Zero,
-        feeRecipient: ethers.constants.AddressZero,
+        gasLimit: 0n,
+        feeBps: 0n,
+        feeRecipient: ethers.ZeroAddress,
       }
 
       expect(executorArgs.value.toString()).to.equal("0")
       expect(feeArgs.gasLimit.toString()).to.equal("0")
       expect(feeArgs.feeBps.toString()).to.equal("0")
-      expect(feeArgs.feeRecipient).to.equal(ethers.constants.AddressZero)
+      expect(feeArgs.feeRecipient).to.equal(ethers.ZeroAddress)
     })
   })
 })

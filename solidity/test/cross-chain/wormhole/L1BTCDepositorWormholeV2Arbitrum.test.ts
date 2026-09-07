@@ -8,8 +8,8 @@ import {
 } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, Contract, ContractTransaction } from "ethers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { Contract, ContractTransactionResponse } from "ethers"
 import * as fs from "fs"
 import * as path from "path"
 import { loadFixture } from "../../helpers/fixture"
@@ -245,7 +245,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
     const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       address: tbtcVaultAddress,
     })
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const wormhole = await createMock<IWormhole>("IWormhole")
     await wormhole.chainId.returns(l1ChainId)
@@ -303,8 +303,8 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
     }
   }
 
-  let governance: SignerWithAddress
-  let relayer: SignerWithAddress
+  let governance: HardhatEthersSigner
+  let relayer: HardhatEthersSigner
 
   let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
@@ -586,7 +586,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         deployer
       )
       const impl = await factory.deploy()
-      await impl.deployed()
+      await impl.waitForDeployment()
 
       // The initializer should be disabled on the implementation contract.
       const bridge2 = await createMock<IBridge>("IBridge")
@@ -661,13 +661,13 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         await bridge.deposits
           .whenCalledWith(initializeDepositFixture.depositKey)
           .returns({
-            depositor: ethers.constants.AddressZero,
-            amount: BigNumber.from(0),
+            depositor: ethers.ZeroAddress,
+            amount: BigInt(0),
             revealedAt,
-            vault: ethers.constants.AddressZero,
-            treasuryFee: BigNumber.from(0),
+            vault: ethers.ZeroAddress,
+            treasuryFee: BigInt(0),
             sweptAt: finalizedAt,
-            extraData: ethers.constants.HashZero,
+            extraData: ethers.ZeroHash,
           })
 
         await tbtcVault.optimisticMintingRequests
@@ -713,13 +713,13 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         await bridge.deposits
           .whenCalledWith(initializeDepositFixture.depositKey)
           .returns({
-            depositor: ethers.constants.AddressZero,
-            amount: BigNumber.from(100000),
+            depositor: ethers.ZeroAddress,
+            amount: BigInt(100000),
             revealedAt,
-            vault: ethers.constants.AddressZero,
-            treasuryFee: BigNumber.from(0),
+            vault: ethers.ZeroAddress,
+            treasuryFee: BigInt(0),
             sweptAt: finalizedAt,
-            extraData: ethers.constants.HashZero,
+            extraData: ethers.ZeroHash,
           })
 
         await tbtcVault.optimisticMintingRequests
@@ -765,10 +765,10 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       const satoshiMultiplier = to1ePrecision(1, 10)
       const messageFee = 1000
       const transferSequence = 555
-      const depositAmount = BigNumber.from(100000)
-      const treasuryFee = BigNumber.from(500)
+      const depositAmount = BigInt(100000)
+      const treasuryFee = BigInt(500)
       const optimisticMintingFeeDivisor = 20
-      const depositTxMaxFee = BigNumber.from(1000)
+      const depositTxMaxFee = BigInt(1000)
 
       // amountSubTreasury = (depositAmount - treasuryFee) * satoshiMultiplier = 99500 * 1e10
       // omFee = amountSubTreasury / optimisticMintingFeeDivisor = 4975 * 1e10
@@ -776,7 +776,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       // tbtcAmount = amountSubTreasury - omFee - txMaxFee = 93525 * 1e10
       const expectedTbtcAmount = to1ePrecision(93525, 10)
 
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -804,7 +804,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         await bridge.deposits
           .whenCalledWith(initializeDepositFixture.depositKey)
           .returns({
-            depositor: l1BtcDepositor.address,
+            depositor: l1BtcDepositor.target,
             amount: depositAmount,
             revealedAt,
             vault: initializeDepositFixture.reveal.vault,
@@ -853,7 +853,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
         expect(
           await tbtcToken.allowance(
-            l1BtcDepositor.address,
+            l1BtcDepositor.target,
             wormholeTokenBridge.address
           )
         ).to.equal(expectedTbtcAmount)
@@ -866,7 +866,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         const call =
           await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
         expect(call.value).to.equal(messageFee)
-        expect(call.args[0]).to.equal(tbtcToken.address)
+        expect(call.args[0]).to.equal(tbtcToken.target)
         expect(call.args[1]).to.equal(expectedTbtcAmount)
         expect(call.args[2]).to.equal(await l1BtcDepositor.l2ChainId())
         expect(call.args[3]).to.equal(
@@ -885,7 +885,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         ).args[5]
         // A recorded call's arguments are decoded against the mocked ABI and
         // handed back as `unknown[]`; the mock cannot know this one is bytes.
-        const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
+        const [l2Receiver] = ethers.AbiCoder.defaultAbiCoder().decode(
           ["bytes32"],
           payload as BytesLike
         )
@@ -893,8 +893,8 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         expect(l2Receiver.toLowerCase()).to.equal(
           initializeDepositFixture.destinationChainDepositOwner.toLowerCase()
         )
-        expect(ethers.utils.getAddress(`0x${l2Receiver.slice(26)}`)).to.equal(
-          ethers.utils.getAddress(
+        expect(ethers.getAddress(`0x${l2Receiver.slice(26)}`)).to.equal(
+          ethers.getAddress(
             `0x${initializeDepositFixture.destinationChainDepositOwner.slice(
               26
             )}`
@@ -910,7 +910,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       it("should emit TokensTransferredWithPayload event", async () => {
         // The V2 event emits `address` (not `bytes32`). Extract the
         // 20-byte address from the 32-byte Wormhole-padded value.
-        const l2ReceiverAddress = ethers.utils.getAddress(
+        const l2ReceiverAddress = ethers.getAddress(
           `0x${initializeDepositFixture.destinationChainDepositOwner.slice(26)}`
         )
         await expect(tx)
@@ -927,10 +927,10 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       // specific contract.
       const messageFee = 1000
       const transferSequence = 555
-      const depositAmount = BigNumber.from(100000)
-      const treasuryFee = BigNumber.from(500)
+      const depositAmount = BigInt(100000)
+      const treasuryFee = BigInt(500)
       const optimisticMintingFeeDivisor = 20
-      const depositTxMaxFee = BigNumber.from(1000)
+      const depositTxMaxFee = BigInt(1000)
 
       before(async () => {
         await createSnapshot()
@@ -965,7 +965,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         await bridge.deposits
           .whenCalledWith(initializeDepositFixture.depositKey)
           .returns({
-            depositor: l1BtcDepositor.address,
+            depositor: l1BtcDepositor.target,
             amount: depositAmount,
             revealedAt,
             vault: initializeDepositFixture.reveal.vault,
@@ -1006,7 +1006,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           initializeDepositFixture.depositKey
         )
 
-        expect(gasReimbursement.receiver).to.equal(ethers.constants.AddressZero)
+        expect(gasReimbursement.receiver).to.equal(ethers.ZeroAddress)
         expect(gasReimbursement.gasSpent).to.equal(0)
       })
     })
@@ -1025,17 +1025,17 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       () => {
         const messageFee = 1000
         const transferSequence = 555
-        const depositAmount = BigNumber.from(100000)
-        const treasuryFee = BigNumber.from(500)
+        const depositAmount = BigInt(100000)
+        const treasuryFee = BigInt(500)
         const optimisticMintingFeeDivisor = 20
-        const depositTxMaxFee = BigNumber.from(1000)
+        const depositTxMaxFee = BigInt(1000)
         const baseTbtcAmount = to1ePrecision(93525, 10)
         const txMaxFeeScaled = to1ePrecision(1000, 10)
-        const reimbursedAmount = baseTbtcAmount.add(txMaxFeeScaled)
+        const reimbursedAmount = baseTbtcAmount + txMaxFeeScaled
         const initialAmountWei = to1ePrecision(100000, 10)
 
-        let tx: ContractTransaction
-        let tokenOwner: SignerWithAddress
+        let tx: ContractTransactionResponse
+        let tokenOwner: HardhatEthersSigner
 
         before(async () => {
           await createSnapshot()
@@ -1065,7 +1065,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: l1BtcDepositor.address,
+              depositor: l1BtcDepositor.target,
               amount: depositAmount,
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
@@ -1088,7 +1088,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           ;[tokenOwner] = await ethers.getSigners()
           await tbtcToken
             .connect(tokenOwner)
-            .mint(l1BtcDepositor.address, reimbursedAmount)
+            .mint(l1BtcDepositor.target, reimbursedAmount)
 
           tx = await l1BtcDepositor
             .connect(relayer)
@@ -1112,7 +1112,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         it("should transfer the full reimbursedAmount (base + txMaxFee)", async () => {
           expect(
             await tbtcToken.allowance(
-              l1BtcDepositor.address,
+              l1BtcDepositor.target,
               wormholeTokenBridge.address
             )
           ).to.equal(reimbursedAmount)
@@ -1144,20 +1144,20 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       () => {
         const messageFee = 1000
         const transferSequence = 555
-        const depositAmount = BigNumber.from(100000)
-        const treasuryFee = BigNumber.from(500)
+        const depositAmount = BigInt(100000)
+        const treasuryFee = BigInt(500)
         const optimisticMintingFeeDivisor = 20
-        const depositTxMaxFee = BigNumber.from(1000)
+        const depositTxMaxFee = BigInt(1000)
         const baseTbtcAmount = to1ePrecision(93525, 10)
         const txMaxFeeScaled = to1ePrecision(1000, 10)
-        const reimbursedAmount = baseTbtcAmount.add(txMaxFeeScaled)
+        const reimbursedAmount = baseTbtcAmount + txMaxFeeScaled
         const initialAmountWei = to1ePrecision(100000, 10)
         // One wei short of the full reimbursement: covers base, not the
         // reimbursement-amount check.
-        const availableBalance = reimbursedAmount.sub(1)
+        const availableBalance = reimbursedAmount - 1n
 
-        let tx: ContractTransaction
-        let tokenOwner: SignerWithAddress
+        let tx: ContractTransactionResponse
+        let tokenOwner: HardhatEthersSigner
 
         before(async () => {
           await createSnapshot()
@@ -1187,7 +1187,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: l1BtcDepositor.address,
+              depositor: l1BtcDepositor.target,
               amount: depositAmount,
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
@@ -1207,7 +1207,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           ;[tokenOwner] = await ethers.getSigners()
           await tbtcToken
             .connect(tokenOwner)
-            .mint(l1BtcDepositor.address, availableBalance)
+            .mint(l1BtcDepositor.target, availableBalance)
 
           tx = await l1BtcDepositor
             .connect(relayer)
@@ -1237,7 +1237,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         it("should transfer only the base tbtcAmount", async () => {
           expect(
             await tbtcToken.allowance(
-              l1BtcDepositor.address,
+              l1BtcDepositor.target,
               wormholeTokenBridge.address
             )
           ).to.equal(baseTbtcAmount)
@@ -1277,16 +1277,16 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       () => {
         const messageFee = 1000
         const transferSequence = 555
-        const depositAmount = BigNumber.from(100000)
-        const treasuryFee = BigNumber.from(500)
+        const depositAmount = BigInt(100000)
+        const treasuryFee = BigInt(500)
         const optimisticMintingFeeDivisor = 20
-        const depositTxMaxFee = BigNumber.from(1000)
+        const depositTxMaxFee = BigInt(1000)
         const baseTbtcAmount = to1ePrecision(93525, 10)
         const txMaxFeeScaled = to1ePrecision(1000, 10)
         const initialAmountWei = to1ePrecision(100000, 10)
 
-        let tx: ContractTransaction
-        let tokenOwner: SignerWithAddress
+        let tx: ContractTransactionResponse
+        let tokenOwner: HardhatEthersSigner
 
         before(async () => {
           await createSnapshot()
@@ -1316,7 +1316,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
-              depositor: l1BtcDepositor.address,
+              depositor: l1BtcDepositor.target,
               amount: depositAmount,
               revealedAt,
               vault: initializeDepositFixture.reveal.vault,
@@ -1336,7 +1336,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           ;[tokenOwner] = await ethers.getSigners()
           await tbtcToken
             .connect(tokenOwner)
-            .mint(l1BtcDepositor.address, baseTbtcAmount)
+            .mint(l1BtcDepositor.target, baseTbtcAmount)
 
           tx = await l1BtcDepositor
             .connect(relayer)
@@ -1360,7 +1360,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         it("should transfer only the base tbtcAmount", async () => {
           expect(
             await tbtcToken.allowance(
-              l1BtcDepositor.address,
+              l1BtcDepositor.target,
               wormholeTokenBridge.address
             )
           ).to.equal(baseTbtcAmount)
@@ -1391,7 +1391,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         it("should preserve the L2 receiver payload through the skip branch", async () => {
           const call =
             await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
-          const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
+          const [l2Receiver] = ethers.AbiCoder.defaultAbiCoder().decode(
             ["bytes32"],
             call.args[5] as BytesLike
           )
@@ -1437,7 +1437,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         )
 
         const implementationAddress = await upgrades.prepareUpgrade(
-          proxy.address,
+          proxy.target,
           v2Factory,
           {
             kind: "transparent",
@@ -1447,13 +1447,13 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         // `prepareUpgrade` returns an address only when it deploys; with
         // `getTxResponse` unset that is the case, but the declared type is the
         // union of both outcomes.
-        if (!ethers.utils.isAddress(implementationAddress as string)) {
+        if (!ethers.isAddress(implementationAddress as string)) {
           throw new Error(
             `prepareUpgrade returned invalid address ${implementationAddress}`
           )
         }
 
-        if (implementationAddress === proxy.address) {
+        if (implementationAddress === proxy.target) {
           throw new Error("prepareUpgrade should deploy a new implementation")
         }
       } finally {
@@ -1535,17 +1535,17 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           deployer
         )
         const v2Impl = await v2Factory.deploy()
-        await v2Impl.deployed()
+        await v2Impl.waitForDeployment()
 
         await proxyAdmin
           .connect(ownerSigner)
-          .upgrade(proxy.address, v2Impl.address)
+          .upgrade(proxy.target, v2Impl.target)
 
         // After V2-to-V2 upgrade, all state should be preserved since the
         // storage layout is identical.
         const upgraded = (await ethers.getContractAt(
           "L1BTCDepositorWormholeV2Arbitrum",
-          proxy.address
+          proxy.target
         )) as L1BTCDepositorWormholeV2Arbitrum
 
         expect(await upgraded.wormhole()).to.equal(wormhole.address)
@@ -1621,15 +1621,15 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           deployer
         )
         const v2Impl = await v2Factory.deploy()
-        await v2Impl.deployed()
+        await v2Impl.waitForDeployment()
 
         await proxyAdmin
           .connect(ownerSigner)
-          .upgrade(proxy.address, v2Impl.address)
+          .upgrade(proxy.target, v2Impl.target)
 
         const upgraded = (await ethers.getContractAt(
           "L1BTCDepositorWormholeV2Arbitrum",
-          proxy.address
+          proxy.target
         )) as L1BTCDepositorWormholeV2Arbitrum
 
         // All V2 state (including fields from flattened AbstractL1BTCDepositor
