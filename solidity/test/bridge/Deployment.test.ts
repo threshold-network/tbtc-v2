@@ -3,7 +3,7 @@ import { deployments, ethers, helpers, upgrades } from "hardhat"
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 
-import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   ProxyAdmin,
   Bridge,
@@ -23,11 +23,11 @@ chai.use(chaiAsPromised)
 const { AddressZero } = ethers.constants
 
 describe("Deployment", async () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let esdm: SignerWithAddress
-  let keepTechnicalWalletTeam: SignerWithAddress
-  let keepCommunityMultiSig: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let esdm: HardhatEthersSigner
+  let keepTechnicalWalletTeam: HardhatEthersSigner
+  let keepCommunityMultiSig: HardhatEthersSigner
 
   let bridge: Bridge
   let bridgeGovernance: BridgeGovernance
@@ -61,7 +61,7 @@ describe("Deployment", async () => {
 
     bridgeProxy = await ethers.getContractAt(
       "TransparentUpgradeableProxy",
-      bridge.address
+      bridge.target
     )
 
     proxyAdmin = (await upgrades.admin.getInstance()) as ProxyAdmin
@@ -85,21 +85,21 @@ describe("Deployment", async () => {
       // To let a non-proxy-admin read the admin we have to read it directly from
       // the storage slot, see: https://docs.openzeppelin.com/contracts/4.x/api/proxy#TransparentUpgradeableProxy-admin--
       expect(
-        ethers.utils.defaultAbiCoder.decode(
+        ethers.AbiCoder.defaultAbiCoder().decode(
           ["address"],
-          await ethers.provider.getStorageAt(
-            bridge.address,
+          await ethers.provider.getStorage(
+            bridge.target,
             "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
           )
         )[0]
       ).to.be.equal(
-        proxyAdmin.address,
+        proxyAdmin.target,
         "invalid Bridge proxy admin (read from storage slot)"
       )
 
       expect(
-        await bridgeProxy.connect(proxyAdmin.address).callStatic.admin()
-      ).to.be.equal(proxyAdmin.address, "invalid Bridge proxy admin")
+        await bridgeProxy.connect(proxyAdmin.target).callStatic.admin()
+      ).to.be.equal(proxyAdmin.target, "invalid Bridge proxy admin")
     })
 
     it("should set ProxyAdmin owner", async () => {
@@ -113,10 +113,10 @@ describe("Deployment", async () => {
       // To let a non-proxy-admin read the implementation we have to read it directly from
       // the storage slot, see: https://docs.openzeppelin.com/contracts/4.x/api/proxy#TransparentUpgradeableProxy-implementation--
       expect(
-        ethers.utils.defaultAbiCoder.decode(
+        ethers.AbiCoder.defaultAbiCoder().decode(
           ["address"],
-          await ethers.provider.getStorageAt(
-            bridge.address,
+          await ethers.provider.getStorage(
+            bridge.target,
             "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
           )
         )[0],
@@ -125,7 +125,7 @@ describe("Deployment", async () => {
 
       expect(
         await bridgeProxy
-          .connect(proxyAdmin.address)
+          .connect(proxyAdmin.target)
           .callStatic.implementation(),
         "invalid Bridge implementation"
       ).to.be.equal(bridgeImplementationAddress)
@@ -141,15 +141,15 @@ describe("Deployment", async () => {
     it("should set implementation address different than proxy address", async () => {
       expect(
         await bridgeProxy
-          .connect(proxyAdmin.address)
+          .connect(proxyAdmin.target)
           .callStatic.implementation(),
         "invalid implementation"
-      ).to.be.not.equal(bridge.address)
+      ).to.be.not.equal(bridge.target)
     })
 
     it("should set Bridge governance", async () => {
       expect(await bridge.governance()).to.be.equal(
-        bridgeGovernance.address,
+        bridgeGovernance.target,
         "invalid Bridge governance"
       )
     })
@@ -182,15 +182,13 @@ describe("Deployment", async () => {
       expect(
         await walletRegistry.walletOwner(),
         "invalid walletOwner in WalletRegistry"
-      ).equal(bridge.address)
+      ).equal(bridge.target)
     })
   })
 
   describe("Bank", () => {
     it("should set Bridge reference", async () => {
-      expect(await bank.bridge(), "invalid Bridge address").equal(
-        bridge.address
-      )
+      expect(await bank.bridge(), "invalid Bridge address").equal(bridge.target)
     })
 
     it("should set Bank owner", async () => {
@@ -200,12 +198,12 @@ describe("Deployment", async () => {
 
   describe("TBTCVault", () => {
     it("should set Bank reference", async () => {
-      expect(await tbtcVault.bank(), "invalid Bank address").equal(bank.address)
+      expect(await tbtcVault.bank(), "invalid Bank address").equal(bank.target)
     })
 
     it("should set TBTC reference", async () => {
       expect(await tbtcVault.tbtcToken(), "invalid TBTC address").equal(
-        tbtc.address
+        tbtc.target
       )
     })
 
@@ -219,7 +217,7 @@ describe("Deployment", async () => {
   describe("MaintainerProxy", () => {
     it("should set Bridge reference", async () => {
       expect(await maintainerProxy.bridge(), "invalid Bridge address").equal(
-        bridge.address
+        bridge.target
       )
     })
 
@@ -227,7 +225,7 @@ describe("Deployment", async () => {
       expect(
         await maintainerProxy.reimbursementPool(),
         "invalid ReimbursementPool address"
-      ).equal(reimbursementPool.address)
+      ).equal(reimbursementPool.target)
     })
 
     it("should set MaintainerProxy owner", async () => {
@@ -241,7 +239,7 @@ describe("Deployment", async () => {
   describe("ReimbursementPool", () => {
     it("should authorize MaintainerProxy in ReimbursementPool", async () => {
       expect(
-        await reimbursementPool.isAuthorized(maintainerProxy.address),
+        await reimbursementPool.isAuthorized(maintainerProxy.target),
         "unauthorized MaintainerProxy"
       ).to.be.true
     })

@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -35,7 +35,7 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -62,14 +62,14 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address)
+    depositor = L1BTCDepositorFactory.attach(proxy.target)
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -87,15 +87,15 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
   describe("Workflow Observer Functions", () => {
     it("should provide initial workflow status", async () => {
       const [hasWorkflow, nonce, timestamp] =
-        await depositor.getUserWorkflowStatus(ethers.constants.AddressZero)
+        await depositor.getUserWorkflowStatus(ethers.ZeroAddress)
       expect(hasWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
     })
 
     it("should allow user to start new workflow initially", async () => {
       const canStart = await depositor.canUserStartNewWorkflow(
-        ethers.constants.AddressZero
+        ethers.ZeroAddress
       )
       expect(canStart).to.be.true
     })
@@ -109,7 +109,7 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
       const [hasActiveWorkflow, nonce, timestamp, timeRemaining] =
         await depositor.getUserWorkflowInfo(user)
       expect(hasActiveWorkflow).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
       expect(timestamp).to.equal(0)
       expect(timeRemaining).to.equal(0)
       // canStartNew and reason were removed to reduce contract size
@@ -150,7 +150,7 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
       // Test the new signature that returns (bool, bytes32)
       const [isSet, nonce] = await depositor.areExecutorParametersSet()
       expect(isSet).to.be.false
-      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(nonce).to.equal(ethers.ZeroHash)
     })
 
     it("should maintain existing getStoredExecutorValue behavior", async () => {

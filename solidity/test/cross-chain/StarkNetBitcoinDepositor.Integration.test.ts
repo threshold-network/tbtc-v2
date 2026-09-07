@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   StarkNetBitcoinDepositor,
   MockBridgeForStarkNet,
@@ -19,11 +19,11 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
   let tbtcVault: MockTBTCVault
   let tbtcToken: MockTBTCToken
   let starkGateBridge: MockStarkGateBridge
-  let signer: SignerWithAddress
+  let signer: HardhatEthersSigner
 
-  const INITIAL_MESSAGE_FEE = ethers.utils.parseEther("0.01")
+  const INITIAL_MESSAGE_FEE = ethers.parseEther("0.01")
   const DEPOSIT_AMOUNT = to1ePrecision(100000000, 10) // 1 BTC (100M satoshis) converted to 18-decimal precision
-  const TREASURY_FEE = BigNumber.from("12098000000000") // Example treasury fee
+  const TREASURY_FEE = BigInt("12098000000000") // Example treasury fee
 
   // Helper to initialize deposit and get key
   const initializeDepositAndGetKey = async (depositData: {
@@ -44,7 +44,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       (e) => e.event === "DepositInitialized"
     )
     const bytes32 = depositInitEvent?.args?.depositKey
-    const uint256 = BigNumber.from(bytes32)
+    const uint256 = BigInt(bytes32)
 
     return {
       uint256,
@@ -81,10 +81,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         refundLocktime: "0x60bcea61",
         vault: "",
       },
-      l2Receiver: ethers.utils.hexZeroPad(
-        `0x${(1000 + index).toString(16)}`,
-        32
-      ),
+      l2Receiver: ethers.zeroPadValue(`0x${(1000 + index).toString(16)}`, 32),
       starknetRecipient: `0x${(1000 + index).toString(16).padStart(64, "0")}`,
       expectedDepositKey: "", // Will be calculated during test
     }
@@ -108,7 +105,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     const MockStarkGateBridge = await ethers.getContractFactory(
       "MockStarkGateBridge"
@@ -123,15 +120,15 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
 
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
-    const STARKNET_TBTC_TOKEN = ethers.BigNumber.from("0x12345")
+    const STARKNET_TBTC_TOKEN = BigInt("0x12345")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      starkGateBridge.address,
+      bridge.target,
+      tbtcVault.target,
+      starkGateBridge.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = StarkNetBitcoinDepositor.attach(proxy.address)
+    depositor = StarkNetBitcoinDepositor.attach(proxy.target)
   })
 
   describe("End-to-End Deposit Flow", () => {
@@ -146,7 +143,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
     it("should handle complete deposit flow from initialization to bridging", async () => {
       // RED PHASE: This test should fail initially
       const depositData = generateDepositData(1)
-      depositData.reveal.vault = tbtcVault.address
+      depositData.reveal.vault = tbtcVault.target
 
       // Step 1: Initialize deposit
       const initTx = await depositor.initializeDeposit(
@@ -161,7 +158,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         (e) => e.event === "DepositInitialized"
       )
       const depositKeyBytes32 = depositInitEvent?.args?.depositKey
-      const depositKey = BigNumber.from(depositKeyBytes32)
+      const depositKey = BigInt(depositKeyBytes32)
 
       // Verify initialization events
       await expect(initTx)
@@ -183,7 +180,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // )
 
       await bridge.sweepDeposit(depositKey)
-      await tbtcToken.mint(depositor.address, DEPOSIT_AMOUNT.sub(TREASURY_FEE))
+      await tbtcToken.mint(depositor.target, DEPOSIT_AMOUNT - TREASURY_FEE)
 
       // Step 3: Finalize deposit and bridge to StarkNet
       const finalizeTx = await depositor.finalizeDeposit(depositKeyBytes32, {
@@ -197,14 +194,14 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(await starkGateBridge.getDepositCount()).to.be.gt(0)
       const lastDepositCall = await starkGateBridge.getLastDepositCall()
-      expect(lastDepositCall.token).to.equal(tbtcToken.address)
+      expect(lastDepositCall.token).to.equal(tbtcToken.target)
 
       // Check that final bridged amount is within expected range
       // bridged amount is after optimistic minting fee
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(lastDepositCall.amount).to.be.gt(0)
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      expect(lastDepositCall.amount).to.be.lte(DEPOSIT_AMOUNT.sub(TREASURY_FEE))
+      expect(lastDepositCall.amount).to.be.lte(DEPOSIT_AMOUNT - TREASURY_FEE)
     })
 
     it("should handle multiple concurrent deposits", async () => {
@@ -216,7 +213,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < numberOfDeposits; i++) {
         const depositData = generateDepositData(i)
-        depositData.reveal.vault = tbtcVault.address
+        depositData.reveal.vault = tbtcVault.target
 
         // eslint-disable-next-line no-await-in-loop
         const keys = await initializeDepositAndGetKey(depositData)
@@ -232,10 +229,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         // eslint-disable-next-line no-await-in-loop
         await bridge.sweepDeposit(keys.uint256)
         // eslint-disable-next-line no-await-in-loop
-        await tbtcToken.mint(
-          depositor.address,
-          DEPOSIT_AMOUNT.sub(TREASURY_FEE)
-        )
+        await tbtcToken.mint(depositor.target, DEPOSIT_AMOUNT - TREASURY_FEE)
 
         // Finalize deposit
         // eslint-disable-next-line no-await-in-loop
@@ -263,7 +257,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < amounts.length; i++) {
         const depositData = generateDepositData(i + 10)
-        depositData.reveal.vault = tbtcVault.address
+        depositData.reveal.vault = tbtcVault.target
         // const amount = amounts[i]
 
         // Initialize deposit and get key
@@ -279,16 +273,14 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         // amountSubTreasury = (88800000 - 898000) * 10^10 = 87902000 * 10^10
         const amountSubTreasury = to1ePrecision(87902000, 10)
         // omFee = amountSubTreasury / 1000 (0.1% fee)
-        const omFee = amountSubTreasury.div(1000)
+        const omFee = amountSubTreasury / 1000n
         // txMaxFee = 1000000 * 10^10
         const txMaxFee = to1ePrecision(1000000, 10)
         // Final amount = amountSubTreasury - omFee - txMaxFee
-        const bridgeCalculatedAmount = amountSubTreasury
-          .sub(omFee)
-          .sub(txMaxFee)
+        const bridgeCalculatedAmount = amountSubTreasury - omFee - txMaxFee
 
         // eslint-disable-next-line no-await-in-loop
-        await tbtcToken.mint(depositor.address, bridgeCalculatedAmount)
+        await tbtcToken.mint(depositor.target, bridgeCalculatedAmount)
 
         // Finalize deposit
         // eslint-disable-next-line no-await-in-loop
@@ -316,12 +308,12 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
     it("should handle StarkGate bridge failures gracefully", async () => {
       // RED PHASE: Test bridge failure handling
       const depositData = generateDepositData(100)
-      depositData.reveal.vault = tbtcVault.address
+      depositData.reveal.vault = tbtcVault.target
 
       // Initialize and prepare deposit
       const keys = await initializeDepositAndGetKey(depositData)
       await bridge.sweepDeposit(keys.uint256)
-      await tbtcToken.mint(depositor.address, DEPOSIT_AMOUNT.sub(TREASURY_FEE))
+      await tbtcToken.mint(depositor.target, DEPOSIT_AMOUNT - TREASURY_FEE)
 
       // Mock bridge to fail
       await starkGateBridge.setDepositWithMessageReturn(0) // This would indicate failure
@@ -337,7 +329,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
     it("should prevent double finalization of same deposit", async () => {
       // RED PHASE: Test double finalization protection
       const depositData = generateDepositData(200)
-      depositData.reveal.vault = tbtcVault.address
+      depositData.reveal.vault = tbtcVault.target
 
       // Initialize and finalize deposit once
       const keys = await initializeDepositAndGetKey(depositData)
@@ -345,18 +337,18 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
 
       // Calculate the correct amount
       const amountSubTreasury = to1ePrecision(87902000, 10)
-      const omFee = amountSubTreasury.div(1000)
+      const omFee = amountSubTreasury / 1000n
       const txMaxFee = to1ePrecision(1000000, 10)
-      const bridgeCalculatedAmount = amountSubTreasury.sub(omFee).sub(txMaxFee)
+      const bridgeCalculatedAmount = amountSubTreasury - omFee - txMaxFee
 
-      await tbtcToken.mint(depositor.address, bridgeCalculatedAmount)
+      await tbtcToken.mint(depositor.target, bridgeCalculatedAmount)
 
       await depositor.finalizeDeposit(keys.bytes32, {
         value: INITIAL_MESSAGE_FEE,
       })
 
       // Mint more tokens to simulate attempted double spend
-      await tbtcToken.mint(depositor.address, bridgeCalculatedAmount)
+      await tbtcToken.mint(depositor.target, bridgeCalculatedAmount)
 
       // Attempt to finalize same deposit again should fail
       await expect(
@@ -369,10 +361,10 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
     it("should handle insufficient tBTC balance scenarios", async () => {
       // RED PHASE: Test insufficient balance handling
       const depositData = generateDepositData(300)
-      depositData.reveal.vault = tbtcVault.address
+      depositData.reveal.vault = tbtcVault.target
 
       // Check initial balance
-      const initialBalance = await tbtcToken.balanceOf(depositor.address)
+      const initialBalance = await tbtcToken.balanceOf(depositor.target)
       // console.log("Initial depositor balance:", initialBalance.toString())
       expect(initialBalance).to.equal(0) // Should be 0 at start
 
@@ -381,11 +373,11 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       await bridge.sweepDeposit(keys.uint256)
 
       // Don't mint enough tBTC (insufficient balance)
-      const insufficientAmount = BigNumber.from("1000") // Very small amount
-      await tbtcToken.mint(depositor.address, insufficientAmount)
+      const insufficientAmount = BigInt("1000") // Very small amount
+      await tbtcToken.mint(depositor.target, insufficientAmount)
 
       // Check balance after minting
-      const balanceAfterMint = await tbtcToken.balanceOf(depositor.address)
+      const balanceAfterMint = await tbtcToken.balanceOf(depositor.target)
       // console.log("Balance after mint:", balanceAfterMint.toString())
       expect(balanceAfterMint).to.equal(insufficientAmount)
 
@@ -415,7 +407,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < numberOfDeposits; i++) {
         const depositData = generateDepositData(1000 + i)
-        depositData.reveal.vault = tbtcVault.address
+        depositData.reveal.vault = tbtcVault.target
 
         // Complete full deposit cycle
         // eslint-disable-next-line no-await-in-loop
@@ -423,10 +415,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         // eslint-disable-next-line no-await-in-loop
         await bridge.sweepDeposit(keys.uint256)
         // eslint-disable-next-line no-await-in-loop
-        await tbtcToken.mint(
-          depositor.address,
-          DEPOSIT_AMOUNT.sub(TREASURY_FEE)
-        )
+        await tbtcToken.mint(depositor.target, DEPOSIT_AMOUNT - TREASURY_FEE)
         // eslint-disable-next-line no-await-in-loop
         await depositor.finalizeDeposit(keys.bytes32, {
           value: INITIAL_MESSAGE_FEE,
@@ -452,17 +441,14 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < 5; i++) {
         const depositData = generateDepositData(2000 + i)
-        depositData.reveal.vault = tbtcVault.address
+        depositData.reveal.vault = tbtcVault.target
 
         // eslint-disable-next-line no-await-in-loop
         const keys = await initializeDepositAndGetKey(depositData)
         // eslint-disable-next-line no-await-in-loop
         await bridge.sweepDeposit(keys.uint256)
         // eslint-disable-next-line no-await-in-loop
-        await tbtcToken.mint(
-          depositor.address,
-          DEPOSIT_AMOUNT.sub(TREASURY_FEE)
-        )
+        await tbtcToken.mint(depositor.target, DEPOSIT_AMOUNT - TREASURY_FEE)
 
         // Measure gas for finalization
         // eslint-disable-next-line no-await-in-loop
@@ -471,7 +457,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         })
         // eslint-disable-next-line no-await-in-loop
         const receipt = await tx.wait()
-        gasUsages.push(receipt.gasUsed.toNumber())
+        gasUsages.push(Number(receipt.gasUsed))
       }
 
       // Verify gas usage is reasonably consistent (within 100% variance for different deposit scenarios)
@@ -502,7 +488,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
     it("should provide accurate gas cost breakdown", async () => {
       // RED PHASE: Analyze gas costs for each operation
       const depositData = generateDepositData(3000)
-      depositData.reveal.vault = tbtcVault.address
+      depositData.reveal.vault = tbtcVault.target
 
       // Measure initialization gas
       const initTx = await depositor.initializeDeposit(
@@ -515,11 +501,11 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         (e) => e.event === "DepositInitialized"
       )
       const depositKeyBytes32 = depositInitEvent?.args?.depositKey
-      const depositKey = BigNumber.from(depositKeyBytes32)
+      const depositKey = BigInt(depositKeyBytes32)
 
       // Prepare for finalization
       await bridge.sweepDeposit(depositKey)
-      await tbtcToken.mint(depositor.address, DEPOSIT_AMOUNT.sub(TREASURY_FEE))
+      await tbtcToken.mint(depositor.target, DEPOSIT_AMOUNT - TREASURY_FEE)
 
       // Measure finalization gas
       const finalizeTx = await depositor.finalizeDeposit(depositKeyBytes32, {
@@ -538,8 +524,8 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // )
 
       // Verify current gas costs (TODO: optimize to 150k target in T-016)
-      expect(initReceipt.gasUsed.toNumber()).to.be.lessThan(220000) // Current: ~210k, target: 150k
-      expect(finalizeReceipt.gasUsed.toNumber()).to.be.lessThan(400000) // Current: ~356k
+      expect(Number(initReceipt.gasUsed)).to.be.lessThan(220000) // Current: ~210k, target: 150k
+      expect(Number(finalizeReceipt.gasUsed)).to.be.lessThan(400000) // Current: ~356k
     })
   })
 })

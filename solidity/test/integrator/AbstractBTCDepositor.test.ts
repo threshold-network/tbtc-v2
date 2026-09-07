@@ -1,6 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import type { BigNumberish } from "ethers"
 import type { MockBridge, TestBTCDepositor } from "../../typechain"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
@@ -23,13 +23,13 @@ type TestBTCDepositorMockTBTCVault = {
   address: string
   createOptimisticMintingRequest(
     depositKey: BigNumberish
-  ): Promise<ContractTransaction>
+  ): Promise<ContractTransactionResponse>
   finalizeOptimisticMintingRequest(
     depositKey: BigNumberish
-  ): Promise<ContractTransaction>
+  ): Promise<ContractTransactionResponse>
   setOptimisticMintingFeeDivisor(
     divisor: BigNumberish
-  ): Promise<ContractTransaction>
+  ): Promise<ContractTransactionResponse>
 }
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -80,15 +80,15 @@ describe("AbstractBTCDepositor", () => {
     tbtcVault =
       (await MockTBTCVault.deploy()) as unknown as TestBTCDepositorMockTBTCVault
 
-    fixture = loadFixture(tbtcVault.address)
+    fixture = loadFixture(tbtcVault.target)
 
     const testBtcDepositor = await ethers.getContractFactory("TestBTCDepositor")
     depositor = await testBtcDepositor.deploy()
-    await depositor.initialize(bridge.address, tbtcVault.address)
+    await depositor.initialize(bridge.target, tbtcVault.target)
 
     // Assert that contract initializer works as expected.
     await expect(
-      depositor.initialize(bridge.address, tbtcVault.address)
+      depositor.initialize(bridge.target, tbtcVault.target)
     ).to.be.revertedWith("AbstractBTCDepositor already initialized")
   })
 
@@ -96,9 +96,7 @@ describe("AbstractBTCDepositor", () => {
     context("when revealed vault does not match", () => {
       it("should revert", async () => {
         // Load the fixture with a different vault address.
-        const { fundingTx, reveal, extraData } = loadFixture(
-          ethers.constants.AddressZero
-        )
+        const { fundingTx, reveal, extraData } = loadFixture(ethers.ZeroAddress)
 
         await expect(
           depositor.initializeDepositPublic(fundingTx, reveal, extraData)
@@ -138,7 +136,7 @@ describe("AbstractBTCDepositor", () => {
       context("when deposit is accepted by the Bridge", () => {
         const expectedInitialDepositAmount = to1ePrecision(10000, 10)
 
-        let tx: ContractTransaction
+        let tx: ContractTransactionResponse
 
         before(async () => {
           await createSnapshot()
@@ -240,7 +238,7 @@ describe("AbstractBTCDepositor", () => {
         const expectedTbtcAmount = to1ePrecision(8702, 10).toString()
 
         context("when the deposit is swept", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -268,7 +266,7 @@ describe("AbstractBTCDepositor", () => {
         })
 
         context("when the deposit is optimistically minted", () => {
-          let tx: ContractTransaction
+          let tx: ContractTransactionResponse
 
           before(async () => {
             await createSnapshot()
@@ -353,7 +351,7 @@ describe("AbstractBTCDepositor", () => {
 
       it("should return the correct amount", async () => {
         const depositAmount = to1ePrecision(10, 8) // 10 BTC
-        const treasuryFee = BigNumber.from(0)
+        const treasuryFee = BigInt(0)
 
         // The expected tbtcAmount is calculated as follows:
         //
@@ -375,7 +373,7 @@ describe("AbstractBTCDepositor", () => {
       context("when treasury fee is zero", () => {
         it("should return the correct amount", async () => {
           const depositAmount = to1ePrecision(10, 8) // 10 BTC
-          const treasuryFee = BigNumber.from(0)
+          const treasuryFee = BigInt(0)
 
           // The expected tbtcAmount is calculated as follows:
           //

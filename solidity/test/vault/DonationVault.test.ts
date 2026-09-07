@@ -1,8 +1,8 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
-import { ContractTransaction } from "ethers"
+import { ContractTransactionResponse } from "ethers"
 import type { Bank, DonationVault } from "../../typechain"
 import { loadFixture } from "../helpers/fixture"
 
@@ -13,13 +13,13 @@ const fixture = async () => {
 
   const Bank = await ethers.getContractFactory("Bank")
   const bank = await Bank.deploy()
-  await bank.deployed()
+  await bank.waitForDeployment()
 
   await bank.connect(deployer).updateBridge(bridge.address)
 
   const DonationVault = await ethers.getContractFactory("DonationVault")
-  const vault = await DonationVault.deploy(bank.address)
-  await vault.deployed()
+  const vault = await DonationVault.deploy(bank.target)
+  await vault.waitForDeployment()
 
   return {
     bridge,
@@ -31,9 +31,9 @@ const fixture = async () => {
 }
 
 describe("DonationVault", () => {
-  let bridge: SignerWithAddress
-  let account1: SignerWithAddress
-  let account2: SignerWithAddress
+  let bridge: HardhatEthersSigner
+  let account1: HardhatEthersSigner
+  let account2: HardhatEthersSigner
   let bank: Bank
   let vault: DonationVault
 
@@ -47,14 +47,14 @@ describe("DonationVault", () => {
       it("should revert", async () => {
         const DonationVault = await ethers.getContractFactory("DonationVault")
         await expect(
-          DonationVault.deploy(ethers.constants.AddressZero)
+          DonationVault.deploy(ethers.ZeroAddress)
         ).to.be.revertedWith("Bank can not be the zero address")
       })
     })
 
     context("when called with correct parameters", () => {
       it("should set the Bank field", async () => {
-        expect(await vault.bank()).to.equal(bank.address)
+        expect(await vault.bank()).to.equal(bank.target)
       })
     })
   })
@@ -87,7 +87,7 @@ describe("DonationVault", () => {
           await bank.connect(bridge).increaseBalance(account1.address, 1000)
           await bank
             .connect(account1)
-            .increaseBalanceAllowance(vault.address, 999)
+            .increaseBalanceAllowance(vault.target, 999)
         })
 
         after(async () => {
@@ -103,7 +103,7 @@ describe("DonationVault", () => {
     )
 
     context("when called with correct parameters", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -111,7 +111,7 @@ describe("DonationVault", () => {
         await bank.connect(bridge).increaseBalance(account1.address, 1100)
         await bank
           .connect(account1)
-          .increaseBalanceAllowance(vault.address, 1100)
+          .increaseBalanceAllowance(vault.target, 1100)
 
         tx = await vault.connect(account1).donate(1000)
       })
@@ -125,13 +125,13 @@ describe("DonationVault", () => {
       })
 
       it("should not increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.be.equal(0)
+        expect(await bank.balanceOf(vault.target)).to.be.equal(0)
       })
 
       it("should emit BalanceDecreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceDecreased")
-          .withArgs(vault.address, 1000)
+          .withArgs(vault.target, 1000)
       })
 
       it("should emit DonationReceived event", async () => {
@@ -166,13 +166,13 @@ describe("DonationVault", () => {
 
       it("should revert", async () => {
         await expect(
-          bank.connect(account1).approveBalanceAndCall(vault.address, 1000, [])
+          bank.connect(account1).approveBalanceAndCall(vault.target, 1000, [])
         ).to.be.revertedWith("Amount exceeds balance in the bank")
       })
     })
 
     context("when called with correct parameters", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -181,7 +181,7 @@ describe("DonationVault", () => {
 
         tx = await bank
           .connect(account1)
-          .approveBalanceAndCall(vault.address, 1000, [])
+          .approveBalanceAndCall(vault.target, 1000, [])
       })
 
       after(async () => {
@@ -193,13 +193,13 @@ describe("DonationVault", () => {
       })
 
       it("should not increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.be.equal(0)
+        expect(await bank.balanceOf(vault.target)).to.be.equal(0)
       })
 
       it("should emit BalanceDecreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceDecreased")
-          .withArgs(vault.address, 1000)
+          .withArgs(vault.target, 1000)
       })
 
       it("should emit DonationReceived event", async () => {
@@ -224,13 +224,13 @@ describe("DonationVault", () => {
     context("when called with no depositors", () => {
       it("should revert", async () => {
         await expect(
-          bank.connect(bridge).increaseBalanceAndCall(vault.address, [], [])
+          bank.connect(bridge).increaseBalanceAndCall(vault.target, [], [])
         ).to.be.revertedWith("No depositors specified")
       })
     })
 
     context("when called with correct parameters", () => {
-      let tx: ContractTransaction
+      let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
@@ -238,7 +238,7 @@ describe("DonationVault", () => {
         tx = await bank
           .connect(bridge)
           .increaseBalanceAndCall(
-            vault.address,
+            vault.target,
             [account1.address, account2.address],
             [1000, 2000]
           )
@@ -254,13 +254,13 @@ describe("DonationVault", () => {
       })
 
       it("should not increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.be.equal(0)
+        expect(await bank.balanceOf(vault.target)).to.be.equal(0)
       })
 
       it("should emit BalanceDecreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceDecreased")
-          .withArgs(vault.address, 3000)
+          .withArgs(vault.target, 3000)
       })
 
       it("should emit DonationReceived event", async () => {

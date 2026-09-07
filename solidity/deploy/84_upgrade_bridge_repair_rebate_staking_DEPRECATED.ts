@@ -26,7 +26,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts()
 
   const repairTarget =
-    process.env.REBATE_STAKING_REPAIR_TARGET ?? ethers.constants.AddressZero
+    process.env.REBATE_STAKING_REPAIR_TARGET ?? ethers.ZeroAddress
 
   const artifactPath = path.resolve(
     __dirname,

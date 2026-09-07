@@ -1,4 +1,4 @@
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -27,14 +27,14 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Test covering `VendingMachine` -> `TBTCVault` upgrade process.
 describe("VendingMachine - Upgrade", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let spvMaintainer: SignerWithAddress
-  let keepTechnicalWalletTeam: SignerWithAddress
-  let keepCommunityMultiSig: SignerWithAddress
+  let deployer: HardhatEthersSigner
+  let governance: HardhatEthersSigner
+  let spvMaintainer: HardhatEthersSigner
+  let keepTechnicalWalletTeam: HardhatEthersSigner
+  let keepCommunityMultiSig: HardhatEthersSigner
 
-  let account1: SignerWithAddress
-  let account2: SignerWithAddress
+  let account1: HardhatEthersSigner
+  let account2: HardhatEthersSigner
 
   let tbtcV1: TestERC20
   let tbtc: TBTC
@@ -63,7 +63,7 @@ describe("VendingMachine - Upgrade", () => {
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.
-    await tbtc.connect(deployer).transferOwnership(vendingMachine.address)
+    await tbtc.connect(deployer).transferOwnership(vendingMachine.target)
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -79,14 +79,14 @@ describe("VendingMachine - Upgrade", () => {
     await tbtcV1.connect(deployer).mint(account2.address, initialTbtcBalance)
     await tbtcV1
       .connect(account1)
-      .approveAndCall(vendingMachine.address, initialTbtcBalance, [])
+      .approveAndCall(vendingMachine.target, initialTbtcBalance, [])
     await tbtcV1
       .connect(account2)
-      .approveAndCall(vendingMachine.address, initialTbtcBalance, [])
+      .approveAndCall(vendingMachine.target, initialTbtcBalance, [])
 
     await vendingMachine
       .connect(keepTechnicalWalletTeam)
-      .initiateVendingMachineUpgrade(tbtcVault.address)
+      .initiateVendingMachineUpgrade(tbtcVault.target)
     await increaseTime(await vendingMachine.GOVERNANCE_DELAY())
     await vendingMachine
       .connect(keepCommunityMultiSig)
@@ -126,10 +126,10 @@ describe("VendingMachine - Upgrade", () => {
 
     describe("step#1 - TBTC v1 transfer", () => {
       it("should transfer all TBTC v1 to TBTCVault", async () => {
-        expect(await tbtcV1.balanceOf(vendingMachine.address)).to.equal(
+        expect(await tbtcV1.balanceOf(vendingMachine.target)).to.equal(
           to1e18(0)
         )
-        expect(await tbtcV1.balanceOf(tbtcVault.address)).to.equal(
+        expect(await tbtcV1.balanceOf(tbtcVault.target)).to.equal(
           totalTbtcV1Balance
         )
       })
@@ -139,8 +139,8 @@ describe("VendingMachine - Upgrade", () => {
       it("should let the governance withdraw TBTC v1 from TBTCVault", async () => {
         await tbtcVault
           .connect(governance)
-          .recoverERC20(tbtcV1.address, governance.address, totalTbtcV1Balance)
-        expect(await tbtcV1.balanceOf(tbtcVault.address)).to.equal(0)
+          .recoverERC20(tbtcV1.target, governance.address, totalTbtcV1Balance)
+        expect(await tbtcV1.balanceOf(tbtcVault.target)).to.equal(0)
         expect(await tbtcV1.balanceOf(governance.address)).to.equal(
           totalTbtcV1Balance
         )
@@ -153,19 +153,19 @@ describe("VendingMachine - Upgrade", () => {
           JSON.stringify(SingleP2SHDeposit)
         )
         const { fundingTx, depositor, reveal } = data.deposits[0] // it's a single deposit
-        reveal.vault = tbtcVault.address
+        reveal.vault = tbtcVault.target
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
-          mainUtxoHash: ethers.constants.HashZero,
+          ecdsaWalletID: ethers.ZeroHash,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
 
         const depositorSigner = await impersonateAccount(depositor, {
@@ -183,7 +183,7 @@ describe("VendingMachine - Upgrade", () => {
             data.sweepTx,
             data.sweepProof,
             data.mainUtxo,
-            tbtcVault.address
+            tbtcVault.target
           )
       })
 
@@ -196,7 +196,7 @@ describe("VendingMachine - Upgrade", () => {
         // final depositor balance should be cut by 10 satoshi.
         const totalWalletBtcBalance = 18490
 
-        expect(await bank.balanceOf(tbtcVault.address)).to.equal(
+        expect(await bank.balanceOf(tbtcVault.target)).to.equal(
           totalWalletBtcBalance
         )
 
@@ -218,10 +218,10 @@ describe("VendingMachine - Upgrade", () => {
         const unmintedAmount2 =
           unmintedBankBalance2 * constants.satoshiMultiplier
 
-        await tbtc.connect(account1).approve(tbtcVault.address, unmintedAmount1)
+        await tbtc.connect(account1).approve(tbtcVault.target, unmintedAmount1)
         await tbtcVault.connect(account1).unmint(unmintedAmount1)
 
-        await tbtc.connect(account2).approve(tbtcVault.address, unmintedAmount2)
+        await tbtc.connect(account2).approve(tbtcVault.target, unmintedAmount2)
         await tbtcVault.connect(account2).unmint(unmintedAmount2)
 
         expect(await bank.balanceOf(account1.address)).to.equal(
@@ -230,7 +230,7 @@ describe("VendingMachine - Upgrade", () => {
         expect(await bank.balanceOf(account2.address)).to.equal(
           unmintedBankBalance2
         )
-        expect(await bank.balanceOf(tbtcVault.address)).to.equal(
+        expect(await bank.balanceOf(tbtcVault.target)).to.equal(
           initialWalletBtcBalance - unmintedBankBalance1 - unmintedBankBalance2
         )
       })
@@ -250,21 +250,21 @@ describe("VendingMachine - Upgrade", () => {
 
         await bank
           .connect(account1)
-          .approveBalance(tbtcVault.address, mintedAmount1)
+          .approveBalance(tbtcVault.target, mintedAmount1)
         await tbtcVault.connect(account1).mint(mintedAmount1)
 
         await bank
           .connect(account2)
-          .approveBalance(tbtcVault.address, mintedAmount2)
+          .approveBalance(tbtcVault.target, mintedAmount2)
         await tbtcVault.connect(account2).mint(mintedAmount2)
 
         expect(await tbtc.balanceOf(account1.address)).to.equal(
-          initialTbtcBalance1.add(mintedAmount1)
+          initialTbtcBalance1 + mintedAmount1
         )
         expect(await tbtc.balanceOf(account2.address)).to.equal(
-          initialTbtcBalance2.add(mintedAmount2)
+          initialTbtcBalance2 + mintedAmount2
         )
-        expect(await bank.balanceOf(tbtcVault.address)).to.equal(
+        expect(await bank.balanceOf(tbtcVault.target)).to.equal(
           initialWalletBtcBalance + mintedBankBalance1 + mintedBankBalance2
         )
       })
@@ -297,7 +297,7 @@ describe("VendingMachine - Upgrade", () => {
     const totalTbtcV1Balance = to1e18(20)
 
     let depositData: DepositSweepTestData
-    let redeemer: SignerWithAddress
+    let redeemer: HardhatEthersSigner
 
     before(async () => {
       await createSnapshot()
@@ -324,10 +324,10 @@ describe("VendingMachine - Upgrade", () => {
 
     describe("step#1 - TBTC v1 transfer", () => {
       it("should transfer all TBTC v1 to TBTCVault", async () => {
-        expect(await tbtcV1.balanceOf(vendingMachine.address)).to.equal(
+        expect(await tbtcV1.balanceOf(vendingMachine.target)).to.equal(
           to1e18(0)
         )
-        expect(await tbtcV1.balanceOf(tbtcVault.address)).to.equal(
+        expect(await tbtcV1.balanceOf(tbtcVault.target)).to.equal(
           totalTbtcV1Balance
         )
       })
@@ -338,34 +338,34 @@ describe("VendingMachine - Upgrade", () => {
         await tbtcVault
           .connect(governance)
           .recoverERC20(
-            tbtcV1.address,
-            vendingMachine.address,
+            tbtcV1.target,
+            vendingMachine.target,
             totalTbtcV1Balance
           )
 
-        expect(await tbtcV1.balanceOf(vendingMachine.address)).to.equal(
+        expect(await tbtcV1.balanceOf(vendingMachine.target)).to.equal(
           totalTbtcV1Balance
         )
-        expect(await tbtcV1.balanceOf(tbtcVault.address)).to.equal(0)
+        expect(await tbtcV1.balanceOf(tbtcVault.target)).to.equal(0)
       })
     })
 
     describe("step #3 - BTC deposit", () => {
       before(async () => {
         const { fundingTx, reveal } = depositData.deposits[0] // it's a single deposit
-        reveal.vault = tbtcVault.address
+        reveal.vault = tbtcVault.target
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ecdsaWalletID: ethers.constants.HashZero,
-          mainUtxoHash: ethers.constants.HashZero,
+          ecdsaWalletID: ethers.ZeroHash,
+          mainUtxoHash: ethers.ZeroHash,
           pendingRedemptionsValue: 0,
           createdAt: await lastBlockTime(),
           movingFundsRequestedAt: 0,
           closingStartedAt: 0,
           pendingMovedFundsSweepRequestsCount: 0,
           state: walletState.Live,
-          movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
         })
 
         await bridge.connect(redeemer).revealDeposit(fundingTx, reveal)
@@ -381,7 +381,7 @@ describe("VendingMachine - Upgrade", () => {
             depositData.sweepTx,
             depositData.sweepProof,
             depositData.mainUtxo,
-            tbtcVault.address
+            tbtcVault.target
           )
       })
 
@@ -396,7 +396,7 @@ describe("VendingMachine - Upgrade", () => {
         totalWalletBtcBalance * constants.satoshiMultiplier
 
       it("should let to deposit BTC into v2 Bridge", async () => {
-        expect(await bank.balanceOf(tbtcVault.address)).to.equal(
+        expect(await bank.balanceOf(tbtcVault.target)).to.equal(
           totalWalletBtcBalance
         )
         expect(await tbtc.balanceOf(redeemer.address)).to.equal(totalTbtcMinted)
@@ -411,7 +411,7 @@ describe("VendingMachine - Upgrade", () => {
 
           await tbtc
             .connect(redeemer)
-            .approve(vendingMachine.address, totalTbtcMinted)
+            .approve(vendingMachine.target, totalTbtcMinted)
           await vendingMachine.connect(redeemer).unmint(totalTbtcMinted)
 
           expect(await tbtcV1.balanceOf(redeemer.address)).to.equal(

@@ -1,7 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -23,7 +23,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: TestERC20
-  let owner: SignerWithAddress
+  let owner: HardhatEthersSigner
 
   before(async () => {
     // Get signers
@@ -41,18 +41,18 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy MockNttManagerWithExecutor
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
       "MockNttManagerWithExecutor"
     )
     nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
-    await nttManagerWithExecutor.deployed()
+    await nttManagerWithExecutor.waitForDeployment()
 
     // Create underlying NTT manager
     underlyingNttManager = await TestERC20Factory.deploy()
-    await underlyingNttManager.deployed()
+    await underlyingNttManager.waitForDeployment()
 
     // Deploy main contract with proxy following StarkNet pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -63,15 +63,15 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
@@ -161,8 +161,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
   describe("Contract Information", () => {
     it("should return correct contract addresses", async () => {
-      expect(await depositor.tbtcVault()).to.equal(tbtcVault.address)
-      expect(await depositor.tbtcToken()).to.equal(tbtcToken.address)
+      expect(await depositor.tbtcVault()).to.equal(tbtcVault.target)
+      expect(await depositor.tbtcToken()).to.equal(tbtcToken.target)
     })
 
     it("should have proper chain support configuration", async () => {
@@ -192,7 +192,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
   describe("Complex Scenarios", () => {
     it("should handle complete deposit flow", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: owner.address,
         signedQuote: `0x${"a".repeat(64)}`, // 32 bytes - meets minimum requirement
         instructions: `0x${"b".repeat(32)}`, // 16 bytes
@@ -222,11 +222,11 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const storedValue = await depositor
         .connect(owner)
         .getStoredExecutorValue()
-      expect(storedValue).to.equal(ethers.utils.parseEther("0.01"))
+      expect(storedValue).to.equal(ethers.parseEther("0.01"))
 
       // Step 4: Test parameter refresh (new functionality)
       const newExecutorArgs = {
-        value: ethers.utils.parseEther("0.02"),
+        value: ethers.parseEther("0.02"),
         refundAddress: owner.address,
         signedQuote: `0x${"b".repeat(64)}`, // Different signed quote
         instructions: `0x${"c".repeat(32)}`,
@@ -247,12 +247,12 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const newStoredValue = await depositor
         .connect(owner)
         .getStoredExecutorValue()
-      expect(newStoredValue).to.equal(ethers.utils.parseEther("0.02"))
+      expect(newStoredValue).to.equal(ethers.parseEther("0.02"))
     })
 
     it("should handle NTT transfer execution", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: owner.address,
         signedQuote: `0x${"a".repeat(64)}`, // 32 bytes - meets minimum requirement
         instructions: `0x${"b".repeat(32)}`, // 16 bytes
@@ -300,7 +300,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
     it("should handle fee calculation", async () => {
       const executorArgs = {
-        value: ethers.utils.parseEther("0.01"),
+        value: ethers.parseEther("0.01"),
         refundAddress: owner.address,
         signedQuote: `0x${"a".repeat(64)}`, // Mock signed quote (32 bytes)
         instructions: `0x${"b".repeat(32)}`, // Mock instructions (16 bytes)
@@ -327,7 +327,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const storedValue = await depositor
         .connect(owner)
         .getStoredExecutorValue()
-      expect(storedValue).to.equal(ethers.utils.parseEther("0.01"))
+      expect(storedValue).to.equal(ethers.parseEther("0.01"))
     })
   })
 })
