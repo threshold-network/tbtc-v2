@@ -31,7 +31,7 @@ Use `deposit.detectFunding()` to monitor for Bitcoin transactions.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L64)
+[src/services/deposits/deposits-service.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L65)
 
 ___
 
@@ -43,7 +43,7 @@ Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base").
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L79)
+[src/services/deposits/deposits-service.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L80)
 
 ___
 
@@ -60,4 +60,4 @@ these class instances.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L74)
+[src/services/deposits/deposits-service.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L75)

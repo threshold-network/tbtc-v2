@@ -846,7 +846,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
 
     let status: StarkNetRelayerDepositStatus | undefined
     let statusVerified = false
-    let depositIdMismatch =
+    const depositIdMismatch =
       locallyDerivedDepositId !== undefined &&
       depositIdFromRelayer !== undefined &&
       depositIdFromRelayer !== locallyDerivedDepositId

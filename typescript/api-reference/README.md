@@ -48,11 +48,16 @@
 - [OptimisticMinting](classes/OptimisticMinting.md)
 - [RedemptionsService](classes/RedemptionsService.md)
 - [SolanaAddress](classes/SolanaAddress.md)
+- [SolanaDepositorInterface](classes/SolanaDepositorInterface.md)
 - [SolanaExtraDataEncoder](classes/SolanaExtraDataEncoder.md)
+- [SolanaRelayerDepositConflictError](classes/SolanaRelayerDepositConflictError.md)
+- [SolanaRelayerTimeoutError](classes/SolanaRelayerTimeoutError.md)
+- [SolanaTBTCToken](classes/SolanaTBTCToken.md)
 - [Spv](classes/Spv.md)
 - [StarkNetAddress](classes/StarkNetAddress.md)
 - [StarkNetBitcoinDepositor](classes/StarkNetBitcoinDepositor.md)
 - [StarkNetExtraDataEncoder](classes/StarkNetExtraDataEncoder.md)
+- [StarkNetRelayerAbortedError](classes/StarkNetRelayerAbortedError.md)
 - [StarkNetRelayerDepositConflictError](classes/StarkNetRelayerDepositConflictError.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
@@ -130,6 +135,7 @@
 - [OptimisticMintingRequest](README.md#optimisticmintingrequest)
 - [OptimisticMintingRequestedEvent](README.md#optimisticmintingrequestedevent)
 - [RedemptionRequestedEvent](README.md#redemptionrequestedevent)
+- [RelayerAbortedError](README.md#relayerabortederror)
 - [RetrierFn](README.md#retrierfn)
 - [StarkNetDepositorConfig](README.md#starknetdepositorconfig)
 - [StarkNetProvider](README.md#starknetprovider)
@@ -154,6 +160,7 @@
 - [ChainMappings](README.md#chainmappings)
 - [DEPOSIT\_REFUND\_LOCKTIME\_DURATION\_SECONDS](README.md#deposit_refund_locktime_duration_seconds)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [RelayerAbortedError](README.md#relayerabortederror-1)
 - [SUPPORTED\_GASLESS\_CHAINS](README.md#supported_gasless_chains)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
@@ -185,12 +192,14 @@
 - [loadStarkNetCrossChainContracts](README.md#loadstarknetcrosschaincontracts)
 - [loadStarkNetCrossChainInterfaces](README.md#loadstarknetcrosschaininterfaces)
 - [packRevealDepositParameters](README.md#packrevealdepositparameters)
+- [resolveProviderChainId](README.md#resolveproviderchainid)
 - [retryAll](README.md#retryall)
 - [skipRetryWhenMatched](README.md#skipretrywhenmatched)
 - [toBitcoinJsLibNetwork](README.md#tobitcoinjslibnetwork)
 - [validateBitcoinHeadersChain](README.md#validatebitcoinheaderschain)
 - [validateBitcoinSpvProof](README.md#validatebitcoinspvproof)
 - [validateDepositReceipt](README.md#validatedepositreceipt)
+- [validateProviderChain](README.md#validateproviderchain)
 
 ## Type Aliases
 
@@ -467,7 +476,7 @@ Destination chain name accepted by `initiateGaslessDeposit` and
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L46)
+[src/services/deposits/deposits-service.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L47)
 
 ___
 
@@ -642,6 +651,18 @@ Represents an event emitted on redemption request.
 
 ___
 
+### RelayerAbortedError
+
+Ƭ **RelayerAbortedError**: [`StarkNetRelayerAbortedError`](classes/StarkNetRelayerAbortedError.md)
+
+#### Defined in
+
+[src/lib/starknet/starknet-depositor.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L176)
+
+[src/lib/starknet/starknet-depositor.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L177)
+
+___
+
 ### RetrierFn
 
 Ƭ **RetrierFn**\<`T`\>: (`fn`: () => `Promise`\<`T`\>) => `Promise`\<`T`\>
@@ -682,7 +703,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:184](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L184)
+[src/lib/starknet/starknet-depositor.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L199)
 
 ___
 
@@ -991,7 +1012,7 @@ This is 180 days (6 months assuming 1 month = 30 days).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:185](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L185)
+[src/services/deposits/deposits-service.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L186)
 
 ___
 
@@ -1006,6 +1027,22 @@ Use EthereumExtraDataEncoder instead
 #### Defined in
 
 [src/lib/ethereum/l1-bitcoin-depositor.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L215)
+
+___
+
+### RelayerAbortedError
+
+• `Const` **RelayerAbortedError**: typeof [`StarkNetRelayerAbortedError`](classes/StarkNetRelayerAbortedError.md) = `StarkNetRelayerAbortedError`
+
+**`Deprecated`**
+
+Use StarkNetRelayerAbortedError instead
+
+#### Defined in
+
+[src/lib/starknet/starknet-depositor.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L176)
+
+[src/lib/starknet/starknet-depositor.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L177)
 
 ___
 
@@ -1029,7 +1066,7 @@ not a forced EthereumAddress parse).
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L40)
+[src/services/deposits/deposits-service.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L41)
 
 ___
 
@@ -1071,7 +1108,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:1093](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1093)
+[src/lib/starknet/starknet-depositor.ts:1127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L1127)
 
 ___
 
@@ -1667,7 +1704,7 @@ If the connection's genesis hash does not match the expected `genesisHash`.
 
 #### Defined in
 
-[src/lib/solana/index.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L20)
+[src/lib/solana/index.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L22)
 
 ___
 
@@ -1694,7 +1731,7 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/starknet/index.ts:118](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L118)
+[src/lib/starknet/index.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L127)
 
 ___
 
@@ -1726,7 +1763,7 @@ Error if the chain ID is unrecognized and no URL overrides are provided.
 
 #### Defined in
 
-[src/lib/starknet/index.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L48)
+[src/lib/starknet/index.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L57)
 
 ___
 
@@ -1771,6 +1808,34 @@ Packed parameters.
 #### Defined in
 
 [src/lib/ethereum/bridge.ts:723](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L723)
+
+___
+
+### resolveProviderChainId
+
+▸ **resolveProviderChainId**(`provider`): `Promise`\<`string`\>
+
+Resolves the chain ID a StarkNet provider is currently connected to.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `provider` | [`StarkNetProvider`](README.md#starknetprovider) | The StarkNet provider (`Provider` or `Account`). |
+
+#### Returns
+
+`Promise`\<`string`\>
+
+The provider's normalized chain ID.
+
+**`Throws`**
+
+Error if the provider does not expose `getChainId`.
+
+#### Defined in
+
+[src/lib/starknet/index.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L156)
 
 ___
 
@@ -1959,3 +2024,34 @@ This function does not validate the depositor's identifier as its
 #### Defined in
 
 [src/lib/contracts/bridge.ts:247](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L247)
+
+___
+
+### validateProviderChain
+
+▸ **validateProviderChain**(`provider`, `expectedChainId`): `Promise`\<`void`\>
+
+Validates that the connected StarkNet provider's own chain ID matches the
+expected chain ID for this depositor, so a caller cannot silently connect
+a wallet on the wrong network.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `provider` | [`StarkNetProvider`](README.md#starknetprovider) | The StarkNet provider to validate. |
+| `expectedChainId` | `string` | The chain ID the provider is expected to be on. |
+
+#### Returns
+
+`Promise`\<`void`\>
+
+Resolves when the provider's chain ID matches; never resolves a value.
+
+**`Throws`**
+
+Error if the provider's chain ID does not match.
+
+#### Defined in
+
+[src/lib/starknet/index.ts:138](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L138)
