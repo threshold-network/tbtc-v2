@@ -15,7 +15,8 @@ import {
   BitcoinTxHash,
 } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
-import { Deposit } from "./deposit"
+import { Deposit, DepositScript } from "./deposit"
+import { Transaction } from "bitcoinjs-lib"
 import * as crypto from "crypto"
 import { CrossChainDepositor } from "./cross-chain"
 import { EthereumAddress } from "../../lib/ethereum/address"
@@ -234,7 +235,9 @@ export class DepositsService {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
     this.#crossChainContracts = crossChainContracts ?? (() => undefined)
-    this.#nativeBTCDepositor = nativeBTCDepositor
+    if (nativeBTCDepositor) {
+      this.setNativeBTCDepositor(nativeBTCDepositor)
+    }
   }
 
   /**
@@ -585,6 +588,35 @@ export class DepositsService {
       )
     }
 
+    if (destinationChainName === "L1") {
+      if (
+        this.#nativeBTCDepositor &&
+        receipt.depositor.identifierHex.toLowerCase() !==
+          this.#nativeBTCDepositor.identifierHex.toLowerCase()
+      ) {
+        throw new Error(
+          `receipt.depositor ${
+            receipt.depositor.identifierHex
+          } does not match the configured NativeBTCDepositor ${
+            this.#nativeBTCDepositor.identifierHex
+          } for L1 gasless deposits`
+        )
+      }
+    } else {
+      const expectedDepositor = this.#crossChainContracts(
+        destinationChainName as DestinationChainName
+      )?.l1BitcoinDepositor.getChainIdentifier()
+
+      if (
+        expectedDepositor &&
+        receipt.depositor.identifierHex.toLowerCase() !==
+          expectedDepositor.identifierHex.toLowerCase()
+      ) {
+        throw new Error(
+          `receipt.depositor ${receipt.depositor.identifierHex} does not match the expected L1BitcoinDepositor ${expectedDepositor.identifierHex} for ${destinationChainName} gasless deposits`
+        )
+      }
+    }
     if (!Number.isInteger(fundingOutputIndex) || fundingOutputIndex < 0) {
       throw new Error(
         `Invalid fundingOutputIndex: ${fundingOutputIndex}. Must be a non-negative integer.`
@@ -600,6 +632,37 @@ export class DepositsService {
 
     const fundingTx = await this.bitcoinClient.getRawTransaction(fundingTxHash)
     const fundingTxVectors = extractBitcoinRawTxVectors(fundingTx)
+
+    const parsedTx = Transaction.fromHex(fundingTx.transactionHex)
+    const fundingOutput = parsedTx.outs[fundingOutputIndex]
+    if (!fundingOutput) {
+      throw new Error(
+        `Funding transaction output index ${fundingOutputIndex} out of bounds (transaction has ${parsedTx.outs.length} outputs)`
+      )
+    }
+
+    const depositScript = DepositScript.fromReceipt(receipt)
+    const bitcoinNetwork = await this.bitcoinClient.getNetwork()
+    const depositAddress = await depositScript.deriveAddress(bitcoinNetwork)
+    const expectedScript = BitcoinAddressConverter.addressToOutputScript(
+      depositAddress,
+      bitcoinNetwork
+    )
+
+    if (!fundingOutput.script.equals(expectedScript.toBuffer())) {
+      const legacyScript = DepositScript.fromReceipt(receipt, false)
+      const legacyAddress = await legacyScript.deriveAddress(bitcoinNetwork)
+      const legacyExpectedScript =
+        BitcoinAddressConverter.addressToOutputScript(
+          legacyAddress,
+          bitcoinNetwork
+        )
+      if (!fundingOutput.script.equals(legacyExpectedScript.toBuffer())) {
+        throw new Error(
+          `Funding transaction output at index ${fundingOutputIndex} does not pay the expected deposit script`
+        )
+      }
+    }
 
     const vaultChainIdentifier =
       this.tbtcContracts.tbtcVault.getChainIdentifier()

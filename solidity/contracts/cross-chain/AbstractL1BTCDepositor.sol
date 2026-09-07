@@ -151,6 +151,13 @@ abstract contract AbstractL1BTCDepositor is
         uint256 availableBalance
     );
 
+    /// @notice Emitted when a deferred initialization reimbursement call fails.
+    event DeferredReimbursementFailed(
+        uint256 indexed depositKey,
+        address receiver,
+        uint256 amount
+    );
+
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
     modifier onlyReimbursableAdmin() override {
@@ -499,7 +506,9 @@ abstract contract AbstractL1BTCDepositor is
                 // compromised-but-authorized receiver can consume.
                 /* solhint-disable avoid-low-level-calls */
                 // slither-disable-next-line unchecked-lowlevel,low-level-calls
-                address(reimbursementPool).call{gas: 2_000_000}(
+                (bool success, ) = address(reimbursementPool).call{
+                    gas: 2_000_000
+                }(
                     abi.encodeWithSelector(
                         reimbursementPool.refund.selector,
                         reimbursement.gasSpent,
@@ -507,6 +516,15 @@ abstract contract AbstractL1BTCDepositor is
                     )
                 );
                 /* solhint-enable avoid-low-level-calls */
+
+                if (!success) {
+                    gasReimbursements[depositKey] = reimbursement;
+                    emit DeferredReimbursementFailed(
+                        depositKey,
+                        reimbursement.receiver,
+                        reimbursement.gasSpent
+                    );
+                }
             }
         }
     }

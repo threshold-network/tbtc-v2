@@ -144,8 +144,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Mapping of supported destination chains by Wormhole chain ID
     mapping(uint16 => bool) public supportedChains;
 
-    /// @notice Default supported chain ID for backward compatibility
-    // Default supported chain removed: governance surface deprecated.
+    // Reserved to preserve storage layout for the live mainnet proxy at 0xf79b82b345573F7087375ed758eDAa33acCDeCED; do not reuse or remove this slot.
+    uint16 private __deprecated_defaultSupportedChain;
 
     /// @notice Default gas limit for destination chain execution
     /// @dev Used when no specific gas limit is provided in relay instructions

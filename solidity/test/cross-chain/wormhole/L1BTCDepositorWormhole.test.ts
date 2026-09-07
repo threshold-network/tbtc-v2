@@ -555,9 +555,7 @@ describe("L1BTCDepositorWormhole", () => {
                 .whenCalledWith(
                   initializeDepositFixture.fundingTx,
                   initializeDepositFixture.reveal,
-                  toWormholeAddress(
-                    initializeDepositFixture.destinationChainDepositOwner
-                  )
+                  initializeDepositFixture.destinationChainDepositOwner
                 )
                 .returns()
 
@@ -646,9 +644,7 @@ describe("L1BTCDepositorWormhole", () => {
                   .whenCalledWith(
                     initializeDepositFixture.fundingTx,
                     initializeDepositFixture.reveal,
-                    toWormholeAddress(
-                      initializeDepositFixture.destinationChainDepositOwner
-                    )
+                    initializeDepositFixture.destinationChainDepositOwner
                   )
                   .returns()
 

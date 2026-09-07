@@ -25,16 +25,21 @@ describe("Check mainnet deposit parameters", () => {
       )
     )
   })
+  it("accepts a reveal-ahead period below the required maximum", async () => {
+    await checkMainnetDepositParameters(
+      bridgeWithDepositRevealAheadPeriod(10000000)
+    )
+  })
 
-  it("blocks publication while mainnet still has the old value", async () => {
+  it("blocks publication when mainnet reveal-ahead period exceeds the required maximum", async () => {
     await expect(
       checkMainnetDepositParameters(
         bridgeWithDepositRevealAheadPeriod(21945600)
       )
     ).to.be.rejectedWith(
       "Refusing to publish the 180-day SDK locktime: mainnet Bridge " +
-        "deposit reveal-ahead period is 21945600 seconds; expected " +
-        "12960000 seconds to be finalized"
+        "deposit reveal-ahead period is 21945600 seconds; exceeds required maximum of " +
+        "12960000 seconds"
     )
   })
 
@@ -57,6 +62,18 @@ describe("Check mainnet deposit parameters", () => {
       REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD.add(thirtyDaysInSeconds)
     expect(expectedLocktime.toString()).to.equal(
       DEPOSIT_REFUND_LOCKTIME_DURATION_SECONDS.toString()
+    )
+  })
+
+  it("matches the 150-day deposit reveal ahead period constant in solidity/deploy/14_set_deposit_parameters.ts", () => {
+    // Both solidity/deploy/14_set_deposit_parameters.ts (DEPOSIT_REVEAL_AHEAD_PERIOD)
+    // and typescript/scripts/check-mainnet-deposit-parameters.ts (REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD)
+    // define the 150-day deposit reveal-ahead period (150 * 24 * 60 * 60 = 12960000 seconds).
+    // Because solidity and typescript are separate packages without direct cross-package imports,
+    // these constants must be kept in sync manually.
+    const expectedSolidityDepositRevealAheadPeriod = 12960000
+    expect(REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD.toNumber()).to.equal(
+      expectedSolidityDepositRevealAheadPeriod
     )
   })
 })
