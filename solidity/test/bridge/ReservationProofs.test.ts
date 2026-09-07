@@ -242,6 +242,33 @@ describe("ReservationProofs", () => {
       ).to.be.revertedWith("Action type mismatch")
     })
 
+    it("should reject a redemption proof through the real entry point when the generation already timed out", async () => {
+      // Regression test for the late-redemption double-claim: reaches the
+      // dispatcher exactly as a wallet would, proving the guard added to
+      // `loadSettleableAction` is wired through `submitReservationProof`
+      // and fires before any Bitcoin SPV proof is even inspected.
+      await testReservationProofs.setReservationAction(
+        sampleReservationKey,
+        1,
+        buildReservationAction({
+          actionType: 2, // Redemption
+          state: 3, // TimedOut
+          redeemer: redeemer.address,
+        })
+      )
+
+      await expect(
+        testReservationProofs.submitReservationProof(
+          1, // ProofType.Redemption
+          dummyTxInfo,
+          dummyProof,
+          dummyUtxo,
+          sampleReservationKey,
+          1
+        )
+      ).to.be.revertedWith("Redemption action already timed out and refunded")
+    })
+
     it("should revert if proof type is not supported (Dissolution)", async () => {
       // ProofType.Dissolution = 3 remains unsupported in milestone 1.
       await expect(
@@ -410,6 +437,31 @@ describe("ReservationProofs", () => {
       )
       expect(action.state).to.equal(3) // TimedOut
       expect(late).to.be.true
+    })
+
+    it("should revert if a Redemption action is TimedOut (late settlement is disallowed)", async () => {
+      // `notifyReservationRedemptionTimedOut` already refunds the full
+      // escrowed claim back to the redeemer on an ordinary timeout, so a
+      // TimedOut redemption can never be settled late: doing so would let
+      // the redeemer keep the refund and the wallet's delivered BTC both,
+      // burning nothing.
+      await testReservationProofs.setReservationAction(
+        sampleReservationKey,
+        requestNonce,
+        buildReservationAction({
+          actionType: 2, // Redemption
+          state: 3, // TimedOut
+          redeemer: redeemer.address,
+        })
+      )
+
+      await expect(
+        testReservationProofs.loadSettleableAction(
+          sampleReservationKey,
+          requestNonce,
+          2 // Redemption
+        )
+      ).to.be.revertedWith("Redemption action already timed out and refunded")
     })
   })
   describe("4. Pending-reserved and existence guards", () => {
@@ -1137,6 +1189,70 @@ describe("ReservationProofs", () => {
           reanchorTargetWallet
         )
       ).to.equal(0)
+    })
+
+    it("should unwind pending redemption action and refund its escrow to the redeemer", async () => {
+      // Regression test: `unwindPendingAction` previously had no branch for
+      // ActionType.Redemption, so a superseded pending redemption's
+      // escrowed claim was silently stranded as unbacked Bank balance on
+      // this contract forever instead of being refunded to its redeemer.
+      const redemptionNonce = 1
+
+      await testReservationProofs.setReservationAction(
+        sampleReservationKey,
+        redemptionNonce,
+        buildReservationAction({
+          actionType: 2, // Redemption
+          state: 1, // Pending
+          amount: depositAmount,
+          redeemer: redeemer.address,
+        })
+      )
+
+      await testReservationProofs.setReservation(
+        sampleReservationKey,
+        buildReservationRequest({
+          owner: depositor.address,
+          mintedAmount: depositAmount,
+          acceptedAt: 1000,
+          walletPubKeyHash,
+          anchorAmount: depositAmount,
+          expiresAt: 1000 + termSeconds,
+          anchorTxHash: sampleAnchorTxHash,
+          anchorTxOutputIndex: 0,
+          state: 2, // ActionPending
+          requestNonce: redemptionNonce,
+          retryCredit: false,
+          dissolutionEligibleAt: 1000 + termSeconds + dissolutionDelay,
+          cumulativeReanchorFee: 0,
+        })
+      )
+
+      // Seed the escrow this contract (acting as the Bridge) is holding
+      // for the redemption since its request, matching what
+      // `requestReservedRedemption` would have collected.
+      await testReservationProofs.fundBankBalance(
+        testReservationProofs.address,
+        depositAmount
+      )
+
+      const tx = await testReservationProofs.unwindPendingAction(
+        sampleReservationKey,
+        false
+      )
+
+      expect(await bank.balanceOf(redeemer.address)).to.equal(depositAmount)
+      expect(await bank.balanceOf(testReservationProofs.address)).to.equal(0)
+
+      const action = await testReservationProofs.getReservationAction(
+        sampleReservationKey,
+        redemptionNonce
+      )
+      expect(action.state).to.equal(5) // Superseded
+
+      await expect(tx)
+        .to.emit(testReservationProofs, "ReservationActionSuperseded")
+        .withArgs(sampleReservationKey, redemptionNonce)
     })
   })
 
