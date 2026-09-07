@@ -1468,7 +1468,7 @@ Ethereum address or undefined for read-only signers.
 **`Throws`**
 
 Throws an error if the address of the signer is not a proper
-        Ethereum address.
+        Ethereum address or account discovery fails.
 
 #### Defined in
 

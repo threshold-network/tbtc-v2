@@ -212,7 +212,7 @@ EvmContractHandle.\_getEvents
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:528](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L528)
+[src/lib/ethereum/adapter.ts:529](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L529)
 
 ___
 
@@ -264,7 +264,7 @@ ___
 Sends a contract write transaction with retries. The transaction is
 simulated first (`eth_call`) so that reverts surface with a parseable
 reason before anything is sent - mirroring the ethers v5 gas-estimation
-pre-flight.
+pre-flight. A retry count of zero submits at most once.
 
 #### Parameters
 
@@ -272,9 +272,10 @@ pre-flight.
 | :------ | :------ | :------ |
 | `functionName` | `string` | Name of the contract function. |
 | `args` | readonly `unknown`[] | Positional arguments of the function. |
-| `opts?` | `Object` | Optional value to send, non-retryable error matchers and logger. |
+| `opts?` | `Object` | Optional value to send, retry count, non-retryable error matchers and logger. |
 | `opts.logger?` | [`ExecutionLoggerFn`](../README.md#executionloggerfn) | - |
 | `opts.nonRetryableErrors?` | (`string` \| `RegExp`)[] | - |
+| `opts.retries?` | `number` | - |
 | `opts.value?` | `bigint` | - |
 
 #### Returns

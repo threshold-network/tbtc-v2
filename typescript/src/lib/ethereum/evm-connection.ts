@@ -267,7 +267,7 @@ export async function chainIdFromSigner(
  * @param signer The signer whose address should be resolved.
  * @returns Ethereum address or undefined for read-only signers.
  * @throws Throws an error if the address of the signer is not a proper
- *         Ethereum address.
+ *         Ethereum address or account discovery fails.
  */
 export async function ethereumAddressFromSigner(
   signer: EthereumSigner
@@ -306,9 +306,17 @@ export async function ethereumAddressFromSigner(
       accounts = await (signer as Eip1193Provider).request({
         method: "eth_accounts",
       })
-    } catch {
-      // Providers without account support stay read-only.
-      return undefined
+    } catch (error: unknown) {
+      // Only explicit access denial or unsupported methods imply read-only
+      // mode. Transport failures must reach connection initialization retries.
+      const code = (error as { code?: unknown } | null)?.code
+      if (
+        typeof code === "number" &&
+        [4001, 4100, 4200, -32601, -32004].includes(code)
+      ) {
+        return undefined
+      }
+      throw error
     }
     return Array.isArray(accounts) && accounts.length > 0
       ? EthereumAddress.from(accounts[0])

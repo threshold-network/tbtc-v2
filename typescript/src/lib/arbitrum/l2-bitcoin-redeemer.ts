@@ -92,10 +92,12 @@ export class ArbitrumL2BitcoinRedeemer
       functionName: "messageFee",
     } as never)) as bigint | number
 
+    // A lost submission response must not trigger another redemption.
+    // The Wormhole nonce does not identify an Ethereum transaction.
     return this._write(
       "requestRedemption",
       [amount, this.recipientChain, prefixedRawRedeemerOutputScript, nonce],
-      { value: BigInt(messageFee) }
+      { value: BigInt(messageFee), retries: 0 }
     )
   }
 }

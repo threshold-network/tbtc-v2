@@ -457,11 +457,11 @@ export class EvmContractHandle {
    * Sends a contract write transaction with retries. The transaction is
    * simulated first (`eth_call`) so that reverts surface with a parseable
    * reason before anything is sent - mirroring the ethers v5 gas-estimation
-   * pre-flight.
+   * pre-flight. A retry count of zero submits at most once.
    * @param functionName Name of the contract function.
    * @param args Positional arguments of the function.
-   * @param opts Optional value to send, non-retryable error matchers and
-   *        logger.
+   * @param opts Optional value to send, retry count, non-retryable error
+   *        matchers and logger.
    * @returns Transaction hash.
    * @throws "Signer not provided" when the handle operates in read-only
    *         mode; {@link EvmRevertError} on contract revert.
@@ -471,12 +471,13 @@ export class EvmContractHandle {
     args: readonly unknown[],
     opts?: {
       value?: bigint
+      retries?: number
       nonRetryableErrors?: Array<string | RegExp>
       logger?: ExecutionLoggerFn
     }
   ): Promise<Hex> {
     return backoffRetrier<Hex>(
-      this._totalRetryAttempts,
+      opts?.retries ?? this._totalRetryAttempts,
       1000,
       opts?.logger,
       skipRetryWhenMatched([

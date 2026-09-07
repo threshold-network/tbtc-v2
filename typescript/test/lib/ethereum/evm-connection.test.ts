@@ -196,23 +196,53 @@ describe("EVM connection", () => {
       expect(connection.chainId).to.equal("1")
     })
 
-    it("should stay read-only when the eth_accounts probe is unsupported", async () => {
-      const mock = new MockEvm()
-      const provider = {
-        request: async (args: { method: string; params?: unknown[] }) => {
-          if (args.method === "eth_accounts") {
-            throw new Error("the method eth_accounts does not exist")
-          }
-          return mock.request(args as { method: string; params?: any[] })
-        },
-      }
+    for (const code of [4001, 4100, 4200, -32601, -32004]) {
+      it(`should stay read-only when account access is denied or unsupported (${code})`, async () => {
+        const mock = new MockEvm()
+        const provider = {
+          request: async (args: { method: string; params?: unknown[] }) => {
+            if (args.method === "eth_accounts") {
+              throw Object.assign(new Error("Account access unavailable"), {
+                code,
+              })
+            }
+            return mock.request(args as { method: string; params?: any[] })
+          },
+        }
 
-      const connection = await connectEvm(provider)
+        const connection = await connectEvm(provider)
 
-      expect(connection.wallet).to.be.undefined
-      expect(connection.account).to.be.undefined
-      expect(connection.chainId).to.equal("1")
-    })
+        expect(connection.wallet).to.be.undefined
+        expect(connection.account).to.be.undefined
+        expect(connection.chainId).to.equal("1")
+        expect(mock.requests.some((r) => r.method === "eth_requestAccounts")).to
+          .be.false
+      })
+    }
+
+    for (const code of [undefined, 4900, 4901, -32603, -32002, -32005]) {
+      it(`should propagate account-probe transport failures (${
+        code ?? "no code"
+      })`, async () => {
+        const mock = new MockEvm()
+        const failure = Object.assign(new Error("Account probe failed"), {
+          code,
+        })
+        const provider = {
+          request: async (args: { method: string; params?: unknown[] }) => {
+            if (args.method === "eth_accounts") throw failure
+            return mock.request(args as { method: string; params?: any[] })
+          },
+        }
+
+        const error = await connectEvm(provider).catch(
+          (error: unknown) => error
+        )
+
+        expect(error).to.equal(failure)
+        expect(mock.requests).to.be.empty
+      })
+    }
 
     it("should enable writes when the same provider is authorized later", async () => {
       const mock = new MockEvm()

@@ -294,6 +294,51 @@ describe("EVM adapter", () => {
       expect(mock.sentTransactions).to.be.empty
     })
 
+    it("should retry a transient account probe and send with the recovered account", async () => {
+      const request = stub(mock, "request").callThrough()
+      const accounts = request.withArgs({ method: "eth_accounts" })
+      accounts.onFirstCall().rejects(new Error("Account probe timed out"))
+      handle = new TestContractHandle(
+        { signerOrProvider: mock.asSigner() },
+        testDeployment
+      )
+      const blindingFactor = `0x${"ab".repeat(32)}` as const
+      mock.stubRead(testAddress, testAbi, "revealDeposit", [blindingFactor])
+
+      const hash = await handle.write("revealDeposit", [blindingFactor])
+
+      expect(hash.toPrefixedString()).to.match(/^0x[0-9a-f]{64}$/)
+      expect(accounts.callCount).to.equal(2)
+      expect(request.withArgs({ method: "eth_chainId" }).callCount).to.equal(1)
+      expect(mock.sentTransactions).to.have.lengthOf(1)
+    })
+
+    it("should allow the same handle to recover after an account probe exhausts retries", async () => {
+      const request = stub(mock, "request").callThrough()
+      const accounts = request.withArgs({ method: "eth_accounts" })
+      const failure = new Error("Account probe timed out")
+      accounts.onFirstCall().rejects(failure)
+      handle = new TestContractHandle(
+        { signerOrProvider: mock.asSigner() },
+        testDeployment,
+        0
+      )
+      const blindingFactor = `0x${"ab".repeat(32)}` as const
+      mock.stubRead(testAddress, testAbi, "revealDeposit", [blindingFactor])
+
+      const error = await handle
+        .write("revealDeposit", [blindingFactor])
+        .catch((error: unknown) => error)
+      expect(error).to.equal(failure)
+      expect(mock.sentTransactions).to.be.empty
+
+      const hash = await handle.write("revealDeposit", [blindingFactor])
+
+      expect(hash.toPrefixedString()).to.match(/^0x[0-9a-f]{64}$/)
+      expect(accounts.callCount).to.equal(2)
+      expect(mock.sentTransactions).to.have.lengthOf(1)
+    })
+
     it("should honor non-retryable errors during connection initialization", async () => {
       const chainId = stub(mock, "request")
         .callThrough()
