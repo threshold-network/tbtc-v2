@@ -4,6 +4,7 @@ import { context } from "./context"
 
 import type { SupplyMonitorPersistence } from "./supply-monitor"
 import type {
+  BlockRange,
   Persistence as SystemEventPersistence,
   ReceiverId as SystemEventReceiverId,
   SystemEvent,
@@ -15,6 +16,8 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
   private readonly checkpointBlockPath = "/checkpointBlock"
 
   private readonly handledSystemEventsPath = "/handledSystemEvents"
+
+  private readonly pendingBlockRangePath = "/pendingBlockRange"
 
   private db: JsonDB
 
@@ -34,6 +37,19 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
 
   async updateCheckpointBlock(block: number): Promise<void> {
     await this.db.push(this.checkpointBlockPath, block)
+  }
+
+  async pendingBlockRange(): Promise<BlockRange | null> {
+    // Existing data directories have no pending range until their first run.
+    if (!(await this.db.exists(this.pendingBlockRangePath))) {
+      return null
+    }
+
+    return this.db.getObject<BlockRange | null>(this.pendingBlockRangePath)
+  }
+
+  async updatePendingBlockRange(range: BlockRange | null): Promise<void> {
+    await this.db.push(this.pendingBlockRangePath, range)
   }
 
   async handledSystemEvents(): Promise<

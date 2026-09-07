@@ -69,14 +69,32 @@ export class RedemptionLifecycleMonitor implements Monitor {
       timestamps.set(block, pending)
       return pending
     }
-    const [fromTime, toTime, previousTimeout, timeout] = await Promise.all([
-      timestamp(fromBlock),
-      timestamp(toBlock),
-      this.chain.timeout(fromBlock),
-      this.chain.timeout(toBlock),
-    ])
-    if (timeout <= 0 || previousTimeout <= 0)
+    const timeout = await this.chain.timeout(toBlock)
+    // A backfill or reorg allowance can precede deployment entirely.
+    if (timeout === undefined) return []
+    if (timeout <= 0) throw new Error("invalid Bridge redemption timeout")
+    let initializedFromBlock = fromBlock
+    let previousTimeout = await this.chain.timeout(fromBlock)
+    if (previousTimeout === undefined) {
+      // Find the first deployed state inside the window, so the old timeout is
+      // historical even if governance changed it before the end of a backfill.
+      let low = fromBlock + 1
+      let high = toBlock
+      while (low < high) {
+        const mid = Math.floor((low + high) / 2)
+        // eslint-disable-next-line no-await-in-loop
+        if ((await this.chain.timeout(mid)) === undefined) low = mid + 1
+        else high = mid
+      }
+      initializedFromBlock = low
+      previousTimeout = await this.chain.timeout(initializedFromBlock)
+    }
+    if (previousTimeout === undefined || previousTimeout <= 0)
       throw new Error("invalid Bridge redemption timeout")
+    const [fromTime, toTime] = await Promise.all([
+      timestamp(initializedFromBlock),
+      timestamp(toBlock),
+    ])
 
     // Query requests whose warning or expiry can cross this checkpoint window.
     // Include the old timeout so reductions through governance cannot hide a

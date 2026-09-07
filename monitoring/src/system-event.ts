@@ -104,10 +104,19 @@ class Deduplicator implements Receiver {
   }
 }
 
+export interface BlockRange {
+  fromBlock: number
+  toBlock: number
+}
+
 export interface Persistence {
   checkpointBlock: () => Promise<number>
 
   updateCheckpointBlock: (block: number) => Promise<void>
+
+  pendingBlockRange: () => Promise<BlockRange | null>
+
+  updatePendingBlockRange: (range: BlockRange | null) => Promise<void>
 
   handledSystemEvents: () => Promise<Record<ReceiverId, SystemEvent[]>>
 
@@ -149,20 +158,31 @@ export class Manager {
 
   async trigger(): Promise<ManagerReport> {
     try {
-      const checkpointBlock = await this.persistence.checkpointBlock()
-      const latestBlock = await blocks.latestBlock()
+      let range = await this.persistence.pendingBlockRange()
+      if (!range) {
+        const checkpointBlock = await this.persistence.checkpointBlock()
+        const latestBlock = await blocks.latestBlock()
 
-      const validCheckpoint =
-        checkpointBlock > 0 && checkpointBlock < latestBlock
+        const validCheckpoint =
+          checkpointBlock > 0 && checkpointBlock < latestBlock
 
-      let fromBlock = validCheckpoint ? checkpointBlock : latestBlock
+        let fromBlock = validCheckpoint ? checkpointBlock : latestBlock
 
-      // Adjust the fromBlock using the reorgDepthBlocks factor to cover
-      // potential chain reorgs.
-      fromBlock =
-        fromBlock - reorgDepthBlocks > 0 ? fromBlock - reorgDepthBlocks : 0
+        // Adjust the fromBlock using the reorgDepthBlocks factor to cover
+        // potential chain reorgs.
+        fromBlock =
+          fromBlock - reorgDepthBlocks > 0 ? fromBlock - reorgDepthBlocks : 0
 
-      const toBlock = Math.min(latestBlock, fromBlock + maxBlockRange)
+        range = {
+          fromBlock,
+          toBlock: Math.min(latestBlock, fromBlock + maxBlockRange),
+        }
+      }
+      // Persist before checking or dispatching: a later end block could
+      // erase a failed state-derived notification, even after a restart.
+      // Persist retries too, in case a failed save left only an in-memory range.
+      await this.persistence.updatePendingBlockRange(range)
+      const { fromBlock, toBlock } = range
 
       const { systemEventsAcks, errors } = await this.check(fromBlock, toBlock)
 
@@ -196,6 +216,16 @@ export class Manager {
           await this.persistence.updateCheckpointBlock(toBlock)
         } catch (error) {
           errors.push(`cannot update checkpoint block: ${error}`)
+        }
+      }
+
+      if (errors.length === 0) {
+        try {
+          // Clear only after acknowledgments and the checkpoint are durable.
+          // A failure here safely replays the same range with deduplication.
+          await this.persistence.updatePendingBlockRange(null)
+        } catch (error) {
+          errors.push(`cannot clear pending block range: ${error}`)
         }
       }
 

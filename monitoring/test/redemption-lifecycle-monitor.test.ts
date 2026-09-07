@@ -1,10 +1,15 @@
 import assert from "assert"
+import { promises as fs } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 
 import { BitcoinTxHash } from "@keep-network/tbtc-v2.ts"
 
 import { RedemptionLifecycleMonitor } from "../src/redemption-lifecycle-monitor"
 import { Manager, SystemEventType } from "../src/system-event"
 import { blocks } from "../src/blocks"
+import { SystemEventFilePersistence } from "../src/file-persistence"
+import { context } from "../src/context"
 
 import { redemptionRequest } from "./redemption-fixtures"
 import { test } from "./test-runner"
@@ -15,7 +20,12 @@ import type {
   RedemptionsCompletedEvent,
   RedemptionTimedOutEvent,
 } from "../src/redemption-chain"
-import type { Persistence, Receiver, SystemEvent } from "../src/system-event"
+import type {
+  BlockRange,
+  Persistence,
+  Receiver,
+  SystemEvent,
+} from "../src/system-event"
 
 class Chain implements RedemptionLifecycleSource {
   requests = [redemptionRequest()]
@@ -31,8 +41,9 @@ class Chain implements RedemptionLifecycleSource {
   // eslint-disable-next-line class-methods-use-this
   timeoutAt: (block: number) => number = () => 1000
 
-  pendingAt = (request: RedemptionRequestedEvent) =>
-    this.timestampAt(request.blockNumber)
+  pendingAt: (request: RedemptionRequestedEvent, block: number) => number = (
+    request
+  ) => this.timestampAt(request.blockNumber)
 
   stateReads: number[] = []
 
@@ -70,7 +81,7 @@ class Chain implements RedemptionLifecycleSource {
 
   async pendingRequestedAt(request: RedemptionRequestedEvent, block: number) {
     this.stateReads.push(block)
-    return this.pendingAt(request)
+    return this.pendingAt(request, block)
   }
 }
 
@@ -206,6 +217,8 @@ test("overlapping windows deduplicate the same deadline alert through Manager", 
   const persistence: Persistence = {
     checkpointBlock: async () => 91,
     updateCheckpointBlock: async () => undefined,
+    pendingBlockRange: async () => null,
+    updatePendingBlockRange: async () => undefined,
     handledSystemEvents: async () => ({ test: stored }),
     storeHandledSystemEvents: async () => undefined,
   }
@@ -224,6 +237,7 @@ test("a failed historical RPC read preserves the Manager checkpoint and retries 
     throw new Error("historical state unavailable")
   }
   let checkpoint = 90
+  let pendingRange: BlockRange | null = null
   const events: SystemEvent[] = []
   const receiver: Receiver = {
     id: () => "test",
@@ -236,6 +250,10 @@ test("a failed historical RPC read preserves the Manager checkpoint and retries 
     checkpointBlock: async () => checkpoint,
     updateCheckpointBlock: async (block) => {
       checkpoint = block
+    },
+    pendingBlockRange: async () => pendingRange,
+    updatePendingBlockRange: async (range) => {
+      pendingRange = range
     },
     handledSystemEvents: async () => ({}),
     storeHandledSystemEvents: async () => undefined,
@@ -263,6 +281,87 @@ test("a failed historical RPC read preserves the Manager checkpoint and retries 
     assert.strictEqual(events.length, 1)
   } finally {
     blocks.latestBlock = originalLatest
+  }
+})
+
+test("a rejected expiration survives restart and proof acceptance before retry", async () => {
+  const originalDataDir = context.dataDirPath
+  const originalLatest = blocks.latestBlock
+  const directory = await fs.mkdtemp(
+    join(tmpdir(), "redemption-delivery-retry-")
+  )
+  context.dataDirPath = directory
+  let latestBlock = 111
+  blocks.latestBlock = async () => latestBlock
+  try {
+    const chain = new Chain()
+    chain.pendingAt = (request, block) =>
+      block < 112 ? chain.timestampAt(request.blockNumber) : 0
+    chain.completions = [
+      {
+        ...redemptionRequest(112),
+        redemptionTxHash: BitcoinTxHash.from("aa".repeat(32)),
+      },
+    ]
+    const attempts: SystemEvent[] = []
+    let reject = true
+    const receiver: Receiver = {
+      id: () => "test",
+      receive: async (event) => {
+        attempts.push(event)
+        if (reject) throw new Error("Sentry delivery failed")
+        return { receiverId: "test", systemEvent: event, status: "handled" }
+      },
+    }
+    const persistence = new SystemEventFilePersistence()
+    await persistence.updateCheckpointBlock(110)
+    const createManager = () =>
+      new Manager(
+        [new RedemptionLifecycleMonitor(chain, 200)],
+        [receiver],
+        new SystemEventFilePersistence()
+      )
+    const failed = await createManager().trigger()
+    assert.strictEqual(failed.status, "failure")
+    assert.strictEqual(attempts[0].title, "Redemption expired without proof")
+    assert.strictEqual(
+      await new SystemEventFilePersistence().checkpointBlock(),
+      110
+    )
+
+    latestBlock = 120
+    reject = false
+    // Recreate both Manager and persistence, as the scheduled job does.
+    const retried = await createManager().trigger()
+    assert.strictEqual(retried.status, "success")
+    assert.strictEqual(retried.fromBlock, failed.fromBlock)
+    assert.strictEqual(retried.toBlock, failed.toBlock)
+    assert.deepStrictEqual(attempts[1], attempts[0])
+    assert.strictEqual(
+      await new SystemEventFilePersistence().checkpointBlock(),
+      111
+    )
+
+    const caughtUp = await createManager().trigger()
+    assert.strictEqual(caughtUp.status, "success")
+    assert.strictEqual(caughtUp.toBlock, 120)
+    assert.deepStrictEqual(
+      attempts.map((event) => event.title),
+      [
+        "Redemption expired without proof",
+        "Redemption expired without proof",
+        "Redemption proof accepted",
+      ]
+    )
+  } finally {
+    context.dataDirPath = originalDataDir
+    blocks.latestBlock = originalLatest
+    await Promise.all(
+      (
+        await fs.readdir(directory)
+      ).map((name) => fs.unlink(join(directory, name)))
+    )
+    await fs.rmdir(directory)
   }
 })
 

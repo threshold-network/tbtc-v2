@@ -36,7 +36,8 @@ export interface RedemptionLifecycleSource {
     fromBlock: number,
     toBlock: number
   ): Promise<RedemptionTimedOutEvent[]>
-  timeout(block: number): Promise<number>
+  // Undefined means the Bridge had no code at this historical block.
+  timeout(block: number): Promise<number | undefined>
   pendingRequestedAt(
     request: RedemptionRequestedEvent,
     block: number
@@ -66,7 +67,7 @@ export class RedemptionChain implements RedemptionLifecycleSource {
     >,
     private readonly provider: Pick<
       providers.Provider,
-      "getLogs" | "call" | "getBlock"
+      "getLogs" | "call" | "getBlock" | "getCode"
     >
   ) {
     this.address = `0x${bridge.getChainIdentifier().identifierHex}`
@@ -117,8 +118,21 @@ export class RedemptionChain implements RedemptionLifecycleSource {
     })
   }
 
-  async timeout(block: number): Promise<number> {
-    const result = await this.read("redemptionParameters", [], block)
+  async timeout(block: number): Promise<number | undefined> {
+    const encoded = await this.call("redemptionParameters", [], block)
+    // eth_call returns empty data before deployment. Confirm the missing code
+    // rather than interpreting archive-node errors or invalid deployed responses
+    // as an empty monitoring window.
+    if (
+      encoded === "0x" &&
+      (await this.provider.getCode(this.address, block)) === "0x"
+    ) {
+      return undefined
+    }
+    const result = redemptionMonitoringABI.decodeFunctionResult(
+      "redemptionParameters",
+      encoded
+    )
     return BigNumber.from(result.redemptionTimeout).toNumber()
   }
 
@@ -145,14 +159,22 @@ export class RedemptionChain implements RedemptionLifecycleSource {
     args: unknown[],
     block: number
   ): Promise<utils.Result> {
-    const encoded = await this.provider.call(
+    const encoded = await this.call(method, args, block)
+    return redemptionMonitoringABI.decodeFunctionResult(method, encoded)
+  }
+
+  private call(
+    method: string,
+    args: unknown[],
+    block: number
+  ): Promise<string> {
+    return this.provider.call(
       {
         to: this.address,
         data: redemptionMonitoringABI.encodeFunctionData(method, args),
       },
       block
     )
-    return redemptionMonitoringABI.decodeFunctionResult(method, encoded)
   }
 
   private logs(

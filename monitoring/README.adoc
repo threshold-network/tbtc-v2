@@ -90,12 +90,20 @@ This way we are achieving a sliding block window that covers the entire
 chain. Worth noting, the checkpoint block is updated only if the given run
 completes with success. A run is considered successful when no single error was
 thrown by any of the components. If the run is not successful, the checkpoint
-block is not updated and the next run will cover the failed range again:
+block is not updated and the next run will cover the exact failed range again.
+The Manager saves both bounds in `pendingBlockRange` in `db.json` before
+checking or delivering events, so retries retain the same historical state even
+after the job restarts or a pending redemption is completed in a newer block:
 
 - Run 1: Start block 100 - 12 = 88, end block 150 - failed
-- Run 2: Start block 100 - 12 = 88, end block 170 - failed
-- Run 3: Start block 100 - 12 = 88, end block 200 - success
-- Run 4: Start block 200 - 12 = 188, end block 250 - success
+- Run 2: Start block 100 - 12 = 88, end block 150 - failed
+- Run 3: Start block 100 - 12 = 88, end block 150 - success
+- Run 4: Start block 150 - 12 = 138, end block 250 - success
+
+The pending range is cleared only after handled events and the successful
+checkpoint have been saved. Existing data directories without this field are
+supported. Preserve a pending range during delivery recovery; complete its retry
+before manually rewinding the checkpoint.
 
 This way the monitoring tool guarantees to not miss any system events.
 However, such a solution can produce duplicated system events. To prevent
@@ -222,7 +230,11 @@ only one receiver intentionally ignores the event types supported by the other.
 Deadlines use Ethereum block timestamps and the Bridge's configured timeout,
 not an assumed block duration. Pending state and timeout parameters are read
 at the window's end block; the timeout is also read at the start block to
-handle changes made through governance. The RPC must support historical state
+handle changes made through governance. If the start precedes Bridge deployment,
+the first deployed state in the window supplies the initial timeout and timestamp.
+Windows entirely before deployment have no pending requests to check. Empty
+contract responses are treated as pre-deployment only when historical `eth_getCode`
+confirms no code at that block. The RPC must support historical state
 for every replayed checkpoint. Unavailable state or logs fail the run and keep
 the checkpoint for retry. Log queries are split into batches of at most 5,000
 blocks. Tune the monitoring schedule and RPC limits against the request volume.
@@ -234,6 +246,9 @@ before that window. Before relying on coverage:
 
 . Stop the scheduled job and back up `DATA_DIR_PATH/db.json` before changing its
   checkpoint. Preserve the handled-event history for deduplication.
+. If `pendingBlockRange` is non-null, resume the unchanged job to finish that
+  retry before stopping and rewinding. Otherwise a manual checkpoint change
+  would not replace the outstanding range.
 . Select a historical block before the earliest warning/deadline requiring
   backfill, at or after the Bridge deployment. Rewind `checkpointBlock` to that
   block on a copy of the data directory and run with staging receivers. Every
