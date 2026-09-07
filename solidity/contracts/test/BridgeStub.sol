@@ -6,7 +6,6 @@ import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/RebateStaking.sol";
-import "../bridge/Reservation.sol";
 import "../bridge/Wallets.sol";
 
 contract BridgeStub is Bridge {
@@ -72,41 +71,6 @@ contract BridgeStub is Bridge {
         if (wallet.state == Wallets.WalletState.Live) {
             self.liveWalletsCount++;
         }
-    }
-
-    /// @notice Injects a reservation record into the Bridge's
-    ///         `reservations` mapping and mirrors every reserved-capacity
-    ///         counter and enumeration the acceptance path maintains, so a
-    ///         later close/strand/redemption of the injected reservation
-    ///         decrements exactly what this setter added (see
-    ///         `Reservation.closeReservation`).
-    function setReservation(
-        uint256 reservationKey,
-        Reservation.ReservationRequest calldata reservation
-    ) external {
-        self.reservations[reservationKey] = reservation;
-        self.walletReservationInfo[reservation.walletPubKeyHash].count += 1;
-        self
-            .walletReservationInfo[reservation.walletPubKeyHash]
-            .amount += reservation.anchorAmount;
-        self.reservationTotalAmount += reservation.anchorAmount;
-        self.activeReservationsCount += 1;
-        self.walletReservationKeys[reservation.walletPubKeyHash].push(
-            reservationKey
-        );
-        self.walletReservationKeyIndex[reservationKey] = self
-            .walletReservationKeys[reservation.walletPubKeyHash]
-            .length;
-        self.reservationsByAnchorUtxo[
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        reservation.anchorTxHash,
-                        reservation.anchorTxOutputIndex
-                    )
-                )
-            )
-        ] = reservationKey;
     }
 
     function setDepositDustThreshold(uint64 _depositDustThreshold) external {

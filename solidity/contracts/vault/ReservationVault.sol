@@ -65,14 +65,14 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         mint leg and the first custody term.
     uint16 public initiationFeeBps;
     /// @notice Extension fee in basis points of the gross amount, charged
-    ///         per custody term extension by `extendCustody`.
+    ///         per custody term extension.
+    /// @dev Unused in milestone 1; reserved for the sibling wiring PR.
     uint16 public extensionFeeBps;
     /// @notice Redemption fee in basis points of the gross amount, charged
     ///         when the in-kind redemption is requested. Priced at parity
     ///         with the pooled redemption fee; not re-charged on retries
     ///         after wallet-fault timeouts.
-    /// @dev Charged by `redeemReservation` when the in-kind redemption is
-    ///      requested; not re-charged on retries after wallet-fault timeouts.
+    /// @dev Unused in milestone 1; reserved for the sibling wiring PR.
     uint16 public redemptionFeeBps;
 
     /// @notice True while redemptions are paused. A fresh vault starts
@@ -128,19 +128,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     event ReservationCreditProcessed(
         address indexed owner,
         uint256 satAmount,
-        uint256 feeTbtc
-    );
-
-    event CustodyExtended(
-        uint256 indexed reservationKey,
-        address indexed owner,
-        uint256 feeTbtc
-    );
-
-    event ReservedRedemptionInitiated(
-        uint256 indexed reservationKey,
-        address indexed owner,
-        uint256 grossTbtc,
         uint256 feeTbtc
     );
 
@@ -443,192 +430,63 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         );
     }
 
-    /// @notice Requests an in-kind redemption of the caller's reservation.
-    ///         The caller surrenders the gross minted TBTC amount plus the
-    ///         redemption fee; the vault unmints the gross amount and asks
-    ///         the Bridge to have the wallet spend exactly the reservation's
-    ///         anchor outpoint to the given redeemer script.
+    /// @notice Initiates an in-kind redemption of `amountSat` of the
+    ///         reservation's `mintedAmount`. Caller must be the
+    ///         reservation owner.
     /// @param reservationKey The key of the reservation to redeem.
-    /// @param redeemerOutputScript The redeemer's length-prefixed output
-    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
-    /// @param maxFeeTbtc Upper bound on the TBTC fee the caller accepts;
-    ///        an unexpected fee update reverts instead of overcharging.
-    /// @dev Requirements:
-    ///      - The caller must be the reservation owner,
-    ///      - The fee must not exceed `maxFeeTbtc`,
-    ///      - The caller must have approved this vault for
-    ///        `mintedAmount * SATOSHI_MULTIPLIER * (1 + redemptionFeeBps/10000)`
-    ///        TBTC.
-    ///
-    ///      Should the redemption time out, the Bridge returns the
-    ///      surrendered gross amount to the caller as Bank balance; the
-    ///      caller can re-mint TBTC via the TBTC vault and request the
-    ///      redemption again.
-    ///
-    ///      ABI note: this entry point ships the whole-reservation
-    ///      redemption surface in milestone 1, replacing the
-    ///      milestone-1-disabled stub whose `amountSat` parameter reserved
-    ///      ABI space for milestone 2's partial-redemption design
-    ///      (`feat/utxo-reservation-partial-redemption`). The
-    ///      settlement-style script-based ABI used here is a deliberate
-    ///      divergence, flagged in the PR; milestone 2 must reconcile the
-    ///      partial-redemption ABI with the deployed whole-reservation
-    ///      interface.
-    function redeemReservation(
-        uint256 reservationKey,
-        bytes calldata redeemerOutputScript,
-        uint256 maxFeeTbtc
-    ) external whenRedemptionsNotPaused {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            reservationKey
-        );
+    /// @param amountSat The redemption amount in satoshi.
+    /// @dev Reserved-redemption entry point. Milestone 1 unconditionally
+    ///      reverts; milestone 2 will add the body that drives the
+    ///      Bridge's `requestReservedRedemption` path. The amountSat parameter
+    ///      is accepted for milestone 2 ABI stability and ignored in milestone 1.
+    // solhint-disable-next-line no-unused-vars
+    function redeemReservation(uint256 reservationKey, uint256 amountSat)
+        external
+        whenRedemptionsNotPaused
+    {
         require(
-            reservation.owner == msg.sender,
+            msg.sender == bridge.reservations(reservationKey).owner,
             "Caller is not the reservation owner"
         );
-
-        uint256 grossTbtc = uint256(reservation.mintedAmount) *
-            SATOSHI_MULTIPLIER;
-        uint256 fee = (grossTbtc * redemptionFeeBps) / BASIS_POINTS;
-        require(fee <= maxFeeTbtc, "Fee exceeds the caller's bound");
-
-        IERC20(tbtcToken).safeTransferFrom(
-            msg.sender,
-            address(this),
-            grossTbtc + fee
-        );
-        if (fee > 0) {
-            IERC20(tbtcToken).safeTransfer(bridge.treasury(), fee);
-        }
-
-        // Unmint the gross TBTC back into Bank balance and let the Bridge
-        // take it when registering the reserved redemption request.
-        IERC20(tbtcToken).safeIncreaseAllowance(address(tbtcVault), grossTbtc);
-        tbtcVault.unmint(grossTbtc);
-        bank.approveBalance(address(bridge), reservation.mintedAmount);
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservedRedemptionInitiated(
-            reservationKey,
-            msg.sender,
-            grossTbtc,
-            fee
-        );
-
-        bridge.requestReservedRedemption(
-            reservationKey,
-            msg.sender,
-            redeemerOutputScript,
-            true, // The redemption fee was collected above.
-            false
-        );
+        revert("Reserved redemption not enabled in milestone 1");
     }
 
-    /// @notice Re-runs a redemption using the caller's Bank balance --
-    ///         the state a timed-out reserved redemption leaves the owner
-    ///         in (the Bridge refunds the surrendered amount as Bank
-    ///         balance). The caller surrenders the gross minted amount as
-    ///         Bank balance; the redemption fee was already collected by
-    ///         the original request and is not re-charged.
-    /// @param reservationKey The key of the reservation to redeem.
-    /// @param redeemerOutputScript The redeemer's length-prefixed output
-    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
-    /// @dev Requirements:
-    ///      - The caller must be the reservation owner,
-    ///      - The caller must have approved this vault in the Bank for the
-    ///        gross minted amount (`Bank.approveBalance`),
-    ///      - The reservation must hold the single-use retry entitlement
-    ///        the Bridge mints when a fee-paid redemption request times
-    ///        out through the wallet's fault (enforced by the Bridge and
-    ///        consumed by this call).
-    ///
-    ///      The redemption fee is not re-charged: it was collected by the
-    ///      original `redeemReservation` call and the retry only exists
-    ///      because the previous request timed out through the wallet's
-    ///      fault.
-    ///
-    ///      ABI note: same divergence as `redeemReservation` -- the stub's
-    ///      `amountSat` parameter (reserved for milestone 2 partial
-    ///      redemption) is replaced by the settlement-style script-based
-    ///      ABI.
-    function retryRedeemReservation(
-        uint256 reservationKey,
-        bytes calldata redeemerOutputScript
-    ) external whenRedemptionsNotPaused {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            reservationKey
-        );
+    /// @notice Re-runs a redemption using the reservation's single-use
+    ///         fee-free retry entitlement, granted when a prior
+    ///         fee-paid redemption generation timed out through wallet
+    ///         fault. Caller must be the reservation owner.
+    /// @param reservationKey The key of the reservation to retry.
+    /// @param amountSat The redemption amount in satoshi.
+    /// @dev See `redeemReservation` for the same M1/M2 rationale. The
+    ///      amountSat parameter is accepted for milestone 2 ABI stability
+    ///      and ignored in milestone 1.
+    // solhint-disable-next-line no-unused-vars
+    function retryRedeemReservation(uint256 reservationKey, uint64 amountSat)
+        external
+        whenRedemptionsNotPaused
+    {
         require(
-            reservation.owner == msg.sender,
+            msg.sender == bridge.reservations(reservationKey).owner,
             "Caller is not the reservation owner"
         );
-
-        uint256 grossTbtc = uint256(reservation.mintedAmount) *
-            SATOSHI_MULTIPLIER;
-
-        // The redemption fee was already collected by the original
-        // redeemReservation call; a retry only exists because the previous
-        // request timed out through the wallet's fault, so it is not
-        // re-charged.
-
-        bank.transferBalanceFrom(
-            msg.sender,
-            address(this),
-            reservation.mintedAmount
-        );
-        bank.approveBalance(address(bridge), reservation.mintedAmount);
-
-        // slither-disable-next-line reentrancy-events
-        emit ReservedRedemptionInitiated(
-            reservationKey,
-            msg.sender,
-            grossTbtc,
-            0
-        );
-
-        bridge.requestReservedRedemption(
-            reservationKey,
-            msg.sender,
-            redeemerOutputScript,
-            false,
-            true // Consume the retry entitlement instead of paying the fee.
-        );
+        revert("Reserved redemption retry not enabled in milestone 1");
     }
 
-    /// @notice Extends the custody term of the caller's reservation by one
-    ///         term length, charging the extension fee in TBTC.
-    /// @param reservationKey The key of the reservation to extend.
-    /// @dev Requirements:
-    ///      - The caller must be the reservation owner,
-    ///      - The caller must have approved this vault for the extension
-    ///        fee in TBTC.
+    /// @notice Renews the custody term of the caller's reservation by
+    ///         exactly one current term. Caller must be the reservation owner.
+    /// @param reservationKey The key of the reservation to renew.
+    /// @dev Reserved-custody-extension entry point. Milestone 1 unconditionally
+    ///      reverts; milestone 2 will wire the real renewal flow through the
+    ///      router's `extendReservation`.
     function extendCustody(uint256 reservationKey)
         external
         whenRenewalsNotPaused
     {
-        Reservation.ReservationRequest memory reservation = bridge.reservations(
-            reservationKey
-        );
         require(
-            reservation.owner == msg.sender,
+            msg.sender == bridge.reservations(reservationKey).owner,
             "Caller is not the reservation owner"
         );
-
-        uint256 fee = (uint256(reservation.mintedAmount) *
-            SATOSHI_MULTIPLIER *
-            extensionFeeBps) / BASIS_POINTS;
-        if (fee > 0) {
-            IERC20(tbtcToken).safeTransferFrom(
-                msg.sender,
-                bridge.treasury(),
-                fee
-            );
-        }
-
-        // slither-disable-next-line reentrancy-events
-        emit CustodyExtended(reservationKey, msg.sender, fee);
-
-        bridge.extendReservation(reservationKey);
+        revert("Custody extension not enabled in milestone 1");
     }
 
     /// @notice Pauses all future redemptions. Restrictive and monotonic:
