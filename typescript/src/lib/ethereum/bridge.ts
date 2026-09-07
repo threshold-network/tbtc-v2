@@ -14,6 +14,8 @@ import {
   WalletState,
   RedemptionRequest,
   RedemptionRequestedEvent,
+  RedemptionsCompletedEvent,
+  RedemptionTimedOutEvent,
   DepositRevealedEvent,
   DepositReceipt,
   DepositRequest,
@@ -151,7 +153,8 @@ export class EthereumBridge
    */
   async pendingRedemptionsByWalletPKH(
     walletPublicKeyHash: Hex,
-    redeemerOutputScript: Hex
+    redeemerOutputScript: Hex,
+    blockNumber?: number
   ): Promise<RedemptionRequest> {
     const redemptionKey = EthereumBridge.buildRedemptionKey(
       walletPublicKeyHash,
@@ -162,7 +165,9 @@ export class EthereumBridge
       await backoffRetrier<RedemptionRequestTypechain>(
         this._totalRetryAttempts
       )(async () => {
-        return await this._instance.pendingRedemptions(redemptionKey)
+        return await this._instance.pendingRedemptions(redemptionKey, {
+          blockTag: blockNumber ?? "latest",
+        })
       })
 
     return this.parseRedemptionRequest(request, redeemerOutputScript)
@@ -662,9 +667,80 @@ export class EthereumBridge
     )
   }
 
+  /**
+   * Reads the redemption timeout at the specified block.
+   * @param blockNumber Block to read, or the latest block when omitted.
+   * @returns Timeout in seconds.
+   */
+  async getRedemptionTimeout(blockNumber?: number): Promise<number> {
+    return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
+      const parameters = await this._instance.redemptionParameters({
+        blockTag: blockNumber ?? "latest",
+      })
+      return BigNumber.from(parameters.redemptionTimeout).toNumber()
+    })
+  }
+
+  /**
+   * Reads accepted redemption proof events.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Completion events with Bitcoin hashes in display byte order.
+   */
+  async getRedemptionsCompletedEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<RedemptionsCompletedEvent[]> {
+    const events = await this.getEvents(
+      "RedemptionsCompleted",
+      options,
+      ...filterArgs
+    )
+    return events.map((event) => ({
+      blockNumber: event.blockNumber,
+      blockHash: Hex.from(event.blockHash),
+      transactionHash: Hex.from(event.transactionHash),
+      walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+      redemptionTxHash: BitcoinTxHash.from(
+        event.args!.redemptionTxHash
+      ).reverse(),
+    }))
+  }
+
+  /**
+   * Reads reported redemption timeout events.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Timeout events with output scripts without their length prefix.
+   */
+  async getRedemptionTimedOutEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<RedemptionTimedOutEvent[]> {
+    const events = await this.getEvents(
+      "RedemptionTimedOut",
+      options,
+      ...filterArgs
+    )
+    return events.map((event) => {
+      const prefixedScript = Hex.from(event.args!.redeemerOutputScript)
+      return {
+        blockNumber: event.blockNumber,
+        blockHash: Hex.from(event.blockHash),
+        transactionHash: Hex.from(event.transactionHash),
+        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+        redeemerOutputScript: Hex.from(
+          prefixedScript
+            .toString()
+            .slice(BitcoinCompactSizeUint.read(prefixedScript).byteLength * 2)
+        ),
+      }
+    })
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {Bridge#getDepositRevealedEvents}
+   * @see {Bridge#getRedemptionRequestedEvents}
    */
   async getRedemptionRequestedEvents(
     options?: GetChainEvents.Options,

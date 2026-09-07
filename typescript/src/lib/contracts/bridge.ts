@@ -133,11 +133,13 @@ export interface Bridge {
    *        request is targeted to. Must be 20 bytes long.
    * @param redeemerOutputScript The redeemer output script the redeemed funds
    *        are supposed to be locked on. Must not be prepended with length.
+   * @param blockNumber Optional block at which to read the pending request.
    * @returns Promise with the pending redemption.
    */
   pendingRedemptionsByWalletPKH(
     walletPublicKeyHash: Hex,
-    redeemerOutputScript: Hex
+    redeemerOutputScript: Hex,
+    blockNumber?: number
   ): Promise<RedemptionRequest>
 
   /**
@@ -193,6 +195,19 @@ export interface Bridge {
    * @see GetEventsFunction
    */
   getRedemptionRequestedEvents: GetChainEvents.Function<RedemptionRequestedEvent>
+
+  /** Successful on-chain acceptance of a redemption transaction proof. */
+  getRedemptionsCompletedEvents: GetChainEvents.Function<RedemptionsCompletedEvent>
+
+  /** Timeout reports accepted on-chain; expiration alone emits no event. */
+  getRedemptionTimedOutEvents: GetChainEvents.Function<RedemptionTimedOutEvent>
+
+  /**
+   * Gets the configured redemption timeout in seconds.
+   * @param blockNumber Optional block at which to read the configuration.
+   * @returns The timeout in seconds.
+   */
+  getRedemptionTimeout(blockNumber?: number): Promise<number>
 }
 
 /**
@@ -364,6 +379,20 @@ export type RedemptionRequestedEvent = Omit<
    */
   walletPublicKeyHash: Hex
 } & ChainEvent
+
+/** A Bitcoin redemption transaction whose SPV proof was accepted. */
+export type RedemptionsCompletedEvent = ChainEvent & {
+  walletPublicKeyHash: Hex
+  /** Bitcoin transaction hash in explorer/display byte order. */
+  redemptionTxHash: BitcoinTxHash
+}
+
+/** A request whose timeout was reported and processed on-chain. */
+export type RedemptionTimedOutEvent = ChainEvent & {
+  walletPublicKeyHash: Hex
+  /** Output script without its CompactSize length prefix. */
+  redeemerOutputScript: Hex
+}
 
 /* eslint-disable no-unused-vars */
 export enum WalletState {
