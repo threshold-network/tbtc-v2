@@ -129,7 +129,7 @@ describe("AbstractBTCRedeemer", () => {
           bank.target,
           tbtcVault.target
         )
-      ).to.be.revertedWith("ZeroAddress")
+      ).to.be.revertedWithCustomError(testRedeemer, "ZeroAddress")
     })
 
     it("should revert if _tbtcToken is zero address", async () => {
@@ -140,7 +140,7 @@ describe("AbstractBTCRedeemer", () => {
           bank.target,
           tbtcVault.target
         )
-      ).to.be.revertedWith("ZeroAddress")
+      ).to.be.revertedWithCustomError(testRedeemer, "ZeroAddress")
     })
 
     it("should revert if _bank is zero address", async () => {
@@ -151,7 +151,7 @@ describe("AbstractBTCRedeemer", () => {
           ethers.ZeroAddress,
           tbtcVault.target
         )
-      ).to.be.revertedWith("ZeroAddress")
+      ).to.be.revertedWithCustomError(testRedeemer, "ZeroAddress")
     })
 
     it("should revert if _tbtcVault is zero address", async () => {
@@ -162,7 +162,7 @@ describe("AbstractBTCRedeemer", () => {
           bank.target,
           ethers.ZeroAddress
         )
-      ).to.be.revertedWith("ZeroAddress")
+      ).to.be.revertedWithCustomError(testRedeemer, "ZeroAddress")
     })
 
     it("should revert on re-initialization", async () => {
@@ -179,7 +179,7 @@ describe("AbstractBTCRedeemer", () => {
           bank.target,
           tbtcVault.target
         )
-      ).to.be.revertedWith("AlreadyInitialized")
+      ).to.be.revertedWithCustomError(testRedeemer, "AlreadyInitialized")
     })
   })
 
@@ -458,7 +458,7 @@ describe("AbstractBTCRedeemer", () => {
       it("should revert", async () => {
         await expect(
           redeemer.rescueTbtc(ethers.ZeroAddress, amountToRescue)
-        ).to.be.revertedWith("ZeroAddress")
+        ).to.be.revertedWithCustomError(redeemer, "ZeroAddress")
       })
     })
 
@@ -467,7 +467,7 @@ describe("AbstractBTCRedeemer", () => {
         const excessiveAmount = amountToRescue * 3n // Try to rescue more than available
         await expect(
           redeemer.rescueTbtc(randomAccount.address, excessiveAmount)
-        ).to.be.revertedWith("InsufficientBalance")
+        ).to.be.revertedWithCustomError(redeemer, "InsufficientBalance")
       })
     })
 
@@ -546,7 +546,7 @@ describe("AbstractBTCRedeemer", () => {
         await createSnapshot()
         exactAmount = await tbtcToken.balanceOf(redeemer.target)
         // Ensure there's some balance to rescue
-        if (exactAmount.isZero()) {
+        if (exactAmount === 0n) {
           await tbtcToken.mint(redeemer.target, to1ePrecision(1, 18))
           exactAmount = await tbtcToken.balanceOf(redeemer.target)
         }

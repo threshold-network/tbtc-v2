@@ -45,7 +45,7 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
       bridge.target,
       tbtcVault.target,
       starkGateBridge.target,
-    ])) as StarkNetBitcoinDepositor
+    ])) as unknown as StarkNetBitcoinDepositor
   })
 
   afterEach(async () => {

@@ -1,8 +1,9 @@
+import { toNumber } from "ethers"
 /* eslint-disable no-await-in-loop */
 
-import type { BigNumber, Contract } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import type { RandomBeaconGovernance } from "../../../typechain/external/RandomBeaconGovernance"
 import {
   governanceDelay,
   dkgResultChallengePeriodLength,
@@ -15,7 +16,7 @@ export type Operator = { id: OperatorID; signer: HardhatEthersSigner }
 export async function updateDkgResultChallengePeriodLength(
   hre: HardhatRuntimeEnvironment,
   governance: HardhatEthersSigner,
-  randomBeaconGovernance: Contract
+  randomBeaconGovernance: RandomBeaconGovernance
 ): Promise<void> {
   const { helpers } = hre
 
@@ -63,7 +64,7 @@ export async function selectGroup(
   return Promise.all(
     identifiers.map(
       async (identifier, i): Promise<Operator> => ({
-        id: identifier,
+        id: toNumber(identifier),
         signer: await ethers.getSigner(addresses[i]),
       })
     )

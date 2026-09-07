@@ -15,9 +15,10 @@
 // ////////////////////////////////////////////////////////////////////////
 
 import { HardhatRuntimeEnvironment } from "hardhat/types"
-import { DeployFunction } from "hardhat-deploy/types"
+import { DeployFunction, Deployment } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
+import type { RebateStaking } from "../typechain"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.name !== "hardhat") {
@@ -86,8 +87,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const t = { address: tAddress }
 
-  let rebateStaking: any
-  let rebateProxyDeployment: any
+  let rebateStaking: RebateStaking
+  let rebateProxyDeployment: Deployment
 
   try {
     // Try to get existing deployment first
@@ -96,15 +97,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "✓ Using existing RebateStaking at:",
       existingRebateStaking.address
     )
-    rebateStaking = await ethers.getContractAt(
-      "RebateStaking",
-      existingRebateStaking.address
+    rebateStaking = await helpers.contracts.getContract<RebateStaking>(
+      "RebateStaking"
     )
     rebateProxyDeployment = existingRebateStaking
   } catch (error) {
     // Deploy if doesn't exist
     const [deployedRebateStaking, deployedRebateProxy] =
-      await helpers.upgrades.deployProxy("RebateStaking", {
+      await helpers.upgrades.deployProxy<RebateStaking>("RebateStaking", {
         contractName: "RebateStaking",
         initializerArgs: [
           Bridge.address,
@@ -122,7 +122,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       })
     rebateStaking = deployedRebateStaking
     rebateProxyDeployment = deployedRebateProxy
-    console.log("✓ RebateStaking deployed at:", rebateStaking.address)
+    console.log(
+      "✓ RebateStaking deployed at:",
+      await rebateStaking.getAddress()
+    )
   }
 
   // Step 2: Use existing libraries for Bridge
@@ -171,7 +174,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   })
 
   const bridgeImplementation = await BridgeFactory.deploy()
-  await bridgeImplementation.deployed()
+  await bridgeImplementation.waitForDeployment()
 
   console.log(
     "✓ Bridge implementation deployed at:",
@@ -242,11 +245,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const bridgeInterface = new ethers.Interface(bridgeABI)
   const setRebateStakingCalldata = bridgeInterface.encodeFunctionData(
     "setRebateStaking",
-    [rebateStaking.address]
+    [await rebateStaking.getAddress()]
   )
 
   // Prepare governance proposal
-  const functionSelector = bridgeInterface.getSighash("setRebateStaking")
+  const functionSelector =
+    bridgeInterface.getFunction("setRebateStaking").selector
   const governanceCalldata = bridgeGovernanceInterface.encodeFunctionData(
     "beginGovernanceUpdate",
     [
@@ -263,7 +267,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     timestamp: new Date().toISOString(),
     deployer,
     deployedContracts: {
-      rebateStaking: rebateStaking.address,
+      rebateStaking: await rebateStaking.getAddress(),
       depositLibrary: Deposit.address,
       redemptionLibrary: Redemption.address,
       bridgeImplementation: bridgeImplementation.target,
@@ -324,7 +328,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Step 8: Print summary
   console.log("\n========== REBATE DEPLOYMENT SUMMARY ==========")
   console.log("\nDEPLOYED CONTRACTS:")
-  console.log("  RebateStaking:         ", rebateStaking.address)
+  console.log("  RebateStaking:         ", await rebateStaking.getAddress())
   console.log("  Deposit Library:       ", Deposit.address)
   console.log("  Redemption Library:    ", Redemption.address)
   console.log("  Bridge Implementation: ", bridgeImplementation.target)
@@ -348,7 +352,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\nDecoded:")
   console.log("  Method: beginGovernanceUpdate")
   console.log("  Will call Bridge.setRebateStaking with:")
-  console.log("    rebateStaking:", rebateStaking.address)
+  console.log("    rebateStaking:", await rebateStaking.getAddress())
   // The guard at the top of this script throws unless the network is
   // "hardhat", so the old `=== "sepolia" ? "60 second" : ...` ternary could
   // never take its first branch. TypeScript proved that; the ternary is gone
@@ -374,7 +378,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     // Verify Bridge implementation with linked libraries
     try {
       await hre.run("verify:verify", {
-        address: bridgeImplementation.target,
+        address: await bridgeImplementation.getAddress(),
         constructorArguments: [],
         libraries: {
           Deposit: Deposit.address,
@@ -397,12 +401,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.tags.tenderly) {
     await hre.tenderly.verify({
       name: "RebateStaking",
-      address: rebateStaking.address,
+      address: await rebateStaking.getAddress(),
     })
 
     await hre.tenderly.verify({
       name: "Bridge",
-      address: bridgeImplementation.target,
+      address: await bridgeImplementation.getAddress(),
     })
   }
 }

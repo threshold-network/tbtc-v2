@@ -1,0 +1,29 @@
+import { task } from "hardhat/config"
+import type { HardhatRuntimeEnvironment } from "hardhat/types"
+
+// Ethers v6 equivalent of @keep-network/ecdsa's published task.
+export default async function initializeWalletOwner(
+  hre: HardhatRuntimeEnvironment,
+  walletOwnerAddress: string
+): Promise<void> {
+  const { getNamedAccounts, ethers, deployments } = hre
+  const { governance } = await getNamedAccounts()
+  if (!ethers.isAddress(walletOwnerAddress)) {
+    throw new Error(`invalid address: ${walletOwnerAddress}`)
+  }
+  const tx = await deployments.execute(
+    "WalletRegistryGovernance",
+    { from: governance, log: true, waitConfirmations: 1 },
+    "initializeWalletOwner",
+    walletOwnerAddress
+  )
+  deployments.log(
+    `Initialized Wallet Owner address: ${walletOwnerAddress} in transaction: ${tx.transactionHash}`
+  )
+}
+
+task("initialize-wallet-owner", "Initializes Wallet Owner for Wallet Registry")
+  .addParam("walletOwnerAddress", "The Wallet Owner's address")
+  .setAction(async (args, hre) =>
+    initializeWalletOwner(hre, args.walletOwnerAddress)
+  )

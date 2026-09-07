@@ -12,10 +12,7 @@ import {
   TestERC20,
 } from "../../typechain"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
-import type {
-  BitcoinTxInfoStruct,
-  DepositRevealInfoStruct,
-} from "../../typechain/IBridge"
+import type { IBridgeTypes as IBridgeTypesTypes } from "../../typechain/contracts/integrator/IBridge"
 import {
   createMock,
   expectCalledOnce,
@@ -23,6 +20,9 @@ import {
   expectNotCalled,
 } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+
+type BitcoinTxInfoStruct = IBridgeTypesTypes.BitcoinTxInfoStruct
+type DepositRevealInfoStruct = IBridgeTypesTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -65,7 +65,7 @@ describe("NativeBTCDepositor", () => {
         },
       }
     )
-    const nativeBtcDepositor = deployment[0] as NativeBTCDepositor
+    const nativeBtcDepositor = deployment[0] as unknown as NativeBTCDepositor
 
     await nativeBtcDepositor
       .connect(deployer)
@@ -251,8 +251,8 @@ describe("NativeBTCDepositor", () => {
     context("when the ethereum receiver address is non-zero", () => {
       context("when the requested vault is not TBTCVault", () => {
         it("should revert", async () => {
-          const corruptedReveal = JSON.parse(
-            JSON.stringify(initializeDepositFixture.reveal)
+          const corruptedReveal = structuredClone(
+            initializeDepositFixture.reveal
           )
 
           // Set another vault address deliberately. This value must be
@@ -423,7 +423,7 @@ describe("NativeBTCDepositor", () => {
                 fundingTx.locktime,
               ])
               expect(call.args[1]).to.eql([
-                reveal.fundingOutputIndex,
+                ethers.toBigInt(reveal.fundingOutputIndex),
                 reveal.blindingFactor,
                 reveal.walletPubKeyHash,
                 reveal.refundPubKeyHash,
@@ -518,7 +518,7 @@ describe("NativeBTCDepositor", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -625,7 +625,7 @@ describe("NativeBTCDepositor", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -1126,7 +1126,7 @@ describe("NativeBTCDepositor", () => {
                 // that the reimbursement is greater than zero which means
                 // the reimbursement has been recorded properly.
                 expect(
-                  ethers.toNumber(BigInt(call1.args[0]))
+                  ethers.toNumber(BigInt(String(call1.args[0])))
                 ).to.be.greaterThan(0)
                 expect(call1.args[1]).to.equal(relayer.address)
 

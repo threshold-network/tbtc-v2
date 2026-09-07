@@ -1,8 +1,12 @@
+import {
+  toBigInt,
+  BigNumberish,
+  ContractTransactionResponse,
+  BytesLike,
+} from "ethers"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumberish, ContractTransactionResponse } from "ethers"
-import { BytesLike } from "@ethersproject/bytes"
 
 import { constants, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -20,7 +24,7 @@ import type {
 const { to1e18 } = helpers.number
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
-const { defaultAbiCoder } = ethers
+const defaultAbiCoder = ethers.AbiCoder.defaultAbiCoder()
 
 describe("TBTCVault - Redemption", () => {
   const walletPubKeyHash = "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
@@ -107,7 +111,7 @@ describe("TBTCVault - Redemption", () => {
         [
           redeemerAddress,
           "0x0000000000000000000000000000000000000000",
-          ethers.constants.HashZero,
+          ethers.ZeroHash,
           0,
           0,
           "0x",
@@ -140,7 +144,8 @@ describe("TBTCVault - Redemption", () => {
 
     context("when the redeemer has not enough TBTC", () => {
       const mintedAmount = to1e18(1)
-      const redeemedAmount = mintedAmount + constants.satoshiMultiplier
+      const redeemedAmount =
+        mintedAmount + toBigInt(constants.satoshiMultiplier)
 
       before(async () => {
         await createSnapshot()
@@ -188,7 +193,7 @@ describe("TBTCVault - Redemption", () => {
         await createSnapshot()
 
         await tbtcVault.connect(account1).mint(mintedAmount)
-        await tbtc.connect(account1).approve(tbtcVault.address, redeemedAmount)
+        await tbtc.connect(account1).approve(tbtcVault.target, redeemedAmount)
       })
 
       after(async () => {
@@ -211,13 +216,13 @@ describe("TBTCVault - Redemption", () => {
         // Snapshot relevant state before the failed call so we can confirm
         // the mismatch revert occurred before any side effects.
         const tbtcBalanceBefore = await tbtc.balanceOf(account1.address)
-        const vaultBankBalanceBefore = await bank.balanceOf(tbtcVault.address)
-        const bridgeBankBalanceBefore = await bank.balanceOf(bridge.address)
+        const vaultBankBalanceBefore = await bank.balanceOf(tbtcVault.target)
+        const bridgeBankBalanceBefore = await bank.balanceOf(bridge.target)
 
-        const redemptionKey = ethers.utils.solidityKeccak256(
+        const redemptionKey = ethers.solidityPackedKeccak256(
           ["bytes32", "bytes20"],
           [
-            ethers.utils.solidityKeccak256(
+            ethers.solidityPackedKeccak256(
               ["bytes"],
               [redeemerOutputScriptP2WPKH]
             ),
@@ -236,10 +241,10 @@ describe("TBTCVault - Redemption", () => {
         expect(await tbtc.balanceOf(account1.address)).to.be.equal(
           tbtcBalanceBefore
         )
-        expect(await bank.balanceOf(tbtcVault.address)).to.be.equal(
+        expect(await bank.balanceOf(tbtcVault.target)).to.be.equal(
           vaultBankBalanceBefore
         )
-        expect(await bank.balanceOf(bridge.address)).to.be.equal(
+        expect(await bank.balanceOf(bridge.target)).to.be.equal(
           bridgeBankBalanceBefore
         )
 
@@ -285,7 +290,7 @@ describe("TBTCVault - Redemption", () => {
           await expect(
             tbtc
               .connect(account1)
-              .approveAndCall(tbtcVault.address, redeemedAmount, data)
+              .approveAndCall(tbtcVault.target, redeemedAmount, data)
           ).to.be.revertedWith("Decoded redeemer must equal TBTC burner")
         })
       }
@@ -306,7 +311,7 @@ describe("TBTCVault - Redemption", () => {
       before(async () => {
         await createSnapshot()
         await tbtcVault.connect(account1).mint(mintedAmount)
-        await tbtc.connect(account1).approve(tbtcVault.address, redeemedAmount)
+        await tbtc.connect(account1).approve(tbtcVault.target, redeemedAmount)
       })
 
       after(async () => {
@@ -412,10 +417,10 @@ describe("TBTCVault - Redemption", () => {
 
       it("should transfer balances to Bridge", async () => {
         expect(await bank.balanceOf(tbtcVault.target)).to.equal(
-          notRedeemedAmount / constants.satoshiMultiplier
+          notRedeemedAmount / toBigInt(constants.satoshiMultiplier)
         )
         expect(await bank.balanceOf(bridge.target)).to.equal(
-          totalRedeemedAmount / constants.satoshiMultiplier
+          totalRedeemedAmount / toBigInt(constants.satoshiMultiplier)
         )
       })
 
@@ -425,7 +430,7 @@ describe("TBTCVault - Redemption", () => {
         )
         expect(redemptionRequest1.redeemer).to.be.equal(account1.address)
         expect(redemptionRequest1.requestedAmount).to.be.equal(
-          redeemedAmount1 / constants.satoshiMultiplier
+          redeemedAmount1 / toBigInt(constants.satoshiMultiplier)
         )
 
         const redemptionRequest2 = await bridge.pendingRedemptions(
@@ -433,7 +438,7 @@ describe("TBTCVault - Redemption", () => {
         )
         expect(redemptionRequest2.redeemer).to.be.equal(account1.address)
         expect(redemptionRequest2.requestedAmount).to.be.equal(
-          redeemedAmount2 / constants.satoshiMultiplier
+          redeemedAmount2 / toBigInt(constants.satoshiMultiplier)
         )
 
         const redemptionRequest3 = await bridge.pendingRedemptions(
@@ -441,7 +446,7 @@ describe("TBTCVault - Redemption", () => {
         )
         expect(redemptionRequest3.redeemer).to.be.equal(account1.address)
         expect(redemptionRequest3.requestedAmount).to.be.equal(
-          redeemedAmount3 / constants.satoshiMultiplier
+          redeemedAmount3 / toBigInt(constants.satoshiMultiplier)
         )
 
         const redemptionRequest4 = await bridge.pendingRedemptions(
@@ -449,7 +454,7 @@ describe("TBTCVault - Redemption", () => {
         )
         expect(redemptionRequest4.redeemer).to.be.equal(account1.address)
         expect(redemptionRequest4.requestedAmount).to.be.equal(
-          redeemedAmount4 / constants.satoshiMultiplier
+          redeemedAmount4 / toBigInt(constants.satoshiMultiplier)
         )
       })
 
@@ -508,7 +513,7 @@ describe("TBTCVault - Redemption", () => {
 
       it("should transfer balances to Bridge", async () => {
         expect(await bank.balanceOf(tbtcVault.target)).to.equal(
-          notRedeemedAmount / constants.satoshiMultiplier
+          notRedeemedAmount / toBigInt(constants.satoshiMultiplier)
         )
         expect(await bank.balanceOf(bridge.target)).to.equal(toSatoshis(3))
       })
@@ -586,10 +591,10 @@ describe("TBTCVault - Redemption", () => {
 
       it("should transfer balances to Bridge", async () => {
         expect(await bank.balanceOf(tbtcVault.target)).to.equal(
-          totalNotRedeemedAmount / constants.satoshiMultiplier
+          totalNotRedeemedAmount / toBigInt(constants.satoshiMultiplier)
         )
         expect(await bank.balanceOf(bridge.target)).to.equal(
-          totalRedeemedAmount / constants.satoshiMultiplier
+          totalRedeemedAmount / toBigInt(constants.satoshiMultiplier)
         )
       })
 
@@ -599,7 +604,7 @@ describe("TBTCVault - Redemption", () => {
         )
         expect(redemptionRequest1.redeemer).to.be.equal(account1.address)
         expect(redemptionRequest1.requestedAmount).to.be.equal(
-          redeemedAmount1 / constants.satoshiMultiplier
+          redeemedAmount1 / toBigInt(constants.satoshiMultiplier)
         )
 
         const redemptionRequest2 = await bridge.pendingRedemptions(
@@ -607,7 +612,7 @@ describe("TBTCVault - Redemption", () => {
         )
         expect(redemptionRequest2.redeemer).to.be.equal(account2.address)
         expect(redemptionRequest2.requestedAmount).to.be.equal(
-          redeemedAmount2 / constants.satoshiMultiplier
+          redeemedAmount2 / toBigInt(constants.satoshiMultiplier)
         )
       })
 
@@ -722,10 +727,10 @@ describe("TBTCVault - Redemption", () => {
 
           it("should transfer balances to Bridge", async () => {
             expect(await bank.balanceOf(tbtcVault.target)).to.equal(
-              notRedeemedAmount / constants.satoshiMultiplier
+              notRedeemedAmount / toBigInt(constants.satoshiMultiplier)
             )
             expect(await bank.balanceOf(bridge.target)).to.equal(
-              totalRedeemedAmount / constants.satoshiMultiplier
+              totalRedeemedAmount / toBigInt(constants.satoshiMultiplier)
             )
           })
 
@@ -735,7 +740,7 @@ describe("TBTCVault - Redemption", () => {
             )
             expect(redemptionRequest1.redeemer).to.be.equal(account1.address)
             expect(redemptionRequest1.requestedAmount).to.be.equal(
-              redeemedAmount1 / constants.satoshiMultiplier
+              redeemedAmount1 / toBigInt(constants.satoshiMultiplier)
             )
 
             const redemptionRequest2 = await bridge.pendingRedemptions(
@@ -743,7 +748,7 @@ describe("TBTCVault - Redemption", () => {
             )
             expect(redemptionRequest2.redeemer).to.be.equal(account1.address)
             expect(redemptionRequest2.requestedAmount).to.be.equal(
-              redeemedAmount2 / constants.satoshiMultiplier
+              redeemedAmount2 / toBigInt(constants.satoshiMultiplier)
             )
 
             const redemptionRequest3 = await bridge.pendingRedemptions(
@@ -751,7 +756,7 @@ describe("TBTCVault - Redemption", () => {
             )
             expect(redemptionRequest3.redeemer).to.be.equal(account1.address)
             expect(redemptionRequest3.requestedAmount).to.be.equal(
-              redeemedAmount3 / constants.satoshiMultiplier
+              redeemedAmount3 / toBigInt(constants.satoshiMultiplier)
             )
 
             const redemptionRequest4 = await bridge.pendingRedemptions(
@@ -759,7 +764,7 @@ describe("TBTCVault - Redemption", () => {
             )
             expect(redemptionRequest4.redeemer).to.be.equal(account1.address)
             expect(redemptionRequest4.requestedAmount).to.be.equal(
-              redeemedAmount4 / constants.satoshiMultiplier
+              redeemedAmount4 / toBigInt(constants.satoshiMultiplier)
             )
           })
 
@@ -831,10 +836,10 @@ describe("TBTCVault - Redemption", () => {
 
           it("should transfer balances to Bridge", async () => {
             expect(await bank.balanceOf(tbtcVault.target)).to.equal(
-              totalNotRedeemedAmount / constants.satoshiMultiplier
+              totalNotRedeemedAmount / toBigInt(constants.satoshiMultiplier)
             )
             expect(await bank.balanceOf(bridge.target)).to.equal(
-              totalRedeemedAmount / constants.satoshiMultiplier
+              totalRedeemedAmount / toBigInt(constants.satoshiMultiplier)
             )
           })
 
@@ -844,7 +849,7 @@ describe("TBTCVault - Redemption", () => {
             )
             expect(redemptionRequest1.redeemer).to.be.equal(account1.address)
             expect(redemptionRequest1.requestedAmount).to.be.equal(
-              redeemedAmount1 / constants.satoshiMultiplier
+              redeemedAmount1 / toBigInt(constants.satoshiMultiplier)
             )
 
             const redemptionRequest2 = await bridge.pendingRedemptions(
@@ -852,7 +857,7 @@ describe("TBTCVault - Redemption", () => {
             )
             expect(redemptionRequest2.redeemer).to.be.equal(account2.address)
             expect(redemptionRequest2.requestedAmount).to.be.equal(
-              redeemedAmount2 / constants.satoshiMultiplier
+              redeemedAmount2 / toBigInt(constants.satoshiMultiplier)
             )
           })
 

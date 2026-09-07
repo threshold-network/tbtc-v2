@@ -99,10 +99,10 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       ethers: {
         ...ethers,
         provider: {
-          getStorageAt: async () => paddedAdmin,
+          getStorage: async () => paddedAdmin,
         },
-        utils: ethers.utils,
-        constants: ethers.constants,
+        utils: ethers,
+        constants: ethers,
       },
       deployments: {
         deploy: async (name: string, opts: any) => {
@@ -481,7 +481,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         // The selector must match setRebateStaking(address), which is a
         // direct onlyOwner call on BridgeGovernance
-        const expectedSelector = bridgeGovIface.getSighash("setRebateStaking")
+        const expectedSelector =
+          bridgeGovIface.getFunction("setRebateStaking").selector
         expect(calldata.slice(0, 10)).to.equal(expectedSelector)
       })
     })

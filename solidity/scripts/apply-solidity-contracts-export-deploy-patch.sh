@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Overwrite vendored deploy scripts in node_modules (TokenStaking, RandomBeacon, approve skips).
+# Overwrite vendored deploy scripts in node_modules (including ethers v6 confirmation waits).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOLIDITY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -62,3 +62,24 @@ apply_one \
 apply_one \
   "$SOLIDITY_ROOT/deploy-patches/13_authorize_in_random_beacon.js" \
   "$SOLIDITY_ROOT/node_modules/@keep-network/ecdsa/export/deploy/13_authorize_in_random_beacon.js"
+
+apply_one \
+  "$SOLIDITY_ROOT/deploy-patches/30_deploy_tokenholder_timelock.js" \
+  "$SOLIDITY_ROOT/node_modules/@threshold-network/solidity-contracts/export/deploy/30_deploy_tokenholder_timelock.js"
+
+for DEPLOY_SCRIPT in \
+  01_deploy_reimbursement_pool.js \
+  02_deploy_beacon_sortition_pool.js \
+  03_deploy_beacon_dkg_validator.js \
+  07_deploy_random_beacon_governance.js \
+  09_deploy_random_beacon_chaosnet.js; do
+  apply_one \
+    "$SOLIDITY_ROOT/deploy-patches/$DEPLOY_SCRIPT" \
+    "$SOLIDITY_ROOT/node_modules/@keep-network/random-beacon/export/deploy/$DEPLOY_SCRIPT"
+done
+
+# Keep support code outside export/deploy, whose files hardhat-deploy executes.
+mkdir -p "$SOLIDITY_ROOT/node_modules/@keep-network/random-beacon/export/helpers"
+cp \
+  "$SOLIDITY_ROOT/helpers/wait-for-confirmations.js" \
+  "$SOLIDITY_ROOT/node_modules/@keep-network/random-beacon/export/helpers/wait-for-confirmations.js"

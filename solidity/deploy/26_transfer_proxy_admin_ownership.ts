@@ -1,5 +1,7 @@
+import { ethers } from "hardhat"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import type { ProxyAdmin } from "../typechain"
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { helpers, upgrades, deployments } = hre
@@ -11,7 +13,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // use ESDM as the owner of ProxyAdmin contract.
   const newProxyAdminOwner = esdm.address
 
-  const proxyAdmin = await upgrades.admin.getInstance()
+  const proxyAdmin = (await ethers.getContractAt(
+    "ProxyAdmin",
+    await (await upgrades.admin.getInstance()).getAddress()
+  )) as unknown as ProxyAdmin
 
   const currentOwner = await proxyAdmin.owner()
 

@@ -175,7 +175,7 @@ describe("VendingMachineV3", () => {
         await expect(
           vendingMachineV3
             .connect(exchanger)
-            .receiveApproval(exchanger.address, to1e18(1), tbtcV1.target, [])
+            .receiveApproval(exchanger.address, to1e18(1), tbtcV1.target, "0x")
         ).to.be.revertedWith("Only tBTC v1 caller allowed")
       })
     })
@@ -185,7 +185,7 @@ describe("VendingMachineV3", () => {
         await expect(
           vendingMachineV3
             .connect(exchanger)
-            .receiveApproval(exchanger.address, to1e18(1), tbtcV2.target, [])
+            .receiveApproval(exchanger.address, to1e18(1), tbtcV2.target, "0x")
         ).to.be.revertedWith("Token is not tBTC v1")
       })
     })
@@ -200,7 +200,7 @@ describe("VendingMachineV3", () => {
         await tbtcV2.connect(deployer).mint(thirdParty.address, amount)
         tx = await tbtcV1
           .connect(exchanger)
-          .approveAndCall(vendingMachineV3.target, amount, [])
+          .approveAndCall(vendingMachineV3.target, amount, "0x")
       })
 
       after(async () => {

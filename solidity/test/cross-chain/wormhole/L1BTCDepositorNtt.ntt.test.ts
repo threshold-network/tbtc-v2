@@ -94,7 +94,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
         },
       }
     )
-    const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
+    const l1BtcDepositorNtt = deployment[0] as unknown as L1BTCDepositorNtt
     await l1BtcDepositorNtt.connect(deployer).transferOwnership(gov.address)
 
     return {

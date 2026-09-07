@@ -1,7 +1,7 @@
+import { toNumber, toBigInt, BigNumberish, BytesLike } from "ethers"
 import crypto from "crypto"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumberish, BytesLike } from "ethers"
 import type {
   Bridge,
   IRedemptionWatchtower,
@@ -14,7 +14,7 @@ import type { Mock } from "../helpers/mock"
 
 const { lastBlockTime, increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const { AddressZero, HashZero } = ethers.constants
+const { ZeroAddress: AddressZero, ZeroHash: HashZero } = ethers
 
 const day = 86400
 const depositLocktime = 30 * day
@@ -190,9 +190,9 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.DEPOSIT_SWEEP_MAX_SIZE()
 
                 // Pick more deposits than allowed.
-                const depositsKeys = new Array(maxSize + 1).fill(
-                  createTestDeposit(walletPubKeyHash, vault).key
-                )
+                const depositsKeys = new Array(
+                  ethers.toNumber(maxSize) + 1
+                ).fill(createTestDeposit(walletPubKeyHash, vault).key)
 
                 await expect(
                   walletProposalValidator.validateDepositSweepProposal(
@@ -822,16 +822,17 @@ describe("WalletProposalValidator", () => {
                                   const safetyMarginViolatedAt =
                                     await lastBlockTime()
                                   const depositRefundableAt =
-                                    safetyMarginViolatedAt +
+                                    toBigInt(safetyMarginViolatedAt) +
                                     (await walletProposalValidator.DEPOSIT_REFUND_SAFETY_MARGIN())
                                   const depositRevealedAt =
-                                    depositRefundableAt - depositLocktime
+                                    depositRefundableAt -
+                                    toBigInt(depositLocktime)
 
                                   depositTwo = createTestDeposit(
                                     walletPubKeyHash,
                                     vault,
                                     false,
-                                    depositRevealedAt
+                                    toNumber(depositRevealedAt)
                                   )
 
                                   await bridge.deposits
@@ -1422,7 +1423,9 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.REDEMPTION_MAX_SIZE()
 
                 // Pick more redemption requests than allowed.
-                const redeemersOutputScripts = new Array(maxSize + 1).fill(
+                const redeemersOutputScripts = new Array(
+                  ethers.toNumber(maxSize) + 1
+                ).fill(
                   createTestRedemptionRequest(walletPubKeyHash).key
                     .redeemerOutputScript
                 )
@@ -1744,15 +1747,16 @@ describe("WalletProposalValidator", () => {
                           // moment than allowed by the refund safety margin.
                           const safetyMarginViolatedAt = await lastBlockTime()
                           const requestTimedOutAt =
-                            safetyMarginViolatedAt +
+                            toBigInt(safetyMarginViolatedAt) +
                             (await walletProposalValidator.REDEMPTION_REQUEST_TIMEOUT_SAFETY_MARGIN())
                           const requestCreatedAt =
-                            requestTimedOutAt - bridgeRedemptionTimeout
+                            requestTimedOutAt -
+                            toBigInt(bridgeRedemptionTimeout)
 
                           requestTwo = createTestRedemptionRequest(
                             walletPubKeyHash,
                             0,
-                            requestCreatedAt
+                            toNumber(requestCreatedAt)
                           )
 
                           await bridge.pendingRedemptions
@@ -2927,9 +2931,7 @@ const createTestDeposit = (
 
   let depositScriptHash
   if (witness) {
-    depositScriptHash = `220020${ethers.utils
-      .sha256(depositScript)
-      .substring(2)}`
+    depositScriptHash = `220020${ethers.sha256(depositScript).substring(2)}`
   } else {
     const sha256Hash = ethers.sha256(depositScript)
     const ripemd160Hash = ethers.ripemd160(sha256Hash).substring(2)

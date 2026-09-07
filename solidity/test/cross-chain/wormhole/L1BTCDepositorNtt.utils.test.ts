@@ -1,3 +1,5 @@
+// Bigint bitwise operators encode and extract the chain ID and address fields.
+/* eslint-disable no-bitwise */
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -77,7 +79,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         },
       }
     )
-    const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
+    const l1BtcDepositorNtt = deployment[0] as unknown as L1BTCDepositorNtt
 
     await l1BtcDepositorNtt
       .connect(deployer)
@@ -138,18 +140,17 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Chain ID goes in first 2 bytes, address in remaining 30 bytes
 
       // Encode: [2 bytes: Chain ID][30 bytes: Address]
-      const encoded = BigInt(testChainId).shl(240).or(BigInt(testRecipient))
+      const encoded = (BigInt(testChainId) << 240n) | BigInt(testRecipient)
 
       // Decode chain ID (first 2 bytes)
-      const decodedChainId = encoded.shr(240).toNumber()
+      const decodedChainId = ethers.toNumber(encoded >> 240n)
 
       // Decode recipient (mask out first 2 bytes)
       const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedRecipient = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -163,15 +164,14 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const maxChainId = 65535 // 2^16 - 1
       const maxAddress = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
-      const encoded = BigInt(maxChainId).shl(240).or(BigInt(maxAddress))
+      const encoded = (BigInt(maxChainId) << 240n) | BigInt(maxAddress)
 
-      const decodedChainId = encoded.shr(240).toNumber()
+      const decodedChainId = ethers.toNumber(encoded >> 240n)
       const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedRecipient = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -183,15 +183,14 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const zeroChainId = 0
       const zeroAddress = "0x0000000000000000000000000000000000000000"
 
-      const encoded = BigInt(zeroChainId).shl(240).or(BigInt(zeroAddress))
+      const encoded = (BigInt(zeroChainId) << 240n) | BigInt(zeroAddress)
 
-      const decodedChainId = encoded.shr(240).toNumber()
+      const decodedChainId = ethers.toNumber(encoded >> 240n)
       const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedRecipient = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -217,18 +216,17 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
 
       testCases.forEach(({ chainId, recipient }, index) => {
         // Encode the receiver
-        const encoded = BigInt(chainId).shl(240).or(BigInt(recipient))
+        const encoded = (BigInt(chainId) << 240n) | BigInt(recipient)
 
         // Extract chain ID (first 2 bytes)
-        const extractedChainId = encoded.shr(240).toNumber()
+        const extractedChainId = ethers.toNumber(encoded >> 240n)
 
         // Extract recipient (remove first 2 bytes)
         const mask = BigInt(
           "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
         )
-        const extractedRecipient = `0x${encoded
-          .and(mask)
-          .toHexString()
+        const extractedRecipient = `0x${ethers
+          .toBeHex(encoded & mask)
           .slice(2)
           .padStart(40, "0")}`
 
@@ -246,10 +244,10 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // When chain ID is 0, the contract should fall back to default chain
       // This tests the logic: if (chainId == 0 || !supportedChains[chainId])
 
-      const zeroChainReceiver = BigInt(0)
-        .shl(240)
-        .or(BigInt("0x23b82a7108F9CEb34C3CDC44268be21D151d4124"))
-      const extractedChainId = zeroChainReceiver.shr(240).toNumber()
+      const zeroChainReceiver =
+        (BigInt(0) << 240n) |
+        BigInt("0x23b82a7108F9CEb34C3CDC44268be21D151d4124")
+      const extractedChainId = ethers.toNumber(zeroChainReceiver >> 240n)
 
       expect(extractedChainId).to.equal(0)
 
@@ -274,7 +272,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
 
       // Verify individual quotes sum to total (NTT framework handles this)
       const calculatedTotal = mockPriceQuotes.reduce(
-        (sum, quote) => sum.add(quote),
+        (sum, quote) => sum + quote,
         BigInt(0)
       )
       expect(calculatedTotal).to.equal(mockTotalPrice)
@@ -287,18 +285,17 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const recipient = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
       // Encode receiver
-      const encodedReceiver = BigInt(chainId).shl(240).or(BigInt(recipient))
+      const encodedReceiver = (BigInt(chainId) << 240n) | BigInt(recipient)
 
       // Extract destination chain
-      const destinationChain = encodedReceiver.shr(240).toNumber()
+      const destinationChain = ethers.toNumber(encodedReceiver >> 240n)
 
       // Extract actual recipient
       const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const actualRecipient = `0x${encodedReceiver
-        .and(mask)
-        .toHexString()
+      const actualRecipient = `0x${ethers
+        .toBeHex(encodedReceiver & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -403,8 +400,8 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       expect(maxUint160 < BigInt(2) ** 160n).to.be.true
 
       // Bit operations
-      const testValue = BigInt(maxChainId).shl(240)
-      const extractedChainId = testValue.shr(240).toNumber()
+      const testValue = BigInt(maxChainId) << 240n
+      const extractedChainId = ethers.toNumber(testValue >> 240n)
 
       expect(extractedChainId).to.equal(maxChainId)
     })
@@ -522,8 +519,8 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         const testAddress = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
         // Test encoding/decoding
-        const encoded = BigInt(chainId).shl(240).or(BigInt(testAddress))
-        const decodedChainId = encoded.shr(240).toNumber()
+        const encoded = (BigInt(chainId) << 240n) | BigInt(testAddress)
+        const decodedChainId = ethers.toNumber(encoded >> 240n)
 
         expect(decodedChainId).to.equal(chainId)
       }
@@ -533,13 +530,12 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const chainId = WORMHOLE_CHAIN_DESTINATION
       const addressWithZeros = "0x0000000000000000000000000000000000000123"
 
-      const encoded = BigInt(chainId).shl(240).or(BigInt(addressWithZeros))
+      const encoded = (BigInt(chainId) << 240n) | BigInt(addressWithZeros)
       const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedAddress = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedAddress = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -552,13 +548,12 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const chainId = WORMHOLE_CHAIN_DESTINATION
       const addressWithFs = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
-      const encoded = BigInt(chainId).shl(240).or(BigInt(addressWithFs))
+      const encoded = (BigInt(chainId) << 240n) | BigInt(addressWithFs)
       const mask = BigInt(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedAddress = `0x${encoded
-        .and(mask)
-        .toHexString()
+      const decodedAddress = `0x${ethers
+        .toBeHex(encoded & mask)
         .slice(2)
         .padStart(40, "0")}`
 
@@ -637,10 +632,9 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Test with receiver that has BASE chain ID encoded
       // BASE chain ID is 30 (0x1e), so we encode it properly as bytes32
       const baseReceiver = ethers.zeroPadValue(
-        ethers.hexlify(
-          BigInt(WORMHOLE_CHAIN_BASE)
-            .shl(240)
-            .or(BigInt("0x23b82a7108F9CEb34C3CDC44268be21D151d4124"))
+        ethers.toBeHex(
+          (BigInt(WORMHOLE_CHAIN_BASE) << 240n) |
+            BigInt("0x23b82a7108F9CEb34C3CDC44268be21D151d4124")
         ),
         32
       )

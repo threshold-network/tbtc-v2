@@ -5,32 +5,7 @@ import type { BigNumberish } from "ethers"
 import type { MockBridge, TestBTCDepositor } from "../../typechain"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
 
-/**
- * `MockTBTCVault` is declared twice in this tree -- once in
- * `contracts/test/MockTBTCVault.sol` and once inside
- * `contracts/test/TestBTCDepositor.sol` -- so typechain emits a single
- * `MockTBTCVault` binding for the clashing name and it is not the one this
- * suite deploys. The fully qualified name on the factory below picks the right
- * contract at runtime; there is simply no generated type that matches it.
- * Renaming one of the two contracts is the durable fix and is deliberately not
- * done here, since it changes compiled artifact names.
- *
- * Rather than fall back to `Contract` -- whose string index signature would
- * type every call below as `any` -- this declares the four members the suite
- * actually touches, so typos in them are still caught.
- */
-type TestBTCDepositorMockTBTCVault = {
-  address: string
-  createOptimisticMintingRequest(
-    depositKey: BigNumberish
-  ): Promise<ContractTransactionResponse>
-  finalizeOptimisticMintingRequest(
-    depositKey: BigNumberish
-  ): Promise<ContractTransactionResponse>
-  setOptimisticMintingFeeDivisor(
-    divisor: BigNumberish
-  ): Promise<ContractTransactionResponse>
-}
+import type { MockTBTCVault as TestBTCDepositorMockTBTCVault } from "../../typechain/contracts/test/TestBTCDepositor.sol/MockTBTCVault"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -80,7 +55,7 @@ describe("AbstractBTCDepositor", () => {
     tbtcVault =
       (await MockTBTCVault.deploy()) as unknown as TestBTCDepositorMockTBTCVault
 
-    fixture = loadFixture(tbtcVault.target)
+    fixture = loadFixture(await tbtcVault.getAddress())
 
     const testBtcDepositor = await ethers.getContractFactory("TestBTCDepositor")
     depositor = await testBtcDepositor.deploy()

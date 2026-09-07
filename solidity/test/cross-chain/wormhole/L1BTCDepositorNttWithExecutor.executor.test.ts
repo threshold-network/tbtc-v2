@@ -1,3 +1,4 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -113,7 +114,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.target)
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.target
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -1424,9 +1427,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           .connect(user)
           .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
       )[2]
-      const receiver = ethers.hexConcat([
-        ethers.hexZeroPad(ethers.hexlify(WORMHOLE_CHAIN_DESTINATION), 2),
-        ethers.hexZeroPad(user.address, 30),
+      const receiver = ethers.concat([
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_DESTINATION), 2),
+        ethers.zeroPadValue(user.address, 30),
       ])
 
       const reveal = {
@@ -1435,16 +1438,16 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         walletPubKeyHash: "0xf997563fee8610ca28f99ac05bd8a29506800d4d",
         refundPubKeyHash: "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
         refundLocktime: "0xde2b4c67",
-        vault: tbtcVault.address,
+        vault: tbtcVault.target,
       }
 
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
       const receipt = await tx.wait()
-      const depositKey = receipt.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       // Exact payment succeeds
       await expect(
@@ -1463,9 +1466,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         .connect(user)
         .initializeDeposit(fundingTx, reveal2, receiver)
       const receipt2 = await tx2.wait()
-      const depositKey2 = receipt2.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       await expect(
         depositor
@@ -1499,9 +1502,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
       )[2]
       // Use base chain (30) instead of destination (32)
-      const receiver = ethers.hexConcat([
-        ethers.hexZeroPad(ethers.hexlify(WORMHOLE_CHAIN_BASE), 2),
-        ethers.hexZeroPad(user.address, 30),
+      const receiver = ethers.concat([
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_BASE), 2),
+        ethers.zeroPadValue(user.address, 30),
       ])
 
       const reveal = {
@@ -1510,16 +1513,16 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         walletPubKeyHash: "0xf997563fee8610ca28f99ac05bd8a29506800d4d",
         refundPubKeyHash: "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
         refundLocktime: "0xde2b4c67",
-        vault: tbtcVault.address,
+        vault: tbtcVault.target,
       }
 
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
       const receipt = await tx.wait()
-      const depositKey = receipt.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       await expect(
         depositor
@@ -1554,9 +1557,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           .connect(user)
           .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
       )[2]
-      const receiver = ethers.hexConcat([
-        ethers.hexZeroPad(ethers.hexlify(WORMHOLE_CHAIN_DESTINATION), 2),
-        ethers.hexZeroPad(user.address, 30),
+      const receiver = ethers.concat([
+        ethers.zeroPadValue(ethers.toBeHex(WORMHOLE_CHAIN_DESTINATION), 2),
+        ethers.zeroPadValue(user.address, 30),
       ])
 
       const reveal = {
@@ -1565,21 +1568,21 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         walletPubKeyHash: "0xf997563fee8610ca28f99ac05bd8a29506800d4d",
         refundPubKeyHash: "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
         refundLocktime: "0xde2b4c67",
-        vault: tbtcVault.address,
+        vault: tbtcVault.target,
       }
 
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
       const receipt = await tx.wait()
-      const depositKey = receipt.events?.find(
-        (e) => e.event === "DepositInitialized"
-      )?.args?.depositKey
+      const depositKey = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
 
       await expect(
         depositor
           .connect(user)
-          .finalizeDeposit(depositKey, { value: requiredPayment.add(1) })
+          .finalizeDeposit(depositKey, { value: requiredPayment + 1n })
       ).to.be.revertedWith("Payment must exactly match executor service quote")
     })
 

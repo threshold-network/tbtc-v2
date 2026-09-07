@@ -1,3 +1,4 @@
+import { toNumber } from "ethers"
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers } from "hardhat"
@@ -10,6 +11,7 @@ import type {
   BytesLike,
 } from "ethers"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import type { TokenStaking } from "../../typechain/external/TokenStaking"
 import type { Mock } from "../helpers/mock"
 
 import type {
@@ -39,7 +41,9 @@ import {
 } from "../data/fraud"
 import { walletState, constants } from "../fixtures"
 import { SingleP2SHDeposit, NO_MAIN_UTXO } from "../data/deposit-sweep"
-import { UTXOStruct } from "../../typechain/Bridge"
+import type { BitcoinTx as BitcoinTxTypes } from "../../typechain/contracts/bridge/Bridge"
+
+type UTXOStruct = BitcoinTxTypes.UTXOStruct
 
 const { increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -53,7 +57,7 @@ describeFn("Integration Test - Slashing", async () => {
   let bridge: Bridge
   let bridgeGovernance: BridgeGovernance
   let tbtcVault: TBTCVault
-  let staking: Contract
+  let staking: TokenStaking
   let walletRegistry: WalletRegistry
   let randomBeacon: Mock<IRandomBeacon>
   let relay: Mock<IRelay>
@@ -152,7 +156,7 @@ describeFn("Integration Test - Slashing", async () => {
               }
             )
 
-          await increaseTime(fraudChallengeDefeatTimeout)
+          await increaseTime(toNumber(fraudChallengeDefeatTimeout))
 
           notifyFraudChallengeDefeatTimeoutTx = await bridge
             .connect(thirdParty)
@@ -239,7 +243,7 @@ describeFn("Integration Test - Slashing", async () => {
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
-        reveal.vault = tbtcVault.target
+        reveal.vault = await tbtcVault.getAddress()
 
         // We use a deposit funding bitcoin transaction with a very low amount,
         // so we need to update the dust and redemption thresholds to be below it.
@@ -254,7 +258,7 @@ describeFn("Integration Test - Slashing", async () => {
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
 
         // Reveal and sweep the deposit to set up a positive Bank balance for
@@ -286,7 +290,7 @@ describeFn("Integration Test - Slashing", async () => {
         // Request redemption
         const redeemer = await helpers.account.impersonateAccount(
           deposit.depositor,
-          { from: deployer, value: 10 }
+          { from: deployer, value: 10n }
         )
         const redemptionAmount = 3_000 * constants.satoshiMultiplier
         redeemerOutputScript =
@@ -322,7 +326,7 @@ describeFn("Integration Test - Slashing", async () => {
         before(async () => {
           const { redemptionTimeout } = await bridge.redemptionParameters()
 
-          await helpers.time.increaseTime(redemptionTimeout + 1)
+          await helpers.time.increaseTime(toNumber(redemptionTimeout + 1n))
 
           notifyRedemptionTimeoutTx = await bridge
             .connect(thirdParty)
@@ -405,7 +409,7 @@ describeFn("Integration Test - Slashing", async () => {
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
-        reveal.vault = tbtcVault.target
+        reveal.vault = await tbtcVault.getAddress()
 
         // We use a deposit funding bitcoin transaction with a very low amount,
         // so we need to update the dust threshold to be below it.
@@ -415,7 +419,7 @@ describeFn("Integration Test - Slashing", async () => {
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
 
         // Reveal and sweep the deposit to set up a main UTXO for the wallet,
@@ -473,7 +477,7 @@ describeFn("Integration Test - Slashing", async () => {
 
           const { movingFundsTimeout } = await bridge.movingFundsParameters()
 
-          await helpers.time.increaseTime(movingFundsTimeout + 1)
+          await helpers.time.increaseTime(toNumber(movingFundsTimeout + 1n))
 
           notifyMovingFundsTimeoutTx = await bridge
             .connect(thirdParty)
