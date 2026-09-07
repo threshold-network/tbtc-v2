@@ -1,3 +1,4 @@
+import { toBigInt } from "ethers"
 import { ethers, upgrades, artifacts } from "hardhat"
 import { expect } from "chai"
 import * as fs from "fs"
@@ -39,7 +40,7 @@ const MANIFEST_PATH = path.join(
 )
 
 function pad32(hex: string): string {
-  return ethers.utils.hexZeroPad(ethers.utils.getAddress(hex), 32)
+  return ethers.zeroPadValue(ethers.getAddress(hex), 32)
 }
 
 // The live-fork regression requires a mainnet fork (FORKING_URL). Without one
@@ -133,7 +134,7 @@ describe("UpgradeNativeBTCDepositorTo968 fork regression", () => {
       const before = await readReimburseTxMaxFee()
       // The live value is `true`; the guard is that it is preserved exactly.
       expect(
-        ethers.BigNumber.from(before).eq(1),
+        toBigInt(before) === 1n,
         "live reimburseTxMaxFee should be true before the upgrade"
       ).to.equal(true)
 
@@ -156,15 +157,15 @@ describe("UpgradeNativeBTCDepositorTo968 fork regression", () => {
 
       // The implementation slot must now hold the freshly deployed impl, and it
       // must differ from the current on-chain implementation.
-      const implSlotRaw = await ethers.provider.getStorageAt(
+      const implSlotRaw = await ethers.provider.getStorage(
         NATIVE_PROXY,
         EIP1967_IMPLEMENTATION_SLOT
       )
       // `getStorageAt` returns lowercase hex while `pad32` applies EIP-55
       // checksum casing; normalize both sides to lowercase so the comparison
       // turns on the address value, not its letter case.
-      expect(ethers.utils.hexStripZeros(implSlotRaw).toLowerCase()).to.equal(
-        ethers.utils.hexStripZeros(pad32(newImplementation)).toLowerCase(),
+      expect(ethers.stripZerosLeft(implSlotRaw).toLowerCase()).to.equal(
+        ethers.stripZerosLeft(pad32(newImplementation)).toLowerCase(),
         "implementation slot should point to the new implementation"
       )
       expect(newImplementation.toLowerCase()).to.not.equal(

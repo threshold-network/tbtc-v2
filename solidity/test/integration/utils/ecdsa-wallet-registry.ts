@@ -1,3 +1,4 @@
+import { toNumber } from "ethers"
 // TODO: Utils in this file are pulled from @keep-network/ecdsa test utils.
 // We should consider exposing them in @keep-network/ecdsa for an external usage.
 
@@ -11,8 +12,11 @@ import type {
   Signer,
 } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
+import type { WalletRegistryGovernance } from "../../../typechain/external/WalletRegistryGovernance"
 import type { WalletRegistry, SortitionPool } from "../../../typechain"
-import type { ClaimStruct } from "../../../typechain/EcdsaInactivity"
+import type { EcdsaInactivity as EcdsaInactivityTypes } from "../../../typechain/@keep-network/ecdsa/contracts/libraries/EcdsaInactivity"
+
+type ClaimStruct = EcdsaInactivityTypes.ClaimStruct
 
 // default Hardhat's networks blockchain, see https://hardhat.org/config/
 export const hardhatNetworkId = 31337
@@ -33,7 +37,7 @@ export async function registerOperator(
     await operator.getAddress()
   )
 
-  return operatorID
+  return Number(operatorID)
 }
 
 export async function performEcdsaDkg(
@@ -79,19 +83,19 @@ export async function updateWalletRegistryDkgResultChallengePeriodLength(
 ): Promise<void> {
   const { deployments, ethers, helpers } = hre
 
-  const walletRegistryGovernance = await ethers.getContractAt(
+  const walletRegistryGovernance = (await ethers.getContractAt(
     (
       await deployments.getArtifact("WalletRegistryGovernance")
     ).abi,
     await walletRegistry.governance()
-  )
+  )) as unknown as WalletRegistryGovernance
 
   await walletRegistryGovernance
     .connect(governance)
     .beginDkgResultChallengePeriodLengthUpdate(dkgResultChallengePeriodLength)
 
   await helpers.time.increaseTime(
-    await walletRegistryGovernance.governanceDelay()
+    toNumber(await walletRegistryGovernance.governanceDelay())
   )
 
   await walletRegistryGovernance
@@ -108,9 +112,9 @@ async function selectGroup(
   const sortitionPool = (await ethers.getContractAt(
     "SortitionPool",
     await walletRegistry.sortitionPool()
-  )) as SortitionPool
+  )) as unknown as SortitionPool
 
-  const identifiers: number[] = await walletRegistry.selectGroup()
+  const identifiers = (await walletRegistry.selectGroup()).map(ethers.toNumber)
 
   const addresses = await sortitionPool.getIDOperators(identifiers)
 

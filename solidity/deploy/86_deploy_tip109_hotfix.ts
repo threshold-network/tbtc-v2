@@ -3,7 +3,8 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { providers, utils } from "ethers"
+import { ethers as utils } from "ethers"
+import normalizeContractCreationTransactions from "../helpers/provider"
 
 import {
   EIP_1967_ADMIN_SLOT,
@@ -92,15 +93,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts()
   const { ethers } = hre
 
-  // Patch ethers.js v5 Formatter to handle empty-string `to` field returned
-  // by some RPC providers for contract-creation transactions. Without this
-  // patch, hardhat-deploy fails with "invalid address" on deploy receipts.
-  // Same pattern used in cross-chain Wormhole V2 upgrade scripts.
-  const originalFormat = providers.Formatter.prototype.transactionResponse
-  providers.Formatter.prototype.transactionResponse = function (tx: any): any {
-    const patched = tx.to === "" ? { ...tx, to: null } : tx
-    return originalFormat.call(this, patched)
-  }
+  normalizeContractCreationTransactions(hre.network.provider)
 
   const deployOptions: DeployOptions = {
     from: deployer,

@@ -138,7 +138,7 @@ describe("BitcoinTx", () => {
     ) =>
       // callStatic because the function is pure
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (bitcoinTx as any).callStatic.exposeDetermineRequestedDifficulty(
+      (bitcoinTx as any).exposeDetermineRequestedDifficulty.staticCall(
         headers,
         currentDiff,
         prevDiff

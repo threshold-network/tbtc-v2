@@ -19,7 +19,7 @@ describe("StarkNetBitcoinDepositor - Security & Edge Cases", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     const tbtcVault = await MockTBTCVault.deploy()
-    await tbtcVault.setTbtcToken(tbtcToken.target)
+    await tbtcVault.getFunction("setTbtcToken")(tbtcToken.target)
 
     const MockStarkGateBridge = await ethers.getContractFactory(
       "MockStarkGateBridge"

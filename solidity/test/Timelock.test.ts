@@ -1,4 +1,4 @@
-import { helpers, upgrades } from "hardhat"
+import { ethers, helpers, upgrades } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import type { Bridge, TBTCVault, Timelock, ProxyAdmin } from "../typechain"
@@ -30,12 +30,17 @@ describe("Timelock", () => {
       "0x2844a0d6442034D3027A05635F4224d966C54fD7",
       {
         from: governance,
-        value: 10,
+        value: 10n,
       }
     )
 
-    timelock = (await helpers.contracts.getContract("Timelock")) as Timelock
-    proxyAdmin = (await upgrades.admin.getInstance()) as ProxyAdmin
+    timelock = (await helpers.contracts.getContract(
+      "Timelock"
+    )) as unknown as Timelock
+    proxyAdmin = (await ethers.getContractAt(
+      "ProxyAdmin",
+      await (await upgrades.admin.getInstance()).getAddress()
+    )) as ProxyAdmin
 
     await proxyAdmin.connect(esdm).transferOwnership(timelock.target)
   })
@@ -50,7 +55,7 @@ describe("Timelock", () => {
       // revert. Obviously, in a real world, it does not make sense to upgrade
       // Bridge implementation address to point to the vault contract but we
       // just want to confirm switching the implementation address works.
-      expectedNewImplementation = tbtcVault.target
+      expectedNewImplementation = await tbtcVault.getAddress()
 
       const upgradeTxData = await proxyAdmin.interface.encodeFunctionData(
         "upgrade",
@@ -79,7 +84,7 @@ describe("Timelock", () => {
 
     it("should switch the implementation address", async () => {
       const newImplementation = await upgrades.erc1967.getImplementationAddress(
-        bridge.target
+        await bridge.getAddress()
       )
       expect(newImplementation).to.equal(expectedNewImplementation)
     })

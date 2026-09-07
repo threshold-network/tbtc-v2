@@ -6,6 +6,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { Contract, ContractTransactionResponse } from "ethers"
 import { expect } from "chai"
 import { Deployment } from "hardhat-deploy/types"
+import { walletToStruct, to1e18 } from "../helpers/contract-test-helpers"
 import type {
   Bank,
   BankStub,
@@ -15,11 +16,12 @@ import type {
   IVault,
   BridgeGovernance,
   RebateStaking,
+  TestERC20,
 } from "../../typechain"
 import type {
-  DepositRevealInfoStruct,
-  InfoStruct as BitcoinTxInfoStruct,
-} from "../../typechain/Bridge"
+  Deposit as DepositTypes,
+  BitcoinTx as BitcoinTxTypes,
+} from "../../typechain/contracts/bridge/Bridge"
 import bridgeFixture from "../fixtures/bridge"
 import { constants, walletState } from "../fixtures"
 import {
@@ -32,9 +34,12 @@ import {
   SingleP2SHDeposit,
   SingleP2WSHDeposit,
 } from "../data/deposit-sweep"
-import { to1e18 } from "../helpers/contract-test-helpers"
 import { createMock, expectCalledOnceWith } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
+
+type BitcoinTxInfoStruct = BitcoinTxTypes.InfoStruct
+
+type DepositRevealInfoStruct = DepositTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -52,7 +57,7 @@ describe("Bridge - Deposit", () => {
   let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let deployBridge: (
     txProofDifficultyFactor: number
@@ -198,7 +203,7 @@ describe("Bridge - Deposit", () => {
     before(async () => {
       depositor = await impersonateAccount(depositorAddress, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
     })
 
@@ -913,7 +918,7 @@ describe("Bridge - Deposit", () => {
                 "0x9dF0C6b0066D5317aA5b38B36850548DaCCa6B4e",
                 {
                   from: governance,
-                  value: 10,
+                  value: 10n,
                 }
               )
             })
@@ -1134,7 +1139,7 @@ describe("Bridge - Deposit", () => {
     before(async () => {
       depositor = await impersonateAccount(depositorAddress, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
     })
 
@@ -2192,7 +2197,7 @@ describe("Bridge - Deposit", () => {
 
                             // Enrich the test data with the vault parameter.
                             const dataWithVault: DepositSweepTestData =
-                              JSON.parse(JSON.stringify(data))
+                              structuredClone(data)
                             dataWithVault.vault = vault.address
                             dataWithVault.deposits[0].reveal.vault =
                               vault.address
@@ -2373,7 +2378,7 @@ describe("Bridge - Deposit", () => {
 
                             // Enrich the test data with the vault parameter.
                             const dataWithVault: DepositSweepTestData =
-                              JSON.parse(JSON.stringify(data))
+                              structuredClone(data)
                             dataWithVault.vault = vault.address
                             dataWithVault.deposits[0].reveal.vault =
                               vault.address
@@ -2490,7 +2495,7 @@ describe("Bridge - Deposit", () => {
                             // passed to `submitDepositSweepProof` to another
                             // value than in the deposit.
                             const dataWithVault: DepositSweepTestData =
-                              JSON.parse(JSON.stringify(data))
+                              structuredClone(data)
                             dataWithVault.vault = ethers.ZeroAddress
                             dataWithVault.deposits[0].reveal.vault =
                               vault.address
@@ -2836,7 +2841,7 @@ describe("Bridge - Deposit", () => {
 
                             // Enrich the test data with the vault parameter.
                             const dataWithVault: DepositSweepTestData =
-                              JSON.parse(JSON.stringify(data))
+                              structuredClone(data)
                             dataWithVault.vault = vault.address
                             dataWithVault.deposits[0].reveal.vault =
                               vault.address
@@ -3021,7 +3026,7 @@ describe("Bridge - Deposit", () => {
 
                             // Enrich the test data with the vault parameter.
                             const dataWithVault: DepositSweepTestData =
-                              JSON.parse(JSON.stringify(data))
+                              structuredClone(data)
                             dataWithVault.vault = vault.address
                             dataWithVault.deposits[0].reveal.vault =
                               vault.address
@@ -3206,7 +3211,7 @@ describe("Bridge - Deposit", () => {
 
                             // Enrich the test data with the vault parameter.
                             const dataWithVault: DepositSweepTestData =
-                              JSON.parse(JSON.stringify(data))
+                              structuredClone(data)
                             dataWithVault.vault = vaultA.address
                             dataWithVault.deposits[0].reveal.vault =
                               vaultA.address
@@ -3349,8 +3354,8 @@ describe("Bridge - Deposit", () => {
                         () => {
                           const previousData: DepositSweepTestData =
                             SingleP2WSHDeposit
-                          const data: DepositSweepTestData = JSON.parse(
-                            JSON.stringify(MultipleDepositsNoMainUtxo)
+                          const data: DepositSweepTestData = structuredClone(
+                            MultipleDepositsNoMainUtxo
                           )
                           // Take wallet public key hash from first deposit. All
                           // deposits in same sweep batch should have the same value
@@ -3520,7 +3525,7 @@ describe("Bridge - Deposit", () => {
                     it("should revert", async () => {
                       await expect(
                         runDepositSweepScenario(data)
-                      ).to.be.revertedWith("'Transaction fee is too high")
+                      ).to.be.revertedWith("Transaction fee is too high")
                     })
                   }
                 )
@@ -3529,8 +3534,8 @@ describe("Bridge - Deposit", () => {
               context("when main UTXO data are invalid", () => {
                 const previousData: DepositSweepTestData =
                   MultipleDepositsNoMainUtxo
-                const data: DepositSweepTestData = JSON.parse(
-                  JSON.stringify(MultipleDepositsWithMainUtxo)
+                const data: DepositSweepTestData = structuredClone(
+                  MultipleDepositsWithMainUtxo
                 )
                 // Take wallet public key hash from first deposit. All
                 // deposits in same sweep batch should have the same value
@@ -3737,9 +3742,7 @@ describe("Bridge - Deposit", () => {
 
       context("when transaction proof is not valid", () => {
         context("when input vector is not valid", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -3781,9 +3784,7 @@ describe("Bridge - Deposit", () => {
         })
 
         context("when output vector is not valid", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -3820,9 +3821,8 @@ describe("Bridge - Deposit", () => {
         context(
           "when transaction is not on same level of merkle tree as coinbase",
           () => {
-            const data: DepositSweepTestData = JSON.parse(
-              JSON.stringify(SingleP2SHDeposit)
-            )
+            const data: DepositSweepTestData =
+              structuredClone(SingleP2SHDeposit)
             // Take wallet public key hash from first deposit. All
             // deposits in same sweep batch should have the same value
             // of that field.
@@ -3859,9 +3859,7 @@ describe("Bridge - Deposit", () => {
         )
 
         context("when merkle proof is not valid", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -3894,9 +3892,7 @@ describe("Bridge - Deposit", () => {
         })
 
         context("when coinbase merkle proof is not valid", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -3930,9 +3926,7 @@ describe("Bridge - Deposit", () => {
         })
 
         context("when proof difficulty is not current nor previous", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -3966,9 +3960,7 @@ describe("Bridge - Deposit", () => {
         })
 
         context("when headers chain length is not valid", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -4007,9 +3999,7 @@ describe("Bridge - Deposit", () => {
         })
 
         context("when headers chain is not valid", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -4052,9 +4042,7 @@ describe("Bridge - Deposit", () => {
         })
 
         context("when the work in the header is insufficient", () => {
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -4096,9 +4084,8 @@ describe("Bridge - Deposit", () => {
           "when accumulated difficulty in headers chain is insufficient",
           () => {
             let otherBridge: Bridge & BridgeStub
-            const data: DepositSweepTestData = JSON.parse(
-              JSON.stringify(SingleP2SHDeposit)
-            )
+            const data: DepositSweepTestData =
+              structuredClone(SingleP2SHDeposit)
             // Take wallet public key hash from first deposit. All
             // deposits in same sweep batch should have the same value
             // of that field.
@@ -4125,7 +4112,7 @@ describe("Bridge - Deposit", () => {
               // to deem transaction proof validity. This scenario uses test
               // data which has only 6 confirmations. That should force the
               // failure we expect within this scenario.
-              otherBridge = (await deployBridge(12))[0] as BridgeStub
+              otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
               await otherBridge.setSpvMaintainerStatus(
                 spvMaintainer.address,
                 true
@@ -4158,9 +4145,7 @@ describe("Bridge - Deposit", () => {
           // the transaction data (version, locktime, inputs, outputs)
           // length is 64 bytes or less.
 
-          const data: DepositSweepTestData = JSON.parse(
-            JSON.stringify(SingleP2SHDeposit)
-          )
+          const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
           // Take wallet public key hash from first deposit. All
           // deposits in same sweep batch should have the same value
           // of that field.
@@ -4234,14 +4219,14 @@ describe("Bridge - Deposit", () => {
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
         await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
 
         // Simulate the wallet's state has changed to MovingFunds
         const wallet = await bridge.wallets(reveal.walletPubKeyHash)
         await bridge.setWallet(reveal.walletPubKeyHash, {
-          ...wallet,
+          ...walletToStruct(wallet),
           state: walletState.MovingFunds,
         })
       })
@@ -4303,7 +4288,7 @@ describe("Bridge - Deposit", () => {
 
             const depositorSigner = await impersonateAccount(depositor, {
               from: governance,
-              value: 10,
+              value: 10n,
             })
             await bridge
               .connect(depositorSigner)
@@ -4312,7 +4297,7 @@ describe("Bridge - Deposit", () => {
             // Simulate the wallet's state has changed
             const wallet = await bridge.wallets(reveal.walletPubKeyHash)
             await bridge.setWallet(reveal.walletPubKeyHash, {
-              ...wallet,
+              ...walletToStruct(wallet),
               state: test.walletState,
             })
           })
@@ -4351,7 +4336,7 @@ describe("Bridge - Deposit", () => {
       // eslint-disable-next-line no-await-in-loop
       const depositorSigner = await impersonateAccount(depositor, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       // eslint-disable-next-line no-await-in-loop

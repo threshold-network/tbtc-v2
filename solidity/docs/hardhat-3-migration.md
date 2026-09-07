@@ -379,15 +379,39 @@ Two things follow that are worth doing regardless of which way this goes:
   is worth revisiting — the remainder of viem's prerequisite cost was that chain,
   not viem itself.
 - `test/helpers/viem.ts`, `test/helpers/viem.test.ts`, and the interop test are preserved in the immutable
-  [`3cfc4e4`](https://github.com/threshold-network/tbtc-v2/commit/3cfc4e4e0b9d87f40ee12474f3a361ee1084366f)
+  [`spike/viem-2026-07-27`](https://github.com/threshold-network/tbtc-v2/tree/spike/viem-2026-07-27)
   spike commit (note that these files were part of the spike only and are not present in this tree). If the decision is revisited, the matchers and the proof that
   the mock needs no port are the two things that would otherwise be redone.
-- The incomplete ethers v6 migration is preserved at
-  [`c367c63`](https://github.com/threshold-network/tbtc-v2/commit/c367c63c00ddfaed91d6f14bb3c34714a02bad95)
+- The incomplete July ethers v6 migration is preserved at
+  [`archive/solidity-ethers-v6-2026-07-27`](https://github.com/threshold-network/tbtc-v2/tree/archive/solidity-ethers-v6-2026-07-27)
   from [`#1067`](https://github.com/threshold-network/tbtc-v2/pull/1067). It
   reduced the compiler error count from 1,922 to 536 but never completed the
   typecheck or ran the test suite; use it as migration evidence, not as a merge
   candidate.
+
+PR [#1067](https://github.com/threshold-network/tbtc-v2/pull/1067) was rebased onto
+`dev` on 2026-09-07. The completed migration has **0 TypeScript errors** in both
+the normal and export configurations, **3,067 passing / 33 pending / 1 failing**
+in the full suite, and **1 existing ESLint error**. The sole test failure remains
+the unchanged-dev `BTCDepositorWormhole` setup hook ("Bytecode is not a valid hex
+string"). Six added tests cover the contract-creation RPC compatibility layer;
+ten more cover Etherscan V2 and full legacy proxy verification with mocked HTTP.
+OpenZeppelin upgrades 2.5.1 retains the shared-admin proxy behavior. Its Yarn patch
+backports the Etherscan V2 request transport from
+[upstream](https://github.com/OpenZeppelin/openzeppelin-upgrades/blob/542818d7309cd9d2bfecf8e0109a0794891a2f3c/packages/plugin-hardhat/src/utils/etherscan-api.ts),
+with the chain ID omitted when a custom explorer has none. Hardhat Verify uses a
+single `ETHERSCAN_API_KEY` for supported Etherscan chains. The patch covers both
+package source and compiled code; it does not change proxy deployment or upgrade
+validation. The pin is temporary: [#1075](https://github.com/threshold-network/tbtc-v2/issues/1075)
+tracks upgrading the OpenZeppelin stack, and
+[#1128](https://github.com/threshold-network/tbtc-v2/issues/1128) tracks the deployment-layer
+rewrite. Those changes need an explicit decision about legacy shared admins,
+new per-proxy admins, existing governance operations and verification.
+
+The PR remains a draft because the strict export/deployment byte-parity gate is unmet: three
+artifacts gain storage layouts, and deployment records reflect that metadata and
+a local transaction gas-limit change. Exported bytecode, ABIs and `export.json`
+match dev.
 
 ## What Hardhat 3 is actually worth here
 

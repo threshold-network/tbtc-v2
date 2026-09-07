@@ -1,12 +1,19 @@
+import {
+  toBigInt,
+  toNumber,
+  BigNumberish,
+  Contract,
+  ContractTransactionResponse,
+  BytesLike,
+} from "ethers"
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
-import { BigNumberish, Contract, ContractTransactionResponse } from "ethers"
-import { BytesLike } from "@ethersproject/bytes"
 import { Deployment } from "hardhat-deploy/types"
+import { walletToStruct, to1e18 } from "../helpers/contract-test-helpers"
 import type { Mock } from "../helpers/mock"
 import type {
   Bank,
@@ -18,6 +25,7 @@ import type {
   IRelay,
   IWalletRegistry,
   RebateStaking,
+  TestERC20,
 } from "../../typechain"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import {
@@ -41,13 +49,15 @@ import {
 } from "../data/redemption"
 import { constants, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
-import { RedemptionRequestStructOutput } from "../../typechain/Bridge"
-import { to1e18 } from "../helpers/contract-test-helpers"
+import type { Redemption as RedemptionTypes } from "../../typechain/contracts/bridge/Bridge"
 import {
   createMock,
   expectCalledOnceWith,
   expectNotCalled,
 } from "../helpers/mock"
+
+type RedemptionRequestStructOutput =
+  RedemptionTypes.RedemptionRequestStructOutput
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -66,7 +76,7 @@ describe("Bridge - Redemption", () => {
   let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let walletRegistry: Mock<IWalletRegistry>
 
@@ -74,9 +84,9 @@ describe("Bridge - Redemption", () => {
     txProofDifficultyFactor: number
   ) => Promise<[Contract, Deployment]>
 
-  let redemptionTimeout: number
+  let redemptionTimeout: bigint
   let redemptionTimeoutSlashingAmount: bigint
-  let redemptionTimeoutNotifierRewardMultiplier: number
+  let redemptionTimeoutNotifierRewardMultiplier: bigint
 
   let deployer: HardhatEthersSigner
 
@@ -118,7 +128,7 @@ describe("Bridge - Redemption", () => {
     await bridgeGovernance
       .connect(governance)
       .beginMovingFundsDustThresholdUpdate(20000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeMovingFundsDustThresholdUpdate()
@@ -126,7 +136,7 @@ describe("Bridge - Redemption", () => {
     await bridgeGovernance
       .connect(governance)
       .beginRedemptionTxMaxFeeUpdate(10000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeRedemptionTxMaxFeeUpdate()
@@ -135,7 +145,9 @@ describe("Bridge - Redemption", () => {
       .connect(governance)
       .setRebateStaking(rebateStaking.target)
 
-    redemptionTimeout = (await bridge.redemptionParameters()).redemptionTimeout
+    redemptionTimeout = toBigInt(
+      toNumber((await bridge.redemptionParameters()).redemptionTimeout)
+    )
   })
 
   describe("requestRedemption", () => {
@@ -294,7 +306,8 @@ describe("Bridge - Redemption", () => {
                                           walletPendingRedemptionValue -
                                             initialWalletPendingRedemptionValue
                                         ).to.be.equal(
-                                          requestedAmount - treasuryFee
+                                          requestedAmount -
+                                            toBigInt(treasuryFee)
                                         )
                                       })
 
@@ -355,7 +368,7 @@ describe("Bridge - Redemption", () => {
                                         expect(
                                           redeemerBalance -
                                             initialRedeemerBalance
-                                        ).to.equal(requestedAmount * -1)
+                                        ).to.equal(requestedAmount * -1n)
                                       })
                                     }
                                   )
@@ -655,7 +668,7 @@ describe("Bridge - Redemption", () => {
                                         expect(
                                           redeemerBalance -
                                             initialRedeemerBalance
-                                        ).to.equal(requestedAmount * -1)
+                                        ).to.equal(requestedAmount * -1n)
                                       })
 
                                       it("should decrease available rebate", async () => {
@@ -1103,7 +1116,7 @@ describe("Bridge - Redemption", () => {
 
         redeemerSigner = await impersonateAccount(redeemer, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
 
         watchtower = await createMock<IRedemptionWatchtower>(
@@ -1326,7 +1339,8 @@ describe("Bridge - Redemption", () => {
                           await bridge.wallets(walletPubKeyHash)
                         ).pendingRedemptionsValue
 
-                        const { defaultAbiCoder } = ethers
+                        const defaultAbiCoder =
+                          ethers.AbiCoder.defaultAbiCoder()
                         const data = defaultAbiCoder.encode(
                           [
                             "address",
@@ -1366,7 +1380,7 @@ describe("Bridge - Redemption", () => {
                         expect(
                           walletPendingRedemptionValue -
                             initialWalletPendingRedemptionValue
-                        ).to.be.equal(requestedAmount - treasuryFee)
+                        ).to.be.equal(requestedAmount - toBigInt(treasuryFee))
                       })
 
                       it("should store the redemption request", async () => {
@@ -1422,7 +1436,7 @@ describe("Bridge - Redemption", () => {
                         )
                         expect(
                           balanceOwnerBalance - initialBalanceOwnerBalance
-                        ).to.equal(requestedAmount * -1)
+                        ).to.equal(requestedAmount * -1n)
                       })
                     })
                   })
@@ -1439,7 +1453,7 @@ describe("Bridge - Redemption", () => {
         await expect(
           bridge
             .connect(thirdParty)
-            .receiveBalanceApproval(thirdParty.address, 1, [])
+            .receiveBalanceApproval(thirdParty.address, 1, "0x")
         ).to.be.revertedWith("Caller is not the bank")
       })
     })
@@ -1611,7 +1625,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out though don't report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(toNumber(redemptionTimeout))
                               }
 
                               // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -1750,7 +1764,9 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -1880,8 +1896,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when the single output is a pending requested redemption but redeemed amount is wrong",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(SinglePendingRequestedRedemption)
+                            const data: RedemptionTestData = structuredClone(
+                              SinglePendingRequestedRedemption
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -1922,8 +1938,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when the single output is a reported timed out requested redemption but amount is wrong",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(SinglePendingRequestedRedemption)
+                            const data: RedemptionTestData = structuredClone(
+                              SinglePendingRequestedRedemption
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -1950,7 +1966,9 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -2467,7 +2485,9 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the requests
                               // timed out and then report the timeouts.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
 
                                 for (
                                   let i = 0;
@@ -2638,7 +2658,9 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the requests
                               // timed out and then report the timeouts.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
 
                                 for (
                                   let i = 0;
@@ -2819,7 +2841,9 @@ describe("Bridge - Redemption", () => {
                               // timed out but report timeout only the two first
                               // requests.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
 
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
@@ -3025,7 +3049,9 @@ describe("Bridge - Redemption", () => {
                               // timed out but report timeout only the two first
                               // requests.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
 
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
@@ -3227,10 +3253,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains a pending requested redemption with wrong amount redeemed",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptions
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptions
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3271,10 +3295,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains a reported timed out requested redemption with wrong amount redeemed",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptions
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptions
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3301,7 +3323,9 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the last request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout + 1)
+                                await increaseTime(
+                                  toNumber(redemptionTimeout + 1n)
+                                )
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -3333,10 +3357,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains a non-zero P2SH change output",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptionsWithP2SHChange
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptionsWithP2SHChange
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3367,10 +3389,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains multiple non-zero change outputs",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptionsWithMultipleP2WPKHChanges
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptionsWithMultipleP2WPKHChanges
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3396,10 +3416,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains one change but with zero as value",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptionsWithP2WPKHChangeZeroValue
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptionsWithP2WPKHChangeZeroValue
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3425,10 +3443,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains a non-requested redemption to an arbitrary script hash",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptionsWithNonRequestedRedemption
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptionsWithNonRequestedRedemption
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3454,10 +3470,8 @@ describe("Bridge - Redemption", () => {
                         context(
                           "when output vector contains a provably unspendable OP_RETURN output",
                           () => {
-                            const data: RedemptionTestData = JSON.parse(
-                              JSON.stringify(
-                                MultiplePendingRequestedRedemptionsWithProvablyUnspendable
-                              )
+                            const data: RedemptionTestData = structuredClone(
+                              MultiplePendingRequestedRedemptionsWithProvablyUnspendable
                             )
 
                             let outcome: Promise<RedemptionScenarioOutcome>
@@ -3499,7 +3513,7 @@ describe("Bridge - Redemption", () => {
                         .connect(governance)
                         .beginRedemptionTxMaxFeeUpdate(3999)
                       await increaseTime(
-                        await bridgeGovernance.governanceDelays(0)
+                        toNumber(await bridgeGovernance.governanceDelays(0))
                       )
                       await bridgeGovernance
                         .connect(governance)
@@ -3513,7 +3527,7 @@ describe("Bridge - Redemption", () => {
                         .connect(governance)
                         .beginRedemptionTxMaxTotalFeeUpdate(3999)
                       await increaseTime(
-                        await bridgeGovernance.governanceDelays(0)
+                        toNumber(await bridgeGovernance.governanceDelays(0))
                       )
                       await bridgeGovernance
                         .connect(governance)
@@ -3556,7 +3570,7 @@ describe("Bridge - Redemption", () => {
                         data.wallet.pubKeyHash
                       )
                       await bridge.setWallet(data.wallet.pubKeyHash, {
-                        ...wallet,
+                        ...walletToStruct(wallet),
                         state: walletState.MovingFunds,
                       })
                     }
@@ -3615,7 +3629,7 @@ describe("Bridge - Redemption", () => {
                               data.wallet.pubKeyHash
                             )
                             await bridge.setWallet(data.wallet.pubKeyHash, {
-                              ...wallet,
+                              ...walletToStruct(wallet),
                               state: test.walletState,
                             })
                           }
@@ -3632,7 +3646,7 @@ describe("Bridge - Redemption", () => {
 
                         it("should revert", async () => {
                           await expect(outcome).to.be.revertedWith(
-                            "'Wallet must be in Live or MovingFunds state"
+                            "Wallet must be in Live or MovingFunds state"
                           )
                         })
                       })
@@ -3645,10 +3659,8 @@ describe("Bridge - Redemption", () => {
             context(
               "when the single input doesn't point to the wallet's main UTXO",
               () => {
-                const data: RedemptionTestData = JSON.parse(
-                  JSON.stringify(
-                    MultiplePendingRequestedRedemptionsWithP2WPKHChange
-                  )
+                const data: RedemptionTestData = structuredClone(
+                  MultiplePendingRequestedRedemptionsWithP2WPKHChange
                 )
 
                 let outcome: Promise<RedemptionScenarioOutcome>
@@ -3786,8 +3798,8 @@ describe("Bridge - Redemption", () => {
 
     context("when transaction proof is not valid", () => {
       context("when input vector is not valid", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -3812,8 +3824,8 @@ describe("Bridge - Redemption", () => {
       })
 
       context("when output vector is not valid", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -3840,8 +3852,8 @@ describe("Bridge - Redemption", () => {
       context(
         "when transaction is not on same level of merkle tree as coinbase",
         () => {
-          const data: RedemptionTestData = JSON.parse(
-            JSON.stringify(SinglePendingRequestedRedemption)
+          const data: RedemptionTestData = structuredClone(
+            SinglePendingRequestedRedemption
           )
 
           before(async () => {
@@ -3868,8 +3880,8 @@ describe("Bridge - Redemption", () => {
       )
 
       context("when merkle proof is not valid", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -3892,8 +3904,8 @@ describe("Bridge - Redemption", () => {
       })
 
       context("when coinbase merkle proof is not valid", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -3917,8 +3929,8 @@ describe("Bridge - Redemption", () => {
       })
 
       context("when proof difficulty is not current nor previous", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -3942,8 +3954,8 @@ describe("Bridge - Redemption", () => {
       })
 
       context("when headers chain length is not valid", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -3972,8 +3984,8 @@ describe("Bridge - Redemption", () => {
       })
 
       context("when headers chain is not valid", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -4006,8 +4018,8 @@ describe("Bridge - Redemption", () => {
       })
 
       context("when the work in the header is insufficient", () => {
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -4040,8 +4052,8 @@ describe("Bridge - Redemption", () => {
         "when accumulated difficulty in headers chain is insufficient",
         () => {
           let otherBridge: Bridge & BridgeStub
-          const data: RedemptionTestData = JSON.parse(
-            JSON.stringify(SinglePendingRequestedRedemption)
+          const data: RedemptionTestData = structuredClone(
+            SinglePendingRequestedRedemption
           )
 
           before(async () => {
@@ -4056,7 +4068,7 @@ describe("Bridge - Redemption", () => {
             // to deem transaction proof validity. This scenario uses test
             // data which has only 6 confirmations. That should force the
             // failure we expect within this scenario.
-            otherBridge = (await deployBridge(12))[0] as BridgeStub
+            otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
             await otherBridge.setSpvMaintainerStatus(
               spvMaintainer.address,
               true
@@ -4089,8 +4101,8 @@ describe("Bridge - Redemption", () => {
         // the transaction data (version, locktime, inputs, outputs)
         // length is 64 bytes or less.
 
-        const data: RedemptionTestData = JSON.parse(
-          JSON.stringify(SinglePendingRequestedRedemption)
+        const data: RedemptionTestData = structuredClone(
+          SinglePendingRequestedRedemption
         )
 
         before(async () => {
@@ -4154,7 +4166,7 @@ describe("Bridge - Redemption", () => {
                 requestedAmount: bigint
                 treasuryFee: bigint
                 txMaxFee: bigint
-                requestedAt: number
+                requestedAt: bigint
               }
 
               const walletMembersIDs = [1, 2, 3, 4, 5]
@@ -4183,7 +4195,7 @@ describe("Bridge - Redemption", () => {
                   data.redemptionRequests[0].redeemer,
                   {
                     from: governance,
-                    value: 10,
+                    value: 10n,
                   }
                 )
 
@@ -4201,7 +4213,7 @@ describe("Bridge - Redemption", () => {
                     data.redemptionRequests[0].amount
                   )
 
-                await increaseTime(redemptionTimeout + 1)
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 initialPendingRedemptionsValue = (
                   await bridge.wallets(data.wallet.pubKeyHash)
@@ -4236,10 +4248,10 @@ describe("Bridge - Redemption", () => {
               })
 
               it("should update the wallet's pending redemptions value", async () => {
-                const expectedPendingRedemptionsValue = (
+                const expectedPendingRedemptionsValue =
                   initialPendingRedemptionsValue -
-                  data.redemptionRequests[0].amount
-                ).add(redemptionRequest.treasuryFee)
+                  toBigInt(data.redemptionRequests[0].amount) +
+                  redemptionRequest.treasuryFee
 
                 const currentPendingRedemptionsValue = (
                   await bridge.wallets(data.wallet.pubKeyHash)
@@ -4252,7 +4264,8 @@ describe("Bridge - Redemption", () => {
 
               it("should return the requested amount of tokens to the redeemer", async () => {
                 const expectedRedeemerBalance =
-                  initialRedeemerBalance + data.redemptionRequests[0].amount
+                  initialRedeemerBalance +
+                  toBigInt(data.redemptionRequests[0].amount)
                 const currentRedeemerBalance = await bank.balanceOf(
                   data.redemptionRequests[0].redeemer
                 )
@@ -4359,7 +4372,7 @@ describe("Bridge - Redemption", () => {
                   requestedAmount: bigint
                   treasuryFee: bigint
                   txMaxFee: bigint
-                  requestedAt: number
+                  requestedAt: bigint
                 }
 
                 const walletMembersIDs = [1, 2, 3, 4, 5]
@@ -4389,7 +4402,7 @@ describe("Bridge - Redemption", () => {
                     data.redemptionRequests[0].redeemer,
                     {
                       from: governance,
-                      value: 10,
+                      value: 10n,
                     }
                   )
 
@@ -4420,7 +4433,7 @@ describe("Bridge - Redemption", () => {
                     )
                   )
 
-                  await increaseTime(redemptionTimeout + 1)
+                  await increaseTime(toNumber(redemptionTimeout + 1n))
 
                   initialPendingRedemptionsValue = (
                     await bridge.wallets(data.wallet.pubKeyHash)
@@ -4455,10 +4468,10 @@ describe("Bridge - Redemption", () => {
                 })
 
                 it("should update the wallet's pending redemptions value", async () => {
-                  const expectedPendingRedemptionsValue = (
+                  const expectedPendingRedemptionsValue =
                     initialPendingRedemptionsValue -
-                    data.redemptionRequests[0].amount
-                  ).add(redemptionRequest.treasuryFee)
+                    toBigInt(data.redemptionRequests[0].amount) +
+                    redemptionRequest.treasuryFee
 
                   const currentPendingRedemptionsValue = (
                     await bridge.wallets(data.wallet.pubKeyHash)
@@ -4471,7 +4484,8 @@ describe("Bridge - Redemption", () => {
 
                 it("should return the requested amount of tokens to the redeemer", async () => {
                   const expectedRedeemerBalance =
-                    initialRedeemerBalance + data.redemptionRequests[0].amount
+                    initialRedeemerBalance +
+                    toBigInt(data.redemptionRequests[0].amount)
                   const currentRedeemerBalance = await bank.balanceOf(
                     data.redemptionRequests[0].redeemer
                   )
@@ -4605,7 +4619,7 @@ describe("Bridge - Redemption", () => {
                 data.redemptionRequests[0].redeemer,
                 {
                   from: governance,
-                  value: 10,
+                  value: 10n,
                 }
               )
 
@@ -4623,7 +4637,7 @@ describe("Bridge - Redemption", () => {
                   data.redemptionRequests[0].amount
                 )
 
-              await increaseTime(redemptionTimeout + 1)
+              await increaseTime(toNumber(redemptionTimeout + 1n))
 
               await bridge
                 .connect(thirdParty)
@@ -4662,7 +4676,7 @@ describe("Bridge - Redemption", () => {
             requestedAmount: bigint
             treasuryFee: bigint
             txMaxFee: bigint
-            requestedAt: number
+            requestedAt: bigint
           }
 
           const walletMembersIDs = [1, 2, 3, 4, 5]
@@ -4692,7 +4706,7 @@ describe("Bridge - Redemption", () => {
               data.redemptionRequests[0].redeemer,
               {
                 from: governance,
-                value: 10,
+                value: 10n,
               }
             )
 
@@ -4725,7 +4739,7 @@ describe("Bridge - Redemption", () => {
               movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
 
-            await increaseTime(redemptionTimeout + 1)
+            await increaseTime(toNumber(redemptionTimeout + 1n))
 
             initialPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -4758,9 +4772,10 @@ describe("Bridge - Redemption", () => {
           })
 
           it("should update the wallet's pending redemptions value", async () => {
-            const expectedPendingRedemptionsValue = (
-              initialPendingRedemptionsValue - data.redemptionRequests[0].amount
-            ).add(redemptionRequest.treasuryFee)
+            const expectedPendingRedemptionsValue =
+              initialPendingRedemptionsValue -
+              toBigInt(data.redemptionRequests[0].amount) +
+              redemptionRequest.treasuryFee
 
             const currentPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -4773,7 +4788,8 @@ describe("Bridge - Redemption", () => {
 
           it("should return the requested amount of tokens to the redeemer", async () => {
             const expectedRedeemerBalance =
-              initialRedeemerBalance + data.redemptionRequests[0].amount
+              initialRedeemerBalance +
+              toBigInt(data.redemptionRequests[0].amount)
             const currentRedeemerBalance = await bank.balanceOf(
               data.redemptionRequests[0].redeemer
             )
@@ -4851,7 +4867,7 @@ describe("Bridge - Redemption", () => {
             requestedAmount: bigint
             treasuryFee: bigint
             txMaxFee: bigint
-            requestedAt: number
+            requestedAt: bigint
           }
 
           before(async () => {
@@ -4879,7 +4895,7 @@ describe("Bridge - Redemption", () => {
               data.redemptionRequests[0].redeemer,
               {
                 from: governance,
-                value: 10,
+                value: 10n,
               }
             )
 
@@ -4912,7 +4928,7 @@ describe("Bridge - Redemption", () => {
               movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
             })
 
-            await increaseTime(redemptionTimeout + 1)
+            await increaseTime(toNumber(redemptionTimeout + 1n))
 
             initialPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -4943,9 +4959,10 @@ describe("Bridge - Redemption", () => {
           })
 
           it("should update the wallet's pending redemptions value", async () => {
-            const expectedPendingRedemptionsValue = (
-              initialPendingRedemptionsValue - data.redemptionRequests[0].amount
-            ).add(redemptionRequest.treasuryFee)
+            const expectedPendingRedemptionsValue =
+              initialPendingRedemptionsValue -
+              toBigInt(data.redemptionRequests[0].amount) +
+              redemptionRequest.treasuryFee
 
             const currentPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -5008,7 +5025,8 @@ describe("Bridge - Redemption", () => {
 
           it("should return the requested amount of tokens to the redeemer", async () => {
             const expectedRedeemerBalance =
-              initialRedeemerBalance + data.redemptionRequests[0].amount
+              initialRedeemerBalance +
+              toBigInt(data.redemptionRequests[0].amount)
             const currentRedeemerBalance = await bank.balanceOf(
               data.redemptionRequests[0].redeemer
             )
@@ -5067,7 +5085,7 @@ describe("Bridge - Redemption", () => {
                     data.redemptionRequests[0].redeemer,
                     {
                       from: governance,
-                      value: 10,
+                      value: 10n,
                     }
                   )
 
@@ -5100,7 +5118,7 @@ describe("Bridge - Redemption", () => {
                     movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
                   })
 
-                  await increaseTime(redemptionTimeout + 1)
+                  await increaseTime(toNumber(redemptionTimeout + 1n))
                 })
 
                 after(async () => {
@@ -5149,7 +5167,7 @@ describe("Bridge - Redemption", () => {
             data.redemptionRequests[0].redeemer,
             {
               from: governance,
-              value: 10,
+              value: 10n,
             }
           )
 
@@ -5167,7 +5185,7 @@ describe("Bridge - Redemption", () => {
               data.redemptionRequests[0].amount
             )
 
-          await increaseTime(redemptionTimeout - 1)
+          await increaseTime(toNumber(redemptionTimeout - 1n))
         })
 
         after(async () => {
@@ -5244,7 +5262,7 @@ describe("Bridge - Redemption", () => {
 
         watchtowerSigner = await impersonateAccount(watchtower.address, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
 
         await bridgeGovernance
@@ -5298,7 +5316,7 @@ describe("Bridge - Redemption", () => {
             data.redemptionRequests[0].redeemer,
             {
               from: governance,
-              value: 10,
+              value: 10n,
             }
           )
 
@@ -5348,7 +5366,7 @@ describe("Bridge - Redemption", () => {
             currentWalletPendingRedemptionsValue
 
           expect(difference).to.be.equal(
-            redemption.requestedAmount.sub(redemption.treasuryFee)
+            redemption.requestedAmount - redemption.treasuryFee
           )
         })
 
@@ -5424,7 +5442,7 @@ describe("Bridge - Redemption", () => {
       /* eslint-disable no-await-in-loop */
       const redeemerSigner = await impersonateAccount(redeemer, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
 
       await makeRedemptionAllowance(redeemerSigner, amount)

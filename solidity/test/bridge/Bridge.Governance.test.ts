@@ -4503,7 +4503,7 @@ describe("Bridge - Governance", () => {
         )
         const govFactory = await ethers.getContractFactory("BridgeGovernance", {
           libraries: {
-            BridgeGovernanceParameters: paramsLib.address,
+            BridgeGovernanceParameters: paramsLib.target,
           },
         })
         localBridgeGovernance = (await govFactory
@@ -4544,7 +4544,7 @@ describe("Bridge - Governance", () => {
       )
       const govFactory = await ethers.getContractFactory("BridgeGovernance", {
         libraries: {
-          BridgeGovernanceParameters: paramsLib.address,
+          BridgeGovernanceParameters: paramsLib.target,
         },
       })
 

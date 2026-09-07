@@ -62,3 +62,7 @@ apply_one \
 apply_one \
   "$SOLIDITY_ROOT/deploy-patches/13_authorize_in_random_beacon.js" \
   "$SOLIDITY_ROOT/node_modules/@keep-network/ecdsa/export/deploy/13_authorize_in_random_beacon.js"
+
+apply_one \
+  "$SOLIDITY_ROOT/deploy-patches/30_deploy_tokenholder_timelock.js" \
+  "$SOLIDITY_ROOT/node_modules/@threshold-network/solidity-contracts/export/deploy/30_deploy_tokenholder_timelock.js"

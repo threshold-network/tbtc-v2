@@ -1,3 +1,4 @@
+import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
@@ -124,9 +125,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt1 = await tx1.wait()
-      const nonce1 = receipt1.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )?.args?.nonce
+      const nonce1 = receipt1.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
 
       // User 2 sets parameters (should not interfere with user 1)
       const tx2 = await depositor
@@ -137,9 +138,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt2 = await tx2.wait()
-      const nonce2 = receipt2.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )?.args?.nonce
+      const nonce2 = receipt2.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
 
       // Nonces should be different
       expect(nonce1).to.not.equal(nonce2)
@@ -247,9 +248,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
       const receipt = await tx.wait()
-      const expectedNonce = receipt.events?.find(
-        (e) => e.event === "ExecutorParametersSet"
-      )?.args?.nonce
+      const expectedNonce = receipt.logs
+        .filter((log): log is EventLog => log instanceof EventLog)
+        ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
 
       // Check workflow status
       const [hasWorkflowAfter, nonceAfter, timestampAfter] =

@@ -1,3 +1,4 @@
+import { toNumber, toBigInt } from "ethers"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
@@ -79,15 +80,15 @@ describe("VendingMachine - Upgrade", () => {
     await tbtcV1.connect(deployer).mint(account2.address, initialTbtcBalance)
     await tbtcV1
       .connect(account1)
-      .approveAndCall(vendingMachine.target, initialTbtcBalance, [])
+      .approveAndCall(vendingMachine.target, initialTbtcBalance, "0x")
     await tbtcV1
       .connect(account2)
-      .approveAndCall(vendingMachine.target, initialTbtcBalance, [])
+      .approveAndCall(vendingMachine.target, initialTbtcBalance, "0x")
 
     await vendingMachine
       .connect(keepTechnicalWalletTeam)
       .initiateVendingMachineUpgrade(tbtcVault.target)
-    await increaseTime(await vendingMachine.GOVERNANCE_DELAY())
+    await increaseTime(toNumber(await vendingMachine.GOVERNANCE_DELAY()))
     await vendingMachine
       .connect(keepCommunityMultiSig)
       .finalizeVendingMachineUpgrade()
@@ -149,11 +150,9 @@ describe("VendingMachine - Upgrade", () => {
 
     describe("step#3 - BTC deposit", () => {
       before(async () => {
-        const data: DepositSweepTestData = JSON.parse(
-          JSON.stringify(SingleP2SHDeposit)
-        )
+        const data: DepositSweepTestData = structuredClone(SingleP2SHDeposit)
         const { fundingTx, depositor, reveal } = data.deposits[0] // it's a single deposit
-        reveal.vault = tbtcVault.target
+        reveal.vault = await tbtcVault.getAddress()
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {
@@ -170,7 +169,7 @@ describe("VendingMachine - Upgrade", () => {
 
         const depositorSigner = await impersonateAccount(depositor, {
           from: governance,
-          value: 10,
+          value: 10n,
         })
         await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
 
@@ -259,10 +258,10 @@ describe("VendingMachine - Upgrade", () => {
         await tbtcVault.connect(account2).mint(mintedAmount2)
 
         expect(await tbtc.balanceOf(account1.address)).to.equal(
-          initialTbtcBalance1 + mintedAmount1
+          initialTbtcBalance1 + toBigInt(mintedAmount1)
         )
         expect(await tbtc.balanceOf(account2.address)).to.equal(
-          initialTbtcBalance2 + mintedAmount2
+          initialTbtcBalance2 + toBigInt(mintedAmount2)
         )
         expect(await bank.balanceOf(tbtcVault.target)).to.equal(
           initialWalletBtcBalance + mintedBankBalance1 + mintedBankBalance2
@@ -302,7 +301,7 @@ describe("VendingMachine - Upgrade", () => {
     before(async () => {
       await createSnapshot()
 
-      depositData = JSON.parse(JSON.stringify(SingleP2SHDeposit))
+      depositData = structuredClone(SingleP2SHDeposit)
 
       // In this scenario, depositor of BTC into the v2 Bridge is the v1
       // redeemer responsible for unwrapping TBTC v2 back to TBTC v1 and then
@@ -314,7 +313,7 @@ describe("VendingMachine - Upgrade", () => {
       const { depositor } = depositData.deposits[0] // it's a single deposit
       redeemer = await impersonateAccount(depositor, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
     })
 
@@ -353,7 +352,7 @@ describe("VendingMachine - Upgrade", () => {
     describe("step #3 - BTC deposit", () => {
       before(async () => {
         const { fundingTx, reveal } = depositData.deposits[0] // it's a single deposit
-        reveal.vault = tbtcVault.target
+        reveal.vault = await tbtcVault.getAddress()
 
         // Simulate the wallet is a Live one and is known in the system.
         await bridge.setWallet(reveal.walletPubKeyHash, {

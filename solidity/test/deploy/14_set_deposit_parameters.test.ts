@@ -1,7 +1,7 @@
+import { toBigInt, ethers as utils } from "ethers"
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
-import { BigNumber, utils } from "ethers"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import func, {
   buildDepositRevealAheadPeriodGovernanceActions,
@@ -11,18 +11,18 @@ import func, {
 describe("Deploy Script 14: deposit parameters", () => {
   const deployer = "0x1000000000000000000000000000000000000001"
   const bridgeGovernance = "0x2000000000000000000000000000000000000002"
-  const depositDustThreshold = BigNumber.from("1000000")
-  const depositTreasuryFeeDivisor = BigNumber.from("500")
-  const depositTxMaxFee = BigNumber.from("100000")
-  const governanceDelay = BigNumber.from("172800")
+  const depositDustThreshold = toBigInt("1000000")
+  const depositTreasuryFeeDivisor = toBigInt("500")
+  const depositTxMaxFee = toBigInt("100000")
+  const governanceDelay = toBigInt("172800")
 
   function createMockHre(options: {
     bridgeGovernance: string
-    depositRevealAheadPeriod: BigNumber
+    depositRevealAheadPeriod: bigint
     bridgeGovernanceDeployment?: string | null
     pendingUpdate?: {
-      newDepositRevealAheadPeriod: BigNumber
-      timestamp: BigNumber
+      newDepositRevealAheadPeriod: bigint
+      timestamp: bigint
     } | null
   }) {
     const executeCalls: any[][] = []
@@ -59,7 +59,7 @@ describe("Deploy Script 14: deposit parameters", () => {
 
           if (name === "BridgeGovernance" && method === "governanceDelays") {
             const index = args[0]
-            if (BigNumber.from(index).eq(0)) {
+            if (toBigInt(index) === 0n) {
               return governanceDelay
             }
             throw new Error(`Unexpected read: ${name}.${method}(${index})`)
@@ -69,7 +69,7 @@ describe("Deploy Script 14: deposit parameters", () => {
         },
       },
       ethers: {
-        BigNumber,
+        toBigInt,
         getContractAt: async (name: string, address: string) => ({
           filters: {
             DepositRevealAheadPeriodUpdateStarted: () => "started",
@@ -113,7 +113,7 @@ describe("Deploy Script 14: deposit parameters", () => {
   it("updates Bridge directly before governance is transferred", async () => {
     const { executeCalls, getCalls, mockHre } = createMockHre({
       bridgeGovernance: deployer,
-      depositRevealAheadPeriod: BigNumber.from("1296000"),
+      depositRevealAheadPeriod: toBigInt("1296000"),
     })
 
     await func(mockHre)
@@ -136,7 +136,7 @@ describe("Deploy Script 14: deposit parameters", () => {
     const { executeCalls, getCalls, mockHre } = createMockHre({
       bridgeGovernance: deployer,
       bridgeGovernanceDeployment: null,
-      depositRevealAheadPeriod: BigNumber.from("1296000"),
+      depositRevealAheadPeriod: toBigInt("1296000"),
     })
 
     await func(mockHre)
@@ -164,7 +164,7 @@ describe("Deploy Script 14: deposit parameters", () => {
   it("emits delayed governance actions and blocks release when the live value differs", async () => {
     const { executeCalls, getCalls, logs, mockHre } = createMockHre({
       bridgeGovernance,
-      depositRevealAheadPeriod: BigNumber.from("21945600"),
+      depositRevealAheadPeriod: toBigInt("21945600"),
     })
 
     let error: Error | undefined
@@ -238,10 +238,10 @@ describe("Deploy Script 14: deposit parameters", () => {
   it("throws when a pending deposit reveal-ahead period update exists", async () => {
     const { mockHre } = createMockHre({
       bridgeGovernance,
-      depositRevealAheadPeriod: BigNumber.from("12960000").add(1),
+      depositRevealAheadPeriod: toBigInt("12960000") + 1n,
       pendingUpdate: {
-        newDepositRevealAheadPeriod: BigNumber.from("100"),
-        timestamp: BigNumber.from("1000"),
+        newDepositRevealAheadPeriod: toBigInt("100"),
+        timestamp: toBigInt("1000"),
       },
     })
 
@@ -260,10 +260,10 @@ describe("Deploy Script 14: deposit parameters", () => {
   it("throws without warning when pending deposit reveal-ahead period update matches target", async () => {
     const { mockHre } = createMockHre({
       bridgeGovernance,
-      depositRevealAheadPeriod: BigNumber.from("12960000").add(1),
+      depositRevealAheadPeriod: toBigInt("12960000") + 1n,
       pendingUpdate: {
         newDepositRevealAheadPeriod: DEPOSIT_REVEAL_AHEAD_PERIOD,
-        timestamp: BigNumber.from("1000"),
+        timestamp: toBigInt("1000"),
       },
     })
 

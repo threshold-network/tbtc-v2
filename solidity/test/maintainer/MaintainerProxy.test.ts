@@ -1,9 +1,13 @@
+import {
+  toNumber,
+  SigningKey,
+  ContractTransactionResponse,
+  BigNumberish,
+} from "ethers"
 /* eslint-disable no-underscore-dangle */
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { SigningKey } from "ethers/lib/utils"
 import { assert, expect } from "chai"
-import { ContractTransactionResponse, BigNumberish } from "ethers"
 import type { Mock } from "../helpers/mock"
 
 import { ecdsaWalletTestData } from "../data/ecdsa"
@@ -59,7 +63,7 @@ import { constants, walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const provider = ethers.provider
+const { provider } = ethers
 const { impersonateAccount } = helpers.account
 
 const { lastBlockTime, increaseTime } = helpers.time
@@ -87,7 +91,7 @@ describe("MaintainerProxy", () => {
   let bank: Bank & BankStub
 
   let fraudChallengeDepositAmount: bigint
-  let movingFundsTimeoutResetDelay: number
+  let movingFundsTimeoutResetDelay: bigint
 
   let initialWalletMaintainerBalance: bigint
   let initialSpvMaintainerBalance: bigint
@@ -381,9 +385,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
 
@@ -429,9 +431,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
 
@@ -538,9 +538,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
               dataWithVault.deposits[1].reveal.vault = vault.address
@@ -596,9 +594,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vault.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vault.address
               dataWithVault.deposits[0].reveal.vault = vault.address
               dataWithVault.deposits[1].reveal.vault = vault.address
@@ -670,9 +666,7 @@ describe("MaintainerProxy", () => {
                 .setVaultStatus(vaultB.address, true)
 
               // Enrich the test data with the vault parameter.
-              const dataWithVault: DepositSweepTestData = JSON.parse(
-                JSON.stringify(data)
-              )
+              const dataWithVault: DepositSweepTestData = structuredClone(data)
               dataWithVault.vault = vaultA.address
               dataWithVault.deposits[0].reveal.vault = vaultA.address
               dataWithVault.deposits[1].reveal.vault = vaultA.address
@@ -859,7 +853,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the request
               // timed out though don't report the timeout.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(toNumber(redemptionTimeout))
               }
 
               // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -912,7 +906,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the request
               // timed out and then report the timeout.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout + 1n)
+                await increaseTime(toNumber(redemptionTimeout + 1n))
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
                   [],
@@ -1050,7 +1044,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout + 1n)
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1110,7 +1104,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout + 1n)
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1177,7 +1171,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout + 1n)
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1243,7 +1237,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout + 1n)
+                await increaseTime(toNumber(redemptionTimeout + 1n))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1355,7 +1349,9 @@ describe("MaintainerProxy", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime((await bridge.walletParameters()).walletMaxAge)
+          await increaseTime(
+            toNumber((await bridge.walletParameters()).walletMaxAge)
+          )
         })
 
         after(async () => {
@@ -1862,9 +1858,9 @@ describe("MaintainerProxy", () => {
       // prefix to the signed message. The format of the heartbeat message is
       // the same no matter on which host chain TBTC is deployed.
       heartbeatWalletSigningKey = new ethers.SigningKey(wallet.privateKey)
-      // Public key obtained as `wallet.publicKey` is an uncompressed key,
+      // Public key obtained as `wallet.signingKey.publicKey` is an uncompressed key,
       // prefixed with `0x04`. To compute raw ECDSA key, we need to drop `0x04`.
-      heartbeatWalletPublicKey = `0x${wallet.publicKey.substring(4)}`
+      heartbeatWalletPublicKey = `0x${wallet.signingKey.publicKey.substring(4)}`
 
       const walletID = keccak256(heartbeatWalletPublicKey)
       const walletPublicKeyX = `0x${heartbeatWalletPublicKey.substring(2, 66)}`
@@ -1882,7 +1878,7 @@ describe("MaintainerProxy", () => {
       const sighash = sha256(sha256(heartbeatMessage))
 
       const signature = ethers.Signature.from(
-        heartbeatWalletSigningKey.signDigest(sighash)
+        heartbeatWalletSigningKey.sign(sighash)
       )
 
       await bridge
@@ -2046,7 +2042,7 @@ describe("MaintainerProxy", () => {
         movingFundsTargetWalletsCommitmentHash: ethers.ZeroHash,
       })
 
-      await increaseTime(movingFundsTimeoutResetDelay + 2)
+      await increaseTime(toNumber(movingFundsTimeoutResetDelay + 2n))
 
       initialThirdPartyBalance = await provider.getBalance(thirdParty.address)
       tx = await maintainerProxy
@@ -2357,7 +2353,7 @@ describe("MaintainerProxy", () => {
           )
 
         await increaseTime(
-          (await bridge.walletParameters()).walletClosingPeriod + 1
+          toNumber((await bridge.walletParameters()).walletClosingPeriod + 1n)
         )
 
         tx = await maintainerProxy
@@ -3543,7 +3539,7 @@ describe("MaintainerProxy", () => {
       // eslint-disable-next-line no-await-in-loop
       const depositorSigner = await impersonateAccount(depositor, {
         from: governance,
-        value: 10,
+        value: 10n,
       })
       // eslint-disable-next-line no-await-in-loop
       await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
@@ -3587,7 +3583,7 @@ describe("MaintainerProxy", () => {
     await bridgeGovernance
       .connect(governance)
       .beginMovingFundsDustThresholdUpdate(2000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeMovingFundsDustThresholdUpdate()
@@ -3595,7 +3591,7 @@ describe("MaintainerProxy", () => {
     await bridgeGovernance
       .connect(governance)
       .beginRedemptionTxMaxFeeUpdate(1000)
-    await increaseTime(await bridgeGovernance.governanceDelays(0))
+    await increaseTime(toNumber(await bridgeGovernance.governanceDelays(0)))
     await bridgeGovernance
       .connect(governance)
       .finalizeRedemptionTxMaxFeeUpdate()
@@ -3626,7 +3622,7 @@ describe("MaintainerProxy", () => {
       /* eslint-disable no-await-in-loop */
       const redeemerSigner = await impersonateAccount(redeemer, {
         from: governance,
-        value: 100,
+        value: 100n,
       })
 
       await makeRedemptionAllowance(redeemerSigner, amount)
@@ -3744,7 +3740,7 @@ describe("MaintainerProxy", () => {
       // initialized the counter properly.
       assert(
         (await bridge.wallets(data.movedFundsSweepRequest.walletPubKeyHash))
-          .pendingMovedFundsSweepRequestsCount === 1,
+          .pendingMovedFundsSweepRequestsCount === 1n,
         "Pending moved funds request counter for the sweeping wallet should be set up to 1"
       )
     }

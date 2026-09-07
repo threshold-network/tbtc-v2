@@ -148,7 +148,7 @@ describe("DonationVault", () => {
         await expect(
           vault
             .connect(bridge)
-            .receiveBalanceApproval(account1.address, 1000, [])
+            .receiveBalanceApproval(account1.address, 1000, "0x")
         ).to.be.revertedWith("Caller is not the Bank")
       })
     })
@@ -166,7 +166,7 @@ describe("DonationVault", () => {
 
       it("should revert", async () => {
         await expect(
-          bank.connect(account1).approveBalanceAndCall(vault.target, 1000, [])
+          bank.connect(account1).approveBalanceAndCall(vault.target, 1000, "0x")
         ).to.be.revertedWith("Amount exceeds balance in the bank")
       })
     })
@@ -181,7 +181,7 @@ describe("DonationVault", () => {
 
         tx = await bank
           .connect(account1)
-          .approveBalanceAndCall(vault.target, 1000, [])
+          .approveBalanceAndCall(vault.target, 1000, "0x")
       })
 
       after(async () => {
