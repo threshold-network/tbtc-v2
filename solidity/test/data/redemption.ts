@@ -1,4 +1,4 @@
-import type { BigNumber, BigNumberish, BytesLike } from "ethers"
+import type { BigNumberish, BytesLike } from "ethers"
 import { walletState } from "../fixtures"
 
 // TODO: All explanatory comments regarding redemption math assumes the

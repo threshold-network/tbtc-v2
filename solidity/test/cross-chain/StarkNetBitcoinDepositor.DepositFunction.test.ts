@@ -82,7 +82,9 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = StarkNetBitcoinDepositor.attach(proxy.target)
+    depositor = StarkNetBitcoinDepositor.attach(
+      proxy.target
+    ) as StarkNetBitcoinDepositor
 
     // Verify initialization
     // console.log("Vault address:", tbtcVault.address)
@@ -110,7 +112,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   describe("_transferTbtc Implementation", () => {
     it.skip("should call deposit() instead of depositWithMessage() - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // RED: This test will fail because implementation still uses depositWithMessage
-      const fixture = loadFixture(tbtcVault.target)
+      const fixture = loadFixture(await tbtcVault.getAddress())
       const depositAmount = to1ePrecision(10000, 10) // 0.0001 BTC
       // const starkNetRecipient = BigInt(fixture.extraData)
 
@@ -163,7 +165,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
 
     it.skip("should not create empty message array - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // GREEN: This test verifies no empty array is created
-      const fixture = loadFixture(tbtcVault.target)
+      const fixture = loadFixture(await tbtcVault.getAddress())
       // Mock bridge uses 1 BTC = 100000000 satoshis
       // After treasury fee, the actual amount will be less
       const satoshiAmount = 100000000 // 1 BTC in satoshis
@@ -212,7 +214,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   describe("Gas Optimization Verification", () => {
     it.skip("should reduce gas usage by ~2000 - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // GREEN: This test will measure gas difference
-      const fixture = loadFixture(tbtcVault.target)
+      const fixture = loadFixture(await tbtcVault.getAddress())
       // Calculate expected amount based on MockBridgeForStarkNet
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet
@@ -253,7 +255,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
   describe("Functionality Preservation", () => {
     it.skip("should maintain same functionality with deposit() - SKIPPED DUE TO TBTC TOKEN INIT ISSUE", async () => {
       // GREEN: Verify end-to-end functionality is preserved
-      const fixture = loadFixture(tbtcVault.target)
+      const fixture = loadFixture(await tbtcVault.getAddress())
       // Calculate expected amount based on MockBridgeForStarkNet
       const satoshiAmount = 100000000 // 1 BTC in satoshis
       const treasuryFee = 12098 // From MockBridgeForStarkNet

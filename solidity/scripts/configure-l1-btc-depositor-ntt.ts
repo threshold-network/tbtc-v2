@@ -134,7 +134,9 @@ async function main() {
 
   console.log(`👤 Deployer: ${deployer.address}`)
   console.log(
-    `💰 Balance: ${ethers.formatEther(await deployer.getBalance())} ETH`
+    `💰 Balance: ${ethers.formatEther(
+      await ethers.provider.getBalance(deployer.address)
+    )} ETH`
   )
 
   // Configure supported chains

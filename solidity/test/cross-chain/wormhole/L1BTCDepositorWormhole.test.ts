@@ -15,10 +15,7 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
-import type {
-  BitcoinTxInfoStruct,
-  DepositRevealInfoStruct,
-} from "../../../typechain/L2BTCDepositorWormhole"
+import type { IBridgeTypes as IBridgeTypesTypes } from "../../../typechain/contracts/cross-chain/wormhole/L2BTCDepositorWormhole"
 import { to1ePrecision } from "../../helpers/contract-test-helpers"
 import {
   createMock,
@@ -27,6 +24,9 @@ import {
   expectNotCalled,
 } from "../../helpers/mock"
 import type { Mock } from "../../helpers/mock"
+
+type BitcoinTxInfoStruct = IBridgeTypesTypes.BitcoinTxInfoStruct
+type DepositRevealInfoStruct = IBridgeTypesTypes.DepositRevealInfoStruct
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -48,7 +48,7 @@ function assertVaaTransferBatchArg(
   const v = batch[0] as [unknown, unknown, unknown]
   expect(Number(v[0])).to.equal(expected.emitterChainId)
   expect(v[1]).to.equal(expected.emitterAddress)
-  expect(BigInt(v[2]) === ethers.toBigInt(expected.sequence)).to.be.true
+  expect(BigInt(String(v[2])) === ethers.toBigInt(expected.sequence)).to.be.true
 }
 
 describe("L1BTCDepositorWormhole", () => {
@@ -111,7 +111,7 @@ describe("L1BTCDepositorWormhole", () => {
         },
       }
     )
-    const l1BtcDepositor = deployment[0] as L1BTCDepositorWormhole
+    const l1BtcDepositor = deployment[0] as unknown as L1BTCDepositorWormhole
 
     await l1BtcDepositor.connect(deployer).transferOwnership(governance.address)
 
@@ -236,7 +236,7 @@ describe("L1BTCDepositorWormhole", () => {
           l1BtcDepositor
             .connect(relayer)
             .updateReimbursementPool(reimbursementPool.address)
-        ).to.be.revertedWith("'Caller is not the owner")
+        ).to.be.revertedWith("Caller is not the owner")
       })
     })
 
@@ -412,8 +412,8 @@ describe("L1BTCDepositorWormhole", () => {
     context("when the L2 deposit owner is non-zero", () => {
       context("when the requested vault is not TBTCVault", () => {
         it("should revert", async () => {
-          const corruptedReveal = JSON.parse(
-            JSON.stringify(initializeDepositFixture.reveal)
+          const corruptedReveal = structuredClone(
+            initializeDepositFixture.reveal
           )
 
           // Set another vault address deliberately. This value must be
@@ -593,7 +593,7 @@ describe("L1BTCDepositorWormhole", () => {
                 fundingTx.locktime,
               ])
               expect(call.args[1]).to.eql([
-                reveal.fundingOutputIndex,
+                ethers.toBigInt(reveal.fundingOutputIndex),
                 reveal.blindingFactor,
                 reveal.walletPubKeyHash,
                 reveal.refundPubKeyHash,
@@ -690,7 +690,7 @@ describe("L1BTCDepositorWormhole", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -796,7 +796,7 @@ describe("L1BTCDepositorWormhole", () => {
                   fundingTx.locktime,
                 ])
                 expect(call.args[1]).to.eql([
-                  reveal.fundingOutputIndex,
+                  ethers.toBigInt(reveal.fundingOutputIndex),
                   reveal.blindingFactor,
                   reveal.walletPubKeyHash,
                   reveal.refundPubKeyHash,
@@ -1528,7 +1528,7 @@ describe("L1BTCDepositorWormhole", () => {
                       reimbursementPoolMaxGasPrice -
                     ethers.toBigInt(reimbursementPoolStaticGas)
                   expect(
-                    ethers.toNumber(BigInt(call1.args[0]))
+                    ethers.toNumber(BigInt(String(call1.args[0])))
                   ).to.be.greaterThan(ethers.toNumber(msgValueOffset))
                   expect(call1.args[1]).to.equal(relayer.address)
 

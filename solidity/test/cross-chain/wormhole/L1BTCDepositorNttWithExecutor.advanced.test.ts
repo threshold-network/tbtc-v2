@@ -91,7 +91,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       100,
       owner.address,
       0,
-      ethers.constants.AddressZero
+      ethers.ZeroAddress
     )
   })
 

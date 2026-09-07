@@ -92,7 +92,7 @@ describe("BTCDepositorWormhole", () => {
         },
       }
     )
-    const NonEvmBtcDepositor = deployment[0] as BTCDepositorWormhole
+    const NonEvmBtcDepositor = deployment[0] as unknown as BTCDepositorWormhole
 
     await NonEvmBtcDepositor.connect(deployer).transferOwnership(
       governance.address
@@ -153,7 +153,7 @@ describe("BTCDepositorWormhole", () => {
           NonEvmBtcDepositor.connect(relayer).updateReimbursementPool(
             reimbursementPool.address
           )
-        ).to.be.revertedWith("'Caller is not the owner")
+        ).to.be.revertedWith("Caller is not the owner")
       })
     })
 
@@ -295,8 +295,8 @@ describe("BTCDepositorWormhole", () => {
     context("when the destination chain deposit owner is non-zero", () => {
       context("when the requested vault is not TBTCVault", () => {
         it("should revert", async () => {
-          const corruptedReveal = JSON.parse(
-            JSON.stringify(initializeDepositFixture.reveal)
+          const corruptedReveal = structuredClone(
+            initializeDepositFixture.reveal
           )
 
           // Set another vault address deliberately. This value must be
@@ -1291,7 +1291,7 @@ describe("BTCDepositorWormhole", () => {
                     BigInt(messageFee) / reimbursementPoolMaxGasPrice -
                     ethers.toBigInt(reimbursementPoolStaticGas)
                   expect(
-                    ethers.toNumber(BigInt(call1.args[0]))
+                    ethers.toNumber(BigInt(String(call1.args[0])))
                   ).to.be.greaterThan(ethers.toNumber(msgValueOffset))
                   expect(call1.args[1]).to.equal(relayer.address)
 

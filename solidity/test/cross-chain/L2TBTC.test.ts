@@ -2,7 +2,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { randomBytes } from "crypto"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
-import { ContractTransactionResponse, Wallet } from "ethers"
+import { ContractTransactionResponse, HDNodeWallet } from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
 
 import type { L2TBTC, TestERC20, TestERC721 } from "../../typechain"
@@ -41,7 +41,7 @@ describe("L2TBTC", () => {
         },
       }
     )
-    token = deployment[0] as L2TBTC
+    token = deployment[0] as unknown as L2TBTC
 
     await token.connect(deployer).transferOwnership(governance.address)
 
@@ -556,7 +556,12 @@ describe("L2TBTC", () => {
         await expect(
           token
             .connect(thirdParty)
-            .recoverERC721(randomERC721.target, thirdParty.address, tokenId, [])
+            .recoverERC721(
+              randomERC721.target,
+              thirdParty.address,
+              tokenId,
+              "0x"
+            )
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -567,7 +572,7 @@ describe("L2TBTC", () => {
 
         await token
           .connect(governance)
-          .recoverERC721(randomERC721.target, thirdParty.address, tokenId, [])
+          .recoverERC721(randomERC721.target, thirdParty.address, tokenId, "0x")
       })
 
       after(async () => {
@@ -812,9 +817,9 @@ describe("L2TBTC", () => {
 
   describe("DOMAIN_SEPARATOR", () => {
     it("should be keccak256 of EIP712 domain struct", async () => {
-      const { keccak256 } = ethers.utils
-      const { defaultAbiCoder } = ethers.utils
-      const { toUtf8Bytes } = ethers.utils
+      const { keccak256 } = ethers
+      const defaultAbiCoder = ethers.AbiCoder.defaultAbiCoder()
+      const { toUtf8Bytes } = ethers
 
       const expected = keccak256(
         defaultAbiCoder.encode(
@@ -1050,7 +1055,7 @@ describe("L2TBTC", () => {
 
   describe("permit", () => {
     const initialHolderBalance = to1e18(70)
-    let permittingHolder: Wallet
+    let permittingHolder: HDNodeWallet
 
     let deadline: number
 

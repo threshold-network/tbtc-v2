@@ -16,11 +16,11 @@ import type {
   WalletRegistry,
   VendingMachine,
 } from "../../typechain"
-import type { TransparentUpgradeableProxy } from "../../typechain/TransparentUpgradeableProxy"
+import type { TransparentUpgradeableProxy } from "../../typechain/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy"
 
 chai.use(chaiAsPromised)
 
-const { AddressZero } = ethers.constants
+const { ZeroAddress: AddressZero } = ethers
 
 describe("Deployment", async () => {
   let deployer: HardhatEthersSigner
@@ -64,7 +64,10 @@ describe("Deployment", async () => {
       bridge.target
     )
 
-    proxyAdmin = (await upgrades.admin.getInstance()) as ProxyAdmin
+    proxyAdmin = (await ethers.getContractAt(
+      "ProxyAdmin",
+      await (await upgrades.admin.getInstance()).getAddress()
+    )) as ProxyAdmin
 
     bank = await helpers.contracts.getContract("Bank")
     tbtcVault = await helpers.contracts.getContract("TBTCVault")
@@ -98,7 +101,9 @@ describe("Deployment", async () => {
       )
 
       expect(
-        await bridgeProxy.connect(proxyAdmin.target).callStatic.admin()
+        await bridgeProxy
+          .connect(await ethers.getSigner(await proxyAdmin.getAddress()))
+          .admin.staticCall()
       ).to.be.equal(proxyAdmin.target, "invalid Bridge proxy admin")
     })
 
@@ -125,15 +130,15 @@ describe("Deployment", async () => {
 
       expect(
         await bridgeProxy
-          .connect(proxyAdmin.target)
-          .callStatic.implementation(),
+          .connect(await ethers.getSigner(await proxyAdmin.getAddress()))
+          .implementation.staticCall(),
         "invalid Bridge implementation"
       ).to.be.equal(bridgeImplementationAddress)
     })
 
     it("should set Bridge implementation in ProxyAdmin", async () => {
       expect(
-        await proxyAdmin.getProxyImplementation(bridgeProxy.address),
+        await proxyAdmin.getProxyImplementation(bridgeProxy.target),
         "invalid proxy implementation"
       ).to.be.equal(bridgeImplementationAddress)
     })
@@ -141,8 +146,8 @@ describe("Deployment", async () => {
     it("should set implementation address different than proxy address", async () => {
       expect(
         await bridgeProxy
-          .connect(proxyAdmin.target)
-          .callStatic.implementation(),
+          .connect(await ethers.getSigner(await proxyAdmin.getAddress()))
+          .implementation.staticCall(),
         "invalid implementation"
       ).to.be.not.equal(bridge.target)
     })
