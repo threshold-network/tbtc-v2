@@ -43,6 +43,7 @@
     "lint": "eslint . --ext .js,.ts",
     "lint:fix": "eslint . --ext .js,.ts --fix",
     "test": "mocha --exit --recursive 'test/**/*.test.ts'",
+    "test:package": "node scripts/test-package.js",
     "typechain": "rm -rf ./typechain && for i in $npm_package_config_contracts; do typechain --target ethers-v5 --out-dir ./typechain $i; done && rm ./typechain/index.ts && node ./scripts/rewrite-typechain-ethers-imports.js",
     "build": "npm run typechain && tsc --project tsconfig.build.json",
     "dev": "tsc --project tsconfig.build.json --watch",
@@ -122,10 +123,10 @@
   },
   "overrides": {
     "secp256k1": "4.0.3",
-    "@solana/web3.js": "1.97.0"
+    "@solana/web3.js": "$@solana/web3.js"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "packageManager": "yarn@4.12.0",
   "repository": {

@@ -30,6 +30,10 @@ project.
 
 ### Installation
 
+SDK 4.x requires Node.js **22.12.0 or newer**. Earlier Node 22 releases
+cannot load the ESM dependencies used by the SDK's CommonJS entrypoints
+without experimental flags. Upgrade Node.js before installing SDK 4.x.
+
 To install the tBTC SDK in your project using `yarn`, run:
 
 ```bash
@@ -96,10 +100,17 @@ the SDK module for development.
 
 Please make sure you have the following prerequisites installed on your machine:
 
-- [node.js](https://nodejs.org) >=16
-- [yarn](https://classic.yarnpkg.com) >=1.22 or [npm](https://github.com/npm/cli) >=8.11
+- [Node.js](https://nodejs.org) >=22.12.0
+- [Yarn](https://yarnpkg.com) 4.12.0, selected by Corepack from `package.json`
 
-> Although the below commands use `yarn` you can easily use `npm` instead.
+Enable Corepack before installing dependencies:
+
+```bash
+corepack enable
+```
+
+The commands below use the repository's Yarn lockfile. npm is also needed
+for the package consumer test.
 
 ### Install dependencies
 
@@ -126,6 +137,19 @@ To run unit tests, do:
 ```bash
 yarn test
 ```
+
+To check the package as a consumer would install it, build the SDK and run:
+
+```bash
+yarn build
+yarn test:package
+```
+
+This packs the SDK with npm, installs the tarball in a temporary project
+with engine checks enabled, and loads every public entrypoint with both
+`require()` and `import()`. Dependencies are resolved without the repository's
+Yarn lockfile or overrides. This check requires network access and runs in
+CI on Node.js 22.12.0 and the latest Node.js 22 release.
 
 ### Format
 
