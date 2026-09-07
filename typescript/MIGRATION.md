@@ -56,6 +56,10 @@ ethers v5 continues to work unchanged:
 const sdk = await TBTC.initializeMainnet(ethersV5Signer) // still supported
 ```
 
+Reinitialize the SDK after authorizing the wallet or switching its account or
+network. Each initialization reads current provider state, even when you reuse
+the same provider object. Contract handles share that initialization's connection.
+
 ## 4. `BigNumber` → `bigint` everywhere
 
 Every value that was an ethers `BigNumber` is now a native `bigint`. This affects
@@ -111,6 +115,8 @@ status?: "success" | "reverted" | number }`) instead of the ethers
 - `get*Events` filter arguments remain positional but must now be `0x`-prefixed hex
   strings, addresses, or `bigint` — ethers `BigNumber` filter values are no longer
   accepted.
+- For events with multiple positional filters, keep `null` or `undefined`
+  placeholders for non-indexed fields. Positions follow the full ABI input order.
 - Indexed `bytes20`/`bytes32` event filtering (e.g. `getRedemptionRequestedEvents` by
   `walletPublicKeyHash`) now works correctly. If you previously worked around the
   ethers v5 bug that broke this, you can remove that workaround.

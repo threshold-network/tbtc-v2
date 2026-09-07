@@ -13,7 +13,12 @@ import {
   EthersV5SignerLike,
 } from "../../../src/lib/ethereum/evm-connection"
 import { ethersToEip1193 } from "../../../src/lib/ethereum/eip1193-bridge"
-import { EthereumAddress } from "../../../src/lib/ethereum"
+import {
+  EthereumAddress,
+  loadEthereumCoreContracts,
+} from "../../../src/lib/ethereum"
+import { loadBaseCrossChainInterfaces } from "../../../src/lib/base"
+import { Chains } from "../../../src/lib/contracts"
 import { MockEvm } from "../../utils/mock-evm"
 
 /**
@@ -208,16 +213,78 @@ describe("EVM connection", () => {
       expect(connection.chainId).to.equal("1")
     })
 
-    it("should memoize the connection per signer instance", async () => {
+    it("should enable writes when the same provider is authorized later", async () => {
       const mock = new MockEvm()
+      mock.accounts = []
       const signer = mock.asSigner()
 
-      const first = await connectEvm(signer)
-      const requestsAfterFirst = mock.requests.length
-      const second = await connectEvm(signer)
+      expect((await connectEvm(signer)).wallet).to.be.undefined
+      mock.accounts = [mock.account]
+      const authorized = await connectEvm(signer)
 
-      expect(second).to.equal(first)
-      expect(mock.requests.length).to.equal(requestsAfterFirst)
+      expect(authorized.account).to.equal(getAddress(mock.account))
+      expect(authorized.wallet!.account!.address).to.equal(authorized.account)
+      expect(mock.requests.some((r) => r.method === "eth_requestAccounts")).to
+        .be.false
+    })
+
+    it("should resolve the selected account again for the same provider", async () => {
+      const mock = new MockEvm()
+      const signer = mock.asSigner()
+      await connectEvm(signer)
+      const nextAccount = "0x000000000000000000000000000000000000dEaD"
+      mock.accounts = [nextAccount]
+
+      const updated = await connectEvm(signer)
+
+      expect(updated.account).to.equal(nextAccount)
+      expect(updated.wallet!.account!.address).to.equal(nextAccount)
+      expect((await ethereumAddressFromSigner(signer))!.identifierHex).to.equal(
+        nextAccount.slice(2).toLowerCase()
+      )
+    })
+
+    it("should return to read-only mode when the provider loses its accounts", async () => {
+      const mock = new MockEvm()
+      const signer = mock.asSigner()
+      await connectEvm(signer)
+      mock.accounts = []
+
+      const disconnected = await connectEvm(signer)
+
+      expect(disconnected.wallet).to.be.undefined
+      expect(disconnected.account).to.be.undefined
+      expect(await ethereumAddressFromSigner(signer)).to.be.undefined
+    })
+
+    it("should refresh an unbound viem wallet client's account and chain", async () => {
+      const mock = new MockEvm()
+      const wallet = createWalletClient({ transport: custom(mock) })
+      await connectEvm(wallet)
+      mock.accounts = ["0x000000000000000000000000000000000000dEaD"]
+      mock.chainId = 11155111
+
+      const updated = await connectEvm(wallet)
+
+      expect(updated.account).to.equal(mock.accounts[0])
+      expect(updated.chainId).to.equal("11155111")
+    })
+
+    it("should reload core and cross-chain contracts after a network switch", async () => {
+      const mock = new MockEvm()
+      const signer = mock.asSigner()
+      await loadEthereumCoreContracts(signer, Chains.Ethereum.Mainnet)
+      mock.chainId = Number(Chains.Ethereum.Sepolia)
+      await loadEthereumCoreContracts(signer, Chains.Ethereum.Sepolia)
+      mock.chainId = Number(Chains.Base.BaseSepolia)
+
+      const contracts = await loadBaseCrossChainInterfaces(
+        signer,
+        Chains.Base.BaseSepolia
+      )
+
+      expect(contracts.destinationChainBitcoinDepositor).to.not.be.undefined
+      expect(await chainIdFromSigner(signer)).to.equal(Chains.Base.BaseSepolia)
     })
 
     it("should throw for unsupported signer shapes", async () => {

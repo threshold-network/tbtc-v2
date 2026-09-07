@@ -1317,7 +1317,7 @@ Chain ID as a decimal string.
 
 #### Defined in
 
-[src/lib/ethereum/evm-connection.ts:286](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L286)
+[src/lib/ethereum/evm-connection.ts:271](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L271)
 
 ___
 
@@ -1350,8 +1350,9 @@ ___
 
 ▸ **connectEvm**(`signer`): `Promise`\<[`EvmConnection`](interfaces/EvmConnection.md)\>
 
-Normalizes any accepted signer shape into viem clients. Memoized per signer
-instance.
+Normalizes any accepted signer shape into viem clients using its current
+account and chain. Contract loaders share this snapshot within one SDK
+initialization; a later initialization resolves provider state again.
 
 #### Parameters
 
@@ -1371,7 +1372,7 @@ If the passed object is not a supported signer/provider shape.
 
 #### Defined in
 
-[src/lib/ethereum/evm-connection.ts:131](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L131)
+[src/lib/ethereum/evm-connection.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L127)
 
 ___
 
@@ -1469,7 +1470,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[src/lib/ethereum/evm-connection.ts:300](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L300)
+[src/lib/ethereum/evm-connection.ts:285](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L285)
 
 ___
 

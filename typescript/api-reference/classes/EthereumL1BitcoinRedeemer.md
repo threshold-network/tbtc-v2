@@ -80,7 +80,7 @@ EvmContractHandle.\_abi
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:350](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L350)
+[src/lib/ethereum/adapter.ts:362](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L362)
 
 ___
 
@@ -96,7 +96,7 @@ EvmContractHandle.\_address
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:346](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L346)
+[src/lib/ethereum/adapter.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L358)
 
 ___
 
@@ -114,7 +114,7 @@ EvmContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:356](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L356)
+[src/lib/ethereum/adapter.ts:368](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L368)
 
 ___
 
@@ -130,7 +130,7 @@ EvmContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:360](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L360)
+[src/lib/ethereum/adapter.ts:372](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L372)
 
 ## Methods
 
@@ -150,7 +150,7 @@ EvmContractHandle.\_connection
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L395)
+[src/lib/ethereum/adapter.ts:407](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L407)
 
 ___
 
@@ -172,7 +172,7 @@ fallbacks to querying events in batches of
 | :------ | :------ | :------ |
 | `eventName` | `string` | Name of the event. |
 | `options?` | [`Options`](../interfaces/GetChainEvents.Options.md) | Options for events fetching. |
-| `...filterArgs` | `unknown`[] | Positional arguments for events filtering, mapped onto the event's indexed inputs. Values must be 0x-prefixed hex strings, addresses, or `bigint`. |
+| `...filterArgs` | `unknown`[] | Filter arguments in full ABI input order. Use null or undefined for non-indexed inputs and indexed wildcards. Filter values must be 0x-prefixed hex strings, addresses, or `bigint`. |
 
 #### Returns
 
@@ -186,7 +186,7 @@ EvmContractHandle.\_getEvents
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L514)
+[src/lib/ethereum/adapter.ts:526](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L526)
 
 ___
 
@@ -227,7 +227,7 @@ EvmContractHandle.\_read
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L408)
+[src/lib/ethereum/adapter.ts:420](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L420)
 
 ___
 
@@ -268,7 +268,7 @@ EvmContractHandle.\_write
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:456](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L456)
+[src/lib/ethereum/adapter.ts:468](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L468)
 
 ___
 
@@ -290,7 +290,7 @@ EvmContractHandle.getAddress
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:388](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L388)
+[src/lib/ethereum/adapter.ts:400](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L400)
 
 ___
 

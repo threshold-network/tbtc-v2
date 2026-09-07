@@ -1,6 +1,8 @@
 import {
   BaseError,
   ContractFunctionRevertedError,
+  decodeAbiParameters,
+  encodeAbiParameters,
   getAddress,
   type Abi,
   type AbiEvent,
@@ -157,8 +159,9 @@ export function normalizeEvmError(err: unknown): unknown {
 }
 
 /**
- * Maps positional event filter arguments onto the names of the event's
- * indexed inputs, as required by viem's event filtering. Filter values must
+ * Maps filter arguments in full ABI input order onto the names of the event's
+ * indexed inputs, as required by viem's event filtering. Non-indexed fields
+ * retain their positions and accept only null/undefined placeholders. Values must
  * be 0x-prefixed hex strings, addresses, or `bigint` values (callers pass
  * `Hex.toPrefixedString()` output or addresses).
  * @param abi Contract ABI containing the event.
@@ -167,8 +170,8 @@ export function normalizeEvmError(err: unknown): unknown {
  *        are skipped (match-any).
  * @returns Named filter args record or undefined when no filters are set.
  * @throws If the event is not found in the ABI, more filter arguments are
- *         passed than the event has indexed inputs, or a filtered indexed
- *         input has no name in the ABI.
+ *         passed than the event has inputs, a non-indexed input is filtered,
+ *         or a filtered indexed input has no name in the ABI.
  */
 export function positionalToNamedEventArgs(
   abi: Abi,
@@ -186,10 +189,9 @@ export function positionalToNamedEventArgs(
     throw new Error(`Event ${eventName} not found in the contract ABI`)
   }
 
-  const indexedInputs = event.inputs.filter((input) => input.indexed)
-  if (filterArgs.length > indexedInputs.length) {
+  if (filterArgs.length > event.inputs.length) {
     throw new Error(
-      `Event ${eventName} has ${indexedInputs.length} indexed inputs ` +
+      `Event ${eventName} has ${event.inputs.length} inputs ` +
         `but ${filterArgs.length} filter arguments were passed`
     )
   }
@@ -199,14 +201,24 @@ export function positionalToNamedEventArgs(
     if (arg === undefined || arg === null) {
       return
     }
-    const input = indexedInputs[index]
+    const input = event.inputs[index]
+    if (!input.indexed) {
+      throw new Error(
+        `Cannot filter non-indexed input at position ${index} of event ${eventName}`
+      )
+    }
     if (!input.name) {
       throw new Error(
         `Indexed input at position ${index} of event ${eventName} is ` +
           `unnamed; cannot map positional filter arguments`
       )
     }
-    named[input.name] = arg
+    // viem compares filters with decoded event arguments as well as topics.
+    // Round-trip each value through its ABI type so hex-encoded integer
+    // filters and OR lists match the decoded number/bigint representation.
+    const normalize = (value: unknown): unknown =>
+      decodeAbiParameters([input], encodeAbiParameters([input], [value]))[0]
+    named[input.name] = Array.isArray(arg) ? arg.map(normalize) : normalize(arg)
   })
 
   return Object.keys(named).length > 0 ? named : undefined
@@ -506,9 +518,9 @@ export class EvmContractHandle {
    * {@link GetChainEvents.Options#batchedQueryBlockInterval} blocks.
    * @param eventName Name of the event.
    * @param options Options for events fetching.
-   * @param filterArgs Positional arguments for events filtering, mapped onto
-   *        the event's indexed inputs. Values must be 0x-prefixed hex
-   *        strings, addresses, or `bigint`.
+   * @param filterArgs Filter arguments in full ABI input order. Use null or
+   *        undefined for non-indexed inputs and indexed wildcards. Filter
+   *        values must be 0x-prefixed hex strings, addresses, or `bigint`.
    * @returns Array of found events.
    */
   protected async _getEvents(

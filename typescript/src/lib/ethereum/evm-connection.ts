@@ -109,11 +109,6 @@ export interface EvmConnection {
 }
 
 /**
- * Memoization of normalized connections, keyed per signer instance.
- */
-const connectionCache = new WeakMap<object, Promise<EvmConnection>>()
-
-/**
  * Transport options for SDK-constructed viem clients. Transport-level
  * retries are disabled because retrying is owned by the SDK's
  * `backoffRetrier` (parity with the ethers-era behavior, where the RPC
@@ -122,8 +117,9 @@ const connectionCache = new WeakMap<object, Promise<EvmConnection>>()
 const transportOptions = { retryCount: 0 } as const
 
 /**
- * Normalizes any accepted signer shape into viem clients. Memoized per signer
- * instance.
+ * Normalizes any accepted signer shape into viem clients using its current
+ * account and chain. Contract loaders share this snapshot within one SDK
+ * initialization; a later initialization resolves provider state again.
  * @param signer The signer/provider/client to normalize.
  * @returns Normalized SDK-internal connection.
  * @throws If the passed object is not a supported signer/provider shape.
@@ -135,18 +131,7 @@ export async function connectEvm(
     throw new Error("Unsupported Ethereum signer/provider")
   }
 
-  const cached = connectionCache.get(signer)
-  if (cached) {
-    return cached
-  }
-
-  const connection = doConnectEvm(signer)
-  connectionCache.set(signer, connection)
-  // Do not memoize failed normalizations - a transient RPC error during
-  // chain ID probing must not poison subsequent attempts.
-  connection.catch(() => connectionCache.delete(signer))
-
-  return connection
+  return doConnectEvm(signer)
 }
 
 /**

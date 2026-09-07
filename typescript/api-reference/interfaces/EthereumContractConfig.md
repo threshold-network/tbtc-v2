@@ -22,7 +22,7 @@ contract artifact.
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L68)
+[src/lib/ethereum/adapter.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L70)
 
 ___
 
@@ -36,7 +36,7 @@ contract artifact.
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L83)
+[src/lib/ethereum/adapter.ts:85](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L85)
 
 ___
 
@@ -53,4 +53,4 @@ initialization).
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L77)
+[src/lib/ethereum/adapter.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L79)

@@ -323,6 +323,7 @@ describe("EVM adapter", () => {
         "RedemptionRequested",
         { fromBlock: 0 },
         undefined,
+        null,
         redeemer2
       )
 
@@ -353,13 +354,14 @@ describe("EVM adapter", () => {
   describe("positionalToNamedEventArgs", () => {
     const bridgeAbi = asDeployment(BridgeDeployment).abi
 
-    it("should zip positional args onto indexed input names in order", () => {
+    it("should map full ABI positions onto indexed input names", () => {
       const walletPubKeyHash = `0x${"11".repeat(20)}`
       const redeemer = "0x000000000000000000000000000000000000dEaD"
 
       expect(
         positionalToNamedEventArgs(bridgeAbi, "RedemptionRequested", [
           walletPubKeyHash,
+          null,
           redeemer,
         ])
       ).to.deep.equal({ walletPubKeyHash, redeemer })
@@ -371,6 +373,7 @@ describe("EVM adapter", () => {
       expect(
         positionalToNamedEventArgs(bridgeAbi, "RedemptionRequested", [
           undefined,
+          null,
           redeemer,
         ])
       ).to.deep.equal({ redeemer })
@@ -394,16 +397,31 @@ describe("EVM adapter", () => {
       ).to.throw("Event NoSuchEvent not found in the contract ABI")
     })
 
-    it("should throw when more args than indexed inputs are passed", () => {
+    it("should throw when more args than ABI inputs are passed", () => {
       expect(() =>
         positionalToNamedEventArgs(bridgeAbi, "RedemptionRequested", [
-          "0x11",
-          "0x22",
-          "0x33",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
         ])
       ).to.throw(
-        "Event RedemptionRequested has 2 indexed inputs but 3 filter " +
+        "Event RedemptionRequested has 6 inputs but 7 filter " +
           "arguments were passed"
+      )
+    })
+
+    it("should reject a non-null filter for a non-indexed input", () => {
+      expect(() =>
+        positionalToNamedEventArgs(bridgeAbi, "RedemptionRequested", [
+          null,
+          "0x0014",
+        ])
+      ).to.throw(
+        "Cannot filter non-indexed input at position 1 of event RedemptionRequested"
       )
     })
 
