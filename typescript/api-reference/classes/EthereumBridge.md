@@ -353,7 +353,7 @@ Queries redemption lifecycle events with ABI-correct wallet topics.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `eventName` | ``"RedemptionTimedOut"`` \| ``"RedemptionsCompleted"`` | Name of the lifecycle event. |
+| `eventName` | ``"RedemptionRequested"`` \| ``"RedemptionTimedOut"`` \| ``"RedemptionsCompleted"`` | Name of the lifecycle event. |
 | `options?` | [`Options`](../interfaces/GetChainEvents.Options.md) | Event query options. |
 | `...filterArgs` | `unknown`[] | Indexed event filters. |
 
@@ -392,7 +392,7 @@ Bridge.getRedemptionRequestedEvents
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:793](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L793)
+[src/lib/ethereum/bridge.ts:817](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L817)
 
 ___
 

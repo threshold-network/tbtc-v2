@@ -74,13 +74,18 @@ ___
 
 Get emitted RedemptionRequested events.
 
-**`See`**
+**`Param`**
 
-GetEventsFunction
+Optional wallet public key hash filter. The first
+       argument may be a single 20-byte wallet public key hash (as a
+       string or `Hex`), an array of them to match any of the listed
+       wallets, or `null`/omitted to match events from any wallet. An
+       empty array matches no events. No additional filter arguments
+       are supported.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:197](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L197)
+[src/lib/contracts/bridge.ts:202](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L202)
 
 ___
 
@@ -88,11 +93,22 @@ ___
 
 • **getRedemptionTimedOutEvents**: [`Function`](GetChainEvents.Function.md)\<[`RedemptionTimedOutEvent`](../README.md#redemptiontimedoutevent)\>
 
-Timeout reports accepted on-chain; expiration alone emits no event.
+Get emitted RedemptionTimedOut events. These are recorded only when a
+timeout report is accepted on-chain; expiration of the redemption
+timeout alone does not emit an event.
+
+**`Param`**
+
+Optional wallet public key hash filter. The first
+       argument may be a single 20-byte wallet public key hash (as a
+       string or `Hex`), an array of them to match any of the listed
+       wallets, or `null`/omitted to match events from any wallet. An
+       empty array matches no events. No additional filter arguments
+       are supported.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:203](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L203)
+[src/lib/contracts/bridge.ts:227](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L227)
 
 ___
 
@@ -100,11 +116,21 @@ ___
 
 • **getRedemptionsCompletedEvents**: [`Function`](GetChainEvents.Function.md)\<[`RedemptionsCompletedEvent`](../README.md#redemptionscompletedevent)\>
 
-Successful on-chain acceptance of a redemption transaction proof.
+Get emitted RedemptionsCompleted events (successful on-chain acceptance
+of a redemption transaction proof).
+
+**`Param`**
+
+Optional wallet public key hash filter. The first
+       argument may be a single 20-byte wallet public key hash (as a
+       string or `Hex`), an array of them to match any of the listed
+       wallets, or `null`/omitted to match events from any wallet. An
+       empty array matches no events. No additional filter arguments
+       are supported.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L200)
+[src/lib/contracts/bridge.ts:214](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L214)
 
 ## Methods
 
@@ -213,7 +239,7 @@ The timeout in seconds.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L210)
+[src/lib/contracts/bridge.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L234)
 
 ___
 

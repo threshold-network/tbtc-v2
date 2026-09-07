@@ -11,10 +11,15 @@ const blockHash = `0x${"22".repeat(32)}`
 const transactionHash = `0x${"44".repeat(32)}`
 const script = `0014${"33".repeat(20)}`
 const redemptionTxHash = `0x01${"00".repeat(30)}ab`
+const redeemer = `0x${"55".repeat(20)}`
 
 const eventInterface = new utils.Interface([
   "event RedemptionsCompleted(bytes20 indexed walletPubKeyHash, bytes32 redemptionTxHash)",
   "event RedemptionTimedOut(bytes20 indexed walletPubKeyHash, bytes redeemerOutputScript)",
+])
+
+const redemptionRequestedInterface = new utils.Interface([
+  "event RedemptionRequested(bytes20 indexed walletPubKeyHash, bytes redeemerOutputScript, address indexed redeemer, uint64 requestedAmount, uint64 treasuryFee, uint64 txMaxFee)",
 ])
 
 type RedemptionEventName = "RedemptionsCompleted" | "RedemptionTimedOut"
@@ -71,9 +76,13 @@ function eventQuery(eventName: RedemptionEventName) {
         log.blockNumber <= toBlock &&
         (filter.topics ?? []).every((topic, index) => {
           if (topic === null) return true
-          return Array.isArray(topic)
-            ? topic.includes(log.topics[index])
-            : topic === log.topics[index]
+          if (Array.isArray(topic)) {
+            // Real JSON-RPC/Geth semantics: an empty topic array is
+            // unconstrained and matches everything. Production code must
+            // short-circuit before ever querying with an empty wallet list.
+            return topic.length === 0 || topic.includes(log.topics[index])
+          }
+          return topic === log.topics[index]
         })
       )
     })
@@ -87,6 +96,81 @@ function eventQuery(eventName: RedemptionEventName) {
       ? instance.getRedemptionsCompletedEvents.bind(instance)
       : instance.getRedemptionTimedOutEvents.bind(instance)
   return { provider, filters, query }
+}
+
+function redemptionRequestedEventLog(
+  walletPublicKeyHash: string,
+  redeemerAddress: string,
+  requestedAmount: number,
+  treasuryFee: number,
+  txMaxFee: number,
+  logIndex: number
+): providers.Log {
+  const encoded = redemptionRequestedInterface.encodeEventLog(
+    redemptionRequestedInterface.getEvent("RedemptionRequested"),
+    [
+      walletPublicKeyHash,
+      `0x16${script}`,
+      redeemerAddress,
+      requestedAmount,
+      treasuryFee,
+      txMaxFee,
+    ]
+  )
+  // Event encoding follows the ABI's right padding for indexed bytes20.
+  expect(encoded.topics[1]).to.equal(walletTopic(walletPublicKeyHash))
+  return {
+    ...encoded,
+    address: bridgeAddress,
+    blockNumber: 123,
+    blockHash,
+    transactionHash,
+    transactionIndex: 0,
+    logIndex,
+    removed: false,
+  }
+}
+
+function redemptionRequestedQuery() {
+  const provider = new providers.StaticJsonRpcProvider(undefined, {
+    name: "mainnet",
+    chainId: 1,
+  })
+  const filters: providers.Filter[] = []
+  const logs = [
+    redemptionRequestedEventLog(wallet, redeemer, 100000, 100, 1000, 0),
+    redemptionRequestedEventLog(otherWallet, redeemer, 200000, 200, 2000, 1),
+  ]
+  provider.getLogs = async (requestedFilter) => {
+    const filter: providers.Filter = await requestedFilter
+    filters.push(filter)
+    return logs.filter((log) => {
+      const fromBlock =
+        typeof filter.fromBlock === "number" ? filter.fromBlock : 0
+      const toBlock =
+        typeof filter.toBlock === "number" ? filter.toBlock : Infinity
+      return (
+        log.blockNumber >= fromBlock &&
+        log.blockNumber <= toBlock &&
+        (filter.topics ?? []).every((topic, index) => {
+          if (topic === null) return true
+          if (Array.isArray(topic)) {
+            return topic.length === 0 || topic.includes(log.topics[index])
+          }
+          return topic === log.topics[index]
+        })
+      )
+    })
+  }
+  const instance = new EthereumBridge({
+    signerOrProvider: provider,
+    address: bridgeAddress,
+  })
+  return {
+    provider,
+    filters,
+    query: instance.getRedemptionRequestedEvents.bind(instance),
+  }
 }
 
 function bridge(): EthereumBridge {
@@ -114,6 +198,18 @@ describe("redemption monitoring bridge methods", () => {
         {
           name: "an OR list of wallets",
           args: [[wallet, otherWallet]],
+          topics: [[walletTopic(wallet), walletTopic(otherWallet)]],
+          wallets: [wallet, otherWallet],
+        },
+        {
+          name: "a single Hex wallet",
+          args: [Hex.from(wallet)],
+          topics: [walletTopic(wallet)],
+          wallets: [wallet],
+        },
+        {
+          name: "an OR list of Hex wallets",
+          args: [[Hex.from(wallet), Hex.from(otherWallet)]],
           topics: [[walletTopic(wallet), walletTopic(otherWallet)]],
           wallets: [wallet, otherWallet],
         },
@@ -186,6 +282,16 @@ describe("redemption monitoring bridge methods", () => {
           expect(filters).to.have.length(0)
         })
       }
+
+      it("returns no events without querying the provider for an empty wallet filter", async () => {
+        const { filters, query } = eventQuery(eventName)
+        const events = await query(
+          { fromBlock: 100, toBlock: 200, retries: 0 },
+          []
+        )
+        expect(filters).to.have.length(0)
+        expect(events).to.deep.equal([])
+      })
 
       it("preserves wallet topics and block options in fallback batches", async () => {
         const { provider, query } = eventQuery(eventName)
@@ -274,6 +380,133 @@ describe("redemption monitoring bridge methods", () => {
     })
   }
 
+  describe("RedemptionRequested", () => {
+    for (const testCase of [
+      {
+        name: "a single wallet",
+        args: [wallet],
+        topics: [walletTopic(wallet)],
+        wallets: [wallet],
+      },
+      {
+        name: "an OR list of wallets",
+        args: [[wallet, otherWallet]],
+        topics: [[walletTopic(wallet), walletTopic(otherWallet)]],
+        wallets: [wallet, otherWallet],
+      },
+      {
+        name: "an omitted wallet filter",
+        args: [],
+        topics: [],
+        wallets: [wallet, otherWallet],
+      },
+      {
+        name: "a null wallet wildcard",
+        args: [null],
+        topics: [],
+        wallets: [wallet, otherWallet],
+      },
+      {
+        name: "a nonmatching wallet",
+        args: [unknownWallet],
+        topics: [walletTopic(unknownWallet)],
+        wallets: [],
+      },
+      {
+        name: "a single Hex wallet",
+        args: [Hex.from(wallet)],
+        topics: [walletTopic(wallet)],
+        wallets: [wallet],
+      },
+      {
+        name: "an OR list of Hex wallets",
+        args: [[Hex.from(wallet), Hex.from(otherWallet)]],
+        topics: [[walletTopic(wallet), walletTopic(otherWallet)]],
+        wallets: [wallet, otherWallet],
+      },
+    ]) {
+      it(`queries the ABI-correct right-padded wallet topic for ${testCase.name}`, async () => {
+        const { filters, query } = redemptionRequestedQuery()
+        const events = await query(
+          { fromBlock: 100, toBlock: 200, retries: 0 },
+          ...testCase.args
+        )
+        expect(filters).to.have.length(1)
+        expect(filters[0].address).to.equal(bridgeAddress)
+        expect(filters[0].fromBlock).to.equal(100)
+        expect(filters[0].toBlock).to.equal(200)
+        expect(filters[0].topics).to.deep.equal([
+          redemptionRequestedInterface.getEventTopic("RedemptionRequested"),
+          ...testCase.topics,
+        ])
+        expect(
+          events.map((event) => event.walletPublicKeyHash.toPrefixedString())
+        ).to.deep.equal(testCase.wallets)
+        for (const event of events) {
+          expect(event.blockNumber).to.equal(123)
+          expect(event.blockHash.toPrefixedString()).to.equal(blockHash)
+          expect(event.transactionHash.toPrefixedString()).to.equal(
+            transactionHash
+          )
+          expect(event.redeemer.identifierHex).to.equal(
+            redeemer.substring(2).toLowerCase()
+          )
+          expect(event.redeemerOutputScript.toString()).to.equal(script)
+          const expectedAmounts =
+            event.walletPublicKeyHash.toPrefixedString() === wallet
+              ? [100000, 100, 1000]
+              : [200000, 200, 2000]
+          expect(event.requestedAmount.toNumber()).to.equal(expectedAmounts[0])
+          expect(event.treasuryFee.toNumber()).to.equal(expectedAmounts[1])
+          expect(event.txMaxFee.toNumber()).to.equal(expectedAmounts[2])
+        }
+      })
+    }
+
+    for (const byteLength of [19, 21]) {
+      it(`rejects a ${byteLength}-byte wallet filter before querying`, async () => {
+        const { filters, query } = redemptionRequestedQuery()
+        let caught: unknown
+        try {
+          await query(
+            { fromBlock: 100, toBlock: 200, retries: 0 },
+            `0x${"11".repeat(byteLength)}`
+          )
+        } catch (error) {
+          caught = error
+        }
+        expect(caught).to.be.instanceOf(Error)
+        expect(filters).to.have.length(0)
+      })
+    }
+
+    it("rejects a second positional filter argument before querying", async () => {
+      const { filters, query } = redemptionRequestedQuery()
+      let caught: unknown
+      try {
+        await query(
+          { fromBlock: 100, toBlock: 200, retries: 0 },
+          wallet,
+          redeemer
+        )
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).to.be.instanceOf(Error)
+      expect(filters).to.have.length(0)
+    })
+
+    it("returns no events without querying the provider for an empty wallet filter", async () => {
+      const { filters, query } = redemptionRequestedQuery()
+      const events = await query(
+        { fromBlock: 100, toBlock: 200, retries: 0 },
+        []
+      )
+      expect(filters).to.have.length(0)
+      expect(events).to.deep.equal([])
+    })
+  })
+
   it("reads the timeout and pending request at the requested block, including zero", async () => {
     const instance = bridge()
     const observedBlocks: unknown[] = []
@@ -306,12 +539,23 @@ describe("redemption monitoring bridge methods", () => {
     })
     expect(await instance.getRedemptionTimeout(0)).to.equal(172800)
     await instance.getRedemptionTimeout()
+    const pendingDefaultBlock = await instance.pendingRedemptionsByWalletPKH(
+      Hex.from(wallet),
+      Hex.from(script)
+    )
+    const pendingZeroBlock = await instance.pendingRedemptionsByWalletPKH(
+      Hex.from(wallet),
+      Hex.from(script),
+      0
+    )
     const pending = await instance.pendingRedemptionsByWalletPKH(
       Hex.from(wallet),
       Hex.from(script),
       200
     )
+    expect(pendingDefaultBlock.requestedAt).to.equal(1234)
+    expect(pendingZeroBlock.requestedAt).to.equal(1234)
     expect(pending.requestedAt).to.equal(1234)
-    expect(observedBlocks).to.deep.equal([0, "latest", 200])
+    expect(observedBlocks).to.deep.equal([0, "latest", "latest", 0, 200])
   })
 })

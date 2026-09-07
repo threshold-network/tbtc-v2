@@ -748,25 +748,49 @@ export class EthereumBridge
    * @returns Matching events.
    */
   private async getRedemptionEvents(
-    eventName: "RedemptionsCompleted" | "RedemptionTimedOut",
+    eventName:
+      | "RedemptionsCompleted"
+      | "RedemptionTimedOut"
+      | "RedemptionRequested",
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<EthersEvent[]> {
-    const filter = {
-      address: this._instance.address,
-      topics: this._instance.interface.encodeFilterTopics(
-        eventName,
-        filterArgs
-      ),
+    if (filterArgs.length > 1) {
+      // encodeFilterTopics is positional over the full ABI parameter list
+      // (indexed and non-indexed), unlike the typechain filter helpers used
+      // elsewhere in this file, which are positional over indexed params
+      // only. RedemptionRequested's second indexed param (redeemer) is not
+      // at ABI slot 1 (that is the non-indexed redeemerOutputScript), so a
+      // second positional filter argument cannot be forwarded correctly.
+      // Fail loudly instead of silently filtering on the wrong field.
+      throw new Error(
+        "getRedemptionEvents only supports filtering by the wallet public key hash"
+      )
     }
     const walletFilter = filterArgs[0]
+    if (Array.isArray(walletFilter) && walletFilter.length === 0) {
+      return Promise.resolve([])
+    }
+    const filter = {
+      address: this._instance.address,
+      topics: this._instance.interface.encodeFilterTopics(eventName, []),
+    }
     if (walletFilter != null) {
       // Ethers v5 left-pads indexed bytes20 filters, but Solidity emits them
-      // right-padded. Both events index the wallet PKH as their first argument.
-      // Use the ABI coder for exact-length validation and canonical padding,
-      // including each alternative in an OR filter. Null/omitted stays wildcard.
+      // right-padded. All three redemption lifecycle events index the wallet
+      // PKH as their first argument. Use the ABI coder for exact-length
+      // validation and canonical right padding, including each alternative
+      // in an OR filter. Null/omitted stays wildcard. The wallet filter is
+      // encoded manually rather than through encodeFilterTopics because that
+      // call cannot hexlify an SDK Hex instance, only raw BytesLike values.
+      const normalizeWallet = (wallet: unknown): string => {
+        if (wallet instanceof Hex) {
+          return wallet.toPrefixedString()
+        }
+        return wallet as string
+      }
       const walletTopic = (wallet: unknown): string =>
-        defaultAbiCoder.encode(["bytes20"], [wallet])
+        defaultAbiCoder.encode(["bytes20"], [normalizeWallet(wallet)])
       filter.topics[1] = Array.isArray(walletFilter)
         ? walletFilter.map(walletTopic)
         : walletTopic(walletFilter)
@@ -794,14 +818,7 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<RedemptionRequestedEvent[]> {
-    // FIXME: Filtering by indexed walletPubKeyHash field may not work
-    //        until https://github.com/ethers-io/ethers.js/pull/4244 is
-    //        included in the @ethersproject/contracts/@ethersproject/abi
-    //        v5 packages. Ethers v6 contains the referenced fix, but this SDK
-    //        targets v5 types.
-    //        Short-term, we can workaround the problem as presented in:
-    //        https://github.com/threshold-network/token-dashboard/blob/main/src/threshold-ts/tbtc/index.ts#L1041C1-L1093C1
-    const events: EthersEvent[] = await this.getEvents(
+    const events: EthersEvent[] = await this.getRedemptionEvents(
       "RedemptionRequested",
       options,
       ...filterArgs
