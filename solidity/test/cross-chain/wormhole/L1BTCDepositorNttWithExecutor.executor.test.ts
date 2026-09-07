@@ -119,7 +119,6 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_ARBITRUM, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -189,7 +188,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should reject platform fee exceeding 100%", async () => {
       await expect(
         depositor.setDefaultPlatformFeeBps(10001)
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should reject zero recipient when fee is set", async () => {
@@ -381,14 +380,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           0,
           ethers.constants.AddressZero
         )
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setExecutorParameters", async () => {
       // Ensure default executor fee is 10000
       await depositor.setDefaultParameters(
         500000, // gasLimit
-        10000, // feeBps 100%
+        10000, // feeBps 10%
         owner.address, // feeRecipient
         0, // platformFeeBps 0%
         ethers.constants.AddressZero // platformFeeRecipient
@@ -419,7 +418,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           0, // platformFeeBps 0%
           ethers.constants.AddressZero // platformFeeRecipient
         )
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setDefaultParameters", async () => {
@@ -747,12 +746,6 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         .true
     })
 
-    it("should have default supported chain set", async () => {
-      expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_DESTINATION
-      )
-    })
-
     it("should reject quotes for unsupported chains", async () => {
       const unsupportedChain = 999
 
@@ -906,7 +899,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
     })
 
-    it("should return different costs for different chains", async () => {
+    it("should return costs matching the staged destination chain", async () => {
       const [, , user] = await ethers.getSigners()
 
       // Fix: Configure default parameters
@@ -930,6 +923,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         payee: user.address,
       }
 
+      // Post-M4-fix, a quote can only be taken for the currently staged
+      // destination chain, so each chain is staged and queried in turn
+      // rather than querying an unstaged chain against one staging.
       await depositor
         .connect(user)
         .setExecutorParameters(
@@ -937,13 +933,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-
-      // Get quotes for different chains
       const [destinationNttPrice, destinationExecutorCost, destinationTotal] =
         await depositor
           .connect(user)
           .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, feeArgs, WORMHOLE_CHAIN_BASE)
       const [baseNttPrice, baseExecutorCost, baseTotal] = await depositor
         .connect(user)
         .quoteFinalizedDeposit(WORMHOLE_CHAIN_BASE)
@@ -1018,7 +1015,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         depositor.connect(user).quoteFinalizedDeposit(999) // Unsupported chain
-      ).to.be.revertedWith("Destination chain not supported")
+      ).to.be.revertedWith("Destination chain not bound to staged parameters")
     })
 
     it("should handle zero executor cost", async () => {
@@ -1566,7 +1563,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         depositor
           .connect(user)
           .finalizeDeposit(depositKey, { value: requiredPayment })
-      ).to.be.revertedWith("Executor parameters bound to default chain")
+      ).to.be.revertedWith(
+        "Executor parameters bound to a different destination chain"
+      )
     })
 
     it("F4: should revert on overpayment", async () => {
@@ -1669,7 +1668,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
             feeArgs,
             WORMHOLE_CHAIN_DESTINATION
           )
-        ).to.be.revertedWith("Insufficient payment for executor service")
+        ).to.be.revertedWith("Quote below executor declared value")
       } finally {
         await nttManagerWithExecutor.setUndervalueQuote(false)
       }

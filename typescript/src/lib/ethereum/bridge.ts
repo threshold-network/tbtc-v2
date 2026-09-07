@@ -9,6 +9,8 @@ import {
   WalletState,
   RedemptionRequest,
   RedemptionRequestedEvent,
+  RedemptionsCompletedEvent,
+  RedemptionTimedOutEvent,
   DepositRevealedEvent,
   DepositReceipt,
   DepositRequest,
@@ -29,6 +31,7 @@ import {
   EthereumContractConfig,
   EvmContractDeployment,
   EvmContractHandle,
+  EvmEvent,
 } from "./adapter"
 import { EthereumAddress } from "./address"
 import { EthereumWalletRegistry } from "./wallet-registry"
@@ -174,7 +177,8 @@ export class EthereumBridge extends EvmContractHandle implements Bridge {
    */
   async pendingRedemptionsByWalletPKH(
     walletPublicKeyHash: Hex,
-    redeemerOutputScript: Hex
+    redeemerOutputScript: Hex,
+    blockNumber?: number
   ): Promise<RedemptionRequest> {
     const redemptionKey = EthereumBridge.buildRedemptionKey(
       walletPublicKeyHash,
@@ -183,7 +187,8 @@ export class EthereumBridge extends EvmContractHandle implements Bridge {
 
     const request = await this._read<RedemptionRequestStruct>(
       "pendingRedemptions",
-      [BigInt(redemptionKey)]
+      [BigInt(redemptionKey)],
+      { blockNumber }
     )
 
     return this.parseRedemptionRequest(request, redeemerOutputScript)
@@ -644,6 +649,120 @@ export class EthereumBridge extends EvmContractHandle implements Bridge {
     )
   }
 
+  /**
+   * Reads the redemption timeout at the specified block.
+   * @param blockNumber Block to read, or the latest block when omitted.
+   * @returns Timeout in seconds.
+   */
+  async getRedemptionTimeout(blockNumber?: number): Promise<number> {
+    const parameters = await this._read<readonly (number | bigint)[]>(
+      "redemptionParameters",
+      [],
+      { blockNumber }
+    )
+    return Number(parameters[4])
+  }
+
+  /**
+   * Reads accepted redemption proof events.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Completion events with Bitcoin hashes in display byte order.
+   */
+  async getRedemptionsCompletedEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<RedemptionsCompletedEvent[]> {
+    const events = await this.getRedemptionEvents(
+      "RedemptionsCompleted",
+      options,
+      ...filterArgs
+    )
+    return events.map((event) => ({
+      blockNumber: event.blockNumber,
+      blockHash: Hex.from(event.blockHash),
+      transactionHash: Hex.from(event.transactionHash),
+      walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
+      redemptionTxHash: BitcoinTxHash.from(
+        event.args.redemptionTxHash as string
+      ).reverse(),
+    }))
+  }
+
+  /**
+   * Reads reported redemption timeout events.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Timeout events with output scripts without their length prefix.
+   */
+  async getRedemptionTimedOutEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<RedemptionTimedOutEvent[]> {
+    const events = await this.getRedemptionEvents(
+      "RedemptionTimedOut",
+      options,
+      ...filterArgs
+    )
+    return events.map((event) => {
+      const prefixedScript = Hex.from(event.args.redeemerOutputScript as string)
+      return {
+        blockNumber: event.blockNumber,
+        blockHash: Hex.from(event.blockHash),
+        transactionHash: Hex.from(event.transactionHash),
+        walletPublicKeyHash: Hex.from(event.args.walletPubKeyHash as string),
+        redeemerOutputScript: Hex.from(
+          prefixedScript
+            .toString()
+            .slice(BitcoinCompactSizeUint.read(prefixedScript).byteLength * 2)
+        ),
+      }
+    })
+  }
+
+  /**
+   * Queries redemption lifecycle events with ABI-correct wallet topics.
+   * @param eventName Name of the lifecycle event.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Matching events.
+   */
+  private async getRedemptionEvents(
+    eventName:
+      | "RedemptionsCompleted"
+      | "RedemptionTimedOut"
+      | "RedemptionRequested",
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<EvmEvent[]> {
+    if (filterArgs.length > 1) {
+      throw new Error(
+        "getRedemptionEvents only supports filtering by the wallet public key hash"
+      )
+    }
+    const walletFilter = filterArgs[0]
+    if (Array.isArray(walletFilter) && walletFilter.length === 0) {
+      return []
+    }
+    if (walletFilter == null) {
+      return this._getEvents(eventName, options)
+    }
+
+    // Preserve the lifecycle API's string/Hex filters and exact bytes20
+    // validation. viem encodes the indexed wallet topics with right padding.
+    const normalizeWallet = (wallet: unknown): string => {
+      const value = wallet instanceof Hex ? wallet.toPrefixedString() : wallet
+      if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+        throw new Error("Wallet public key hash must be exactly 20 bytes")
+      }
+      return value
+    }
+    const wallets = Array.isArray(walletFilter)
+      ? walletFilter.map(normalizeWallet)
+      : normalizeWallet(walletFilter)
+    return this._getEvents(eventName, options, wallets)
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {Bridge#getRedemptionRequestedEvents}
@@ -652,7 +771,7 @@ export class EthereumBridge extends EvmContractHandle implements Bridge {
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<RedemptionRequestedEvent[]> {
-    const events = await this._getEvents(
+    const events = await this.getRedemptionEvents(
       "RedemptionRequested",
       options,
       ...filterArgs

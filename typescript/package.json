@@ -35,7 +35,7 @@
     }
   },
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "node scripts/postinstall.js",
     "check:mainnet-deposit-parameters": "ts-node --files ./scripts/check-mainnet-deposit-parameters.ts",
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
@@ -43,6 +43,7 @@
     "lint": "eslint . --ext .js,.ts",
     "lint:fix": "eslint . --ext .js,.ts --fix",
     "test": "mocha --exit --recursive 'test/**/*.test.ts'",
+    "test:package": "node scripts/test-package.js",
     "build": "tsc --project tsconfig.build.json",
     "dev": "tsc --project tsconfig.build.json --watch",
     "docs": "typedoc --options typedoc.json"
@@ -50,7 +51,8 @@
   "files": [
     "dist/",
     "src/",
-    "patches/"
+    "patches/",
+    "scripts/postinstall.js"
   ],
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
@@ -83,6 +85,7 @@
     "wif": "2.0.6"
   },
   "devDependencies": {
+    "@ethersproject/providers": "^5.7.0",
     "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
     "@types/chai": "^4.2.21",
     "@types/chai-as-promised": "^7.1.4",
@@ -99,7 +102,7 @@
     "eslint-config-keep": "github:keep-network/eslint-config-keep",
     "ethers": "^5.5.2",
     "mocha": "^9.0.2",
-    "prettier": "^2.3.2",
+    "prettier": "^2.8.8",
     "sinon": "^20.0.0",
     "ts-node": "^10.8.0",
     "typedoc": "^0.25.3",
@@ -113,10 +116,10 @@
   },
   "overrides": {
     "secp256k1": "4.0.3",
-    "@solana/web3.js": "1.97.0"
+    "@solana/web3.js": "$@solana/web3.js"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "packageManager": "yarn@4.12.0",
   "repository": {

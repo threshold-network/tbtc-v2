@@ -66,7 +66,6 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -95,9 +94,6 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
         .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
-      expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_DESTINATION
-      )
     })
   })
 
@@ -110,21 +106,6 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
       await depositor.setSupportedChain(newChainId, false)
       expect(await depositor.supportedChains(newChainId)).to.be.false
-    })
-
-    it("should update default supported chain", async () => {
-      await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
-      expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_BASE
-      )
-    })
-
-    it("should reject setting default chain that is not supported", async () => {
-      const unsupportedChain = 99
-
-      await expect(
-        depositor.setDefaultSupportedChain(unsupportedChain)
-      ).to.be.revertedWith("Chain must be supported before setting as default")
     })
   })
 

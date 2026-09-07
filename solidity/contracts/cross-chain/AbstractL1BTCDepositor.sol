@@ -151,6 +151,13 @@ abstract contract AbstractL1BTCDepositor is
         uint256 availableBalance
     );
 
+    /// @notice Emitted when a deferred initialization reimbursement call fails.
+    event DeferredReimbursementFailed(
+        uint256 indexed depositKey,
+        address receiver,
+        uint256 amount
+    );
+
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
     modifier onlyReimbursableAdmin() override {
@@ -491,10 +498,33 @@ abstract contract AbstractL1BTCDepositor is
             // reimbursement is here, that implies the caller was authorized
             // to receive it.
             if (reimbursement.receiver != address(0)) {
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
+                // Best-effort, matching the availableBalance check above:
+                // a deferred receiver that cannot be reimbursed within the
+                // gas stipend (whether malicious or merely gas-hungry) must
+                // not be able to block this deposit's finalization for
+                // everyone. The stipend still bounds the worst case a
+                // compromised-but-authorized receiver can consume.
+                /* solhint-disable avoid-low-level-calls */
+                // slither-disable-next-line unchecked-lowlevel,low-level-calls
+                (bool success, ) = address(reimbursementPool).call{
+                    gas: 2_000_000
+                }(
+                    abi.encodeWithSelector(
+                        reimbursementPool.refund.selector,
+                        reimbursement.gasSpent,
+                        reimbursement.receiver
+                    )
                 );
+                /* solhint-enable avoid-low-level-calls */
+
+                if (!success) {
+                    gasReimbursements[depositKey] = reimbursement;
+                    emit DeferredReimbursementFailed(
+                        depositKey,
+                        reimbursement.receiver,
+                        reimbursement.gasSpent
+                    );
+                }
             }
         }
     }

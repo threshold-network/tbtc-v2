@@ -19,7 +19,7 @@ const bridgeGovernanceInterface = new utils.Interface([
 // deployment block when known (the contract cannot have emitted events
 // before it existed) - whichever bound is more recent wins, so an old
 // deployment doesn't force a years-long, thousands-of-chunks scan.
-const EVENT_QUERY_CHUNK_BLOCKS = 5000
+const EVENT_QUERY_CHUNK_BLOCKS = 2000
 const FALLBACK_LOOKBACK_BLOCKS = 200_000 // ~27 days at 12s/block
 
 async function queryEventsInChunks(
@@ -28,24 +28,20 @@ async function queryEventsInChunks(
   fromBlock: number,
   toBlock: number
 ): Promise<Event[]> {
-  const chunkStarts: number[] = []
+  const events: Event[] = []
   for (
     let chunkStart = fromBlock;
     chunkStart <= toBlock;
     chunkStart += EVENT_QUERY_CHUNK_BLOCKS
   ) {
-    chunkStarts.push(chunkStart)
-  }
-  const chunkResults = await Promise.all(
-    chunkStarts.map((chunkStart) =>
-      contract.queryFilter(
-        filter,
-        chunkStart,
-        Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock)
-      )
+    const chunkEvents = await contract.queryFilter(
+      filter,
+      chunkStart,
+      Math.min(chunkStart + EVENT_QUERY_CHUNK_BLOCKS - 1, toBlock)
     )
-  )
-  return chunkResults.flat()
+    events.push(...chunkEvents)
+  }
+  return events
 }
 
 interface GovernanceAction {
@@ -136,6 +132,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       bridgeGovernanceDeployment.address
     )
     const latestBlock = await ethers.provider.getBlockNumber()
+    // Externally-deployed artifacts lack a receipt; FALLBACK_LOOKBACK_BLOCKS is the operative safety net in that case.
     const fromBlock = Math.max(
       bridgeGovernanceDeployment.receipt?.blockNumber ?? 0,
       latestBlock - FALLBACK_LOOKBACK_BLOCKS,
@@ -163,7 +160,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
     if (
       lastStarted &&
-      (!lastUpdated || lastStarted.blockNumber > lastUpdated.blockNumber)
+      (!lastUpdated ||
+        lastStarted.blockNumber > lastUpdated.blockNumber ||
+        (lastStarted.blockNumber === lastUpdated.blockNumber &&
+          (lastStarted.logIndex ?? 0) > (lastUpdated.logIndex ?? 0)))
     ) {
       const newPeriod = lastStarted.args[0]
       const timestamp = lastStarted.args[1]
@@ -171,7 +171,12 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       log(
         `Pending deposit reveal-ahead period update: new value ${newPeriod}, start timestamp ${timestamp}, ETA ${eta}`
       )
-      throw new Error("Deposit reveal-ahead period update is already pending")
+      const warning = !BigNumber.from(newPeriod).eq(DEPOSIT_REVEAL_AHEAD_PERIOD)
+        ? ` (pending value ${newPeriod.toString()} does not match target ${DEPOSIT_REVEAL_AHEAD_PERIOD.toString()})`
+        : ""
+      throw new Error(
+        `Deposit reveal-ahead period update is already pending${warning}`
+      )
     }
 
     const governanceActions = buildDepositRevealAheadPeriodGovernanceActions(

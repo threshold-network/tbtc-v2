@@ -3076,13 +3076,7 @@ describe("Deposits", () => {
           refundLocktime: Hex.from("60bcea61"),
         }
 
-        const validChains: GaslessDestination[] = [
-          "L1",
-          "Arbitrum",
-          "Base",
-          "Sui",
-          "StarkNet",
-        ]
+        const validChains: GaslessDestination[] = ["L1", "Arbitrum", "Base"]
 
         validChains.forEach((chainName) => {
           const result: GaslessDepositResult = {
@@ -3306,9 +3300,17 @@ describe("Deposits", () => {
             expect(error.message).to.include("L1")
             expect(error.message).to.include("Arbitrum")
             expect(error.message).to.include("Base")
-            expect(error.message).to.include("Sui")
-            expect(error.message).to.include("StarkNet")
           }
+        })
+
+        it("should reject StarkNet - excluded from the gasless flow because the L2 owner-match check always parses depositOwner as an EthereumAddress, which can never equal a StarkNetAddress-resolved owner", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35cC6634c0532925A3b844bc9E7595F0beB1",
+              "StarkNet" as GaslessDestination
+            )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
       })
 
@@ -3400,7 +3402,7 @@ describe("Deposits", () => {
               })
 
               it("should generate L1 gasless deposit with correct depositor", () => {
-                expect(result.receipt.depositor).to.be.equal(
+                expect(result.receipt.depositor).to.be.deep.equal(
                   nativeBTCDepositorAddress
                 )
               })
@@ -3451,7 +3453,7 @@ describe("Deposits", () => {
 
               it("should generate L1 gasless deposit successfully", () => {
                 expect(result.destinationChainName).to.equal("L1")
-                expect(result.receipt.depositor).to.be.equal(
+                expect(result.receipt.depositor).to.be.deep.equal(
                   nativeBTCDepositorAddress
                 )
                 expect(result.receipt.refundPublicKeyHash).to.be.deep.equal(
@@ -3784,15 +3786,14 @@ describe("Deposits", () => {
       }
 
       const l2ReceiptWith32ByteExtraDataFixture: DepositReceipt = {
-        ...l1ReceiptFixture,
-        extraData: Hex.from(
-          "000000000000000000000000a9b38ea6435c8941d6eda6a46b68e3e211719699"
-        ),
+        ...l1ReceiptWithExtraDataFixture,
       }
 
-      const l2ReceiptWith20ByteExtraDataFixture: DepositReceipt = {
-        ...l1ReceiptFixture,
-        extraData: Hex.from("a9b38ea6435c8941d6eda6a46b68e3e211719699"),
+      // Funding transaction paying the expected deposit script of l1ReceiptWithExtraDataFixture
+      // on both output 0 and output 1 (allowing in-bounds non-zero index testing).
+      const fundingTransaction: BitcoinRawTx = {
+        transactionHex:
+          "010000000101010101010101010101010101010101010101010101010101010101010101010000000000ffffffff0210270000000000002200207f42e63b7bf12fecd2815993491bffbbd802bcc4bfc29c03766993aea5957ba310270000000000002200207f42e63b7bf12fecd2815993491bffbbd802bcc4bfc29c03766993aea5957ba300000000",
       }
 
       beforeEach(() => {
@@ -3800,11 +3801,11 @@ describe("Deposits", () => {
         tbtcContracts = new MockTBTCContracts()
         bitcoinClient.network = BitcoinNetwork.Testnet
 
-        // Setup Bitcoin TX mock with testnet transaction
+        // Setup Bitcoin TX mock with funding transaction
         const rawTransactions = new Map<string, BitcoinRawTx>()
         rawTransactions.set(
           testnetTransactionHash.toString(),
-          testnetTransaction
+          fundingTransaction
         )
         bitcoinClient.rawTransactions = rawTransactions
 
@@ -3813,6 +3814,19 @@ describe("Deposits", () => {
           bitcoinClient,
           (_: DestinationChainName) => undefined
         )
+      })
+
+      context("when destinationChainName is unsupported", () => {
+        it("should reject Sui - excluded from the gasless flow (same owner-match limitation as StarkNet in initiateGaslessDeposit)", async () => {
+          await expect(
+            depositService.buildGaslessRelayPayload(
+              l2ReceiptWith32ByteExtraDataFixture,
+              testnetTransactionHash,
+              0,
+              "Sui" as GaslessDestination
+            )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
+        })
       })
 
       context("when destination chain is L1", () => {
@@ -3951,32 +3965,12 @@ describe("Deposits", () => {
 
         it("should normalize Base to lowercase", async () => {
           const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith20ByteExtraDataFixture,
+            l2ReceiptWith32ByteExtraDataFixture,
             testnetTransactionHash,
             0,
             "Base"
           )
           expect(payload.destinationChainName).to.equal("base")
-        })
-
-        it("should normalize Sui to lowercase", async () => {
-          const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith32ByteExtraDataFixture,
-            testnetTransactionHash,
-            0,
-            "Sui"
-          )
-          expect(payload.destinationChainName).to.equal("sui")
-        })
-
-        it("should normalize StarkNet to lowercase", async () => {
-          const payload = await depositService.buildGaslessRelayPayload(
-            l2ReceiptWith32ByteExtraDataFixture,
-            testnetTransactionHash,
-            0,
-            "StarkNet"
-          )
-          expect(payload.destinationChainName).to.equal("starknet")
         })
       })
 
@@ -3993,8 +3987,8 @@ describe("Deposits", () => {
         })
 
         it("should correctly extract and format Bitcoin transaction vectors", () => {
-          // Verify vectors extracted from testnetTransaction
-          const vectors = extractBitcoinRawTxVectors(testnetTransaction)
+          // Verify vectors extracted from fundingTransaction
+          const vectors = extractBitcoinRawTxVectors(fundingTransaction)
 
           expect(payload.fundingTx.version).to.equal(
             vectors.version.toPrefixedString()
@@ -4023,11 +4017,11 @@ describe("Deposits", () => {
           const payload = await depositService.buildGaslessRelayPayload(
             l1ReceiptWithExtraDataFixture,
             testnetTransactionHash,
-            5, // Test with different index
+            1, // Test with in-bounds non-zero index
             "L1"
           )
 
-          expect(payload.reveal.fundingOutputIndex).to.equal(5)
+          expect(payload.reveal.fundingOutputIndex).to.equal(1)
         })
 
         it("should handle fundingOutputIndex 0", async () => {

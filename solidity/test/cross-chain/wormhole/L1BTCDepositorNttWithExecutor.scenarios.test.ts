@@ -85,7 +85,6 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -109,21 +108,30 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
           WORMHOLE_CHAIN_DESTINATION
         )
 
-      // Test quotes for different supported chains
+      // Test quotes for different supported chains: post-M4-fix a quote
+      // can only be taken for the currently staged destination chain, so
+      // each chain is staged and queried in turn.
       const quoteDest = await depositor
         .connect(user)
         ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       expect(quoteDest).to.be.gt(0)
 
+      await depositor
+        .connect(user)
+        .setExecutorParameters(
+          { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
+          FEE_ARGS_ZERO,
+          WORMHOLE_CHAIN_BASE
+        )
       const quoteBase = await depositor
         .connect(user)
         ["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_BASE)
       expect(quoteBase).to.be.gt(0)
 
-      // Test quote for unsupported chain
+      // Test quote for a chain that was never staged
       await expect(
         depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
-      ).to.be.revertedWith("Destination chain not supported")
+      ).to.be.revertedWith("Destination chain not bound to staged parameters")
     })
 
     it("should handle chain configuration changes", async () => {
@@ -131,18 +139,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor.setSupportedChain(99, true)
       expect(await depositor.supportedChains(99)).to.be.true
 
-      // Set as default
-      await depositor.setDefaultSupportedChain(99)
-      expect(await depositor.defaultSupportedChain()).to.equal(99)
-
       // Remove chain
       await depositor.setSupportedChain(99, false)
       expect(await depositor.supportedChains(99)).to.be.false
-
-      // Should revert when trying to set unsupported chain as default
-      await expect(depositor.setDefaultSupportedChain(99)).to.be.revertedWith(
-        "Chain must be supported before setting as default"
-      )
     })
   })
 
@@ -390,7 +389,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Try to quote for unsupported chain (should fail)
       await expect(
         depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
-      ).to.be.revertedWith("Destination chain not supported")
+      ).to.be.revertedWith("Destination chain not bound to staged parameters")
 
       // Quote for supported chain should succeed
       const quote = await depositor

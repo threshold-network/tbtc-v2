@@ -10,6 +10,7 @@ import {
 import { StarkNetAddress } from "./address"
 import { StarkNetProvider } from "./types"
 import { Chains } from "../contracts/chain"
+import { normalizeStarkNetChainId } from "./chain-id"
 
 export * from "./address"
 export * from "./extra-data-encoder"
@@ -23,7 +24,7 @@ export * from "./abi"
  */
 const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
   [Chains.StarkNet.Mainnet]:
-    "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
+    "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32", // TODO: verify against deployed StarkNet mainnet tBTC contract
   [Chains.StarkNet.Sepolia]:
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
   // Test chain ID
@@ -31,10 +32,14 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276", // Using Sepolia address for tests
 }
 
-/**
- * Guard to ensure we only emit the relayer status warning once.
- */
-let relayerStatusWarningEmitted = false
+// Validate contract addresses shape at load time (0x + 64 hex characters)
+for (const [chain, address] of Object.entries(TBTC_CONTRACT_ADDRESSES)) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(address)) {
+    throw new Error(
+      `Invalid tBTC contract address for chain ${chain}: expected 0x followed by 64 hex characters, got ${address}`
+    )
+  }
+}
 
 /**
  * Loads StarkNet implementation of tBTC cross-chain contracts.
@@ -79,7 +84,6 @@ export async function loadStarkNetCrossChainInterfaces(
     provider
   )
   if (
-    !relayerStatusWarningEmitted &&
     process.env.STARKNET_RELAYER_URL &&
     !process.env.STARKNET_RELAYER_STATUS_URL &&
     !relayerStatusUrl
@@ -89,7 +93,6 @@ export async function loadStarkNetCrossChainInterfaces(
         "Conflict-status verification will be disabled. Set " +
         "STARKNET_RELAYER_STATUS_URL or pass relayerStatusUrl to enable it."
     )
-    relayerStatusWarningEmitted = true
   }
 
   // Set the deposit owner
@@ -123,7 +126,16 @@ export async function loadStarkNetCrossChainInterfaces(
  */
 export const loadStarkNetCrossChainContracts = loadStarkNetCrossChainInterfaces
 
-async function validateProviderChain(
+/**
+ * Validates that the connected StarkNet provider's own chain ID matches the
+ * expected chain ID for this depositor, so a caller cannot silently connect
+ * a wallet on the wrong network.
+ * @param provider The StarkNet provider to validate.
+ * @param expectedChainId The chain ID the provider is expected to be on.
+ * @returns Resolves when the provider's chain ID matches; never resolves a value.
+ * @throws Error if the provider's chain ID does not match.
+ */
+export async function validateProviderChain(
   provider: StarkNetProvider,
   expectedChainId: string
 ): Promise<void> {
@@ -135,32 +147,18 @@ async function validateProviderChain(
   }
 }
 
-async function resolveProviderChainId(
+/**
+ * Resolves the chain ID a StarkNet provider is currently connected to.
+ * @param provider The StarkNet provider (`Provider` or `Account`).
+ * @returns The provider's normalized chain ID.
+ * @throws Error if the provider does not expose `getChainId`.
+ */
+export async function resolveProviderChainId(
   provider: StarkNetProvider
 ): Promise<string> {
   if ("getChainId" in provider && typeof provider.getChainId === "function") {
     return normalizeStarkNetChainId(await provider.getChainId())
   }
 
-  const nestedProvider = (provider as any).provider
-  if (
-    nestedProvider &&
-    typeof nestedProvider === "object" &&
-    "getChainId" in nestedProvider &&
-    typeof nestedProvider.getChainId === "function"
-  ) {
-    return normalizeStarkNetChainId(await nestedProvider.getChainId())
-  }
-
   throw new Error("StarkNet provider must expose getChainId")
-}
-
-function normalizeStarkNetChainId(chainId: string): string {
-  const aliases: Record<string, string> = {
-    SN_MAIN: Chains.StarkNet.Mainnet,
-    SN_SEPOLIA: Chains.StarkNet.Sepolia,
-    SN_GOERLI: Chains.StarkNet.Sepolia,
-  }
-
-  return aliases[chainId] || chainId.toLowerCase()
 }

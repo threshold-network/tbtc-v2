@@ -77,7 +77,6 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
     // Set supported chains for the mock NTT manager
     await nttManagerWithExecutor.setSupportedChain(
