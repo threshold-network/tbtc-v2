@@ -135,6 +135,8 @@
 - [OptimisticMintingRequest](README.md#optimisticmintingrequest)
 - [OptimisticMintingRequestedEvent](README.md#optimisticmintingrequestedevent)
 - [RedemptionRequestedEvent](README.md#redemptionrequestedevent)
+- [RedemptionTimedOutEvent](README.md#redemptiontimedoutevent)
+- [RedemptionsCompletedEvent](README.md#redemptionscompletedevent)
 - [RelayerAbortedError](README.md#relayerabortederror)
 - [RetrierFn](README.md#retrierfn)
 - [StarkNetDepositorConfig](README.md#starknetdepositorconfig)
@@ -316,7 +318,7 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:307](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L307)
+[src/lib/contracts/bridge.ts:322](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L322)
 
 ___
 
@@ -576,7 +578,7 @@ Represents an event emitted when new wallet is registered on the on-chain bridge
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:471](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L471)
+[src/lib/contracts/bridge.ts:500](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L500)
 
 ___
 
@@ -647,7 +649,31 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L358)
+[src/lib/contracts/bridge.ts:373](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L373)
+
+___
+
+### RedemptionTimedOutEvent
+
+Ƭ **RedemptionTimedOutEvent**: [`ChainEvent`](interfaces/ChainEvent.md) & \{ `redeemerOutputScript`: [`Hex`](classes/Hex.md) ; `walletPublicKeyHash`: [`Hex`](classes/Hex.md)  }
+
+A request whose timeout was reported and processed on-chain.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L391)
+
+___
+
+### RedemptionsCompletedEvent
+
+Ƭ **RedemptionsCompletedEvent**: [`ChainEvent`](interfaces/ChainEvent.md) & \{ `redemptionTxHash`: [`BitcoinTxHash`](classes/BitcoinTxHash.md) ; `walletPublicKeyHash`: [`Hex`](classes/Hex.md)  }
+
+A Bitcoin redemption transaction whose SPV proof was accepted.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:384](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L384)
 
 ___
 
@@ -1807,7 +1833,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:723](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L723)
+[src/lib/ethereum/bridge.ts:799](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L799)
 
 ___
 
@@ -2023,7 +2049,7 @@ This function does not validate the depositor's identifier as its
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:247](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L247)
+[src/lib/contracts/bridge.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L262)
 
 ___
 
