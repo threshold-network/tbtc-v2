@@ -1833,7 +1833,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:799](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L799)
+[src/lib/ethereum/bridge.ts:847](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L847)
 
 ___
 

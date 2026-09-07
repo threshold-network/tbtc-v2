@@ -26,6 +26,7 @@ import {
   Event as EthersEvent,
 } from "@ethersproject/contracts"
 import { BigNumber } from "@ethersproject/bignumber"
+import { defaultAbiCoder } from "@ethersproject/abi"
 import { AddressZero } from "@ethersproject/constants"
 import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { backoffRetrier, Hex } from "../utils"
@@ -42,6 +43,7 @@ import {
   EthersContractConfig,
   EthersContractDeployment,
   EthersContractHandle,
+  EthersEventUtils,
   EthersTransactionUtils,
 } from "./adapter"
 import { EthereumAddress } from "./address"
@@ -691,7 +693,7 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<RedemptionsCompletedEvent[]> {
-    const events = await this.getEvents(
+    const events = await this.getRedemptionEvents(
       "RedemptionsCompleted",
       options,
       ...filterArgs
@@ -717,7 +719,7 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<RedemptionTimedOutEvent[]> {
-    const events = await this.getEvents(
+    const events = await this.getRedemptionEvents(
       "RedemptionTimedOut",
       options,
       ...filterArgs
@@ -735,6 +737,52 @@ export class EthereumBridge
             .slice(BitcoinCompactSizeUint.read(prefixedScript).byteLength * 2)
         ),
       }
+    })
+  }
+
+  /**
+   * Queries redemption lifecycle events with ABI-correct wallet topics.
+   * @param eventName Name of the lifecycle event.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Matching events.
+   */
+  private async getRedemptionEvents(
+    eventName: "RedemptionsCompleted" | "RedemptionTimedOut",
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<EthersEvent[]> {
+    const filter = {
+      address: this._instance.address,
+      topics: this._instance.interface.encodeFilterTopics(
+        eventName,
+        filterArgs
+      ),
+    }
+    const walletFilter = filterArgs[0]
+    if (walletFilter != null) {
+      // Ethers v5 left-pads indexed bytes20 filters, but Solidity emits them
+      // right-padded. Both events index the wallet PKH as their first argument.
+      // Use the ABI coder for exact-length validation and canonical padding,
+      // including each alternative in an OR filter. Null/omitted stays wildcard.
+      const walletTopic = (wallet: unknown): string =>
+        defaultAbiCoder.encode(["bytes20"], [wallet])
+      filter.topics[1] = Array.isArray(walletFilter)
+        ? walletFilter.map(walletTopic)
+        : walletTopic(walletFilter)
+    }
+
+    return backoffRetrier<EthersEvent[]>(
+      options?.retries ?? this._totalRetryAttempts
+    )(async () => {
+      return EthersEventUtils.getEvents(
+        this._instance,
+        filter,
+        options?.fromBlock ?? this._deployedAtBlockNumber,
+        options?.toBlock,
+        options?.batchedQueryBlockInterval,
+        options?.logger
+      )
     })
   }
 

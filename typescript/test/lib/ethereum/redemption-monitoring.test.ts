@@ -1,13 +1,93 @@
 import { expect } from "chai"
-import { BigNumber, providers } from "ethers"
-import type { Event } from "@ethersproject/contracts"
+import { BigNumber, providers, utils } from "ethers"
 import { EthereumBridge } from "../../../src/lib/ethereum/bridge"
 import { Hex } from "../../../src/lib/utils"
 
 const wallet = `0x${"11".repeat(20)}`
+const otherWallet = `0x${"66".repeat(20)}`
+const unknownWallet = `0x${"77".repeat(20)}`
+const bridgeAddress = `0x${"88".repeat(20)}`
 const blockHash = `0x${"22".repeat(32)}`
 const transactionHash = `0x${"44".repeat(32)}`
 const script = `0014${"33".repeat(20)}`
+const redemptionTxHash = `0x01${"00".repeat(30)}ab`
+
+const eventInterface = new utils.Interface([
+  "event RedemptionsCompleted(bytes20 indexed walletPubKeyHash, bytes32 redemptionTxHash)",
+  "event RedemptionTimedOut(bytes20 indexed walletPubKeyHash, bytes redeemerOutputScript)",
+])
+
+type RedemptionEventName = "RedemptionsCompleted" | "RedemptionTimedOut"
+
+function walletTopic(value: string): string {
+  return utils.defaultAbiCoder.encode(["bytes20"], [value])
+}
+
+function eventLog(
+  eventName: RedemptionEventName,
+  walletPublicKeyHash: string,
+  logIndex: number
+): providers.Log {
+  const encoded = eventInterface.encodeEventLog(
+    eventInterface.getEvent(eventName),
+    [
+      walletPublicKeyHash,
+      eventName === "RedemptionsCompleted" ? redemptionTxHash : `0x16${script}`,
+    ]
+  )
+  // Event encoding follows the ABI's right padding for indexed bytes20.
+  expect(encoded.topics[1]).to.equal(walletTopic(walletPublicKeyHash))
+  return {
+    ...encoded,
+    address: bridgeAddress,
+    blockNumber: 123,
+    blockHash,
+    transactionHash,
+    transactionIndex: 0,
+    logIndex,
+    removed: false,
+  }
+}
+
+function eventQuery(eventName: RedemptionEventName) {
+  const provider = new providers.StaticJsonRpcProvider(undefined, {
+    name: "mainnet",
+    chainId: 1,
+  })
+  const filters: providers.Filter[] = []
+  const logs = [wallet, otherWallet].map((value, index) =>
+    eventLog(eventName, value, index)
+  )
+  provider.getLogs = async (requestedFilter) => {
+    const filter: providers.Filter = await requestedFilter
+    filters.push(filter)
+    return logs.filter((log) => {
+      const fromBlock =
+        typeof filter.fromBlock === "number" ? filter.fromBlock : 0
+      const toBlock =
+        typeof filter.toBlock === "number" ? filter.toBlock : Infinity
+      return (
+        log.blockNumber >= fromBlock &&
+        log.blockNumber <= toBlock &&
+        (filter.topics ?? []).every((topic, index) => {
+          if (topic === null) return true
+          return Array.isArray(topic)
+            ? topic.includes(log.topics[index])
+            : topic === log.topics[index]
+        })
+      )
+    })
+  }
+  const instance = new EthereumBridge({
+    signerOrProvider: provider,
+    address: bridgeAddress,
+  })
+  const query =
+    eventName === "RedemptionsCompleted"
+      ? instance.getRedemptionsCompletedEvents.bind(instance)
+      : instance.getRedemptionTimedOutEvents.bind(instance)
+  return { provider, filters, query }
+}
 
 function bridge(): EthereumBridge {
   return new EthereumBridge({
@@ -19,59 +99,180 @@ function bridge(): EthereumBridge {
 }
 
 describe("redemption monitoring bridge methods", () => {
-  it("decodes proof completion and forwards the event window and filters", async () => {
-    const instance = bridge()
-    const options = { fromBlock: 100, toBlock: 200 }
-    instance.getEvents = async (name, requestedOptions, ...filters) => {
-      expect(name).to.equal("RedemptionsCompleted")
-      expect(requestedOptions).to.equal(options)
-      expect(filters).to.deep.equal([wallet])
-      return [
+  for (const eventName of [
+    "RedemptionsCompleted",
+    "RedemptionTimedOut",
+  ] as const) {
+    describe(eventName, () => {
+      for (const testCase of [
         {
-          blockNumber: 123,
-          blockHash,
-          transactionHash,
-          args: {
-            walletPubKeyHash: wallet,
-            redemptionTxHash: `0x01${"00".repeat(30)}ab`,
-          },
-        } as unknown as Event,
-      ]
-    }
-    const [event] = await instance.getRedemptionsCompletedEvents(
-      options,
-      wallet
-    )
-    expect(event.blockNumber).to.equal(123)
-    expect(event.blockHash.toPrefixedString()).to.equal(blockHash)
-    expect(event.transactionHash.toPrefixedString()).to.equal(transactionHash)
-    expect(event.walletPublicKeyHash.toPrefixedString()).to.equal(wallet)
-    expect(event.redemptionTxHash.toString()).to.equal(`ab${"00".repeat(30)}01`)
-  })
+          name: "a single wallet",
+          args: [wallet],
+          topics: [walletTopic(wallet)],
+          wallets: [wallet],
+        },
+        {
+          name: "an OR list of wallets",
+          args: [[wallet, otherWallet]],
+          topics: [[walletTopic(wallet), walletTopic(otherWallet)]],
+          wallets: [wallet, otherWallet],
+        },
+        {
+          name: "an omitted wallet filter",
+          args: [],
+          topics: [],
+          wallets: [wallet, otherWallet],
+        },
+        {
+          name: "a null wallet wildcard",
+          args: [null],
+          topics: [],
+          wallets: [wallet, otherWallet],
+        },
+        {
+          name: "a nonmatching wallet",
+          args: [unknownWallet],
+          topics: [walletTopic(unknownWallet)],
+          wallets: [],
+        },
+      ]) {
+        it(`queries canonical emitted topics for ${testCase.name}`, async () => {
+          const { filters, query } = eventQuery(eventName)
+          const events = await query(
+            { fromBlock: 100, toBlock: 200, retries: 0 },
+            ...testCase.args
+          )
+          expect(filters).to.have.length(1)
+          expect(filters[0].address).to.equal(bridgeAddress)
+          expect(filters[0].fromBlock).to.equal(100)
+          expect(filters[0].toBlock).to.equal(200)
+          expect(filters[0].topics).to.deep.equal([
+            eventInterface.getEventTopic(eventName),
+            ...testCase.topics,
+          ])
+          expect(
+            events.map((event) => event.walletPublicKeyHash.toPrefixedString())
+          ).to.deep.equal(testCase.wallets)
+          for (const event of events) {
+            expect(event.blockNumber).to.equal(123)
+            expect(event.blockHash.toPrefixedString()).to.equal(blockHash)
+            expect(event.transactionHash.toPrefixedString()).to.equal(
+              transactionHash
+            )
+            if ("redemptionTxHash" in event) {
+              expect(event.redemptionTxHash.toString()).to.equal(
+                `ab${"00".repeat(30)}01`
+              )
+            } else {
+              expect(event.redeemerOutputScript.toString()).to.equal(script)
+            }
+          }
+        })
+      }
 
-  it("removes the CompactSize prefix from a timeout event's output script", async () => {
-    const instance = bridge()
-    const options = { fromBlock: 10, toBlock: 20 }
-    instance.getEvents = async (name, requestedOptions) => {
-      expect(name).to.equal("RedemptionTimedOut")
-      expect(requestedOptions).to.equal(options)
-      return [
-        {
-          blockNumber: 15,
-          blockHash,
-          transactionHash,
-          args: {
-            walletPubKeyHash: wallet,
-            redeemerOutputScript: `0x16${script}`,
+      for (const byteLength of [19, 21]) {
+        it(`rejects a ${byteLength}-byte wallet filter before querying`, async () => {
+          const { filters, query } = eventQuery(eventName)
+          let caught: unknown
+          try {
+            await query(
+              { fromBlock: 100, toBlock: 200, retries: 0 },
+              `0x${"11".repeat(byteLength)}`
+            )
+          } catch (error) {
+            caught = error
+          }
+          expect(caught).to.be.instanceOf(Error)
+          expect(filters).to.have.length(0)
+        })
+      }
+
+      it("preserves wallet topics and block options in fallback batches", async () => {
+        const { provider, query } = eventQuery(eventName)
+        const getLogs = provider.getLogs.bind(provider)
+        const requests: providers.Filter[] = []
+        provider.getLogs = async (filter) => {
+          requests.push(await filter)
+          if (requests.length === 1) {
+            throw new Error("query range too large")
+          }
+          return getLogs(filter)
+        }
+        const messages: string[] = []
+        const events = await query(
+          {
+            fromBlock: 100,
+            toBlock: 200,
+            batchedQueryBlockInterval: 40,
+            retries: 0,
+            logger: (message) => messages.push(message),
           },
-        } as unknown as Event,
-      ]
-    }
-    const [event] = await instance.getRedemptionTimedOutEvents(options)
-    expect(event.redeemerOutputScript.toString()).to.equal(script)
-    expect(event.walletPublicKeyHash.toPrefixedString()).to.equal(wallet)
-    expect(event.transactionHash.toPrefixedString()).to.equal(transactionHash)
-  })
+          wallet
+        )
+        expect(
+          requests.map(({ fromBlock, toBlock }) => [fromBlock, toBlock])
+        ).to.deep.equal([
+          [100, 200],
+          [100, 140],
+          [141, 181],
+          [182, 200],
+        ])
+        for (const request of requests) {
+          expect(request.topics).to.deep.equal([
+            eventInterface.getEventTopic(eventName),
+            walletTopic(wallet),
+          ])
+        }
+        expect(messages).not.to.be.empty
+        expect(events).to.have.length(1)
+        expect(events[0].walletPublicKeyHash.toPrefixedString()).to.equal(
+          wallet
+        )
+      })
+
+      it("retries failed provider queries with the same wallet topics", async () => {
+        const { provider, query } = eventQuery(eventName)
+        const getLogs = provider.getLogs.bind(provider)
+        const requests: providers.Filter[] = []
+        provider.getLogs = async (filter) => {
+          requests.push(await filter)
+          if (requests.length <= 2) {
+            throw new Error("RPC temporarily unavailable")
+          }
+          return getLogs(filter)
+        }
+        const events = await query(
+          { fromBlock: 100, toBlock: 200, retries: 1 },
+          wallet
+        )
+        expect(requests).to.have.length(3)
+        for (const request of requests) {
+          expect(request.fromBlock).to.equal(100)
+          expect(request.toBlock).to.equal(200)
+          expect(request.topics).to.deep.equal([
+            eventInterface.getEventTopic(eventName),
+            walletTopic(wallet),
+          ])
+        }
+        expect(events).to.have.length(1)
+      })
+
+      it("propagates provider query failures so monitoring can retry the window", async () => {
+        const { provider, query } = eventQuery(eventName)
+        const failure = new Error("RPC unavailable")
+        provider.getLogs = async () => {
+          throw failure
+        }
+        let caught: unknown
+        try {
+          await query({ fromBlock: 100, toBlock: 200, retries: 0 })
+        } catch (error) {
+          caught = error
+        }
+        expect(caught).to.equal(failure)
+      })
+    })
+  }
 
   it("reads the timeout and pending request at the requested block, including zero", async () => {
     const instance = bridge()
@@ -112,25 +313,5 @@ describe("redemption monitoring bridge methods", () => {
     )
     expect(pending.requestedAt).to.equal(1234)
     expect(observedBlocks).to.deep.equal([0, "latest", 200])
-  })
-
-  it("propagates event query failures so monitoring can retry the window", async () => {
-    const instance = bridge()
-    const failure = new Error("RPC unavailable")
-    instance.getEvents = async () => {
-      throw failure
-    }
-    for (const query of [
-      () => instance.getRedemptionsCompletedEvents(),
-      () => instance.getRedemptionTimedOutEvents(),
-    ]) {
-      let caught: unknown
-      try {
-        await query()
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).to.equal(failure)
-    }
   })
 })
