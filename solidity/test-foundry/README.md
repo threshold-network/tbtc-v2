@@ -1,37 +1,61 @@
 # Foundry tests
 
-Deliberately empty of ported tests. Every existing suite stays in `test/` on
-Hardhat.
+`BitcoinScript.t.sol` contains seven fuzz tests for the Bridge's P2PKH and
+P2WPKH output script helpers. They cover round trips, independence from the
+output value, distinct key hashes, script framing, and unsupported lengths.
+Existing TypeScript suites and deployment scripts continue to use Hardhat.
 
-This directory is for **new** property and fuzz tests where Foundry is a clear
-win over the TypeScript suites — pure functions over bytes, where fuzzing finds
-what example-based tests do not:
+## Run locally
 
-- Bitcoin script parsing and output-key derivation
-- BIP-340 Schnorr verification
-- BIP-341 sighash construction
-- P2TR coverage-proof / Merkle maths
+Use Node **24.11.1**, Yarn **4.12.0**, and Foundry **v1.5.1**, matching
+`.github/workflows/contracts.yml`. With `foundryup` installed, select Foundry:
 
-`forge-std` is not yet a dependency; add it when the first test lands.
-
-See `../docs/foundry-evaluation.md` for the reasoning and for what is explicitly
-not proposed.
-
-## Running these
-
-`forge-std` is vendored rather than installed from npm: the `forge-std` package
-on npm is an unofficial mirror of a different repository and does not ship
-`src/Test.sol`. Install the real one once:
-
-```
-forge install foundry-rs/forge-std
+```sh
+foundryup --install v1.5.1
 ```
 
-then
+From `solidity/`:
 
-```
-forge test
+```sh
+corepack yarn@4.12.0 install --immutable
+corepack yarn@4.12.0 foundry:install
+corepack yarn@4.12.0 test:foundry
 ```
 
-`lib/` is gitignored, so this is a one-time local step and a CI step whenever
-these tests are wired into a workflow.
+`foundry:install` installs the official `foundry-rs/forge-std` **v1.11.0**
+revision `8e40513d678f392f398620b3ef2b418648b33e89` into `lib/forge-std`.
+The revision is pinned in `package.json`; `--no-git` avoids adding a submodule.
+Rerun this command when the pin changes. No npm mirror is used.
+
+The default profile runs 256 cases per fuzz test. To reproduce CI's 1,000
+cases per test:
+
+```sh
+FOUNDRY_PROFILE=ci corepack yarn@4.12.0 test:foundry
+```
+
+Foundry prints a seed on failure. Replay it with the same profile, replacing
+`0x1234` with the reported seed:
+
+```sh
+FOUNDRY_PROFILE=ci corepack yarn@4.12.0 test:foundry --fuzz-seed 0x1234
+```
+
+## Compiler settings and generated files
+
+`foundry.toml` uses solc **0.8.17**, the **London** EVM target, and **1,000**
+optimizer runs. It also mirrors Hardhat's 200-run overrides for
+`WalletRegistry` and `BridgeGovernance`, and its 1-run override for
+`L1BTCDepositorNttWithExecutor`. Update both configurations when these settings
+change. Foundry restrictions also apply to contracts importing an overridden
+source; inspect the selected profile when adding tests for those contracts.
+
+Foundry writes artifacts to `forge-artifacts/` and caches to `cache_forge/`.
+These directories and `lib/` are ignored by Git, Prettier, and ESLint. Hardhat
+continues to produce the deployment artifacts in `build/`; matching compiler
+settings does not imply identical metadata or artifact formats.
+
+The `contracts-foundry` CI job installs the pinned toolchain and runs this
+suite independently of Hardhat. Prettier remains the Solidity formatter.
+
+See [the evaluation](../docs/foundry-evaluation.md) for the scope of this pilot.

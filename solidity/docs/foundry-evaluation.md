@@ -1,123 +1,76 @@
-# Foundry evaluation
+# Foundry fuzz-testing pilot
 
-Status: **worth doing incrementally, not as a migration.** This document exists
-so the option is costed rather than periodically re-litigated.
+Status: **an additive test suite with its own CI job.** Hardhat continues to
+run the existing TypeScript tests and deployment scripts.
 
-It is the third of three toolchain documents, and the only one that proposes
-adding something rather than removing it. Read alongside
-`hardhat-3-migration.md`.
+## Current baseline
 
-## Why this keeps coming up
+The original evaluation began while smock blocked a Hardhat upgrade. That
+work is complete: smock has been replaced by Solidity mocks and TypeScript
+helpers, `yarn.lock` resolves Hardhat 2.29.0, and CI uses Node 24.11.1. Foundry
+is no longer proposed as a way to unblock mocking or the Node upgrade.
 
-Three separate investigations converged on one dependency:
+The [Hardhat 3 assessment](hardhat-3-migration.md) tracks the remaining plugin
+and deployment migration work. This pilot can run alongside that work.
 
-| finding                                       | consequence                              |
-| --------------------------------------------- | ---------------------------------------- |
-| `@defi-wonderland/smock` is archived upstream | no security patches, ever                |
-| smock breaks on hardhat >= 2.20               | toolchain frozen below 2.20 (on 2.12.5)  |
-| hardhat < ~2.20 cannot run Node 24            | CI capped at Node 22 until smock is gone |
-| no maintained JS mocking library exists       | nothing to migrate _to_                  |
+## What this adds
 
-Rows 2 and 3 were measured rather than inferred, because the version numbers are
-easy to get wrong. `hardhat: "^2.10.0"` resolves to **2.12.5** in `yarn.lock`. A
-cold compile of this repo on Node 24 fails under 2.12.5 and 2.19.5 with `HH502`,
-and succeeds under 2.29.0. The cause is dependency skew in the solc download
-path — npm `undici@5.10.0` and Node 24's bundled undici share a global-dispatcher
-symbol, so the request reaches Node's internal dispatcher, which no longer accepts
-`maxRedirections`. Bumping only `undici` does not fix it; bumping hardhat does.
-And smock 2.3.4 against hardhat 2.29.0 throws in `Sandbox.create` (verified on
-Node 20, so Node is not a variable).
+`test-foundry/BitcoinScript.t.sol` exercises the existing `BitcoinTx` script
+builders and parser through a small harness. Seven fuzz tests check:
 
-So Node 24 is gated on removing smock — 29 test files, 77 `smock.fake` call
-sites, 15 distinct types.
+- P2PKH and P2WPKH scripts round-trip to the original key hash.
+- The output value does not affect the extracted P2PKH key hash.
+- Distinct key hashes produce distinct scripts for both formats.
+- Each format preserves its length and framing bytes.
+- Appending unsupported trailing lengths to a P2PKH script is rejected.
 
-The fourth row is the interesting one. `@ethereum-waffle/mock-contract` (2023),
-`@gnosis.pm/mock-contract` (2022) and `@clrfund/waffle-mock-contract` (2024, and
-requires ethers v6) are all dead or unusable. The category has no maintained
-option because the ecosystem moved to Foundry, where mocking is native
-(`vm.mockCall`) and needs no package.
+Generated inputs complement the existing fixed-vector tests. The default
+profile runs 256 cases per test; CI runs 1,000. A failing run reports a seed
+that can be replayed locally.
 
-So Foundry is not a preference question. It is where the mocking capability
-this repo depends on actually lives now.
+## Reproducible execution
 
-## What a full migration would cost
+The `contracts-foundry` job in `.github/workflows/contracts.yml` runs on
+Solidity PR changes and the workflow's other triggers. It installs Node
+24.11.1, Yarn 4.12.0, Foundry v1.5.1, and the exact forge-std v1.11.0 commit
+pinned by `yarn foundry:install`. JavaScript dependencies use the existing
+lockfile with `yarn install --immutable`.
 
-| surface                              | size  |
-| ------------------------------------ | ----- |
-| solidity test files (TypeScript)     | 71    |
-| deploy scripts (hardhat-deploy)      | 60    |
-| tests driving `deployments` fixtures | 17    |
-| tests using smock                    | 29    |
-| existing `.t.sol` tests              | **0** |
+See [the test README](../test-foundry/README.md) for installation, execution,
+and seed replay commands. The toolchain and forge-std revisions should be
+updated deliberately and validated together.
 
-Two things make a wholesale port unattractive:
+## Coexistence with Hardhat
 
-1. **The deploy layer is the hard part, not the tests.** 60 `hardhat-deploy`
-   scripts and 17 tests that consume its fixtures have no Foundry equivalent.
-   Foundry's `script/` is a different model, not a port target.
-2. **The tests are not the expensive part to keep.** They pass, they are
-   maintained, and TypeScript integration tests against ethers are a reasonable
-   thing to own.
+Both runners compile `contracts/` with solc 0.8.17. Foundry explicitly selects
+London, the default target of that compiler version, and 1,000 optimizer
+runs. Additional compiler profiles mirror the Hardhat overrides: 200 runs
+for `WalletRegistry` and `BridgeGovernance`, and 1 run for
+`L1BTCDepositorNttWithExecutor`. Keep these settings synchronized when either
+configuration changes.
 
-## What is actually worth doing
+Foundry's [compilation restrictions](https://getfoundry.sh/reference/config/solidity-compiler#compilation-restrictions)
+also propagate to importing contracts.
+Future tests importing an overridden contract need to account for that
+profile selection. Hardhat remains the source of deployment artifacts;
+compiler-setting parity does not guarantee identical metadata or artifacts.
 
-Foundry coexists with Hardhat — same `contracts/`, different runner. keep-core
-already proves the setup is cheap: `solidity/ecdsa/foundry.toml` exists with
-remappings and `solc_version = "0.8.17"`, though it has **zero `.t.sol` files
-and no CI wiring**, so it was set up and never used.
+Foundry uses `forge-artifacts/` and `cache_forge/`, separate from Hardhat's
+`build/` and `cache/`. Its dependencies live in the ignored `lib/` directory.
+Generated files and vendored dependencies are excluded from Prettier and
+ESLint; the existing Prettier configuration formats the authored `.t.sol`
+tests.
 
-The incremental version:
+Slither's `crytic-compile` can prefer Foundry when it sees `foundry.toml`.
+The Slither job therefore explicitly selects
+`--compile-force-framework hardhat` and continues to use Hardhat artifacts.
 
-1. Add `foundry.toml` alongside the existing Hardhat config. No test moves.
-2. Write **new** property/fuzz tests in `.t.sol` where Foundry is strongly
-   better — Bitcoin script parsing, BIP-340/341 verification, sighash
-   construction, the P2TR coverage-proof maths. These are pure functions over
-   bytes, which is exactly where fuzzing pays and where JS round-tripping is
-   awkward.
-3. Leave every existing `.test.ts` alone.
-4. Revisit only if the deploy layer independently moves off hardhat-deploy.
+## Scope of the pilot
 
-This is additive: no migration, no dual maintenance of the same test, no
-dependency removed or added on the JS side.
+Add property tests when generated inputs provide useful coverage of byte
+parsing or other pure helpers. Bitcoin script handling is the initial case;
+additional suites should bring a concrete property and a passing CI run.
 
-## Coexistence is not quite free
-
-Adding `foundry.toml` and changing nothing else broke the `contracts-slither`
-job on this branch's first CI run:
-
-```
-Multiple frameworks detected: Foundry, Hardhat. Using Foundry (highest priority).
-Use --compile-force-framework to override.
-```
-
-`crytic-compile` chooses a build system by looking for config files, and ranks
-Foundry above Hardhat. `forge` is not installed on that runner, so slither
-exited 255 without analysing anything — a security job turning red for a reason
-unrelated to any contract. The fix is one flag,
-`--compile-force-framework hardhat`, applied here.
-
-Worth stating plainly because the obvious check does not catch it: Hardhat
-itself compiles all 175 files with `foundry.toml` present. What breaks is
-third-party tooling that _sniffs_ for a framework rather than being told which
-one to use. Anything else in CI or in a contributor's editor that auto-detects
-is a candidate for the same surprise.
-
-## Relationship to the smock work
-
-The smock replacement (Solidity stubs, see `ReimbursementPoolStub`) is a
-prerequisite either way, and is **not** wasted effort if Foundry never happens:
-
-- it unblocks hardhat >= 2.20, and therefore Node 24 and Hardhat 3
-- hand-written Solidity stubs are consumable from `.t.sol` unchanged, because
-  they are contracts rather than JavaScript
-
-That is the argument for stubs over any JS mock library. Every JS option dies at
-the next toolchain move; a stub contract does not.
-
-## Not recommended
-
-- Porting the 71 existing test files.
-- Adopting Foundry to "fix" smock — the Solidity stubs do that on their own, at
-  a fraction of the cost.
-- Setting up `foundry.toml` and writing nothing, which is the state keep-core is
-  in today.
+The existing TypeScript tests, deployment fixtures, and deployment scripts
+stay in place. A broader migration would require a separate proposal for
+those workflows and evidence that the maintenance cost is justified.

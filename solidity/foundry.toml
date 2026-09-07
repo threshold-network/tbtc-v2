@@ -1,19 +1,17 @@
-# Foundry runs alongside Hardhat against the same contracts/ tree. Nothing is
-# migrated: every existing test stays in test/*.test.ts on Hardhat. This exists
-# so new property and fuzz tests can be written in .t.sol where Foundry is
-# clearly better -- Bitcoin script parsing, BIP-340/341 verification, sighash
-# construction, coverage-proof maths.
-#
-# See docs/foundry-evaluation.md for why a wholesale migration is not proposed.
+# Additive Bitcoin script fuzz tests; Hardhat owns deployment artifacts.
+# See test-foundry/README.md for the pinned toolchain and commands.
 [profile.default]
 src = "contracts"
 test = "test-foundry"
 out = "forge-artifacts"
+cache_path = "cache_forge"
 libs = ["node_modules", "lib"]
-# Match hardhat.config.ts exactly, or the two runners compile different code.
+# Match Hardhat's compiler settings, including solc 0.8.17's default EVM target.
 solc_version = "0.8.17"
+evm_version = "london"
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 1000
+auto_detect_remappings = false
 remappings = [
     "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
     "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
@@ -22,3 +20,20 @@ remappings = [
     "@thesis/=node_modules/@thesis/",
     "forge-std/=lib/forge-std/src/"
 ]
+
+# Mirror hardhat.config.ts's per-contract optimizer overrides.
+additional_compiler_profiles = [
+    { name = "runs-200", optimizer_runs = 200 },
+    { name = "runs-1", optimizer_runs = 1 }
+]
+compilation_restrictions = [
+    { paths = "node_modules/@keep-network/ecdsa/contracts/WalletRegistry.sol", optimizer_runs = 200 },
+    { paths = "contracts/bridge/BridgeGovernance.sol", optimizer_runs = 200 },
+    { paths = "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol", optimizer_runs = 1 }
+]
+
+[profile.default.fuzz]
+runs = 256
+
+[profile.ci.fuzz]
+runs = 1000

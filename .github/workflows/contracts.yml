@@ -117,6 +117,51 @@ jobs:
         if: github.ref != 'refs/heads/dapp-development' && github.head_ref != 'dapp-development'
         run: yarn test:integration
 
+  contracts-foundry:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ./solidity
+    env:
+      FOUNDRY_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Configure HTTPS for legacy git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.1
+          cache: false
+
+      - name: Install pinned forge-std
+        run: yarn foundry:install
+
+      - name: Run Foundry fuzz tests
+        run: yarn test:foundry
+
   contracts-deployment-dry-run:
     needs: contracts-detect-changes
     if: |
