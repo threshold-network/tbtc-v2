@@ -1,10 +1,12 @@
 import assert from "assert"
 
 import { Manager, SystemEventType } from "../src/system-event"
+import { blocks } from "../src/blocks"
 
 import { test } from "./test-runner"
 
 import type {
+  BlockRange,
   Monitor,
   Persistence,
   Receiver,
@@ -27,9 +29,16 @@ const monitor: Monitor = {
 function persistence(
   handledSystemEvents: Awaited<ReturnType<Persistence["handledSystemEvents"]>>
 ): Persistence {
+  let pendingEvents: Record<string, SystemEvent[]> = {}
   return {
     checkpointBlock: async () => 0,
     updateCheckpointBlock: async () => undefined,
+    pendingBlockRange: async () => null,
+    updatePendingBlockRange: async () => undefined,
+    pendingSystemEvents: async () => pendingEvents,
+    updatePendingSystemEvents: async (events) => {
+      pendingEvents = events
+    },
     handledSystemEvents: async () => handledSystemEvents,
     storeHandledSystemEvents: async () => undefined,
   }
@@ -93,4 +102,104 @@ test("Manager treats duplicate system events as already covered", async () => {
   assert.deepStrictEqual(report.errors, [])
   assert.strictEqual(report.systemEventsAcks[0].status, "duplicate")
   assert.strictEqual(receiverCalled, false)
+})
+
+test("Manager requires a durable range before checking, including a retry after a failed save", async () => {
+  const originalLatest = blocks.latestBlock
+  blocks.latestBlock = async () => 150
+  let pending: BlockRange | null = null
+  let checks = 0
+  const state = persistence({})
+  state.pendingBlockRange = async () => pending
+  state.updatePendingBlockRange = async (range) => {
+    // File persistence can update its cache before the disk write fails.
+    pending = range
+    throw new Error("cannot save range")
+  }
+  const manager = new Manager(
+    [
+      {
+        check: async () => {
+          checks += 1
+          return []
+        },
+      },
+    ],
+    [],
+    state
+  )
+  try {
+    assert.strictEqual((await manager.trigger()).status, "failure")
+    assert.strictEqual((await manager.trigger()).status, "failure")
+    assert.strictEqual(checks, 0)
+  } finally {
+    blocks.latestBlock = originalLatest
+  }
+})
+
+test("Manager queues failed deliveries and deduplicates the receiver that already accepted them", async () => {
+  const originalLatest = blocks.latestBlock
+  let latestBlock = 150
+  blocks.latestBlock = async () => latestBlock
+  let checkpoint = 100
+  let pending: BlockRange | null = null
+  const handled: Record<string, SystemEvent[]> = {}
+  const state = persistence(handled)
+  state.checkpointBlock = async () => checkpoint
+  state.updateCheckpointBlock = async (block) => {
+    checkpoint = block
+  }
+  state.pendingBlockRange = async () => pending
+  state.updatePendingBlockRange = async (range) => {
+    pending = range
+  }
+  state.storeHandledSystemEvents = async (events) => {
+    Object.entries(events).forEach(([id, accepted]) => {
+      handled[id] = [...(handled[id] ?? []), ...accepted]
+    })
+  }
+  let acceptedCalls = 0
+  let rejectedCalls = 0
+  let reject = true
+  const receivers: Receiver[] = [
+    {
+      id: () => "accepted",
+      receive: async (event) => {
+        acceptedCalls += 1
+        return { receiverId: "accepted", systemEvent: event, status: "handled" }
+      },
+    },
+    {
+      id: () => "rejected",
+      receive: async (event) => {
+        rejectedCalls += 1
+        if (reject) throw new Error("delivery failed")
+        return { receiverId: "rejected", systemEvent: event, status: "handled" }
+      },
+    },
+  ]
+  try {
+    assert.strictEqual(
+      (await new Manager([monitor], receivers, state).trigger()).status,
+      "failure"
+    )
+    assert.strictEqual(checkpoint, 150)
+    assert.strictEqual(pending, null)
+    assert.deepStrictEqual(await state.pendingSystemEvents(), {
+      rejected: [systemEvent],
+    })
+    latestBlock = 200
+    reject = false
+    assert.strictEqual(
+      (await new Manager([monitor], receivers, state).trigger()).status,
+      "success"
+    )
+    assert.strictEqual(checkpoint, 200)
+    assert.strictEqual(pending, null)
+    assert.deepStrictEqual(await state.pendingSystemEvents(), {})
+    assert.strictEqual(acceptedCalls, 1)
+    assert.strictEqual(rejectedCalls, 2)
+  } finally {
+    blocks.latestBlock = originalLatest
+  }
 })
