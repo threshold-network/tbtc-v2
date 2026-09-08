@@ -34,6 +34,7 @@ async function queryEventsInChunks(
     chunkStart <= toBlock;
     chunkStart += EVENT_QUERY_CHUNK_BLOCKS
   ) {
+    // Keep RPC requests sequential to respect rate limits and block order.
     // eslint-disable-next-line no-await-in-loop
     const chunkEvents = await contract.queryFilter(
       filter,

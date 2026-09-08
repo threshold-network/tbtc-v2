@@ -314,6 +314,84 @@ describe("AbstractL1BTCDepositor", () => {
         })
       }
     )
+    context("when the deferred reimbursement pool call fails", () => {
+      let initializeDepositGasSpent: BigNumber
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        await depositor
+          .connect(governance)
+          .updateReimbursementPool(reimbursementPool.address)
+        await depositor
+          .connect(governance)
+          .updateReimbursementAuthorization(initializer.address, true)
+        await depositor
+          .connect(initializer)
+          .initializeDeposit(
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+        initializeDepositGasSpent = (
+          await depositor.gasReimbursements(initializeDepositFixture.depositKey)
+        ).gasSpent
+        expect(initializeDepositGasSpent).to.be.gt(0)
+
+        await depositor.setTrackedDepositKey(
+          initializeDepositFixture.depositKey
+        )
+        await allowFinalization()
+        await reimbursementPool.refund.reverts("Refund unavailable")
+
+        // The finalizer is not reimbursement-authorized, so only the
+        // deferred pool call is attempted and fails.
+        tx = await depositor
+          .connect(relayer)
+          .finalizeDeposit(initializeDepositFixture.depositKey)
+      })
+
+      after(async () => {
+        await resetFakes()
+        await restoreSnapshot()
+      })
+
+      it("should complete the transfer with the reimbursement cleared", async () => {
+        await expect(tx)
+          .to.emit(depositor, "TbtcTransferred")
+          .withArgs(
+            expectedTbtcAmount,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+        expect(await depositor.reimbursementClearedBeforeTransfer()).to.be.true
+      })
+
+      it("should preserve the original reimbursement and report the failure", async () => {
+        const reimbursement = await depositor.gasReimbursements(
+          initializeDepositFixture.depositKey
+        )
+        expect(reimbursement.receiver).to.equal(initializer.address)
+        expect(reimbursement.gasSpent).to.equal(initializeDepositGasSpent)
+        await expect(tx)
+          .to.emit(depositor, "DeferredReimbursementFailed")
+          .withArgs(
+            initializeDepositFixture.depositKey,
+            initializer.address,
+            initializeDepositGasSpent
+          )
+      })
+
+      it("should reject another finalization despite the restored reimbursement", async () => {
+        await expect(
+          depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey)
+        ).to.be.revertedWith("Wrong deposit state")
+      })
+    })
+
     context(
       "when the deferred initialization receiver burns gas on receipt",
       () => {
