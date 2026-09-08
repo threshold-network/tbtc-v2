@@ -88,7 +88,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     "BridgeGovernance",
     { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationCapsUpdate",
-    // values per agent-docs/inventory/reservation-parameters.md
+    // test/dev-network values; see governance-parameter bounds enforced in
+    // Reservation.sol's updateReservationCaps/updateReservationParameters
     ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
     ethers.BigNumber.from("5") // maxActiveReservations (lowered from 100: the Item-3 sizing-relation check now enforced on-chain requires maxActiveReservations <= liveWalletsCount * maxReservationsPerWallet on every acceptance; 5 keeps that relation satisfied with just 1 registered Live wallet on a fresh test/dev deploy and stays satisfiable as more wallets register, instead of silently requiring 20+ wallets before any deposit can be accepted)
