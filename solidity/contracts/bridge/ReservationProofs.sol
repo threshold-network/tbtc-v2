@@ -16,6 +16,7 @@
 pragma solidity 0.8.17;
 
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
+import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
@@ -67,6 +68,7 @@ library ReservationProofs {
     using Reservation for BridgeState.Storage;
 
     using BTCUtils for bytes;
+    using BytesLib for bytes;
 
     event ReservationAccepted(
         uint256 indexed reservationKey,
@@ -103,6 +105,12 @@ library ReservationProofs {
         uint256 indexed reservationKey,
         uint64 requestNonce,
         Reservation.ActionType actionType
+    );
+
+    event ReservationRedemptionCompleted(
+        uint256 indexed reservationKey,
+        uint64 requestNonce,
+        bytes32 redemptionTxHash
     );
 
     /// @notice Represents the type of a reservation lifecycle SPV proof.
@@ -155,6 +163,14 @@ library ReservationProofs {
                 reservationKey,
                 requestNonce
             );
+        } else if (parsedProofType == ProofType.Redemption) {
+            submitReservedRedemptionProof(
+                self,
+                txInfo,
+                proof,
+                reservationKey,
+                requestNonce
+            );
         } else if (parsedProofType == ProofType.Reanchor) {
             submitReservationReanchorProof(
                 self,
@@ -163,15 +179,17 @@ library ReservationProofs {
                 reservationKey,
                 requestNonce
             );
-            // Milestone 1 accepts acceptance and re-anchor proofs.
+            // Milestone 1 accepts acceptance, redemption, and re-anchor
+            // proofs.
         } else {
             revert("Unsupported reservation proof type");
         }
     }
 
     /// @notice Loads the action record of the generation being settled and
-    ///         validates it is settleable (`Pending` or `TimedOut`) and of
-    ///         the expected type.
+    ///         validates it is settleable (`Pending`, or `TimedOut` for
+    ///         action types that allow late settlement) and of the expected
+    ///         type.
     /// @return action The action record.
     /// @return late True when settling a timed-out generation.
     function loadSettleableAction(
@@ -194,6 +212,20 @@ library ReservationProofs {
             "Action is not settleable"
         );
         late = action.state == Reservation.ActionState.TimedOut;
+        // Redemption timeouts are terminal: `notifyReservationRedemptionTimedOut`
+        // already refunds the full escrowed claim back to the redeemer as
+        // Bank balance and returns the reservation to `Active`. Unlike
+        // acceptance and re-anchor, there is no late-settlement path for a
+        // timed-out redemption -- allowing one would let a wallet that
+        // confirms the redemption transaction after the timeout deliver the
+        // BTC while the redeemer also keeps the refunded TBTC, burning
+        // nothing. A wallet that broadcasts after the timeout simply
+        // produces an output the protocol no longer recognizes as a
+        // redemption; it becomes a fresh anchor requiring a new acceptance.
+        require(
+            !late || expectedType != Reservation.ActionType.Redemption,
+            "Redemption action already timed out and refunded"
+        );
         // Bound late acceptance settlement (M15 deferral mitigation):
         // a timed-out acceptance action may be settled late only within
         // the reservation term following its timeout. Reanchor late
@@ -847,6 +879,121 @@ library ReservationProofs {
         reservation.state = Reservation.ReservationState.Active;
     }
 
+    /// @notice Used by the wallet to prove an in-kind reserved redemption of
+    ///         a reservation's anchor outpoint and to close the position:
+    ///         the redemption transaction must spend exactly the current
+    ///         anchor outpoint as its sole input and create exactly one
+    ///         output paying the redeemer output script the generation
+    ///         snapshotted at request time. The escrowed gross claim is
+    ///         burned (the reserved redemption always burns the full
+    ///         `mintedAmount`) and the position's capacity counters are
+    ///         released.
+    /// @dev Requirements:
+    ///      - The named generation must be a settleable, still-`Pending`
+    ///        redemption (a `TimedOut` redemption was already refunded by
+    ///        `notifyReservationRedemptionTimedOut` and can never be
+    ///        settled -- see `loadSettleableAction`),
+    ///      - The reservation must not have a newer pending generation,
+    ///      - The watchtower delay snapshotted for the generation must have
+    ///        elapsed,
+    ///      - `redemptionTx` must spend the current anchor outpoint as its
+    ///        sole input,
+    ///      - `redemptionTx` must have exactly one output paying the
+    ///        generation's snapshotted redeemer output script, within the
+    ///        snapshotted fee bound against the current anchor value,
+    ///      - The miner fee must respect the snapshotted bound.
+    function submitReservedRedemptionProof(
+        BridgeState.Storage storage self,
+        BitcoinTx.Info calldata redemptionTx,
+        BitcoinTx.Proof calldata redemptionProof,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) internal {
+        (Reservation.ReservationAction storage action, ) = loadSettleableAction(
+            self,
+            reservationKey,
+            requestNonce,
+            Reservation.ActionType.Redemption
+        );
+
+        Reservation.ReservationRequest storage reservation = self.reservations[
+            reservationKey
+        ];
+        require(
+            reservation.state == Reservation.ReservationState.Active ||
+                reservation.state == Reservation.ReservationState.ActionPending,
+            "Reservation is not settleable"
+        );
+
+        require(
+            reservation.requestNonce == requestNonce,
+            "Not the current generation"
+        );
+
+        // On-chain authorization enforcement: the wallet may only sign
+        // once the watchtower delay of this generation has elapsed
+        // without a veto, and the proof path verifies it -- an early
+        // broadcast cannot finalize before the guardians' window
+        // closes.
+        if (self.redemptionWatchtower != address(0)) {
+            require(
+                /* solhint-disable-next-line not-rely-on-time */
+                block.timestamp >=
+                    uint256(action.requestedAt) +
+                        IRedemptionWatchtower(self.redemptionWatchtower)
+                            .getReservedRedemptionDelay(
+                                reservationKey,
+                                requestNonce
+                            ),
+                "Watchtower delay has not elapsed"
+            );
+        }
+
+        requireCurrentSourceAnchor(reservation, action);
+
+        bytes32 redemptionTxHash = self.validateProof(
+            redemptionTx,
+            redemptionProof
+        );
+
+        consumeAnchor(self, reservation, redemptionTx.inputVector);
+
+        bytes memory output = parseSingleOutput(redemptionTx.outputVector);
+        uint64 outputValue = output.extractValue();
+
+        {
+            bytes memory outputScript = output.slice(8, output.length - 8);
+            require(
+                keccak256(outputScript) == action.actionDataHash,
+                "Output does not pay the requested redeemer script"
+            );
+        }
+
+        // Underflow-safe range check against the position's anchor value
+        // (unchanged since the generation was requested: the anchor can
+        // only be consumed by proving a transaction that spends it) and
+        // the generation's snapshotted fee bound.
+        require(
+            outputValue <= reservation.anchorAmount &&
+                reservation.anchorAmount - outputValue <= action.txMaxFee,
+            "Output value is not within the acceptable range"
+        );
+
+        action.state = Reservation.ActionState.Settled;
+        self.closeReservation(reservation, reservationKey);
+
+        // slither-disable-next-line reentrancy-events
+        emit ReservationRedemptionCompleted(
+            reservationKey,
+            requestNonce,
+            redemptionTxHash
+        );
+
+        // Burn the gross minted amount held by the Bridge since the
+        // redemption request.
+        self.bank.decreaseBalance(action.amount);
+    }
+
     /// @notice Unwinds the position's current pending generation during a
     ///         late settlement of an older generation: the anchor the
     ///         pending generation was authorized to spend has provably been
@@ -888,6 +1035,21 @@ library ReservationProofs {
             Reservation.releaseAcceptanceCapacity(
                 self,
                 pendingAction.targetWalletPubKeyHash,
+                pendingAction.amount
+            );
+        } else if (
+            pendingAction.actionType == Reservation.ActionType.Redemption
+        ) {
+            // A superseded redemption escrowed the caller's full gross
+            // claim at request time (see `requestReservedRedemption`); the
+            // anchor it was authorized to spend is now provably consumed
+            // by the settling generation, so this redemption can never
+            // complete. Refund the escrow to the redeemer exactly as
+            // `notifyReservationRedemptionTimedOut` does on an ordinary
+            // timeout, otherwise the Bridge would keep the redeemer's
+            // full mintedAmount as unbacked Bank balance forever.
+            self.bank.transferBalance(
+                pendingAction.redeemer,
                 pendingAction.amount
             );
         }

@@ -285,6 +285,14 @@ contract TestReservationProofs {
         state.bank = Bank(_bank);
     }
 
+    /// @notice Test-only helper: credits `account` with `amount` Bank
+    ///         balance. Used to seed the escrow this contract (acting as
+    ///         the Bridge) is expected to hold before exercising a refund
+    ///         path such as `unwindPendingAction`.
+    function fundBankBalance(address account, uint256 amount) external {
+        state.bank.increaseBalance(account, amount);
+    }
+
     function setRelay(address _relay) external {
         state.relay = IRelay(_relay);
     }
