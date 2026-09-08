@@ -106,11 +106,11 @@ export class ArbitrumBitcoinDepositor
       deposit.extraData
     )
 
-    return this._write("initializeDeposit", [
-      fundingTx,
-      reveal,
-      `0x${l2DepositOwner.identifierHex}`,
-    ])
+    return this._write(
+      "initializeDeposit",
+      [fundingTx, reveal, `0x${l2DepositOwner.identifierHex}`],
+      { retries: 0 }
+    )
   }
 }
 

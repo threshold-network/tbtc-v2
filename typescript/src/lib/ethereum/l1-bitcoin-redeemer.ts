@@ -101,10 +101,10 @@ export class EthereumL1BitcoinRedeemer
         ? bytesToHex(encodedVm)
         : encodedVm.toPrefixedString()
 
-    return this._write("requestRedemption", [
-      walletPublicKeyHash,
-      mainUtxoParam,
-      encodedVmParam,
-    ])
+    return this._write(
+      "requestRedemption",
+      [walletPublicKeyHash, mainUtxoParam, encodedVmParam],
+      { retries: 0 }
+    )
   }
 }

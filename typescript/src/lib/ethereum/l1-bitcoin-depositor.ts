@@ -164,11 +164,11 @@ export class EthereumL1BitcoinDepositor
       throw new Error("Extra data is required")
     }
 
-    return this._write("initializeDeposit", [
-      fundingTx,
-      reveal,
-      deposit.extraData.toPrefixedString(),
-    ])
+    return this._write(
+      "initializeDeposit",
+      [fundingTx, reveal, deposit.extraData.toPrefixedString()],
+      { retries: 0 }
+    )
   }
 }
 
