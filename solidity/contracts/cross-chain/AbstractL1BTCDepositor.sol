@@ -518,7 +518,9 @@ abstract contract AbstractL1BTCDepositor is
                 /* solhint-enable avoid-low-level-calls */
 
                 if (!success) {
+                    // slither-disable-next-line reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
+                    // slither-disable-next-line reentrancy-events
                     emit DeferredReimbursementFailed(
                         depositKey,
                         reimbursement.receiver,
