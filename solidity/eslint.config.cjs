@@ -44,6 +44,8 @@ module.exports = [
       "no-only-tests": noOnlyTests,
     },
     settings: {
+      // Resolution locates files; these settings also enable TS export-map traversal.
+      ...importPlugin.flatConfigs.typescript.settings,
       "import-x/resolver-next": [
         createTypeScriptImportResolver({
           project: `${root}/tsconfig.eslint.json`,

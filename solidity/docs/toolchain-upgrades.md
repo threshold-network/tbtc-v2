@@ -29,7 +29,18 @@ These changes address [#1072](https://github.com/threshold-network/tbtc-v2/issue
 replaces the three legacy Hardhat plugins and upgrades TypeChain, covering
 [#1074](https://github.com/threshold-network/tbtc-v2/issues/1074) and
 [#1076](https://github.com/threshold-network/tbtc-v2/issues/1076). These are
-stacked changes; the draft status and compatibility gates of #1067 still apply.
+stacked changes. PR #1067 now uses the documented two-exception
+[compatibility policy](ethers-v6-parity.md); its original raw byte comparison
+still fails. That policy is pinned to #1067 and is not expanded by this
+TypeScript/export migration.
+Strict checking also covers the inherited parity scripts. The capture config
+now declares its provider request type and checks the required Hardhat network
+configuration explicitly. Its source hash therefore differs from #1067; old
+snapshots are deliberately rejected by this version of the checker. Use the
+immutable #1067 revision to reproduce that historical result. This change
+does not revise the checked-in policy, regenerate evidence or claim compatibility
+for the additional TypeScript/export changes.
+
 The stack incorporates [#1127](https://github.com/threshold-network/tbtc-v2/pull/1127)
 to include its deployment validation patch and regression coverage.
 
@@ -38,11 +49,11 @@ to include its deployment validation patch and regression coverage.
 The following are coordinated deployment migrations, not compatible dependency
 bumps. Registry peer ranges were checked on 2026-09-07.
 
-| Issue                                                                                         | Required next step                                                                                                                                                                    |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#1071: Hardhat 3](https://github.com/threshold-network/tbtc-v2/issues/1071)                  | Land the ethers-v6 prerequisite, resolve its deployment compatibility gate, and finish the deployment-layer and ESM migrations. Chai 5+ must move with the runtime and matcher stack. |
-| [#1075: OpenZeppelin upgrades 4](https://github.com/threshold-network/tbtc-v2/issues/1075)    | Version 4.1.0 requires Hardhat ^3.6.0 and foundation ethers ^4.0.0. Decide and verify the proxy/admin model before replacing the transitional 2.5.1 plugin.                           |
-| [#1128: hardhat-deploy 2 / rocketh](https://github.com/threshold-network/tbtc-v2/issues/1128) | Establish the external deployment loader and export-format compatibility, then port scripts and fixtures together with the upstream deployment packages.                              |
+| Issue                                                                                         | Required next step                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#1071: Hardhat 3](https://github.com/threshold-network/tbtc-v2/issues/1071)                  | Land the ethers-v6 prerequisite under its reviewed compatibility policy and finish the deployment-layer and ESM migrations. Chai 5+ must move with the runtime and matcher stack. |
+| [#1075: OpenZeppelin upgrades 4](https://github.com/threshold-network/tbtc-v2/issues/1075)    | Version 4.1.0 requires Hardhat ^3.6.0 and foundation ethers ^4.0.0. Decide and verify the proxy/admin model before replacing the transitional 2.5.1 plugin.                       |
+| [#1128: hardhat-deploy 2 / rocketh](https://github.com/threshold-network/tbtc-v2/issues/1128) | Establish the external deployment loader and export-format compatibility, then port scripts and fixtures together with the upstream deployment packages.                          |
 
 OpenZeppelin's [migration guide](https://docs.openzeppelin.com/upgrades-plugins/migrate-from-hardhat-2)
 requires Hardhat 3 first and replaces `hre.upgrades` with an async factory tied
@@ -65,20 +76,32 @@ The ESLint 10 flat configuration uses typescript-eslint 8 and import-x.
 `eslint.rules.cjs` preserves the active non-formatting rules resolved from
 `@thesis-co/eslint-config` 0.1.0; removed TypeScript rules use their current
 replacements. Prettier owns formatting, and unused React/JSX configuration is
-omitted. JavaScript keeps the correctness rules which TypeScript's compiler
-provides for TypeScript files. `tsconfig.eslint.json` is checked in so fresh
+omitted. JavaScript keeps both the correctness rules provided by TypeScript's
+compiler and the applicable core counterparts of the inherited TypeScript
+extension rules, including unused expressions, shadowing and loop closures.
+The existing deployment overrides still apply to JavaScript deployment patches.
+The import-x TypeScript preset supplies export-map traversal settings as well
+as module resolution, so dependency-cycle analysis follows TypeScript imports.
+`tsconfig.eslint.json` is checked in so fresh
 installs do not depend on the old shared package generating one.
 
 The existing test overrides and the prohibition on `waffle.loadFixture` remain.
 Focused tests (`describe.only` / `it.only`) are errors. Unused disable comments
 are errors, including the obsolete `no-extra-semi` suppressions removed in this
-migration. Node 22.13+ or Node 24+ is required by ESLint 10.
+migration. `npm run test:lint-policy` checks actual cyclic and acyclic TypeScript
+modules, JavaScript correctness violations and accepted deployment overrides.
+It runs as part of `lint:eslint`, including the existing formatting CI job.
+Node 22.13+ or Node 24+ is required by ESLint 10.
 
-The existing warning debt stays visible with a ceiling of 321 in both ESLint
-commands: 263 console uses, 31 unnamed functions, 19 unused variables, five
+The existing warning debt stays visible with a ceiling of 322 in both ESLint
+commands: 263 console uses, 31 unnamed functions, 19 unused variables, six
 explicit `any` types and three non-null assertions. Reduce the ceiling when
 fixing these warnings; do not increase it to accommodate new warnings. This
 records the warning baseline for the migration without disabling those checks.
+
+The increase from 321 to 322 is the inherited parity checker's explicit
+JSON evidence boundary (`Json`), added in the updated #1067 prerequisite.
+The lint-policy fixes add no source warnings.
 
 Solhint 6 uses the same explicit rule policy previously supplied by the
 `solhint-config-keep` git dependency, with this repository's constructor
