@@ -612,7 +612,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
     const decodeRevertReason = (data: string): string => {
       if (!data || data.length < 138) return ""
-      const reasonData = "0x" + data.slice(10)
+      const reasonData = `0x${data.slice(10)}`
       return ethers.utils.defaultAbiCoder.decode(["string"], reasonData)[0]
     }
 
