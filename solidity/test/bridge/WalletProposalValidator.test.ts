@@ -3011,9 +3011,7 @@ describe("WalletProposalValidator", () => {
             actionType: reservationActionType.Acceptance,
           })
         )
-        await reservationBridge.reservations.returns(
-          buildReservationRequest()
-        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
       })
 
       after(async () => {
@@ -3039,9 +3037,7 @@ describe("WalletProposalValidator", () => {
         await reservationBridge.reservationActions.returns(
           buildReservationAction({ state: reservationActionState.Settled })
         )
-        await reservationBridge.reservations.returns(
-          buildReservationRequest()
-        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
       })
 
       after(async () => {
@@ -3069,9 +3065,7 @@ describe("WalletProposalValidator", () => {
         await reservationBridge.reservationActions.returns(
           buildReservationAction({ timeoutAt: now - 1 })
         )
-        await reservationBridge.reservations.returns(
-          buildReservationRequest()
-        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
       })
 
       after(async () => {
@@ -3169,9 +3163,7 @@ describe("WalletProposalValidator", () => {
         await reservationBridge.reservationActions.returns(
           buildReservationAction({ timeoutAt: now + day })
         )
-        await reservationBridge.reservations.returns(
-          buildReservationRequest()
-        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
         await bridge.wallets
           .whenCalledWith(targetWalletPubKeyHash)
           .returns(buildWallet(walletState.Closing))
@@ -3203,9 +3195,7 @@ describe("WalletProposalValidator", () => {
         await reservationBridge.reservationActions.returns(
           buildReservationAction({ timeoutAt: now + day })
         )
-        await reservationBridge.reservations.returns(
-          buildReservationRequest()
-        )
+        await reservationBridge.reservations.returns(buildReservationRequest())
         await reservationBridge.reservationParameters.returns([
           AddressZero,
           reservationMinAmount,
