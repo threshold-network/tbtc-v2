@@ -602,6 +602,30 @@ module.exports = {
     "no-console": ["off"],
   },
   jsRules: {
+    // Core counterparts of the inherited TypeScript extension rules. JavaScript
+    // is not compiler-checked, and must retain the same runtime correctness policy.
+    "no-array-constructor": ["error"],
+    "no-empty-function": [
+      "error",
+      { allow: ["arrowFunctions", "functions", "methods"] },
+    ],
+    "dot-notation": ["error", { allowKeywords: true, allowPattern: "" }],
+    "no-dupe-class-members": ["error"],
+    "no-implied-eval": ["error"],
+    "no-loop-func": ["error"],
+    "no-redeclare": ["error"],
+    "no-shadow": ["error"],
+    "no-throw-literal": ["error"],
+    "no-unused-expressions": [
+      "error",
+      {
+        allowShortCircuit: false,
+        allowTernary: false,
+        allowTaggedTemplates: false,
+        enforceForJSX: false,
+      },
+    ],
+    "no-useless-constructor": ["error"],
     "constructor-super": ["error"],
     "no-const-assign": ["error"],
     "no-new-symbol": ["error"],
@@ -625,6 +649,9 @@ module.exports = {
         requireStringLiterals: true,
       },
     ],
-    "no-unused-vars": "error",
+    "no-unused-vars": [
+      "warn",
+      { vars: "all", args: "after-used", ignoreRestSiblings: true },
+    ],
   },
 }
