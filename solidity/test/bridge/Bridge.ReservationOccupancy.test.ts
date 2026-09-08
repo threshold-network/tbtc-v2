@@ -106,10 +106,9 @@ describe("Reservation - occupancy tracking", () => {
   // Closing and Closed are both unreachable for an Active reservation, since
   // beginWalletClosing/finalizeWalletClosing each require a zero reservation
   // count while an Active reservation always keeps that count >= 1).
-  // Seeds a minimal Active reservation + Terminated wallet, pre-loads
-  // the three reservation accounting counters the strand will decrement, calls
-  // notifyReservationStranded, and asserts the counter drops to zero and the
-  // canonical ReservationStranded event emits with all four arguments.
+  // Seeds a minimal Active reservation + Closed wallet and asserts
+  // notifyReservationStranded reverts rather than decrementing any
+  // counter - Closed is unreachable for an Active reservation (see above).
   it("notifyReservationStranded reverts on a Closed wallet", async () => {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)
