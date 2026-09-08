@@ -1,5 +1,11 @@
 import { to1ePrecision } from "../helpers/contract-test-helpers"
 
+// NOTE: These are test-only defaults mirroring the Bridge initializer values.
+// They intentionally do NOT track mainnet: Bridge parameters are governance
+// managed and have diverged. In particular, as of TIP-109 the mainnet deposit
+// and redemption treasury fee divisors are both 500 (20 bps), not the 2000
+// (5 bps) used below. Query Bridge.depositParameters() and
+// Bridge.redemptionParameters() on-chain for current values.
 export const constants = {
   unmintFee: to1ePrecision(1, 15), // 0.001
   depositDustThreshold: 1000000, // 1000000 satoshi = 0.01 BTC

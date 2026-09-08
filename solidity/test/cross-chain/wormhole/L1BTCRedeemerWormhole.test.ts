@@ -1,21 +1,29 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { BigNumber, Contract, ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IWormholeTokenBridge,
+  L1BTCRedeemerWormhole,
   MockL1BTCRedeemerWormhole,
   MockBank,
   MockTBTCBridge,
+  MockRedemptionWatchtower,
   L2TBTC,
   ReimbursementPool,
   WormholeBridgeStub,
   MockTBTCVault,
 } from "../../../typechain"
-
-chai.use(smock.matchers)
+import {
+  createMock,
+  expectCalledOnce,
+  expectCalledOnceWith,
+  expectCalledThrice,
+  expectNotCalled,
+} from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -26,6 +34,40 @@ const toSatoshis = (tbtcAmount: BigNumber) => tbtcAmount.div(SATOSHI_MULTIPLIER)
 const toTBTC = (satoshiAmount: BigNumber) =>
   satoshiAmount.mul(SATOSHI_MULTIPLIER)
 
+// Assert a no-argument custom error revert without depending on hardhat's
+// error-decode state (proxies can surface the error as raw selector data).
+const expectRevertWithCustomError = async (
+  promise: Promise<unknown>,
+  contract: Contract,
+  errorName: string
+) => {
+  const selector = contract.interface.getSighash(`${errorName}()`)
+  try {
+    await promise
+  } catch (error: unknown) {
+    const err = error as {
+      data?: string | { data?: string }
+      message?: string
+      error?: { data?: string | { data?: string }; message?: string }
+    } | null
+    const rawData = err?.error?.data ?? err?.data
+    const data = typeof rawData === "string" ? rawData : rawData?.data ?? ""
+    const message = (err?.error?.message ?? err?.message ?? "").toString()
+    const fullErrorStr = `${data} ${message}`
+
+    if (
+      fullErrorStr.toLowerCase().includes(selector.toLowerCase()) ||
+      fullErrorStr.includes(errorName)
+    ) {
+      return
+    }
+    throw error
+  }
+  throw new Error(
+    `Expected revert with ${errorName}, but the transaction succeeded`
+  )
+}
+
 describe("L1BTCRedeemerWormhole (using Mock)", () => {
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
@@ -34,9 +76,9 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
   let l1BtcRedeemer: MockL1BTCRedeemerWormhole
   let tbtcToken: L2TBTC
-  let wormholeTokenBridge: FakeContract<IWormholeTokenBridge>
+  let wormholeTokenBridge: Mock<IWormholeTokenBridge>
   let bridge: MockTBTCBridge
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let reimbursementPool: Mock<ReimbursementPool>
   let bank: MockBank
   let tbtcVault: MockTBTCVault
 
@@ -128,10 +170,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     // Set the tbtcToken on the MockTBTCVault
     await _tbtcVault.setTbtcToken(_tbtcToken.address)
 
-    const _wormholeTokenBridge = await smock.fake<IWormholeTokenBridge>(
+    const _wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
-    const _reimbursementPool = await smock.fake<ReimbursementPool>(
+    const _reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )
 
@@ -206,7 +248,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       bank,
       tbtcToken,
       tbtcVault,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("initialization", () => {
@@ -575,6 +617,142 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
   })
 
+  describe("bank balance rescue", () => {
+    const rescueAmount = exampleAmountInSatoshis
+
+    context("when setting the recovery address", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer.connect(relayer).setRecoveryAddress(treasury.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject the zero address", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(ethers.constants.AddressZero)
+        ).to.be.revertedWith("ZeroAddress")
+      })
+
+      context("when called by the owner", () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+          tx = await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should update the recovery address", async () => {
+          expect(await l1BtcRedeemer.recoveryAddress()).to.equal(
+            treasury.address
+          )
+        })
+
+        it("should emit RecoveryAddressUpdated", async () => {
+          await expect(tx)
+            .to.emit(l1BtcRedeemer, "RecoveryAddressUpdated")
+            .withArgs(treasury.address)
+        })
+      })
+    })
+
+    context("when rescuing Bank balance", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject rescue before a recovery address is set", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("RecoveryAddressNotSet")
+      })
+
+      context("when a recovery address is set", () => {
+        before(async () => {
+          await createSnapshot()
+          await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should reject a different recipient", async () => {
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(thirdParty.address, rescueAmount)
+          ).to.be.revertedWith("RecipientNotRecoveryAddress")
+        })
+
+        it("should reject an amount above the available balance", async () => {
+          const availableBalance = await bank.balanceAvailable(
+            l1BtcRedeemer.address
+          )
+
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, availableBalance.add(1))
+          ).to.be.revertedWith("MockBank: insufficient balance")
+        })
+
+        context("when the recipient and amount are valid", () => {
+          let tx: ContractTransaction
+          let redeemerBalanceBefore: BigNumber
+          let recoveryBalanceBefore: BigNumber
+
+          before(async () => {
+            await createSnapshot()
+            redeemerBalanceBefore = await bank.balanceAvailable(
+              l1BtcRedeemer.address
+            )
+            recoveryBalanceBefore = await bank.balanceAvailable(
+              treasury.address
+            )
+            tx = await l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, rescueAmount)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should transfer the requested Bank balance", async () => {
+            expect(await bank.balanceAvailable(l1BtcRedeemer.address)).to.equal(
+              redeemerBalanceBefore.sub(rescueAmount)
+            )
+            expect(await bank.balanceAvailable(treasury.address)).to.equal(
+              recoveryBalanceBefore.add(rescueAmount)
+            )
+          })
+
+          it("should emit BankBalanceRescued", async () => {
+            await expect(tx)
+              .to.emit(l1BtcRedeemer, "BankBalanceRescued")
+              .withArgs(treasury.address, rescueAmount)
+          })
+        })
+      })
+    })
+  })
+
   describe("requestRedemption", () => {
     const encodedVm = "0x1234567890"
     const calculatedRedemptionKey = ethers.utils.solidityKeccak256(
@@ -617,16 +795,18 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
     beforeEach(async () => {
       await createSnapshot()
-      wormholeTokenBridge.completeTransferWithPayload.reset()
-      wormholeTokenBridge.parseTransferWithPayload.reset()
-      reimbursementPool.refund.reset()
+      await wormholeTokenBridge.completeTransferWithPayload.reset()
+      await wormholeTokenBridge.parseTransferWithPayload.reset()
+      await reimbursementPool.refund.reset()
 
       // Set up default mock behavior
       const encodedTransfer = createMockTransferWithPayload(
         exampleRedeemerOutputScript
       )
-      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-      wormholeTokenBridge.parseTransferWithPayload
+      await wormholeTokenBridge.completeTransferWithPayload.returns(
+        encodedTransfer
+      )
+      await wormholeTokenBridge.parseTransferWithPayload
         .whenCalledWith(encodedTransfer)
         .returns({
           payloadID: 1,
@@ -658,8 +838,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           exampleRedeemerOutputScript,
           unauthorizedSender
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -674,15 +856,17 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should revert with unauthorized error", async () => {
-        await expect(
+        await expectRevertWithCustomError(
           l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
               exampleWalletPubKeyHash,
               exampleMainUtxo,
               encodedVm
-            )
-        ).to.be.revertedWith("SourceAddressNotAuthorized")
+            ),
+          l1BtcRedeemer,
+          "SourceAddressNotAuthorized"
+        )
       })
     })
 
@@ -695,8 +879,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           exampleRedeemerOutputScript,
           newSender
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -711,15 +897,17 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should reject before authorization", async () => {
-        await expect(
+        await expectRevertWithCustomError(
           l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
               exampleWalletPubKeyHash,
               exampleMainUtxo,
               encodedVm
-            )
-        ).to.be.revertedWith("SourceAddressNotAuthorized")
+            ),
+          l1BtcRedeemer,
+          "SourceAddressNotAuthorized"
+        )
       })
 
       it("should accept after authorization", async () => {
@@ -764,15 +952,17 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           .updateAllowedSender(newSender, false)
 
         // Should now fail
-        await expect(
+        await expectRevertWithCustomError(
           l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
               exampleWalletPubKeyHash,
               exampleMainUtxo,
               encodedVm
-            )
-        ).to.be.revertedWith("SourceAddressNotAuthorized")
+            ),
+          l1BtcRedeemer,
+          "SourceAddressNotAuthorized"
+        )
       })
     })
 
@@ -790,9 +980,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should complete the transfer with Wormhole bridge", async () => {
-        expect(
-          wormholeTokenBridge.completeTransferWithPayload
-        ).to.have.been.calledOnceWith(encodedVm)
+        await expectCalledOnceWith(
+          wormholeTokenBridge.completeTransferWithPayload,
+          [encodedVm]
+        )
       })
 
       it("should call requestRedemption on the Bridge and emit RedemptionRequestedMock", async () => {
@@ -839,10 +1030,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleP2WPKHOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          await wormholeTokenBridge.completeTransferWithPayload.returns(
             encodedTransfer
           )
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -896,10 +1087,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleP2SHOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          await wormholeTokenBridge.completeTransferWithPayload.returns(
             encodedTransfer
           )
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -953,10 +1144,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleP2WSHOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          await wormholeTokenBridge.completeTransferWithPayload.returns(
             encodedTransfer
           )
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -1093,7 +1284,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             exampleMainUtxo,
             encodedVm
           )
-        expect(reimbursementPool.refund).to.have.been.calledOnce
+        await expectCalledOnce(reimbursementPool.refund)
       })
 
       it("should calculate reimbursement with gas offset", async () => {
@@ -1107,7 +1298,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             encodedVm
           )
 
-        const refundCall = reimbursementPool.refund.getCall(0)
+        const refundCall = await reimbursementPool.refund.getCall(0)
         expect(refundCall.args[0]).to.be.gt(gasOffset)
         expect(refundCall.args[1]).to.equal(relayer.address)
       })
@@ -1131,7 +1322,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             exampleMainUtxo,
             encodedVm
           )
-        expect(reimbursementPool.refund).to.not.have.been.called
+        await expectNotCalled(reimbursementPool.refund)
       })
     })
 
@@ -1151,7 +1342,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             exampleMainUtxo,
             encodedVm
           )
-        expect(reimbursementPool.refund).to.not.have.been.called
+        await expectNotCalled(reimbursementPool.refund)
       })
     })
 
@@ -1177,14 +1368,14 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             encodedVm
           )
 
-        const refundCall = reimbursementPool.refund.getCall(0)
+        const refundCall = await reimbursementPool.refund.getCall(0)
         expect(refundCall.args[0]).to.be.gt(100000)
       })
     })
 
     context("when Wormhole bridge transfer fails", () => {
       beforeEach(async () => {
-        wormholeTokenBridge.completeTransferWithPayload.reverts(
+        await wormholeTokenBridge.completeTransferWithPayload.reverts(
           "Wormhole transfer failed"
         )
       })
@@ -1238,10 +1429,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer1 = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm)
           .returns(encodedTransfer1)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer1)
           .returns({
             payloadID: 1,
@@ -1258,10 +1449,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer2 = createMockTransferWithPayload(
           differentOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm2)
           .returns(encodedTransfer2)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer2)
           .returns({
             payloadID: 1,
@@ -1278,10 +1469,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer3 = createMockTransferWithPayload(
           exampleP2WPKHOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm3)
           .returns(encodedTransfer3)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer3)
           .returns({
             payloadID: 1,
@@ -1322,8 +1513,9 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
             encodedVm3
           )
 
-        expect(wormholeTokenBridge.completeTransferWithPayload).to.have.been
-          .calledThrice
+        await expectCalledThrice(
+          wormholeTokenBridge.completeTransferWithPayload
+        )
       })
     })
 
@@ -1363,10 +1555,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           const encodedTransfer = createMockTransferWithPayload(
             exampleRedeemerOutputScript
           )
-          wormholeTokenBridge.completeTransferWithPayload
+          await wormholeTokenBridge.completeTransferWithPayload
             .whenCalledWith(emptyVm)
             .returns(encodedTransfer)
-          wormholeTokenBridge.parseTransferWithPayload
+          await wormholeTokenBridge.parseTransferWithPayload
             .whenCalledWith(encodedTransfer)
             .returns({
               payloadID: 1,
@@ -1504,8 +1696,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -1570,8 +1764,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         const encodedTransfer = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
-        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-        wormholeTokenBridge.parseTransferWithPayload
+        await wormholeTokenBridge.completeTransferWithPayload.returns(
+          encodedTransfer
+        )
+        await wormholeTokenBridge.parseTransferWithPayload
           .whenCalledWith(encodedTransfer)
           .returns({
             payloadID: 1,
@@ -1652,8 +1848,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       const encodedTransfer = createMockTransferWithPayload(
         exampleRedeemerOutputScript
       )
-      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-      wormholeTokenBridge.parseTransferWithPayload
+      await wormholeTokenBridge.completeTransferWithPayload.returns(
+        encodedTransfer
+      )
+      await wormholeTokenBridge.parseTransferWithPayload
         .whenCalledWith(encodedTransfer)
         .returns({
           payloadID: 1,
@@ -1672,6 +1870,13 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         .updateAllowedSender(defaultSender, true)
 
       await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
+
+      // These tests bound the gas of the contract under test. Recording a call
+      // costs real gas -- smock zeroed gas for faked calls, the replacement
+      // SSTOREs the calldata -- so leaving it on would fold the mock's
+      // bookkeeping into the measurement. Nothing here asserts on calls.
+      await wormholeTokenBridge.setRecording(false)
+      await reimbursementPool.setRecording(false)
     })
 
     afterEach(async () => {
@@ -1709,6 +1914,381 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
       expect(estimatedGas).to.be.gt(0)
       expect(estimatedGas).to.be.lt(500000) // Reasonable upper bound
+    })
+  })
+})
+
+describe("L1BTCRedeemerWormhole (using real contract)", () => {
+  // These tests deploy the actual `L1BTCRedeemerWormhole` production contract
+  // (not `MockL1BTCRedeemerWormhole`) so that the rescue/recovery functions
+  // are exercised against the real, shipped implementation rather than a
+  // hand-copied mock. See PR #920 review finding M3.
+  let deployer: SignerWithAddress
+  let governance: SignerWithAddress
+  let relayer: SignerWithAddress
+  let thirdParty: SignerWithAddress
+  let treasury: SignerWithAddress
+
+  let l1BtcRedeemer: L1BTCRedeemerWormhole
+  let bank: MockBank
+  let bridge: MockTBTCBridge
+  let watchtower: MockRedemptionWatchtower
+
+  const exampleAmount = ethers.utils.parseUnits("2", 18)
+  const exampleAmountInSatoshis = toSatoshis(exampleAmount)
+  const exampleRedemptionKey = 12345
+
+  const realContractFixture = async () => {
+    const _signers = await ethers.getSigners()
+    const _deployer = _signers[0]
+    const _thirdParty = _signers[2]
+    const _treasury = _signers[3]
+    const _namedSigners = await helpers.signers.getNamedSigners()
+    const _governance = _namedSigners.governance || _signers[4]
+
+    const MockBankFactory = await ethers.getContractFactory("MockBank")
+    const _bank = (await MockBankFactory.deploy()) as MockBank
+    await _bank.deployed()
+
+    const MockTBTCVaultFactory = await ethers.getContractFactory(
+      "contracts/test/MockTBTCVault.sol:MockTBTCVault"
+    )
+    const _tbtcVault = await MockTBTCVaultFactory.deploy()
+    await _tbtcVault.deployed()
+
+    const TestERC20 = await ethers.getContractFactory("TestERC20")
+    const _wormholeTbtc = await TestERC20.deploy()
+    await _wormholeTbtc.deployed()
+
+    const _wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
+      "IWormholeTokenBridge"
+    )
+
+    const tbtcDeployment = await helpers.upgrades.deployProxy(
+      `L2TBTC_${randomBytes(8).toString("hex")}`,
+      {
+        contractName: "L2TBTC",
+        initializerArgs: ["L2 TBTC", "L2TBTC"],
+        factoryOpts: { signer: _deployer },
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+    const _tbtcToken = tbtcDeployment[0] as L2TBTC
+    await _tbtcToken.connect(_deployer).addMinter(_deployer.address)
+    await _tbtcToken.deployed()
+    await _tbtcVault.setTbtcToken(_tbtcToken.address)
+
+    const MockTBTCBridgeFactory = await ethers.getContractFactory(
+      "MockTBTCBridge"
+    )
+    const _bridge = (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
+    await _bridge.deployed()
+
+    const MockRedemptionWatchtowerFactory = await ethers.getContractFactory(
+      "MockRedemptionWatchtower"
+    )
+    const _watchtower = (await MockRedemptionWatchtowerFactory.deploy(
+      _bank.address
+    )) as MockRedemptionWatchtower
+    await _watchtower.deployed()
+
+    // Deploy the REAL L1BTCRedeemerWormhole contract, not the Mock.
+    const l1BtcRedeemerDeployment = await helpers.upgrades.deployProxy(
+      `L1BTCRedeemerWormhole_${randomBytes(8).toString("hex")}`,
+      {
+        contractName: "L1BTCRedeemerWormhole",
+        initializerArgs: [
+          _bridge.address,
+          _wormholeTokenBridge.address,
+          _tbtcToken.address,
+          _bank.address,
+          _tbtcVault.address,
+        ],
+        factoryOpts: { signer: _deployer },
+        proxyOpts: { kind: "transparent" },
+      }
+    )
+    const _l1BtcRedeemer = l1BtcRedeemerDeployment[0] as L1BTCRedeemerWormhole
+
+    await _l1BtcRedeemer
+      .connect(_deployer)
+      .transferOwnership(_governance.address)
+
+    await _bank.setBalance(
+      _l1BtcRedeemer.address,
+      exampleAmountInSatoshis.mul(5)
+    )
+
+    return {
+      deployer: _deployer,
+      governance: _governance,
+      relayer: _signers[1],
+      thirdParty: _thirdParty,
+      treasury: _treasury,
+      l1BtcRedeemer: _l1BtcRedeemer,
+      bank: _bank,
+      bridge: _bridge,
+      watchtower: _watchtower,
+    }
+  }
+
+  before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;({
+      deployer,
+      governance,
+      relayer,
+      thirdParty,
+      treasury,
+      l1BtcRedeemer,
+      bank,
+      bridge,
+      watchtower,
+    } = await loadFixture(realContractFixture))
+  })
+
+  describe("bank balance rescue (real contract)", () => {
+    const rescueAmount = exampleAmountInSatoshis
+
+    context("when setting the recovery address", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer.connect(relayer).setRecoveryAddress(treasury.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject the zero address", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(ethers.constants.AddressZero)
+        ).to.be.revertedWith("ZeroAddress")
+      })
+
+      context("when called by the owner", () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+          tx = await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should update the recovery address", async () => {
+          expect(await l1BtcRedeemer.recoveryAddress()).to.equal(
+            treasury.address
+          )
+        })
+
+        it("should emit RecoveryAddressUpdated", async () => {
+          await expect(tx)
+            .to.emit(l1BtcRedeemer, "RecoveryAddressUpdated")
+            .withArgs(treasury.address)
+        })
+      })
+    })
+
+    context("when rescuing Bank balance", () => {
+      it("should reject a non-owner caller", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+
+      it("should reject rescue before a recovery address is set", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .rescueBankBalance(treasury.address, rescueAmount)
+        ).to.be.revertedWith("RecoveryAddressNotSet")
+      })
+
+      context("when a recovery address is set", () => {
+        before(async () => {
+          await createSnapshot()
+          await l1BtcRedeemer
+            .connect(governance)
+            .setRecoveryAddress(treasury.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should reject a different recipient", async () => {
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(thirdParty.address, rescueAmount)
+          ).to.be.revertedWith("RecipientNotRecoveryAddress")
+        })
+
+        it("should reject an amount above the available balance", async () => {
+          const availableBalance = await bank.balanceAvailable(
+            l1BtcRedeemer.address
+          )
+
+          await expect(
+            l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, availableBalance.add(1))
+          ).to.be.revertedWith("MockBank: insufficient balance")
+        })
+
+        context("when the recipient and amount are valid", () => {
+          let tx: ContractTransaction
+          let redeemerBalanceBefore: BigNumber
+          let recoveryBalanceBefore: BigNumber
+
+          before(async () => {
+            await createSnapshot()
+            redeemerBalanceBefore = await bank.balanceAvailable(
+              l1BtcRedeemer.address
+            )
+            recoveryBalanceBefore = await bank.balanceAvailable(
+              treasury.address
+            )
+            tx = await l1BtcRedeemer
+              .connect(governance)
+              .rescueBankBalance(treasury.address, rescueAmount)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should transfer the requested Bank balance", async () => {
+            expect(await bank.balanceAvailable(l1BtcRedeemer.address)).to.equal(
+              redeemerBalanceBefore.sub(rescueAmount)
+            )
+            expect(await bank.balanceAvailable(treasury.address)).to.equal(
+              recoveryBalanceBefore.add(rescueAmount)
+            )
+          })
+
+          it("should emit BankBalanceRescued", async () => {
+            await expect(tx)
+              .to.emit(l1BtcRedeemer, "BankBalanceRescued")
+              .withArgs(treasury.address, rescueAmount)
+          })
+        })
+      })
+    })
+  })
+
+  describe("withdraw vetoed funds (real contract)", () => {
+    const vetoedAmount = exampleAmountInSatoshis.toNumber()
+
+    it("should reject a non-owner caller", async () => {
+      await expect(
+        l1BtcRedeemer.connect(relayer).withdrawVetoedFunds(exampleRedemptionKey)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should reject when no redemption watchtower is configured", async () => {
+      await expect(
+        l1BtcRedeemer
+          .connect(governance)
+          .withdrawVetoedFunds(exampleRedemptionKey)
+      ).to.be.revertedWith("RedemptionWatchtowerNotSet")
+    })
+
+    context("when a redemption watchtower is configured", () => {
+      before(async () => {
+        await createSnapshot()
+        await bridge.setRedemptionWatchtower(watchtower.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should bubble up the watchtower's revert reason when there are no funds to withdraw", async () => {
+        await watchtower.setVetoProposal(
+          exampleRedemptionKey,
+          l1BtcRedeemer.address,
+          0
+        )
+
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .withdrawVetoedFunds(exampleRedemptionKey)
+        ).to.be.revertedWith("No funds to withdraw")
+      })
+
+      it("should bubble up the watchtower's revert reason when the redeemer does not match", async () => {
+        await watchtower.setVetoProposal(
+          exampleRedemptionKey,
+          thirdParty.address,
+          vetoedAmount
+        )
+
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .withdrawVetoedFunds(exampleRedemptionKey)
+        ).to.be.revertedWith("Caller is not the redeemer")
+      })
+
+      context(
+        "when a withdrawable veto is configured for this contract",
+        () => {
+          let watchtowerBalanceBefore: BigNumber
+          let redeemerBalanceBefore: BigNumber
+
+          before(async () => {
+            await createSnapshot()
+            await bank.setBalance(watchtower.address, vetoedAmount)
+            await watchtower.setVetoProposal(
+              exampleRedemptionKey,
+              l1BtcRedeemer.address,
+              vetoedAmount
+            )
+            watchtowerBalanceBefore = await bank.balanceAvailable(
+              watchtower.address
+            )
+            redeemerBalanceBefore = await bank.balanceAvailable(
+              l1BtcRedeemer.address
+            )
+            await l1BtcRedeemer
+              .connect(governance)
+              .withdrawVetoedFunds(exampleRedemptionKey)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should credit the vetoed amount to this contract's Bank balance", async () => {
+            expect(await bank.balanceAvailable(l1BtcRedeemer.address)).to.equal(
+              redeemerBalanceBefore.add(vetoedAmount)
+            )
+            expect(await bank.balanceAvailable(watchtower.address)).to.equal(
+              watchtowerBalanceBefore.sub(vetoedAmount)
+            )
+          })
+
+          it("should make the rescued funds available via rescueBankBalance", async () => {
+            await l1BtcRedeemer
+              .connect(governance)
+              .setRecoveryAddress(treasury.address)
+
+            await expect(
+              l1BtcRedeemer
+                .connect(governance)
+                .rescueBankBalance(treasury.address, vetoedAmount)
+            ).to.not.be.reverted
+          })
+        }
+      )
     })
   })
 })

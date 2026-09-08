@@ -29,7 +29,9 @@ contract MockNttManagerWithExecutor {
 
     mapping(uint16 => bool) public supportedChains;
 
-    // Mock storage for testing signed quote validation
+    // For triggering stage-time floor validation
+    bool public undervalueQuote;
+
     mapping(bytes => bool) public validSignedQuotes;
 
     // Mock events to match real implementation
@@ -46,10 +48,10 @@ contract MockNttManagerWithExecutor {
     constructor() {
         // Set up supported chains for testing
         supportedChains[2] = true; // Ethereum
-        supportedChains[32] = true; // Sei
+        supportedChains[32] = true; // Sample destination
         supportedChains[30] = true; // Base
         supportedChains[23] = true; // Arbitrum
-        supportedChains[40] = true; // Sei EVM (alternative)
+        supportedChains[40] = true; // Sample EVM destination
     }
 
     /// @notice Mock implementation of transfer matching real NttManagerWithExecutor
@@ -102,6 +104,9 @@ contract MockNttManagerWithExecutor {
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata /* feeArgs */
     ) external view returns (uint256 totalCost) {
+        if (undervalueQuote) {
+            return MOCK_DELIVERY_PRICE - 1; // Underpriced
+        }
         require(supportedChains[recipientChain], "Chain not supported");
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
@@ -110,14 +115,18 @@ contract MockNttManagerWithExecutor {
 
         // Add chain-specific costs
         if (recipientChain == 32 || recipientChain == 40) {
-            // Sei chains
-            baseCost += 2000000000000000; // +0.002 ETH for Sei
+            // Sample destination chains
+            baseCost += 2000000000000000; // +0.002 ETH
         }
 
         // Add executor value
         totalCost = baseCost + executorArgs.value;
 
         return totalCost;
+    }
+
+    function setUndervalueQuote(bool _undervalue) external {
+        undervalueQuote = _undervalue;
     }
 
     /// @notice Add support for a chain (for testing)

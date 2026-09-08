@@ -1,11 +1,12 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { randomBytes } from "crypto"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { ContractTransaction, Wallet } from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
 
 import type { L2TBTC, TestERC20, TestERC721 } from "../../typechain"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -68,7 +69,7 @@ describe("L2TBTC", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, minter, guardian, thirdParty, tokenHolder, token } =
-      await waffle.loadFixture(fixture))
+      await loadFixture(fixture))
   })
 
   describe("addMinter", () => {

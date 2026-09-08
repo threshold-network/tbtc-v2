@@ -1,10 +1,26 @@
 import { expect } from "chai"
-import { RpcProvider, Account } from "starknet"
 import { TBTC } from "../../src/services/tbtc"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockCrossChainContractsLoader } from "../utils/mock-cross-chain-contracts-loader"
 import { StarkNetProvider } from "../../src/lib/starknet/types"
+
+const STARKNET_ADDRESS =
+  "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+
+function createMockAccount(address = STARKNET_ADDRESS): any {
+  return {
+    address,
+    getChainId: async () => "SN_SEPOLIA",
+  }
+}
+
+function createProviderWithAccount(address = STARKNET_ADDRESS): any {
+  return {
+    account: { address },
+    getChainId: async () => "SN_SEPOLIA",
+  }
+}
 
 describe("TBTC Single-Parameter StarkNet Initialization", () => {
   let tbtc: TBTC
@@ -41,15 +57,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
   describe("TBTC.initializeCrossChain - Single Parameter Mode", () => {
     it("should detect single-parameter mode for StarkNet", async () => {
-      // Arrange
-      const mockProvider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const mockAccount = new Account(
-        mockProvider,
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const mockAccount = createMockAccount()
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", mockAccount)
@@ -75,15 +83,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
   describe("Success Scenarios", () => {
     it("should initialize with Account object", async () => {
-      // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const account = new Account(
-        provider,
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const account = createMockAccount()
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", account)
@@ -96,17 +96,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
     })
 
     it("should initialize with Provider + connected account", async () => {
-      // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      // Mock a provider with account property
-      const providerWithAccount = Object.assign(provider, {
-        account: {
-          address:
-            "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        },
-      })
+      const providerWithAccount = createProviderWithAccount()
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", providerWithAccount)
@@ -117,15 +107,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
     })
 
     it("should create proper cross-chain contracts", async () => {
-      // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const account = new Account(
-        provider,
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const account = createMockAccount()
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", account)
@@ -138,27 +120,20 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
   })
 
   describe("Error Scenarios", () => {
-    it("should accept Provider-only for backward compatibility", async () => {
-      // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
+    it("should reject Provider-only without a connected account", async () => {
+      const provider = {
+        getChainId: async () => "SN_SEPOLIA",
+      }
 
-      // Act & Assert - should not throw
-      await expect(tbtc.initializeCrossChain("StarkNet", provider)).not.to.be
-        .rejected
-
-      // But should use placeholder address
-      const contracts = tbtc.crossChainContracts("StarkNet")
-      expect(contracts).to.exist
+      await expect(
+        tbtc.initializeCrossChain("StarkNet", provider as any)
+      ).to.be.rejectedWith(
+        "StarkNet provider must be an Account object or Provider with connected account"
+      )
     })
 
     it("should fail with invalid address format", async () => {
-      // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const invalidAccount = new Account(provider, "invalid-address", "0x1")
+      const invalidAccount = createMockAccount("invalid-address")
 
       // Act & Assert
       await expect(tbtc.initializeCrossChain("StarkNet", invalidAccount)).to.be
@@ -175,15 +150,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
   describe("Deprecation Warnings", () => {
     it("should not warn for single-parameter", async () => {
-      // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const account = new Account(
-        provider,
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const account = createMockAccount()
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", account)
@@ -196,12 +163,8 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
   describe("Address Extraction", () => {
     it("should extract address from StarkNet Account", async () => {
       // Arrange
-      const expectedAddress =
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const account = new Account(provider, expectedAddress, "0x1")
+      const expectedAddress = STARKNET_ADDRESS
+      const account = createMockAccount(expectedAddress)
 
       // Act
       const extractedAddress = await TBTC.extractStarkNetAddress(account)
@@ -236,13 +199,8 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       ]
 
       for (const addr of addresses) {
-        const provider = new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        })
-
-        // StarkNet Account constructor may normalize the address
         try {
-          const account = new Account(provider, addr, "0x1")
+          const account = createMockAccount(addr)
           // Should not throw
           await expect(tbtc.initializeCrossChain("StarkNet", account)).not.to.be
             .rejected
@@ -257,13 +215,10 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       // Test with address that exceeds felt252 max
       const invalidAddress =
         "0x00049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7" // 65 chars
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
 
       // This should fail either in Account constructor or our validation
       try {
-        const account = new Account(provider, invalidAddress, "0x1")
+        const account = createMockAccount(invalidAddress)
         await expect(tbtc.initializeCrossChain("StarkNet", account)).to.be
           .rejected
       } catch (e: any) {
@@ -276,12 +231,8 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
   describe("Cross-Chain Contract Creation", () => {
     it("should pass correct parameters to loadStarkNetCrossChainContracts", async () => {
       // Arrange
-      const expectedAddress =
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const account = new Account(provider, expectedAddress, "0x1")
+      const expectedAddress = STARKNET_ADDRESS
+      const account = createMockAccount(expectedAddress)
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", account)
@@ -295,23 +246,14 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
     it("should reuse contracts on subsequent calls", async () => {
       // Arrange
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-      const account = new Account(
-        provider,
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const account = createMockAccount()
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", account)
 
       // Initialize again with different account
-      const account2 = new Account(
-        provider,
-        "0x06904a90dcc86f096c4f6daafa2d4e96cb926e5301bb5e6ed5cedc9981fa7064",
-        "0x1"
+      const account2 = createMockAccount(
+        "0x06904a90dcc86f096c4f6daafa2d4e96cb926e5301bb5e6ed5cedc9981fa7064"
       )
       await tbtc.initializeCrossChain("StarkNet", account2)
       const contracts2 = tbtc.crossChainContracts("StarkNet")
@@ -330,13 +272,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
         mockTBTCContracts,
         mockBitcoinClient
       )
-      const account = new Account(
-        new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        }),
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const account = createMockAccount()
 
       // Act & Assert
       await expect(
@@ -346,13 +282,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
     it("should handle invalid chain name", async () => {
       // Arrange
-      const account = new Account(
-        new RpcProvider({
-          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-        }),
-        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        "0x1"
-      )
+      const account = createMockAccount()
 
       // Act & Assert
       await expect(

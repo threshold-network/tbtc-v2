@@ -14,13 +14,21 @@ import {
   WalletState,
   RedemptionRequest,
   RedemptionRequestedEvent,
+  RedemptionsCompletedEvent,
+  RedemptionTimedOutEvent,
   DepositRevealedEvent,
   DepositReceipt,
   DepositRequest,
   Chains,
 } from "../contracts"
-import { Event as EthersEvent } from "@ethersproject/contracts"
-import { BigNumber, constants, ContractTransaction, utils } from "ethers"
+import {
+  ContractTransaction,
+  Event as EthersEvent,
+} from "@ethersproject/contracts"
+import { BigNumber } from "@ethersproject/bignumber"
+import { defaultAbiCoder } from "@ethersproject/abi"
+import { AddressZero } from "@ethersproject/constants"
+import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { backoffRetrier, Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
@@ -35,6 +43,7 @@ import {
   EthersContractConfig,
   EthersContractDeployment,
   EthersContractHandle,
+  EthersEventUtils,
   EthersTransactionUtils,
 } from "./adapter"
 import { EthereumAddress } from "./address"
@@ -118,7 +127,7 @@ export class EthereumBridge
         refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
         refundLocktime: Hex.from(event.args!.refundLocktime),
         vault:
-          event.args!.vault === constants.AddressZero
+          event.args!.vault === AddressZero
             ? undefined
             : EthereumAddress.from(event.args!.vault),
       }
@@ -146,7 +155,8 @@ export class EthereumBridge
    */
   async pendingRedemptionsByWalletPKH(
     walletPublicKeyHash: Hex,
-    redeemerOutputScript: Hex
+    redeemerOutputScript: Hex,
+    blockNumber?: number
   ): Promise<RedemptionRequest> {
     const redemptionKey = EthereumBridge.buildRedemptionKey(
       walletPublicKeyHash,
@@ -157,7 +167,9 @@ export class EthereumBridge
       await backoffRetrier<RedemptionRequestTypechain>(
         this._totalRetryAttempts
       )(async () => {
-        return await this._instance.pendingRedemptions(redemptionKey)
+        return await this._instance.pendingRedemptions(redemptionKey, {
+          blockTag: blockNumber ?? "latest",
+        })
       })
 
     return this.parseRedemptionRequest(request, redeemerOutputScript)
@@ -208,10 +220,10 @@ export class EthereumBridge
     ]).toString("hex")}`
     // Build the redemption key by using the 0x-prefixed wallet PKH and
     // prefixed output script.
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "bytes20"],
       [
-        utils.solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
+        solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
         `0x${walletPublicKeyHash.toString()}`,
       ]
     )
@@ -309,9 +321,7 @@ export class EthereumBridge
       txOutputValue: mainUtxo.value,
     }
 
-    const vaultParam = vault
-      ? `0x${vault.identifierHex}`
-      : constants.AddressZero
+    const vaultParam = vault ? `0x${vault.identifierHex}` : AddressZero
 
     const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
       async () => {
@@ -475,7 +485,7 @@ export class EthereumBridge
       .reverse()
       .toPrefixedString()
 
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "uint32"],
       [prefixedReversedDepositTxHash, depositOutputIndex]
     )
@@ -493,7 +503,7 @@ export class EthereumBridge
       depositor: EthereumAddress.from(deposit.depositor),
       amount: BigNumber.from(deposit.amount),
       vault:
-        deposit.vault === constants.AddressZero
+        deposit.vault === AddressZero
           ? undefined
           : EthereumAddress.from(deposit.vault),
       revealedAt: BigNumber.from(deposit.revealedAt).toNumber(),
@@ -533,8 +543,13 @@ export class EthereumBridge
     const walletRegistry = await this.walletRegistry()
 
     try {
+      // Skip retries when the wallet is not registered: this path iterates
+      // over closed/terminated wallets during redemption wallet lookup, and
+      // retrying a wallet that is gone from the contract state only slows
+      // the process down.
       const uncompressedPublicKey = await walletRegistry.getWalletPublicKey(
-        ecdsaWalletID
+        ecdsaWalletID,
+        true
       )
 
       return Hex.from(
@@ -643,7 +658,7 @@ export class EthereumBridge
    */
   buildUtxoHash(utxo: BitcoinUtxo): Hex {
     return Hex.from(
-      utils.solidityKeccak256(
+      solidityKeccak256(
         ["bytes32", "uint32", "uint64"],
         [
           utxo.transactionHash.reverse().toPrefixedString(),
@@ -654,21 +669,156 @@ export class EthereumBridge
     )
   }
 
+  /**
+   * Reads the redemption timeout at the specified block.
+   * @param blockNumber Block to read, or the latest block when omitted.
+   * @returns Timeout in seconds.
+   */
+  async getRedemptionTimeout(blockNumber?: number): Promise<number> {
+    return backoffRetrier<number>(this._totalRetryAttempts)(async () => {
+      const parameters = await this._instance.redemptionParameters({
+        blockTag: blockNumber ?? "latest",
+      })
+      return BigNumber.from(parameters.redemptionTimeout).toNumber()
+    })
+  }
+
+  /**
+   * Reads accepted redemption proof events.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Completion events with Bitcoin hashes in display byte order.
+   */
+  async getRedemptionsCompletedEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<RedemptionsCompletedEvent[]> {
+    const events = await this.getRedemptionEvents(
+      "RedemptionsCompleted",
+      options,
+      ...filterArgs
+    )
+    return events.map((event) => ({
+      blockNumber: event.blockNumber,
+      blockHash: Hex.from(event.blockHash),
+      transactionHash: Hex.from(event.transactionHash),
+      walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+      redemptionTxHash: BitcoinTxHash.from(
+        event.args!.redemptionTxHash
+      ).reverse(),
+    }))
+  }
+
+  /**
+   * Reads reported redemption timeout events.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Timeout events with output scripts without their length prefix.
+   */
+  async getRedemptionTimedOutEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<RedemptionTimedOutEvent[]> {
+    const events = await this.getRedemptionEvents(
+      "RedemptionTimedOut",
+      options,
+      ...filterArgs
+    )
+    return events.map((event) => {
+      const prefixedScript = Hex.from(event.args!.redeemerOutputScript)
+      return {
+        blockNumber: event.blockNumber,
+        blockHash: Hex.from(event.blockHash),
+        transactionHash: Hex.from(event.transactionHash),
+        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+        redeemerOutputScript: Hex.from(
+          prefixedScript
+            .toString()
+            .slice(BitcoinCompactSizeUint.read(prefixedScript).byteLength * 2)
+        ),
+      }
+    })
+  }
+
+  /**
+   * Queries redemption lifecycle events with ABI-correct wallet topics.
+   * @param eventName Name of the lifecycle event.
+   * @param options Event query options.
+   * @param filterArgs Indexed event filters.
+   * @returns Matching events.
+   */
+  private async getRedemptionEvents(
+    eventName:
+      | "RedemptionsCompleted"
+      | "RedemptionTimedOut"
+      | "RedemptionRequested",
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<EthersEvent[]> {
+    if (filterArgs.length > 1) {
+      // encodeFilterTopics is positional over the full ABI parameter list
+      // (indexed and non-indexed), unlike the typechain filter helpers used
+      // elsewhere in this file, which are positional over indexed params
+      // only. RedemptionRequested's second indexed param (redeemer) is not
+      // at ABI slot 1 (that is the non-indexed redeemerOutputScript), so a
+      // second positional filter argument cannot be forwarded correctly.
+      // Fail loudly instead of silently filtering on the wrong field.
+      throw new Error(
+        "getRedemptionEvents only supports filtering by the wallet public key hash"
+      )
+    }
+    const walletFilter = filterArgs[0]
+    if (Array.isArray(walletFilter) && walletFilter.length === 0) {
+      return Promise.resolve([])
+    }
+    const filter = {
+      address: this._instance.address,
+      topics: this._instance.interface.encodeFilterTopics(eventName, []),
+    }
+    if (walletFilter != null) {
+      // Ethers v5 left-pads indexed bytes20 filters, but Solidity emits them
+      // right-padded. All three redemption lifecycle events index the wallet
+      // PKH as their first argument. Use the ABI coder for exact-length
+      // validation and canonical right padding, including each alternative
+      // in an OR filter. Null/omitted stays wildcard. The wallet filter is
+      // encoded manually rather than through encodeFilterTopics because that
+      // call cannot hexlify an SDK Hex instance, only raw BytesLike values.
+      const normalizeWallet = (wallet: unknown): string => {
+        if (wallet instanceof Hex) {
+          return wallet.toPrefixedString()
+        }
+        return wallet as string
+      }
+      const walletTopic = (wallet: unknown): string =>
+        defaultAbiCoder.encode(["bytes20"], [normalizeWallet(wallet)])
+      filter.topics[1] = Array.isArray(walletFilter)
+        ? walletFilter.map(walletTopic)
+        : walletTopic(walletFilter)
+    }
+
+    return backoffRetrier<EthersEvent[]>(
+      options?.retries ?? this._totalRetryAttempts
+    )(async () => {
+      return EthersEventUtils.getEvents(
+        this._instance,
+        filter,
+        options?.fromBlock ?? this._deployedAtBlockNumber,
+        options?.toBlock,
+        options?.batchedQueryBlockInterval,
+        options?.logger
+      )
+    })
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {Bridge#getDepositRevealedEvents}
+   * @see {Bridge#getRedemptionRequestedEvents}
    */
   async getRedemptionRequestedEvents(
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<RedemptionRequestedEvent[]> {
-    // FIXME: Filtering by indexed walletPubKeyHash field may not work
-    //        until https://github.com/ethers-io/ethers.js/pull/4244 is
-    //        included in the currently used version of ethers.js.
-    //        Ultimately, we should upgrade ethers.js to include that fix.
-    //        Short-term, we can workaround the problem as presented in:
-    //        https://github.com/threshold-network/token-dashboard/blob/main/src/threshold-ts/tbtc/index.ts#L1041C1-L1093C1
-    const events: EthersEvent[] = await this.getEvents(
+    const events: EthersEvent[] = await this.getRedemptionEvents(
       "RedemptionRequested",
       options,
       ...filterArgs
@@ -730,7 +880,7 @@ export function packRevealDepositParameters(
     walletPubKeyHash: deposit.walletPublicKeyHash.toPrefixedString(),
     refundPubKeyHash: deposit.refundPublicKeyHash.toPrefixedString(),
     refundLocktime: deposit.refundLocktime.toPrefixedString(),
-    vault: vault ? `0x${vault.identifierHex}` : constants.AddressZero,
+    vault: vault ? `0x${vault.identifierHex}` : AddressZero,
   }
 
   const extraData: string | undefined = deposit.extraData?.toPrefixedString()

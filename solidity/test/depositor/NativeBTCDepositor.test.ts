@@ -1,9 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import {
   IBridge,
   ITBTCVault,
@@ -16,8 +16,13 @@ import type {
   BitcoinTxInfoStruct,
   DepositRevealInfoStruct,
 } from "../../typechain/IBridge"
-
-chai.use(smock.matchers)
+import {
+  createMock,
+  expectCalledOnce,
+  expectCalledTwice,
+  expectNotCalled,
+} from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -29,20 +34,20 @@ describe("NativeBTCDepositor", () => {
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
 
-    const bridge = await smock.fake<IBridge>("IBridge")
+    const bridge = await createMock<IBridge>("IBridge")
     const tbtcToken = await (
       await ethers.getContractFactory("TestERC20")
     ).deploy()
-    const tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault", {
+    const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       // The TBTCVault contract address must be known in advance and match
       // the one used in initializeDeposit fixture. This is necessary to
       // pass the vault address check in the initializeDeposit function.
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.address)
 
-    const reimbursementPool = await smock.fake<ReimbursementPool>(
+    const reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )
 
@@ -80,10 +85,10 @@ describe("NativeBTCDepositor", () => {
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
 
-  let bridge: FakeContract<IBridge>
+  let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
-  let tbtcVault: FakeContract<ITBTCVault>
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let tbtcVault: Mock<ITBTCVault>
+  let reimbursementPool: Mock<ReimbursementPool>
   let nativeBtcDepositor: NativeBTCDepositor
 
   before(async () => {
@@ -96,7 +101,7 @@ describe("NativeBTCDepositor", () => {
       tbtcVault,
       reimbursementPool,
       nativeBtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("updateReimbursementPool", () => {
@@ -282,7 +287,7 @@ describe("NativeBTCDepositor", () => {
             })
 
             after(async () => {
-              bridge.revealDepositWithExtraData.reset()
+              await bridge.revealDepositWithExtraData.reset()
 
               await restoreSnapshot()
             })
@@ -316,7 +321,7 @@ describe("NativeBTCDepositor", () => {
               // to finalize the deposit. Set only relevant fields.
               const revealedAt = (await lastBlockTime()) - 7200
               const finalizedAt = await lastBlockTime()
-              bridge.deposits
+              await bridge.deposits
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
                   depositor: nativeBtcDepositor.address,
@@ -330,7 +335,7 @@ describe("NativeBTCDepositor", () => {
 
               // Set the TBTCVault mock to return a deposit state
               // that allows to finalize the deposit.
-              tbtcVault.optimisticMintingRequests
+              await tbtcVault.optimisticMintingRequests
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns([revealedAt, finalizedAt])
 
@@ -348,9 +353,9 @@ describe("NativeBTCDepositor", () => {
             })
 
             after(async () => {
-              bridge.revealDepositWithExtraData.reset()
-              bridge.deposits.reset()
-              tbtcVault.optimisticMintingRequests.reset()
+              await bridge.revealDepositWithExtraData.reset()
+              await bridge.deposits.reset()
+              await tbtcVault.optimisticMintingRequests.reset()
 
               await restoreSnapshot()
             })
@@ -376,7 +381,7 @@ describe("NativeBTCDepositor", () => {
             before(async () => {
               await createSnapshot()
 
-              bridge.revealDepositWithExtraData
+              await bridge.revealDepositWithExtraData
                 .whenCalledWith(
                   initializeDepositFixture.fundingTx,
                   initializeDepositFixture.reveal,
@@ -394,14 +399,14 @@ describe("NativeBTCDepositor", () => {
             })
 
             after(async () => {
-              bridge.revealDepositWithExtraData.reset()
+              await bridge.revealDepositWithExtraData.reset()
 
               await restoreSnapshot()
             })
 
             it("should reveal the deposit to the Bridge", async () => {
               // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-              expect(bridge.revealDepositWithExtraData).to.have.been.calledOnce
+              await expectCalledOnce(bridge.revealDepositWithExtraData)
 
               const { fundingTx, reveal, ethereumReceiverBytes32 } =
                 initializeDepositFixture
@@ -410,7 +415,7 @@ describe("NativeBTCDepositor", () => {
               // it doesn't use deep equality comparison and returns false
               // despite comparing equal objects. We use a workaround
               // to compare the arguments manually.
-              const call = bridge.revealDepositWithExtraData.getCall(0)
+              const call = await bridge.revealDepositWithExtraData.getCall(0)
               expect(call.args[0]).to.eql([
                 fundingTx.version,
                 fundingTx.inputVector,
@@ -463,7 +468,7 @@ describe("NativeBTCDepositor", () => {
               before(async () => {
                 await createSnapshot()
 
-                bridge.revealDepositWithExtraData
+                await bridge.revealDepositWithExtraData
                   .whenCalledWith(
                     initializeDepositFixture.fundingTx,
                     initializeDepositFixture.reveal,
@@ -489,15 +494,14 @@ describe("NativeBTCDepositor", () => {
               })
 
               after(async () => {
-                bridge.revealDepositWithExtraData.reset()
+                await bridge.revealDepositWithExtraData.reset()
 
                 await restoreSnapshot()
               })
 
               it("should reveal the deposit to the Bridge", async () => {
                 // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                expect(bridge.revealDepositWithExtraData).to.have.been
-                  .calledOnce
+                await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, ethereumReceiverBytes32 } =
                   initializeDepositFixture
@@ -506,7 +510,7 @@ describe("NativeBTCDepositor", () => {
                 // it doesn't use deep equality comparison and returns false
                 // despite comparing equal objects. We use a workaround
                 // to compare the arguments manually.
-                const call = bridge.revealDepositWithExtraData.getCall(0)
+                const call = await bridge.revealDepositWithExtraData.getCall(0)
                 expect(call.args[0]).to.eql([
                   fundingTx.version,
                   fundingTx.inputVector,
@@ -571,7 +575,7 @@ describe("NativeBTCDepositor", () => {
               before(async () => {
                 await createSnapshot()
 
-                bridge.revealDepositWithExtraData
+                await bridge.revealDepositWithExtraData
                   .whenCalledWith(
                     initializeDepositFixture.fundingTx,
                     initializeDepositFixture.reveal,
@@ -597,15 +601,14 @@ describe("NativeBTCDepositor", () => {
               })
 
               after(async () => {
-                bridge.revealDepositWithExtraData.reset()
+                await bridge.revealDepositWithExtraData.reset()
 
                 await restoreSnapshot()
               })
 
               it("should reveal the deposit to the Bridge", async () => {
                 // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                expect(bridge.revealDepositWithExtraData).to.have.been
-                  .calledOnce
+                await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, ethereumReceiverBytes32 } =
                   initializeDepositFixture
@@ -614,7 +617,7 @@ describe("NativeBTCDepositor", () => {
                 // it doesn't use deep equality comparison and returns false
                 // despite comparing equal objects. We use a workaround
                 // to compare the arguments manually.
-                const call = bridge.revealDepositWithExtraData.getCall(0)
+                const call = await bridge.revealDepositWithExtraData.getCall(0)
                 expect(call.args[0]).to.eql([
                   fundingTx.version,
                   fundingTx.inputVector,
@@ -702,7 +705,7 @@ describe("NativeBTCDepositor", () => {
           // to finalize the deposit. Set only relevant fields.
           const revealedAt = (await lastBlockTime()) - 7200
           const finalizedAt = await lastBlockTime()
-          bridge.deposits
+          await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
               depositor: nativeBtcDepositor.address,
@@ -716,7 +719,7 @@ describe("NativeBTCDepositor", () => {
 
           // Set the TBTCVault mock to return a deposit state
           // that allows to finalize the deposit.
-          tbtcVault.optimisticMintingRequests
+          await tbtcVault.optimisticMintingRequests
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns([revealedAt, finalizedAt])
 
@@ -734,9 +737,9 @@ describe("NativeBTCDepositor", () => {
         })
 
         after(async () => {
-          bridge.revealDepositWithExtraData.reset()
-          bridge.deposits.reset()
-          tbtcVault.optimisticMintingRequests.reset()
+          await bridge.revealDepositWithExtraData.reset()
+          await bridge.deposits.reset()
+          await tbtcVault.optimisticMintingRequests.reset()
 
           await restoreSnapshot()
         })
@@ -767,7 +770,7 @@ describe("NativeBTCDepositor", () => {
           // Set the Bridge mock to return a deposit state that does not allow
           // to finalize the deposit. Set only relevant fields.
           const revealedAt = (await lastBlockTime()) - 7200
-          bridge.deposits
+          await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
               depositor: nativeBtcDepositor.address,
@@ -781,15 +784,15 @@ describe("NativeBTCDepositor", () => {
 
           // Set the TBTCVault mock to return a deposit state
           // that does not allow to finalize the deposit.
-          tbtcVault.optimisticMintingRequests
+          await tbtcVault.optimisticMintingRequests
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns([revealedAt, 0])
         })
 
         after(async () => {
-          bridge.revealDepositWithExtraData.reset()
-          bridge.deposits.reset()
-          tbtcVault.optimisticMintingRequests.reset()
+          await bridge.revealDepositWithExtraData.reset()
+          await bridge.deposits.reset()
+          await tbtcVault.optimisticMintingRequests.reset()
 
           await restoreSnapshot()
         })
@@ -821,7 +824,7 @@ describe("NativeBTCDepositor", () => {
             // Set only relevant fields.
             const revealedAt = (await lastBlockTime()) - 7200
             const finalizedAt = await lastBlockTime()
-            bridge.deposits
+            await bridge.deposits
               .whenCalledWith(initializeDepositFixture.depositKey)
               .returns({
                 depositor: nativeBtcDepositor.address,
@@ -835,15 +838,15 @@ describe("NativeBTCDepositor", () => {
 
             // Set the TBTCVault mock to return a deposit state that pass the
             // finalization check and move to the normalized amount check.
-            tbtcVault.optimisticMintingRequests
+            await tbtcVault.optimisticMintingRequests
               .whenCalledWith(initializeDepositFixture.depositKey)
               .returns([revealedAt, finalizedAt])
           })
 
           after(async () => {
-            bridge.revealDepositWithExtraData.reset()
-            bridge.deposits.reset()
-            tbtcVault.optimisticMintingRequests.reset()
+            await bridge.revealDepositWithExtraData.reset()
+            await bridge.deposits.reset()
+            await tbtcVault.optimisticMintingRequests.reset()
 
             await restoreSnapshot()
           })
@@ -885,13 +888,13 @@ describe("NativeBTCDepositor", () => {
                 )
 
               // Set Bridge fees. Set only relevant fields.
-              bridge.depositParameters.returns({
+              await bridge.depositParameters.returns({
                 depositDustThreshold: 0,
                 depositTreasuryFeeDivisor: 0,
                 depositTxMaxFee,
                 depositRevealAheadPeriod: 0,
               })
-              tbtcVault.optimisticMintingFeeDivisor.returns(
+              await tbtcVault.optimisticMintingFeeDivisor.returns(
                 optimisticMintingFeeDivisor
               )
 
@@ -899,7 +902,7 @@ describe("NativeBTCDepositor", () => {
               // to finalize the deposit.
               const revealedAt = (await lastBlockTime()) - 7200
               const finalizedAt = await lastBlockTime()
-              bridge.deposits
+              await bridge.deposits
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns({
                   depositor: nativeBtcDepositor.address,
@@ -913,7 +916,7 @@ describe("NativeBTCDepositor", () => {
 
               // Set the TBTCVault mock to return a deposit state
               // that allows to finalize the deposit.
-              tbtcVault.optimisticMintingRequests
+              await tbtcVault.optimisticMintingRequests
                 .whenCalledWith(initializeDepositFixture.depositKey)
                 .returns([revealedAt, finalizedAt])
 
@@ -931,11 +934,11 @@ describe("NativeBTCDepositor", () => {
             })
 
             after(async () => {
-              bridge.depositParameters.reset()
-              tbtcVault.optimisticMintingFeeDivisor.reset()
-              bridge.revealDepositWithExtraData.reset()
-              bridge.deposits.reset()
-              tbtcVault.optimisticMintingRequests.reset()
+              await bridge.depositParameters.reset()
+              await tbtcVault.optimisticMintingFeeDivisor.reset()
+              await bridge.revealDepositWithExtraData.reset()
+              await bridge.deposits.reset()
+              await tbtcVault.optimisticMintingRequests.reset()
 
               await restoreSnapshot()
             })
@@ -973,7 +976,7 @@ describe("NativeBTCDepositor", () => {
 
             it("should not call the reimbursement pool", async () => {
               // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-              expect(reimbursementPool.refund).to.not.have.been.called
+              await expectNotCalled(reimbursementPool.refund)
             })
           })
 
@@ -991,10 +994,12 @@ describe("NativeBTCDepositor", () => {
               before(async () => {
                 await createSnapshot()
 
-                reimbursementPool.maxGasPrice.returns(
+                await reimbursementPool.maxGasPrice.returns(
                   reimbursementPoolMaxGasPrice
                 )
-                reimbursementPool.staticGas.returns(reimbursementPoolStaticGas)
+                await reimbursementPool.staticGas.returns(
+                  reimbursementPoolStaticGas
+                )
 
                 await nativeBtcDepositor
                   .connect(governance)
@@ -1021,13 +1026,13 @@ describe("NativeBTCDepositor", () => {
                 ).gasSpent
 
                 // Set Bridge fees. Set only relevant fields.
-                bridge.depositParameters.returns({
+                await bridge.depositParameters.returns({
                   depositDustThreshold: 0,
                   depositTreasuryFeeDivisor: 0,
                   depositTxMaxFee,
                   depositRevealAheadPeriod: 0,
                 })
-                tbtcVault.optimisticMintingFeeDivisor.returns(
+                await tbtcVault.optimisticMintingFeeDivisor.returns(
                   optimisticMintingFeeDivisor
                 )
 
@@ -1035,7 +1040,7 @@ describe("NativeBTCDepositor", () => {
                 // to finalize the deposit.
                 const revealedAt = (await lastBlockTime()) - 7200
                 const finalizedAt = await lastBlockTime()
-                bridge.deposits
+                await bridge.deposits
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns({
                     depositor: nativeBtcDepositor.address,
@@ -1049,7 +1054,7 @@ describe("NativeBTCDepositor", () => {
 
                 // Set the TBTCVault mock to return a deposit state
                 // that allows to finalize the deposit.
-                tbtcVault.optimisticMintingRequests
+                await tbtcVault.optimisticMintingRequests
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns([revealedAt, finalizedAt])
 
@@ -1067,14 +1072,14 @@ describe("NativeBTCDepositor", () => {
               })
 
               after(async () => {
-                reimbursementPool.maxGasPrice.reset()
-                reimbursementPool.staticGas.reset()
-                reimbursementPool.refund.reset()
-                bridge.depositParameters.reset()
-                tbtcVault.optimisticMintingFeeDivisor.reset()
-                bridge.revealDepositWithExtraData.reset()
-                bridge.deposits.reset()
-                tbtcVault.optimisticMintingRequests.reset()
+                await reimbursementPool.maxGasPrice.reset()
+                await reimbursementPool.staticGas.reset()
+                await reimbursementPool.refund.reset()
+                await bridge.depositParameters.reset()
+                await tbtcVault.optimisticMintingFeeDivisor.reset()
+                await bridge.revealDepositWithExtraData.reset()
+                await bridge.deposits.reset()
+                await tbtcVault.optimisticMintingRequests.reset()
 
                 await restoreSnapshot()
               })
@@ -1110,27 +1115,28 @@ describe("NativeBTCDepositor", () => {
                 )
               })
 
-              it("should pay out proper reimbursements", async () => {
+              it("should reimburse finalization before initialization", async () => {
                 // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                expect(reimbursementPool.refund).to.have.been.calledTwice
+                await expectCalledTwice(reimbursementPool.refund)
 
-                // First call is the deferred gas reimbursement for deposit
-                // initialization.
-                const call1 = reimbursementPool.refund.getCall(0)
-                // Should reimburse the exact value stored upon deposit initialization.
-                expect(call1.args[0]).to.equal(initializeDepositGasSpent)
-                expect(call1.args[1]).to.equal(relayer.address)
-
-                // Second call is the refund for deposit finalization.
-                const call2 = reimbursementPool.refund.getCall(1)
+                // Pay the finalization reimbursement first so gas consumed
+                // by the deferred reimbursement's untrusted receiver cannot
+                // be counted again in this calculation.
+                const call1 = await reimbursementPool.refund.getCall(0)
                 // It doesn't make much sense to check the exact gas spent
                 // value here because mocks are used for testing and
                 // the resulting value won't be realistic. We only check
                 // that the reimbursement is greater than zero which means
                 // the reimbursement has been recorded properly.
                 expect(
-                  BigNumber.from(call2.args[0]).toNumber()
+                  BigNumber.from(call1.args[0]).toNumber()
                 ).to.be.greaterThan(0)
+                expect(call1.args[1]).to.equal(relayer.address)
+
+                // Second call is the deferred gas reimbursement for deposit
+                // initialization and must use the exact stored value.
+                const call2 = await reimbursementPool.refund.getCall(1)
+                expect(call2.args[0]).to.equal(initializeDepositGasSpent)
                 expect(call2.args[1]).to.equal(relayer.address)
               })
             }
@@ -1150,10 +1156,12 @@ describe("NativeBTCDepositor", () => {
               before(async () => {
                 await createSnapshot()
 
-                reimbursementPool.maxGasPrice.returns(
+                await reimbursementPool.maxGasPrice.returns(
                   reimbursementPoolMaxGasPrice
                 )
-                reimbursementPool.staticGas.returns(reimbursementPoolStaticGas)
+                await reimbursementPool.staticGas.returns(
+                  reimbursementPoolStaticGas
+                )
 
                 await nativeBtcDepositor
                   .connect(governance)
@@ -1181,13 +1189,13 @@ describe("NativeBTCDepositor", () => {
                 ).gasSpent
 
                 // Set Bridge fees. Set only relevant fields.
-                bridge.depositParameters.returns({
+                await bridge.depositParameters.returns({
                   depositDustThreshold: 0,
                   depositTreasuryFeeDivisor: 0,
                   depositTxMaxFee,
                   depositRevealAheadPeriod: 0,
                 })
-                tbtcVault.optimisticMintingFeeDivisor.returns(
+                await tbtcVault.optimisticMintingFeeDivisor.returns(
                   optimisticMintingFeeDivisor
                 )
 
@@ -1195,7 +1203,7 @@ describe("NativeBTCDepositor", () => {
                 // to finalize the deposit.
                 const revealedAt = (await lastBlockTime()) - 7200
                 const finalizedAt = await lastBlockTime()
-                bridge.deposits
+                await bridge.deposits
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns({
                     depositor: nativeBtcDepositor.address,
@@ -1209,7 +1217,7 @@ describe("NativeBTCDepositor", () => {
 
                 // Set the TBTCVault mock to return a deposit state
                 // that allows to finalize the deposit.
-                tbtcVault.optimisticMintingRequests
+                await tbtcVault.optimisticMintingRequests
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns([revealedAt, finalizedAt])
 
@@ -1232,14 +1240,14 @@ describe("NativeBTCDepositor", () => {
               })
 
               after(async () => {
-                reimbursementPool.maxGasPrice.reset()
-                reimbursementPool.staticGas.reset()
-                reimbursementPool.refund.reset()
-                bridge.depositParameters.reset()
-                tbtcVault.optimisticMintingFeeDivisor.reset()
-                bridge.revealDepositWithExtraData.reset()
-                bridge.deposits.reset()
-                tbtcVault.optimisticMintingRequests.reset()
+                await reimbursementPool.maxGasPrice.reset()
+                await reimbursementPool.staticGas.reset()
+                await reimbursementPool.refund.reset()
+                await bridge.depositParameters.reset()
+                await tbtcVault.optimisticMintingFeeDivisor.reset()
+                await bridge.revealDepositWithExtraData.reset()
+                await bridge.deposits.reset()
+                await tbtcVault.optimisticMintingRequests.reset()
 
                 await restoreSnapshot()
               })
@@ -1277,12 +1285,12 @@ describe("NativeBTCDepositor", () => {
 
               it("should pay out proper reimbursements", async () => {
                 // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                expect(reimbursementPool.refund).to.have.been.calledOnce
+                await expectCalledOnce(reimbursementPool.refund)
 
                 // The only call is the deferred gas reimbursement for deposit
                 // initialization. The call for finalization should not
                 // occur as the caller was de-authorized.
-                const call = reimbursementPool.refund.getCall(0)
+                const call = await reimbursementPool.refund.getCall(0)
                 // Should reimburse the exact value stored upon deposit initialization.
                 expect(call.args[0]).to.equal(initializeDepositGasSpent)
                 expect(call.args[1]).to.equal(relayer.address)
@@ -1327,11 +1335,11 @@ describe("NativeBTCDepositor", () => {
     })
 
     afterEach(async () => {
-      bridge.depositParameters.reset()
-      tbtcVault.optimisticMintingFeeDivisor.reset()
-      bridge.revealDepositWithExtraData.reset()
-      bridge.deposits.reset()
-      tbtcVault.optimisticMintingRequests.reset()
+      await bridge.depositParameters.reset()
+      await tbtcVault.optimisticMintingFeeDivisor.reset()
+      await bridge.revealDepositWithExtraData.reset()
+      await bridge.deposits.reset()
+      await tbtcVault.optimisticMintingRequests.reset()
 
       await restoreSnapshot()
     })
@@ -1347,19 +1355,21 @@ describe("NativeBTCDepositor", () => {
         )
 
       // 2) Setup Bridge deposit parameters
-      bridge.depositParameters.returns({
+      await bridge.depositParameters.returns({
         depositDustThreshold: 0,
         depositTreasuryFeeDivisor: 0,
         depositTxMaxFee,
         depositRevealAheadPeriod: 0,
       })
       // 3) Setup vault fees
-      tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+      await tbtcVault.optimisticMintingFeeDivisor.returns(
+        optimisticMintingFeeDivisor
+      )
 
       // 4) Prepare deposit finalization
       const revealedAt = (await lastBlockTime()) - 7200
       const finalizedAt = await lastBlockTime()
-      bridge.deposits
+      await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
           depositor: nativeBtcDepositor.address,
@@ -1370,7 +1380,7 @@ describe("NativeBTCDepositor", () => {
           sweptAt: finalizedAt,
           extraData: initializeDepositFixture.ethereumReceiverBytes32,
         })
-      tbtcVault.optimisticMintingRequests
+      await tbtcVault.optimisticMintingRequests
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns([revealedAt, finalizedAt])
 
@@ -1410,19 +1420,21 @@ describe("NativeBTCDepositor", () => {
         )
 
       // 2) Setup Bridge deposit parameters
-      bridge.depositParameters.returns({
+      await bridge.depositParameters.returns({
         depositDustThreshold: 0,
         depositTreasuryFeeDivisor: 0,
         depositTxMaxFee,
         depositRevealAheadPeriod: 0,
       })
       // 3) Setup vault fees
-      tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+      await tbtcVault.optimisticMintingFeeDivisor.returns(
+        optimisticMintingFeeDivisor
+      )
 
       // 4) Prepare deposit finalization
       const revealedAt = (await lastBlockTime()) - 7200
       const finalizedAt = await lastBlockTime()
-      bridge.deposits
+      await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
           depositor: nativeBtcDepositor.address,
@@ -1433,7 +1445,7 @@ describe("NativeBTCDepositor", () => {
           sweptAt: finalizedAt,
           extraData: initializeDepositFixture.ethereumReceiverBytes32,
         })
-      tbtcVault.optimisticMintingRequests
+      await tbtcVault.optimisticMintingRequests
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns([revealedAt, finalizedAt])
 

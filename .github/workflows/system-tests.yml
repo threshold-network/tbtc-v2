@@ -13,7 +13,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: system-tests/yarn.lock
 
       - name: Enable Corepack
@@ -71,7 +71,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: system-tests/yarn.lock
 
       - name: Enable Corepack

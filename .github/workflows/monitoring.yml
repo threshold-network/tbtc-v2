@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: monitoring/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
@@ -66,6 +66,9 @@ jobs:
 
       - name: Build
         run: yarn build
+
+      - name: Test
+        run: yarn test
 
   monitoring-docker:
     needs: [monitoring-detect-changes, monitoring-build]
@@ -135,7 +138,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: monitoring/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol

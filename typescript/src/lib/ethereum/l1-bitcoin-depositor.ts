@@ -23,19 +23,16 @@ import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/Arb
 import MainnetSolanaL1BitcoinDepositorDeployment from "./artifacts/mainnet/SolanaL1BitcoinDepositor.json"
 import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
 import MainnetSuiBTCDepositorWormholeDeployment from "./artifacts/mainnet/SuiBTCDepositorWormhole.json"
-import MainnetSeiL1BitcoinDepositorDeployment from "./artifacts/mainnet/SeiL1BitcoinDepositor.json"
 
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
 import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
 import SepoliaSuiBTCDepositorWormholeDeployment from "./artifacts/sepolia/SuiBTCDepositorWormhole.json"
-import SepoliaSeiL1BitcoinDepositorDeployment from "./artifacts/sepolia/SeiL1BitcoinDepositor.json"
 
 import SepoliaSolanaL1BitcoinDepositorDeployment from "./artifacts/sepolia/SolanaL1BitcoinDepositor.json"
 import { SuiExtraDataEncoder } from "../sui"
 import { StarkNetExtraDataEncoder } from "../starknet"
 import { SolanaExtraDataEncoder } from "../solana"
-import { SeiExtraDataEncoder } from "../sei"
 
 const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> =
   {
@@ -44,7 +41,6 @@ const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> =
     Solana: MainnetSolanaL1BitcoinDepositorDeployment,
     StarkNet: MainnetStarkNetL1BitcoinDepositorDeployment,
     Sui: MainnetSuiBTCDepositorWormholeDeployment,
-    Sei: MainnetSeiL1BitcoinDepositorDeployment,
   }
 
 const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
@@ -54,7 +50,6 @@ const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
     Solana: SepoliaSolanaL1BitcoinDepositorDeployment,
     StarkNet: SepoliaStarkNetL1BitcoinDepositorDeployment,
     Sui: SepoliaSuiBTCDepositorWormholeDeployment,
-    Sei: SepoliaSeiL1BitcoinDepositorDeployment,
   }
 
 const artifactLoaders: Partial<
@@ -73,7 +68,6 @@ const extraDataEncoders: Partial<
   Solana: SolanaExtraDataEncoder,
   StarkNet: StarkNetExtraDataEncoder,
   Sui: SuiExtraDataEncoder,
-  Sei: SeiExtraDataEncoder,
 }
 
 /**

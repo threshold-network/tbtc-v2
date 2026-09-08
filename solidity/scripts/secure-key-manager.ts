@@ -7,7 +7,7 @@
 
 import * as fs from "fs"
 import * as path from "path"
-import * as CryptoJS from "crypto-js"
+import { decryptPrivateKey } from "./private-key-crypto"
 
 const ENCRYPTED_KEY_FILE = path.join(__dirname, ".encrypted-key")
 
@@ -33,18 +33,17 @@ class SecureKeyManagerImpl implements SecureKeyManager {
       throw new Error("DEPLOYER_PASSWORD environment variable not set")
     }
 
+    const encryptedData = fs.readFileSync(ENCRYPTED_KEY_FILE, "utf8")
+
     try {
-      const encryptedData = fs.readFileSync(ENCRYPTED_KEY_FILE, "utf8")
-      const decrypted = CryptoJS.AES.decrypt(encryptedData, masterPassword)
-      const privateKey = decrypted.toString(CryptoJS.enc.Utf8)
-
-      if (!privateKey || privateKey.length !== 64) {
-        throw new Error("Invalid password or corrupted key file")
-      }
-
-      return privateKey
+      // `await` is required here: without it, a decryptPrivateKey rejection
+      // would bypass the catch below instead of being caught by it.
+      return await decryptPrivateKey(encryptedData, masterPassword)
     } catch (error) {
-      throw new Error("Failed to decrypt private key. Check your password.")
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `Failed to decrypt private key. Check your password. (${reason})`
+      )
     }
   }
 

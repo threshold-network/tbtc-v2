@@ -5,7 +5,6 @@ Represents a generic chain identifier.
 ## Implemented by
 
 - [`EthereumAddress`](../classes/EthereumAddress.md)
-- [`SeiAddress`](../classes/SeiAddress.md)
 - [`SolanaAddress`](../classes/SolanaAddress.md)
 - [`StarkNetAddress`](../classes/StarkNetAddress.md)
 
@@ -29,7 +28,7 @@ Identifier as an un-prefixed hex string.
 
 #### Defined in
 
-[lib/contracts/chain-identifier.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-identifier.ts#L8)
+[src/lib/contracts/chain-identifier.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-identifier.ts#L8)
 
 ## Methods
 
@@ -51,4 +50,4 @@ Checks if two identifiers are equal.
 
 #### Defined in
 
-[lib/contracts/chain-identifier.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-identifier.ts#L14)
+[src/lib/contracts/chain-identifier.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-identifier.ts#L14)

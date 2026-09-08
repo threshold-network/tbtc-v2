@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -118,7 +118,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -156,7 +156,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           cache-dependency-path: cross-chain/arbitrum/yarn.lock
 
       - uses: actions/setup-python@v4

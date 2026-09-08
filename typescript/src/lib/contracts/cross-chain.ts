@@ -1,6 +1,7 @@
 import { ChainIdentifier } from "./chain-identifier"
-import { BigNumber, BytesLike } from "ethers"
-import { TransactionReceipt } from "@ethersproject/providers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { BytesLike } from "@ethersproject/bytes"
+import { TransactionReceipt } from "@ethersproject/abstract-provider"
 import { ChainMapping, DestinationChainName } from "./chain"
 import { BitcoinRawTxVectors, BitcoinUtxo } from "../bitcoin"
 import { DepositReceipt } from "./bridge"
@@ -90,7 +91,7 @@ export interface BitcoinDepositor {
    * issued by this contract.
    * @param depositOwner Identifier of the deposit owner or undefined to clear.
    */
-  setDepositOwner(depositOwner: ChainIdentifier): void
+  setDepositOwner(depositOwner: ChainIdentifier | null | undefined): void
 
   /**
    * @returns Extra data encoder for this contract. The encoder is used to

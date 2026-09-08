@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "typescript/**"
+      - ".github/workflows/typescript.yml"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -38,6 +39,7 @@ jobs:
           filters: |
             path-filter:
               - './typescript/**'
+              - './.github/workflows/typescript.yml'
 
   typescript-build-and-test:
     needs: typescript-detect-changes
@@ -53,7 +55,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -76,6 +78,42 @@ jobs:
       - name: Tests
         run: yarn test
 
+  typescript-package:
+    needs: typescript-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.typescript-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22.12.0", "22.x"]
+    defaults:
+      run:
+        working-directory: ./typescript
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache-dependency-path: typescript/yarn.lock
+
+      - name: Use HTTPS for git dependencies
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build
+        run: yarn build
+
+      - name: Check package consumer imports
+        run: yarn test:package
+
   typescript-format:
     needs: typescript-detect-changes
     if: |
@@ -90,9 +128,8 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: typescript/yarn.lock
-
       # We need this step because the `@keep-network/tbtc-v2` which we update in
       # next step has an indirect dependency to `@summa-tx/relay-sol@2.0.2`
       # package, which downloads one of its sub-dependencies via unathenticated
@@ -124,9 +161,8 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: typescript/yarn.lock
-
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 

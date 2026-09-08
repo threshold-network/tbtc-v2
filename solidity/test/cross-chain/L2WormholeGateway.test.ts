@@ -2,7 +2,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 
 import { randomBytes } from "crypto"
 import { expect } from "chai"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { ContractTransaction } from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
 
@@ -12,6 +12,7 @@ import type {
   TestERC20,
   L2WormholeGateway,
 } from "../../typechain"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -128,7 +129,7 @@ describe("L2WormholeGateway", () => {
       canonicalTbtc,
       wormholeBridgeStub,
       gateway,
-    } = await waffle.loadFixture(fixture))
+    } = await loadFixture(fixture))
   })
 
   // Returns hexString padded on the left with zeros to 32 bytes.

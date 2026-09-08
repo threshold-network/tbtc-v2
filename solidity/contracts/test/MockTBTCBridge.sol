@@ -16,6 +16,9 @@ contract MockTBTCBridge is IBridge {
     uint96 internal _redemptionTimeoutSlashingAmount = 10**18;
     uint32 internal _redemptionTimeoutNotifierRewardMultiplier = 5;
 
+    // Added for redemption-watchtower mocks
+    address internal _redemptionWatchtower;
+
     // Added for redemption mocks
     event RedemptionRequestedMock(
         bytes20 walletPubKeyHash,
@@ -100,6 +103,20 @@ contract MockTBTCBridge is IBridge {
     // Function to allow tests to modify the redemptionTxMaxFee
     function setRedemptionTxMaxFeeInternal(uint64 newFee) external {
         _redemptionTxMaxFee = newFee;
+    }
+
+    // Function to allow tests to configure the redemption watchtower address
+    function setRedemptionWatchtower(address watchtower) external {
+        _redemptionWatchtower = watchtower;
+    }
+
+    function getRedemptionWatchtower()
+        external
+        view
+        override
+        returns (address)
+    {
+        return _redemptionWatchtower;
     }
 
     // --- Redemption related mock functions ---

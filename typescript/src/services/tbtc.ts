@@ -6,6 +6,7 @@ import {
   DestinationChainName,
   DestinationChainInterfaces,
   TBTCContracts,
+  ChainIdentifier,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
 import { EthereumSigner } from "../lib/ethereum"
@@ -13,7 +14,8 @@ import type { AnchorProvider } from "@coral-xyz/anchor"
 import type { StarkNetProvider } from "../lib/starknet"
 import type { SuiSignerWithAddress } from "../lib/sui"
 import { TBTC as TBTCCore } from "./tbtc-core"
-import { providers } from "ethers"
+import { Signer } from "@ethersproject/abstract-signer"
+import { StarkNetAddress } from "../lib/starknet/address"
 
 // Re-export everything from the base module so that consumers importing
 // from the root entry point get the same symbols as from /core.
@@ -49,22 +51,24 @@ export class TBTC extends TBTCCore {
   /**
    * Initializes the tBTC v2 SDK entrypoint for Ethereum and Bitcoin mainnets.
    * The initialized instance uses default Electrum servers to interact
-   * with Bitcoin mainnet
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param nativeBTCDepositor NativeBTCDepositor address. Required for L1 gasless deposits.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
-    crossChainSupport: boolean = false
+    ethereumSignerOrProvider: EthereumSigner,
+    crossChainSupport: boolean = false,
+    nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Mainnet,
       BitcoinNetwork.Mainnet,
-      crossChainSupport
+      crossChainSupport,
+      nativeBTCDepositor
     )
   }
 
@@ -82,19 +86,22 @@ export class TBTC extends TBTCCore {
    * upgrading this SDK.
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param nativeBTCDepositor NativeBTCDepositor address. Required for L1 gasless deposits.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
-    crossChainSupport: boolean = false
+    ethereumSignerOrProvider: EthereumSigner,
+    crossChainSupport: boolean = false,
+    nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
       BitcoinNetwork.Testnet4,
-      crossChainSupport
+      crossChainSupport,
+      nativeBTCDepositor
     )
   }
 
@@ -106,15 +113,17 @@ export class TBTC extends TBTCCore {
    * @param ethereumChainId Ethereum chain ID.
    * @param bitcoinNetwork Bitcoin network.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
+   * @param nativeBTCDepositor NativeBTCDepositor address. Required for L1 gasless deposits.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the underlying signer's Ethereum network is
    *         other than the given Ethereum network.
    */
   protected static async initializeEthereum(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    ethereumSignerOrProvider: EthereumSigner,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
-    crossChainSupport = false
+    crossChainSupport = false,
+    nativeBTCDepositor?: ChainIdentifier
   ): Promise<TBTC> {
     const tbtc = (await super.initializeEthereum(
       ethereumSignerOrProvider,
@@ -139,6 +148,9 @@ export class TBTC extends TBTCCore {
         tbtc.crossChainContracts(name)
       )
     }
+    if (nativeBTCDepositor) {
+      tbtc.deposits.setNativeBTCDepositor(nativeBTCDepositor)
+    }
 
     return tbtc
   }
@@ -155,6 +167,13 @@ export class TBTC extends TBTCCore {
   ): Promise<string> {
     if (!provider) {
       throw new Error("StarkNet provider is required")
+    }
+
+    if (
+      Signer.isSigner(provider) ||
+      ("getNetwork" in provider && typeof provider.getNetwork === "function")
+    ) {
+      throw new Error("Expected a StarkNet provider or account")
     }
 
     let address: string | undefined
@@ -181,14 +200,7 @@ export class TBTC extends TBTCCore {
       )
     }
 
-    // Validate address format (basic check for hex string)
-    // StarkNet addresses are felt252 values represented as hex strings
-    if (!/^0x[0-9a-fA-F]+$/.test(address)) {
-      throw new Error("Invalid StarkNet address format")
-    }
-
-    // Normalize to lowercase for consistency
-    return address.toLowerCase()
+    return StarkNetAddress.from(address).toString()
   }
 
   /**
@@ -230,6 +242,13 @@ export class TBTC extends TBTCCore {
    *                               For SUI: SUI signer/wallet.
    *                               For Solana: Solana provider.
    *                               For other L2s: Ethereum signer.
+   * @param options Optional chain-specific settings.
+   * @param options.relayerStatusUrl StarkNet only: overrides the relayer's
+   *        deposit-status endpoint used to verify HTTP 409 conflicts. Falls
+   *        back to the `STARKNET_RELAYER_STATUS_URL` environment variable,
+   *        then to the chain-matched default (see
+   *        `StarkNetBitcoinDepositor`'s constructor). Ignored for all other
+   *        L2 chains.
    * @returns Void promise
    * @throws Throws an error if:
    *         - Cross-chain contracts loader not available
@@ -242,7 +261,8 @@ export class TBTC extends TBTCCore {
       | EthereumSigner
       | StarkNetProvider
       | SuiSignerWithAddress
-      | AnchorProvider
+      | AnchorProvider,
+    options?: { relayerStatusUrl?: string }
   ): Promise<void> {
     if (!this._crossChainContractsLoader) {
       throw new Error(
@@ -299,27 +319,9 @@ export class TBTC extends TBTCCore {
         }
 
         const starknetProvider = signerOrEthereumSigner as StarkNetProvider
-        let walletAddressHex: string
-
-        // Extract address from StarkNet provider using the new method
-        try {
-          walletAddressHex = await TBTC.extractStarkNetAddress(starknetProvider)
-        } catch (error) {
-          // Check if it's a Provider-only (no account) for backward compatibility
-          // Only apply backward compatibility if it's NOT an Account object
-          if (
-            !("address" in starknetProvider) &&
-            !("account" in starknetProvider) &&
-            "getChainId" in starknetProvider &&
-            typeof starknetProvider.getChainId === "function"
-          ) {
-            // Provider-only - use placeholder address for backward compatibility
-            walletAddressHex = "0x0"
-          } else {
-            // Re-throw the error for invalid providers or invalid addresses
-            throw error
-          }
-        }
+        const walletAddressHex = await TBTC.extractStarkNetAddress(
+          starknetProvider
+        )
 
         const { loadStarkNetCrossChainInterfaces } = await import(
           "../lib/starknet"
@@ -327,7 +329,8 @@ export class TBTC extends TBTCCore {
         l2CrossChainContracts = await loadStarkNetCrossChainInterfaces(
           walletAddressHex,
           starknetProvider,
-          starknetChainId
+          starknetChainId,
+          options?.relayerStatusUrl
         )
         // prettier-ignore
         break;
@@ -345,13 +348,18 @@ export class TBTC extends TBTCCore {
         // prettier-ignore
         break;
       case "Solana":
+        const solanaChainId = chainMapping.solana
+        if (!solanaChainId) {
+          throw new Error("Solana chain ID not available in chain mapping")
+        }
         if (!signerOrEthereumSigner) {
           throw new Error("Solana provider is required")
         }
         this._l2Signer = signerOrEthereumSigner as AnchorProvider
         const { loadSolanaCrossChainInterfaces } = await import("../lib/solana")
         l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
-          signerOrEthereumSigner as AnchorProvider
+          signerOrEthereumSigner as AnchorProvider,
+          solanaChainId
         )
         // prettier-ignore
         break;

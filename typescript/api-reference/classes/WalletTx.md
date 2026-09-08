@@ -40,7 +40,7 @@ using threshold signature schemes.
 
 #### Defined in
 
-[services/maintenance/wallet-tx.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/wallet-tx.ts#L48)
+[src/services/maintenance/wallet-tx.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/wallet-tx.ts#L48)
 
 ## Properties
 
@@ -50,7 +50,7 @@ using threshold signature schemes.
 
 #### Defined in
 
-[services/maintenance/wallet-tx.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/wallet-tx.ts#L45)
+[src/services/maintenance/wallet-tx.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/wallet-tx.ts#L45)
 
 ___
 
@@ -60,4 +60,4 @@ ___
 
 #### Defined in
 
-[services/maintenance/wallet-tx.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/wallet-tx.ts#L46)
+[src/services/maintenance/wallet-tx.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/wallet-tx.ts#L46)

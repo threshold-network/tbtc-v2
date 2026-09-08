@@ -17,7 +17,7 @@ import SepoliaL1BitcoinRedeemerDeployment from "./artifacts/sepolia/L1BitcoinRed
 import MainnetBaseL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import MainnetArbitrumL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
-import { BytesLike } from "ethers"
+import { BytesLike } from "@ethersproject/bytes"
 
 const artifactLoader = {
   getMainnet: (l2ChainName: DestinationChainName) => {

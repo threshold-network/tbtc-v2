@@ -13,14 +13,14 @@ contract MockNttManager {
     constructor() {
         // Set up supported chains for testing
         supportedChains[2] = true; // Ethereum
-        supportedChains[32] = true; // Sei
+        supportedChains[32] = true; // Sample destination
         supportedChains[30] = true; // Base
         supportedChains[23] = true; // Arbitrum
-        supportedChains[40] = true; // Sei EVM (alternative)
+        supportedChains[40] = true; // Sample EVM destination
 
         // Set chain-specific prices
-        chainSpecificPrices[32] = 2000000000000000; // Sei: +0.002 ETH
-        chainSpecificPrices[40] = 2000000000000000; // Sei EVM: +0.002 ETH
+        chainSpecificPrices[32] = 2000000000000000; // Sample destination: +0.002 ETH
+        chainSpecificPrices[40] = 2000000000000000; // Sample EVM destination: +0.002 ETH
         chainSpecificPrices[30] = 1500000000000000; // Base: +0.0015 ETH
         chainSpecificPrices[23] = 1000000000000000; // Arbitrum: +0.001 ETH
     }

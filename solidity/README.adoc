@@ -75,3 +75,30 @@ yarn deploy --network <network>
 If contracts haven't been built yet or changes occurred, this task will build
 the contracts before running the deployment script. This command produces
 an `export.json` file containing contract deployment info.
+
+==== Wormhole L2 BTC redeemer initializer
+
+L2BTCRedeemerWormhole.initialize stores a non-zero, deployment-supplied Wormhole chain ID for the L1 BTC redeemer. requestRedemption rejects a caller-supplied recipientChain unless it matches that stored value, preventing callers from redirecting a redemption. The contract does not verify the configured ID is canonical, so deployment and upgrade procedures must supply the correct Wormhole chain ID.
+
+```
+initialize(
+  address _tbtc,
+  address _gateway,
+  bytes32 _l1BtcRedeemerWormholeAddress,
+  uint16 _l1BtcRedeemerWormholeChain
+)
+```
+
+Deployment scripts must pass the canonical Wormhole chain ID (see
+https://docs.wormhole.com/wormhole/reference/chain-ids[Wormhole docs Chain IDs]
+for a reference). The initializer reverts if the provided chain ID is 0.
+
+*Deployment and Upgrade:*
+- *Fresh deployment:* Provide a non-zero chain ID to `initialize(...)`.
+- *Existing proxy upgrade:* To upgrade, bundle the implementation upgrade with an
+  owner-only `initializeV2(uint16)` call into a single governance batch. This
+  ensures the `l1BtcRedeemerWormholeChain` is set atomically, preventing redemptions
+  from failing closed in the interim.
+
+Post-deployment, the owner can atomically repoint the destination via
+`updateL1BtcRedeemer(bytes32, uint16)`.

@@ -13,7 +13,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
@@ -75,13 +75,24 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
 
     // Set supported chains for the mock NTT manager
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
+
+    // Set default parameters to match test fee args
+    await depositor.setDefaultParameters(
+      600000,
+      100,
+      owner.address,
+      0,
+      ethers.constants.AddressZero
+    )
   })
 
   beforeEach(async () => {
@@ -155,7 +166,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     })
 
     it("should have proper chain support configuration", async () => {
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
 
       // Unsupported chain should return false
@@ -172,7 +184,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
     it("should revert on quote with chain parameter without executor parameters", async () => {
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith("Executor parameters not set")
     })
   })
@@ -193,7 +205,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Step 1: Set executor parameters
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Step 2: Verify parameters are set
@@ -216,7 +234,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Should allow refresh
       await expect(
-        depositor.connect(owner).setExecutorParameters(newExecutorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            newExecutorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Verify updated value
@@ -241,7 +265,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Step 1: Set executor parameters
       await expect(
-        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+        depositor
+          .connect(owner)
+          .setExecutorParameters(
+            executorArgs,
+            feeArgs,
+            WORMHOLE_CHAIN_DESTINATION
+          )
       ).to.not.be.reverted
 
       // Step 2: Verify parameters are set
@@ -250,7 +280,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Step 3: Verify the mock NTT manager integration works
       // Test that the contract can interact with supported chains
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
 
       // Step 4: Test parameter clearing works
@@ -283,7 +314,11 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       // Set executor parameters
       await depositor
         .connect(owner)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(
+          executorArgs,
+          feeArgs,
+          WORMHOLE_CHAIN_DESTINATION
+        )
 
       // Verify fee calculation works
       const [isSet] = await depositor.connect(owner).areExecutorParametersSet()

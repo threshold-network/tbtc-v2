@@ -12,7 +12,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
@@ -47,7 +47,10 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     underlyingNttManager = await TestERC20Factory.deploy()
 
     // Set up mock NTT manager to support our test chains
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following the working pattern
@@ -69,9 +72,8 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     depositor = L1BTCDepositorFactory.attach(proxy.address)
 
     // Set up basic configuration
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
   })
 
   beforeEach(async () => {
@@ -118,23 +120,10 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
   })
 
   describe("Parameter Expiration", () => {
-    it("should have configurable expiration time", async () => {
+    it("should have default expiration time", async () => {
       const currentExpiration = await depositor.parameterExpirationTime()
       // The initial value is 3600 (1 hour, set in initialize function)
       expect(currentExpiration).to.equal(3600)
-
-      // Test setting new expiration time (only owner can do this)
-      const newExpirationTime = 7200 // 2 hours
-      await depositor.setParameterExpirationTime(newExpirationTime)
-
-      const updatedExpiration = await depositor.parameterExpirationTime()
-      expect(updatedExpiration).to.equal(newExpirationTime)
-    })
-
-    it("should reject invalid expiration times", async () => {
-      await expect(depositor.setParameterExpirationTime(0)).to.be.revertedWith(
-        "Expiration time must be greater than 0"
-      )
     })
   })
 

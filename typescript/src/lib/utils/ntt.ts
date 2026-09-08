@@ -16,8 +16,8 @@ import { Hex } from "./hex"
  *
  * @example
  * ```typescript
- * const encoded = encodeDestinationReceiver(40, "0x1234567890123456789012345678901234567890")
- * // Returns: "0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890"
+ * const encoded = encodeDestinationReceiver(10002, "0x1234567890123456789012345678901234567890")
+ * // Returns: "0x2712000000000000000000001234567890123456789012345678901234567890"
  * ```
  */
 export function encodeDestinationReceiver(
@@ -52,8 +52,8 @@ export function encodeDestinationReceiver(
  *
  * @example
  * ```typescript
- * const { chainId, recipient } = decodeDestinationReceiver("0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890")
- * // Returns: { chainId: 40, recipient: "0x1234567890123456789012345678901234567890" }
+ * const { chainId, recipient } = decodeDestinationReceiver("0x2712000000000000000000001234567890123456789012345678901234567890")
+ * // Returns: { chainId: 10002, recipient: "0x1234567890123456789012345678901234567890" }
  * ```
  */
 export function decodeDestinationReceiver(encodedReceiver: Hex | string): {

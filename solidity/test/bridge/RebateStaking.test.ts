@@ -41,7 +41,7 @@ describe("RebateStaking", () => {
       bridgeGovernance,
       t,
       rebateStaking,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     await bridgeGovernance
       .connect(governance)
@@ -348,6 +348,147 @@ describe("RebateStaking", () => {
     })
   })
 
+  describe("setRebateAuthorization", () => {
+    const stakeAmount = defaultStakeAmount
+    let tx: ContractTransaction
+
+    before(async () => {
+      await createSnapshot()
+
+      await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+      await rebateStaking.connect(thirdParty).stake(stakeAmount)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should revert when called by a non-staker", async () => {
+      await expect(
+        rebateStaking
+          .connect(governance)
+          .setRebateAuthorization(deployer.address, true)
+      ).to.be.revertedWith("NotAStaker")
+    })
+
+    it("should revert when balanceOwner is zero", async () => {
+      await expect(
+        rebateStaking
+          .connect(thirdParty)
+          .setRebateAuthorization(ZERO_ADDRESS, true)
+      ).to.be.revertedWith("ZeroAddress")
+    })
+
+    context("when staker authorizes a balance owner", () => {
+      before(async () => {
+        await createSnapshot()
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .setRebateAuthorization(deployer.address, true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set the per-pair authorization", async () => {
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            thirdParty.address,
+            deployer.address
+          )
+        ).to.be.true
+      })
+
+      it("should emit RebateAuthorizationSet with authorized=true", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "RebateAuthorizationSet")
+          .withArgs(thirdParty.address, deployer.address, true)
+      })
+
+      it("should leave unrelated pairs unauthorized", async () => {
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            thirdParty.address,
+            governance.address
+          )
+        ).to.be.false
+      })
+    })
+
+    context("when staker revokes authorization", () => {
+      before(async () => {
+        await createSnapshot()
+        await rebateStaking
+          .connect(thirdParty)
+          .setRebateAuthorization(deployer.address, true)
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .setRebateAuthorization(deployer.address, false)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should clear the per-pair authorization", async () => {
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            thirdParty.address,
+            deployer.address
+          )
+        ).to.be.false
+      })
+
+      it("should emit RebateAuthorizationSet with authorized=false", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "RebateAuthorizationSet")
+          .withArgs(thirdParty.address, deployer.address, false)
+      })
+    })
+
+    context("when multiple stakers authorize the same balance owner", () => {
+      before(async () => {
+        await createSnapshot()
+        await t.connect(deployer).mint(governance.address, defaultStakeAmount)
+        await t
+          .connect(governance)
+          .approve(rebateStaking.address, defaultStakeAmount)
+        await rebateStaking.connect(governance).stake(defaultStakeAmount)
+
+        await rebateStaking
+          .connect(thirdParty)
+          .setRebateAuthorization(deployer.address, true)
+        await rebateStaking
+          .connect(governance)
+          .setRebateAuthorization(deployer.address, true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should record both authorizations independently", async () => {
+        // Many-to-one: the mapping is per-pair, so two stakers can both
+        // authorize the same balance owner without colliding (unlike the
+        // 1:1 `delegates` mapping used by `setDelegatee`).
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            thirdParty.address,
+            deployer.address
+          )
+        ).to.be.true
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            governance.address,
+            deployer.address
+          )
+        ).to.be.true
+      })
+    })
+  })
+
   describe("applyForRebate", () => {
     const treasuryFee = ethers.BigNumber.from(950)
 
@@ -606,7 +747,7 @@ describe("RebateStaking", () => {
 
             await bridge.applyForRebate(thirdParty.address, fee2)
 
-            await increaseTime((rollingWindow * 2) / 3)
+            await increaseTime((rollingWindow * 2) / 3 + 1)
 
             tx = await bridge.applyForRebate(thirdParty.address, treasuryFee)
           })
@@ -841,7 +982,7 @@ describe("RebateStaking", () => {
             before(async () => {
               await createSnapshot()
 
-              const timestamp = await lastBlockTime()
+              const timestamp = (await lastBlockTime()) - 1
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
@@ -878,7 +1019,7 @@ describe("RebateStaking", () => {
 
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
                 const timestamp = await lastBlockTime()
-                await increaseTime(rollingWindow)
+                await increaseTime(rollingWindow + 1)
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
@@ -910,6 +1051,7 @@ describe("RebateStaking", () => {
 
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
+              await increaseTime(1)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
               timestamp = await lastBlockTime()
@@ -958,6 +1100,7 @@ describe("RebateStaking", () => {
 
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
+              await increaseTime(1)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
               timestamp = await lastBlockTime()

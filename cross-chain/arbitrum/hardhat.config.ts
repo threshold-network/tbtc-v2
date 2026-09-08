@@ -70,6 +70,14 @@ const config: HardhatUserConfig = {
         : undefined,
       tags: ["etherscan"],
     },
+    // Local mainnet-fork node (anvil) used by the upgrade fork regression tests.
+    // Hardhat's built-in forking cannot initialize against the project RPC
+    // (reth omits `totalDifficulty`); pointing at an external anvil fork node
+    // sidesteps that. Run: `anvil --fork-url <RPC> --port 8545 --chain-id 1`.
+    system_tests: {
+      url: "http://127.0.0.1:8545",
+      chainId: 1,
+    },
     arbitrumGoerli: {
       url: process.env.L2_CHAIN_API_URL || "",
       chainId: 421613,
@@ -116,6 +124,10 @@ const config: HardhatUserConfig = {
       arbitrumGoerli: ["./external/arbitrumGoerli"],
       arbitrumSepolia: ["./external/arbitrumSepolia"],
       arbitrumOne: ["./external/arbitrumOne"],
+      // Fork tests run under `--network system_tests` (chainId 1) and read the
+      // committed mainnet deployment (ArbitrumOneL1BitcoinDepositor) so
+      // `deployments.get` resolves the live proxy on the anvil fork.
+      system_tests: ["deployments/mainnet", "./external/mainnet"],
     },
   },
 

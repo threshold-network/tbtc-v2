@@ -1,6 +1,10 @@
 /* eslint-disable no-unused-vars */
 export enum ApiUrl {
-  TBTC_EXPLORER = "https://api.tbtcscan.com",
+  THRESHOLD_API = "https://api.threshold.network",
+  /**
+   * @deprecated Use THRESHOLD_API.
+   */
+  TBTC_EXPLORER = "https://api.threshold.network",
 }
 
 export enum endpointUrl {

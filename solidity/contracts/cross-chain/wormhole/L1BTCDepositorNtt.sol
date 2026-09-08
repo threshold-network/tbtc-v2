@@ -82,8 +82,8 @@ interface INttManager {
 /// @dev Address Encoding Format:
 ///      destinationChainReceiver: [2 bytes: Chain ID][30 bytes: Recipient Address]
 ///      Examples:
-///      - 0x0020[Sei address padded]     → Sei (Wormhole Chain ID 32)
 ///      - 0x2105[Base address padded]    → Base (Wormhole Chain ID 8453)
+///      - 0x0017[Arbitrum address padded] → Arbitrum (Wormhole Chain ID 23)
 ///      - 0x0000[address]                → Default chain (backward compatibility)
 // slither-disable-next-line reentrancy-vulnerabilities-3
 contract L1BTCDepositorNtt is AbstractL1BTCDepositor {

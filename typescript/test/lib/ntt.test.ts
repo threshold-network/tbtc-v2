@@ -7,10 +7,12 @@ import {
   getRecipientFromEncodedReceiver,
 } from "../../src/lib/utils/ntt"
 
+const TEST_WORMHOLE_CHAIN_ID = 10002
+
 describe("NTT Utilities", () => {
   describe("encodeDestinationReceiver", () => {
     it("should encode chain ID and recipient correctly", () => {
-      const chainId = 40 // Sei chain ID
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -51,7 +53,7 @@ describe("NTT Utilities", () => {
     })
 
     it("should throw error for invalid recipient address", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
 
       assert.throws(
         () => encodeDestinationReceiver(chainId, "invalid-address"),
@@ -69,7 +71,7 @@ describe("NTT Utilities", () => {
 
   describe("decodeDestinationReceiver", () => {
     it("should decode encoded data correctly", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -80,7 +82,7 @@ describe("NTT Utilities", () => {
     })
 
     it("should work with string input", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -128,7 +130,7 @@ describe("NTT Utilities", () => {
 
   describe("isValidEncodedReceiver", () => {
     it("should return true for valid encoded data", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -147,7 +149,7 @@ describe("NTT Utilities", () => {
 
   describe("getChainIdFromEncodedReceiver", () => {
     it("should extract chain ID correctly", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -157,7 +159,7 @@ describe("NTT Utilities", () => {
     })
 
     it("should work with string input", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -179,7 +181,7 @@ describe("NTT Utilities", () => {
 
   describe("getRecipientFromEncodedReceiver", () => {
     it("should extract recipient correctly", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -189,7 +191,7 @@ describe("NTT Utilities", () => {
     })
 
     it("should work with string input", () => {
-      const chainId = 40
+      const chainId = TEST_WORMHOLE_CHAIN_ID
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)
@@ -212,7 +214,10 @@ describe("NTT Utilities", () => {
   describe("round-trip encoding/decoding", () => {
     const testCases = [
       { chainId: 0, recipient: "0x0000000000000000000000000000000000000000" },
-      { chainId: 40, recipient: "0x1234567890123456789012345678901234567890" },
+      {
+        chainId: TEST_WORMHOLE_CHAIN_ID,
+        recipient: "0x1234567890123456789012345678901234567890",
+      },
       {
         chainId: 65535,
         recipient: "0xffffffffffffffffffffffffffffffffffffffff",

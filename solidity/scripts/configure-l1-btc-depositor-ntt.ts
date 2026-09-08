@@ -11,7 +11,6 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
  * Usage:
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network baseSepolia
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network sepolia
- *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network seiTestnet
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network mainnet
  *
  * Environment Variables:
@@ -45,14 +44,6 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
     networkName: "Base Sepolia",
     supportedChains: [
       {
-        chainId: 32, // Sei
-        name: "Sei",
-        enabled: true,
-        peerAddress: "0x0000000000000000000000000000000000000000", // TODO: Sei NTT Manager address
-        rateLimitAmount: ethers.utils.parseEther("100").toString(), // 100 tBTC
-        rateLimitDuration: 3600, // 1 hour
-      },
-      {
         chainId: 10002, // Ethereum Sepolia
         name: "Ethereum Sepolia",
         enabled: true,
@@ -79,14 +70,6 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
         rateLimitAmount: ethers.utils.parseEther("1000").toString(), // 1000 tBTC
         rateLimitDuration: 3600, // 1 hour
       },
-      {
-        chainId: 32, // Sei
-        name: "Sei",
-        enabled: true,
-        peerAddress: "0x0000000000000000000000000000000000000000", // TODO: Sei NTT Manager address
-        rateLimitAmount: ethers.utils.parseEther("500").toString(), // 500 tBTC
-        rateLimitDuration: 3600, // 1 hour
-      },
     ],
     defaultRateLimit: {
       amount: ethers.utils.parseEther("2000").toString(), // 2000 tBTC default
@@ -94,56 +77,10 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
     },
   },
 
-  // Sei Testnet - Spoke configuration
-  seiTestnet: {
-    networkName: "Sei Testnet",
-    supportedChains: [
-      {
-        chainId: 10002, // Ethereum Sepolia (Hub)
-        name: "Ethereum Sepolia",
-        enabled: true,
-        peerAddress: "0x06413c42e913327Bc9a08B7C1E362BAE7C0b9598", // Sepolia NTT Manager
-        rateLimitAmount: ethers.utils.parseEther("1000").toString(), // 1000 tBTC
-        rateLimitDuration: 3600, // 1 hour
-      },
-    ],
-    defaultRateLimit: {
-      amount: ethers.utils.parseEther("500").toString(), // 500 tBTC default
-      duration: 3600, // 1 hour
-    },
-  },
-
-  // Sei Mainnet - Spoke configuration
-  seiMainnet: {
-    networkName: "Sei Mainnet",
-    supportedChains: [
-      {
-        chainId: 2, // Ethereum Mainnet (Hub)
-        name: "Ethereum Mainnet",
-        enabled: true,
-        peerAddress: "0x0000000000000000000000000000000000000000", // TODO: Ethereum Mainnet NTT Manager
-        rateLimitAmount: ethers.utils.parseEther("10000").toString(), // 10,000 tBTC
-        rateLimitDuration: 86400, // 24 hours
-      },
-    ],
-    defaultRateLimit: {
-      amount: ethers.utils.parseEther("5000").toString(), // 5000 tBTC default
-      duration: 86400, // 24 hours
-    },
-  },
-
   // Ethereum Mainnet - Hub configuration
   mainnet: {
     networkName: "Ethereum Mainnet",
     supportedChains: [
-      {
-        chainId: 32, // Sei Mainnet
-        name: "Sei Mainnet",
-        enabled: true,
-        peerAddress: "0x0000000000000000000000000000000000000000", // TODO: Sei Mainnet NTT Manager
-        rateLimitAmount: ethers.utils.parseEther("50000").toString(), // 50,000 tBTC
-        rateLimitDuration: 86400, // 24 hours
-      },
       {
         chainId: 8453, // Base Mainnet
         name: "Base Mainnet",
@@ -255,11 +192,16 @@ async function main() {
   console.log(`   NTT Manager: ${nttManagerAddress || "Not available"}`)
 
   console.log("\n   Supported Chains:")
+  const enabledChainIds: number[] = []
+
   // eslint-disable-next-line no-restricted-syntax
   for (const chain of config.supportedChains) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const isSupported = await l1BtcDepositorNtt.supportedChains(chain.chainId)
+      if (isSupported) {
+        enabledChainIds.push(chain.chainId)
+      }
       console.log(
         `   - ${chain.name} (${chain.chainId}): ${
           isSupported ? "✅ Enabled" : "❌ Disabled"
@@ -270,17 +212,15 @@ async function main() {
     }
   }
 
-  // Get list of all supported chains
-  try {
-    const supportedChainsList = await l1BtcDepositorNtt.getSupportedChains()
-    console.log(
-      `\n   All Supported Chain IDs: [${supportedChainsList.join(", ")}]`
-    )
-  } catch (error) {
-    console.log(
-      `\n   ⚠️  Could not retrieve supported chains list: ${error.message}`
-    )
-  }
+  // This used to call a `getSupportedChains()` that the contract does not have
+  // -- `supportedChains` is a `mapping(uint16 => bool)`, which cannot be
+  // enumerated on-chain -- so the call always threw and the catch below it
+  // always printed a warning. The summary is built from the loop above
+  // instead, which means it covers the configured chains rather than every
+  // chain ever enabled.
+  console.log(
+    `\n   Enabled among configured chains: [${enabledChainIds.join(", ")}]`
+  )
 
   // Instructions for NTT Manager configuration
   if (
