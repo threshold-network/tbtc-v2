@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -621,7 +620,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let summary: any
     let summaryFiles: string[]
 
@@ -708,24 +706,21 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary).to.not.be.null
       expect(summary.timelockActions).to.be.an("array")
 
-      summary.timelockActions.forEach(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (action: any, index: number) => {
-          expect(
-            action,
-            `timelockActions[${index}] missing target`
-          ).to.have.property("target")
-          expect(
-            action,
-            `timelockActions[${index}] missing data`
-          ).to.have.property("data")
-          expect(action).to.have.property("value")
-          expect(
-            action,
-            `timelockActions[${index}] missing description`
-          ).to.have.property("description")
-        }
-      )
+      summary.timelockActions.forEach((action: any, index: number) => {
+        expect(
+          action,
+          `timelockActions[${index}] missing target`
+        ).to.have.property("target")
+        expect(
+          action,
+          `timelockActions[${index}] missing data`
+        ).to.have.property("data")
+        expect(action).to.have.property("value")
+        expect(
+          action,
+          `timelockActions[${index}] missing description`
+        ).to.have.property("description")
+      })
     })
 
     it("should have deployedContracts with all 4 entries", () => {
@@ -792,7 +787,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary.councilSafeActions.length).to.be.greaterThan(0)
 
       const setRebateAction = summary.councilSafeActions.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (a: any) =>
           a.description &&
           a.description.toLowerCase().includes("setrebatestaking")
@@ -810,7 +804,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary.governanceActions.length).to.be.greaterThan(0)
 
       const feeAction = summary.governanceActions.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (a: any) =>
           a.description &&
           a.description
@@ -835,27 +828,24 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(summary).to.not.be.null
         expect(summary.verificationChecks).to.be.an("array")
 
-        summary.verificationChecks.forEach(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (entry: any, index: number) => {
-            expect(
-              entry,
-              `verificationChecks[${index}] missing command`
-            ).to.have.property("command")
-            expect(
-              entry,
-              `verificationChecks[${index}] missing expectedResult`
-            ).to.have.property("expectedResult")
-            expect(
-              entry,
-              `verificationChecks[${index}] missing description`
-            ).to.have.property("description")
+        summary.verificationChecks.forEach((entry: any, index: number) => {
+          expect(
+            entry,
+            `verificationChecks[${index}] missing command`
+          ).to.have.property("command")
+          expect(
+            entry,
+            `verificationChecks[${index}] missing expectedResult`
+          ).to.have.property("expectedResult")
+          expect(
+            entry,
+            `verificationChecks[${index}] missing description`
+          ).to.have.property("description")
 
-            expect(entry.command).to.be.a("string").and.not.be.empty
-            expect(entry.expectedResult).to.be.a("string").and.not.be.empty
-            expect(entry.description).to.be.a("string").and.not.be.empty
-          }
-        )
+          expect(entry.command).to.be.a("string").and.not.be.empty
+          expect(entry.expectedResult).to.be.a("string").and.not.be.empty
+          expect(entry.description).to.be.a("string").and.not.be.empty
+        })
       })
 
       it("should have check[0] reference getRebateStaking with address(0) expected", () => {
@@ -869,7 +859,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(summary).to.not.be.null
 
         const storageCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (c: any) =>
             c.description.toLowerCase().includes("storage") ||
             c.description.toLowerCase().includes("slot")
@@ -890,7 +879,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(summary).to.not.be.null
 
         const stateCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (c: any) =>
             c.description.toLowerCase().includes("state") ||
             c.description.toLowerCase().includes("rebatestaking")
@@ -912,9 +900,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       it("should have a selector count check expecting 56", () => {
         expect(summary).to.not.be.null
 
-        const selectorCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) => c.description.toLowerCase().includes("selector")
+        const selectorCheck = summary.verificationChecks.find((c: any) =>
+          c.description.toLowerCase().includes("selector")
         )
         expect(
           selectorCheck,
@@ -928,9 +915,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       it("should have a bytecode linkage check referencing Deposit and Redemption addresses", () => {
         expect(summary).to.not.be.null
 
-        const bytecodeCheck = summary.verificationChecks.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) => c.description.toLowerCase().includes("bytecode")
+        const bytecodeCheck = summary.verificationChecks.find((c: any) =>
+          c.description.toLowerCase().includes("bytecode")
         )
         expect(
           bytecodeCheck,

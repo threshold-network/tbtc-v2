@@ -158,9 +158,9 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       })
 
       // Verify deposit() was called
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.getDepositCount()).to.be.true
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.depositWithMessageCalled()).to.be.false
     })
 
@@ -205,9 +205,9 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
 
       // Verify no message array exists (deposit() doesn't have message parameter)
       // This confirms we're using the simpler function
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.getDepositCount()).to.be.true
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.depositWithMessageCalled()).to.be.false
     })
   })
@@ -298,9 +298,9 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       expect(lastDeposit.messageFee).to.equal(INITIAL_MESSAGE_FEE)
 
       // Verify deposit() was called correctly
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.getDepositCount()).to.be.true
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.depositWithMessageCalled()).to.be.false
 
       // The mock doesn't actually transfer tokens, but in production
@@ -329,10 +329,10 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       await mockTx.wait()
 
       // Verify the mock recorded the call
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.depositCalled()).to.be.true
       // depositWithMessage should not be called directly when using deposit()
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.depositWithMessageCalled()).to.be.false
 
       // Reset for other tests

@@ -4,7 +4,7 @@ import {
   ContractTransactionResponse,
   BigNumberish,
 } from "ethers"
-/* eslint-disable no-underscore-dangle */
+
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { assert, expect } from "chai"
@@ -97,7 +97,6 @@ describe("MaintainerProxy", () => {
   let initialSpvMaintainerBalance: bigint
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       bridge,
@@ -807,7 +806,6 @@ describe("MaintainerProxy", () => {
                 await bridge.setRedemptionTreasuryFeeDivisor(0)
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(data, beforeRequestActions)
             })
 
@@ -856,7 +854,6 @@ describe("MaintainerProxy", () => {
                 await increaseTime(toNumber(redemptionTimeout))
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 beforeRequestActions,
@@ -914,7 +911,6 @@ describe("MaintainerProxy", () => {
                 )
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 beforeRequestActions,
@@ -962,7 +958,6 @@ describe("MaintainerProxy", () => {
                 await bridge.setRedemptionTreasuryFeeDivisor(0)
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(data, beforeRequestActions)
             })
 
@@ -998,7 +993,6 @@ describe("MaintainerProxy", () => {
             before(async () => {
               await createSnapshot()
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(data)
             })
 
@@ -1056,7 +1050,6 @@ describe("MaintainerProxy", () => {
                 }
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 beforeRequestActions,
@@ -1116,7 +1109,6 @@ describe("MaintainerProxy", () => {
                 }
               }
 
-              // eslint-disable-next-line @typescript-eslint/no-extra-semi
               tx = await runRedemptionScenario(
                 data,
                 undefined,
@@ -3536,12 +3528,12 @@ describe("MaintainerProxy", () => {
 
     for (let i = 0; i < data.deposits.length; i++) {
       const { fundingTx, depositor, reveal } = data.deposits[i]
-      // eslint-disable-next-line no-await-in-loop
+
       const depositorSigner = await impersonateAccount(depositor, {
         from: governance,
         value: 10n,
       })
-      // eslint-disable-next-line no-await-in-loop
+
       await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
     }
 

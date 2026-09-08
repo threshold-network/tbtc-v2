@@ -17,7 +17,6 @@ describe("Bridge - Parameters", () => {
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance } =
       await bridgeFixture())
   })

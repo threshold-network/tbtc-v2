@@ -37,7 +37,6 @@ describe("AbstractBTCRedeemer", () => {
   let deployer: any
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[deployer] = await ethers.getSigners()
 
     const MockBridgeFactory = await ethers.getContractFactory("MockTBTCBridge")
@@ -437,7 +436,6 @@ describe("AbstractBTCRedeemer", () => {
     let randomAccount: any
 
     before(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-extra-semi
       ;[, randomAccount] = await ethers.getSigners() // Use a different account than the deployer/owner
 
       // Mint some tBTC to the redeemer contract for rescue testing

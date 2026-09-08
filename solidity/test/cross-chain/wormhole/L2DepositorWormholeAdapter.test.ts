@@ -79,7 +79,6 @@ describe("L2BTCDepositorWormhole", () => {
   let l2BtcDepositor: L2BTCDepositorWormhole
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,

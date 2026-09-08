@@ -67,7 +67,6 @@ describe("L2TBTC", () => {
   let tokenHolder: HardhatEthersSigner
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, minter, guardian, thirdParty, tokenHolder, token } =
       await loadFixture(fixture))
   })
@@ -96,7 +95,6 @@ describe("L2TBTC", () => {
         })
 
         it("should add address as a minter", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await token.isMinter(minter.address)).to.be.true
         })
 
@@ -184,9 +182,8 @@ describe("L2TBTC", () => {
         })
 
         it("should take minter role from the address", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await token.isMinter(minter.address)).to.be.false
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
           expect(await token.getMinters()).is.empty
         })
 
@@ -302,7 +299,6 @@ describe("L2TBTC", () => {
         })
 
         it("should add address as a guardian", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await token.isGuardian(guardian.address)).to.be.true
         })
 
@@ -390,9 +386,8 @@ describe("L2TBTC", () => {
         })
 
         it("should take guardian role from the address", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await token.isGuardian(guardian.address)).to.be.false
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
           expect(await token.getGuardians()).to.be.empty
         })
 

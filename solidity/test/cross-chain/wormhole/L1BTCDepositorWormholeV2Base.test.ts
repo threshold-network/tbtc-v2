@@ -123,7 +123,6 @@ describe("L1BTCDepositorWormholeV2Base", () => {
   let reimbursementPool: Mock<ReimbursementPool>
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -573,7 +572,6 @@ describe("L1BTCDepositorWormholeV2Base", () => {
         })
 
         it("should reimburse finalization before deferred initialization", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           await expectCalledTwice(reimbursementPool.refund)
 
           // The finalization reimbursement must be calculated and paid

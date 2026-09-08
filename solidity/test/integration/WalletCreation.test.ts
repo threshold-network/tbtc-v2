@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers } from "hardhat"
 import { expect } from "chai"
 
@@ -90,7 +89,6 @@ describeFn("Integration Test - Wallet Creation", async () => {
     })
 
     it("should register a new wallet in the WalletRegistry", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(await walletRegistry.isWalletRegistered(walletID)).to.be.true
     })
 

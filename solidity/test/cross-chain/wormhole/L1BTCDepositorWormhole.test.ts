@@ -146,7 +146,6 @@ describe("L1BTCDepositorWormhole", () => {
   let l1BtcDepositor: L1BTCDepositorWormhole
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -380,7 +379,6 @@ describe("L1BTCDepositorWormhole", () => {
       })
 
       it("should set the authorization properly", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(
           await l1BtcDepositor.reimbursementAuthorizations(relayer.address)
         ).to.be.true
@@ -575,7 +573,6 @@ describe("L1BTCDepositorWormhole", () => {
             })
 
             it("should reveal the deposit to the Bridge", async () => {
-              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
               await expectCalledOnce(bridge.revealDepositWithExtraData)
 
               const { fundingTx, reveal, destinationChainDepositOwner } =
@@ -672,7 +669,6 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should reveal the deposit to the Bridge", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, destinationChainDepositOwner } =
@@ -778,7 +774,6 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should reveal the deposit to the Bridge", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(bridge.revealDepositWithExtraData)
 
                 const { fundingTx, reveal, destinationChainDepositOwner } =
@@ -1245,7 +1240,6 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should create a proper Wormhole token transfer", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(
                   wormholeTokenBridge.transferTokensWithPayload
                 )
@@ -1270,7 +1264,6 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should send transfer VAA to L2", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectCalledOnce(wormholeRelayer.sendVaasToEvm)
 
                 // The `calledOnceWith` assertion is not used here because
@@ -1298,7 +1291,6 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should not call the reimbursement pool", async () => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                 await expectNotCalled(reimbursementPool.refund)
               })
             })
@@ -1448,7 +1440,6 @@ describe("L1BTCDepositorWormhole", () => {
                 })
 
                 it("should create a proper Wormhole token transfer", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(
                     wormholeTokenBridge.transferTokensWithPayload
                   )
@@ -1477,7 +1468,6 @@ describe("L1BTCDepositorWormhole", () => {
                 })
 
                 it("should send transfer VAA to L2", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(wormholeRelayer.sendVaasToEvm)
 
                   // The `calledOnceWith` assertion is not used here because
@@ -1509,7 +1499,6 @@ describe("L1BTCDepositorWormhole", () => {
                 })
 
                 it("should reimburse finalization before initialization", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledTwice(reimbursementPool.refund)
 
                   // Pay the finalization reimbursement first so gas consumed
@@ -1692,7 +1681,6 @@ describe("L1BTCDepositorWormhole", () => {
                 })
 
                 it("should create a proper Wormhole token transfer", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(
                     wormholeTokenBridge.transferTokensWithPayload
                   )
@@ -1721,7 +1709,6 @@ describe("L1BTCDepositorWormhole", () => {
                 })
 
                 it("should send transfer VAA to L2", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(wormholeRelayer.sendVaasToEvm)
 
                   // The `calledOnceWith` assertion is not used here because
@@ -1753,7 +1740,6 @@ describe("L1BTCDepositorWormhole", () => {
                 })
 
                 it("should pay out proper reimbursements", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(reimbursementPool.refund)
 
                   // The only call is the deferred gas reimbursement for deposit
@@ -2048,7 +2034,6 @@ export const initializeDepositFixture: InitializeDepositFixture = {
   ),
 }
 
-// eslint-disable-next-line import/prefer-default-export
 export function toWormholeAddress(address: string): string {
   return `0x000000000000000000000000${address.slice(2)}`
 }

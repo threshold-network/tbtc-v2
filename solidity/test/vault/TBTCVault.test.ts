@@ -75,7 +75,6 @@ describe("TBTCVault", () => {
   let account2: HardhatEthersSigner
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge, governance, bank, vault, tbtc } = await loadFixture(fixture))
 
     const accounts = await getUnnamedAccounts()

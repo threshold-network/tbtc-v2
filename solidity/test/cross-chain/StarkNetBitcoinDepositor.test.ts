@@ -262,7 +262,6 @@ describe("StarkNetBitcoinDepositor", () => {
       // The parent contract emits DepositFinalized, not the child contract
       await expect(tx).to.emit(depositor, "DepositFinalized")
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(await starkGateBridge.getDepositCount()).to.be.gt(0)
     })
 

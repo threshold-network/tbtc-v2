@@ -23,9 +23,7 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
   let rebateStaking: RebateStaking
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, esdm } = await helpers.signers.getNamedSigners())
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge, bridgeGovernance, rebateStaking } = await bridgeFixture())
   })
 
