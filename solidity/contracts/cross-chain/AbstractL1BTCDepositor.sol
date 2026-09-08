@@ -518,10 +518,13 @@ abstract contract AbstractL1BTCDepositor is
                 /* solhint-enable avoid-low-level-calls */
 
                 if (!success) {
-                    // The failed pool call rolls back all of its callbacks.
-                    // This deposit is already Finalized, and its record was
-                    // cleared before external calls, so restoring it cannot
-                    // enable a second finalization or reimbursement attempt.
+                    // A failed call rolls back its nested calls. This deposit
+                    // was marked Finalized before any external call, so its
+                    // reimbursement cannot be consumed or replaced by reentry.
+                    // The record is kept as an on-chain trace of the unpaid
+                    // reimbursement only; it is not re-claimable, since
+                    // `finalizeDeposit` is its sole reader and requires
+                    // `DepositState.Initialized`.
                     // slither-disable-next-line reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
                     // The event describes the reverted pool call; no nested

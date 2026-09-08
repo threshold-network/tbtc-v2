@@ -281,4 +281,25 @@ describe("Deployment", async () => {
       ).equal(keepCommunityMultiSig.address)
     })
   })
+
+  describe("hardhat-deploy v1 artifact shape", () => {
+    it("returns expected artifact shape for Bridge", async () => {
+      const artifact = await deployments.get("Bridge")
+
+      expect(artifact.address).to.be.a("string").and.not.empty
+      expect(artifact.abi).to.be.an("array")
+      expect(artifact.transactionHash).to.be.a("string").and.not.empty
+      expect(artifact.receipt).to.be.an("object")
+      // Bridge is deployed library-linked (see deploy/06_deploy_bridge.ts);
+      // asserted unconditionally so a hardhat-deploy bump that silently
+      // drops the `libraries` field from the returned artifact fails this
+      // test instead of skipping the check.
+      expect(artifact.libraries).to.be.an("object")
+      expect(artifact.libraries?.Deposit).to.be.a("string").and.not.empty
+      // `implementation` is already load-bearing in this file's own
+      // `before()` hook (bridgeImplementationAddress, line 59-60), so pin
+      // it here too as part of the artifact-shape regression.
+      expect(artifact.implementation).to.be.a("string").and.not.empty
+    })
+  })
 })
