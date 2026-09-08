@@ -167,10 +167,11 @@ library Wallets {
             uint32 activeWalletCreatedAt = self
                 .registeredWallets[activeWalletPubKeyHash]
                 .createdAt;
-            /* solhint-disable-next-line not-rely-on-time */
+            /* solhint-disable not-rely-on-time */
             bool activeWalletOldEnough =
                 block.timestamp >=
                     activeWalletCreatedAt + self.walletCreationPeriod;
+            /* solhint-enable not-rely-on-time */
 
             require(
                 (activeWalletOldEnough &&
@@ -337,9 +338,10 @@ library Wallets {
             "Wallet must be in Live state"
         );
 
-        /* solhint-disable-next-line not-rely-on-time */
+        /* solhint-disable not-rely-on-time */
         bool walletOldEnough =
             block.timestamp >= wallet.createdAt + self.walletMaxAge;
+        /* solhint-enable not-rely-on-time */
 
         require(
             walletOldEnough ||
