@@ -1,7 +1,7 @@
 {
   "baselineRevision": "5b65585459f461b52f685588a80d6c1057da5bad",
   "baselineLockfileSha256": "874b9e09a9796301470339e0620ba6448c043390534a74e5b76efbc58e699082",
-  "candidateLockfileSha256": "66d92bd06ef3d3745df3e6fd403cfc1f53b490c95ffae208edd7584662e7559c",
+  "candidateLockfileSha256": "e679e047d1a1487474ae6d70a638d0babdb1e53754b69cc884d904fed1012d38",
   "baselineConfigSha256": "2f73b0dca910631290b36b3d833705da9516f0eaa707f1c9d9fa518232cd35f7",
   "candidateConfigSha256": "d5aee8fbfcaf62ec98f5ffe6d00218c1f3fdf6dc95c6b8876981c693ec421120",
   "layouts": [
@@ -134,5 +134,5 @@
     }
   },
   "baselinePackageSha256": "43dd2e94cd9705e4add0deb90bb0b22026112ff81baa0b6fcdcd11f1b3607d21",
-  "candidatePackageSha256": "425203836ed083c52e2e8bcb8d2dcbba2868b5b56e3e95019a6fa4f2b9c46c80"
+  "candidatePackageSha256": "12b311c10f727e91689feab1580a7d41aec4e5ebed0331685ebb994fce572bf7"
 }
