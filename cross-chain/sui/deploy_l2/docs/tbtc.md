@@ -13,7 +13,7 @@ A one-time witness struct for the coin type, used during initialization.
 A capability that grants administrative privileges to manage the token contract.
 
 ### `MinterCap`
-A certificate proving an address has minting permissions.
+A certificate proving an address has minting permissions. It does not have the `store` ability, preventing it from being freely transferred outside the module.
 
 ### `GuardianCap`
 A certificate proving an address has guardian permissions.
@@ -46,7 +46,7 @@ The contract is initialized with:
 **Behavior:**
 - Ensures the address is not already a minter
 - Adds the address to the minters list
-- Creates and returns a `MinterCap` for the caller to store or pass onward
+- Creates and returns a `MinterCap` for the caller
 - Emits a `MinterAdded` event
 
 ### `remove_minter`
@@ -61,9 +61,7 @@ The contract is initialized with:
 **Behavior:**
 - Verifies the address is currently a minter
 - Removes the address from the minters list
-- Does not destroy previously issued `MinterCap` objects; live minting also
-  requires the `TreasuryCap`, and gateway minting can be stopped by pausing the
-  gateway/token path
+- Does not destroy previously issued `MinterCap` objects, but invalidates them for minting since `mint` verifies active registration in `TokenState`
 - Emits a `MinterRemoved` event
 
 ### `add_guardian`
@@ -130,7 +128,7 @@ The contract is initialized with:
 **Purpose:** Mint new tokens to a specified address
 
 **Parameters:**
-- `_: &MinterCap`: Minter capability
+- `minter_cap: &MinterCap`: Minter capability
 - `treasury_cap: &mut TreasuryCap<TBTC>`: Treasury capability
 - `state: &TokenState`: Global token state
 - `amount: u64`: Amount of tokens to mint
@@ -138,7 +136,7 @@ The contract is initialized with:
 - `ctx: &mut TxContext`: Transaction context
 
 **Behavior:**
-- Verifies the caller is a minter
+- Verifies the caller is an authorized minter registered in `TokenState`
 - Ensures the contract is not paused
 - Mints tokens to the specified recipient
 - Emits a `TokensMinted` event
@@ -183,8 +181,9 @@ The contract emits various events to track important actions:
 
 - Requires administrative or specific capabilities for sensitive operations
 - Supports pausing the entire token contract
-- Granular access control through minters and guardians
+- Granular access control through minters and guardians with active registry verification
 - Prevents unauthorized minting and burning
+- `MinterCap` lacks the `store` ability, preventing it from acting as a freely-transferable bearer object
 
 ## Deployment
 

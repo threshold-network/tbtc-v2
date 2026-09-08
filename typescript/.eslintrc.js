@@ -29,7 +29,7 @@ module.exports = {
           {
             patterns: [
               {
-                group: ["ethers", "ethers/*"],
+                group: ["ethers", "ethers/**"],
                 message:
                   "ethers is a devDependency only. Use scoped @ethersproject/* packages instead.",
               },

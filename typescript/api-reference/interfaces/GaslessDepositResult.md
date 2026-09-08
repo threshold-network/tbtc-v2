@@ -31,20 +31,19 @@ Use `deposit.detectFunding()` to monitor for Bitcoin transactions.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L60)
+[src/services/deposits/deposits-service.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L65)
 
 ___
 
 ### destinationChainName
 
-• **destinationChainName**: ``"Base"`` \| ``"Arbitrum"`` \| ``"StarkNet"`` \| ``"Sui"`` \| ``"L1"``
+• **destinationChainName**: ``"Base"`` \| ``"Arbitrum"`` \| ``"L1"``
 
-Target chain name for the deposit.
-Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base", "Sui").
+Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base").
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L76)
+[src/services/deposits/deposits-service.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L80)
 
 ___
 
@@ -61,4 +60,4 @@ these class instances.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L70)
+[src/services/deposits/deposits-service.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L75)

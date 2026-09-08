@@ -86,59 +86,51 @@ checkpoint block is 100, the loop will look as follows:
 - Run 2: Start block 150 - 12 = 138, end block 155
 - Run 3: Start block 155 - 12 = 143, end block 200
 
-This way we are achieving a sliding block window that covers the entire
-chain. Worth noting, the checkpoint block is updated only if the given run
-completes with success. A run is considered successful when no single error was
-thrown by any of the components. If the run is not successful, the checkpoint
-block is not updated and the next run will cover the failed range again:
+Scanning and notification delivery have separate persistence. Before delivery,
+the Manager saves the scanned event payloads in `pendingSystemEvents` in
+`db.json`, grouped by receiver ID. Once every monitor has completed and those
+payloads are saved, the scan checkpoint advances even if a receiver rejects a
+notification. New critical notifications can therefore reach Sentry while
+Discord retries an older informational notification.
 
-- Run 1: Start block 100 - 12 = 88, end block 150 - failed
-- Run 2: Start block 100 - 12 = 88, end block 170 - failed
-- Run 3: Start block 100 - 12 = 88, end block 200 - success
-- Run 4: Start block 200 - 12 = 188, end block 250 - success
+A run still reports failure when any receiver rejects delivery. Its pending
+notifications are retried alongside new events on subsequent runs, including
+after process restarts. Payloads remain queued even if later chain state changes,
+such as a proof being accepted after an expiration alert was first generated.
+Temporarily removing a receiver preserves its queue until that receiver ID is
+configured again. Events explicitly ignored by a receiver are removed from its
+queue; events ignored by every receiver are valid in partial deployments.
 
-This way the monitoring tool guarantees to not miss any system events.
-However, such a solution can produce duplicated system events. To prevent
-that, the *Manager* component contains a deduplication logic that leverages
-the *Persistence* component to filter out already handled system events.
+The Manager also persists `pendingBlockRange` before scanning. A monitor or
+initial queue-storage failure keeps that range for historical retry. Delivery
+failures alone do not retain it: after durable event capture, the checkpoint is
+saved and the range is cleared. Existing data directories without these fields
+are supported. An outstanding range from an earlier version is scanned once
+and its events queued before scanning advances.
 
-=== Sentry delivery failures
+Handled events are saved for deduplication before acknowledged notifications
+are removed from the queue. A process exit or storage failure after external
+acceptance can still cause a notification to be delivered again. The handled
+history is bounded; pending notifications are never truncated. A prolonged
+receiver outage can therefore increase the size of `db.json`.
 
-The Sentry receiver is intentionally fail-closed. A run fails if Sentry does not
-accept a warning or critical system event, or if the event is not flushed before
-the receiver returns. When that happens, the checkpoint block is not advanced
-and the next run will rescan the same block range.
+=== Receiver delivery failures
 
-This behavior prevents silent alert loss but means a Sentry outage, disabled
-Sentry project, invalid DSN, or rate limit can halt monitoring progress until
-delivery recovers. Operators should:
+The Sentry receiver reports failure if Sentry rejects a warning or critical
+event, or if the event is not flushed before the receiver returns. Discord
+failures are also reported. Either receiver's failed notifications remain in
+its own queue while healthy receivers continue receiving new events.
 
-- confirm the Sentry DSN and project are enabled,
-- check Sentry rate limits and network reachability from the monitoring
-  environment,
-- rerun or wait for the monitoring loop after Sentry recovers, and
-- expect catch-up to proceed in capped block-range increments if the checkpoint
-  is stale.
+On a delivery failure, check the reported receiver's credentials, service limits,
+and network reachability. Resume the scheduled job after recovery to drain its
+pending notifications. Preserve `pendingSystemEvents` and handled history during
+recovery; rewinding the scan checkpoint is unnecessary for queued notifications.
 
-=== Dispatch coverage failures
-
-The monitoring manager is fail-closed on dispatch coverage. A run fails if a
-system event produced by a monitor is not accepted (handled or deduplicated) by
-any receiver that attempted delivery. When that happens, the checkpoint block is
-not advanced and the next run will rescan the same block range.
-
-Events explicitly ignored by all registered receivers do not trigger a coverage
-failure. This is expected in partial-receiver deployments -- for example, if
-only the Sentry receiver is configured, informational events will not produce
-coverage errors because Sentry only accepts warning and critical events.
-
-If monitoring halts with a coverage failure, check that:
-
-- all active receivers are healthy (dispatch errors will appear earlier in the
-  same run's log),
-- the receiver configuration covers every event type emitted by active
-  monitors, and
-- no new monitor event types were recently added without a matching receiver.
+A run also reports pending notifications whose receiver is no longer configured.
+Restore that receiver with the same ID to deliver its queue. This does not prevent
+scanning or delivery to other receivers. With only Sentry configured, newly
+scanned informational events are intentionally ignored because Sentry supports
+only warnings and critical events.
 
 == Build and deployment
 
@@ -200,6 +192,8 @@ The behavior can be configured using the following env variables:
 
 |*LARGE_REDEMPTION_THRESHOLD_SAT* |Satoshi threshold used to determine which redemptions are large. Default: _1000000000_ |No
 
+|*REDEMPTION_TIMEOUT_WARNING_SECONDS* |Positive integer lead time for pending redemption deadline warnings. Default: _21600_ (6 hours); capped at the Bridge timeout. |No
+
 |*DATA_DIR_PATH* |Directory used to persist processing data. Default: _./data_ |No
 
 |*SENTRY_DSN* |DSN of the Sentry receiver. If not set, events are not dispatched to Sentry |No
@@ -208,6 +202,64 @@ The behavior can be configured using the following env variables:
 |===
 
 === Deployment
+
+==== Redemption lifecycle rollout
+
+The redemption lifecycle monitor adds proof-accepted notifications, pending
+request deadline warnings, expired-without-proof alerts, and accepted timeout
+report alerts. Configure both `DISCORD_WEBHOOK_URL` (informational events) and
+`SENTRY_DSN` (warnings and critical events) to deliver all four. A deployment with
+only one receiver intentionally ignores the event types supported by the other.
+
+Deadlines use Ethereum block timestamps and the Bridge's configured timeout,
+not an assumed block duration. Pending state and timeout parameters are read
+at the window's end block; the timeout is also read at the start block to
+handle changes made through governance. If the start precedes Bridge deployment,
+the first deployed state in the window supplies the initial timeout and timestamp.
+Windows entirely before deployment have no pending requests to check. Empty
+contract responses are treated as pre-deployment only when historical `eth_getCode`
+confirms no code at that block. The RPC must support historical state
+for every replayed checkpoint. Unavailable state or logs fail the run and keep
+the checkpoint for retry. Log queries are split into batches of at most 5,000
+blocks. Tune the monitoring schedule and RPC limits against the request volume.
+
+The monitor queries requests whose warning or expiry crosses the current
+checkpoint window. On first installation, or when enabling this monitor on an
+existing checkpoint, it does not inventory requests that crossed their threshold
+before that window. Before relying on coverage:
+
+. Stop the scheduled job and back up `DATA_DIR_PATH/db.json` before changing its
+  checkpoint. Preserve the handled-event history for deduplication.
+. If `pendingBlockRange` is non-null, resume the unchanged job to finish that
+  scan and capture its events before stopping and rewinding. Otherwise a manual
+  checkpoint change would not replace the outstanding range. Preserve
+  `pendingSystemEvents`; delivery retries do not require a checkpoint rewind.
+. Select a historical block before the earliest warning/deadline requiring
+  backfill, at or after the Bridge deployment. Rewind `checkpointBlock` to that
+  block on a copy of the data directory and run with staging receivers. Every
+  monitor shares this checkpoint, so review the resulting notification volume.
+. Verify that proof acceptance reaches Discord and near-timeout, expiration,
+  and timeout-report events reach Sentry, including failed delivery followed by
+  retry. Run `yarn test` for deterministic boundary, reorg-overlap, and RPC
+  failure checks; these tests do not contact live receivers.
+. Apply the reviewed checkpoint to the stopped production job and resume it.
+  Catch-up advances in the Manager's bounded windows. Check pending requests
+  older than the chosen backfill range separately before declaring coverage.
+  The handled-event cache is bounded, so a sufficiently large replay can resend
+  notifications that have aged out of it.
+
+The service retains its published SDK 2.5 dependency. A narrow read-only contract
+adapter supplies lifecycle reads until the service can upgrade to an SDK release
+that exposes them; no unpublished SDK build or new runtime dependency is needed.
+Wallet proposal broadcasts are off-chain and require the wallet node telemetry
+described in `keep-core/docs/redemption-proposal-monitoring.adoc`. Complete those
+receiver and maintainer-alert rollout checks before closing keep-core issue #3664.
+
+Before rolling back to an image without delivery-queue support, finish delivering
+`pendingSystemEvents`; that image cannot retry queued payloads whose scan
+checkpoint has advanced. Preserve the data directory and its backup. Account for
+lifecycle notifications already delivered when replaying the checkpoint after
+re-enabling this monitor.
 
 ==== Docker image
 

@@ -134,6 +134,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         ///      valid finalization, and finalization only pays for one
         ///      quote call instead of two.
         uint256 cachedRequiredPayment;
+
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -187,7 +188,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
     /// @notice Mapping of user address to their current nonce sequence counter
     mapping(address => uint256) private userNonceCounter;
 
-    /// @notice Parameter expiration time in seconds (default: 1 hour)
+    /// @notice Parameter expiration time in seconds (3600s = 1 hour, permanent constant)
     uint256 public parameterExpirationTime;
 
     /// @notice Optional destination-chain account that receives refunds of
@@ -257,6 +258,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         uint64 transferSequence,
         uint256 transferCost
     );
+
 
     /// @notice Emitted when default parameters are updated
     event DefaultParametersUpdated(
@@ -505,6 +507,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
+
         require(
             executorArgs.refundAddress == msg.sender,
             "Executor refund address must be caller"
@@ -552,24 +555,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             }
         }
 
-        // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
-        // (Re-using the refresh logic but checking for existence)
+        // Refresh existing active parameters or generate a new nonce.
         if (userNonceCounter[msg.sender] > 0) {
-            bytes32 latestNonce = _generateNonce(
-                msg.sender,
-                userNonceCounter[msg.sender] - 1
-            );
-            ExecutorParameterSet storage existingParams = parametersByNonce[
-                latestNonce
-            ];
-            
+            bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
+            ExecutorParameterSet storage existingParams = parametersByNonce[latestNonce];
             if (existingParams.exists) {
-                // Check if parameters have expired
-                // solhint-disable-next-line not-rely-on-time
-                bool expired = block.timestamp >
-                    existingParams.timestamp + parameterExpirationTime;
-
+                bool expired = block.timestamp > existingParams.timestamp + parameterExpirationTime; // solhint-disable-line not-rely-on-time
                 if (!expired) {
+                    // Re-staging silently overwrites prior staged parameters.
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
                     existingParams.cachedRequiredPayment = requiredPayment;
@@ -585,9 +578,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
 
                     return latestNonce; // Return existing nonce
                 }
+                delete parametersByNonce[latestNonce];
             }
         }
-
 
         // Generate nonce for this user's current sequence
         uint256 currentSequence = userNonceCounter[msg.sender];
@@ -642,16 +635,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
     ///      `setExecutorParameters`), which is the exact value finalization
     ///      enforces -- not a fresh re-quote that could drift from it.
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        require(
-            userNonceCounter[msg.sender] > 0,
-            "Executor parameters not set"
-        );
+        require(userNonceCounter[msg.sender] > 0, "Executor parameters not set");
 
-        bytes32 latestNonce = _generateNonce(
-            msg.sender,
-            userNonceCounter[msg.sender] - 1
-        );
-
+        bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
@@ -682,7 +668,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             msg.sender,
             userNonceCounter[msg.sender] - 1
         );
-
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
@@ -929,6 +914,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             "Payment for Wormhole NTT has incorrect value"
         );
 
+
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
             address(nttManagerWithExecutor),
@@ -1003,6 +989,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
     ) internal pure {
         require(signedQuote.length >= 32, "Signed quote too short");
     }
+
 
     /// @notice Generates a unique nonce for a user and sequence
     /// @param user The user address

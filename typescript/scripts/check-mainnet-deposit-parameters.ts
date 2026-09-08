@@ -1,6 +1,7 @@
 import { BigNumber, BigNumberish, Contract, providers } from "ethers"
 import MainnetBridgeDeployment from "../src/lib/ethereum/artifacts/mainnet/Bridge.json"
 
+// Must be kept in sync manually with DEPOSIT_REVEAL_AHEAD_PERIOD in solidity/deploy/14_set_deposit_parameters.ts.
 export const REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD = BigNumber.from("12960000")
 
 interface DepositParameters {
@@ -14,19 +15,26 @@ export interface DepositParametersReader {
 export async function checkMainnetDepositParameters(
   bridge: DepositParametersReader
 ): Promise<void> {
-  const { depositRevealAheadPeriod } = await bridge.depositParameters()
+  let depositRevealAheadPeriod
+  try {
+    ;({ depositRevealAheadPeriod } = await bridge.depositParameters())
+  } catch (error) {
+    throw new Error(
+      "INFRA_ERROR: Failed to fetch deposit parameters from chain: " +
+        `${error instanceof Error ? error.message : String(error)}`
+    )
+  }
+
   const actualDepositRevealAheadPeriod = BigNumber.from(
     depositRevealAheadPeriod
   )
 
-  if (
-    !actualDepositRevealAheadPeriod.eq(REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD)
-  ) {
+  if (actualDepositRevealAheadPeriod.gt(REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD)) {
     throw new Error(
-      "Refusing to publish the 180-day SDK locktime: mainnet Bridge " +
+      "GOVERNANCE_MISMATCH: Refusing to publish the 180-day SDK locktime: mainnet Bridge " +
         `deposit reveal-ahead period is ${actualDepositRevealAheadPeriod.toString()} ` +
-        `seconds; expected ${REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD.toString()} ` +
-        "seconds to be finalized"
+        `seconds; exceeds required maximum of ${REQUIRED_DEPOSIT_REVEAL_AHEAD_PERIOD.toString()} ` +
+        "seconds"
     )
   }
 }
@@ -39,13 +47,18 @@ async function main(): Promise<void> {
     )
   }
 
-  const provider = new providers.StaticJsonRpcProvider(rpcUrl, 1)
+  const provider = new providers.JsonRpcProvider(rpcUrl)
+  const network = await provider.getNetwork()
+  if (network.chainId !== 1) {
+    throw new Error(
+      `Unexpected network chain ID ${network.chainId}; expected 1 (Ethereum mainnet)`
+    )
+  }
   const bridge = new Contract(
     MainnetBridgeDeployment.address,
     MainnetBridgeDeployment.abi,
     provider
   ) as Contract & DepositParametersReader
-
   await checkMainnetDepositParameters(bridge)
   console.log(
     "Mainnet Bridge deposit reveal-ahead period is finalized at " +
