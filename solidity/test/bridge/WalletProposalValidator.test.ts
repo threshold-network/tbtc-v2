@@ -1,7 +1,7 @@
 import crypto from "crypto"
-import { ethers, helpers } from "hardhat"
+import { artifacts, ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import { BigNumber, BigNumberish, BytesLike } from "ethers"
+import { BigNumber, BigNumberish, BytesLike, utils } from "ethers"
 import type {
   Bridge,
   IRedemptionWatchtower,
@@ -2874,6 +2874,163 @@ describe("WalletProposalValidator", () => {
 
         // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
+      })
+    })
+  })
+
+  describe("validateReservationReanchorProposal", () => {
+    // `reservations` and `reservationParameters` are declared on
+    // `IReservationBridge`, not on `Bridge` itself (they are only reachable
+    // in production via the Bridge's fallback delegatecall to
+    // `ReservationRouter`), so they are absent from the `Mock<Bridge>`
+    // built from Bridge's own ABI and cannot be configured through its
+    // typed `whenCalledWith`/`returns` wrapper. Both are wired directly
+    // onto the same mock contract's raw calldata-to-returndata table
+    // instead, using `IReservationBridge`'s interface to encode.
+    let reservationBridgeInterface: utils.Interface
+
+    const sourceWalletPubKeyHash = `0x${"11".repeat(20)}`
+    const targetWalletPubKeyHash = `0x${"22".repeat(20)}`
+    const reservationKey = 100
+    const reservationMinAmount = 10000
+    const reservationTxMaxFee = 2000
+
+    const reservationTuple = (anchorAmount: number) => [
+      AddressZero, // owner
+      0, // mintedAmount
+      0, // acceptedAt
+      sourceWalletPubKeyHash, // walletPubKeyHash
+      anchorAmount,
+      0, // expiresAt
+      HashZero, // anchorTxHash
+      0, // anchorTxOutputIndex
+      1, // state: Active
+      1, // requestNonce
+      false, // retryCredit
+      // Set in the past: proves the deleted dissolutionEligibleAt gate no
+      // longer blocks a proposal once this timestamp has passed, matching
+      // the on-chain `requestReservationReanchor`, which never checked it.
+      1, // dissolutionEligibleAt
+      0, // cumulativeReanchorFee
+      0, // reanchorCooldownUntil
+    ]
+
+    const setReservation = async (anchorAmount: number) => {
+      const callData = reservationBridgeInterface.encodeFunctionData(
+        "reservations",
+        [reservationKey]
+      )
+      const returnData = reservationBridgeInterface.encodeFunctionResult(
+        "reservations",
+        [reservationTuple(anchorAmount)]
+      )
+      await bridge.mockContract.__mock__setReturnForCalldata(
+        callData,
+        returnData
+      )
+    }
+
+    before(async () => {
+      await createSnapshot()
+
+      reservationBridgeInterface = new ethers.utils.Interface(
+        (await artifacts.readArtifact("IReservationBridge")).abi
+      )
+
+      const paramsCallData = reservationBridgeInterface.encodeFunctionData(
+        "reservationParameters",
+        []
+      )
+      const paramsReturnData = reservationBridgeInterface.encodeFunctionResult(
+        "reservationParameters",
+        [
+          AddressZero,
+          reservationMinAmount,
+          reservationTxMaxFee,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ]
+      )
+      await bridge.mockContract.__mock__setReturnForCalldata(
+        paramsCallData,
+        paramsReturnData
+      )
+
+      await bridge.wallets.whenCalledWith(targetWalletPubKeyHash).returns({
+        ecdsaWalletID: HashZero,
+        mainUtxoHash: HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: 0,
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: HashZero,
+      })
+    })
+
+    after(async () => {
+      await bridge.wallets.reset()
+
+      await restoreSnapshot()
+    })
+
+    context(
+      "when block.timestamp is past the reservation's dissolutionEligibleAt",
+      () => {
+        it("validates successfully instead of reverting (P0 regression guard)", async () => {
+          await setReservation(
+            reservationTxMaxFee + reservationMinAmount + 1000
+          )
+
+          const result =
+            await walletProposalValidator.validateReservationReanchorProposal({
+              sourceWalletPubKeyHash,
+              reservationKey,
+              targetWalletPubKeyHash,
+              reanchorTxFee: 100,
+            })
+
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          expect(result).to.be.true
+        })
+      }
+    )
+
+    context("dust-floor boundary", () => {
+      it("validates successfully when anchorAmount exactly equals reservationTxMaxFee + reservationMinAmount", async () => {
+        await setReservation(reservationTxMaxFee + reservationMinAmount)
+
+        const result =
+          await walletProposalValidator.validateReservationReanchorProposal({
+            sourceWalletPubKeyHash,
+            reservationKey,
+            targetWalletPubKeyHash,
+            reanchorTxFee: 100,
+          })
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        expect(result).to.be.true
+      })
+
+      it("reverts when anchorAmount is one satoshi below the floor", async () => {
+        await setReservation(reservationTxMaxFee + reservationMinAmount - 1)
+
+        await expect(
+          walletProposalValidator.validateReservationReanchorProposal({
+            sourceWalletPubKeyHash,
+            reservationKey,
+            targetWalletPubKeyHash,
+            reanchorTxFee: 100,
+          })
+        ).to.be.revertedWith(
+          "Reanchor would fall below the minimum reservation amount"
+        )
       })
     })
   })
