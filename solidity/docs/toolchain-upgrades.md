@@ -29,7 +29,18 @@ These changes address [#1072](https://github.com/threshold-network/tbtc-v2/issue
 replaces the three legacy Hardhat plugins and upgrades TypeChain, covering
 [#1074](https://github.com/threshold-network/tbtc-v2/issues/1074) and
 [#1076](https://github.com/threshold-network/tbtc-v2/issues/1076). These are
-stacked changes; the draft status and compatibility gates of #1067 still apply.
+stacked changes. PR #1067 now uses the documented two-exception
+[compatibility policy](ethers-v6-parity.md); its original raw byte comparison
+still fails. That policy is pinned to #1067 and is not expanded by this
+TypeScript/export migration.
+Strict checking also covers the inherited parity scripts. The capture config
+now declares its provider request type and checks the required Hardhat network
+configuration explicitly. Its source hash therefore differs from #1067; old
+snapshots are deliberately rejected by this version of the checker. Use the
+immutable #1067 revision to reproduce that historical result. This change
+does not revise the checked-in policy, regenerate evidence or claim compatibility
+for the additional TypeScript/export changes.
+
 The stack incorporates [#1127](https://github.com/threshold-network/tbtc-v2/pull/1127)
 to include its deployment validation patch and regression coverage.
 
@@ -38,11 +49,11 @@ to include its deployment validation patch and regression coverage.
 The following are coordinated deployment migrations, not compatible dependency
 bumps. Registry peer ranges were checked on 2026-09-07.
 
-| Issue                                                                                         | Required next step                                                                                                                                                                    |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#1071: Hardhat 3](https://github.com/threshold-network/tbtc-v2/issues/1071)                  | Land the ethers-v6 prerequisite, resolve its deployment compatibility gate, and finish the deployment-layer and ESM migrations. Chai 5+ must move with the runtime and matcher stack. |
-| [#1075: OpenZeppelin upgrades 4](https://github.com/threshold-network/tbtc-v2/issues/1075)    | Version 4.1.0 requires Hardhat ^3.6.0 and foundation ethers ^4.0.0. Decide and verify the proxy/admin model before replacing the transitional 2.5.1 plugin.                           |
-| [#1128: hardhat-deploy 2 / rocketh](https://github.com/threshold-network/tbtc-v2/issues/1128) | Establish the external deployment loader and export-format compatibility, then port scripts and fixtures together with the upstream deployment packages.                              |
+| Issue                                                                                         | Required next step                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#1071: Hardhat 3](https://github.com/threshold-network/tbtc-v2/issues/1071)                  | Land the ethers-v6 prerequisite under its reviewed compatibility policy and finish the deployment-layer and ESM migrations. Chai 5+ must move with the runtime and matcher stack. |
+| [#1075: OpenZeppelin upgrades 4](https://github.com/threshold-network/tbtc-v2/issues/1075)    | Version 4.1.0 requires Hardhat ^3.6.0 and foundation ethers ^4.0.0. Decide and verify the proxy/admin model before replacing the transitional 2.5.1 plugin.                       |
+| [#1128: hardhat-deploy 2 / rocketh](https://github.com/threshold-network/tbtc-v2/issues/1128) | Establish the external deployment loader and export-format compatibility, then port scripts and fixtures together with the upstream deployment packages.                          |
 
 OpenZeppelin's [migration guide](https://docs.openzeppelin.com/upgrades-plugins/migrate-from-hardhat-2)
 requires Hardhat 3 first and replaces `hre.upgrades` with an async factory tied
