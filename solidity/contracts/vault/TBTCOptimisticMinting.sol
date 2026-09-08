@@ -106,10 +106,11 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         requesters. When enforcing the cap, pending satoshi and the
     ///         cap are converted to 1e18 TBTC units with
     ///         `SATOSHI_MULTIPLIER` before being added to
-    ///         `optimisticMintingDebtTotal` (also in 1e18 units). Sweep
-    ///         miner-fee residuals excluded via
-    ///         `optimisticMintingDebtCapExcludedTotal` do not consume cap
-    ///         headroom. A request is rejected if it would push the exposure
+    ///         `optimisticMintingDebtTotal` (also in 1e18 units). ALL
+    ///         outstanding debt counts against the cap until it is repaid or
+    ///         the cap is raised by governance, including any tiny
+    ///         cross-depositor Bitcoin miner-fee residuals left behind after
+    ///         a sweep. A request is rejected if it would push the exposure
     ///         above the cap. Capacity is recycled as deposits get swept and
     ///         the debt is repaid. Debt of deposits that never get swept
     ///         consumes the cap until governance resolves the situation, e.g.
@@ -202,16 +203,6 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         `optimisticMintingDebt` values.
     uint256 public optimisticMintingDebtTotal;
 
-    /// @notice Portion of `optimisticMintingDebtTotal` excluded from the
-    ///         debt cap after a sweep leaves only the documented Bitcoin
-    ///         miner-fee residual on a depositor's ledger.
-    uint256 public optimisticMintingDebtCapExcludedTotal;
-
-    /// @notice Per-depositor debt excluded from the debt cap. Set when a
-    ///         sweep repayment leaves only miner-fee residual debt; cleared
-    ///         when the depositor's debt is fully repaid.
-    mapping(address => uint256) public optimisticMintingDebtCapExcluded;
-
     /// @notice Rate-limiting buckets tracking the remaining optimistic
     ///         minting allowance of individual Minters.
     /// @dev Raw bucket state; dimensions whose limits are disabled hold
@@ -294,7 +285,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
         address indexed minter,
         uint64 amount, // amount in satoshi
         uint64 minterValueRemaining, // type(uint64).max if no per-Minter cap
-        uint64 globalHeadroomRemaining // satoshi; type(uint64).max if no debt cap
+        uint64 globalHeadroomRemaining, // satoshi; type(uint64).max if no debt cap
+        uint32 requestsRemaining // type(uint32).max if no per-Minter request limit
     );
 
     modifier onlyMinter() {
@@ -418,7 +410,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
                 deposit.amount,
                 true,
                 0,
-                0
+                0,
+                type(uint32).max
             );
         }
 
@@ -881,16 +874,12 @@ abstract contract TBTCOptimisticMinting is Ownable {
             optimisticMintingDebt[depositor] = 0;
             // slither-disable-next-line costly-loop
             optimisticMintingDebtTotal -= debt;
-            _clearOptimisticMintingDebtCapExclusion(depositor);
             emit OptimisticMintingDebtRepaid(depositor, 0);
             return amount - debt;
         } else {
             optimisticMintingDebt[depositor] = debt - amount;
             // slither-disable-next-line costly-loop
             optimisticMintingDebtTotal -= amount;
-            if (debt - amount == 0) {
-                _clearOptimisticMintingDebtCapExclusion(depositor);
-            }
             emit OptimisticMintingDebtRepaid(depositor, debt - amount);
             return 0;
         }
@@ -913,6 +902,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
         uint64 minterValueRemaining = type(uint64).max;
         uint64 globalHeadroomRemaining = type(uint64).max;
+        uint32 minterRequestsRemaining = type(uint32).max;
 
         uint64 capPerMinter = optimisticMintingCapPerMinter;
         uint32 requestLimit = optimisticMintingRequestLimitPerMinter;
@@ -936,18 +926,19 @@ abstract contract TBTCOptimisticMinting is Ownable {
                     "Optimistic minting request limit exceeded"
                 );
                 allowance.requestsRemaining -= 1;
+                minterRequestsRemaining = allowance.requestsRemaining;
             }
             minterAllowances[msg.sender] = allowance;
         }
 
         uint64 debtCap = optimisticMintingDebtCap;
         if (debtCap != 0) {
-            require(
-                _globalExposure(amount) <=
-                    uint256(debtCap) * SATOSHI_MULTIPLIER,
-                "Optimistic minting debt cap exceeded"
-            );
-            globalHeadroomRemaining = _globalHeadroomRemaining(amount);
+            uint256 cap = uint256(debtCap) * SATOSHI_MULTIPLIER;
+            uint256 exposure = _globalExposure(amount);
+            require(exposure <= cap, "Optimistic minting debt cap exceeded");
+            globalHeadroomRemaining = exposure >= cap
+                ? 0
+                : uint64((cap - exposure) / SATOSHI_MULTIPLIER);
         }
 
         _emitOptimisticMintingAllowanceConsumed(
@@ -955,7 +946,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
             amount,
             false,
             minterValueRemaining,
-            globalHeadroomRemaining
+            globalHeadroomRemaining,
+            minterRequestsRemaining
         );
     }
 
@@ -979,12 +971,6 @@ abstract contract TBTCOptimisticMinting is Ownable {
         return false;
     }
 
-    function _capRelevantDebtTotal() internal view returns (uint256) {
-        uint256 excluded = optimisticMintingDebtCapExcludedTotal;
-        uint256 total = optimisticMintingDebtTotal;
-        return excluded >= total ? 0 : total - excluded;
-    }
-
     function _globalExposure(uint64 additionalPendingSat)
         internal
         view
@@ -993,7 +979,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
         return
             (uint256(optimisticMintingPendingTotal) + additionalPendingSat) *
             SATOSHI_MULTIPLIER +
-            _capRelevantDebtTotal();
+            optimisticMintingDebtTotal;
     }
 
     function _globalHeadroomRemaining(uint64 additionalPendingSat)
@@ -1007,36 +993,13 @@ abstract contract TBTCOptimisticMinting is Ownable {
             exposure >= cap ? 0 : uint64((cap - exposure) / SATOSHI_MULTIPLIER);
     }
 
-    function _markOptimisticMintingDebtExcludedFromCap(
-        address depositor,
-        uint256 amount
-    ) internal {
-        uint256 previous = optimisticMintingDebtCapExcluded[depositor];
-        if (amount > previous) {
-            // slither-disable-next-line costly-loop
-            optimisticMintingDebtCapExcludedTotal += amount - previous;
-            optimisticMintingDebtCapExcluded[depositor] = amount;
-        }
-    }
-
-    function _clearOptimisticMintingDebtCapExclusion(address depositor)
-        internal
-    {
-        uint256 excluded = optimisticMintingDebtCapExcluded[depositor];
-        if (excluded > 0) {
-            // slither-disable-next-line costly-loop
-            optimisticMintingDebtCapExcludedTotal -= excluded;
-            // slither-disable-next-line costly-loop
-            delete optimisticMintingDebtCapExcluded[depositor];
-        }
-    }
-
     function _emitOptimisticMintingAllowanceConsumed(
         address minter,
         uint64 amount,
         bool isExempt,
         uint64 minterValueRemaining,
-        uint64 globalHeadroomRemaining
+        uint64 globalHeadroomRemaining,
+        uint32 minterRequestsRemaining
     ) internal {
         if (isExempt) {
             uint64 capPerMinter = optimisticMintingCapPerMinter;
@@ -1052,7 +1015,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
             minter,
             amount,
             minterValueRemaining,
-            globalHeadroomRemaining
+            globalHeadroomRemaining,
+            minterRequestsRemaining
         );
     }
 

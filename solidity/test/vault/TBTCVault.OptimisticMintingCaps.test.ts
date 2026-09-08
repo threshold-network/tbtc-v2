@@ -351,7 +351,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       // reported as the uint64 sentinel.
       await expect(tx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minter.address, 3 * BTC, 2 * BTC, MAX_UINT64)
+        .withArgs(minter.address, 3 * BTC, 2 * BTC, MAX_UINT64, MAX_UINT32)
     })
 
     it("should reject a request exceeding the remaining allowance", async () => {
@@ -397,7 +397,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
       await expect(tx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minter.address, 4 * BTC, 1 * BTC, 2 * BTC)
+        .withArgs(minter.address, 4 * BTC, 1 * BTC, 2 * BTC, MAX_UINT32)
 
       const exact = await fabricateDeposit(2 * BTC, tbtcVault.address)
       const exactTx = await tbtcVault
@@ -405,7 +405,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         .requestOptimisticMint(exact.fundingTxHash, exact.fundingOutputIndex)
       await expect(exactTx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minterTwo.address, 2 * BTC, 3 * BTC, 0)
+        .withArgs(minterTwo.address, 2 * BTC, 3 * BTC, 0, MAX_UINT32)
 
       const over = await fabricateDeposit(1, tbtcVault.address)
       await expect(
@@ -435,7 +435,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         .requestOptimisticMint(second.fundingTxHash, second.fundingOutputIndex)
       await expect(tx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minterTwo.address, 4 * BTC, 1 * BTC, 2 * BTC)
+        .withArgs(minterTwo.address, 4 * BTC, 1 * BTC, 2 * BTC, MAX_UINT32)
 
       const third = await fabricateDeposit(2 * BTC, tbtcVault.address)
       await expect(
@@ -478,6 +478,22 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       ).to.emit(tbtcVault, "OptimisticMintingPendingReleased")
 
       expect(await tbtcVault.optimisticMintingPendingTotal()).to.equal(0)
+
+      // Allowance should remain consumed: a new request from the same
+      // minter, sized to exceed the ~1 BTC bucket remainder after the
+      // original 4 BTC request, should still exceed the minter cap
+      // (mirrors guardian cancellation behavior). Re-requesting the same
+      // swept deposit is not usable for this assertion since it now
+      // reverts earlier with "The deposit is already swept".
+      const another = await fabricateDeposit(2 * BTC, tbtcVault.address)
+      await expect(
+        tbtcVault
+          .connect(minter)
+          .requestOptimisticMint(
+            another.fundingTxHash,
+            another.fundingOutputIndex
+          )
+      ).to.be.revertedWith("Optimistic minting minter cap exceeded")
     })
   })
 
@@ -578,24 +594,44 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       )
     })
 
-    it("should recycle capacity proportionally on partial repayment", async () => {
-      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
+    it("should keep an unswept deposit's debt counted against the cap after a different deposit for the same depositor is repaid", async () => {
+      await updateCaps(10 * BTC, 10 * BTC, 5 * BTC, 100)
+
+      // First deposit: 1 BTC
+      const deposit1 = await fabricateDeposit(1 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
-          deposit.fundingTxHash,
-          deposit.fundingOutputIndex
+          deposit1.fundingTxHash,
+          deposit1.fundingOutputIndex
         )
-
       const delay = await tbtcVault.optimisticMintingDelay()
       await increaseTime(delay + 1)
       await tbtcVault
         .connect(minter)
         .finalizeOptimisticMint(
-          deposit.fundingTxHash,
-          deposit.fundingOutputIndex
+          deposit1.fundingTxHash,
+          deposit1.fundingOutputIndex
         )
 
+      // Second deposit: 3 BTC
+      const deposit2 = await fabricateDeposit(3 * BTC, tbtcVault.address)
+      await tbtcVault
+        .connect(minter)
+        .requestOptimisticMint(
+          deposit2.fundingTxHash,
+          deposit2.fundingOutputIndex
+        )
+      await increaseTime(delay + 1)
+      await tbtcVault
+        .connect(minter)
+        .finalizeOptimisticMint(
+          deposit2.fundingTxHash,
+          deposit2.fundingOutputIndex
+        )
+
+      // Now, total debt = 4 BTC (1+3) under a 10 BTC cap -> headroom = 6 BTC
+      // We will repay the first deposit (1 BTC) only
       const bankSigner = await impersonateAccount(bank.address, {
         from: governance,
         value: 10,
@@ -604,6 +640,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         .connect(bankSigner)
         .receiveBalanceIncrease([depositorSigner.address], [1 * BTC])
 
+      // After repaying 1 BTC, the total debt should be 3 BTC
       expect(await tbtcVault.optimisticMintingDebtTotal()).to.equal(
         SATOSHI_MULTIPLIER.mul(3 * BTC)
       )
@@ -611,14 +648,8 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
       const allowance = await tbtcVault.getOptimisticMintingAllowance(
         minter.address
       )
-      // The remaining 3 BTC of debt is the documented miner-fee residual,
-      // which is excluded from the debt cap via
-      // `optimisticMintingDebtCapExcludedTotal`. Headroom is therefore the
-      // full 6 BTC cap.
-      expect(await tbtcVault.optimisticMintingDebtCapExcludedTotal()).to.equal(
-        SATOSHI_MULTIPLIER.mul(3 * BTC)
-      )
-      expect(allowance.globalHeadroomRemaining).to.equal(6 * BTC)
+      // The global headroom remaining should be: cap - remaining debt = 10 BTC - 3 BTC = 7 BTC
+      expect(allowance.globalHeadroomRemaining).to.equal(7 * BTC)
     })
 
     it("should recycle the capacity when the debt is repaid", async () => {
@@ -662,11 +693,12 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
   })
 
   describe("cap lowered below the outstanding exposure", () => {
+    let deposit
     before(async () => {
       await createSnapshot()
       await updateCaps(6 * BTC, 0, 0, 0)
 
-      const deposit = await fabricateDeposit(5 * BTC, tbtcVault.address)
+      deposit = await fabricateDeposit(5 * BTC, tbtcVault.address)
       await tbtcVault
         .connect(minter)
         .requestOptimisticMint(
@@ -698,6 +730,19 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
             deposit.fundingOutputIndex
           )
       ).to.be.revertedWith("Optimistic minting debt cap exceeded")
+    })
+
+    it("should allow finalizing pre-existing requests after cap is lowered", async () => {
+      const delay = await tbtcVault.optimisticMintingDelay()
+      await increaseTime(delay + 1)
+      await expect(
+        tbtcVault
+          .connect(minter)
+          .finalizeOptimisticMint(
+            deposit.fundingTxHash,
+            deposit.fundingOutputIndex
+          )
+      ).to.not.be.reverted
     })
   })
 
@@ -1042,7 +1087,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         )
       await expect(tx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minter.address, 5 * BTC, 0, MAX_UINT64)
+        .withArgs(minter.address, 5 * BTC, 0, MAX_UINT64, 4)
 
       // The bucket is exhausted by the exact-boundary request.
       const blocked = await fabricateDeposit(1 * BTC, tbtcVault.address)
@@ -1128,7 +1173,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
       await expect(tx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minter.address, 200 * BTC, MAX_UINT64, MAX_UINT64)
+        .withArgs(minter.address, 200 * BTC, MAX_UINT64, MAX_UINT64, MAX_UINT32)
 
       // The in-flight exposure is still measured even with the limits
       // disabled.
@@ -1167,7 +1212,7 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
         )
       await expect(tx)
         .to.emit(tbtcVault, "OptimisticMintingAllowanceConsumed")
-        .withArgs(minter.address, 2 * BTC, 8 * BTC, 8 * BTC)
+        .withArgs(minter.address, 2 * BTC, 8 * BTC, 8 * BTC, MAX_UINT32)
 
       const delay = await tbtcVault.optimisticMintingDelay()
       await increaseTime(delay + 1)
