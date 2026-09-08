@@ -139,9 +139,29 @@ function logCalldataSummary(actions: CalldataAction[]): void {
   console.log("=".repeat(80))
 }
 
+/**
+ * Reads a required environment variable as a BigInt. Throws if absent or
+ * empty — this script generates real mainnet governance calldata, so no
+ * numeric value may silently default to an example number.
+ */
+function requireEnvBigInt(name: string): bigint {
+  const raw = process.env[name]
+  if (raw === undefined || raw === "") {
+    throw new Error(
+      `Missing required env var ${name} - no default values are permitted for mainnet governance calldata`
+    )
+  }
+  return BigInt(raw)
+}
+
+/** Reads a required environment variable as a Number (see `requireEnvBigInt`). */
+function requireEnvNumber(name: string): number {
+  return Number(requireEnvBigInt(name))
+}
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, getNamedAccounts } = hre
-  const { get } = deployments
+  const { get, read } = deployments
   const { deployer } = await getNamedAccounts()
 
   console.log("=".repeat(80))
@@ -172,39 +192,97 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  BridgeGovernance: ${BridgeGovernance.address}`)
   console.log(`  ReservationVault: ${ReservationVault.address}`)
 
-  // Configuration values for initial bootstrap
-  // These are example values; operators should adjust per governance decision.
-  // The script logs calldata so it can be copied into a Safe transaction builder.
-  const PER_WALLET_CAP = BigInt(100_000_000_000) // 100 BTC in satoshis (example)
-  const SINGLE_AMOUNT_CAP = BigInt(10_000_000_000) // 10 BTC in satoshis (example)
-  const MAX_ACTIVE = 1000 // example
+  // Configuration values for initial bootstrap. All satoshi-denominated
+  // values below use 8 decimals (divide by 1e8 for BTC). This script
+  // generates real mainnet governance calldata, so every value is a
+  // required environment variable with NO numeric default — a missing
+  // or malformed value must hard-fail rather than fall back to an
+  // example number that could silently ship the wrong governance action.
+  const PER_WALLET_CAP = requireEnvBigInt("RESERVATION_PER_WALLET_CAP_SATS")
+  const SINGLE_AMOUNT_CAP = requireEnvBigInt(
+    "RESERVATION_SINGLE_AMOUNT_CAP_SATS"
+  )
+  const MAX_ACTIVE = requireEnvNumber("RESERVATION_MAX_ACTIVE")
 
-  const RES_MIN_AMOUNT = BigInt(1_000_000) // 0.01 BTC in satoshis (example)
-  const RES_TX_MAX_FEE = BigInt(500_000) // example
-  const RES_TERM_SECONDS = 2_592_000 // 30 days
-  const RES_DISSOLUTION_DELAY = 86_400 // 1 day
-  const RES_MAX_TOTAL_AMOUNT = BigInt(1_000_000_000_000) // 1000 BTC in satoshis (example)
-  const MAX_RESERVATIONS_PER_WALLET = 10
-  const RES_ACTION_TIMEOUT = 86_400 // 1 day
-  const RES_RENEWAL_WINDOW = 604_800 // 7 days
+  const RES_MIN_AMOUNT = requireEnvBigInt("RESERVATION_MIN_AMOUNT_SATS")
+  const RES_TX_MAX_FEE = requireEnvBigInt("RESERVATION_TX_MAX_FEE_SATS")
+  const RES_TERM_SECONDS = requireEnvNumber("RESERVATION_TERM_SECONDS")
+  const RES_DISSOLUTION_DELAY = requireEnvNumber(
+    "RESERVATION_DISSOLUTION_DELAY_SECONDS"
+  )
+  const RES_MAX_TOTAL_AMOUNT = requireEnvBigInt(
+    "RESERVATION_MAX_TOTAL_AMOUNT_SATS"
+  )
+  const MAX_RESERVATIONS_PER_WALLET = requireEnvNumber(
+    "RESERVATION_MAX_PER_WALLET"
+  )
+  const RES_ACTION_TIMEOUT = requireEnvNumber(
+    "RESERVATION_ACTION_TIMEOUT_SECONDS"
+  )
+  const RES_RENEWAL_WINDOW = requireEnvNumber(
+    "RESERVATION_RENEWAL_WINDOW_SECONDS"
+  )
 
-  // Verify Decision 1 invariant holds with these example values
+  // Hard-fail the launch-posture invariants that are already decided,
+  // rather than warning and letting the operator copy bad calldata into
+  // a Safe transaction builder.
+  if (MAX_RESERVATIONS_PER_WALLET !== 1) {
+    throw new Error(
+      "RESERVATION_MAX_PER_WALLET must be 1 (decided M1 launch value), got " +
+        `${MAX_RESERVATIONS_PER_WALLET}`
+    )
+  }
+  const MIN_RESERVATION_TERM = 7_776_000 // 90 days, enforced on-chain
+  if (RES_TERM_SECONDS < MIN_RESERVATION_TERM) {
+    throw new Error(
+      `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) is below the on-chain ` +
+        `MIN_RESERVATION_TERM (${MIN_RESERVATION_TERM}s / 90 days) and would ` +
+        "revert on finalizeReservationParametersUpdate"
+    )
+  }
+
+  // Verify Decision 1 invariant holds:
   // reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount
   const slotCapacity = BigInt(MAX_ACTIVE) * SINGLE_AMOUNT_CAP
   if (RES_MAX_TOTAL_AMOUNT > slotCapacity) {
-    console.log("\nWARNING: Example values violate Decision 1 invariant!")
-    console.log(
-      `  reservationMaxTotalAmount (${RES_MAX_TOTAL_AMOUNT}) > ` +
-        `maxActiveReservations * reservationMaxSingleAmount (${slotCapacity})`
-    )
-    console.log(
-      "Adjust example values or this calldata will revert on finalize."
-    )
-  } else {
-    console.log(
-      `\nDecision 1 invariant OK: ${RES_MAX_TOTAL_AMOUNT} <= ${slotCapacity}`
+    throw new Error(
+      `Decision 1 invariant violated: reservationMaxTotalAmount (${RES_MAX_TOTAL_AMOUNT}) > ` +
+        `maxActiveReservations * reservationMaxSingleAmount (${slotCapacity}); ` +
+        "this calldata would revert on finalize"
     )
   }
+  console.log(
+    `\nDecision 1 invariant OK: ${RES_MAX_TOTAL_AMOUNT} <= ${slotCapacity}`
+  )
+
+  // Verify the new Item-3 sizing relation (roadmap.md section 6 item 2,
+  // RESOLVED 2026-09-07) will not immediately brick acceptance: since
+  // RESERVATION_MAX_PER_WALLET is hard-required to be 1 above, this
+  // reduces to MAX_ACTIVE <= current on-chain liveWalletsCount. Reads the
+  // live value from the already-deployed Bridge rather than trusting an
+  // operator-supplied number, since this is exactly the value that
+  // silently drifts as wallets retire.
+  const currentLiveWalletsCount: number = await read(
+    "Bridge",
+    "liveWalletsCount"
+  )
+  const slotCapacityByWallets =
+    currentLiveWalletsCount * MAX_RESERVATIONS_PER_WALLET
+  if (MAX_ACTIVE > slotCapacityByWallets) {
+    throw new Error(
+      `RESERVATION_MAX_ACTIVE (${MAX_ACTIVE}) exceeds current live-wallet slot ` +
+        `capacity (liveWalletsCount=${currentLiveWalletsCount} * ` +
+        `maxReservationsPerWallet=${MAX_RESERVATIONS_PER_WALLET} = ` +
+        `${slotCapacityByWallets}); this would make every deposit acceptance ` +
+        "revert with 'Occupancy cap exceeds live wallet slot capacity' " +
+        "immediately after activation. Register more Live wallets first, or " +
+        "lower RESERVATION_MAX_ACTIVE to at most the current slot capacity."
+    )
+  }
+  console.log(
+    `\nOccupancy sizing relation OK: maxActiveReservations (${MAX_ACTIVE}) <= ` +
+      `liveWalletsCount * maxReservationsPerWallet (${slotCapacityByWallets})`
+  )
 
   // --- Generate governance calldata ---
   console.log(
