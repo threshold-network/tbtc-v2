@@ -489,6 +489,95 @@ describe("RebateStaking", () => {
     })
   })
 
+  describe("setSponsorAuthorization", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should not revert when called by an address that is not a staker", async () => {
+      await expect(
+        rebateStaking
+          .connect(thirdParty)
+          .setSponsorAuthorization(deployer.address, true)
+      ).to.not.be.reverted
+    })
+
+    context("when a staker authorizes a sponsored depositor", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .setSponsorAuthorization(deployer.address, true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should authorize the depositor for that staker", async () => {
+        expect(
+          await rebateStaking.isAuthorizedSponsor(
+            thirdParty.address,
+            deployer.address
+          )
+        ).to.equal(true)
+      })
+
+      it("should not authorize a different depositor for that staker", async () => {
+        expect(
+          await rebateStaking.isAuthorizedSponsor(
+            thirdParty.address,
+            governance.address
+          )
+        ).to.equal(false)
+      })
+
+      it("should emit SponsorAuthorizationSet event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "SponsorAuthorizationSet")
+          .withArgs(thirdParty.address, deployer.address, true)
+      })
+
+      context("when the staker revokes the authorization", () => {
+        let revokeTx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+
+          revokeTx = await rebateStaking
+            .connect(thirdParty)
+            .setSponsorAuthorization(deployer.address, false)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should revoke the depositor's authorization for that staker", async () => {
+          expect(
+            await rebateStaking.isAuthorizedSponsor(
+              thirdParty.address,
+              deployer.address
+            )
+          ).to.equal(false)
+        })
+
+        it("should emit SponsorAuthorizationSet event", async () => {
+          await expect(revokeTx)
+            .to.emit(rebateStaking, "SponsorAuthorizationSet")
+            .withArgs(thirdParty.address, deployer.address, false)
+        })
+      })
+    })
+  })
+
   describe("applyForRebate", () => {
     const treasuryFee = ethers.BigNumber.from(950)
 

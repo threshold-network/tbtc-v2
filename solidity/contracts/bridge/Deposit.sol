@@ -346,23 +346,31 @@ library Deposit {
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
             // By default the rebate is keyed off the depositor (msg.sender).
             // When the depositor is an allowlisted "sponsored" relay (e.g.
-            // NativeBTCDepositor) and an `extraData` payload is present,
-            // route the rebate to the L1 receiver encoded in `extraData`
-            // instead of to the relay contract, which has no stake of its
-            // own. `deposit.depositor` itself stays as the relay so refund
-            // and finalize accounting are unchanged.
+            // NativeBTCDepositor), an `extraData` payload is present, the
+            // payload decodes to a non-zero address, and that address has
+            // explicitly authorized the depositor via
+            // `RebateStaking.setSponsorAuthorization`, route the rebate to
+            // the L1 staker encoded in `extraData` instead of to the relay
+            // contract, which has no stake of its own. `deposit.depositor`
+            // itself stays as the relay so refund and finalize accounting
+            // are unchanged. Any missing precondition falls back to
+            // charging the depositor's own (possibly empty) stake instead
+            // of reverting, consistent with every other rebate path.
             address rebateStaker = deposit.depositor;
-            if (self.sponsoredDepositors[msg.sender]) {
-                require(
-                    extraData != bytes32(0),
-                    "Sponsored depositor must provide extraData"
-                );
+            if (
+                self.sponsoredDepositors[msg.sender] &&
+                extraData != bytes32(0)
+            ) {
                 address decoded = address(uint160(uint256(extraData)));
-                require(
-                    decoded != address(0),
-                    "Sponsored extraData decodes to zero"
-                );
-                rebateStaker = decoded;
+                if (
+                    decoded != address(0) &&
+                    RebateStaking(self.rebateStaking).isAuthorizedSponsor(
+                        decoded,
+                        msg.sender
+                    )
+                ) {
+                    rebateStaker = decoded;
+                }
             }
 
             deposit.treasuryFee = RebateStaking(self.rebateStaking)

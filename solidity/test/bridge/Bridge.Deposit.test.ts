@@ -488,14 +488,22 @@ describe("Bridge - Deposit", () => {
                         await restoreSnapshot()
                       })
 
-                      it("should revert because extraData is required", async () => {
-                        await expect(
-                          bridge
-                            .connect(depositor)
-                            .revealDeposit(P2SHFundingTx, reveal)
-                        ).to.be.revertedWith(
-                          "Sponsored depositor must provide extraData"
+                      it("should not revert and should charge the depositor's own rebate", async () => {
+                        await bridge
+                          .connect(depositor)
+                          .revealDeposit(P2SHFundingTx, reveal)
+
+                        const depositKey = ethers.utils.solidityKeccak256(
+                          ["bytes32", "uint32"],
+                          [
+                            "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
+                            reveal.fundingOutputIndex,
+                          ]
                         )
+
+                        const deposit = await bridge.deposits(depositKey)
+
+                        expect(deposit.treasuryFee).to.be.equal(5)
                       })
                     }
                   )
@@ -1321,6 +1329,10 @@ describe("Bridge - Deposit", () => {
                           .approve(rebateStaking.address, stakeAmount)
                         await rebateStaking.connect(receiver).stake(stakeAmount)
 
+                        await rebateStaking
+                          .connect(receiver)
+                          .setSponsorAuthorization(depositor.address, true)
+
                         depositorAvailableBefore =
                           await rebateStaking.getAvailableRebate(
                             depositor.address
@@ -1431,6 +1443,108 @@ describe("Bridge - Deposit", () => {
                           )
                         ).to.equal(receiverAvailableBefore)
                       })
+                    }
+                  )
+
+                  context(
+                    "when depositor is on the sponsored depositor allowlist but the required sponsor authorization is missing",
+                    () => {
+                      context(
+                        "when extraData decodes to a staker who has not authorized the depositor",
+                        () => {
+                          const receiverAddress = ethers.utils.getAddress(
+                            `0x${extraData.slice(-40)}`
+                          )
+                          const stakeAmount = to1e18(5)
+
+                          let receiver: SignerWithAddress
+                          let receiverAvailableBefore: BigNumber
+
+                          before(async () => {
+                            await createSnapshot()
+
+                            await bridgeGovernance
+                              .connect(governance)
+                              .setSponsoredDepositor(depositor.address, true)
+
+                            // Stake T from the receiver-impersonating account
+                            // but never call `setSponsorAuthorization`, so
+                            // the depositor is allowlisted yet unauthorized
+                            // by the named staker.
+                            receiver = await impersonateAccount(
+                              receiverAddress,
+                              {
+                                from: governance,
+                                value: 10,
+                              }
+                            )
+                            await t
+                              .connect(deployer)
+                              .mint(receiver.address, stakeAmount)
+                            await t
+                              .connect(receiver)
+                              .approve(rebateStaking.address, stakeAmount)
+                            await rebateStaking
+                              .connect(receiver)
+                              .stake(stakeAmount)
+
+                            receiverAvailableBefore =
+                              await rebateStaking.getAvailableRebate(
+                                receiver.address
+                              )
+
+                            await bridge
+                              .connect(depositor)
+                              .revealDepositWithExtraData(
+                                P2SHFundingTx,
+                                reveal,
+                                extraData
+                              )
+                          })
+
+                          after(async () => {
+                            await restoreSnapshot()
+                          })
+
+                          it("should not revert and should charge the depositor's own rebate", async () => {
+                            const depositKey = ethers.utils.solidityKeccak256(
+                              ["bytes32", "uint32"],
+                              [
+                                "0x6383cd1829260b6034cd12bad36171748e8c3c6a8d57fcb6463c62f96116dfbc",
+                                reveal.fundingOutputIndex,
+                              ]
+                            )
+                            const deposit = await bridge.deposits(depositKey)
+                            expect(deposit.treasuryFee).to.be.equal(5)
+                          })
+
+                          it("should leave the receiver's rebate untouched", async () => {
+                            expect(
+                              await rebateStaking.getAvailableRebate(
+                                receiver.address
+                              )
+                            ).to.equal(receiverAvailableBefore)
+                          })
+                        }
+                      )
+
+                      // The symmetric "decodes to the zero address" edge
+                      // case (the `decoded != address(0)` half of
+                      // `Deposit.sol`'s single `if (decoded != address(0)
+                      // && isAuthorizedSponsor(...))` condition) is not
+                      // covered by a dedicated test here. Exercising it
+                      // would require an `extraData` value different from
+                      // the fixture's committed `extraData`, but `extraData`
+                      // is baked into the pre-computed Bitcoin funding
+                      // transaction's locking script hash (see the fixture
+                      // comment above), so swapping in a zero-decoding
+                      // `extraData` would require regenerating a matching
+                      // Bitcoin script fixture offline - disproportionate
+                      // for this narrow edge case. The `isAuthorizedSponsor`
+                      // half of the same boolean AND is already covered by
+                      // the sibling "when extraData decodes to a staker who
+                      // has not authorized the depositor" test above, which
+                      // correctly exercises the fail-open fallback.
                     }
                   )
 

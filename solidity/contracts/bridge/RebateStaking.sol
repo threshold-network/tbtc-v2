@@ -81,6 +81,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     mapping(address => Stake) public stakes;
     mapping(address => address) public delegates;
+    mapping(address => mapping(address => bool)) public sponsorAuthorizations;
 
     /// @notice Per-redeemer authorization for callback-path rebate
     ///         application. A staker authorizes a specific Bank balance owner
@@ -116,6 +117,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
     event DelegateeSet(address staker, address delegatee);
+    event SponsorAuthorizationSet(
+        address indexed staker,
+        address indexed depositor,
+        bool authorized
+    );
     event TransferFinished(address oldStaker, address newStaker);
     event RebateAuthorizationSet(
         address indexed redeemer,
@@ -270,6 +276,28 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         }
 
         return rebateAuthorizations[redeemer][balanceOwner];
+    }
+
+    /// @notice Authorizes or revokes a sponsored depositor contract's ability to have
+    ///         Bridge deposit reveals route rebate consumption to the caller's stake via
+    ///         the depositor-submitted `extraData`.
+    /// @param depositor Address of a Bridge-allowlisted sponsored depositor contract.
+    /// @param authorized New authorization state.
+    function setSponsorAuthorization(address depositor, bool authorized)
+        external
+    {
+        sponsorAuthorizations[msg.sender][depositor] = authorized;
+        emit SponsorAuthorizationSet(msg.sender, depositor, authorized);
+    }
+
+    /// @notice Returns whether `staker` has authorized `depositor` to route rebate
+    ///         consumption to their stake via `extraData` on Bridge deposit reveals.
+    function isAuthorizedSponsor(address staker, address depositor)
+        external
+        view
+        returns (bool)
+    {
+        return sponsorAuthorizations[staker][depositor];
     }
 
     /// @notice Calculates cap for rebate for the specified user.
