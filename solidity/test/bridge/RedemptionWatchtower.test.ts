@@ -2831,9 +2831,8 @@ describe("RedemptionWatchtower", () => {
         redeemerOutputScript
       )
 
-      const { requestedAt, treasuryFee } = await bridge.pendingRedemptions(
-        redemptionKey
-      )
+      const { requestedAt, treasuryFee } =
+        await bridge.pendingRedemptions(redemptionKey)
       /* eslint-enable no-await-in-loop */
 
       redemptions.push({

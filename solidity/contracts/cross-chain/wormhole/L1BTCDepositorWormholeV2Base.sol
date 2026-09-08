@@ -301,10 +301,9 @@ contract L1BTCDepositorWormholeV2Base is
     ///      - Can be called only by the contract owner,
     ///      - The address must not be set yet,
     ///      - The new address must not be 0x0.
-    function attachL2BitcoinDepositor(address _l2BitcoinDepositor)
-        external
-        onlyOwner
-    {
+    function attachL2BitcoinDepositor(
+        address _l2BitcoinDepositor
+    ) external onlyOwner {
         require(
             l2BitcoinDepositor == address(0),
             "L2 Bitcoin Depositor already set"
@@ -321,10 +320,9 @@ contract L1BTCDepositorWormholeV2Base is
     /// @param _l2FinalizeDepositGasLimit New gas limit.
     /// @dev Requirements:
     ///      - Can be called only by the contract owner.
-    function updateL2FinalizeDepositGasLimit(uint256 _l2FinalizeDepositGasLimit)
-        external
-        onlyOwner
-    {
+    function updateL2FinalizeDepositGasLimit(
+        uint256 _l2FinalizeDepositGasLimit
+    ) external onlyOwner {
         l2FinalizeDepositGasLimit = _l2FinalizeDepositGasLimit;
         emit L2FinalizeDepositGasLimitUpdated(_l2FinalizeDepositGasLimit);
     }
@@ -385,8 +383,8 @@ contract L1BTCDepositorWormholeV2Base is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
-                initializeDepositGasOffset;
+            uint256 gasSpent =
+                (gasStart - gasleft()) + initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
             // set to a reasonable value. If it happens, it's better to
@@ -546,17 +544,14 @@ contract L1BTCDepositorWormholeV2Base is
     ///         on WEI value, such a value must be first converted to gas spent.
     /// @param refund Refund value in WEI.
     /// @return Refund value as gas spent.
-    function _refundToGasSpent(uint256 refund)
-        internal
-        virtual
-        returns (uint256)
-    {
+    function _refundToGasSpent(
+        uint256 refund
+    ) internal virtual returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
-        uint256 gasPrice = tx.gasprice < maxGasPrice
-            ? tx.gasprice
-            : maxGasPrice;
+        uint256 gasPrice =
+            tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
 
         if (gasPrice == 0) {
             return 0;

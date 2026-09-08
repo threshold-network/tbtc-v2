@@ -51,9 +51,8 @@ describe("Bank", () => {
   let bank: Bank
 
   before(async () => {
-    ;({ deployer, governance, bridge, thirdParty, bank } = await loadFixture(
-      fixture
-    ))
+    ;({ deployer, governance, bridge, thirdParty, bank } =
+      await loadFixture(fixture))
   })
 
   describe("PERMIT_TYPEHASH", () => {

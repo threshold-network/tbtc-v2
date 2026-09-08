@@ -4204,8 +4204,7 @@ describe("Bridge - Moving funds", () => {
   async function runMovedFundsSweepScenario(
     data: Omit<MovedFundsSweepTestData, "movedFundsSweepRequest"> & {
       movedFundsSweepRequest:
-        | MovedFundsSweepTestData["movedFundsSweepRequest"]
-        | null
+        MovedFundsSweepTestData["movedFundsSweepRequest"] | null
     },
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransactionResponse> {

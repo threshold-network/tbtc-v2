@@ -333,8 +333,8 @@ abstract contract AbstractL1BTCDepositor is
             address(reimbursementPool) != address(0) &&
             reimbursementAuthorizations[msg.sender]
         ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
-                initializeDepositGasOffset;
+            uint256 gasSpent =
+                (gasStart - gasleft()) + initializeDepositGasOffset;
 
             // Should not happen as long as initializeDepositGasOffset is
             // set to a reasonable value. If it happens, it's better to
@@ -542,17 +542,14 @@ abstract contract AbstractL1BTCDepositor is
     /// @return Refund value as gas spent.
     /// @dev This function is the reverse of the logic used
     ///      within `ReimbursementPool.refund`.
-    function _refundToGasSpent(uint256 refund)
-        internal
-        virtual
-        returns (uint256)
-    {
+    function _refundToGasSpent(
+        uint256 refund
+    ) internal virtual returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
-        uint256 gasPrice = tx.gasprice < maxGasPrice
-            ? tx.gasprice
-            : maxGasPrice;
+        uint256 gasPrice =
+            tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
 
         // Should not happen but check just in case of weird ReimbursementPool
         // configuration.
@@ -575,7 +572,8 @@ abstract contract AbstractL1BTCDepositor is
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.
     /// @param amount Amount of tBTC in 1e18 precision.
     /// @param destinationChainReceiver destination chain deposit owner (32 bytes format).
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        virtual;
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal virtual;
 }

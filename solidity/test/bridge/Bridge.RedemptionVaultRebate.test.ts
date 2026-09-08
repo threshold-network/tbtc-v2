@@ -254,17 +254,15 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
             walletPubKeyHash,
             redeemerOutputScript
           )
-          const redemptionRequest = await bridge.pendingRedemptions(
-            redemptionKey
-          )
+          const redemptionRequest =
+            await bridge.pendingRedemptions(redemptionKey)
           // No rebate was applied; the full treasuryFee remains.
           expect(redemptionRequest.treasuryFee).to.be.equal(treasuryFee)
         })
 
         it("should leave the redeemer's available rebate unchanged", async () => {
-          const availableRebate = await rebateStaking.getAvailableRebate(
-            redeemerAddress
-          )
+          const availableRebate =
+            await rebateStaking.getAvailableRebate(redeemerAddress)
           const rebateCap = await rebateStaking.getRebateCap(redeemerAddress)
           // The redeemer's full rebate cap is intact because no rebate was
           // applied. This is the property that closes the spoof primitive.
@@ -322,9 +320,8 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       it("should decrease available rebate for the redeemer", async () => {
-        const availableRebate = await rebateStaking.getAvailableRebate(
-          redeemerAddress
-        )
+        const availableRebate =
+          await rebateStaking.getAvailableRebate(redeemerAddress)
         const rebateCap = await rebateStaking.getRebateCap(redeemerAddress)
         expect(availableRebate < rebateCap).to.be.true
       })
@@ -359,9 +356,8 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .connect(balanceOwner)
           .approveBalanceAndCall(bridge.target, requestedAmount, data)
 
-        availableRebateBeforeTimeout = await rebateStaking.getAvailableRebate(
-          redeemerAddress
-        )
+        availableRebateBeforeTimeout =
+          await rebateStaking.getAvailableRebate(redeemerAddress)
         initialRedeemerBalance = await bank.balanceOf(redeemerAddress)
 
         await increaseTime(redemptionTimeout + 1)
@@ -424,9 +420,8 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           .connect(balanceOwner)
           .approveBalanceAndCall(bridge.target, requestedAmount, data)
 
-        rebateCapBeforeTimeout = await rebateStaking.getRebateCap(
-          redeemerAddress
-        )
+        rebateCapBeforeTimeout =
+          await rebateStaking.getRebateCap(redeemerAddress)
         initialRedeemerBalance = await bank.balanceOf(redeemerAddress)
 
         await increaseTime(redemptionTimeout + 1)
@@ -460,9 +455,8 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       it("should leave the redeemer's rebate cap unchanged", async () => {
-        const rebateCapAfterTimeout = await rebateStaking.getRebateCap(
-          redeemerAddress
-        )
+        const rebateCapAfterTimeout =
+          await rebateStaking.getRebateCap(redeemerAddress)
         expect(rebateCapAfterTimeout).to.be.equal(rebateCapBeforeTimeout)
       })
     })
@@ -680,13 +674,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       it("should consume each staker's own rebate cap", async () => {
-        const firstAvailable = await rebateStaking.getAvailableRebate(
-          firstStakerAddress
-        )
+        const firstAvailable =
+          await rebateStaking.getAvailableRebate(firstStakerAddress)
         const firstCap = await rebateStaking.getRebateCap(firstStakerAddress)
-        const secondAvailable = await rebateStaking.getAvailableRebate(
-          secondStakerAddress
-        )
+        const secondAvailable =
+          await rebateStaking.getAvailableRebate(secondStakerAddress)
         const secondCap = await rebateStaking.getRebateCap(secondStakerAddress)
         expect(firstAvailable < firstCap).to.be.true
         expect(secondAvailable < secondCap).to.be.true
@@ -751,9 +743,8 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       it("should not consume the victim's rebate cap", async () => {
         // No authorization, no rebate applied — victim's rebate cap is
         // intact. This is the property that closes the spoof primitive.
-        const availableAfter = await rebateStaking.getAvailableRebate(
-          victimAddress
-        )
+        const availableAfter =
+          await rebateStaking.getAvailableRebate(victimAddress)
         expect(availableAfter).to.be.equal(victimRebateCapBefore)
       })
 

@@ -42,9 +42,8 @@ describe("AbstractBTCRedeemer", () => {
     const MockBridgeFactory = await ethers.getContractFactory("MockTBTCBridge")
     bridge = await MockBridgeFactory.deploy()
 
-    const MockTBTCTokenFactory = await ethers.getContractFactory(
-      "MockTBTCToken"
-    )
+    const MockTBTCTokenFactory =
+      await ethers.getContractFactory("MockTBTCToken")
     tbtcToken = await MockTBTCTokenFactory.deploy()
 
     const MockBankFactory = await ethers.getContractFactory(
@@ -58,9 +57,8 @@ describe("AbstractBTCRedeemer", () => {
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.target)
 
-    const TestBTCRedeemerFactory = await ethers.getContractFactory(
-      "TestBTCRedeemer"
-    )
+    const TestBTCRedeemerFactory =
+      await ethers.getContractFactory("TestBTCRedeemer")
     redeemer = await TestBTCRedeemerFactory.deploy()
     await redeemer.initialize(
       bridge.target,

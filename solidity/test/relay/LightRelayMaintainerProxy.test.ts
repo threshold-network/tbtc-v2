@@ -29,9 +29,8 @@ const fixture = async () => {
   const lightRelayMaintainerProxy: LightRelayMaintainerProxy =
     await helpers.contracts.getContract("LightRelayMaintainerProxy")
 
-  const lightRelay: LightRelay = await helpers.contracts.getContract(
-    "LightRelay"
-  )
+  const lightRelay: LightRelay =
+    await helpers.contracts.getContract("LightRelay")
 
   await lightRelay.connect(deployer).setAuthorizationStatus(true)
 

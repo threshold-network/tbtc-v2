@@ -295,9 +295,8 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           it("should request optimistic minting", async () => {
-            const request = await tbtcVault.optimisticMintingRequests(
-              depositKey
-            )
+            const request =
+              await tbtcVault.optimisticMintingRequests(depositKey)
             expect(request.requestedAt).to.be.equal(await lastBlockTime())
             expect(request.finalizedAt).to.be.equal(0)
           })
@@ -542,9 +541,8 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           it("should mark the request as finalized", async () => {
-            const request = await tbtcVault.optimisticMintingRequests(
-              depositKey
-            )
+            const request =
+              await tbtcVault.optimisticMintingRequests(depositKey)
             expect(request.requestedAt).to.not.be.equal(0)
             expect(request.finalizedAt).to.be.equal(await lastBlockTime())
           })
@@ -632,9 +630,8 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           it("should mark the request as finalized", async () => {
-            const request = await tbtcVault.optimisticMintingRequests(
-              depositKey
-            )
+            const request =
+              await tbtcVault.optimisticMintingRequests(depositKey)
             expect(request.requestedAt).to.not.be.equal(0)
             expect(request.finalizedAt).to.be.equal(await lastBlockTime())
           })
@@ -723,9 +720,8 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           it("should mark the request as finalized", async () => {
-            const request = await tbtcVault.optimisticMintingRequests(
-              depositKey
-            )
+            const request =
+              await tbtcVault.optimisticMintingRequests(depositKey)
             expect(request.requestedAt).to.not.be.equal(0)
             expect(request.finalizedAt).to.be.equal(await lastBlockTime())
           })
@@ -799,9 +795,8 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           it("should mark the request as finalized", async () => {
-            const request = await tbtcVault.optimisticMintingRequests(
-              depositKey
-            )
+            const request =
+              await tbtcVault.optimisticMintingRequests(depositKey)
             expect(request.requestedAt).to.not.be.equal(0)
             expect(request.finalizedAt).to.be.equal(await lastBlockTime())
           })
