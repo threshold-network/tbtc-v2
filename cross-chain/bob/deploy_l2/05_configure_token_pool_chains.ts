@@ -1,7 +1,32 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
+// Ethereum-mainnet side of the BOB CCIP route, verified against live
+// BOB-mainnet state on 2026-09-01 (BurnFromMintTokenPoolUpgradeable proxy on
+// BOB).
+//
+// Provenance: this script previously held the matching Sepolia-testnet record
+// -- Ethereum Sepolia's chain selector (16015286601757825753) with the sepolia
+// pool and the sepolia tBTC that
+// deploy_l1/00_deploy_lock_release_token_pool.ts still lists as
+// TBTC_ADDRESS.sepolia. Those values were a coherent testnet configuration,
+// not stray wrong addresses; the testnet record was converted to the mainnet
+// record here because the mainnet route is what this deprecation has to
+// document. Exported so test/DeprecatedBobCcipDeployScripts.test.ts pins them.
+export const ETHEREUM_CHAIN_SELECTOR = "5009297550715157269"
+export const ETHEREUM_POOL = "0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6"
+export const ETHEREUM_TBTC = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  // The constants above describe the BOB-mainnet pool's remote (Ethereum
+  // mainnet) side, so applying them anywhere else would write a mainnet route
+  // into an unrelated deployment.
+  if (hre.network.name !== "bobMainnet") {
+    throw new Error(
+      `This script configures the BOB mainnet side of the BOB CCIP route; refusing to run on network "${hre.network.name}" (expected "bobMainnet")`
+    )
+  }
+
   const { ethers, getNamedAccounts, deployments } = hre
   const { deployer } = await getNamedAccounts()
 
@@ -18,15 +43,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     tokenPoolDeployment.address,
     await ethers.getSigner(deployer)
   )
-
-  // Verified against live BOB-mainnet state (BurnFromMintTokenPoolUpgradeable
-  // proxy on BOB): the selector and remote pool/token below previously used
-  // Ethereum Sepolia's chain selector and unrelated addresses instead of
-  // Ethereum mainnet's. Corrected to the real values so this script remains
-  // an accurate historical record.
-  const ETHEREUM_CHAIN_SELECTOR = "5009297550715157269"
-  const ETHEREUM_POOL = "0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6"
-  const ETHEREUM_TBTC = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
 
   const encodedEthereumPool = ethers.utils.defaultAbiCoder.encode(
     ["address"],
@@ -147,13 +163,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
 func.tags = ["ConfigureTokenPoolChains"]
 // BOB CCIP support is deprecated. Keep this script for historical reference
-// without configuring new BOB CCIP routes. Unconditional: running this on
-// hardhat/localhost reverts with "admin cannot fallback to proxy target"
-// because the deployer signer used here is also the proxy admin set by
-// 03_deploy_burn_from_mint_token_pool.ts, and OpenZeppelin's
-// TransparentUpgradeableProxy blocks the admin from calling implementation
-// functions. Fixing that signer/admin conflict is out of scope for this
-// deprecation and would need its own review.
+// without configuring new BOB CCIP routes.
 func.skip = async () => true
 
 export default func

@@ -1,12 +1,36 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
+// Ethereum-mainnet record of the BOB CCIP route, verified against live mainnet
+// state on 2026-09-01 (LockReleaseTokenPoolUpgradeable proxy
+// 0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6).
+//
+// Provenance: this script previously held the matching Sepolia-testnet record
+// -- BOB Sepolia's chain selector (5535534526963509396) with the bobSepolia
+// pool and the bobSepolia tBTC that 03_deploy_burn_from_mint_token_pool.ts
+// still lists as TBTC_ADDRESS.bobSepolia. Those values were a coherent
+// testnet configuration, not stray wrong addresses; the testnet record was
+// converted to the mainnet record here because the mainnet route is what this
+// deprecation has to document. Exported so
+// test/DeprecatedBobCcipDeployScripts.test.ts pins them.
+export const BOB_CHAIN_SELECTOR = "3849287863852499584"
+export const BOB_POOL = "0x36Ee23c94523A05981baaEEaea4BA97cDDe21f6a"
+export const BOB_TBTC = "0xBBa2eF945D523C4e2608C9E1214C2Cc64D4fc2e2"
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  // The constants above are Ethereum mainnet values, so applying them anywhere
+  // else would write a mainnet route into an unrelated deployment.
+  if (hre.network.name !== "mainnet") {
+    throw new Error(
+      `This script configures the Ethereum mainnet side of the BOB CCIP route; refusing to run on network "${hre.network.name}" (expected "mainnet")`
+    )
+  }
+
   const { ethers, getNamedAccounts, deployments } = hre
   const { deployer } = await getNamedAccounts()
 
   console.log(
-    "=== Configuring Token Pool Chain Updates on Ethereum Sepolia ==="
+    "=== Configuring Token Pool Chain Updates on Ethereum Mainnet ==="
   )
   console.log(`Deployer: ${deployer}`)
 
@@ -20,15 +44,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     tokenPoolDeployment.address,
     await ethers.getSigner(deployer)
   )
-
-  // Verified against live mainnet state (LockReleaseTokenPoolUpgradeable
-  // proxy 0x03E342731c08FDDc34cFb43E91cB3a7e424ee0F6): the selector and
-  // remote pool/token below previously did not match what was actually
-  // configured on-chain. Corrected to the real values so this script
-  // remains an accurate historical record.
-  const BOB_CHAIN_SELECTOR = "3849287863852499584"
-  const BOB_POOL = "0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A"
-  const BOB_TBTC = "0xbBa2eF945D523C4e2608C9E1214C2cC64D4fc2e2"
 
   const encodedBobPool = ethers.utils.defaultAbiCoder.encode(
     ["address"],

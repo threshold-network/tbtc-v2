@@ -25,7 +25,8 @@ Existing BOB liquidity should remain withdraw-only:
   **Verified on-chain (2026-09-01): `legacyCapRemaining` is already 0** on
   the live `OptimismMintableUpgradableTBTC` contract on BOB, so CCIP is
   already the only working exit today, not a future state -- do not disable
-  or rate-limit-to-zero the CCIP outbound (exit) path while this holds;
+  or rate-limit-to-zero the BOB pool's CCIP outbound (BOB-to-Ethereum exit) 
+  bucket while this holds;
 - after BOB balances and in-flight messages are fully drained, governance can
   remove the BOB CCIP chain config on both pools and withdraw remaining
   Ethereum pool liquidity through the configured rebalancer. Before that
@@ -42,23 +43,29 @@ Existing BOB liquidity should remain withdraw-only:
   (`0x36ee23c94523A05981bAAeeAeA4bA97CDde21F6A`) is owned by a separate
   6-of-9 Safe (`0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C`). The rebalancer
   precondition is **not** satisfied: `getRebalancer()` on the L1 pool
-  currently returns the zero address, so `withdrawLiquidity`/
-  `transferLiquidity` cannot be called by anyone until the L1 multisig
-  calls `setRebalancer`.
-
+  currently returns the zero address, so `withdrawLiquidity` (onlyRebalancer)
+  is blocked until `setRebalancer` is called, while `transferLiquidity` is
+  onlyOwner (callable today by the 6-of-9 Safe) but pulls liquidity from an
+  older pool into this one -- it is not a withdrawal path for this pool's own
+  locked tBTC.
 The CCIP token pool contracts do not expose a way to hard-block
 Ethereum-to-BOB deposits while leaving BOB-to-Ethereum exits fully unlimited,
 but a real throttle is available and unused by this PR: governance can call
-`setChainRateLimiterConfig` with a small enabled outbound (deposit) bucket
+`setChainRateLimiterConfig` with a small enabled outbound (Ethereum-to-BOB deposit) bucket
 (e.g. `capacity: 2, rate: 1`, in wei) to revert every economically
-meaningful deposit at send time on Ethereum, while leaving the inbound
-(exit) bucket, and therefore exits, completely untouched -- outbound and
-inbound are independent buckets on independent code paths. Removing BOB
-from the Ethereum pool's chain config also causes inbound BOB-to-Ethereum
-messages to fail validation, so chain removal remains a final cleanup step
-only, not a substitute for the throttle above.
-
+meaningful deposit at send time on Ethereum. However, this call rewrites
+both the outbound and inbound buckets in one transaction, so the current
+inbound (BOB-to-Ethereum exit) configuration must be read first via
+`getCurrentInboundRateLimiterState` and passed back unchanged alongside
+the new outbound config, rather than leaving the inbound bucket untouched.
+Removing BOB from the Ethereum pool's chain config also causes inbound
+BOB-to-Ethereum messages to fail validation, so chain removal remains a
+final cleanup step only, not a substitute for the throttle above.
 The native OP Stack bridge is BOB infrastructure, not a tBTC-maintained
-bridge path. It also cannot be deactivated at the token-contract level. See
+bridge path. Governance can stop native bridge-in via `removeMinter(BRIDGE)`
+(`onlyOwner`) without removing the burn/exit permission, but OP Stack
+deposits are force-included on L2, so doing so risks stranding an
+already-escrowed L1 deposit -- it cannot be done safely without more care.
+See
 [`docs/tbtc-bob-upgrade-technical-document.md`](docs/tbtc-bob-upgrade-technical-document.md#deprecation-addendum-bob-ccip)
 for the legacy-cap mechanics and the BOB CCIP deprecation addendum.

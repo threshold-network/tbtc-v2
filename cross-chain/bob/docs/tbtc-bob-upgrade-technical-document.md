@@ -158,6 +158,15 @@ The chosen `legacyCapRemaining` approach provides superior characteristics:
 
 ## Migration Timeline
 
+> **Superseded — see [Deprecation Addendum (BOB CCIP)](#deprecation-addendum-bob-ccip) before relying on anything in this section.**
+> The Migration Timeline and BOB Bridge Frontend-Driven Depletion content below
+> describes the original CCIP-forward plan, in which the legacy OP Stack bridge
+> would be wound down in favour of CCIP as the primary bridge. That plan has
+> been reversed: BOB CCIP support is now deprecated, and `legacyCapRemaining`
+> was verified on-chain at **0** on 2026-09-01 — the depletion this section
+> anticipates has already completed, and the legacy bridge's own burn path now
+> reverts. Both sections are retained for historical context only.
+
 The migration follows a natural, market-driven timeline:
 
 1. **Immediate**: New bridges can begin operations
@@ -182,10 +191,12 @@ This design demonstrates the importance of considering not just technical feasib
 
 ## Deprecation Addendum (BOB CCIP)
 
-As of this addendum's date, BOB CCIP bridge support is deprecated, while the native OP Stack legacy bridge remains active. This is the reverse of what the original Migration Timeline and BOB Bridge Frontend-Driven Depletion sections describe; those sections previously assumed the legacy bridge would be deactivated in favor of CCIP as the primary bridge. Under the current deprecation plan, the native bridge remains the primary exit path for the duration of the wind-down.
+As of 2026-09-01, BOB CCIP bridge support is deprecated, while the native OP Stack legacy bridge remains in place as BOB infrastructure that cannot be *safely* deactivated at the token-contract level — governance can call `removeMinter(BRIDGE)` on `OptimismMintableUpgradableTBTC` to stop native bridge-in mints without touching the bridge's separate `onlyBridge`-gated burn/exit permission, but OP Stack deposits are force-included on L2, so doing so risks stranding an already-escrowed L1 deposit mid-flight. This is the reverse of what the original Migration Timeline and BOB Bridge Frontend-Driven Depletion sections describe; those sections assumed the legacy bridge would be deactivated in favour of CCIP as the primary bridge.
 
-`legacyCapRemaining` is not guaranteed to reach zero automatically under this addendum's plan. The variable decreases on native-bridge burns but increases on native-bridge mints (deposits), and this deprecation intentionally leaves the native bridge fully open in both directions. The cap will only trend toward zero if native bridge-in deposits are also curtailed at the frontend and routing layers, not just CCIP bridge-in.
+Deprecating CCIP does **not**, however, make the native bridge the working exit path. `legacyCapRemaining` was verified on-chain on 2026-09-01 to be already **0** on the live `OptimismMintableUpgradableTBTC` contract on BOB. At zero, the legacy bridge's own `burn()` reverts on the `require(legacyCapRemaining > 0, "Legacy cap exhausted")` guard, so the native exit is dead today and CCIP `burnFrom`-based exits are the only functioning way out of BOB. Cap depletion is not a wind-down still in progress — it has already completed. The CCIP outbound (exit) path must therefore be kept working: do not pause it, rate-limit it to zero, or remove the BOB chain config while tBTC liquidity remains on BOB.
 
-The two BOB exit paths—CCIP burnFrom-based exits and the native bridge's own burn—are mutually exclusive due to the `legacyCapRemaining > 0` gate documented earlier in this file. CCIP exits only function once the cap is fully drained, and native bridge exits stop working at exactly that point. This exclusivity must be carefully managed given the decision to prioritize the native bridge over CCIP.
+What remains is a hazard to guard against rather than a milestone to reach. `legacyCapRemaining` is not monotonically decreasing: any native OP Stack bridge-in deposit mints on BOB and re-arms the cap above zero, which immediately breaks CCIP exits again (`burnFrom` reverts for every non-bridge caller while the cap is nonzero) and forces users back onto the 7-day native withdrawal. Native bridge-in deposits must therefore be suppressed at the frontend and routing layers alongside CCIP bridge-in — not to deplete the cap, which is already drained, but to keep it at zero so the sole working exit stays open.
+
+The two BOB exit paths—CCIP burnFrom-based exits and the native bridge's own burn—are mutually exclusive due to the `legacyCapRemaining > 0` gate documented earlier in this file. CCIP exits only function once the cap is fully drained, and native bridge exits stop working at exactly that point; the two are never available simultaneously. That exclusivity is precisely why the cap sitting at zero makes CCIP required rather than removable.
 
 For the withdraw-only procedure and final cleanup preconditions, including pool ownership transfer and rebalancer configuration, please refer to `cross-chain/bob/README.md`, which serves as the authoritative operational runbook for this deprecation.

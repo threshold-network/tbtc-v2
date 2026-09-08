@@ -76,6 +76,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["TransferProxyAdmin"]
+func.dependencies = ["LockReleaseTokenPoolUpgradeable"]
 // BOB CCIP support is deprecated. Keep this script for historical reference
-// without mutating BOB CCIP token-pool ownership.
+// without mutating the BOB CCIP token-pool proxy admin (this script only ever
+// calls TransparentUpgradeableProxy.changeAdmin; the pool's own owner() is a
+// separate authority it never touches).
 func.skip = async () => true
