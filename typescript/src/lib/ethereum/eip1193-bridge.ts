@@ -191,7 +191,10 @@ export function ethersToEip1193(
             if (tx.nonce !== undefined) ethersTx.nonce = tx.nonce
             if (tx.type !== undefined) ethersTx.type = tx.type
             if (tx.accessList !== undefined) ethersTx.accessList = tx.accessList
-            // `from` is dropped - it is implied by the signer.
+            if (tx.from !== undefined) ethersTx.from = tx.from
+            // Forward `from` to ethers so its Signer.checkTransaction/populateTransaction
+            // can validate it against the signer's live account, rather than silently
+            // repopulating a stale value.
             const response = await signer.sendTransaction(ethersTx)
             return response.hash
           }

@@ -269,7 +269,7 @@ async function batchedGetEvents(
   let batchStartBlock = fromBlock
 
   while (batchStartBlock <= resolvedToBlock) {
-    let batchEndBlock = batchStartBlock + interval
+    let batchEndBlock = batchStartBlock + interval - 1n
     if (batchEndBlock > resolvedToBlock) {
       batchEndBlock = resolvedToBlock
     }
@@ -488,6 +488,15 @@ export class EvmContractHandle {
       try {
         const connection = await this._connRef.get()
         const { wallet, account } = connection
+
+        // Guard against chain mismatch after connection initialization
+        const liveChainId = String(await connection.public.getChainId())
+        if (liveChainId !== connection.chainId) {
+          throw new Error(
+            `Chain mismatch: connection initialized for chain ${connection.chainId}, wallet is now on ${liveChainId}. Reinitialize the SDK after switching networks.`
+          )
+        }
+
         if (!wallet || !account) {
           throw new Error("Signer not provided")
         }

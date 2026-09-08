@@ -263,7 +263,7 @@ describe("EVM adapter", () => {
       const hash = await handle.write("revealDeposit", [blindingFactor])
 
       expect(hash.toPrefixedString()).to.match(/^0x[0-9a-f]{64}$/)
-      expect(chainId.callCount).to.equal(2)
+      expect(chainId.callCount).to.equal(3)
       expect(request.withArgs({ method: "eth_accounts" }).callCount).to.equal(2)
       expect(
         mock.requests.filter((r) => r.method === "eth_call")
@@ -309,7 +309,7 @@ describe("EVM adapter", () => {
 
       expect(hash.toPrefixedString()).to.match(/^0x[0-9a-f]{64}$/)
       expect(accounts.callCount).to.equal(2)
-      expect(request.withArgs({ method: "eth_chainId" }).callCount).to.equal(1)
+      expect(request.withArgs({ method: "eth_chainId" }).callCount).to.equal(2)
       expect(mock.sentTransactions).to.have.lengthOf(1)
     })
 

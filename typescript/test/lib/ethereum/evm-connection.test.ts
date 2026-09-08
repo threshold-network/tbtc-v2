@@ -401,10 +401,12 @@ describe("EVM connection", () => {
         expect(hash).to.equal(`0x${"aa".repeat(32)}`)
         expect(sentTransactions).to.have.lengthOf(1)
         expect(sentTransactions[0]).to.deep.equal({
+          from: "0x000000000000000000000000000000000000dEaD",
           to: "0x32Be343B94f860124dC4fEe278FDCBD38C102D88",
           data: "0x12345678",
           // `gas` renames to `gasLimit`; hex quantities pass through as-is;
-          // `from` is dropped (implied by the signer).
+          // `from` is forwarded so ethers' Signer.checkTransaction can
+          // validate it against the signer's live account.
           gasLimit: "0x5208",
           value: "0x1",
           maxFeePerGas: "0xa",

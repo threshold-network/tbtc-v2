@@ -75,7 +75,12 @@ export class EthereumTBTCToken extends EvmContractHandle implements TBTCToken {
     redeemerOutputScript: Hex,
     amount: bigint
   ): Promise<Hex> {
-    const { account: redeemer } = await this._connection()
+    const { wallet } = await this._connection()
+    if (!wallet) {
+      throw new Error("Signer not provided")
+    }
+    const addresses = await wallet.getAddresses()
+    const redeemer = addresses[0]
     if (!redeemer) {
       throw new Error("Signer not provided")
     }

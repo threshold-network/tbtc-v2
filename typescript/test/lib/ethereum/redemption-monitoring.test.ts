@@ -227,9 +227,9 @@ describe("redemption monitoring bridge methods", () => {
           ])
         ).to.deep.equal([
           [100, 200],
-          [100, 140],
-          [141, 181],
-          [182, 200],
+          [100, 139],
+          [140, 179],
+          [180, 200],
         ])
         for (const request of requests) {
           expect(request.topics).to.deep.equal([

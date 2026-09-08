@@ -9,7 +9,16 @@ import { connectEvm, EthereumSigner } from "./evm-connection"
 export * from "./address"
 export * from "./bridge"
 export * from "./depositor-proxy"
-export * from "./evm-connection"
+export {
+  Eip1193Provider,
+  EthersV5SignerLike,
+  EthersV5ProviderLike,
+  EthereumSigner,
+  connectEvm,
+  chainIdFromSigner,
+  ethereumAddressFromSigner,
+  isEvmSigner,
+} from "./evm-connection"
 export * from "./tbtc-token"
 export * from "./tbtc-vault"
 export * from "./wallet-registry"
