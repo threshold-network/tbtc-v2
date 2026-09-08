@@ -1,7 +1,7 @@
 import type { Abi, Address } from "viem"
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "../ethereum/adapter"
@@ -27,7 +27,7 @@ export class BaseL2BitcoinRedeemer
   private readonly wormholeCoreAbi: Abi
   private readonly recipientChain: number
 
-  constructor(config: EthereumContractConfig, chainId: Chains.Base) {
+  constructor(config: EvmContractHandleConfig, chainId: Chains.Base) {
     let deployment: EvmContractDeployment
     let wormholeCoreDeployment: EvmContractDeployment
     let recipientChain: number

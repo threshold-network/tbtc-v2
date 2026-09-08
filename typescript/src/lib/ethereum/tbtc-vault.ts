@@ -13,7 +13,7 @@ import { BitcoinTxHash } from "../bitcoin"
 import { Hex } from "../utils"
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "./adapter"
@@ -45,7 +45,7 @@ function toEvenLengthHex(value: bigint): string {
  */
 export class EthereumTBTCVault extends EvmContractHandle implements TBTCVault {
   constructor(
-    config: EthereumContractConfig,
+    config: EvmContractHandleConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
     let deployment: EvmContractDeployment

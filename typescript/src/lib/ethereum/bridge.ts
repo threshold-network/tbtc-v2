@@ -28,7 +28,7 @@ import {
 } from "../bitcoin"
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
   EvmEvent,
@@ -87,7 +87,7 @@ type WalletStruct = {
  */
 export class EthereumBridge extends EvmContractHandle implements Bridge {
   constructor(
-    config: EthereumContractConfig,
+    config: EvmContractHandleConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
     let deployment: EvmContractDeployment

@@ -5,7 +5,7 @@ import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "./adapter"
@@ -21,7 +21,7 @@ import LocalTBTCTokenDeployment from "@keep-network/tbtc-v2/artifacts/TBTC.json"
  */
 export class EthereumTBTCToken extends EvmContractHandle implements TBTCToken {
   constructor(
-    config: EthereumContractConfig,
+    config: EvmContractHandleConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
     let deployment: EvmContractDeployment

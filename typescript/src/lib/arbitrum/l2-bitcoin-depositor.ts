@@ -1,6 +1,6 @@
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "../ethereum/adapter"
@@ -30,7 +30,7 @@ export class ArbitrumBitcoinDepositor
   readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
-  constructor(config: EthereumContractConfig, chainId: Chains.Arbitrum) {
+  constructor(config: EvmContractHandleConfig, chainId: Chains.Arbitrum) {
     let deployment: EvmContractDeployment
 
     switch (chainId) {

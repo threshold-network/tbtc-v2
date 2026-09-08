@@ -1,7 +1,7 @@
 import { bytesToHex } from "viem"
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "./adapter"
@@ -48,7 +48,7 @@ export class EthereumL1BitcoinRedeemer
   implements L1BitcoinRedeemer
 {
   constructor(
-    config: EthereumContractConfig,
+    config: EvmContractHandleConfig,
     chainId: Chains.Ethereum,
     l2ChainName: DestinationChainName
   ) {

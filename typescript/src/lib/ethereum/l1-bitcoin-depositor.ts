@@ -1,6 +1,6 @@
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "./adapter"
@@ -79,7 +79,7 @@ export class EthereumL1BitcoinDepositor
   #depositOwner: ChainIdentifier | undefined
 
   constructor(
-    config: EthereumContractConfig,
+    config: EvmContractHandleConfig,
     chainId: Chains.Ethereum,
     destinationChainName: DestinationChainName
   ) {

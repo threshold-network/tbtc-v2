@@ -1,6 +1,6 @@
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "../ethereum/adapter"
@@ -31,7 +31,7 @@ export class BaseBitcoinDepositor
   readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
-  constructor(config: EthereumContractConfig, chainId: Chains.Base) {
+  constructor(config: EvmContractHandleConfig, chainId: Chains.Base) {
     let deployment: EvmContractDeployment
 
     switch (chainId) {

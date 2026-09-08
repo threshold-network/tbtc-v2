@@ -59,9 +59,26 @@ export function asDeployment(json: unknown): EvmContractDeployment {
 }
 
 /**
- * Represents a config set required to connect an Ethereum contract.
+ * Config set accepted by contract handle constructors. Includes an
+ * already-normalized {@link EvmConnection} as an internal fast path used by
+ * the SDK's own contract loaders to normalize a signer once per
+ * initialization and reuse it across every handle they construct. Exported
+ * for internal cross-module use (every contract handle constructor in
+ * `lib/ethereum`, `lib/arbitrum`, and `lib/base` accepts this type), but
+ * deliberately not re-exported from the public `lib/ethereum` barrel, so it
+ * is not directly importable as part of the package's public API.
+ *
+ * Note this is a partial mitigation, not a full seal: every contract handle
+ * class (`EthereumBridge`, `EthereumTBTCToken`, etc.) is itself publicly
+ * exported and declares its constructor parameter as this wider type, so
+ * `EvmConnection` remains structurally reachable through those constructors'
+ * declared parameter type even though it can no longer be imported by name
+ * from the barrel. {@link EthereumContractConfig} only narrows the
+ * `signerOrProvider` field's public-facing *documented* type where used
+ * explicitly (e.g. as a helper function parameter type); it does not
+ * override what the class constructors themselves accept.
  */
-export interface EthereumContractConfig {
+export interface EvmContractHandleConfig {
   /**
    * Address of the Ethereum contract as a 0x-prefixed hex string.
    * Optional parameter, if not provided the value will be resolved from the
@@ -83,6 +100,19 @@ export interface EthereumContractConfig {
    * contract artifact.
    */
   deployedAtBlockNumber?: number
+}
+
+/**
+ * Represents a config set required to connect an Ethereum contract.
+ */
+export interface EthereumContractConfig
+  extends Omit<EvmContractHandleConfig, "signerOrProvider"> {
+  /**
+   * Signer - will allow the contract handle to send write transactions on
+   * behalf of that signer, besides read-only access.
+   * Provider - will give the contract handle read-only access.
+   */
+  signerOrProvider: EthereumSigner
 }
 
 /**
@@ -381,7 +411,7 @@ export class EvmContractHandle {
    * @param totalRetryAttempts Number of retries for ethereum requests.
    */
   constructor(
-    config: EthereumContractConfig,
+    config: EvmContractHandleConfig,
     deployment: EvmContractDeployment,
     totalRetryAttempts = 3
   ) {

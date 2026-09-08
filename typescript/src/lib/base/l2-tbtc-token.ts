@@ -1,6 +1,6 @@
 import {
   asDeployment,
-  EthereumContractConfig,
+  EvmContractHandleConfig,
   EvmContractDeployment,
   EvmContractHandle,
 } from "../ethereum/adapter"
@@ -21,7 +21,7 @@ export class BaseTBTCToken
   extends EvmContractHandle
   implements DestinationChainTBTCToken
 {
-  constructor(config: EthereumContractConfig, chainId: Chains.Base) {
+  constructor(config: EvmContractHandleConfig, chainId: Chains.Base) {
     let deployment: EvmContractDeployment
 
     switch (chainId) {
