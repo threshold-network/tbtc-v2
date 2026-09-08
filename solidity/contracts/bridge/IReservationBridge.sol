@@ -89,7 +89,8 @@ interface IReservationBridge {
         view
         returns (
             uint64 maxReservationsAmountPerWallet,
-            uint64 reservationMaxSingleAmount
+            uint64 reservationMaxSingleAmount,
+            uint32 maxActiveReservations
         );
 
     /// @notice Bridge treasury address. Declared by the Bridge contract

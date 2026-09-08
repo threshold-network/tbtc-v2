@@ -63,9 +63,7 @@ import "./ReservationProofs.sol";
 ///         same slots as in the Bridge. The router MUST NOT declare any
 ///         additional state variable; new reservation state goes into
 ///         `BridgeState.Storage` (appending, with a matching `__gap`
-///         reduction). MUST be guarded by a storage-layout parity test;
-///         guard lands with the Bridge-integration PR (PR #G) which is
-///         out of scope here.
+///         reduction). A storage-layout parity test guards this invariant.
 ///
 ///      2. NO SELECTOR SHADOWING. A selector defined by the Bridge never
 ///         reaches the router (the fallback only sees unmatched calls). The
