@@ -63,7 +63,7 @@ runtime migrations and acceptance checks are complete.
 
 The ESLint 10 flat configuration uses typescript-eslint 8 and import-x.
 `eslint.rules.cjs` preserves the active non-formatting rules resolved from
-`@thesis-co/eslint-config` 0.6.1; removed TypeScript rules use their current
+`@thesis-co/eslint-config` 0.1.0; removed TypeScript rules use their current
 replacements. Prettier owns formatting, and unused React/JSX configuration is
 omitted. JavaScript keeps the correctness rules which TypeScript's compiler
 provides for TypeScript files. `tsconfig.eslint.json` is checked in so fresh
