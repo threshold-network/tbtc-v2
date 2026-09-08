@@ -522,7 +522,7 @@ abstract contract AbstractL1BTCDepositor is
                     // This deposit is already Finalized, and its record was
                     // cleared before external calls, so restoring it cannot
                     // enable a second finalization or reimbursement attempt.
-                    // slither-disable-next-line reentrancy-eth
+                    // slither-disable-next-line reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
                     // The event describes the reverted pool call; no nested
                     // event from that call survives to be reordered with it.
