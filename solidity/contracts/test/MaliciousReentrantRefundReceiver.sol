@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.17;
 
-import {
-    L1BTCDepositorNttWithExecutor,
-    ExecutorArgs,
-    FeeArgs
-} from "../cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol";
+import {L1BTCDepositorNttWithExecutor, ExecutorArgs, FeeArgs} from "../cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol";
 
 /// @title Malicious Reentrant Refund Receiver
 /// @notice Attacker contract used to verify that the ETH refund
@@ -31,6 +27,26 @@ contract MaliciousReentrantRefundReceiver {
 
     constructor(address _target) {
         target = L1BTCDepositorNttWithExecutor(payable(_target));
+    }
+
+    receive() external payable {
+        if (attacking && !attackAttempted) {
+            attackAttempted = true;
+            // solhint-disable-next-line avoid-low-level-calls
+            (bool success, bytes memory data) = address(target).call{
+                value: attackValue
+            }(
+                abi.encodeWithSelector(
+                    target.finalizeDeposit.selector,
+                    attackDepositKey
+                )
+            );
+            attackSucceeded = success;
+            lastRevertData = data;
+            if (shouldBubbleUpRevert) {
+                revert("Malicious reentrant call failed");
+            }
+        }
     }
 
     /// @notice Stages executor parameters with this contract as both the
@@ -73,25 +89,5 @@ contract MaliciousReentrantRefundReceiver {
         attacking = true;
         target.finalizeDeposit{value: msg.value}(depositKey);
         attacking = false;
-    }
-
-    receive() external payable {
-        if (attacking && !attackAttempted) {
-            attackAttempted = true;
-            // solhint-disable-next-line avoid-low-level-calls
-            (bool success, bytes memory data) = address(target).call{
-                value: attackValue
-            }(
-                abi.encodeWithSelector(
-                    target.finalizeDeposit.selector,
-                    attackDepositKey
-                )
-            );
-            attackSucceeded = success;
-            lastRevertData = data;
-            if (shouldBubbleUpRevert) {
-                revert("Malicious reentrant call failed");
-            }
-        }
     }
 }

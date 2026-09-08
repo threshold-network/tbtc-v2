@@ -537,24 +537,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
             feeArgs
         );
         require(requiredPayment >= executorArgs.value, "Insufficient payment for executor service");
-        // Remove one expired entry before minting a new nonce
-        if (userNonceCounter[msg.sender] > 0) {
-            bytes32 latestNonce = _generateNonce(
-                msg.sender,
-                userNonceCounter[msg.sender] - 1
-            );
-            ExecutorParameterSet storage existingParams = parametersByNonce[
-                latestNonce
-            ];
-            if (existingParams.exists) {
-                // Check if parameters have expired
-                // solhint-disable-next-line not-rely-on-time
-                if (block.timestamp > existingParams.timestamp + parameterExpirationTime) {
-                    delete parametersByNonce[latestNonce];
-                }
-            }
-        }
-
         // Refresh existing active parameters or generate a new nonce.
         if (userNonceCounter[msg.sender] > 0) {
             bytes32 latestNonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
