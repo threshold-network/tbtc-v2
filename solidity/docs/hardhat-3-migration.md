@@ -408,12 +408,20 @@ validation. The pin is temporary: [#1075](https://github.com/threshold-network/t
 tracks upgrading the OpenZeppelin stack, and
 [#1128](https://github.com/threshold-network/tbtc-v2/issues/1128) tracks the deployment-layer
 rewrite. Those changes need an explicit decision about legacy shared admins,
-new per-proxy admins, existing governance operations and verification.
+new per-proxy admins, existing governance operations and verification; that design
+decision is tracked in [#1130](https://github.com/threshold-network/tbtc-v2/issues/1130).
 
-The PR remains a draft because the strict export/deployment byte-parity gate is unmet: three
-artifacts gain storage layouts, and deployment records reflect that metadata and
-a local transaction gas-limit change. Exported bytecode, ABIs and `export.json`
-match dev.
+The original whole-file export/deployment byte comparison still fails. The
+accepted criterion is a [reproducible compatibility check](./ethers-v6-parity.md)
+with two bounded exceptions: compiler-verified storage-layout additions for the
+three overrides, and one identified local ProxyAdmin ownership-transfer gas limit
+with its verified signature/block/receipt consequences. All other artifact and
+deployment content must match, including bytecode, ABIs, addresses, owners, admin
+relationships and execution state. The raw failure remains visible alongside the
+compatibility result; snapshots are preserved without rewriting their fields.
+The checked-in policy fixes the permitted paths and reviewed script hashes.
+Local parity covers eleven changed deploy scripts; eight inactive scripts and
+live-only paths still need their own applicable validation before live use.
 
 ## What Hardhat 3 is actually worth here
 
