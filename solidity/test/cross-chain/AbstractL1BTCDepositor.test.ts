@@ -409,6 +409,54 @@ describe("AbstractL1BTCDepositor", () => {
       }
     )
 
+    context("when the deferred reimbursement fails", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await resetFakes()
+        await restoreSnapshot()
+      })
+
+      it("should retain the refund record while keeping the deposit finalized", async () => {
+        const { depositKey, fundingTx, reveal, destinationChainDepositOwner } =
+          initializeDepositFixture
+        await reimbursementPool.maxGasPrice.returns(toBigInt(1000000000))
+        await reimbursementPool.staticGas.returns(10000)
+        await depositor
+          .connect(governance)
+          .updateReimbursementPool(reimbursementPool.address)
+        await depositor
+          .connect(governance)
+          .updateReimbursementAuthorization(initializer.address, true)
+        await depositor
+          .connect(initializer)
+          .initializeDeposit(fundingTx, reveal, destinationChainDepositOwner)
+
+        const reimbursement = await depositor.gasReimbursements(depositKey)
+        expect(reimbursement.gasSpent).to.be.gt(0)
+        await depositor.setTrackedDepositKey(depositKey)
+        await allowFinalization()
+        await reimbursementPool.refund.reverts("Refund unavailable")
+
+        const tx = await depositor.connect(relayer).finalizeDeposit(depositKey)
+        await expect(tx)
+          .to.emit(depositor, "DeferredReimbursementFailed")
+          .withArgs(depositKey, initializer.address, reimbursement.gasSpent)
+        expect(await depositor.reimbursementClearedBeforeTransfer()).to.equal(
+          true
+        )
+        expect(await depositor.gasReimbursements(depositKey)).to.deep.equal(
+          reimbursement
+        )
+        expect(await depositor.deposits(depositKey)).to.equal(2) // Finalized
+        await expect(
+          depositor.connect(relayer).finalizeDeposit(depositKey)
+        ).to.be.revertedWith("Wrong deposit state")
+      })
+    })
+
     context("when the reimbursement pool is not set", () => {
       before(async () => {
         await createSnapshot()
