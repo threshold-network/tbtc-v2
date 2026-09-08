@@ -8,9 +8,9 @@ This is a breaking release. Most consumers need only two changes: pass a viem cl
 (or keep passing an ethers v5 signer — still supported), and switch `BigNumber` values
 to native `bigint`. The details below are exhaustive.
 
-## 1. Node.js ≥ 18 required
+## 1. Node.js ≥ 22.12.0 required
 
-The minimum supported Node version is now 18 (was 16).
+The minimum supported Node version is now 22.12.0 (previously 16).
 
 ## 2. `ethers` is no longer a dependency of the SDK
 
@@ -124,10 +124,20 @@ status?: "success" | "reverted" | number }`) instead of the ethers
 
 ## 7. Unchanged
 
-`Hex`, `EthereumAddress`, the `Chains` enum values, Sepolia/Mainnet behavior, all
-Bitcoin/Electrum client APIs, retry/backoff semantics, and every non-EVM chain SDK
-(StarkNet, SUI, Solana) are unchanged apart from the `BigNumber` → `bigint` type shift
-described in §4.
+`Hex`, `EthereumAddress`, the `Chains` enum values, all Bitcoin/Electrum client APIs,
+retry/backoff semantics, and every non-EVM chain SDK (StarkNet, SUI, Solana) are
+unchanged apart from the `BigNumber` → `bigint` type shift described in §4. See §8 for
+a Sepolia-specific exception.
+
+## 8. Sepolia now uses Bitcoin testnet4
+
+`TBTC.initializeSepolia` (and `TBTCCore.initializeSepolia`) connect to Bitcoin testnet4
+(BIP-94) instead of testnet3. This predates this migration and is unrelated to the
+ethers → viem change, but is called out here because both networks share the same
+address prefixes (`tb1`/`m`/`2`), so an integration left on testnet3 tooling will not
+see a compile-time or runtime error — it will silently connect to the wrong Bitcoin
+network. Before upgrading, move testnet integrations, Electrum endpoints, fixtures, and
+funding workflows to testnet4.
 
 ## Notes
 
