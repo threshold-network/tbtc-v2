@@ -9,18 +9,18 @@
 # candidate as a non-match and moving on to the next one. This crashes any
 # `deployProxy`/`upgradeProxy` call for a non-linked contract (e.g.
 # BTCDepositorWormhole, Timelock, VendingMachine) whenever a library-linked
-# contract was compiled in the same hardhat run — matches upstream issue
-# https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/1227, fixed
-# (unreleased as of upgrades-core 1.46.0, our pinned version) by
-# https://github.com/OpenZeppelin/openzeppelin-upgrades/pull/1246 with the
-# same try/catch approach applied here.
+# contract was compiled in the same hardhat run - matches upstream issue
+# https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/1227.
+# Proposed fix in https://github.com/OpenZeppelin/openzeppelin-upgrades/pull/1246
+# (still open, not yet released as of our pinned upgrades-core 1.46.0) uses
+# the same try/catch approach applied here.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOLIDITY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 QUERY_JS="$SOLIDITY_ROOT/node_modules/@openzeppelin/upgrades-core/dist/validate/query.js"
 
 if [ ! -f "$QUERY_JS" ]; then
-  echo "patch-openzeppelin-upgrades-core-unlink: skip (no $QUERY_JS — run yarn install)"
+  echo "patch-openzeppelin-upgrades-core-unlink: skip (no $QUERY_JS - run yarn install)"
   exit 0
 fi
 
