@@ -1,5 +1,6 @@
 use crate::{
-    constants::MSG_SEED_PREFIX,
+    constants::{DISABLED_GATEWAY, MSG_SEED_PREFIX},
+    error::WormholeGatewayError,
     state::{Custodian, GatewayInfo},
 };
 use anchor_lang::prelude::*;
@@ -13,7 +14,7 @@ use wormhole_anchor_sdk::{
 #[instruction(args: SendTbtcGatewayArgs)]
 pub struct SendTbtcGateway<'info> {
     #[account(
-        mut, 
+        mut,
         seeds = [Custodian::SEED_PREFIX],
         bump = custodian.bump,
         has_one = wrapped_tbtc_token,
@@ -103,6 +104,16 @@ pub struct SendTbtcGateway<'info> {
 
 impl<'info> SendTbtcGateway<'info> {
     fn constraints(ctx: &Context<Self>, args: &SendTbtcGatewayArgs) -> Result<()> {
+        require!(
+            ctx.accounts.gateway_info.address != DISABLED_GATEWAY,
+            WormholeGatewayError::GatewayDisabled
+        );
+        // Reject sendTbtcGateway to the zero address; a zero gateway means no peer is configured,
+        // which should fail loudly rather than routing tokens nowhere.
+        require!(
+            ctx.accounts.gateway_info.address != [0; 32],
+            WormholeGatewayError::ZeroGateway
+        );
         super::validate_send(
             &ctx.accounts.wrapped_tbtc_token,
             &args.recipient,
@@ -132,7 +143,6 @@ pub fn send_tbtc_gateway(ctx: Context<SendTbtcGateway>, args: SendTbtcGatewayArg
     let wrapped_tbtc_token = &ctx.accounts.wrapped_tbtc_token;
     let token_bridge_transfer_authority = &ctx.accounts.token_bridge_transfer_authority;
     let token_program = &ctx.accounts.token_program;
-
     let gateway = ctx.accounts.gateway_info.address;
 
     // Prepare for wrapped tBTC transfer (this method also truncates the amount to prevent having to

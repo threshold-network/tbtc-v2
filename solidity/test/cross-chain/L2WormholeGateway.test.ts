@@ -134,6 +134,7 @@ describe("L2WormholeGateway", () => {
 
   // Returns hexString padded on the left with zeros to 32 bytes.
   const padTo32Bytes = (hex: string) => ethers.utils.hexZeroPad(hex, 32)
+  const DISABLED_GATEWAY = padTo32Bytes("0x01")
 
   describe("initialization", () => {
     it("should set the wormhole bridge address", async () => {
@@ -146,6 +147,10 @@ describe("L2WormholeGateway", () => {
 
     it("should set the canonical tBTC address", async () => {
       expect(await gateway.tbtc()).to.equal(canonicalTbtc.address)
+    })
+
+    it("should set the disabled gateway sentinel", async () => {
+      expect(await gateway.DISABLED_GATEWAY()).to.equal(DISABLED_GATEWAY)
     })
   })
 
@@ -505,6 +510,34 @@ describe("L2WormholeGateway", () => {
           })
         })
 
+        context("when the target chain gateway is disabled", () => {
+          const amount = to1e18(11)
+
+          before(async () => {
+            await createSnapshot()
+
+            await gateway
+              .connect(governance)
+              .updateGatewayAddress(recipientChain, DISABLED_GATEWAY)
+
+            await canonicalTbtc
+              .connect(depositor1)
+              .approve(gateway.address, amount)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should revert", async () => {
+            await expect(
+              gateway
+                .connect(depositor1)
+                .sendTbtc(amount, recipientChain, recipient, arbiterFee, nonce)
+            ).to.be.revertedWith("Gateway disabled")
+          })
+        })
+
         context("when the amount is below dust", async () => {
           const amount = ethers.BigNumber.from(10000000000).sub(1) // 10^10 - 1
 
@@ -722,9 +755,9 @@ describe("L2WormholeGateway", () => {
       })
     })
 
-    // unit test ensuring there is no 0x0 validation preventing from disabling
-    // a gateway in case it is needed one day
-    context("when disabling gateway", () => {
+    // unit test ensuring there is no 0x0 validation preventing from clearing
+    // a gateway back to the raw Wormhole token path in case it is needed
+    context("when clearing gateway", () => {
       const chainId = 17
       const gatewayAddress = "0xc0ffee254729296a45a3885639ac7e10f9d54979"
 
@@ -756,6 +789,33 @@ describe("L2WormholeGateway", () => {
         await expect(tx)
           .to.emit(gateway, "GatewayAddressUpdated")
           .withArgs(chainId, padTo32Bytes(ZERO_ADDRESS))
+      })
+    })
+
+    context("when disabling gateway", () => {
+      const chainId = 17
+
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        tx = await gateway
+          .connect(governance)
+          .updateGatewayAddress(chainId, DISABLED_GATEWAY)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the gateway address", async () => {
+        expect(await gateway.gateways(chainId)).to.equal(DISABLED_GATEWAY)
+      })
+
+      it("should emit the GatewayAddressUpdated event", async () => {
+        await expect(tx)
+          .to.emit(gateway, "GatewayAddressUpdated")
+          .withArgs(chainId, DISABLED_GATEWAY)
       })
     })
   })

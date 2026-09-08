@@ -1,0 +1,23 @@
+diff --git a/dist/validate/query.js b/dist/validate/query.js
+index fd7145024156bd31332c1f182efec33ca23f67c9..8cc87561211d44517f4b7bd1f83e7f29b38945f7 100644
+--- a/dist/validate/query.js
++++ b/dist/validate/query.js
+@@ -121,7 +121,17 @@ function getUnlinkedBytecode(data, bytecode) {
+         for (const name of linkableContracts) {
+             const { linkReferences } = validation[name];
+             const unlinkedBytecode = (0, link_refs_1.unlinkBytecode)(bytecode, linkReferences);
+-            const version = (0, version_1.getVersion)(unlinkedBytecode);
++            let version;
++            try {
++                version = (0, version_1.getVersion)(unlinkedBytecode);
++            }
++            catch (e) {
++                // Unrelated link references can produce invalid bytecode when
++                // applied to a target contract that has no library dependencies
++                // of its own. Skip this candidate and keep looking.
++                // See https://github.com/OpenZeppelin/openzeppelin-upgrades/pull/1246
++                continue;
++            }
+             if (validation[name].version?.withMetadata === version.withMetadata) {
+                 return unlinkedBytecode;
+             }

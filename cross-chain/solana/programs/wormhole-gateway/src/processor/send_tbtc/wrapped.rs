@@ -1,4 +1,8 @@
-use crate::{constants::MSG_SEED_PREFIX, state::Custodian};
+use crate::{
+    constants::{DISABLED_GATEWAY, MSG_SEED_PREFIX},
+    error::WormholeGatewayError,
+    state::{Custodian, GatewayInfo},
+};
 use anchor_lang::prelude::*;
 use anchor_spl::token;
 use wormhole_anchor_sdk::{
@@ -18,6 +22,22 @@ pub struct SendTbtcWrapped<'info> {
         has_one = tbtc_mint,
     )]
     custodian: Account<'info, Custodian>,
+
+    /// CHECK: Gateway info for the recipient chain, seeds-pinned to
+    /// `recipient_chain`. It is mandatory (not optional) so the caller cannot
+    /// bypass the disabled-gateway check by omitting or substituting it — the
+    /// seeds constraint forces the caller to pass the canonical PDA for the
+    /// chain. It is an `UncheckedAccount` because gateway-less chains (the plain
+    /// wrapped-transfer path, mirroring the EVM `gateway == bytes32(0)` branch)
+    /// have no initialized `GatewayInfo` PDA. The instruction body branches on
+    /// the account's on-chain state: program-owned (initialized) is deserialized
+    /// and checked for the disabled sentinel; empty/uninitialized means the
+    /// chain has no registered gateway and the send is allowed.
+    #[account(
+        seeds = [GatewayInfo::SEED_PREFIX, &args.recipient_chain.to_le_bytes()],
+        bump,
+    )]
+    gateway_info: UncheckedAccount<'info>,
 
     /// Custody account.
     #[account(mut)]
@@ -89,6 +109,27 @@ pub struct SendTbtcWrapped<'info> {
 
 impl<'info> SendTbtcWrapped<'info> {
     fn constraints(ctx: &Context<Self>, args: &SendTbtcWrappedArgs) -> Result<()> {
+        // Reject the send if the destination chain's gateway has been disabled via
+        // the sentinel. The `gateway_info` account is seeds-pinned to
+        // `recipient_chain` and mandatory, so the caller cannot skip this check by
+        // omitting or substituting the account. Branch on the account's on-chain
+        // state, mirroring the EVM `gateways[chain]` storage read: if it is owned by
+        // this program it is an initialized `GatewayInfo` carrying the chain's
+        // gateway address -- reject when that address is the disabled sentinel. If it
+        // is uninitialized (empty / system-owned), the chain has no registered
+        // gateway (the normal wrapped-transfer case, e.g. Ethereum) and the send is
+        // allowed. Checked here (in `constraints`, evaluated via `#[access_control]`
+        // before the instruction body runs) rather than in the handler body, so both
+        // this chain and the EVM `L2WormholeGateway.sol` reject a disabled-gateway
+        // send for the same reason first.
+        let gateway_info_account = &ctx.accounts.gateway_info;
+        if gateway_info_account.owner == ctx.program_id && !gateway_info_account.data_is_empty() {
+            let gateway_info =
+                GatewayInfo::try_deserialize(&mut &gateway_info_account.data.borrow()[..])?;
+            if gateway_info.address == DISABLED_GATEWAY {
+                return Err(WormholeGatewayError::GatewayDisabled.into());
+            }
+        }
         super::validate_send(
             &ctx.accounts.wrapped_tbtc_token,
             &args.recipient,

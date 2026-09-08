@@ -518,7 +518,13 @@ abstract contract AbstractL1BTCDepositor is
                 /* solhint-enable avoid-low-level-calls */
 
                 if (!success) {
+                    // This branch only restores bookkeeping for a retry
+                    // after the untrusted low-level call above already ran;
+                    // it does not gate any control flow the call could
+                    // reenter into.
+                    // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
+                    // slither-disable-next-line reentrancy-benign,reentrancy-events
                     emit DeferredReimbursementFailed(
                         depositKey,
                         reimbursement.receiver,
