@@ -79,6 +79,10 @@ replacements. Prettier owns formatting, and unused React/JSX configuration is
 omitted. JavaScript keeps both the correctness rules provided by TypeScript's
 compiler and the applicable core counterparts of the inherited TypeScript
 extension rules, including unused expressions, shadowing and loop closures.
+Core `no-implied-eval` covers timers; `no-new-func` also rejects calls to the
+`Function` constructor, with or without `new`. A syntax restriction covers
+qualified calls through `global`, `globalThis` and `window`, including bracket
+access. References to `Function` without invoking it remain allowed.
 The existing deployment overrides still apply to JavaScript deployment patches.
 The import-x TypeScript preset supplies export-map traversal settings as well
 as module resolution, so dependency-cycle analysis follows TypeScript imports.
