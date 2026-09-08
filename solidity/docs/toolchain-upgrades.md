@@ -91,14 +91,22 @@ The ESLint 10 flat configuration uses typescript-eslint 8 and import-x.
 `eslint.rules.cjs` preserves the active non-formatting rules resolved from
 `@thesis-co/eslint-config` 0.1.0; removed TypeScript rules use their current
 replacements. Prettier owns formatting, and unused React/JSX configuration is
-omitted. JavaScript keeps the correctness rules which TypeScript's compiler
-provides for TypeScript files. `tsconfig.eslint.json` is checked in so fresh
+omitted. JavaScript keeps both the correctness rules provided by TypeScript's
+compiler and the applicable core counterparts of the inherited TypeScript
+extension rules, including unused expressions, shadowing and loop closures.
+The existing deployment overrides still apply to JavaScript deployment patches.
+The import-x TypeScript preset supplies export-map traversal settings as well
+as module resolution, so dependency-cycle analysis follows TypeScript imports.
+`tsconfig.eslint.json` is checked in so fresh
 installs do not depend on the old shared package generating one.
 
 The existing test overrides and the prohibition on `waffle.loadFixture` remain.
 Focused tests (`describe.only` / `it.only`) are errors. Unused disable comments
 are errors, including the obsolete `no-extra-semi` suppressions removed in this
-migration. Node 22.13+ or Node 24+ is required by ESLint 10.
+migration. `npm run test:lint-policy` checks actual cyclic and acyclic TypeScript
+modules, JavaScript correctness violations and accepted deployment overrides.
+It runs as part of `lint:eslint`, including the existing formatting CI job.
+Node 22.13+ or Node 24+ is required by ESLint 10.
 
 The existing warning debt stays visible with a ceiling of 321 in both ESLint
 commands: 263 console uses, 31 unnamed functions, 19 unused variables, five
