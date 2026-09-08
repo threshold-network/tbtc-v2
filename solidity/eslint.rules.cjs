@@ -612,6 +612,8 @@ module.exports = {
     "dot-notation": ["error", { allowKeywords: true, allowPattern: "" }],
     "no-dupe-class-members": ["error"],
     "no-implied-eval": ["error"],
+    // Core no-implied-eval covers timers; Function needs its own rule.
+    "no-new-func": ["error"],
     "no-loop-func": ["error"],
     "no-redeclare": ["error"],
     "no-shadow": ["error"],
