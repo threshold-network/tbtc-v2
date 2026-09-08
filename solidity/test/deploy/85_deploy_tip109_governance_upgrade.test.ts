@@ -6,6 +6,7 @@ import { expect } from "chai"
 import hre, { ethers, deployments } from "hardhat"
 import fs from "fs"
 import path from "path"
+import { requireValue } from "../../helpers/require-value"
 import func, {
   encodeRebateStakingUpgrade,
   encodeBridgeUpgradeAndCall,
@@ -481,8 +482,10 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         // The selector must match setRebateStaking(address), which is a
         // direct onlyOwner call on BridgeGovernance
-        const expectedSelector =
-          bridgeGovIface.getFunction("setRebateStaking").selector
+        const expectedSelector = requireValue(
+          bridgeGovIface.getFunction("setRebateStaking"),
+          "ABI fragment"
+        ).selector
         expect(calldata.slice(0, 10)).to.equal(expectedSelector)
       })
     })

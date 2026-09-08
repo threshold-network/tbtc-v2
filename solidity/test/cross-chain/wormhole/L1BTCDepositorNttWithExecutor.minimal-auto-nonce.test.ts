@@ -3,6 +3,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../../helpers/require-value"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -124,7 +125,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt1 = await tx1.wait()
+      const receipt1 = requireValue(await tx1.wait(), "Transaction receipt")
       const nonce1 = receipt1.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
@@ -137,7 +138,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt2 = await tx2.wait()
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
       const nonce2 = receipt2.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce
@@ -247,7 +248,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const expectedNonce = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersSet")?.args?.nonce

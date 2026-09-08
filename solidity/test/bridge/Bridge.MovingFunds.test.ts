@@ -4,6 +4,7 @@ import { ethers, helpers } from "hardhat"
 import chai, { assert, expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { Deployment } from "hardhat-deploy/types"
+import { requireValue } from "../../helpers/require-value"
 import { walletToStruct, to1ePrecision } from "../helpers/contract-test-helpers"
 import type { Mock } from "../helpers/mock"
 import type {
@@ -1175,19 +1176,19 @@ describe("Bridge - Moving funds", () => {
                                                 })
 
                                                 it("should create appropriate moved funds sweep requests", async () => {
+                                                  const expectedRequests =
+                                                    requireValue(
+                                                      test.data
+                                                        .expectedMovedFundsSweepRequests,
+                                                      "Expected sweep requests"
+                                                    )
                                                   for (
                                                     let i = 0;
-                                                    i <
-                                                    test.data
-                                                      .expectedMovedFundsSweepRequests
-                                                      .length;
+                                                    i < expectedRequests.length;
                                                     i++
                                                   ) {
                                                     const expectedMovedFundsSweepRequest =
-                                                      test.data
-                                                        .expectedMovedFundsSweepRequests[
-                                                        i
-                                                      ]
+                                                      expectedRequests[i]
 
                                                     const requestKey =
                                                       ethers.solidityPackedKeccak256(
@@ -3749,8 +3750,8 @@ describe("Bridge - Moving funds", () => {
             const testData: {
               testName: string
               walletState: number
-              additionalSetup?: () => Promise<void>
-              additionalAssertions?: () => Promise<void>
+              additionalSetup: () => Promise<void>
+              additionalAssertions: () => Promise<void>
             }[] = [
               {
                 testName:
@@ -4208,7 +4209,11 @@ describe("Bridge - Moving funds", () => {
   }
 
   async function runMovedFundsSweepScenario(
-    data: MovedFundsSweepTestData,
+    data: Omit<MovedFundsSweepTestData, "movedFundsSweepRequest"> & {
+      movedFundsSweepRequest:
+        | MovedFundsSweepTestData["movedFundsSweepRequest"]
+        | null
+    },
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransactionResponse> {
     await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)

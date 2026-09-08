@@ -1,6 +1,7 @@
 import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { requireValue } from "../../../helpers/require-value"
 
 import type {
   L1BTCDepositorNttWithExecutor,
@@ -304,7 +305,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
           FEE_ARGS_ZERO,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const event = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersSet")

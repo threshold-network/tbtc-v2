@@ -4,6 +4,7 @@ import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
 import type {
   ProxyAdmin,
   Bridge,
@@ -56,8 +57,10 @@ describe("Deployment", async () => {
 
     bridge = await helpers.contracts.getContract("Bridge")
 
-    bridgeImplementationAddress = (await deployments.get("Bridge"))
-      .implementation
+    bridgeImplementationAddress = requireValue(
+      (await deployments.get("Bridge")).implementation,
+      "Bridge implementation"
+    )
 
     bridgeProxy = await ethers.getContractAt(
       "TransparentUpgradeableProxy",

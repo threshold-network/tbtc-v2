@@ -3,6 +3,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
 import type {
   StarkNetBitcoinDepositor,
   MockBridgeForStarkNet,
@@ -41,7 +42,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       depositData.reveal,
       depositData.l2Receiver
     )
-    const receipt = await tx.wait()
+    const receipt = requireValue(await tx.wait(), "Transaction receipt")
     const depositInitEvent = receipt.logs
       .filter((log): log is EventLog => log instanceof EventLog)
       ?.find((e) => e.eventName === "DepositInitialized")
@@ -158,7 +159,10 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       )
 
       // Get the actual events to find the real deposit key
-      const initReceipt = await initTx.wait()
+      const initReceipt = requireValue(
+        await initTx.wait(),
+        "Transaction receipt"
+      )
       const depositInitEvent = initReceipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")
@@ -461,7 +465,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
           value: INITIAL_MESSAGE_FEE,
         })
         // eslint-disable-next-line no-await-in-loop
-        const receipt = await tx.wait()
+        const receipt = requireValue(await tx.wait(), "Transaction receipt")
         gasUsages.push(Number(receipt.gasUsed))
       }
 
@@ -501,7 +505,10 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         depositData.reveal,
         depositData.l2Receiver
       )
-      const initReceipt = await initTx.wait()
+      const initReceipt = requireValue(
+        await initTx.wait(),
+        "Transaction receipt"
+      )
       const depositInitEvent = initReceipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")
@@ -516,7 +523,10 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       const finalizeTx = await depositor.finalizeDeposit(depositKeyBytes32, {
         value: INITIAL_MESSAGE_FEE,
       })
-      const finalizeReceipt = await finalizeTx.wait()
+      const finalizeReceipt = requireValue(
+        await finalizeTx.wait(),
+        "Transaction receipt"
+      )
 
       // Log gas breakdown
       // console.log("Gas Cost Analysis:")

@@ -2,6 +2,7 @@ import { toNumber, toBigInt, BigNumberish, BytesLike } from "ethers"
 import { task, types } from "hardhat/config"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../helpers/require-value"
 import type {
   TestERC20,
   Bridge,
@@ -210,7 +211,10 @@ async function createWallet(
   )
 
   const genesisTx = await randomBeacon.genesis()
-  const genesisBlock = genesisTx.blockNumber
+  const genesisBlock = requireValue(
+    await genesisTx.wait(),
+    "Genesis receipt"
+  ).blockNumber
   const genesisSeed = await getGenesisSeed(hre, genesisBlock)
 
   await helpers.time.mineBlocksTo(genesisBlock + offchainDkgTime + 1)
@@ -262,7 +266,8 @@ async function createWallet(
     hre,
     walletRegistry,
     walletPublicKey,
-    requestNewWalletTx.blockNumber
+    requireValue(await requestNewWalletTx.wait(), "Wallet creation receipt")
+      .blockNumber
   )
 
   console.log(`Created wallet with public key ${walletPublicKey}`)

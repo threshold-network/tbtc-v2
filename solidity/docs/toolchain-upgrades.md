@@ -1,0 +1,60 @@
+# Solidity toolchain upgrades
+
+This records the September 2026 follow-up to the July assessment in
+[hardhat-3-migration.md](hardhat-3-migration.md). The measurements in that
+assessment describe its historical baseline.
+
+## TypeScript and published deployment scripts
+
+The package now enables `strict` for its deployment scripts, tasks, helpers,
+tests and generated contract bindings. TypeChain 8 and the ethers-v6 bindings
+come from [PR #1067](https://github.com/threshold-network/tbtc-v2/pull/1067).
+Fixtures have explicit types; missing receipts, blocks and ABI fragments fail
+with context instead of being asserted away. The existing CI typecheck enforces
+these settings.
+
+`tsconfig.export.json` emits ES2020 **CommonJS**. Consumers execute the
+published `export/deploy/*.js` files through hardhat-deploy v1's `require()`
+loader. ES2020 fits within this package's declared Node >=22 runtime and its
+Node 24 CI toolchain. Changing the syntax target does not make the exports ESM.
+`downlevelIteration` is removed because native iteration is available at this
+target. The TypeScript 6 deprecation opt-out is removed as well.
+
+Runtime declarations follow the installed runtime: Node 24, Chai 4 and Mocha 11. `@types/mocha` 10.0.10 is the latest published declaration release, including
+for Mocha 11; `@types/chai` stays on 4.x until the Chai runtime is migrated.
+
+These changes address [#1072](https://github.com/threshold-network/tbtc-v2/issues/1072),
+[#1073](https://github.com/threshold-network/tbtc-v2/issues/1073) and
+[#1078](https://github.com/threshold-network/tbtc-v2/issues/1078). PR #1067 also
+replaces the three legacy Hardhat plugins and upgrades TypeChain, covering
+[#1074](https://github.com/threshold-network/tbtc-v2/issues/1074) and
+[#1076](https://github.com/threshold-network/tbtc-v2/issues/1076). These are
+stacked changes; the draft status and compatibility gates of #1067 still apply.
+The stack incorporates [#1127](https://github.com/threshold-network/tbtc-v2/pull/1127)
+to include its deployment validation patch and regression coverage.
+
+## Migrations that remain blocked
+
+The following are coordinated deployment migrations, not compatible dependency
+bumps. Registry peer ranges were checked on 2026-09-07.
+
+| Issue                                                                                         | Required next step                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#1071: Hardhat 3](https://github.com/threshold-network/tbtc-v2/issues/1071)                  | Land the ethers-v6 prerequisite, resolve its deployment compatibility gate, and finish the deployment-layer and ESM migrations. Chai 5+ must move with the runtime and matcher stack. |
+| [#1075: OpenZeppelin upgrades 4](https://github.com/threshold-network/tbtc-v2/issues/1075)    | Version 4.1.0 requires Hardhat ^3.6.0 and foundation ethers ^4.0.0. Decide and verify the proxy/admin model before replacing the transitional 2.5.1 plugin.                           |
+| [#1128: hardhat-deploy 2 / rocketh](https://github.com/threshold-network/tbtc-v2/issues/1128) | Establish the external deployment loader and export-format compatibility, then port scripts and fixtures together with the upstream deployment packages.                              |
+
+OpenZeppelin's [migration guide](https://docs.openzeppelin.com/upgrades-plugins/migrate-from-hardhat-2)
+requires Hardhat 3 first and replaces `hre.upgrades` with an async factory tied
+to a shared network connection. Updating just the package version would break
+our deployment API. This work does not alter production network manifests or
+select a new proxy/admin model.
+
+The current deploy-v2 [package metadata](https://registry.npmjs.org/hardhat-deploy/2.0.26)
+requires Hardhat ^3.6.0 and rocketh/@rocketh/node ^0.21.0.
+`@keep-network/hardhat-helpers` 0.7.2 still declares Hardhat 2 peers. The three
+upstream packages selected by `external.contracts` publish v1-shaped CommonJS
+deploy scripts. Before replacing that loader, validate all those scripts and
+both published formats (`export/` and `export.json`) against an explicit
+consumer compatibility contract. Keep these three issues open until their
+runtime migrations and acceptance checks are complete.

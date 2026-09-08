@@ -40,13 +40,13 @@ describe("TBTCVault - OptimisticMinting", () => {
 
   // used by bridge.connect(depositor).revealDeposit(fundingTx, depositRevealInfo)
   let depositor: HardhatEthersSigner
-  let fundingTx
-  let depositRevealInfo
+  let fundingTx: DepositSweepTestData["deposits"][number]["fundingTx"]
+  let depositRevealInfo: DepositSweepTestData["deposits"][number]["reveal"]
 
   // used by bridge.submitDepositSweepProof(sweepTx, sweepProof, mainUtxo)
-  let sweepTx
-  let sweepProof
-  let mainUtxo
+  let sweepTx: DepositSweepTestData["sweepTx"]
+  let sweepProof: DepositSweepTestData["sweepProof"]
+  let mainUtxo: DepositSweepTestData["mainUtxo"]
   let chainDifficulty: number
 
   // used by tbtcVault.requestOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -90,7 +90,7 @@ describe("TBTCVault - OptimisticMinting", () => {
     )
     fundingTx = bitcoinTestData.deposits[0].fundingTx
     depositRevealInfo = bitcoinTestData.deposits[0].reveal
-    depositRevealInfo.vault = tbtcVault.target
+    depositRevealInfo.vault = await tbtcVault.getAddress()
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -110,8 +110,8 @@ describe("TBTCVault - OptimisticMinting", () => {
 
     // Set up test data needed to request optimistic minting via
     // tbtcVault.requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-    fundingTxHash = fundingTx.hash
-    fundingOutputIndex = depositRevealInfo.fundingOutputIndex
+    fundingTxHash = ethers.hexlify(fundingTx.hash)
+    fundingOutputIndex = toNumber(depositRevealInfo.fundingOutputIndex)
 
     // Calculate the key of revealed deposit. This value is used in tests so we
     // calculate it once, in the setup.

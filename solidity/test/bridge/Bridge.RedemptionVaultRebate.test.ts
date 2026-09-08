@@ -5,6 +5,7 @@ import { toNumber, Contract, ContractTransactionResponse } from "ethers"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
+import { requireValue } from "../../helpers/require-value"
 import { createMock } from "../helpers/mock"
 import type { Mock } from "../helpers/mock"
 import type {
@@ -241,7 +242,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         })
 
         it("should not revert", async () => {
-          const receipt = await tx.wait()
+          const receipt = requireValue(await tx.wait(), "Transaction receipt")
           expect(receipt.status).to.be.equal(1)
         })
 
@@ -503,7 +504,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       it("should not revert", async () => {
-        const receipt = await tx.wait()
+        const receipt = requireValue(await tx.wait(), "Transaction receipt")
         expect(receipt.status).to.be.equal(1)
       })
 
@@ -846,7 +847,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           buildRedemptionKey(pubKeyHash, outputScript)
         )
         expect(request.treasuryFee).to.equal(treasuryFee)
-        expect((await tx.wait()).status).to.equal(1)
+        expect(
+          requireValue(await tx.wait(), "Transaction receipt").status
+        ).to.equal(1)
       } finally {
         await restoreSnapshot()
       }

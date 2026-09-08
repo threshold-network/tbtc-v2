@@ -1,6 +1,7 @@
+import type { ContractTransactionResponse, Signer } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
-import type { Signer } from "ethers"
+import { requireValue } from "../../helpers/require-value"
 import { constants } from "../fixtures"
 import type { TestERC20, TBTC, VendingMachine } from "../../typechain"
 
@@ -92,8 +93,7 @@ describe("VendingMachine", () => {
     })
 
     context("when TBTC v1 owner has enough tokens", () => {
-      let tx
-
+      let tx: ContractTransactionResponse
       context("when minting entire allowance", () => {
         const amount = initialBalance
 
@@ -189,8 +189,7 @@ describe("VendingMachine", () => {
 
     context("when called via approveAndCall", () => {
       const amount = to1e18(2)
-      let tx
-
+      let tx: ContractTransactionResponse
       before(async () => {
         await createSnapshot()
 
@@ -265,8 +264,7 @@ describe("VendingMachine", () => {
           const unmintAmount = initialBalance
           let v1StartBalance: bigint
           let v2StartBalance: bigint
-          let tx
-
+          let tx: ContractTransactionResponse
           before(async () => {
             await createSnapshot()
 
@@ -313,8 +311,7 @@ describe("VendingMachine", () => {
           const unmintAmount = to1e18(1)
           let v1StartBalance: bigint
           let v2StartBalance: bigint
-          let tx
-
+          let tx: ContractTransactionResponse
           before(async () => {
             await createSnapshot()
 
@@ -377,8 +374,7 @@ describe("VendingMachine", () => {
           let fee: bigint
           let v1StartBalance: bigint
           let v2StartBalance: bigint
-          let tx
-
+          let tx: ContractTransactionResponse
           before(async () => {
             await createSnapshot()
 
@@ -428,8 +424,7 @@ describe("VendingMachine", () => {
           let fee: bigint
           let v1StartBalance: bigint
           let v2StartBalance: bigint
-          let tx
-
+          let tx: ContractTransactionResponse
           before(async () => {
             await createSnapshot()
 
@@ -566,8 +561,7 @@ describe("VendingMachine", () => {
     context("when caller is the update initiator", () => {
       const newUnmintFee = 191111
 
-      let tx
-
+      let tx: ContractTransactionResponse
       before(async () => {
         await createSnapshot()
 
@@ -587,7 +581,11 @@ describe("VendingMachine", () => {
       it("should start the update initiation time", async () => {
         expect(
           await vendingMachine.unmintFeeUpdateInitiatedTimestamp()
-        ).to.equal(await getBlockTime(tx.blockNumber))
+        ).to.equal(
+          await getBlockTime(
+            requireValue(await tx.wait(), "Transaction receipt").blockNumber
+          )
+        )
       })
 
       it("should set the pending new unmint fee", async () => {
@@ -603,7 +601,12 @@ describe("VendingMachine", () => {
       it("should emit UnmintFeeUpdateInitiated event", async () => {
         await expect(tx)
           .to.emit(vendingMachine, "UnmintFeeUpdateInitiated")
-          .withArgs(newUnmintFee, await getBlockTime(tx.blockNumber))
+          .withArgs(
+            newUnmintFee,
+            await getBlockTime(
+              requireValue(await tx.wait(), "Transaction receipt").blockNumber
+            )
+          )
       })
     })
   })
@@ -673,8 +676,7 @@ describe("VendingMachine", () => {
         })
 
         context("when governance delay passed", () => {
-          let tx
-
+          let tx: ContractTransactionResponse
           before(async () => {
             await createSnapshot()
 
@@ -769,8 +771,7 @@ describe("VendingMachine", () => {
       })
 
       context("when new vending machine address is non-zero", () => {
-        let tx
-
+        let tx: ContractTransactionResponse
         before(async () => {
           await createSnapshot()
 
@@ -790,7 +791,11 @@ describe("VendingMachine", () => {
         it("should start the upgrade initiation time", async () => {
           expect(
             await vendingMachine.vendingMachineUpgradeInitiatedTimestamp()
-          ).to.equal(await getBlockTime(tx.blockNumber))
+          ).to.equal(
+            await getBlockTime(
+              requireValue(await tx.wait(), "Transaction receipt").blockNumber
+            )
+          )
         })
 
         it("should set the pending new vending machine address", async () => {
@@ -812,7 +817,9 @@ describe("VendingMachine", () => {
             .to.emit(vendingMachine, "VendingMachineUpgradeInitiated")
             .withArgs(
               newVendingMachine.target,
-              await getBlockTime(tx.blockNumber)
+              await getBlockTime(
+                requireValue(await tx.wait(), "Transaction receipt").blockNumber
+              )
             )
         })
       })
@@ -900,8 +907,7 @@ describe("VendingMachine", () => {
         })
 
         context("when governance delay passed", () => {
-          let tx
-
+          let tx: ContractTransactionResponse
           before(async () => {
             await createSnapshot()
 

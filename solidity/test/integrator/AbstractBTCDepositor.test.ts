@@ -40,7 +40,7 @@ describe("AbstractBTCDepositor", () => {
   let tbtcVault: TestBTCDepositorMockTBTCVault
   let depositor: TestBTCDepositor
 
-  let fixture
+  let fixture: ReturnType<typeof loadFixture>
 
   before(async () => {
     const MockBridge = await ethers.getContractFactory("MockBridge")

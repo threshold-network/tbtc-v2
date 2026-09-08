@@ -910,7 +910,11 @@ describe("Bank", () => {
       await restoreSnapshot()
     })
 
-    const getApproval = async (amount, spenderAddress, deadline) => {
+    const getApproval = async (
+      amount: bigint,
+      spenderAddress: string,
+      deadline: number | bigint
+    ) => {
       // We use ethers.SigningKey for a Wallet instead of
       // Signer.signMessage to do not add '\x19Ethereum Signed Message:\n'
       // prefix to the signed message. The '\x19` protection (see EIP191 for
@@ -1264,8 +1268,7 @@ describe("Bank", () => {
       })
 
       context("when called for a valid recipient", () => {
-        let tx
-
+        let tx: ContractTransactionResponse
         before(async () => {
           await createSnapshot()
           tx = await bank.connect(bridge).increaseBalance(recipient, amount)

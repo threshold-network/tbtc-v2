@@ -11,6 +11,7 @@ import type {
   BytesLike,
 } from "ethers"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
 import type { TokenStaking } from "../../typechain/external/TokenStaking"
 import type { Mock } from "../helpers/mock"
 
@@ -133,7 +134,10 @@ describeFn("Integration Test - Slashing", async () => {
           hre,
           walletRegistry,
           walletPublicKey,
-          requestNewWalletTx.blockNumber
+          requireValue(
+            await requestNewWalletTx.wait(),
+            "Wallet creation receipt"
+          ).blockNumber
         ))
       })
 
@@ -226,7 +230,10 @@ describeFn("Integration Test - Slashing", async () => {
       const deposit = SingleP2SHDeposit.deposits[0]
 
       const { walletPubKeyHash: walletPubKeyHash160 } = deposit.reveal
-      const { walletPublicKey, walletID: ecdsaWalletID } = deposit.ecdsaWallet
+      const { walletPublicKey, walletID: ecdsaWalletID } = requireValue(
+        deposit.ecdsaWallet,
+        "Fixture ECDSA wallet"
+      )
 
       let walletMembers: Operators
       let redeemerOutputScript: BytesLike
@@ -239,7 +246,10 @@ describeFn("Integration Test - Slashing", async () => {
           hre,
           walletRegistry,
           walletPublicKey,
-          requestNewWalletTx.blockNumber
+          requireValue(
+            await requestNewWalletTx.wait(),
+            "Wallet creation receipt"
+          ).blockNumber
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
@@ -393,7 +403,10 @@ describeFn("Integration Test - Slashing", async () => {
       const deposit = SingleP2SHDeposit.deposits[0]
 
       const walletPubKeyHash160 = deposit.reveal.walletPubKeyHash
-      const { walletPublicKey, walletID: ecdsaWalletID } = deposit.ecdsaWallet
+      const { walletPublicKey, walletID: ecdsaWalletID } = requireValue(
+        deposit.ecdsaWallet,
+        "Fixture ECDSA wallet"
+      )
 
       let walletMembers: Operators
 
@@ -405,7 +418,10 @@ describeFn("Integration Test - Slashing", async () => {
           hre,
           walletRegistry,
           walletPublicKey,
-          requestNewWalletTx.blockNumber
+          requireValue(
+            await requestNewWalletTx.wait(),
+            "Wallet creation receipt"
+          ).blockNumber
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]

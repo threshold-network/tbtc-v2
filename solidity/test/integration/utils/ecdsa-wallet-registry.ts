@@ -12,6 +12,7 @@ import type {
   Signer,
 } from "ethers"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
+import { requireValue } from "../../../helpers/require-value"
 import type { WalletRegistryGovernance } from "../../../typechain/external/WalletRegistryGovernance"
 import type { WalletRegistry, SortitionPool } from "../../../typechain"
 import type { EcdsaInactivity as EcdsaInactivityTypes } from "../../../typechain/@keep-network/ecdsa/contracts/libraries/EcdsaInactivity"
@@ -64,7 +65,8 @@ export async function performEcdsaDkg(
   )
 
   await helpers.time.mineBlocksTo(
-    dkgResultSubmissionTx.blockNumber +
+    requireValue(await dkgResultSubmissionTx.wait(), "DKG submission receipt")
+      .blockNumber +
       Number((await walletRegistry.dkgParameters()).resultChallengePeriodLength)
   )
 

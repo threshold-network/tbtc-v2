@@ -3,6 +3,7 @@ import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { BaseContract, ContractTransactionResponse } from "ethers"
+import { requireValue } from "../../../helpers/require-value"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IWormholeTokenBridge,
@@ -42,7 +43,10 @@ const expectRevertWithCustomError = async (
   contract: BaseContract,
   errorName: string
 ) => {
-  const { selector } = contract.interface.getError(`${errorName}()`)
+  const { selector } = requireValue(
+    contract.interface.getError(`${errorName}()`),
+    "ABI fragment"
+  )
   try {
     await promise
   } catch (error: unknown) {
