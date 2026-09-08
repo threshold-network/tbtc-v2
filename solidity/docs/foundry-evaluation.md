@@ -55,6 +55,24 @@ Future tests importing an overridden contract need to account for that
 profile selection. Hardhat remains the source of deployment artifacts;
 compiler-setting parity does not guarantee identical metadata or artifacts.
 
+The `WalletRegistry` compilation restriction currently has no effect in
+Foundry's build: only its interface (`api/IWalletRegistry.sol`) is imported,
+and the concrete contract is outside the compilation graph today.
+
+Foundry's source resolution also needs explicit context-scoped remappings
+wherever a dependency pins a different `@openzeppelin/contracts(-upgradeable)`
+version than the workspace's top-level 4.8.1, or it silently compiles the
+wrong version for that dependency. Two cases exist today: `@keep-network/ecdsa`
+pins 4.9.1 for both packages and is remapped in full, since its OpenZeppelin
+usage is only reached through a named import and never shares file scope with
+the top-level version. `@keep-network/random-beacon` pins `@openzeppelin/contracts`
+4.7.3, but only its `security/ReentrancyGuard.sol` differs in content from the
+top-level copy (`access/Ownable.sol` and `utils/Context.sol` are byte-identical
+to 4.8.1), so only the `security/` subpath is remapped -- remapping the whole
+package collides with the top-level import in the same compilation unit. Add a
+new context-scoped entry, verified with `forge build`, if a future dependency
+bump introduces another such conflict.
+
 Foundry uses `forge-artifacts/` and `cache_forge/`, separate from Hardhat's
 `build/` and `cache/`. Its dependencies live in the ignored `lib/` directory.
 Generated files and vendored dependencies are excluded from Prettier and

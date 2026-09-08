@@ -99,13 +99,17 @@ contract BitcoinScriptTest is Test {
 
         assertEq(
             harness.extractPubKeyHash(_output(valueA, bytes.concat(script))),
-            harness.extractPubKeyHash(_output(valueB, bytes.concat(script)))
+            pubKeyHash
+        );
+        assertEq(
+            harness.extractPubKeyHash(_output(valueB, bytes.concat(script))),
+            pubKeyHash
         );
     }
 
-    /// @dev Distinct key hashes must not collide into one script. A masking or
-    ///      shifting error in the builders would show up here and nowhere in a
-    ///      fixed-vector test.
+    /// @dev Distinct key hashes must not collide into one script. This guards
+    ///      against builders discarding or masking part of the key hash, which
+    ///      could make distinct hashes produce the same script.
     function testFuzz_distinctKeyHashesGiveDistinctScripts(bytes20 a, bytes20 b)
         public
         view
@@ -122,7 +126,7 @@ contract BitcoinScriptTest is Test {
         bytes memory script = bytes.concat(harness.makeP2PKHScript(pubKeyHash));
 
         assertEq(script.length, 26);
-        assertEq(bytes4(script[0]) >> 24, bytes4(hex"19") >> 24); // total length
+        assertEq(uint8(script[0]), 0x19); // total length
         assertEq(uint8(script[1]), 0x76); // OP_DUP
         assertEq(uint8(script[2]), 0xa9); // OP_HASH160
         assertEq(uint8(script[3]), 0x14); // push 20 bytes
@@ -155,7 +159,18 @@ contract BitcoinScriptTest is Test {
             new bytes(extra)
         );
 
-        vm.expectRevert();
+        vm.expectRevert("Output's public key hash must have 20 bytes");
+        harness.extractPubKeyHash(_output(0, script));
+    }
+
+    /// @dev A P2SH output (24 bytes: OP_HASH160 <20-byte scriptHash> OP_EQUAL)
+    ///      is the one script length that survives the underlying byte-extraction
+    ///      helper with a clean 20-byte result while not matching either supported
+    ///      script length, so the length-gate require is its only defense.
+    function testFuzz_rejectsP2shOutput(bytes20 scriptHash) public {
+        bytes memory script = bytes.concat(hex"17a914", scriptHash, hex"87");
+
+        vm.expectRevert("Output must be P2PKH or P2WPKH");
         harness.extractPubKeyHash(_output(0, script));
     }
 }

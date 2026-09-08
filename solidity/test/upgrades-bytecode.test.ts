@@ -7,6 +7,8 @@ import {
   ContractSourceNotFoundError,
   getUnlinkedBytecode,
   getVersion,
+  unlinkBytecode,
+  type LinkReference,
 } from "@openzeppelin/upgrades-core"
 import type { ValidationDataCurrent } from "@openzeppelin/upgrades-core"
 
@@ -28,15 +30,46 @@ describe("OpenZeppelin upgrade bytecode matching", () => {
   it("should match an unlinked contract with unrelated library references in the cache", () => {
     // BridgeGovernance's link offsets intersect this contract's metadata.
     // Trying to parse metadata for that unrelated candidate used to throw.
-    expect(
-      validations.log.some((run) =>
-        Object.entries(run).some(
-          ([name, contract]) =>
-            name.endsWith(":BridgeGovernance") &&
-            contract.linkReferences.length > 0
-        )
+    const hasBridgeGovernanceWithLinkRefs = validations.log.some((run) =>
+      Object.entries(run).some(
+        ([name, contract]) =>
+          name.endsWith(":BridgeGovernance") &&
+          contract.linkReferences.length > 0
       )
-    ).to.equal(true)
+    )
+    expect(hasBridgeGovernanceWithLinkRefs).to.equal(true)
+
+    // Strengthened precondition: find the exact BridgeGovernance entry with
+    // link references, and verify applying those references to
+    // depositorBytecode would throw when computing its version (i.e.
+    // metadata parsing fails) -- the exact condition the patch handles.
+    const bridgeGovernanceEntry = validations.log
+      .flatMap((run) => Object.entries(run))
+      .find(
+        ([name, contract]) =>
+          name.endsWith(":BridgeGovernance") &&
+          contract.linkReferences.length > 0
+      )
+    if (!bridgeGovernanceEntry) {
+      throw new Error(
+        "Could not find a BridgeGovernance entry with link references in validations.log"
+      )
+    }
+    const [, bridgeGovernanceContract] = bridgeGovernanceEntry
+    const { linkReferences } = bridgeGovernanceContract
+
+    let throwsWhenUnlinked = false
+    try {
+      const unlinked = unlinkBytecode(depositorBytecode, linkReferences)
+      getVersion(unlinked) // This should throw if metadata is corrupted
+    } catch (e) {
+      throwsWhenUnlinked = true
+    }
+    expect(throwsWhenUnlinked).to.equal(
+      true,
+      "no cached candidate splits a placeholder across BTCDepositorWormhole's metadata boundary; this test no longer guards the patch"
+    )
+
     expect(getUnlinkedBytecode(validations, depositorBytecode)).to.equal(
       depositorBytecode
     )

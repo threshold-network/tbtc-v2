@@ -7,12 +7,22 @@ out = "forge-artifacts"
 cache_path = "cache_forge"
 libs = ["node_modules", "lib"]
 # Match Hardhat's compiler settings, including solc 0.8.17's default EVM target.
-solc_version = "0.8.17"
-evm_version = "london"
-optimizer = true
-optimizer_runs = 1000
-auto_detect_remappings = false
+# Context-scoped remappings for nested @openzeppelin/contracts(-upgradeable) versions that
+# genuinely differ from the workspace's top-level 4.8.1: @keep-network/ecdsa pins 4.9.1
+# (its EcdsaDkg.sol -> ECDSAUpgradeable.sol imports differ from the top-level file), and
+# @keep-network/random-beacon pins 4.7.3, but only its security/ReentrancyGuard.sol content
+# differs from top-level; random-beacon's access/Ownable.sol and utils/Context.sol are
+# byte-identical across 4.7.3/4.8.1, so remapping only security/ avoids a solc
+# "Identifier already declared" collision (Ownable/Context resolved from two different
+# paths) that occurs when BridgeState.sol imports both Bank.sol (top-level OZ) and
+# random-beacon's ReimbursementPool.sol (which would otherwise pull the whole nested tree)
+# in the same compilation unit. Without the ecdsa/random-beacon entries below, Foundry's
+# global remapping would silently use the wrong (top-level) version for these two packages,
+# diverging from Hardhat's Node-resolution, which honors each package's own node_modules.
 remappings = [
+    "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts/",
+    "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts-upgradeable/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts-upgradeable/",
+    "node_modules/@keep-network/random-beacon/:@openzeppelin/contracts/security/=node_modules/@keep-network/random-beacon/node_modules/@openzeppelin/contracts/security/",
     "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
     "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
     "@keep-network/=node_modules/@keep-network/",

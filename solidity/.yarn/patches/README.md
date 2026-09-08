@@ -23,3 +23,10 @@ yarn test test/upgrades-bytecode.test.ts test/cross-chain/wormhole/BTCDepositorW
 
 Remove this patch when an upstream release fixes candidate matching and these
 regressions pass without it.
+
+This repo also carries two `postinstall` shell scripts under `scripts/` that
+patch other dependencies in place (`apply-solidity-contracts-export-deploy-patch.sh`,
+`patch-hardhat-undici-connect-timeout.sh`). For any future npm-published
+dependency patch, prefer this Yarn `patch:` protocol: it is lockfile-checksummed
+and fails loudly if the patch no longer applies, where the shell scripts silently
+skip on a pattern mismatch. Treat the shell scripts as legacy.
