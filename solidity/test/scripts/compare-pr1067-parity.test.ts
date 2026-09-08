@@ -10,8 +10,7 @@ import type { Json } from "../../scripts/pr1067-parity-chain"
 
 const test = it
 
-const hasParityEnv =
-  process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
+const hasParityEnv = process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
 
 ;(hasParityEnv ? describe : describe.skip)(
   "compare-pr1067-parity (parity gates)",
@@ -156,7 +155,11 @@ const hasParityEnv =
     rejects(
       "rejects a changed proxy owner",
       () =>
-        changedJson("chain.json", ["proxies", "Bridge", "adminOwner"], zeroWord),
+        changedJson(
+          "chain.json",
+          ["proxies", "Bridge", "adminOwner"],
+          zeroWord
+        ),
       /admin owner/
     )
     rejects(
