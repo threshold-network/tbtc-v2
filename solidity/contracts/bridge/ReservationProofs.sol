@@ -39,10 +39,11 @@ import "../vault/IReservationFeeFinancer.sol";
 ///
 ///      - NOTE: The untrusted call target is `deposits[reservationKey].vault`
 ///        (the deposit's immutable vault, pinned at request time), assumed
-///        to conform to IReservationFeeFinancer. This conformance gap must
-///        be validated (via ERC-165 or a probe call) at that address once a
-///        governance setter for reservationVault is implemented -- every
-///        such address was `reservationVault` at some point, since
+///        to conform to IReservationFeeFinancer. This conformance gap
+///        remains unvalidated: `Reservation.updateReservationParameters`
+///        already wires `reservationVault` in this branch without an
+///        ERC-165 or magic-constant probe at that call site -- every such
+///        address was `reservationVault` at some point, since
 ///        `requestReservationAcceptance` already requires
 ///        `deposit.vault == reservationVault`.
 ///
@@ -126,13 +127,13 @@ library ReservationProofs {
     /// @param requestNonce The generation being settled. Late settlements
     ///        name an older, timed-out generation.
     /// @dev The `BitcoinTx.UTXO` parameter is retained in the signature
-    ///      without a name as it is reserved for a future milestone; it is
-    ///      unused by the current bridge-facing entry point. This internal
-    ///      library function has no caller-identity gate of its own --
-    ///      `ReservationRouter.submitReservationProof`, the bridge-facing
-    ///      entry point that calls it, applies the `onlySpvMaintainer`
-    ///      gate shared with every other SPV proof entry point in this
-    ///      repo.
+    ///      without a name as it is reserved for the router's future use
+    ///      (see PR #B); it is unused by the current bridge-facing entry
+    ///      point. Unlike every other existing SPV proof entry point in
+    ///      this repo, this function has no caller-identity gate of its
+    ///      own -- `ReservationRouter.submitReservationProof` (the only
+    ///      production caller) already applies the equivalent
+    ///      `onlySpvMaintainer` gate before delegating here.
     function submitReservationProof(
         BridgeState.Storage storage self,
         uint8 proofType,
@@ -214,16 +215,16 @@ library ReservationProofs {
     ///         accounting when its target wallet can no longer manage the
     ///         newly settled anchor.
     /// @dev Live and MovingFunds wallets can still manage the anchor.
-    ///      Closing, Closed, and Terminated wallets are stranded
-    ///      immediately here rather than left to the permissionless
-    ///      cleanup path (`notifyReservationStranded`), since a settlement
-    ///      proof already committed the position to this wallet.
-    ///      `evidenceAlreadyEmitted` supports the `notifyReservationStranded`
-    ///      call site, which strands before any settlement proof exists:
-    ///      when a lineage was already stranded by that path before this
-    ///      proof arrives, restore the Stranded state latch before cleanup
-    ///      so the reconstructed accounting is released without emitting
-    ///      duplicate recovery evidence.
+    ///      Closing, Closed, and Terminated wallets are stranded immediately
+    ///      here rather than left to the permissionless cleanup path
+    ///      (`notifyReservationStranded`, which exists and is router-exposed
+    ///      in this branch), so a newly settled anchor never sits unstranded
+    ///      even briefly. `evidenceAlreadyEmitted` supports the
+    ///      `notifyReservationStranded` call site, which can strand before any
+    ///      settlement proof exists: when a lineage was already stranded by
+    ///      that path before this proof arrives, restore the Stranded state
+    ///      latch before cleanup so the reconstructed accounting is released
+    ///      without emitting duplicate recovery evidence.
     function strandLateSettlementIfTargetWalletClosed(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
@@ -294,14 +295,10 @@ library ReservationProofs {
         );
 
         self.reservationTotalAmount += reservation.anchorAmount;
-        BridgeState.WalletReservationInfo memory info = self
-            .walletReservationInfo[reservation.walletPubKeyHash];
-        self.walletReservationInfo[
-            reservation.walletPubKeyHash
-        ] = BridgeState.WalletReservationInfo({
-            amount: info.amount + reservation.anchorAmount,
-            count: info.count + 1
-        });
+        self.walletReservationInfo[reservation.walletPubKeyHash].count += 1;
+        self
+            .walletReservationInfo[reservation.walletPubKeyHash]
+            .amount += reservation.anchorAmount;
         self.activeReservationsCount += 1;
         emit ReservationOccupancyChanged(self.activeReservationsCount);
     }
@@ -400,9 +397,10 @@ library ReservationProofs {
     ///         deposit outpoint becomes recognized by the fraud challenge
     ///         defeat path.
     /// @dev The deposit was validated against the reservation vault at
-    ///      request time; the routing-change gate is NOT yet
-    ///      enforceable (no setter exists in this branch). The
-    ///      governance setter lands later.
+    ///      request time; the routing-change gate is enforced by
+    ///      `Reservation.updateReservationParameters`, which requires
+    ///      `pendingReservedDeposits == 0` before changing
+    ///      `reservationVault`.
     function consumeAcceptedDeposit(
         BridgeState.Storage storage self,
         bytes memory inputVector,
@@ -524,14 +522,10 @@ library ReservationProofs {
             // Deliberately no cap check: caps are request-time throttles
             // and the anchor is already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
-            BridgeState.WalletReservationInfo memory targetInfo = self
-                .walletReservationInfo[targetWalletPubKeyHash];
-            self.walletReservationInfo[
-                targetWalletPubKeyHash
-            ] = BridgeState.WalletReservationInfo({
-                amount: targetInfo.amount + anchorAmount,
-                count: targetInfo.count + 1
-            });
+            self.walletReservationInfo[targetWalletPubKeyHash].count += 1;
+            self
+                .walletReservationInfo[targetWalletPubKeyHash]
+                .amount += anchorAmount;
             // The timeout also released activeReservationsCount (see
             // `Reservation.notifyReservationAcceptanceTimedOut`); re-take it
             // so a late-settled acceptance is still counted against the cap
@@ -578,11 +572,6 @@ library ReservationProofs {
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(anchorTxHash, uint32(0))))
         ] = reservationKey;
-        Reservation.addWalletReservationKey(
-            self,
-            targetWalletPubKeyHash,
-            reservationKey
-        );
         // slither-disable-next-line reentrancy-events
         emit ReservationAccepted(
             reservationKey,
@@ -596,13 +585,13 @@ library ReservationProofs {
 
         // A timed-out authorization released the target wallet's reservation
         // count, so the wallet may have retired before this already-confirmed
-        // anchor is proven. Strand the newly registered position immediately
-        // for Closing, Closed, and Terminated wallets rather than leaving it
-        // to the permissionless `notifyReservationStranded` cleanup path,
-        // since this settlement proof already committed the position to
-        // the wallet. This check runs unconditionally (not just for late
-        // settlements): an on-time proof can equally race a wallet leaving
-        // Live mid-flight.
+        // anchor is proven. Closing, Closed, and Terminated wallets are
+        // stranded immediately here rather than left to the permissionless
+        // `notifyReservationStranded` cleanup path (which exists and is
+        // router-exposed in this branch), so the newly registered position
+        // never sits unstranded even briefly. This check runs
+        // unconditionally (not just for late settlements): an on-time proof
+        // can equally race a wallet leaving Live mid-flight.
         strandLateSettlementIfTargetWalletClosed(
             self,
             reservation,
@@ -712,14 +701,10 @@ library ReservationProofs {
             // The timeout released the target wallet's reserved count and
             // amount; re-take them. Deliberately no cap check (see
             // acceptance).
-            BridgeState.WalletReservationInfo memory newInfo = self
-                .walletReservationInfo[newWalletPubKeyHash];
-            self.walletReservationInfo[
-                newWalletPubKeyHash
-            ] = BridgeState.WalletReservationInfo({
-                amount: newInfo.amount + reservation.anchorAmount,
-                count: newInfo.count + 1
-            });
+            self.walletReservationInfo[newWalletPubKeyHash].count += 1;
+            self
+                .walletReservationInfo[newWalletPubKeyHash]
+                .amount += reservation.anchorAmount;
 
             // A newer pending generation references an anchor this
             // transaction just consumed; unwind it.
@@ -784,9 +769,11 @@ library ReservationProofs {
     ///         (or re-taken on the late path); the target reserved the
     ///         pre-hop anchor value, so only the miner-fee delta is
     ///         released here. The miner fee also reduces the on-chain
-    ///         earmarked amount and is recorded on the reservation since
-    ///         `ReservationReanchored` carries only the new anchor amount
-    ///         (no per-hop fee ceiling is enforced in milestone 1).
+    ///         earmarked amount and is additionally accumulated into
+    ///         `cumulativeReanchorFee` on the reservation: `ReservationReanchored`
+    ///         emits the per-hop `minerFee`, but only `cumulativeReanchorFee`
+    ///         gives the lifetime total across all hops on-chain (no
+    ///         per-hop fee ceiling is enforced in milestone 1).
     /// @return minerFee The in-kind fee paid for this hop, needed by the
     ///         caller for the event and fee financing.
     function settleReanchorAccounting(
@@ -801,27 +788,14 @@ library ReservationProofs {
         uint64 oldAnchorAmount = reservation.anchorAmount;
         minerFee = oldAnchorAmount - newAnchorAmount;
 
-        BridgeState.WalletReservationInfo memory oldInfo = self
-            .walletReservationInfo[oldWalletPubKeyHash];
-        self.walletReservationInfo[oldWalletPubKeyHash] = BridgeState
-            .WalletReservationInfo({
-                amount: oldInfo.amount - oldAnchorAmount,
-                count: oldInfo.count - 1
-            });
+        self.walletReservationInfo[oldWalletPubKeyHash].count -= 1;
+        self
+            .walletReservationInfo[oldWalletPubKeyHash]
+            .amount -= oldAnchorAmount;
         self.walletReservationInfo[newWalletPubKeyHash].amount -= minerFee;
         self.reservationTotalAmount -= minerFee;
         reservation.cumulativeReanchorFee += minerFee;
 
-        Reservation.removeWalletReservationKey(
-            self,
-            oldWalletPubKeyHash,
-            reservationKey
-        );
-        Reservation.addWalletReservationKey(
-            self,
-            newWalletPubKeyHash,
-            reservationKey
-        );
         self.reservationsByAnchorUtxo[
             uint256(keccak256(abi.encodePacked(reanchorTxHash, uint32(0))))
         ] = reservationKey;

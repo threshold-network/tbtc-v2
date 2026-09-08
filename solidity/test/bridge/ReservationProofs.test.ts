@@ -595,12 +595,6 @@ describe("ReservationProofs", () => {
         await testReservationProofs.getReservationByAnchorUtxo(anchorUtxoKey)
       ).to.equal(sampleReservationKey)
 
-      // 4. Wallet reservation enumeration
-      const walletKeys = await testReservationProofs.getWalletReservationKeys(
-        walletPubKeyHash
-      )
-      expect(walletKeys.length).to.equal(1)
-      expect(walletKeys[0]).to.equal(sampleReservationKey)
       // 5. Deposit marked as swept
       const deposit = await testReservationProofs.getDeposit(
         sampleReservationKey
@@ -1197,10 +1191,6 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
-      await testReservationProofs.addWalletReservationKey(
-        walletPubKeyHash,
-        sampleReservationKey
-      )
 
       // Call strand hook with late = false: an honest on-time proof must
       // still strand against a wallet that left Live while the proof was
@@ -1322,10 +1312,6 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
-      await testReservationProofs.addWalletReservationKey(
-        walletPubKeyHash,
-        sampleReservationKey
-      )
 
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
@@ -1354,12 +1340,6 @@ describe("ReservationProofs", () => {
       expect(await testReservationProofs.getActiveReservationsCount()).to.equal(
         0
       )
-
-      // Wallet reservation key removed
-      const walletKeys = await testReservationProofs.getWalletReservationKeys(
-        walletPubKeyHash
-      )
-      expect(walletKeys).to.deep.equal([])
 
       // ReservationStranded event emitted
       await expect(tx)
@@ -1405,10 +1385,6 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
-      await testReservationProofs.addWalletReservationKey(
-        walletPubKeyHash,
-        sampleReservationKey
-      )
 
       const tx =
         await testReservationProofs.strandLateSettlementIfTargetWalletClosed(
@@ -1491,10 +1467,6 @@ describe("ReservationProofs", () => {
       )
       await testReservationProofs.setReservationTotalAmount(anchorAmount)
       await testReservationProofs.setActiveReservationsCount(1)
-      await testReservationProofs.addWalletReservationKey(
-        walletPubKeyHash,
-        sampleReservationKey
-      )
 
       // When evidenceAlreadyEmitted is true, strandLateSettlementIfTargetWalletClosed strands but does not emit duplicate event
       const tx =
@@ -1595,7 +1567,7 @@ describe("ReservationProofs", () => {
       expect(await mockReservationVault.totalReceived()).to.equal(0)
     })
 
-    it("should settle re-anchor SPV proof, migrate wallet enumeration, update reverse anchor index, and strand cleanly", async () => {
+    it("should settle re-anchor SPV proof, update reverse anchor index, and strand cleanly", async () => {
       // 1. Seed the acceptance-settled position anchored at the utxo the
       // re-anchor spends. The fixture chain is
       // `MovedFundsSweepWithoutMainUtxo`: sweepTx (proved below) spends
@@ -1647,10 +1619,6 @@ describe("ReservationProofs", () => {
         oldWalletPubKeyHash,
         reanchorAmount
       )
-      await testReservationProofs.addWalletReservationKey(
-        oldWalletPubKeyHash,
-        anchorReservationKey
-      )
       await testReservationProofs.setReservationByAnchorUtxo(
         oldAnchorUtxoKey,
         anchorReservationKey
@@ -1660,12 +1628,6 @@ describe("ReservationProofs", () => {
       expect(
         await testReservationProofs.getReservationByAnchorUtxo(oldAnchorUtxoKey)
       ).to.equal(anchorReservationKey)
-      const preReanchorKeys =
-        await testReservationProofs.getWalletReservationKeys(
-          oldWalletPubKeyHash
-        )
-      expect(preReanchorKeys.length).to.equal(1)
-      expect(preReanchorKeys[0]).to.equal(anchorReservationKey)
 
       // Setup target wallet and Reanchor action
       await testReservationProofs.setWalletState(newWalletPubKeyHash, 1) // Live
@@ -1745,17 +1707,9 @@ describe("ReservationProofs", () => {
         await testReservationProofs.getReservationByAnchorUtxo(oldAnchorUtxoKey)
       ).to.equal(0)
 
-      // (b) Wallet enumeration: migrated to new wallet, old wallet is empty
-      const migratedKeys = await testReservationProofs.getWalletReservationKeys(
-        newWalletPubKeyHash
-      )
-      expect(migratedKeys.length).to.equal(1)
-      expect(migratedKeys[0]).to.equal(anchorReservationKey)
-      expect(
-        await testReservationProofs.getWalletReservationKeys(
-          oldWalletPubKeyHash
-        )
-      ).to.deep.equal([])
+      // (b) Reservation membership on the new wallet is established via the
+      // ReservationReanchored event above (newWalletPubKeyHash,
+      // anchorReservationKey); there is no on-chain enumeration to check.
 
       // (c) Subsequent strand of re-anchored reservation succeeds without panic
       await testReservationProofs.setWalletState(newWalletPubKeyHash, 5) // Terminated
@@ -1792,11 +1746,6 @@ describe("ReservationProofs", () => {
       expect(await testReservationProofs.getReservationTotalAmount()).to.equal(
         0
       )
-      expect(
-        await testReservationProofs.getWalletReservationKeys(
-          newWalletPubKeyHash
-        )
-      ).to.deep.equal([])
       expect(
         await testReservationProofs.getReservationByAnchorUtxo(newAnchorUtxoKey)
       ).to.equal(0)

@@ -64,41 +64,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         charged when the acceptance credit is processed. Covers the
     ///         mint leg and the first custody term.
     uint16 public initiationFeeBps;
-    /// @notice Extension fee in basis points of the gross amount, charged
-    ///         per custody term extension.
-    /// @dev Unused in milestone 1; reserved for the sibling wiring PR.
-    uint16 public extensionFeeBps;
-    /// @notice Redemption fee in basis points of the gross amount, charged
-    ///         when the in-kind redemption is requested. Priced at parity
-    ///         with the pooled redemption fee; not re-charged on retries
-    ///         after wallet-fault timeouts.
-    /// @dev Unused in milestone 1; reserved for the sibling wiring PR.
-    uint16 public redemptionFeeBps;
-
-    /// @notice True while redemptions are paused. A fresh vault starts
-    ///         paused. Unpausing this flag alone (via `unpauseRedemptions`)
-    ///         does not make `redeemReservation`/`retryRedeemReservation`
-    ///         do anything beyond swap which revert fires -- both still
-    ///         unconditionally revert until a milestone-2 Bridge upgrade
-    ///         adds the real redemption path these functions are reserved
-    ///         to route through. Pausing only removes future redemption
-    ///         opportunities — it never affects settlement, re-anchoring or
-    ///         dissolution.
-    bool public redemptionsPaused;
-
-    /// @notice True while all renewals are paused. A fresh vault starts
-    ///         paused. Unpausing this flag alone (via `unpauseRenewals`)
-    ///         does not make `extendCustody` do anything beyond swap which
-    ///         revert fires -- it still unconditionally reverts until a
-    ///         milestone-2 Bridge upgrade adds the real renewal path this
-    ///         function is reserved to route through. Pausing only removes
-    ///         future renewal opportunities — it never affects settlement,
-    ///         re-anchoring or dissolution.
-    bool public renewalsPaused;
-
-    /// @notice Indicates if the given address is a Guardian. Guardians can
-    ///         pause redemptions and renewals.
-    mapping(address => bool) public isGuardian;
     /// @notice TBTC amount (18 decimals) of custody-fee revenue the vault
     ///         retains as the in-kind fee reserve. All protocol fees
     ///         accumulate in the vault; `sweepFees` can move only the
@@ -119,32 +84,13 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         amount; `repayInKindFeeDebt` burns it down.
     uint64 public inKindFeeDebtSat;
 
-    /// @notice Emitted when redemptions are paused.
-    event ReservationRedemptionsPaused(address indexed caller);
-
-    /// @notice Emitted when redemptions are unpaused.
-    event ReservationRedemptionsUnpaused(address indexed caller);
-
-    /// @notice Emitted when renewals are paused.
-    event ReservationRenewalsPaused(address indexed caller);
-
-    /// @notice Emitted when renewals are unpaused.
-    event ReservationRenewalsUnpaused(address indexed caller);
-
-    event GuardianAdded(address indexed guardian);
-    event GuardianRemoved(address indexed guardian);
-
     event ReservationCreditProcessed(
         address indexed owner,
         uint256 satAmount,
         uint256 feeTbtc
     );
 
-    event FeesUpdated(
-        uint16 initiationFeeBps,
-        uint16 extensionFeeBps,
-        uint16 redemptionFeeBps
-    );
+    event FeesUpdated(uint16 initiationFeeBps);
 
     event InKindFeeFinanced(uint64 feeSat, uint64 shortfallSat);
 
@@ -155,39 +101,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
-        _;
-    }
-
-    modifier onlyGuardian() {
-        require(isGuardian[msg.sender], "Caller is not a guardian");
-        _;
-    }
-
-    modifier onlyOwnerOrGuardian() {
-        require(
-            owner() == msg.sender || isGuardian[msg.sender],
-            "Caller is not the owner or guardian"
-        );
-        _;
-    }
-
-    /// @notice Gates the redemption initiation entry points. A freshly
-    ///         deployed vault starts paused, so this modifier rejects every
-    ///         call. Governance or a guardian can pause; only governance
-    ///         can unpause. Settlement-path functions must never include this
-    ///         check.
-    modifier whenRedemptionsNotPaused() {
-        require(!redemptionsPaused, "Redemptions are paused");
-        _;
-    }
-
-    /// @notice Gates the renewal initiation entry points. A freshly
-    ///         deployed vault starts paused, so this modifier rejects every
-    ///         call. Governance or a guardian can pause; only governance
-    ///         can unpause. Settlement-path functions must never include this
-    ///         check.
-    modifier whenRenewalsNotPaused() {
-        require(!renewalsPaused, "Renewals are paused");
         _;
     }
 
@@ -214,22 +127,12 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         tbtcToken = _tbtcVault.tbtcToken();
         bridge = _bridge;
 
-        // Fee schedule: an initiation fee of 40 bps, an extension fee of
-        // 20 bps/yr, and a redemption fee of 20 bps. Compared against the
-        // pooled baseline (0 bps deposit treasury fee, 5 bps redemption
-        // treasury fee), an N-year holding pays 40 + 20N bps: strictly
-        // premium at every horizon. The minimum reservation size, not this
-        // schedule, is the governance dial that keeps the carry fee covering
-        // per-position lifecycle costs.
+        // Initiation fee of 40 bps on the gross anchored amount. Priced at
+        // a premium over the pooled baseline (0 bps deposit treasury fee)
+        // to cover the vault's per-position lifecycle costs; the minimum
+        // reservation size is the governance dial that keeps this fee
+        // covering those costs.
         initiationFeeBps = 40;
-        extensionFeeBps = 20;
-        redemptionFeeBps = 20;
-
-        // A fresh vault starts with redemptions and renewals paused;
-        // governance unpauses as part of the activation ceremony, after
-        // ownership has been transferred out of the deployer's hands.
-        redemptionsPaused = true;
-        renewalsPaused = true;
     }
 
     /// @notice Called by the Bank when the Bridge proves a reservation's
@@ -244,13 +147,17 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @dev KNOWN GAP (tracked, not fixed here): this function trusts every
     ///      Bank-routed credit unconditionally -- it has no reservationKey
     ///      parameter and cannot verify the credit corresponds to a
-    ///      Bridge-proven reservation anchor. On live networks the current
-    ///      mitigation is deploy-time ordering: this vault is only marked
-    ///      `isVaultTrusted` by `97_set_reservation_parameters.ts`'s gated
-    ///      final step, which runs only after both governance finalizers
-    ///      are confirmed on-chain. That ordering does not close the
-    ///      residual gap -- once trusted, this function still accepts any
-    ///      Bank-routed credit with no reservationKey-scoped verification.
+    ///      Bridge-proven reservation anchor. The deploy pipeline
+    ///      (`97_set_reservation_parameters.ts`) marks this vault
+    ///      `isVaultTrusted` only after it is wired into the Bridge on
+    ///      non-local networks, so the scripted activation path cannot
+    ///      trigger this gap. That ordering is enforced by the deploy
+    ///      script, not by an on-chain check: governance retains the raw
+    ///      ability to call `setVaultStatus(vault, true)` directly through
+    ///      `BridgeGovernance`, bypassing the script's precondition. MUST
+    ///      be resolved (a dedicated Bridge-only credit entry point, or an
+    ///      ordinary-sweep guard in `DepositSweep`) before that direct-call
+    ///      path is treated as acceptable risk.
     function receiveBalanceIncrease(
         address[] calldata depositors,
         uint256[] calldata depositedAmounts
@@ -383,11 +290,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @param recipient The recipient of the swept fees.
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance).
-    ///      Any outstanding in-kind fee debt is repaid first from the
-    ///      vault's current TBTC balance, and that repayment is retained
-    ///      even when nothing is left to sweep: if the balance (after debt
-    ///      repayment) does not exceed the reserve target, this call
-    ///      returns without reverting and sweeps nothing.
+    ///
+    ///      If the balance (after satisfying outstanding debt) does not
+    ///      exceed the reserve target, the call returns without reverting,
+    ///      so a debt repayment performed above is still persisted.
     function sweepFees(address recipient) external onlyOwner {
         require(recipient != address(0), "Recipient must not be zero");
 
@@ -403,8 +309,6 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
 
         uint256 balance = tbtcToken.balanceOf(address(this));
         if (balance <= feeReserveTarget) {
-            // Debt repayment above, if any, already committed; nothing
-            // above the reserve target is left to sweep.
             return;
         }
 
@@ -414,150 +318,28 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         emit FeesSwept(recipient, amount);
     }
 
-    /// @notice Updates the vault fee parameters.
+    /// @notice Updates the vault's initiation fee.
     /// @param _initiationFeeBps The new initiation fee, in basis points.
-    /// @param _extensionFeeBps The new extension fee, in basis points.
-    /// @param _redemptionFeeBps The new redemption fee, in basis points.
     /// @dev Requirements:
     ///      - The caller must be the vault owner (governance),
-    ///      - Each fee must not exceed `MAX_FEE_BASIS_POINTS`.
+    ///      - The fee must not exceed `MAX_FEE_BASIS_POINTS`.
     ///
     ///      Note: Updates apply instantly for milestone 1, matching the
     ///      ReservationRouter parameter-update precedent, pending a possible
     ///      future governance delay extension.
-    function updateFees(
-        uint16 _initiationFeeBps,
-        uint16 _extensionFeeBps,
-        uint16 _redemptionFeeBps
-    ) external onlyOwner {
+    function updateInitiationFee(uint16 _initiationFeeBps) external onlyOwner {
         require(
-            _initiationFeeBps <= MAX_FEE_BASIS_POINTS &&
-                _extensionFeeBps <= MAX_FEE_BASIS_POINTS &&
-                _redemptionFeeBps <= MAX_FEE_BASIS_POINTS,
+            _initiationFeeBps <= MAX_FEE_BASIS_POINTS,
             "Fee exceeds the maximum"
         );
 
         initiationFeeBps = _initiationFeeBps;
-        extensionFeeBps = _extensionFeeBps;
-        redemptionFeeBps = _redemptionFeeBps;
 
-        emit FeesUpdated(
-            _initiationFeeBps,
-            _extensionFeeBps,
-            _redemptionFeeBps
-        );
-    }
-
-    /// @notice Initiates an in-kind redemption of `amountSat` of the
-    ///         reservation's `mintedAmount`. Caller must be the
-    ///         reservation owner.
-    /// @param reservationKey The key of the reservation to redeem.
-    /// @param amountSat The redemption amount in satoshi.
-    /// @dev Permanent-revert placeholder reserved for milestone-2 wiring:
-    ///      this function unconditionally reverts regardless of
-    ///      `redemptionsPaused` -- unpausing only changes which revert
-    ///      reason fires below. Milestone 2 will add the body that drives
-    ///      the Bridge's `requestReservedRedemption` path. The amountSat
-    ///      parameter is accepted for milestone 2 ABI stability and ignored
-    ///      in milestone 1.
-    // solhint-disable-next-line no-unused-vars
-    function redeemReservation(uint256 reservationKey, uint256 amountSat)
-        external
-        whenRedemptionsNotPaused
-    {
-        require(
-            msg.sender == bridge.reservations(reservationKey).owner,
-            "Caller is not the reservation owner"
-        );
-        revert("Reserved redemption not enabled in milestone 1");
-    }
-
-    /// @notice Re-runs a redemption using the reservation's single-use
-    ///         fee-free retry entitlement, granted when a prior
-    ///         fee-paid redemption generation timed out through wallet
-    ///         fault. Caller must be the reservation owner.
-    /// @param reservationKey The key of the reservation to retry.
-    /// @param amountSat The redemption amount in satoshi.
-    /// @dev Permanent-revert placeholder reserved for milestone-2 wiring,
-    ///      same M1/M2 rationale as `redeemReservation`: this function
-    ///      unconditionally reverts regardless of `redemptionsPaused` --
-    ///      unpausing only changes which revert reason fires below. The
-    ///      amountSat parameter is accepted for milestone 2 ABI stability
-    ///      and ignored in milestone 1.
-    // solhint-disable-next-line no-unused-vars
-    function retryRedeemReservation(uint256 reservationKey, uint64 amountSat)
-        external
-        whenRedemptionsNotPaused
-    {
-        require(
-            msg.sender == bridge.reservations(reservationKey).owner,
-            "Caller is not the reservation owner"
-        );
-        revert("Reserved redemption retry not enabled in milestone 1");
-    }
-
-    /// @notice Renews the custody term of the caller's reservation by
-    ///         exactly one current term. Caller must be the reservation owner.
-    /// @param reservationKey The key of the reservation to renew.
-    /// @dev Permanent-revert placeholder reserved for milestone-2 wiring:
-    ///      this function unconditionally reverts regardless of
-    ///      `renewalsPaused` -- unpausing only changes which revert reason
-    ///      fires below. Milestone 2 will wire the real renewal flow
-    ///      through the router's `extendReservation`.
-    function extendCustody(uint256 reservationKey)
-        external
-        whenRenewalsNotPaused
-    {
-        require(
-            msg.sender == bridge.reservations(reservationKey).owner,
-            "Caller is not the reservation owner"
-        );
-        revert("Custody extension not enabled in milestone 1");
-    }
-
-    /// @notice Pauses all future redemptions. Restrictive and monotonic:
-    ///         callable by the guardian or the owner, effective immediately.
-    function pauseRedemptions() external onlyOwnerOrGuardian {
-        redemptionsPaused = true;
-        emit ReservationRedemptionsPaused(msg.sender);
-    }
-
-    /// @notice Unpauses redemptions. Restorative: owner (governance) only.
-    function unpauseRedemptions() external onlyOwner {
-        redemptionsPaused = false;
-        emit ReservationRedemptionsUnpaused(msg.sender);
-    }
-
-    /// @notice Pauses all future renewals. Restrictive and monotonic:
-    ///         callable by the guardian or the owner, effective immediately.
-    function pauseRenewals() external onlyOwnerOrGuardian {
-        renewalsPaused = true;
-        emit ReservationRenewalsPaused(msg.sender);
-    }
-
-    /// @notice Unpauses renewals. Restorative: owner (governance) only.
-    function unpauseRenewals() external onlyOwner {
-        renewalsPaused = false;
-        emit ReservationRenewalsUnpaused(msg.sender);
-    }
-
-    /// @notice Adds the address to the Guardian set.
-    function addGuardian(address guardian) external onlyOwner {
-        require(!isGuardian[guardian], "This address is already a guardian");
-        isGuardian[guardian] = true;
-        emit GuardianAdded(guardian);
-    }
-
-    /// @notice Removes the address from the Guardian set.
-    function removeGuardian(address guardian) external onlyOwner {
-        require(isGuardian[guardian], "This address is not a guardian");
-        delete isGuardian[guardian];
-        emit GuardianRemoved(guardian);
+        emit FeesUpdated(_initiationFeeBps);
     }
 
     /// @notice The reservation vault does not support the balance approval
-    ///         flow; reserved redemptions are initiated via
-    ///         `redeemReservation`.
+    ///         flow.
     function receiveBalanceApproval(
         address,
         uint256,

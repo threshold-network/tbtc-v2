@@ -35,12 +35,15 @@ interface IReservationFeeFinancer {
     ///         `reservationVault`/`isVaultTrusted`), not at call time.
     /// @dev KNOWN GAP (tracked, not fixed here): nothing currently enforces
     ///      that "caught before wired up" claim -- if `reservationVault` is
-    ///      ever set to a codeless/non-implementing address,
-    ///      `financeInKindFee` silently no-ops instead of reverting. The
-    ///      vault activation PR (the one that wires `reservationVault` via
-    ///      `Reservation.updateReservationParameters`) MUST add a
+    ///      ever set to a codeless/non-implementing address, the high-level
+    ///      call to `financeInKindFee` reverts (Solidity inserts an
+    ///      extcodesize check on every external interface call, including
+    ///      void-return functions) instead of silently no-oping, blocking
+    ///      settlement of the fee-bearing proof entirely rather than
+    ///      silently skipping the burn. `Reservation.updateReservationParameters`
+    ///      already wires `reservationVault` in this branch without a
     ///      conformance probe (e.g. ERC165 or a magic-constant call) at
-    ///      that wiring site before trusting a new vault address.
+    ///      that site -- the gap remains open and unaddressed.
     /// @param feeSat The in-kind fee in satoshi.
     function financeInKindFee(uint64 feeSat) external;
 }

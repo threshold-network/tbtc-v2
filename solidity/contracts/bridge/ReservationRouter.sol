@@ -63,7 +63,9 @@ import "./ReservationProofs.sol";
 ///         same slots as in the Bridge. The router MUST NOT declare any
 ///         additional state variable; new reservation state goes into
 ///         `BridgeState.Storage` (appending, with a matching `__gap`
-///         reduction). A storage-layout parity test guards this invariant.
+///         reduction). Guarded by a storage-layout parity test present in
+///         this diff (`Bridge.StorageLayout.test.ts` and
+///         `Bridge.RouterStorageParity.test.ts`).
 ///
 ///      2. NO SELECTOR SHADOWING. A selector defined by the Bridge never
 ///         reaches the router (the fallback only sees unmatched calls). The
@@ -86,7 +88,7 @@ import "./ReservationProofs.sol";
 ///
 ///      4. UPGRADE MODEL. The Bridge stores the router address in
 ///         `BridgeState.Storage.reservationRouter`, settable exactly once
-///         via the Bridge (Bridge-integration PR, out of scope). Replacing router code
+///         via `Bridge.setReservationRouter` (present in this diff). Replacing router code
 ///         afterwards requires a Bridge implementation upgrade (the same
 ///         ceremony as any Bridge logic change), keeping code-change
 ///         authority exactly where it is today: with the proxy admin, not
@@ -231,34 +233,53 @@ contract ReservationRouter is Governable, Initializable {
         );
     }
 
-    /// @notice Single entry point for reservation lifecycle SPV proofs
-    ///         retained in milestone 1: anchor acceptance and re-anchoring.
-    ///         Settles the named action generation. See
-    ///         `ReservationProofs.submitReservationProof` and the individual
-    ///         handlers for detailed requirements.
-    /// @param proofType The type of the submitted proof, see
-    ///        `ReservationProofs.ProofType`.
+    /// @notice Settles a reservation acceptance-anchor SPV proof: the named
+    ///         action generation must be a settleable Acceptance. See
+    ///         `ReservationProofs.submitReservationAcceptanceProof` for
+    ///         detailed requirements.
     /// @param txInfo Bitcoin transaction data.
     /// @param proof Bitcoin proof data.
-    /// @param mainUtxo Unused in milestone 1; Dissolution proofs are rejected
-    ///        by the underlying library. Reserved for milestone 2.
     /// @param reservationKey The key of the target reservation.
     /// @param requestNonce The action generation being settled. Late
     ///        settlements name an older, timed-out generation.
-    function submitReservationProof(
-        uint8 proofType,
+    function submitReservationAcceptanceProof(
         BitcoinTx.Info calldata txInfo,
         BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
         uint256 reservationKey,
         uint64 requestNonce
     ) external onlySpvMaintainer {
         ReservationProofs.submitReservationProof(
             self,
-            proofType,
+            uint8(ReservationProofs.ProofType.Acceptance),
             txInfo,
             proof,
-            mainUtxo,
+            BitcoinTx.UTXO(bytes32(0), 0, 0),
+            reservationKey,
+            requestNonce
+        );
+    }
+
+    /// @notice Settles a reservation re-anchor SPV proof: the named action
+    ///         generation must be a settleable Reanchor. See
+    ///         `ReservationProofs.submitReservationReanchorProof` for
+    ///         detailed requirements.
+    /// @param txInfo Bitcoin transaction data.
+    /// @param proof Bitcoin proof data.
+    /// @param reservationKey The key of the target reservation.
+    /// @param requestNonce The action generation being settled. Late
+    ///        settlements name an older, timed-out generation.
+    function submitReservationReanchorProof(
+        BitcoinTx.Info calldata txInfo,
+        BitcoinTx.Proof calldata proof,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external onlySpvMaintainer {
+        ReservationProofs.submitReservationProof(
+            self,
+            uint8(ReservationProofs.ProofType.Reanchor),
+            txInfo,
+            proof,
+            BitcoinTx.UTXO(bytes32(0), 0, 0),
             reservationKey,
             requestNonce
         );
@@ -273,14 +294,10 @@ contract ReservationRouter is Governable, Initializable {
     ///         `Reservation.notifyReservationActionTimeout`.
     /// @param reservationKey The key of the reservation with the timed out
     ///        action.
-    /// @param walletMembersIDs Identifiers of the wallet signing group
-    ///        members. Unused in milestone 1 (only Reanchor timeouts occur,
-    ///        which need no signing-group lookup); pass an empty array.
-    function notifyReservationActionTimeout(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        self.notifyReservationActionTimeout(reservationKey, walletMembersIDs);
+    function notifyReservationActionTimeout(uint256 reservationKey)
+        external
+    {
+        self.notifyReservationActionTimeout(reservationKey);
     }
 
     /// @notice Permissionlessly reports a pending acceptance authorization
@@ -288,8 +305,8 @@ contract ReservationRouter is Governable, Initializable {
     ///         releasing the capacity it reserved so a fresh generation can
     ///         be requested for the deposit. The timed-out generation
     ///         remains settleable: if its anchor transaction later confirms
-    ///         on Bitcoin, `submitReservationProof` settles it as a late
-    ///         acceptance instead of reverting.
+    ///         on Bitcoin, `submitReservationAcceptanceProof` settles it as
+    ///         a late acceptance instead of reverting.
     /// @param reservationKey The deposit key of the revealed reserved
     ///        deposit, which doubles as the reservation key.
     /// @dev Requirements:
@@ -362,6 +379,23 @@ contract ReservationRouter is Governable, Initializable {
     /// @param depositKey The deposit key of the reserved deposit.
     function notifyStaleReservedDeposit(uint256 depositKey) external {
         self.notifyStaleReservedDeposit(depositKey);
+    }
+
+    /// @notice Governance override of `notifyStaleReservedDeposit`: force-
+    ///         clears a pending reserved deposit before its refund deadline
+    ///         elapses, preventing a griefing depositor from indefinitely
+    ///         holding a slot in the pending-reserved-deposit guard. See
+    ///         `Reservation.forceStaleReservedDeposit`.
+    /// @param depositKey The deposit key of the reserved deposit.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - See `Reservation.forceStaleReservedDeposit` for the remaining
+    ///        requirements.
+    function forceStaleReservedDeposit(uint256 depositKey)
+        external
+        onlyGovernance
+    {
+        self.forceStaleReservedDeposit(depositKey);
     }
 
     /// @notice Marks a reservation custodied by a terminated or closed
@@ -442,16 +476,6 @@ contract ReservationRouter is Governable, Initializable {
         returns (uint32)
     {
         return self.walletReservationInfo[walletPubKeyHash].count;
-    }
-
-    /// @notice Returns the reservation keys custodied by the given wallet.
-    /// @param walletPubKeyHash 20-byte public key hash of the wallet.
-    function walletReservations(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256[] memory)
-    {
-        return self.walletReservationKeys[walletPubKeyHash];
     }
 
     /// @notice Returns the reservation key whose current anchor is the

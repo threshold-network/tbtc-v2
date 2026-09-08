@@ -37,21 +37,25 @@ interface IReservationBridge {
         bytes20 targetWalletPubKeyHash
     ) external;
 
-    /// @notice See `ReservationRouter.submitReservationProof`.
-    function submitReservationProof(
-        uint8 proofType,
+    /// @notice See `ReservationRouter.submitReservationAcceptanceProof`.
+    function submitReservationAcceptanceProof(
         BitcoinTx.Info calldata txInfo,
         BitcoinTx.Proof calldata proof,
-        BitcoinTx.UTXO calldata mainUtxo,
+        uint256 reservationKey,
+        uint64 requestNonce
+    ) external;
+
+    /// @notice See `ReservationRouter.submitReservationReanchorProof`.
+    function submitReservationReanchorProof(
+        BitcoinTx.Info calldata txInfo,
+        BitcoinTx.Proof calldata proof,
         uint256 reservationKey,
         uint64 requestNonce
     ) external;
 
     /// @notice See `ReservationRouter.notifyReservationActionTimeout`.
-    function notifyReservationActionTimeout(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external;
+    function notifyReservationActionTimeout(uint256 reservationKey)
+        external;
 
     /// @notice See `ReservationRouter.notifyReservationAcceptanceTimedOut`.
     function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
@@ -72,6 +76,9 @@ interface IReservationBridge {
 
     /// @notice See `ReservationRouter.notifyStaleReservedDeposit`.
     function notifyStaleReservedDeposit(uint256 depositKey) external;
+
+    /// @notice See `ReservationRouter.forceStaleReservedDeposit`.
+    function forceStaleReservedDeposit(uint256 depositKey) external;
 
     /// @notice See `ReservationRouter.notifyReservationStranded`.
     function notifyReservationStranded(uint256 reservationKey) external;
@@ -139,12 +146,6 @@ interface IReservationBridge {
         external
         view
         returns (uint32);
-
-    /// @notice See `ReservationRouter.walletReservations`.
-    function walletReservations(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256[] memory);
 
     /// @notice See `ReservationRouter.reservationByAnchorUtxo`.
     function reservationByAnchorUtxo(

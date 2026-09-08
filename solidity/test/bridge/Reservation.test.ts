@@ -115,7 +115,7 @@ describe("Reservation", () => {
     await testReservation.setReservationMaxTotalAmount(1000000000)
     await testReservation.setMaxReservationsPerWallet(10)
     await testReservation.setMaxReservationsAmountPerWallet(0)
-    await testReservation.setMaxActiveReservations(0)
+    await testReservation.setMaxActiveReservations(1000)
 
     await testReservation.registerWallet(pkh, wState)
     await testReservation.seedDeposit(
@@ -706,40 +706,6 @@ describe("Reservation", () => {
     })
 
     describe("guard 19: maxActiveReservations occupancy limit", () => {
-      it("should allow multiple reservations when maxActiveReservations is 0 (disabled)", async () => {
-        await setupValidDeposit(reservationKey1, walletPubKeyHash)
-        await testReservation.setMaxActiveReservations(0)
-
-        // First request
-        await testReservation
-          .connect(depositor)
-          .requestReservationAcceptance(reservationKey1, walletPubKeyHash)
-
-        expect(await testReservation.activeReservationsCount()).to.equal(1)
-
-        // Seed and request second deposit
-        const now = await lastBlockTime()
-        await testReservation.seedDeposit(
-          reservationKey2,
-          depositor.address,
-          defaultDepositAmount,
-          vault.address,
-          now - twoHours
-        )
-        await testReservation.initializeProducerStub(
-          reservationKey2,
-          walletPubKeyHash,
-          now + defaultActionTimeout + twentyFourHours + twoHours,
-          depositor.address
-        )
-
-        await testReservation
-          .connect(depositor)
-          .requestReservationAcceptance(reservationKey2, walletPubKeyHash)
-
-        expect(await testReservation.activeReservationsCount()).to.equal(2)
-      })
-
       it("should revert when activeReservationsCount reaches maxActiveReservations (Active reservations cap exceeded)", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
@@ -795,7 +761,7 @@ describe("Reservation", () => {
 
         expect(await testReservation.activeReservationsCount()).to.equal(1)
 
-        // Set anchorAmount, walletPubKeyHash, and add wallet key on reservation1 so stranding correctly unwinds
+        // Set anchorAmount and walletPubKeyHash on reservation1 so stranding correctly unwinds
         await testReservation.setReservationAnchorAmount(
           reservationKey1,
           defaultDepositAmount
@@ -803,10 +769,6 @@ describe("Reservation", () => {
         await testReservation.setReservationWalletPubKeyHash(
           reservationKey1,
           walletPubKeyHash
-        )
-        await testReservation.addWalletReservationKey(
-          walletPubKeyHash,
-          reservationKey1
         )
 
         // Strand the first reservation
@@ -898,7 +860,7 @@ describe("Reservation", () => {
   })
 
   describe("strandReservation", () => {
-    it("should decrement counts, remove wallet key, update state to Stranded, clear anchor UTXO mapping, and emit ReservationStranded", async () => {
+    it("should decrement counts, update state to Stranded, clear anchor UTXO mapping, and emit ReservationStranded", async () => {
       await setupValidDeposit(reservationKey1, walletPubKeyHash)
 
       // Request acceptance first
@@ -924,13 +886,6 @@ describe("Reservation", () => {
         anchorTxHash,
         anchorTxOutputIndex
       )
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey1
-      )
-      expect(
-        await testReservation.getWalletReservationKeys(walletPubKeyHash)
-      ).to.deep.equal([ethers.BigNumber.from(reservationKey1)])
       expect(
         await testReservation.getReservationByAnchorUtxo(
           anchorTxHash,
@@ -959,14 +914,6 @@ describe("Reservation", () => {
       ).to.equal(0)
       expect(await testReservation.reservationTotalAmount()).to.equal(0)
       expect(await testReservation.activeReservationsCount()).to.equal(0)
-
-      // Verify wallet key removed
-      expect(
-        await testReservation.getWalletReservationKeys(walletPubKeyHash)
-      ).to.deep.equal([])
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey1)
-      ).to.equal(0)
 
       // Verify state changed to Stranded
       const res = await testReservation.getReservation(reservationKey1)
@@ -997,10 +944,6 @@ describe("Reservation", () => {
         reservationKey1,
         walletPubKeyHash
       )
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey1
-      )
       // First strand
       const tx1 = await testReservation.strandReservation(reservationKey1)
       await expect(tx1).to.emit(testReservation, "ReservationStranded")
@@ -1013,120 +956,9 @@ describe("Reservation", () => {
       )
       await testReservation.setReservationTotalAmount(anchorAmount)
       await testReservation.setActiveReservationsCount(1)
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey1
-      )
       // Second strand on already Stranded reservation
       const tx2 = await testReservation.strandReservation(reservationKey1)
       await expect(tx2).to.not.emit(testReservation, "ReservationStranded")
-    })
-  })
-
-  describe("removeWalletReservationKey", () => {
-    it("should swap-remove middle key from wallet keys array and update indices correctly", async () => {
-      // Add 3 keys: [key1, key2, key3]
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey1
-      )
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey2
-      )
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey3
-      )
-
-      expect(
-        await testReservation.getWalletReservationKeys(walletPubKeyHash)
-      ).to.deep.equal([
-        ethers.BigNumber.from(reservationKey1),
-        ethers.BigNumber.from(reservationKey2),
-        ethers.BigNumber.from(reservationKey3),
-      ])
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey1)
-      ).to.equal(1)
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey2)
-      ).to.equal(2)
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey3)
-      ).to.equal(3)
-
-      // Remove middle key (key2) -> array should become [key1, key3]
-      await testReservation.removeWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey2
-      )
-
-      expect(
-        await testReservation.getWalletReservationKeys(walletPubKeyHash)
-      ).to.deep.equal([
-        ethers.BigNumber.from(reservationKey1),
-        ethers.BigNumber.from(reservationKey3),
-      ])
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey1)
-      ).to.equal(1)
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey2)
-      ).to.equal(0)
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey3)
-      ).to.equal(2) // key3 was swapped into index 1 (index-plus-one = 2)
-    })
-
-    it("should remove last key from wallet keys array and update indices correctly", async () => {
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey1
-      )
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey2
-      )
-
-      // Remove last key (key2)
-      await testReservation.removeWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey2
-      )
-
-      expect(
-        await testReservation.getWalletReservationKeys(walletPubKeyHash)
-      ).to.deep.equal([ethers.BigNumber.from(reservationKey1)])
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey2)
-      ).to.equal(0)
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey1)
-      ).to.equal(1)
-    })
-
-    it("should no-op gracefully when removing a non-existent key", async () => {
-      await testReservation.addWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey1
-      )
-
-      // Remove key that was never added
-      await testReservation.removeWalletReservationKey(
-        walletPubKeyHash,
-        reservationKey2
-      )
-
-      expect(
-        await testReservation.getWalletReservationKeys(walletPubKeyHash)
-      ).to.deep.equal([ethers.BigNumber.from(reservationKey1)])
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey1)
-      ).to.equal(1)
-      expect(
-        await testReservation.getWalletReservationKeyIndex(reservationKey2)
-      ).to.equal(0)
     })
   })
 
@@ -1742,8 +1574,7 @@ describe("Reservation", () => {
       )
 
       const tx = await testReservation.notifyReservationActionTimeout(
-        reservationKey,
-        []
+        reservationKey
       )
       const receipt = await tx.wait()
       const block = await ethers.provider.getBlock(receipt.blockNumber)
@@ -1801,7 +1632,7 @@ describe("Reservation", () => {
       )
 
       await expect(
-        testReservation.notifyReservationActionTimeout(reservationKey, [])
+        testReservation.notifyReservationActionTimeout(reservationKey)
       ).to.be.revertedWith("Unsupported action type for timeout")
     })
 
@@ -1825,7 +1656,7 @@ describe("Reservation", () => {
       )
 
       await expect(
-        testReservation.notifyReservationActionTimeout(reservationKey, [])
+        testReservation.notifyReservationActionTimeout(reservationKey)
       ).to.be.revertedWith("Reservation is not in ActionPending state")
     })
 
@@ -1849,7 +1680,7 @@ describe("Reservation", () => {
       )
 
       await expect(
-        testReservation.notifyReservationActionTimeout(reservationKey, [])
+        testReservation.notifyReservationActionTimeout(reservationKey)
       ).to.be.revertedWith("Action is not pending")
     })
 
@@ -1874,7 +1705,7 @@ describe("Reservation", () => {
       )
 
       await expect(
-        testReservation.notifyReservationActionTimeout(reservationKey, [])
+        testReservation.notifyReservationActionTimeout(reservationKey)
       ).to.be.revertedWith("Action has not timed out")
     })
 
@@ -1907,14 +1738,14 @@ describe("Reservation", () => {
 
       // Calling before timeoutAt reverts
       await expect(
-        testReservation.notifyReservationActionTimeout(reservationKey, [])
+        testReservation.notifyReservationActionTimeout(reservationKey)
       ).to.be.revertedWith("Action has not timed out")
 
       // Advance time past timeoutAt
       await increaseTime(501)
 
       // Calling now succeeds
-      await testReservation.notifyReservationActionTimeout(reservationKey, [])
+      await testReservation.notifyReservationActionTimeout(reservationKey)
       expect(
         await testReservation.actionState(reservationKey, requestNonce)
       ).to.equal(actionState.TimedOut)
@@ -1938,11 +1769,15 @@ describe("Reservation", () => {
     it("should request reservation acceptance successfully", async () => {
       const now = (await ethers.provider.getBlock("latest")).timestamp
 
-      // Preconditions: governance params (all extra caps default to 0 =
-      // disabled), a Live designated wallet, and a revealed deposit routed
-      // to the reservation vault with a signing window that clears both
-      // the deposit-age floor and the refund-deadline safety margin.
-      await testReservation.setGovernanceParameters(100, 100, 10000, 0)
+      // Preconditions: governance params (maxReservationsPerWallet and
+      // maxActiveReservations set to comfortably large values, matching
+      // the launch-gated invariant that both are always positive once
+      // reservations are enabled), a Live designated wallet, and a
+      // revealed deposit routed to the reservation vault with a signing
+      // window that clears both the deposit-age floor and the
+      // refund-deadline safety margin.
+      await testReservation.setGovernanceParameters(100, 100, 10000, 10)
+      await testReservation.setMaxActiveReservations(1000)
       await testReservation.setReservationVault(vault)
       await testReservation.setWalletState(walletPubKeyHash, 1) // 1 = Live
       await testReservation.setDeposit(
@@ -2034,31 +1869,40 @@ describe("Reservation", () => {
         .withArgs(testEcdsaWalletId, testWalletPubKeyHash)
     })
 
-    it("reverts beginWalletClosing when wallet has active reservations", async () => {
+    it("allows beginWalletClosing to proceed even when the wallet still has active reservations", async () => {
+      // Regression test for the P0 fix: beginWalletClosing/finalizeWalletClosing
+      // are reached unconditionally from notifyWalletFundsMoved/
+      // notifyWalletMovingFundsBelowDust, which only fire after a moving-funds
+      // Bitcoin transaction has already been proven on-chain via SPV proof.
+      // Blocking here on a nonzero reservation count would leave the wallet
+      // stuck mid-closing with no way to finalize, eventually triggering
+      // operator slashing via notifyMovingFundsTimeout. The gate belongs only
+      // at moveFunds's routing decision and notifyWalletClosingPeriodElapsed,
+      // both of which run before any funds move.
       await testReservation.setWalletState(
         testWalletPubKeyHash,
         walletState.MovingFunds
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
 
-      await expect(
-        testReservation.beginWalletClosing(testWalletPubKeyHash)
-      ).to.be.revertedWith("Wallet has active reservations")
+      const tx = await testReservation.beginWalletClosing(testWalletPubKeyHash)
+
+      expect(await testReservation.walletState(testWalletPubKeyHash)).to.equal(
+        walletState.Closing
+      )
+      await expect(tx)
+        .to.emit(testReservation, "WalletClosing")
+        .withArgs(testEcdsaWalletId, testWalletPubKeyHash)
     })
 
-    it("reverts finalizeWalletClosing when wallet has active reservations and closes when zero", async () => {
+    it("allows finalizeWalletClosing to proceed and close the wallet even when it still has active reservations", async () => {
+      // Same P0-fix regression coverage as beginWalletClosing above, for
+      // finalizeWalletClosing.
       await testReservation.setWalletState(
         testWalletPubKeyHash,
         walletState.Closing
       )
       await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 1)
-
-      await expect(
-        testReservation.finalizeWalletClosing(testWalletPubKeyHash)
-      ).to.be.revertedWith("Wallet has active reservations")
-
-      // Clear reservation count
-      await testReservation.setWalletReservationsCount(testWalletPubKeyHash, 0)
 
       const tx = await testReservation.finalizeWalletClosing(
         testWalletPubKeyHash

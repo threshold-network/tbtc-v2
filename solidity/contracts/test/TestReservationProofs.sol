@@ -370,28 +370,10 @@ contract TestReservationProofs {
         state.pendingReservedDeposits = count;
     }
 
-    function setWalletPendingDissolution(
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) external {
-        state.walletPendingDissolution[walletPubKeyHash] = reservationKey;
-    }
-
     function setReservationByAnchorUtxo(uint256 utxoKey, uint256 reservationKey)
         external
     {
         state.reservationsByAnchorUtxo[utxoKey] = reservationKey;
-    }
-
-    function addWalletReservationKey(
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) external {
-        Reservation.addWalletReservationKey(
-            state,
-            walletPubKeyHash,
-            reservationKey
-        );
     }
 
     function initializeProducerStub(
@@ -467,22 +449,6 @@ contract TestReservationProofs {
         return state.reservationsByAnchorUtxo[utxoKey];
     }
 
-    function getWalletReservationKeys(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256[] memory)
-    {
-        return state.walletReservationKeys[walletPubKeyHash];
-    }
-
-    function getWalletReservationKeyIndex(uint256 reservationKey)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletReservationKeyIndex[reservationKey];
-    }
-
     function getActiveReservationsCount() external view returns (uint32) {
         return state.activeReservationsCount;
     }
@@ -517,13 +483,5 @@ contract TestReservationProofs {
         returns (Wallets.WalletState)
     {
         return state.registeredWallets[walletPubKeyHash].state;
-    }
-
-    function getWalletPendingDissolution(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletPendingDissolution[walletPubKeyHash];
     }
 }

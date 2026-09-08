@@ -2129,7 +2129,7 @@ contract Bridge is
     ///      If no router has been set, every call reverts with "Reservation
     ///      router not set".
     // solhint-disable-next-line no-complex-fallback
-    fallback() external payable {
+    fallback() external {
         address router = self.reservationRouter;
         require(router != address(0), "Reservation router not set");
         /* solhint-disable avoid-low-level-calls */

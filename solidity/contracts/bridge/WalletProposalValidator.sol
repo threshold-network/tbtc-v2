@@ -929,6 +929,8 @@ contract WalletProposalValidator {
         bytes20 sourceWalletPubKeyHash;
         // Key of the reservation to re-anchor.
         uint256 reservationKey;
+        // Nonce of the pending Reanchor action authorizing this proposal.
+        uint64 requestNonce;
         // 20-byte public key hash of the wallet receiving the anchor.
         bytes20 targetWalletPubKeyHash;
         // Proposed BTC fee for the re-anchor transaction.
@@ -1079,9 +1081,13 @@ contract WalletProposalValidator {
     /// @param proposal The re-anchor proposal to validate.
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
-    ///      - The reservation must be Active and custodied by the source
-    ///        wallet,
-    ///      - The target wallet must be in the Live state,
+    ///      - The reservation must be custodied by the source wallet and
+    ///        have a Pending Reanchor action, keyed by the given request
+    ///        nonce, targeting the given target wallet, that has not timed
+    ///        out,
+    ///      - The re-anchor cooldown must have elapsed,
+    ///      - The target wallet must be in the Live state and differ from
+    ///        the source wallet,
     ///      - The proposed fee must be positive and within the reservation
     ///        transaction max fee.
     ///
@@ -1095,10 +1101,28 @@ contract WalletProposalValidator {
             address(bridge)
         ).reservations(proposal.reservationKey);
 
+        Reservation.ReservationAction memory action = IReservationBridge(
+            address(bridge)
+        ).reservationActions(proposal.reservationKey, proposal.requestNonce);
+
         require(
-            reservation.state == Reservation.ReservationState.Active,
-            "Reservation is not active"
+            action.actionType == Reservation.ActionType.Reanchor,
+            "Not a pending re-anchor action"
         );
+        require(
+            action.state == Reservation.ActionState.Pending,
+            "Re-anchor action is not pending"
+        );
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp < action.timeoutAt,
+            "Re-anchor action has timed out"
+        );
+        require(
+            action.targetWalletPubKeyHash == proposal.targetWalletPubKeyHash,
+            "Target wallet does not match the authorized action"
+        );
+
         require(
             /* solhint-disable-next-line not-rely-on-time */
             block.timestamp >= reservation.reanchorCooldownUntil,

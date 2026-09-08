@@ -139,13 +139,6 @@ const ActionState = {
   Superseded: 5,
 }
 
-const ProofType = {
-  Acceptance: 0,
-  Redemption: 1,
-  Reanchor: 2,
-  Dissolution: 3,
-}
-
 describe("Bridge - Reservation stranding", () => {
   let governance: SignerWithAddress
   let spvMaintainer: SignerWithAddress
@@ -168,11 +161,6 @@ describe("Bridge - Reservation stranding", () => {
   const blindingFactor = "0xf9f0c90d00039523"
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
-  const NO_MAIN_UTXO_PARAM = {
-    txHash: ZERO_BYTES32,
-    txOutputIndex: 0,
-    txOutputValue: 0,
-  }
 
   const depositAmount = BigNumber.from(3000000)
   const anchorFee = 1500
@@ -196,7 +184,8 @@ describe("Bridge - Reservation stranding", () => {
     } = await bridgeFixture())
 
     // Reservation router functions (`updateReservationParameters`,
-    // `requestReservation*`, `submitReservationProof`, etc.) are declared
+    // `requestReservation*`, `submitReservationAcceptanceProof`,
+    // `submitReservationReanchorProof`, etc.) are declared
     // on `ReservationRouter`, not `Bridge`. Per `ReservationRouter.sol`
     // invariant 3 ("no standalone authority"), every one of them is only
     // reachable through `Bridge.fallback()`'s delegatecall - calling the
@@ -502,11 +491,9 @@ describe("Bridge - Reservation stranding", () => {
 
     await reservationRouter
       .connect(spvMaintainer)
-      .submitReservationProof(
-        ProofType.Acceptance,
+      .submitReservationAcceptanceProof(
         anchorTx.info,
         proofFor(anchorTx.txHash),
-        NO_MAIN_UTXO_PARAM,
         reservationKey,
         1
       )
@@ -662,10 +649,10 @@ describe("Bridge - Reservation stranding", () => {
     it("rejects when the reservation has not been accepted yet (Unknown state)", async () => {
       // `requestReservationAcceptance` increments `requestNonce` to 1 and
       // creates a Pending action, but the `ReservationRequest.state` field
-      // itself stays at `Unknown` (only `submitReservationProof` advances
-      // it to Active). That is the cleanest non-Active, non-Stranded
-      // rejection path - no acceptance proof means there is no anchor to
-      // strand.
+      // itself stays at `Unknown` (only `submitReservationAcceptanceProof`
+      // advances it to Active). That is the cleanest non-Active,
+      // non-Stranded rejection path - no acceptance proof means there is
+      // no anchor to strand.
       const { reservationKey } = await makeRequestedReservation()
       await terminatedWallet(walletPubKeyHash)
 

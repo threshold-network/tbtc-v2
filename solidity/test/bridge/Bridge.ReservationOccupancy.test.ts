@@ -254,9 +254,9 @@ describe("Reservation - occupancy tracking", () => {
     expect(await testReservation.activeReservationsCount()).to.equal(1)
   })
 
-  // Covered by solidity/test/bridge/Reservation.test.ts ("prepareReservationForSettlement should restore capacity for a late-settled stranded reservation", lines 1514-1534)
+  // Covered by solidity/test/bridge/Reservation.test.ts ("prepareReservationForSettlement should restore capacity for a late-settled stranded reservation")
 
-  // Covered by solidity/test/bridge/ReservationProofs.test.ts ("settleAcceptance > should strand during full late settleAcceptance against Closed wallet", lines 1552-1574)
+  // Covered by solidity/test/bridge/ReservationProofs.test.ts ("settleAcceptance > should strand during full late settleAcceptance against Closed wallet")
 
-  // Covered by solidity/test/bridge/ReservationProofs.test.ts ("unwindPendingAction", lines 1039-1140)
+  // Covered by solidity/test/bridge/ReservationProofs.test.ts ("unwindPendingAction")
 })

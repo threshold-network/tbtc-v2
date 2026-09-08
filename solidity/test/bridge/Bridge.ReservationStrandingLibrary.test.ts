@@ -386,8 +386,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      // Sanity check: counters and enumeration are populated before
-      // stranding.
+      // Sanity check: counters are populated before stranding.
       expect(await executor.reservationState(reservationKey)).to.equal(
         reservationStateEnum.Active
       )
@@ -398,9 +397,6 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         await executor.walletReservationsAmount(walletPubKeyHash)
       ).to.equal(anchorAmount)
       expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(1)
 
       const tx: ContractTransaction = await executor.notifyReservationStranded(
         reservationKey
@@ -418,13 +414,6 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         await executor.walletReservationsAmount(walletPubKeyHash)
       ).to.equal(0)
       expect(await executor.reservationTotalAmount()).to.equal(0)
-      // Enumeration entry removed.
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(0)
-      expect(await executor.walletReservationKeyIndex(reservationKey)).to.equal(
-        0
-      )
       // Anchor outpoint reverse index released.
       const anchorUtxoHash = ethers.utils.solidityKeccak256(
         ["bytes32", "uint32"],
@@ -448,12 +437,12 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("rejects when the custodying wallet is Closing", async () => {
-      // Closing is not an accepted wallet state for stranding. It is also
-      // unreachable for an Active reservation in practice:
-      // `beginWalletClosing` unconditionally requires the wallet's
-      // reservation count to be zero, while an Active reservation always
-      // keeps its custodian's count at least 1. This test exercises the
-      // require directly via seedWallet's test-only state injection.
+      // Closing is no longer an accepted wallet state for stranding: it is
+      // also independently acceptable to `requestReservationReanchor`,
+      // and a wallet with `mainUtxoHash == 0` can be permissionlessly
+      // driven into `Closing` via `notifyWalletCloseable`, which would
+      // otherwise let a Closing-wallet strand front-run a legitimate
+      // reanchor in a deterministic two-transaction sequence.
       const walletPubKeyHash = `0x${"12".repeat(20)}` as `0x${string}`
       const reservationKey = `0x${"ab".repeat(32)}`
       const owner = ethers.Wallet.createRandom().address
@@ -478,16 +467,12 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
-    it("rejects when the custodying wallet is Closed", async () => {
-      // Closed is not an accepted wallet state for stranding either. Like
-      // Closing, it is unreachable for an Active reservation in practice:
-      // `finalizeWalletClosing` unconditionally requires the wallet's
-      // reservation count to be zero, while an Active reservation always
-      // keeps its custodian's count at least 1. This test exercises the
-      // require directly via seedWallet's test-only state injection.
+    it("strands an Active reservation on a Closed wallet", async () => {
       const walletPubKeyHash = `0x${"13".repeat(20)}` as `0x${string}`
       const reservationKey = `0x${"ac".repeat(32)}`
       const owner = ethers.Wallet.createRandom().address
@@ -510,9 +495,48 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      await expect(
-        executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Active
+      )
+      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
+        1
+      )
+      expect(
+        await executor.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(anchorAmount)
+      expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
+
+      const tx: ContractTransaction = await executor.notifyReservationStranded(
+        reservationKey
+      )
+
+      expect(await executor.reservationState(reservationKey)).to.equal(
+        reservationStateEnum.Stranded
+      )
+      expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
+        0
+      )
+      expect(
+        await executor.walletReservationsAmount(walletPubKeyHash)
+      ).to.equal(0)
+      expect(await executor.reservationTotalAmount()).to.equal(0)
+      const anchorUtxoHash = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [anchorTxHash, anchorTxOutputIndex]
+      )
+      expect(await executor.reservationsByAnchorUtxo(anchorUtxoHash)).to.equal(
+        0
+      )
+
+      const receipt = await tx.wait()
+      const stranded = receipt.events?.find(
+        (e) => e.event === "ReservationStranded"
+      )
+      expect(stranded, "ReservationStranded event missing").to.not.be.undefined
+      expect(stranded!.args!.reservationKey).to.equal(reservationKey)
+      expect(stranded!.args!.walletPubKeyHash).to.equal(walletPubKeyHash)
+      expect(stranded!.args!.owner).to.equal(owner)
+      expect(stranded!.args!.anchorAmount).to.equal(anchorAmount)
     })
 
     it("rejects when the reservation is not Active", async () => {
@@ -544,7 +568,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       ).to.be.revertedWith("Reservation is not active")
     })
 
-    it("rejects when the custodying wallet is not Terminated", async () => {
+    it("rejects when the custodying wallet is not Terminated or Closed", async () => {
       const walletPubKeyHash = `0x${"55".repeat(20)}` as `0x${string}`
       const reservationKey = `0x${"cc".repeat(32)}`
       const owner = ethers.Wallet.createRandom().address
@@ -571,7 +595,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when the custodying wallet is in MovingFunds state", async () => {
@@ -599,7 +625,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated")
+      ).to.be.revertedWith(
+        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+      )
     })
 
     it("rejects when both the reservation and wallet conditions are wrong", async () => {
@@ -672,7 +700,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
   })
 
   describe("strandReservation (internal, reached via notifyReservationStranded)", () => {
-    it("releases capacity and enumeration across multiple Active reservations", async () => {
+    it("releases capacity across multiple Active reservations", async () => {
       // The internal `strandReservation` runs once per `notifyReservationStranded`
       // call; this test exercises it twice to confirm the bookkeeping
       // stays consistent across multiple stranding events on the same
@@ -709,9 +737,6 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         reservationStateEnum.Active
       )
 
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(2)
       expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
         2
       )
@@ -721,10 +746,9 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       expect(await executor.reservationTotalAmount()).to.equal(anchorAmount * 2)
 
       // Strand the first reservation.
-      await executor.notifyReservationStranded(reservationA)
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(1)
+      const tx: ContractTransaction = await executor.notifyReservationStranded(
+        reservationA
+      )
       expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
         1
       )
@@ -732,16 +756,19 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         await executor.walletReservationsAmount(walletPubKeyHash)
       ).to.equal(anchorAmount)
       expect(await executor.reservationTotalAmount()).to.equal(anchorAmount)
-      // Only the surviving reservation remains in the enumeration.
-      expect(
-        await executor.walletReservationKeyAt(walletPubKeyHash, 0)
-      ).to.equal(reservationB)
+      // The correct reservation was stranded; the other survives untouched.
+      const receipt = await tx.wait()
+      const stranded = receipt.events?.find(
+        (e) => e.event === "ReservationStranded"
+      )
+      expect(stranded, "ReservationStranded event missing").to.not.be.undefined
+      expect(stranded!.args!.reservationKey).to.equal(reservationA)
+      expect(await executor.reservationState(reservationB)).to.equal(
+        reservationStateEnum.Active
+      )
 
       // Strand the second reservation.
       await executor.notifyReservationStranded(reservationB)
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(0)
       expect(await executor.walletReservationsCount(walletPubKeyHash)).to.equal(
         0
       )
@@ -749,77 +776,6 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
         await executor.walletReservationsAmount(walletPubKeyHash)
       ).to.equal(0)
       expect(await executor.reservationTotalAmount()).to.equal(0)
-    })
-
-    it("swap-removes the right enumeration entry when a non-tail reservation is stranded", async () => {
-      // `removeWalletReservationKey` swaps the last element into the
-      // removed slot. Strand the first reservation out of three to confirm
-      // the tail element is moved into the removed slot and surviving indices are updated.
-      const walletPubKeyHash = `0x${"d0".repeat(20)}` as `0x${string}`
-      const reservationA = `0x${"a2".repeat(32)}`
-      const reservationB = `0x${"b2".repeat(32)}`
-      const reservationC = `0x${"c2".repeat(32)}`
-      const owner = ethers.Wallet.createRandom().address
-      const anchorAmount = 1_000_000
-      const anchorTxHash = `0x${"d2".repeat(32)}` as `0x${string}`
-      const anchorTxOutputIndex = 0
-
-      await executor.seedWallet(
-        walletPubKeyHash,
-        ZERO_BYTES32,
-        walletStateEnum.Terminated
-      )
-      await executor.seedReservation(
-        reservationA,
-        owner,
-        walletPubKeyHash,
-        anchorAmount,
-        anchorTxHash,
-        anchorTxOutputIndex,
-        reservationStateEnum.Active
-      )
-      await executor.seedReservation(
-        reservationB,
-        owner,
-        walletPubKeyHash,
-        anchorAmount,
-        anchorTxHash,
-        anchorTxOutputIndex,
-        reservationStateEnum.Active
-      )
-      await executor.seedReservation(
-        reservationC,
-        owner,
-        walletPubKeyHash,
-        anchorAmount,
-        anchorTxHash,
-        anchorTxOutputIndex,
-        reservationStateEnum.Active
-      )
-
-      // Order before: [A, B, C] with indices 1, 2, 3.
-      expect(
-        await executor.walletReservationKeyAt(walletPubKeyHash, 0)
-      ).to.equal(reservationA)
-      expect(await executor.walletReservationKeyIndex(reservationA)).to.equal(1)
-      expect(await executor.walletReservationKeyIndex(reservationB)).to.equal(2)
-      expect(await executor.walletReservationKeyIndex(reservationC)).to.equal(3)
-
-      await executor.notifyReservationStranded(reservationA)
-
-      // After: [C, B] with indices 1, 2 (C moved into slot 0).
-      expect(
-        await executor.walletReservationKeysLength(walletPubKeyHash)
-      ).to.equal(2)
-      expect(
-        await executor.walletReservationKeyAt(walletPubKeyHash, 0)
-      ).to.equal(reservationC)
-      expect(
-        await executor.walletReservationKeyAt(walletPubKeyHash, 1)
-      ).to.equal(reservationB)
-      expect(await executor.walletReservationKeyIndex(reservationA)).to.equal(0)
-      expect(await executor.walletReservationKeyIndex(reservationB)).to.equal(2)
-      expect(await executor.walletReservationKeyIndex(reservationC)).to.equal(1)
     })
   })
 
@@ -1043,10 +999,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await ethers.provider.send("evm_setNextBlockTimestamp", [timeoutAt + 1])
       await ethers.provider.send("evm_mine", [])
 
-      const tx = await executor.notifyReservationActionTimeout(
-        reservationKey,
-        []
-      )
+      const tx = await executor.notifyReservationActionTimeout(reservationKey)
       const receipt = await tx.wait()
 
       const reanchorTimedOut = receipt.events?.filter(
@@ -1096,7 +1049,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       )
 
       await expect(
-        executor.notifyReservationActionTimeout(reservationKey, [])
+        executor.notifyReservationActionTimeout(reservationKey)
       ).to.be.revertedWith("Action has not timed out")
     })
 
@@ -1154,10 +1107,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
       await ethers.provider.send("evm_increaseTime", [400 * 86400])
       await ethers.provider.send("evm_mine", [])
 
-      const tx = await executor.notifyReservationActionTimeout(
-        reservationKey,
-        []
-      )
+      const tx = await executor.notifyReservationActionTimeout(reservationKey)
       const receipt = await tx.wait()
 
       const reanchorTimedOut = receipt.events?.filter(

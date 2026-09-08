@@ -310,28 +310,6 @@ contract TestReservation {
         Reservation.notifyReservationStranded(state, reservationKey);
     }
 
-    function addWalletReservationKey(
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) external {
-        Reservation.addWalletReservationKey(
-            state,
-            walletPubKeyHash,
-            reservationKey
-        );
-    }
-
-    function removeWalletReservationKey(
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) external {
-        Reservation.removeWalletReservationKey(
-            state,
-            walletPubKeyHash,
-            reservationKey
-        );
-    }
-
     function getReservation(uint256 reservationKey)
         external
         view
@@ -365,22 +343,6 @@ contract TestReservation {
         returns (Deposit.DepositRequest memory)
     {
         return state.deposits[reservationKey];
-    }
-
-    function getWalletReservationKeys(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256[] memory)
-    {
-        return state.walletReservationKeys[walletPubKeyHash];
-    }
-
-    function getWalletReservationKeyIndex(uint256 reservationKey)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletReservationKeyIndex[reservationKey];
     }
 
     function walletReservationsCount(bytes20 walletPubKeyHash)
@@ -716,15 +678,8 @@ contract TestReservation {
         );
     }
 
-    function notifyReservationActionTimeout(
-        uint256 reservationKey,
-        uint32[] calldata walletMembersIDs
-    ) external {
-        Reservation.notifyReservationActionTimeout(
-            state,
-            reservationKey,
-            walletMembersIDs
-        );
+    function notifyReservationActionTimeout(uint256 reservationKey) external {
+        Reservation.notifyReservationActionTimeout(state, reservationKey);
     }
 
     function notifyReservationAcceptanceTimedOut(uint256 reservationKey)
@@ -812,30 +767,6 @@ contract TestReservation {
         maxReservationsAmountPerWallet = state.maxReservationsAmountPerWallet;
         reservationMaxSingleAmount = state.reservationMaxSingleAmount;
         maxActiveReservations = state.maxActiveReservations;
-    }
-
-    function walletReservationKeysLength(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletReservationKeys[walletPubKeyHash].length;
-    }
-
-    function walletReservationKeyAt(bytes20 walletPubKeyHash, uint256 index)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletReservationKeys[walletPubKeyHash][index];
-    }
-
-    function walletReservationKeyIndex(uint256 reservationKey)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletReservationKeyIndex[reservationKey];
     }
 
     function reservationsByAnchorUtxo(bytes32 anchorUtxoHash)

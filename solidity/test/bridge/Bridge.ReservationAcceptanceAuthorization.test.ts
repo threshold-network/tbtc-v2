@@ -100,13 +100,6 @@ const ActionState = {
   Superseded: 5,
 }
 
-const ProofType = {
-  Acceptance: 0,
-  Redemption: 1,
-  Reanchor: 2,
-  Dissolution: 3,
-}
-
 // Shared test fixtures
 let governance: SignerWithAddress
 let spvMaintainer: SignerWithAddress
@@ -129,11 +122,6 @@ const secondWalletPubKeyHash = "0xafcdf88d15a0e0c2134dbbc9f6da24d0e26c8f21"
 const blindingFactor = "0xf9f0c90d00039523"
 const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
 let refundLocktime: string
-const NO_MAIN_UTXO_PARAM = {
-  txHash: ZERO_BYTES32,
-  txOutputIndex: 0,
-  txOutputValue: 0,
-}
 
 const depositAmount = BigNumber.from(3000000)
 const anchorFee = 1500
@@ -157,8 +145,9 @@ before(async () => {
   } = await bridgeFixture())
 
   // Reservation router functions (`updateReservationParameters`,
-  // `requestReservation*`, `submitReservationProof`, etc.) are declared
-  // on `ReservationRouter`, not `Bridge`. Per `ReservationRouter.sol`
+  // `requestReservation*`, `submitReservationAcceptanceProof`,
+  // `submitReservationReanchorProof`, etc.) are declared on
+  // `ReservationRouter`, not `Bridge`. Per `ReservationRouter.sol`
   // invariant 3 ("no standalone authority"), every one of them is only
   // reachable through `Bridge.fallback()`'s delegatecall - calling the
   // router's own deployed address directly executes against its own
@@ -463,11 +452,9 @@ async function makeAcceptedReservation(custodian = walletPubKeyHash) {
 
   await reservationRouter
     .connect(spvMaintainer)
-    .submitReservationProof(
-      ProofType.Acceptance,
+    .submitReservationAcceptanceProof(
       anchorTx.info,
       proofFor(anchorTx.txHash),
-      NO_MAIN_UTXO_PARAM,
       reservationKey,
       1
     )
@@ -597,11 +584,9 @@ describe("capacity reserved before signing (fill-then-prove)", () => {
     )
     const tx = await reservationRouter
       .connect(spvMaintainer)
-      .submitReservationProof(
-        ProofType.Acceptance,
+      .submitReservationAcceptanceProof(
         anchorTx.info,
         proofFor(anchorTx.txHash),
-        NO_MAIN_UTXO_PARAM,
         reservationKey,
         1
       )
@@ -685,11 +670,9 @@ describe("acceptance authorization timeout", () => {
     )
     const tx = await reservationRouter
       .connect(spvMaintainer)
-      .submitReservationProof(
-        ProofType.Acceptance,
+      .submitReservationAcceptanceProof(
         anchorTx.info,
         proofFor(anchorTx.txHash),
-        NO_MAIN_UTXO_PARAM,
         reservationKey,
         1
       )

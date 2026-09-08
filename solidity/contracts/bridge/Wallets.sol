@@ -593,11 +593,17 @@ library Wallets {
     ///      reservations (active or acceptance-pending, tracked via
     ///      `walletReservationInfo[wallet].count`). The permissionless release
     ///      path for a stranded active reservation (`notifyReservationStranded`)
-    ///      exists and is router-reachable as of this PR, and the zero-reservation
-    ///      count closing gate is enforced in `beginWalletClosing` and
-    ///      `finalizeWalletClosing`. A wallet whose main UTXO is zero but still
-    ///      custodies reservations enters MovingFunds so that `WalletMovingFunds`
-    ///      is emitted to trigger re-anchoring of any remaining reservations.
+    ///      exists and is router-reachable as of this PR. The zero-reservation
+    ///      count check gating immediate closing is enforced here, at the
+    ///      routing decision, and in `notifyWalletClosingPeriodElapsed`; it is
+    ///      intentionally not re-checked inside `beginWalletClosing` or
+    ///      `finalizeWalletClosing` themselves, since those are also invoked
+    ///      after a moving funds Bitcoin transaction has already been proven
+    ///      on-chain, where blocking on a still-active reservation would strand
+    ///      the wallet's `movingFundsTimeout` clock. A wallet whose main UTXO
+    ///      is zero but still custodies reservations enters MovingFunds so
+    ///      that `WalletMovingFunds` is emitted to trigger re-anchoring of any
+    ///      remaining reservations.
     function moveFunds(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
@@ -636,17 +642,11 @@ library Wallets {
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the
-    ///        MovingFunds state,
-    ///      - The wallet must not hold any reservations.
+    ///        MovingFunds state.
     function beginWalletClosing(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
-        require(
-            self.walletReservationInfo[walletPubKeyHash].count == 0,
-            "Wallet has active reservations"
-        );
-
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
         // Initialize the closing period.
         wallet.state = WalletState.Closing;
@@ -661,17 +661,11 @@ library Wallets {
     ///         the ECDSA registry about this fact.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
-    ///      - The caller must make sure that the wallet is in the Closing state,
-    ///      - The wallet must not hold any reservations.
+    ///      - The caller must make sure that the wallet is in the Closing state.
     function finalizeWalletClosing(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
     ) internal {
-        require(
-            self.walletReservationInfo[walletPubKeyHash].count == 0,
-            "Wallet has active reservations"
-        );
-
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         wallet.state = WalletState.Closed;

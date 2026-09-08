@@ -21,12 +21,16 @@ import type { DeployFunction } from "hardhat-deploy/types"
  *      fallback reverts with "Reservation router not set" and script 97 fails.
  *
  * It must also run BEFORE `21_transfer_bridge_governance.ts`
- * (`runAtTheEnd`), because `Bridge.setReservationRouter` is `onlyGovernance`
- * and governance is still the `deployer` account at this point. `21` hands
- * governance to `BridgeGovernance`, which has no `setReservationRouter`
- * passthrough — the router address is write-once and is meant to be fixed
- * before governance is handed over. Filename ordering ("06_" < "06a" < "07_")
- * places this script exactly there.
+ * (`runAtTheEnd`) on this local/test pipeline, because `Bridge.setReservationRouter`
+ * is `onlyGovernance` and governance is still the `deployer` account at this
+ * point. `setReservationRouter` is write-once (reverts on a second call), so
+ * this script's ordering is only a convenience for the local/test pipeline,
+ * not a strict requirement: `BridgeGovernance` now exposes its own
+ * `setReservationRouter` passthrough (mirroring `setRedemptionWatchtower`),
+ * which is how mainnet makes this same one-time call after governance has
+ * already been transferred to `BridgeGovernance` before this milestone
+ * ships. Filename ordering ("06_" < "06a" < "07_") places this script
+ * exactly there.
  */
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, getNamedAccounts, helpers, ethers } = hre

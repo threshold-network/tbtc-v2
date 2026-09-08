@@ -25,11 +25,7 @@ import type { DeployFunction } from "hardhat-deploy/types"
  *
  *   3. `setVaultStatus(vault, true)` via `BridgeGovernance` — marks the
  *      vault as trusted. Until this runs, deposits cannot be revealed
- *      with the vault. Like steps 1 and 2, this step is gated on live
- *      networks: it does not run automatically here and must be
- *      triggered manually, separately, only after confirming both
- *      `finalizeReservationCapsUpdate` and
- *      `finalizeReservationParametersUpdate` have landed on-chain.
+ *      with the vault.
  *
  * The `reservationVault` is set as the first argument of
  * `beginReservationParametersUpdate` — there is no separate
@@ -37,18 +33,12 @@ import type { DeployFunction } from "hardhat-deploy/types"
  *
  * Test-network shortcut: on local development networks (hardhat,
  * localhost, development, system_tests) where the timelock is bypassed,
- * this script may begin, finalize, and activate (steps 1-3) in the same
- * deploy run. On live non-mainnet networks (e.g. sepolia) this script
- * runs the `begin*` steps only; the `finalize*` steps and the
- * `setVaultStatus` activation step must each be executed separately,
- * after the governance delay elapses (60s on sepolia, 48h on mainnet)
- * and after confirming the relevant prior step is on-chain.
+ * this script may begin and finalize in the same deploy run. On live
+ * non-mainnet networks (e.g. sepolia) this script runs the `begin*`
+ * steps only; the `finalize*` steps must be executed separately after
+ * the governance delay elapses (60s on sepolia, 48h on mainnet).
  * Mainnet is skipped entirely via `func.skip` until the timelock is
  * reviewed for production use.
- *
- * The vault deploys with `redemptionsPaused == true` by design; this
- * script does NOT unpause. Unpause is a separate governance action
- * after the operator is ready to activate reservations live.
  */
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, ethers, getNamedAccounts, helpers, network } = hre
@@ -88,11 +78,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     "BridgeGovernance",
     { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationCapsUpdate",
-    // test/dev-network values; see governance-parameter bounds enforced in
-    // Reservation.sol's updateReservationCaps/updateReservationParameters
+    // values per agent-docs/inventory/reservation-parameters.md
     ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
-    ethers.BigNumber.from("5") // maxActiveReservations (lowered from 100: the Item-3 sizing-relation check now enforced on-chain requires maxActiveReservations <= liveWalletsCount * maxReservationsPerWallet on every acceptance; 5 keeps that relation satisfied with just 1 registered Live wallet on a fresh test/dev deploy and stays satisfiable as more wallets register, instead of silently requiring 20+ wallets before any deposit can be accepted)
+    ethers.BigNumber.from("100") // maxActiveReservations
   )
   if (isLocalNetwork) {
     await passGovernanceDelay()
@@ -114,7 +103,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // `reservationVault` (the first arg) is set here — no separate
   // `setReservationVault` setter exists. Total must fit under the
   // `maxActiveReservations * reservationMaxSingleAmount` product set in
-  // step 1 (5 * 100000 = 500_000).
+  // step 1 (100 * 100000 = 10_000_000).
   deployments.log("[2/3] beginReservationParametersUpdate")
   await execute(
     "BridgeGovernance",
@@ -125,8 +114,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("1000"), // reservationTxMaxFee
     ethers.BigNumber.from("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
     ethers.BigNumber.from("86400"), // reservationDissolutionDelay (1 day)
-    ethers.BigNumber.from("500000"), // reservationMaxTotalAmount (lowered from 10_000_000 to match the new 5*100000=500_000 slot capacity from the maxActiveReservations reduction above; keeps Decision 1's invariant satisfied)
-    ethers.BigNumber.from("5"), // maxReservationsPerWallet (unchanged)
+    ethers.BigNumber.from("10000000"), // reservationMaxTotalAmount
+    ethers.BigNumber.from("5"), // maxReservationsPerWallet
     ethers.BigNumber.from("86400"), // reservationActionTimeout
     ethers.BigNumber.from("86400") // reservationRenewalWindowSeconds
   )
@@ -148,7 +137,13 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   // ----- Step 3: setVaultStatus true (activate the vault) ----------------
   // Final activation step. Until this runs, deposits cannot be revealed
-  // with the vault.
+  // with the vault. This MUST NOT run before Step 2's finalize has
+  // actually executed on-chain (reservationVault wired into the Bridge) —
+  // otherwise the vault is marked trusted while `reservationVault` is
+  // still the zero address, letting deposits routed to the vault be
+  // revealed as ordinary (non-reserved) deposits. Step 2's finalize only
+  // runs synchronously here on local networks; on live non-mainnet
+  // networks it is deferred, so this step must be deferred too.
   if (isLocalNetwork) {
     deployments.log("[3/3] Activating vault via setVaultStatus")
     await execute(
@@ -162,8 +157,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     deployments.log(
       `[PENDING ACTIVATION] Network: ${network.name} | Function: setVaultStatus | ` +
         `Args: (${ReservationVault.address}, true) | ` +
-        "Run separately, manually, only after BOTH finalizeReservationCapsUpdate and " +
-        "finalizeReservationParametersUpdate are confirmed on-chain"
+        "Run separately after finalizeReservationParametersUpdate has been executed " +
+        "and confirmed on-chain (do not activate while reservationVault is still zero)"
     )
   }
 }

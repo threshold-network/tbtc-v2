@@ -1617,13 +1617,13 @@ library BridgeGovernanceParameters {
     ///         reservation parameters (including the reservation vault) are
     ///         staged together since they are applied atomically via a
     ///         single Bridge call.
-    /// @dev Reservation parameters do not include
-    ///      `reservationDissolutionTxMaxFee` because dissolution is a
-    ///      later-milestone surface; it is declared in `BridgeState` for
-    ///      storage completeness but never updated through governance in
-    ///      milestone 1. `maxCumulativeReanchorFee` is similarly stored
-    ///      only. See `Reservation.updateReservationParameters` for the
-    ///      underlying validation requirements.
+    /// @dev `reservationDissolutionTxMaxFee` and `maxCumulativeReanchorFee`,
+    ///      once declared in `BridgeState` for m2 storage completeness, were
+    ///      removed as dead/unused before this milestone shipped (neither
+    ///      was ever read or written in m1). Reservation parameters
+    ///      accordingly do not include them. See
+    ///      `Reservation.updateReservationParameters` for the underlying
+    ///      validation requirements.
     /// @param _newReservationVault New reservation vault address.
     /// @param _newReservationMinAmount New reservation minimum amount.
     /// @param _newReservationTxMaxFee New reservation transaction max fee.

@@ -16,6 +16,7 @@ export const KNOWN_COUNCIL_SAFE = "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f"
 // signatures needed to generate governance calldata without importing
 // full contract artifacts.
 const BRIDGE_GOVERNANCE_ABI = [
+  "function setReservationRouter(address _reservationRouter)",
   "function beginReservationCapsUpdate(uint64 _newMaxReservationsAmountPerWallet, uint64 _newReservationMaxSingleAmount, uint32 _newMaxActiveReservations)",
   "function beginReservationParametersUpdate(address _newReservationVault, uint64 _newReservationMinAmount, uint64 _newReservationTxMaxFee, uint32 _newReservationTermSeconds, uint32 _newReservationDissolutionDelay, uint64 _newReservationMaxTotalAmount, uint32 _newMaxReservationsPerWallet, uint32 _newReservationActionTimeout, uint32 _newReservationRenewalWindowSeconds)",
 ]
@@ -23,6 +24,22 @@ const BRIDGE_GOVERNANCE_ABI = [
 // Shared interface instance used by both helper functions and the main
 // deployment function for calldata encoding.
 const bridgeGovInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
+
+/**
+ * Encodes BridgeGovernance.setReservationRouter() calldata.
+ * This is a one-off action with no governance delay and MUST be the first
+ * governance action executed: the Bridge's `fallback()` reverts with
+ * "Reservation router not set" while `reservationRouter == address(0)`, so
+ * no other reservation action can reach the router until this runs.
+ *
+ * @param reservationRouter - Address of the ReservationRouter contract
+ * @returns ABI-encoded calldata for the setReservationRouter function
+ */
+export function encodeSetReservationRouter(reservationRouter: string): string {
+  return bridgeGovInterface.encodeFunctionData("setReservationRouter", [
+    reservationRouter,
+  ])
+}
 
 /**
  * Encodes BridgeGovernance.beginReservationCapsUpdate() calldata.
@@ -118,7 +135,9 @@ function logCalldataSummary(actions: CalldataAction[]): void {
   console.log(`\n${"=".repeat(80)}`)
   console.log("RESERVATION BOOTSTRAP GOVERNANCE CALDATA (mainnet)")
   console.log("=".repeat(80))
-  console.log("Ordering: caps BEFORE parameters (Decision 1)")
+  console.log(
+    "Ordering: router FIRST, then caps BEFORE parameters (Decision 1)"
+  )
   console.log("Governance delay: 172800s (48h) per governanceDelays(0)")
 
   actions.forEach((action, index) => {
@@ -188,9 +207,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n--- Resolving existing contracts ---")
   const BridgeGovernance = await get("BridgeGovernance")
   const ReservationVault = await get("ReservationVault")
+  const ReservationRouter = await get("ReservationRouter")
 
   console.log(`  BridgeGovernance: ${BridgeGovernance.address}`)
   console.log(`  ReservationVault: ${ReservationVault.address}`)
+  console.log(`  ReservationRouter: ${ReservationRouter.address}`)
 
   // Configuration values for initial bootstrap. All satoshi-denominated
   // values below use 8 decimals (divide by 1e8 for BTC). This script
@@ -286,12 +307,29 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Generate governance calldata ---
   console.log(
-    "\n--- Generating governance calldata (caps BEFORE parameters) ---"
+    "\n--- Generating governance calldata (router FIRST, then caps BEFORE parameters) ---"
   )
 
   const actions: CalldataAction[] = []
 
-  // Action 1: beginReservationCapsUpdate (MUST be first per Decision 1)
+  // Action 1: setReservationRouter (MUST be first; the Bridge's fallback()
+  // reverts with "Reservation router not set" until this runs, so no other
+  // reservation action can reach the router before it)
+  const routerCalldata = encodeSetReservationRouter(ReservationRouter.address)
+  actions.push({
+    label:
+      "Governance Action: setReservationRouter (MUST be first - unblocks the Bridge fallback)",
+    target: BridgeGovernance.address,
+    targetName: "BridgeGovernance",
+    calldata: routerCalldata,
+    details: {
+      "Reservation router": ReservationRouter.address,
+      "Governance delay": "None (one-off action)",
+      Note: "Must be called BEFORE any other reservation governance action",
+    },
+  })
+
+  // Action 2: beginReservationCapsUpdate (MUST be second per Decision 1)
   const capsCalldata = encodeBeginReservationCapsUpdate(
     Number(PER_WALLET_CAP),
     Number(SINGLE_AMOUNT_CAP),
@@ -299,7 +337,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   actions.push({
     label:
-      "Governance Action: beginReservationCapsUpdate (Decision 1: caps FIRST)",
+      "Governance Action: beginReservationCapsUpdate (Decision 1: caps BEFORE parameters)",
     target: BridgeGovernance.address,
     targetName: "BridgeGovernance",
     calldata: capsCalldata,
@@ -312,7 +350,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     },
   })
 
-  // Action 2: beginReservationParametersUpdate (MUST be second per Decision 1)
+  // Action 3: beginReservationParametersUpdate (MUST be third per Decision 1)
   const paramsCalldata = encodeBeginReservationParametersUpdate(
     ReservationVault.address,
     Number(RES_MIN_AMOUNT),
@@ -326,7 +364,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   actions.push({
     label:
-      "Governance Action: beginReservationParametersUpdate (Decision 1: parameters SECOND)",
+      "Governance Action: beginReservationParametersUpdate (Decision 1: parameters THIRD)",
     target: BridgeGovernance.address,
     targetName: "BridgeGovernance",
     calldata: paramsCalldata,
@@ -360,16 +398,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     existingContracts: {
       BridgeGovernance: BridgeGovernance.address,
       ReservationVault: ReservationVault.address,
+      ReservationRouter: ReservationRouter.address,
       Timelock: KNOWN_TIMELOCK,
       CouncilSafe: KNOWN_COUNCIL_SAFE,
     },
     governanceActions: [
       {
         to: BridgeGovernance.address,
+        data: routerCalldata,
+        value: 0,
+        description:
+          "setReservationRouter on BridgeGovernance (MUST run first - unblocks the Bridge fallback)",
+      },
+      {
+        to: BridgeGovernance.address,
         data: capsCalldata,
         value: 0,
         description:
-          "beginReservationCapsUpdate on BridgeGovernance (MUST finalize first per Decision 1)",
+          "beginReservationCapsUpdate on BridgeGovernance (MUST finalize before beginReservationParametersUpdate per Decision 1)",
       },
       {
         to: BridgeGovernance.address,

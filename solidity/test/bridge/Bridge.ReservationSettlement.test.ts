@@ -130,13 +130,6 @@ const ActionState = {
   Superseded: 5,
 }
 
-const ProofType = {
-  Acceptance: 0,
-  Redemption: 1,
-  Reanchor: 2,
-  Dissolution: 3,
-}
-
 describe("Bridge - Reservation settlement", () => {
   let governance: SignerWithAddress
   let spvMaintainer: SignerWithAddress
@@ -159,11 +152,6 @@ describe("Bridge - Reservation settlement", () => {
   const blindingFactor = "0xf9f0c90d00039523"
   const refundPubKeyHash = "0x28e081f285138ccbe389c1eb8985716230129f89"
   let refundLocktime: string
-  const NO_MAIN_UTXO_PARAM = {
-    txHash: ZERO_BYTES32,
-    txOutputIndex: 0,
-    txOutputValue: 0,
-  }
 
   const depositAmount = BigNumber.from(3000000)
   const anchorFee = 1500
@@ -187,7 +175,8 @@ describe("Bridge - Reservation settlement", () => {
     } = await bridgeFixture())
 
     // Reservation router functions (`updateReservationParameters`,
-    // `requestReservation*`, `submitReservationProof`, etc.) are declared
+    // `requestReservation*`, `submitReservationAcceptanceProof`,
+    // `submitReservationReanchorProof`, etc.) are declared
     // on `ReservationRouter`, not `Bridge`. Per `ReservationRouter.sol`
     // invariant 3 ("no standalone authority"), every one of them is only
     // reachable through `Bridge.fallback()`'s delegatecall - calling the
@@ -435,11 +424,9 @@ describe("Bridge - Reservation settlement", () => {
 
     await reservationRouter
       .connect(spvMaintainer)
-      .submitReservationProof(
-        ProofType.Acceptance,
+      .submitReservationAcceptanceProof(
         anchorTx.info,
         proofFor(anchorTx.txHash),
-        NO_MAIN_UTXO_PARAM,
         reservationKey,
         1
       )
@@ -505,11 +492,9 @@ describe("Bridge - Reservation settlement", () => {
 
       await reservationRouter
         .connect(spvMaintainer)
-        .submitReservationProof(
-          ProofType.Reanchor,
+        .submitReservationReanchorProof(
           hopTx.info,
           proofFor(hopTx.txHash),
-          NO_MAIN_UTXO_PARAM,
           reservationKey,
           nonce
         )

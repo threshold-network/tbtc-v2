@@ -199,10 +199,6 @@ contract ReservationStrandingExecutor is TestReservation {
             365 days +
             30 days;
 
-        state.walletReservationKeys[walletPubKeyHash].push(reservationKey);
-        state.walletReservationKeyIndex[reservationKey] = state
-            .walletReservationKeys[walletPubKeyHash]
-            .length;
         state.walletReservationInfo[walletPubKeyHash].count += 1;
         state.walletReservationInfo[walletPubKeyHash].amount += anchorAmount;
         state.reservationTotalAmount += anchorAmount;
@@ -371,13 +367,6 @@ contract ReservationStrandingExecutor is TestReservation {
         );
     }
 
-    function seedWalletPendingDissolution(
-        bytes20 walletPubKeyHash,
-        uint256 reservationKey
-    ) external {
-        state.walletPendingDissolution[walletPubKeyHash] = reservationKey;
-    }
-
     function seedReservationCooldown(
         uint256 reservationKey,
         uint32 cooldownUntil
@@ -391,22 +380,6 @@ contract ReservationStrandingExecutor is TestReservation {
 
     function retryCredit(uint256 reservationKey) external view returns (bool) {
         return state.reservations[reservationKey].retryCredit;
-    }
-
-    function reservationRetryCreditActionNonce(uint256 reservationKey)
-        external
-        view
-        returns (uint64)
-    {
-        return state.reservationRetryCreditActionNonce[reservationKey];
-    }
-
-    function walletPendingDissolution(bytes20 walletPubKeyHash)
-        external
-        view
-        returns (uint256)
-    {
-        return state.walletPendingDissolution[walletPubKeyHash];
     }
 
     function pendingReservedDepositWallet(uint256 depositKey)

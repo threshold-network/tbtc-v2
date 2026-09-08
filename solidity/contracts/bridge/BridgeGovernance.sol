@@ -1812,6 +1812,22 @@ contract BridgeGovernance is Ownable {
         bridge.setRebateStaking(rebateStaking);
     }
 
+    /// @notice Sets the reservation router address. This function does not
+    ///         have a governance delay as setting the reservation router is
+    ///         a one-off action performed during initialization of the
+    ///         reservation mechanism.
+    /// @param _reservationRouter Address of the reservation router contract.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        reservation router address is set exactly once and is not 0x0.
+    function setReservationRouter(address _reservationRouter)
+        external
+        onlyOwner
+    {
+        bridge.setReservationRouter(_reservationRouter);
+    }
+
     // --- Reservation
 
     /// @notice Begins the reservation parameters update process. All
@@ -1908,6 +1924,24 @@ contract BridgeGovernance is Ownable {
             staged.newMaxReservationsAmountPerWallet,
             staged.newReservationMaxSingleAmount,
             staged.newMaxActiveReservations
+        );
+    }
+
+    /// @notice Force-clears a stale/unfundable reserved deposit record
+    ///         before its self-chosen refund deadline elapses. Governance
+    ///         escape hatch for `notifyStaleReservedDeposit` (which anyone
+    ///         can call, but only after that deadline): mitigates a
+    ///         permissionless-reveal griefing vector where fabricated,
+    ///         never-broadcast reveals keep `pendingReservedDeposits` from
+    ///         returning to zero.
+    /// @param depositKey The deposit key of the reserved deposit to
+    ///        force-clear.
+    /// @dev Can be called only by the contract owner. This function does
+    ///      not have a governance delay, matching `notifyStaleReservedDeposit`'s
+    ///      own no-delay, incident-response nature.
+    function forceStaleReservedDeposit(uint256 depositKey) external onlyOwner {
+        IReservationBridge(address(bridge)).forceStaleReservedDeposit(
+            depositKey
         );
     }
 }

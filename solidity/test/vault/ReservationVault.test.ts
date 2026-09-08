@@ -22,26 +22,6 @@ function satsToTbtc(sats: number | BigNumber): BigNumber {
   return ethers.BigNumber.from(sats).mul(SATOSHI_MULTIPLIER)
 }
 
-/** A zero-valued `Reservation.ReservationRequest` with `owner` overridden. */
-function reservationWithOwner(owner: string) {
-  return {
-    owner,
-    mintedAmount: 0,
-    acceptedAt: 0,
-    walletPubKeyHash: `0x${"00".repeat(20)}`,
-    anchorAmount: 0,
-    expiresAt: 0,
-    anchorTxHash: ethers.constants.HashZero,
-    anchorTxOutputIndex: 0,
-    state: 0,
-    requestNonce: 0,
-    retryCredit: false,
-    dissolutionEligibleAt: 0,
-    cumulativeReanchorFee: 0,
-    reanchorCooldownUntil: 0,
-  }
-}
-
 const fixture = async () => {
   const [deployer, account1, account2] = await ethers.getSigners()
 
@@ -114,10 +94,6 @@ describe("ReservationVault", () => {
   }
 
   describe("constructor", () => {
-    it("should initialize redemptionsPaused to true", async () => {
-      expect(await vault.redemptionsPaused()).to.equal(true)
-    })
-
     it("should revert when bank is the zero address", async () => {
       const ReservationVault = await ethers.getContractFactory(
         "ReservationVault"
@@ -155,134 +131,6 @@ describe("ReservationVault", () => {
           ethers.constants.AddressZero
         )
       ).to.be.revertedWith("Bridge can not be the zero address")
-    })
-  })
-
-  describe("pauseRedemptions", () => {
-    before(async () => {
-      await createSnapshot()
-    })
-
-    after(async () => {
-      await restoreSnapshot()
-    })
-
-    context("when called by a non-owner and non-guardian", () => {
-      it("should revert", async () => {
-        await expect(
-          vault.connect(account1).pauseRedemptions()
-        ).to.be.revertedWith("Caller is not the owner or guardian")
-      })
-    })
-
-    context("when called by a guardian", () => {
-      before(async () => {
-        await createSnapshot()
-        await vault.addGuardian(account2.address)
-      })
-
-      after(async () => {
-        await restoreSnapshot()
-      })
-
-      it("should set redemptionsPaused to true when it was false", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-
-        await vault.connect(account2).pauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(true)
-      })
-
-      it("should be a no-op when redemptionsPaused is already true", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-
-        await vault.connect(account2).pauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(true)
-      })
-
-      it("should emit ReservationRedemptionsPaused event", async () => {
-        await vault.unpauseRedemptions()
-        await expect(vault.connect(account2).pauseRedemptions())
-          .to.emit(vault, "ReservationRedemptionsPaused")
-          .withArgs(account2.address)
-      })
-    })
-
-    context("when called by the owner", () => {
-      it("should set redemptionsPaused to true when it was false", async () => {
-        // First unpause so we can test the pause transition.
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-
-        await vault.pauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(true)
-      })
-
-      it("should be a no-op when redemptionsPaused is already true", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-
-        await vault.pauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(true)
-      })
-
-      it("should emit ReservationRedemptionsPaused event", async () => {
-        await vault.unpauseRedemptions()
-        await expect(vault.pauseRedemptions()).to.emit(
-          vault,
-          "ReservationRedemptionsPaused"
-        )
-      })
-    })
-  })
-
-  describe("unpauseRedemptions", () => {
-    before(async () => {
-      await createSnapshot()
-    })
-
-    after(async () => {
-      await restoreSnapshot()
-    })
-
-    context("when called by a non-owner", () => {
-      it("should revert", async () => {
-        await expect(
-          vault.connect(account1).unpauseRedemptions()
-        ).to.be.revertedWith("Ownable: caller is not the owner")
-      })
-    })
-
-    context("when called by a guardian", () => {
-      before(async () => {
-        await createSnapshot()
-        await vault.addGuardian(account2.address)
-      })
-
-      after(async () => {
-        await restoreSnapshot()
-      })
-
-      it("should revert", async () => {
-        await expect(
-          vault.connect(account2).unpauseRedemptions()
-        ).to.be.revertedWith("Ownable: caller is not the owner")
-      })
-    })
-
-    context("when called by the owner", () => {
-      it("should set redemptionsPaused to false", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-      })
-
-      it("should emit ReservationRedemptionsUnpaused event", async () => {
-        await expect(vault.unpauseRedemptions()).to.emit(
-          vault,
-          "ReservationRedemptionsUnpaused"
-        )
-      })
     })
   })
 
@@ -434,17 +282,13 @@ describe("ReservationVault", () => {
     context("when called with a zero fee", () => {
       before(async () => {
         await createSnapshot()
-        if (!(await vault.redemptionsPaused())) {
-          await vault.pauseRedemptions()
-        }
       })
 
       after(async () => {
         await restoreSnapshot()
       })
 
-      it("should succeed as a no-op regardless of the pause flag", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
+      it("should succeed as a no-op", async () => {
         await expect(vault.connect(bridge.wallet).financeInKindFee(0)).to.not.be
           .reverted
       })
@@ -728,10 +572,8 @@ describe("ReservationVault", () => {
       const currentBalance = await tbtc.balanceOf(vault.address)
       await vault.updateFeeReserveTarget(currentBalance)
 
-      const tx = await vault.sweepFees(account1.address)
-
+      await expect(vault.sweepFees(account1.address)).to.not.be.reverted
       expect(await tbtc.balanceOf(vault.address)).to.equal(currentBalance)
-      await expect(tx).to.not.emit(vault, "FeesSwept")
     })
   })
 
@@ -756,14 +598,13 @@ describe("ReservationVault", () => {
       ).to.be.revertedWith("Recipient must not be zero")
     })
 
-    it("should return without reverting when balance is not above the reserve target", async () => {
+    it("should be a no-op when balance is not above the reserve target", async () => {
       await vault.updateFeeReserveTarget(ethers.utils.parseEther("1"))
       const balanceBefore = await tbtc.balanceOf(vault.address)
 
-      const tx = await vault.sweepFees(account1.address)
+      await expect(vault.sweepFees(account1.address)).to.not.be.reverted
 
       expect(await tbtc.balanceOf(vault.address)).to.equal(balanceBefore)
-      await expect(tx).to.not.emit(vault, "FeesSwept")
     })
 
     context("happy path (zero outstanding debt)", () => {
@@ -884,9 +725,9 @@ describe("ReservationVault", () => {
       })
     })
 
-    context("when debt exceeds available balance", () => {
+    context("when debt is outstanding and nothing remains to sweep", () => {
       const debtSat = 500_000
-      const fundedSat = 200_000
+      const reserveTargetSat = 1_000_000
 
       before(async () => {
         await createSnapshot()
@@ -894,10 +735,11 @@ describe("ReservationVault", () => {
         // Create debt against an empty reserve.
         await vault.connect(bridge.wallet).financeInKindFee(debtSat)
 
-        // Fund the vault with less than the outstanding debt, so the
-        // post-repayment balance cannot clear the reserve target.
+        // Fund the vault so the retained fee covers exactly debt + target,
+        // leaving nothing above the reserve target after debt repayment.
         const initiationFeeBps = await vault.initiationFeeBps()
-        const depositSat = Math.ceil((fundedSat * 10000) / initiationFeeBps)
+        const totalFeeSat = debtSat + reserveTargetSat
+        const depositSat = Math.ceil((totalFeeSat * 10000) / initiationFeeBps)
 
         await bank
           .connect(bridge.wallet)
@@ -907,7 +749,7 @@ describe("ReservationVault", () => {
             [depositSat]
           )
 
-        await vault.updateFeeReserveTarget(0)
+        await vault.updateFeeReserveTarget(satsToTbtc(reserveTargetSat))
       })
 
       after(async () => {
@@ -922,25 +764,28 @@ describe("ReservationVault", () => {
         await restoreSnapshot()
       })
 
-      it("should not revert and should partially repay the debt", async () => {
-        await vault.sweepFees(account1.address)
+      it("should still repay the debt even though there is nothing to sweep", async () => {
+        await expect(vault.sweepFees(account1.address)).to.not.be.reverted
 
-        expect(await vault.inKindFeeDebtSat()).to.equal(debtSat - fundedSat)
-        expect(await tbtc.balanceOf(vault.address)).to.equal(0)
+        expect(await vault.inKindFeeDebtSat()).to.equal(0)
+        expect(await tbtc.balanceOf(vault.address)).to.equal(
+          satsToTbtc(reserveTargetSat)
+        )
+        expect(await tbtc.balanceOf(account1.address)).to.equal(0)
       })
 
-      it("should emit InKindFeeDebtRepaid for the partial repayment and not emit FeesSwept", async () => {
+      it("should emit InKindFeeDebtRepaid but not FeesSwept", async () => {
         const tx = await vault.sweepFees(account1.address)
 
         await expect(tx)
           .to.emit(vault, "InKindFeeDebtRepaid")
-          .withArgs(vault.address, fundedSat)
+          .withArgs(vault.address, debtSat)
         await expect(tx).to.not.emit(vault, "FeesSwept")
       })
     })
   })
 
-  describe("updateFees", () => {
+  describe("updateInitiationFee", () => {
     before(async () => {
       await createSnapshot()
     })
@@ -951,229 +796,31 @@ describe("ReservationVault", () => {
 
     it("should revert when called by a non-owner", async () => {
       await expect(
-        vault.connect(account1).updateFees(40, 20, 20)
+        vault.connect(account1).updateInitiationFee(40)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
-    it("should succeed when called by the owner with valid fees and emit the event", async () => {
-      await expect(vault.updateFees(50, 30, 25))
+    it("should succeed when called by the owner with a valid fee and emit the event", async () => {
+      await expect(vault.updateInitiationFee(50))
         .to.emit(vault, "FeesUpdated")
-        .withArgs(50, 30, 25)
+        .withArgs(50)
 
       expect(await vault.initiationFeeBps()).to.equal(50)
-      expect(await vault.extensionFeeBps()).to.equal(30)
-      expect(await vault.redemptionFeeBps()).to.equal(25)
     })
 
-    it("should revert when fees exceed MAX_FEE_BASIS_POINTS", async () => {
-      await expect(vault.updateFees(501, 20, 20)).to.be.revertedWith(
+    it("should revert when the fee exceeds MAX_FEE_BASIS_POINTS", async () => {
+      await expect(vault.updateInitiationFee(501)).to.be.revertedWith(
         "Fee exceeds the maximum"
       )
     })
 
-    it("should allow setting fees to exactly MAX_FEE_BASIS_POINTS", async () => {
+    it("should allow setting the fee to exactly MAX_FEE_BASIS_POINTS", async () => {
       const max = await vault.MAX_FEE_BASIS_POINTS()
-      await expect(vault.updateFees(max, max, max))
+      await expect(vault.updateInitiationFee(max))
         .to.emit(vault, "FeesUpdated")
-        .withArgs(max, max, max)
+        .withArgs(max)
 
       expect(await vault.initiationFeeBps()).to.equal(max)
-      expect(await vault.extensionFeeBps()).to.equal(max)
-      expect(await vault.redemptionFeeBps()).to.equal(max)
-    })
-  })
-
-  describe("redeemReservation", () => {
-    const reservationKey = 42
-
-    before(async () => {
-      await createSnapshot()
-    })
-
-    after(async () => {
-      await restoreSnapshot()
-    })
-
-    context("when called by a non-owner of the reservation", () => {
-      before(async () => {
-        await createSnapshot()
-      })
-
-      after(async () => {
-        await restoreSnapshot()
-      })
-
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
-
-      it("should revert with ownership message while redemptions are unpaused", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Caller is not the reservation owner")
-      })
-    })
-
-    context("when called by the reservation owner", () => {
-      before(async () => {
-        await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
-      })
-
-      after(async () => {
-        await bridge.reservations.reset()
-        await restoreSnapshot()
-      })
-
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
-
-      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Reserved redemption not enabled in milestone 1")
-      })
-    })
-
-    context("pause state distinguishability", () => {
-      before(async () => {
-        await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
-      })
-
-      after(async () => {
-        await bridge.reservations.reset()
-        await restoreSnapshot()
-      })
-
-      it("should distinguish between paused and unpaused states", async () => {
-        // While paused, reverts with "Redemptions are paused"
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Redemptions are paused")
-
-        // While unpaused, reverts with milestone-1 disabled string
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).redeemReservation(reservationKey, 100_000)
-        ).to.be.revertedWith("Reserved redemption not enabled in milestone 1")
-      })
-    })
-  })
-
-  describe("retryRedeemReservation", () => {
-    const reservationKey = 43
-
-    before(async () => {
-      await createSnapshot()
-    })
-
-    after(async () => {
-      await restoreSnapshot()
-    })
-
-    context("when called by a non-owner of the reservation", () => {
-      before(async () => {
-        await createSnapshot()
-      })
-
-      after(async () => {
-        await restoreSnapshot()
-      })
-
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
-
-      it("should revert with ownership message while redemptions are unpaused", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Caller is not the reservation owner")
-      })
-    })
-
-    context("when called by the reservation owner", () => {
-      before(async () => {
-        await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
-      })
-
-      after(async () => {
-        await bridge.reservations.reset()
-        await restoreSnapshot()
-      })
-
-      it("should revert with pause message while redemptions are paused", async () => {
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Redemptions are paused")
-      })
-
-      it("should revert with the milestone-1 message while redemptions are unpaused", async () => {
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith(
-          "Reserved redemption retry not enabled in milestone 1"
-        )
-      })
-    })
-
-    context("pause state distinguishability", () => {
-      before(async () => {
-        await createSnapshot()
-        await bridge.reservations
-          .whenCalledWith(reservationKey)
-          .returns(reservationWithOwner(account1.address))
-      })
-
-      after(async () => {
-        await bridge.reservations.reset()
-        await restoreSnapshot()
-      })
-
-      it("should distinguish between paused and unpaused states", async () => {
-        // While paused, reverts with "Redemptions are paused"
-        expect(await vault.redemptionsPaused()).to.equal(true)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith("Redemptions are paused")
-
-        // While unpaused, reverts with milestone-1 disabled string
-        await vault.unpauseRedemptions()
-        expect(await vault.redemptionsPaused()).to.equal(false)
-        await expect(
-          vault.connect(account1).retryRedeemReservation(reservationKey, 0)
-        ).to.be.revertedWith(
-          "Reserved redemption retry not enabled in milestone 1"
-        )
-      })
     })
   })
 
