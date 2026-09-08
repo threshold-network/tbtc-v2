@@ -5,20 +5,33 @@ import { ethers } from "hardhat"
 import { mine, takeSnapshot } from "@nomicfoundation/hardhat-network-helpers"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import deployReimbursementPool from "@keep-network/random-beacon/export/deploy/01_deploy_reimbursement_pool"
-import deployBeaconSortitionPool from "@keep-network/random-beacon/export/deploy/02_deploy_beacon_sortition_pool"
-import deployBeaconDkgValidator from "@keep-network/random-beacon/export/deploy/03_deploy_beacon_dkg_validator"
-import deployRandomBeacon from "@keep-network/random-beacon/export/deploy/04_deploy_random_beacon"
-import deployRandomBeaconGovernance from "@keep-network/random-beacon/export/deploy/07_deploy_random_beacon_governance"
-import deployRandomBeaconChaosnet from "@keep-network/random-beacon/export/deploy/09_deploy_random_beacon_chaosnet"
 
-// A sibling declaration would hide the helper's JavaScript from legacy lint.
+// Type the untyped CommonJS fixtures at their loader boundary.
+const loadCommonJs = createRequire(__filename)
+const deployReimbursementPool: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/01_deploy_reimbursement_pool"
+)
+const deployBeaconSortitionPool: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/02_deploy_beacon_sortition_pool"
+)
+const deployBeaconDkgValidator: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/03_deploy_beacon_dkg_validator"
+)
+const deployRandomBeacon: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/04_deploy_random_beacon"
+)
+const deployRandomBeaconGovernance: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/07_deploy_random_beacon_governance"
+)
+const deployRandomBeaconChaosnet: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/09_deploy_random_beacon_chaosnet"
+)
 const waitForConfirmations: (
   provider: Pick<Provider, "getTransaction">,
   transactionHash: string,
   confirmations: number,
   timeout: number
-) => Promise<TransactionReceipt> = createRequire(__filename)(
+) => Promise<TransactionReceipt> = loadCommonJs(
   "../../helpers/wait-for-confirmations"
 )
 
