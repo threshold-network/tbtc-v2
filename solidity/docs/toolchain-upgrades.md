@@ -79,3 +79,14 @@ commands: 263 console uses, 31 unnamed functions, 19 unused variables, five
 explicit `any` types and three non-null assertions. Reduce the ceiling when
 fixing these warnings; do not increase it to accommodate new warnings. This
 records the warning baseline for the migration without disabling those checks.
+
+Solhint 6 uses the same explicit rule policy previously supplied by the
+`solhint-config-keep` git dependency, with this repository's constructor
+visibility override. The obsolete `event-name-camelcase` rule is renamed to
+`event-name-capwords`. The migration has zero errors and 55 warnings, capped in
+both Solhint commands. Solhint 3 reported 48 warnings against the same source;
+the newer rule implementations and corrected event-name rule account for the
+increase. The baseline is 45 ordering, five function-name, three event-name and
+two state-count warnings. These warnings remain visible and should be removed
+with focused follow-ups. CLI update checks are disabled so lint does not depend
+on an external version check.
