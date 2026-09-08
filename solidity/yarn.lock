@@ -2926,6 +2926,27 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch":
+  version: 1.46.0
+  resolution: "@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch::version=1.46.0&hash=93671f"
+  dependencies:
+    "@nomicfoundation/slang": "npm:^0.18.3"
+    bignumber.js: "npm:^9.1.2"
+    cbor: "npm:^10.0.0"
+    chalk: "npm:^4.1.0"
+    compare-versions: "npm:^6.0.0"
+    debug: "npm:^4.1.1"
+    ethereumjs-util: "npm:^7.0.3"
+    minimatch: "npm:^10.2.5"
+    minimist: "npm:^1.2.7"
+    proper-lockfile: "npm:^4.1.1"
+    solidity-ast: "npm:^0.4.60"
+  bin:
+    openzeppelin-upgrades-core: dist/cli/cli.js
+  checksum: 10c0/f47d7522280152f676ea741490f18453195aef6c121e85479890725673e1cdf3bce622ab6f833f387f5e8bdabadfa118ebaac987f2f04ed8dc8399dcc7f02c33
+  languageName: node
+  linkType: hard
+
 "@openzeppelin/upgrades@npm:^2.7.2":
   version: 2.8.0
   resolution: "@openzeppelin/upgrades@npm:2.8.0"
