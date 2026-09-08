@@ -13,9 +13,7 @@ import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
 import { normalizeStarkNetChainId } from "./chain-id"
-import { BigNumber } from "@ethersproject/bignumber"
-import { MaxUint256 } from "@ethersproject/constants"
-import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
+import { maxUint256, keccak256, encodePacked } from "viem"
 
 /**
  * Relayer request payload for revealing a deposit
@@ -317,7 +315,7 @@ const CANONICAL_DEPOSIT_ID_PATTERN = /^(0|[1-9][0-9]*)$/
  * `0..2^256-1`. Any larger magnitude cannot be a genuine deposit ID and must
  * be rejected. `2^256-1` is exactly 78 decimal digits long.
  */
-const MAX_CANONICAL_DEPOSIT_ID = MaxUint256.toString()
+const MAX_CANONICAL_DEPOSIT_ID = maxUint256.toString()
 
 /**
  * Determines whether a value is a canonical decimal deposit ID string within
@@ -425,11 +423,13 @@ function deriveCanonicalDepositId(
 
   // Pack the funding hash and the uint32 output index, Keccak-hash them, and
   // convert to the canonical decimal representation.
-  const depositIdHash = solidityKeccak256(
-    ["bytes32", "uint32"],
-    [fundingTxHash.toPrefixedString(), depositOutputIndex]
+  const depositIdHash = keccak256(
+    encodePacked(
+      ["bytes32", "uint32"],
+      [fundingTxHash.toPrefixedString() as `0x${string}`, depositOutputIndex]
+    )
   )
-  return BigNumber.from(depositIdHash).toString()
+  return BigInt(depositIdHash).toString()
 }
 
 /**

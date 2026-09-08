@@ -325,3 +325,31 @@ export async function ethereumAddressFromSigner(
 
   throw new Error("Unsupported Ethereum signer/provider")
 }
+
+/**
+ * Determines whether a value is any shape the SDK's {@link EthereumSigner}
+ * union accepts: a viem client, an ethers v5 Signer/Provider (structural
+ * shim), or a raw EIP-1193 provider.
+ * @param x The candidate value to check.
+ * @returns True if `x` is a supported Ethereum signer/provider shape.
+ */
+export function isEvmSigner(x: unknown): boolean {
+  if (typeof x !== "object" || x === null) {
+    return false
+  }
+
+  const candidate = x as Record<string, unknown>
+
+  if (
+    typeof candidate.request === "function" &&
+    typeof candidate.type === "string"
+  ) {
+    return true
+  }
+
+  if (candidate._isSigner === true || candidate._isProvider === true) {
+    return true
+  }
+
+  return typeof candidate.request === "function"
+}
