@@ -6,6 +6,12 @@ report fingerprints for the deferred-refund recovery branch in
 are unchanged. Solidity sources are unchanged, preserving their bytecode and
 compiler metadata.
 
+As of this PR, `dev`'s `contracts-slither` CI job fails on exactly these two
+findings (329 contracts analyzed with 74 detectors, 2 result(s) found, exit
+code 255). Landing this triage database and its source-hash guard test is
+what restores that job to green — this triage is not only new-code review,
+it also repairs `dev`'s existing Slither gate.
+
 ## Failed deferred refund: reentrancy-no-eth
 
 The reported write restores the saved `gasReimbursements[depositKey]` only

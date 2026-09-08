@@ -66,7 +66,6 @@ That is an afternoon, not a quarter. ESM is not the blocker; the plugins are.
 | `@openzeppelin/hardhat-upgrades`  | 4.1.0         | `^3.6.0`       | yes |
 | `hardhat-deploy`                  | 2.0.10        | `^3.4.5`       | yes |
 | `hardhat-gas-reporter`            | 2.3.0         | `^2.16.0`      | no  |
-| `@nomiclabs/hardhat-waffle`       | 2.0.6         | `^2.0.0`       | no  |
 | `@typechain/hardhat`              | 9.1.0         | `^2.9.9`       | no  |
 | `hardhat-contract-sizer`          | 2.10.1        | `^2.0.0`       | no  |
 | `hardhat-dependency-compiler`     | 1.2.1         | `^2.0.0`       | no  |
@@ -74,7 +73,7 @@ That is an afternoon, not a quarter. ESM is not the blocker; the plugins are.
 | `@keep-network/hardhat-helpers`   | 0.7.2         | `^2.19.4`      | no  |
 | `@tenderly/hardhat-tenderly`      | 2.5.2         | none declared  | ?   |
 
-Three of eleven. `@keep-network/hardhat-helpers` is ours, so it gates on our own
+Three of ten. `@keep-network/hardhat-helpers` is ours, so it gates on our own
 release cycle rather than on anyone else.
 
 **The deploy layer is a port, not a bump.** `hardhat-deploy@2` does support
@@ -87,11 +86,12 @@ fixtures.
 Ordered by what actually costs something, which is not the order this document
 had before:
 
-1. Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack. This
-   is the real body of work: `hardhat-ethers@4` is ready, the waffle matchers
-   are not, so every assertion moves to `hardhat-chai-matchers` or the viem
-   toolbox. 92 test files (originally 89 prior to helper and test additions). Which of the two, and on what prerequisites, is
-   settled below in "Replacing waffle: viem or ethers v6".
+1. ~~Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack.~~
+   **Done** ([#1067](https://github.com/threshold-network/tbtc-v2/pull/1067)): every
+   assertion moved to `@nomicfoundation/hardhat-chai-matchers`, all 92 test files
+   run on ethers v6, and TypeChain targets `ethers-v6`. The residual step for full
+   Hardhat 3 readiness is bumping `@nomicfoundation/hardhat-ethers` from the
+   current v3 pin to v4 (`^3.8.0` peer requirement).
 2. Port the deploy layer to `hardhat-deploy@2` / rocketh. 60 scripts and the
    tests that consume their fixtures.
 3. Release `@keep-network/hardhat-helpers` for Hardhat 3. Ours, so it gates on

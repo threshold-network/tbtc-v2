@@ -109,6 +109,16 @@ cd "$parity_root/candidate/solidity"
 
 The raw comparison has expected exit status **1** for this migration:
 
+The printed "Byte parity" summary verdict covers `export.json`,
+`export/artifacts/`, and `deployments/` only. `export/deploy/` (the 19
+compiled deploy scripts) is deliberately excluded from that summary: those
+files are expected to differ under this and any future ethers-version
+migration, so folding them into the same PASS/FAIL verdict would pin it to
+FAIL permanently and the flag would stop carrying information. The full
+per-group breakdown, including `export/deploy/`, is still printed in the raw
+JSON report above the summary line; only the summary is scoped to the other
+three groups.
+
 ```sh
 yarn ts-node scripts/compare-pr1067-parity.ts \
   "$parity_root/dev-snapshot" "$parity_root/candidate-snapshot" --raw
@@ -123,7 +133,7 @@ yarn ts-node scripts/compare-pr1067-parity.ts \
 PARITY_BASELINE="$parity_root/dev-snapshot" \
   PARITY_CANDIDATE="$parity_root/candidate-snapshot" \
   yarn hardhat test --network hardhat --no-compile \
-  scripts/compare-pr1067-parity.test.ts
+  test/scripts/compare-pr1067-parity.test.ts
 ```
 
 The mutation tests use real snapshots and leave them intact. Changes to ABI,
