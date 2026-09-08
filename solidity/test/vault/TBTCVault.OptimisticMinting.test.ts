@@ -60,8 +60,6 @@ describe("TBTCVault - OptimisticMinting", () => {
     minter = await ethers.getSigner(accounts[0])
     guardian = await ethers.getSigner(accounts[1])
     thirdParty = await ethers.getSigner(accounts[2])
-
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -956,7 +954,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should add address as a minter", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isMinter(minter.address)).to.be.true
         })
 
@@ -1036,7 +1033,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should take minter role from the address", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isMinter(minter.address)).to.be.false
         })
 
@@ -1091,7 +1087,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should take minter role from the address", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isMinter(minter.address)).to.be.false
         })
 
@@ -1207,7 +1202,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should add address as a guardian", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isGuardian(guardian.address)).to.be.true
         })
 
@@ -1265,7 +1259,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should take guardian role from the address", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isGuardian(guardian.address)).to.be.false
         })
 
@@ -1326,7 +1319,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should pause optimistic minting", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isOptimisticMintingPaused()).to.be.true
         })
 
@@ -1369,7 +1361,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         it("should unpause optimistic minting", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await tbtcVault.isOptimisticMintingPaused()).to.be.false
         })
 
@@ -1746,11 +1737,11 @@ describe("TBTCVault - OptimisticMinting", () => {
         await mockBridge.treasury.returns(treasuryAddress)
 
         const TBTCFactory = await ethers.getContractFactory("TBTC")
-        // eslint-disable-next-line @typescript-eslint/no-shadow
+
         const tbtc = await TBTCFactory.connect(deployer).deploy()
 
         const TBTCVaultFactory = await ethers.getContractFactory("TBTCVault")
-        // eslint-disable-next-line @typescript-eslint/no-shadow
+
         const tbtcVault = await TBTCVaultFactory.connect(deployer).deploy(
           mockBank.address,
           tbtc.target,

@@ -61,7 +61,6 @@ describe("RedemptionWatchtower", () => {
   let redemptionWatchtower: RedemptionWatchtower
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       thirdParty,
@@ -172,7 +171,7 @@ describe("RedemptionWatchtower", () => {
           it("should set initial guardians properly", async () => {
             // eslint-disable-next-line no-restricted-syntax
             for (const guardian of guardians) {
-              // eslint-disable-next-line no-await-in-loop,@typescript-eslint/no-unused-expressions
+              // eslint-disable-next-line no-await-in-loop
               expect(await redemptionWatchtower.isGuardian(guardian.address)).to
                 .be.true
             }
@@ -393,7 +392,6 @@ describe("RedemptionWatchtower", () => {
           })
 
           it("should add the guardian properly", async () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
             expect(await redemptionWatchtower.isGuardian(thirdParty.address)).to
               .be.true
           })
@@ -459,7 +457,6 @@ describe("RedemptionWatchtower", () => {
         })
 
         it("should remove the guardian properly", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await redemptionWatchtower.isGuardian(guardians[0].address)).to
             .be.false
         })
@@ -489,7 +486,7 @@ describe("RedemptionWatchtower", () => {
       data.redemptionRequests[0].redeemerOutputScript =
         "0x1976a9142cd680318747b720d67bf4246eb7403b476adb3488ac"
       const redemptions = await createRedemptionRequests(data)
-      // eslint-disable-next-line prefer-destructuring
+
       return redemptions[0]
     }
 
@@ -944,7 +941,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1013,7 +1009,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1102,7 +1097,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1144,7 +1138,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should mark the redeemer as banned", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.isBanned(
                         legacyRedemption.redeemer
@@ -1301,7 +1294,6 @@ describe("RedemptionWatchtower", () => {
                   })
 
                   it("should store the objection key", async () => {
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                     expect(
                       await redemptionWatchtower.objections(
                         buildObjectionKey(
@@ -1378,7 +1370,6 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 it("should store the objection key", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
                     await redemptionWatchtower.objections(
                       buildObjectionKey(
@@ -1474,7 +1465,6 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 it("should store the objection key", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
                     await redemptionWatchtower.objections(
                       buildObjectionKey(
@@ -1512,7 +1502,6 @@ describe("RedemptionWatchtower", () => {
                 })
 
                 it("should mark the redeemer as banned", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
                     await redemptionWatchtower.isBanned(redemption.redeemer)
                   ).to.be.true
@@ -2212,7 +2201,7 @@ describe("RedemptionWatchtower", () => {
     context("when the balance owner is banned", () => {
       it("should return false", async () => {
         // Check non-objected redemption with the banned redeemer as balance owner.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
@@ -2227,7 +2216,7 @@ describe("RedemptionWatchtower", () => {
     context("when the redeemer is banned", () => {
       it("should return false", async () => {
         // Check non-objected redemption with the banned redeemer as redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
@@ -2242,7 +2231,7 @@ describe("RedemptionWatchtower", () => {
     context("when redemption key was vetoed", () => {
       it("should return false", async () => {
         // Check vetoed redemption with non-banned balance owner and redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             vetoedRedemption.walletPublicKeyHash,
@@ -2258,7 +2247,7 @@ describe("RedemptionWatchtower", () => {
       it("should return false", async () => {
         // Check objected but non-vetoed redemption with non-banned balance
         // owner and redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             objectedNonVetoedRedemption.walletPublicKeyHash,
@@ -2273,7 +2262,7 @@ describe("RedemptionWatchtower", () => {
     context("when all safety criteria are met", () => {
       it("should return true", async () => {
         // Check non-objected redemption with non-banned balance owner and redeemer.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
         expect(
           await redemptionWatchtower.isSafeRedemption(
             "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726",
@@ -2362,7 +2351,6 @@ describe("RedemptionWatchtower", () => {
         })
 
         it("should remove the redeemer from the banned list", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await redemptionWatchtower.isBanned(redemption.redeemer)).to.be
             .false
         })

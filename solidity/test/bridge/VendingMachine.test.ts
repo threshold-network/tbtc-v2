@@ -32,11 +32,8 @@ describe("VendingMachine", () => {
 
   before(async () => {
     let keepTechnicalWalletTeam: Signer
-      // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, keepCommunityMultiSig, keepTechnicalWalletTeam } =
       await helpers.signers.getNamedSigners())
-
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[
       unmintFeeUpdateInitiator,
       vendingMachineUpgradeInitiator,

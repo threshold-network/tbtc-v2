@@ -235,7 +235,6 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
   }
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -2034,7 +2033,6 @@ describe("L1BTCRedeemerWormhole (using real contract)", () => {
   }
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,

@@ -130,7 +130,6 @@ describe("BitcoinTx", () => {
 
     const NORMAL_DIFFICULTY = 7019199231177
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const callDetermineRequestedDifficulty = (
       headers: string,
       currentDiff: number | bigint,

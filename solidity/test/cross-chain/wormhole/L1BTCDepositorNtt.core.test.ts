@@ -126,7 +126,6 @@ describe("L1BTCDepositorNtt Core Functions", () => {
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,

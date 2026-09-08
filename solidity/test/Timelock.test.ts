@@ -22,7 +22,7 @@ describe("Timelock", () => {
 
   before(async () => {
     const { esdm } = await helpers.signers.getNamedSigners()
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+
     ;({ governance, bridge, tbtcVault } = await bridgeFixture())
 
     // One of the Threshold Council signers

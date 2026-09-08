@@ -1,6 +1,4 @@
 import { toNumber, Contract, ContractTransactionResponse } from "ethers"
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -107,7 +105,6 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   let redemptionTimeout: number
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,

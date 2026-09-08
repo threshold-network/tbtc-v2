@@ -23,8 +23,8 @@
     "format:fix": "npm run lint:fix && prettier --write .",
     "lint": "npm run lint:eslint && npm run lint:sol",
     "lint:fix": "npm run lint:fix:eslint && npm run lint:fix:sol",
-    "lint:eslint": "eslint .",
-    "lint:fix:eslint": "eslint . --fix",
+    "lint:eslint": "eslint . --max-warnings 321",
+    "lint:fix:eslint": "eslint . --fix --max-warnings 321",
     "lint:sol": "solhint 'contracts/**/*.sol'",
     "lint:fix:sol": "solhint 'contracts/**/*.sol' --fix",
     "test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test",
@@ -50,17 +50,22 @@
     "@nomicfoundation/hardhat-verify": "^2.0.14",
     "@openzeppelin/hardhat-upgrades": "patch:@openzeppelin/hardhat-upgrades@npm%3A2.5.1#~/.yarn/patches/@openzeppelin-hardhat-upgrades-npm-2.5.1-etherscan-v2.patch",
     "@tenderly/hardhat-tenderly": "~2.1.0",
-    "@thesis-co/eslint-config": "github:thesis/eslint-config",
     "@typechain/ethers-v6": "patch:@typechain/ethers-v6@npm%3A0.5.1#~/.yarn/patches/@typechain-ethers-v6-npm-0.5.1-e825560376.patch",
     "@typechain/hardhat": "^9.1.0",
     "@types/chai": "^4.3.20",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.11.1",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
     "chai": "^4.3.4",
     "chai-as-promised": "^7.1.1",
     "dotenv": "^16.4.5",
-    "eslint": "^7.32.0",
+    "eslint": "^10.10.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-no-only-tests": "^3.4.0",
     "ethers": "^6.14.0",
+    "globals": "^17.12.0",
     "hardhat": "^2.26.3",
     "hardhat-contract-sizer": "^2.5.0",
     "hardhat-dependency-compiler": "^1.1.2",
@@ -84,6 +89,6 @@
     "eth-sig-util/ethereumjs-abi": "0.6.8"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": "^22.13.0 || >=24.0.0"
   }
 }

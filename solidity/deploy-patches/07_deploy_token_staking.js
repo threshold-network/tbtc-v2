@@ -7,7 +7,7 @@
  *
  * Apply: scripts/apply-solidity-contracts-export-deploy-patch.sh (also run from full-redeploy-sepolia-stack.sh).
  */
-/* eslint-disable @typescript-eslint/no-var-requires */
+
 const fs = require("fs")
 const hardhat = require("hardhat")
 

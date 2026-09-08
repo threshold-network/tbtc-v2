@@ -58,3 +58,24 @@ deploy scripts. Before replacing that loader, validate all those scripts and
 both published formats (`export/` and `export.json`) against an explicit
 consumer compatibility contract. Keep these three issues open until their
 runtime migrations and acceptance checks are complete.
+
+## Lint policy
+
+The ESLint 10 flat configuration uses typescript-eslint 8 and import-x.
+`eslint.rules.cjs` preserves the active non-formatting rules resolved from
+`@thesis-co/eslint-config` 0.6.1; removed TypeScript rules use their current
+replacements. Prettier owns formatting, and unused React/JSX configuration is
+omitted. JavaScript keeps the correctness rules which TypeScript's compiler
+provides for TypeScript files. `tsconfig.eslint.json` is checked in so fresh
+installs do not depend on the old shared package generating one.
+
+The existing test overrides and the prohibition on `waffle.loadFixture` remain.
+Focused tests (`describe.only` / `it.only`) are errors. Unused disable comments
+are errors, including the obsolete `no-extra-semi` suppressions removed in this
+migration. Node 22.13+ or Node 24+ is required by ESLint 10.
+
+The existing warning debt stays visible with a ceiling of 321 in both ESLint
+commands: 263 console uses, 31 unnamed functions, 19 unused variables, five
+explicit `any` types and three non-null assertions. Reduce the ceiling when
+fixing these warnings; do not increase it to accommodate new warnings. This
+records the warning baseline for the migration without disabling those checks.

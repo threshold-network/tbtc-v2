@@ -200,16 +200,16 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       await expect(finalizeTx).to.emit(depositor, "DepositFinalized")
 
       // Verify StarkGate bridge was called correctly
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.getDepositCount()).to.be.gt(0)
       const lastDepositCall = await starkGateBridge.getLastDepositCall()
       expect(lastDepositCall.token).to.equal(tbtcToken.target)
 
       // Check that final bridged amount is within expected range
       // bridged amount is after optimistic minting fee
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(lastDepositCall.amount).to.be.gt(0)
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(lastDepositCall.amount).to.be.lte(DEPOSIT_AMOUNT - TREASURY_FEE)
     })
 
@@ -219,7 +219,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       const depositKeys = []
 
       // Initialize multiple deposits
-      // eslint-disable-next-line no-restricted-syntax
+
       for (let i = 0; i < numberOfDeposits; i++) {
         const depositData = generateDepositData(i)
         depositData.reveal.vault = tbtcVaultAddress
@@ -230,7 +230,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       }
 
       // Process all deposits
-      // eslint-disable-next-line no-restricted-syntax
+
       for (let i = 0; i < numberOfDeposits; i++) {
         const keys = depositKeys[i]
 
@@ -248,7 +248,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       }
 
       // Verify all deposits were bridged
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.getDepositCount()).to.equal(numberOfDeposits)
     })
 
@@ -263,7 +263,6 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
         to1ePrecision(2, 18), // 2 BTC (test amount, not used by bridge)
       ]
 
-      // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < amounts.length; i++) {
         const depositData = generateDepositData(i + 10)
         depositData.reveal.vault = tbtcVaultAddress
@@ -413,7 +412,6 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       const numberOfDeposits = 10
       // const startTime = Date.now()
 
-      // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < numberOfDeposits; i++) {
         const depositData = generateDepositData(1000 + i)
         depositData.reveal.vault = tbtcVaultAddress
@@ -435,7 +433,7 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // const totalTime = endTime - startTime
 
       // Verify all deposits completed
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
       expect(await starkGateBridge.getDepositCount()).to.equal(numberOfDeposits)
 
       // Log performance metrics (informational)
@@ -447,7 +445,6 @@ describe("StarkNetBitcoinDepositor - Integration Tests", () => {
       // RED PHASE: Test gas consistency
       const gasUsages = []
 
-      // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < 5; i++) {
         const depositData = generateDepositData(2000 + i)
         depositData.reveal.vault = tbtcVaultAddress

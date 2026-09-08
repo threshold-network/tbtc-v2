@@ -38,7 +38,6 @@ describe("DonationVault", () => {
   let vault: DonationVault
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ bridge, account1, account2, bank, vault } = await loadFixture(fixture))
   })
 

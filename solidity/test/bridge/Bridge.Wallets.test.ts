@@ -1,5 +1,5 @@
 import { toNumber, ContractTransactionResponse } from "ethers"
-/* eslint-disable no-underscore-dangle */
+
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
@@ -28,7 +28,6 @@ describe("Bridge - Wallets", () => {
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
       await bridgeFixture())
   })
@@ -80,7 +79,6 @@ describe("Bridge - Wallets", () => {
           })
 
           it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
             await expectCalledOnce(walletRegistry.requestNewWallet)
           })
         })
@@ -151,7 +149,6 @@ describe("Bridge - Wallets", () => {
                     })
 
                     it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                       await expectCalledOnce(walletRegistry.requestNewWallet)
                     })
                   }
@@ -196,7 +193,6 @@ describe("Bridge - Wallets", () => {
                     })
 
                     it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                       await expectCalledOnce(walletRegistry.requestNewWallet)
                     })
                   }
@@ -392,7 +388,6 @@ describe("Bridge - Wallets", () => {
                 })
 
                 it("should call ECDSA Wallet Registry's requestNewWallet function", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnce(walletRegistry.requestNewWallet)
                 })
               })

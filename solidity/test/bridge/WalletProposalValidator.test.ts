@@ -1274,7 +1274,6 @@ describe("WalletProposalValidator", () => {
                                                   depositsExtraInfo
                                                 )
 
-                                              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                               expect(result).to.be.true
                                             })
                                           }
@@ -2176,7 +2175,6 @@ describe("WalletProposalValidator", () => {
                                         proposal
                                       )
 
-                                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                     expect(result).to.be.true
                                   })
                                 })
@@ -2594,7 +2592,7 @@ describe("WalletProposalValidator", () => {
                         },
                         walletMainUtxo
                       )
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
                     expect(result).to.be.true
                   })
                 })
@@ -2863,7 +2861,7 @@ describe("WalletProposalValidator", () => {
                           movedFundsSweepTxFee: movedFundsSweepTxMaxTotalFee,
                         }
                       )
-                    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
                     expect(result).to.be.true
                   })
                 })
@@ -2894,7 +2892,6 @@ describe("WalletProposalValidator", () => {
           message: "0xffffffffffffffff1111111111111111",
         })
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(result).to.be.true
       })
     })
