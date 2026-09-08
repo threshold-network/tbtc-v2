@@ -4,47 +4,31 @@
     {
       "name": "updateReservationCaps",
       "selector": "0x8308c2ca",
-      "inputs": [
-        "uint64",
-        "uint64",
-        "uint32"
-      ],
+      "inputs": ["uint64", "uint64", "uint32"],
       "outputs": []
     },
     {
       "name": "reservationCaps",
       "selector": "0x63dfb29c",
       "inputs": [],
-      "outputs": [
-        "uint64",
-        "uint64",
-        "uint32"
-      ]
+      "outputs": ["uint64", "uint64", "uint32"]
     },
     {
       "name": "notifyReservationStranded",
       "selector": "0xf95ea36f",
-      "inputs": [
-        "uint256"
-      ],
+      "inputs": ["uint256"],
       "outputs": []
     },
     {
       "name": "isReservedDeposit",
       "selector": "0x93df529b",
-      "inputs": [
-        "uint256"
-      ],
-      "outputs": [
-        "bool"
-      ]
+      "inputs": ["uint256"],
+      "outputs": ["bool"]
     },
     {
       "name": "setReservationRouter",
       "selector": "0xd394a4d3",
-      "inputs": [
-        "address"
-      ],
+      "inputs": ["address"],
       "outputs": []
     }
   ],
@@ -52,30 +36,17 @@
     {
       "name": "ReservationCapsUpdated",
       "topic0": "0x846df5edb182147898ee0a522f03f78718544ce16b0f06e64fe2f593b1fb160d",
-      "inputs": [
-        "uint64",
-        "uint64",
-        "uint32"
-      ]
+      "inputs": ["uint64", "uint64", "uint32"]
     },
     {
       "name": "ReservationReanchored",
       "topic0": "0x6abf29e547ef7d6337ebe840df4763ee22dded050e33407330f49472adf1f689",
-      "inputs": [
-        "uint256",
-        "uint64",
-        "bytes20",
-        "bytes32",
-        "uint64",
-        "uint64"
-      ]
+      "inputs": ["uint256", "uint64", "bytes20", "bytes32", "uint64", "uint64"]
     },
     {
       "name": "ReservationOccupancyChanged",
       "topic0": "0xb16e810047677a95f8b21f557051282ce59cccb89e551069aa254ffdfed8a001",
-      "inputs": [
-        "uint32"
-      ]
+      "inputs": ["uint32"]
     }
   ],
   "structs": {

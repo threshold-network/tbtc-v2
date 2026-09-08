@@ -294,9 +294,7 @@ contract ReservationRouter is Governable, Initializable {
     ///         `Reservation.notifyReservationActionTimeout`.
     /// @param reservationKey The key of the reservation with the timed out
     ///        action.
-    function notifyReservationActionTimeout(uint256 reservationKey)
-        external
-    {
+    function notifyReservationActionTimeout(uint256 reservationKey) external {
         self.notifyReservationActionTimeout(reservationKey);
     }
 

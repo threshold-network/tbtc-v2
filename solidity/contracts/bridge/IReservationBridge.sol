@@ -54,8 +54,7 @@ interface IReservationBridge {
     ) external;
 
     /// @notice See `ReservationRouter.notifyReservationActionTimeout`.
-    function notifyReservationActionTimeout(uint256 reservationKey)
-        external;
+    function notifyReservationActionTimeout(uint256 reservationKey) external;
 
     /// @notice See `ReservationRouter.notifyReservationAcceptanceTimedOut`.
     function notifyReservationAcceptanceTimedOut(uint256 reservationKey)

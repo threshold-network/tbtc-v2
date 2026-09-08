@@ -1188,9 +1188,7 @@ library Reservation {
         Deposit.DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.sweptAt == 0, "Deposit already swept");
 
-        ReservationRequest storage reservation = self.reservations[
-            depositKey
-        ];
+        ReservationRequest storage reservation = self.reservations[depositKey];
         require(
             getAction(self, depositKey, reservation.requestNonce).state !=
                 ActionState.Pending,
