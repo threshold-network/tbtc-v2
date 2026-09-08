@@ -940,7 +940,7 @@ library Reservation {
         require(
             self.maxActiveReservations == 0 ||
                 self.maxActiveReservations <=
-                self.liveWalletsCount * self.maxReservationsPerWallet,
+                uint256(self.liveWalletsCount) * self.maxReservationsPerWallet,
             "Occupancy cap exceeds live wallet slot capacity"
         );
         self.activeReservationsCount += 1;
@@ -1099,8 +1099,8 @@ library Reservation {
     /// @param reservationKey The key of the reservation to close.
     /// @dev Intended for milestone 2 settlement call sites (both currently
     ///      unreachable in m1; the call sites pass the key):
-    ///      - Reserved redemption settlement (PR #1112 / m2-redemption)
-    ///      - Reservation dissolution settlement (PR #1114 / m2-dissolution)
+    ///      - Reserved redemption settlement (milestone 2 redemption work)
+    ///      - Reservation dissolution settlement (milestone 2 dissolution work)
     function closeReservation(
         BridgeState.Storage storage self,
         ReservationRequest storage reservation,
@@ -1129,20 +1129,21 @@ library Reservation {
         reservation.state = ReservationState.Closed;
     }
 
-    /// @notice Marks a reservation custodied by a terminated or closed
-    ///         wallet as stranded: an idle position closes, capacity
+    /// @notice Marks a reservation custodied by a terminated wallet as
+    ///         stranded: an idle position closes, capacity
     ///         is released and the owner's minted balance remains an ordinary
     ///         pooled claim. Pending actions remain proof-eligible and
     ///         cannot be stranded.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
-    ///      - The custodying wallet must be in the Terminated or Closed
-    ///        state. Closing is not accepted: `beginWalletClosing`
-    ///        unconditionally requires the wallet's reservation count to be
-    ///        zero, while this function's own Active-reservation
-    ///        precondition means the custodying wallet's reservation count
-    ///        is always at least 1, so an Active reservation and a Closing
-    ///        custodian can never co-occur.
+    ///      - The custodying wallet must be in the Terminated state. Closing
+    ///        and Closed are both unreachable here: `beginWalletClosing` and
+    ///        `finalizeWalletClosing` each unconditionally require the
+    ///        wallet's reservation count to be zero (Wallets.sol), while
+    ///        this function's own Active-reservation precondition means the
+    ///        custodying wallet's reservation count is always at least 1 -
+    ///        so an Active reservation can never coincide with a Closing or
+    ///        Closed custodian.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1159,9 +1160,8 @@ library Reservation {
             .registeredWallets[reservation.walletPubKeyHash]
             .state;
         require(
-            walletState == Wallets.WalletState.Terminated ||
-                walletState == Wallets.WalletState.Closed,
-            "Wallet is not terminated or closed"
+            walletState == Wallets.WalletState.Terminated,
+            "Wallet is not terminated"
         );
 
         strandReservation(self, reservation, reservationKey, true);

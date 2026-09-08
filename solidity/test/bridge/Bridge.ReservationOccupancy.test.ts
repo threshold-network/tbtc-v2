@@ -102,12 +102,15 @@ describe("Reservation - occupancy tracking", () => {
 
     expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
-  // Reservation.sol - COVERED (externally callable; accepts Terminated/Closed).
-  // Seeds a minimal Active reservation + Closed or Terminated wallet, pre-loads
+  // Reservation.sol - COVERED (externally callable; accepts Terminated only -
+  // Closing and Closed are both unreachable for an Active reservation, since
+  // beginWalletClosing/finalizeWalletClosing each require a zero reservation
+  // count while an Active reservation always keeps that count >= 1).
+  // Seeds a minimal Active reservation + Terminated wallet, pre-loads
   // the three reservation accounting counters the strand will decrement, calls
   // notifyReservationStranded, and asserts the counter drops to zero and the
   // canonical ReservationStranded event emits with all four arguments.
-  it("notifyReservationStranded decrements counter on a Closed wallet", async () => {
+  it("notifyReservationStranded reverts on a Closed wallet", async () => {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)
 
@@ -127,17 +130,9 @@ describe("Reservation - occupancy tracking", () => {
       1
     )
 
-    await expect(testReservation.notifyReservationStranded(reservationKey))
-      .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.constants.AddressZero,
-        100
-      )
-      .to.emit(testReservation, "ReservationOccupancyChanged")
-      .withArgs(0)
-    expect(await testReservation.activeReservationsCount()).to.equal(0)
+    await expect(
+      testReservation.notifyReservationStranded(reservationKey)
+    ).to.be.revertedWith("Wallet is not terminated")
   })
 
   it("notifyReservationStranded decrements counter on a Terminated wallet", async () => {
@@ -207,7 +202,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated or closed")
+    ).to.be.revertedWith("Wallet is not terminated")
   })
 
   it("notifyReservationStranded reverts on a Live wallet", async () => {
@@ -232,7 +227,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith("Wallet is not terminated or closed")
+    ).to.be.revertedWith("Wallet is not terminated")
   })
 
   it("prepareReservationForSettlement restores activeReservationsCount on late settlement of stranded reservation and emits ReservationOccupancyChanged", async () => {

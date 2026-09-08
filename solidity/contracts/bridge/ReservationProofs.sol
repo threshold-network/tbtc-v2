@@ -247,35 +247,6 @@ library ReservationProofs {
         }
     }
 
-    /// @notice Strands a reservation if its (already updated) target
-    ///         wallet can no longer manage the anchor it was just moved
-    ///         to. Used only for an on-time re-anchor settlement, whose
-    ///         target wallet may have started retiring between request and
-    ///         proof; extracted into its own function to keep the caller's
-    ///         stack shallow.
-    function strandIfTargetWalletClosed(
-        BridgeState.Storage storage self,
-        Reservation.ReservationRequest storage reservation,
-        uint256 reservationKey,
-        bytes20 targetWalletPubKeyHash
-    ) internal {
-        Wallets.WalletState targetWalletState = self
-            .registeredWallets[targetWalletPubKeyHash]
-            .state;
-        if (
-            targetWalletState == Wallets.WalletState.Closing ||
-            targetWalletState == Wallets.WalletState.Closed ||
-            targetWalletState == Wallets.WalletState.Terminated
-        ) {
-            Reservation.strandReservation(
-                self,
-                reservation,
-                reservationKey,
-                true
-            );
-        }
-    }
-
     /// @notice Validates the position can settle the loaded action and, for a
     ///         timed-out generation whose position was already stranded,
     ///         reconstructs the source anchor's tracking before settlement.

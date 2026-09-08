@@ -555,21 +555,6 @@ contract TestReservation {
         );
     }
 
-    function strandIfTargetWalletClosed(
-        uint256 reservationKey,
-        bytes20 targetWalletPubKeyHash
-    ) external {
-        Reservation.ReservationRequest storage reservation = state.reservations[
-            reservationKey
-        ];
-        ReservationProofs.strandIfTargetWalletClosed(
-            state,
-            reservation,
-            reservationKey,
-            targetWalletPubKeyHash
-        );
-    }
-
     function prepareReservationForSettlement(uint256 reservationKey, bool late)
         external
     {

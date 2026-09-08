@@ -743,8 +743,8 @@ describe("Reservation", () => {
       it("should revert when activeReservationsCount reaches maxActiveReservations (Active reservations cap exceeded)", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
-        // Item-3 sizing-relation invariant: `liveWalletsCount *
-        // maxReservationsPerWallet` must cover `activeReservationsCount`.
+        // Item-3 sizing-relation invariant: `maxActiveReservations` itself
+        // must not exceed `liveWalletsCount * maxReservationsPerWallet`.
         // `setupValidDeposit` sets `maxReservationsPerWallet = 10`; give
         // this wallet capacity so `maxActiveReservations` stays the
         // binding constraint this test exercises.
@@ -1337,46 +1337,10 @@ describe("Reservation", () => {
     })
   })
   describe("strand functions", () => {
-    const reservationKey = 100
     const requestNonce = 1
     const walletPubKeyHash = `0x${"11".repeat(20)}`
     const owner = `0x${"22".repeat(20)}`
     const anchorAmount = 100000
-
-    it("should strand reservation when target wallet is closed", async () => {
-      // 1. Set wallet state to Closing (one of the three trigger states).
-      await testReservation.setWalletState(walletPubKeyHash, 3) // 3 = Closing
-      // 2. Set reservation state.
-      await testReservation.setReservationFullState(
-        reservationKey,
-        owner,
-        walletPubKeyHash,
-        anchorAmount,
-        1, // Active
-        requestNonce
-      )
-      // 3. Seed the capacity counters strandReservation will decrement.
-      await testReservation.setWalletReservationsCounters(
-        walletPubKeyHash,
-        1,
-        anchorAmount
-      )
-      await testReservation.setGlobalReservationCounters(anchorAmount, 1)
-      // 4. Call strandIfTargetWalletClosed.
-      await testReservation.strandIfTargetWalletClosed(
-        reservationKey,
-        walletPubKeyHash
-      )
-      // 5. Assert counters were released to zero.
-      expect(
-        await testReservation.walletReservationsCount(walletPubKeyHash)
-      ).to.equal(0)
-      expect(
-        await testReservation.walletReservationsAmount(walletPubKeyHash)
-      ).to.equal(0)
-      expect(await testReservation.reservationTotalAmount()).to.equal(0)
-      expect(await testReservation.activeReservationsCount()).to.equal(0)
-    })
 
     it("should strand an active reservation and release its capacity exactly once", async () => {
       const strandKey = 101

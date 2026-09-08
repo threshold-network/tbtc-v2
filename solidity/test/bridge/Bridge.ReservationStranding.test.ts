@@ -13,11 +13,12 @@
  *   - Rejects when the reservation is not Active (already Stranded after
  *     a previous call; Unknown after a reveal without an acceptance
  *     request).
- *   - Rejects when the wallet is not Terminated or Closed (Live,
- *     MovingFunds). Closing is excluded but unreachable in practice for an
- *     Active reservation: `beginWalletClosing` unconditionally requires the
- *     wallet's reservation count to be zero, while an Active reservation
- *     always keeps its custodian's count at least 1.
+ *   - Rejects when the wallet is not Terminated (Live, MovingFunds, Closing,
+ *     Closed). Closing and Closed are both unreachable in practice for an
+ *     Active reservation: `beginWalletClosing`/`finalizeWalletClosing` each
+ *     unconditionally require the wallet's reservation count to be zero,
+ *     while an Active reservation always keeps its custodian's count at
+ *     least 1.
  *   - `notifyStaleReservedDeposit` rejects immediately when
  *     `refundDeadlineValidated = false` (the disabled-validation path)
  *     but the reveal-captured refund deadline has not yet elapsed, and
@@ -684,7 +685,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith("Wallet is not terminated")
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -696,7 +697,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith("Wallet is not terminated or closed")
+      ).to.be.revertedWith("Wallet is not terminated")
     })
   })
 
