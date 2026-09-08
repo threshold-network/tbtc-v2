@@ -4433,7 +4433,7 @@ describe("Bridge - Governance", () => {
     const newReservationTxMaxFee = 2000
     const newReservationTermSeconds = 8640000 // 100 days
     const newReservationDissolutionDelay = 172800 // 2 days
-    const newReservationMaxTotalAmount = 5000000
+    const newReservationMaxTotalAmount = 400000 // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
     const newMaxReservationsPerWallet = 10
     const newReservationActionTimeout = 172800 // 2 days
     const newReservationRenewalWindowSeconds = 172800 // 2 days
@@ -4561,7 +4561,7 @@ describe("Bridge - Governance", () => {
     const newReservationTxMaxFee = 2000
     const newReservationTermSeconds = 8640000 // 100 days
     const newReservationDissolutionDelay = 172800 // 2 days
-    const newReservationMaxTotalAmount = 5000000
+    const newReservationMaxTotalAmount = 400000 // must fit under the deploy-fixture slot capacity: maxActiveReservations(5) * reservationMaxSingleAmount(100,000) = 500,000 (deploy/97_set_reservation_parameters.ts)
     const newMaxReservationsPerWallet = 10
     const newReservationActionTimeout = 172800 // 2 days
     const newReservationRenewalWindowSeconds = 172800 // 2 days

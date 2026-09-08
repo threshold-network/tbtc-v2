@@ -184,7 +184,7 @@ before(async () => {
   // reservation - found 2026-08-26.
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 100)
+    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
   await reservationRouter
     .connect(bridgeGovernanceSigner)
     .updateReservationParameters(
@@ -263,7 +263,7 @@ async function establishReservationPreconditions() {
     .setVaultStatus(reservationVault.address, true)
   await reservationRouter
     .connect(bridgeGovernanceSigner)
-    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 100)
+    .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation with this fixture's single default Live wallet
   const currentTotal = (await reservationRouter.reservationParameters())
     .reservationTotalAmount
   await reservationRouter
