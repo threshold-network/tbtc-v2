@@ -720,7 +720,7 @@ describe("ReservationVault", () => {
       expect(await vault.feeReserveTarget()).to.equal(newTarget)
     })
 
-    it("should allow setting the target equal to the current balance, after which sweepFees reverts", async () => {
+    it("should allow setting the target equal to the current balance, after which sweepFees is a no-op", async () => {
       await bank
         .connect(bridge.wallet)
         .increaseBalanceAndCall(vault.address, [account1.address], [100_000])
@@ -728,9 +728,10 @@ describe("ReservationVault", () => {
       const currentBalance = await tbtc.balanceOf(vault.address)
       await vault.updateFeeReserveTarget(currentBalance)
 
-      await expect(vault.sweepFees(account1.address)).to.be.revertedWith(
-        "Nothing above the reserve target"
-      )
+      const tx = await vault.sweepFees(account1.address)
+
+      expect(await tbtc.balanceOf(vault.address)).to.equal(currentBalance)
+      await expect(tx).to.not.emit(vault, "FeesSwept")
     })
   })
 
@@ -755,11 +756,14 @@ describe("ReservationVault", () => {
       ).to.be.revertedWith("Recipient must not be zero")
     })
 
-    it("should revert when balance is not above the reserve target", async () => {
+    it("should return without reverting when balance is not above the reserve target", async () => {
       await vault.updateFeeReserveTarget(ethers.utils.parseEther("1"))
-      await expect(vault.sweepFees(account1.address)).to.be.revertedWith(
-        "Nothing above the reserve target"
-      )
+      const balanceBefore = await tbtc.balanceOf(vault.address)
+
+      const tx = await vault.sweepFees(account1.address)
+
+      expect(await tbtc.balanceOf(vault.address)).to.equal(balanceBefore)
+      await expect(tx).to.not.emit(vault, "FeesSwept")
     })
 
     context("happy path (zero outstanding debt)", () => {
@@ -877,6 +881,61 @@ describe("ReservationVault", () => {
         await expect(tx)
           .to.emit(vault, "FeesSwept")
           .withArgs(account1.address, satsToTbtc(extraSat))
+      })
+    })
+
+    context("when debt exceeds available balance", () => {
+      const debtSat = 500_000
+      const fundedSat = 200_000
+
+      before(async () => {
+        await createSnapshot()
+
+        // Create debt against an empty reserve.
+        await vault.connect(bridge.wallet).financeInKindFee(debtSat)
+
+        // Fund the vault with less than the outstanding debt, so the
+        // post-repayment balance cannot clear the reserve target.
+        const initiationFeeBps = await vault.initiationFeeBps()
+        const depositSat = Math.ceil((fundedSat * 10000) / initiationFeeBps)
+
+        await bank
+          .connect(bridge.wallet)
+          .increaseBalanceAndCall(
+            vault.address,
+            [account2.address],
+            [depositSat]
+          )
+
+        await vault.updateFeeReserveTarget(0)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      beforeEach(async () => {
+        await createSnapshot()
+      })
+
+      afterEach(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should not revert and should partially repay the debt", async () => {
+        await vault.sweepFees(account1.address)
+
+        expect(await vault.inKindFeeDebtSat()).to.equal(debtSat - fundedSat)
+        expect(await tbtc.balanceOf(vault.address)).to.equal(0)
+      })
+
+      it("should emit InKindFeeDebtRepaid for the partial repayment and not emit FeesSwept", async () => {
+        const tx = await vault.sweepFees(account1.address)
+
+        await expect(tx)
+          .to.emit(vault, "InKindFeeDebtRepaid")
+          .withArgs(vault.address, fundedSat)
+        await expect(tx).to.not.emit(vault, "FeesSwept")
       })
     })
   })

@@ -76,15 +76,24 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     uint16 public redemptionFeeBps;
 
     /// @notice True while redemptions are paused. A fresh vault starts
-    ///         paused; governance unpauses as part of activation. Pausing
-    ///         only removes future redemption opportunities — it never
-    ///         affects settlement, re-anchoring or dissolution.
+    ///         paused. Unpausing this flag alone (via `unpauseRedemptions`)
+    ///         does not make `redeemReservation`/`retryRedeemReservation`
+    ///         do anything beyond swap which revert fires -- both still
+    ///         unconditionally revert until a milestone-2 Bridge upgrade
+    ///         adds the real redemption path these functions are reserved
+    ///         to route through. Pausing only removes future redemption
+    ///         opportunities — it never affects settlement, re-anchoring or
+    ///         dissolution.
     bool public redemptionsPaused;
 
     /// @notice True while all renewals are paused. A fresh vault starts
-    ///         paused; governance unpauses as part of activation. Pausing
-    ///         only removes future renewal opportunities — it never
-    ///         affects settlement, re-anchoring or dissolution.
+    ///         paused. Unpausing this flag alone (via `unpauseRenewals`)
+    ///         does not make `extendCustody` do anything beyond swap which
+    ///         revert fires -- it still unconditionally reverts until a
+    ///         milestone-2 Bridge upgrade adds the real renewal path this
+    ///         function is reserved to route through. Pausing only removes
+    ///         future renewal opportunities — it never affects settlement,
+    ///         re-anchoring or dissolution.
     bool public renewalsPaused;
 
     /// @notice Indicates if the given address is a Guardian. Guardians can
@@ -235,11 +244,13 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @dev KNOWN GAP (tracked, not fixed here): this function trusts every
     ///      Bank-routed credit unconditionally -- it has no reservationKey
     ///      parameter and cannot verify the credit corresponds to a
-    ///      Bridge-proven reservation anchor. This is unreachable today
-    ///      because no deploy script yet marks this vault `isVaultTrusted`.
-    ///      MUST be resolved (a dedicated Bridge-only credit entry point, or
-    ///      an ordinary-sweep guard in `DepositSweep`) before the vault
-    ///      activation PR calls `setVaultStatus(vault, true)`.
+    ///      Bridge-proven reservation anchor. On live networks the current
+    ///      mitigation is deploy-time ordering: this vault is only marked
+    ///      `isVaultTrusted` by `97_set_reservation_parameters.ts`'s gated
+    ///      final step, which runs only after both governance finalizers
+    ///      are confirmed on-chain. That ordering does not close the
+    ///      residual gap -- once trusted, this function still accepts any
+    ///      Bank-routed credit with no reservationKey-scoped verification.
     function receiveBalanceIncrease(
         address[] calldata depositors,
         uint256[] calldata depositedAmounts
@@ -371,9 +382,12 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         balance before computing the sweepable excess.
     /// @param recipient The recipient of the swept fees.
     /// @dev Requirements:
-    ///      - The caller must be the vault owner (governance),
-    ///      - The vault TBTC balance (after satisfying outstanding debt) must
-    ///        exceed the reserve target.
+    ///      - The caller must be the vault owner (governance).
+    ///      Any outstanding in-kind fee debt is repaid first from the
+    ///      vault's current TBTC balance, and that repayment is retained
+    ///      even when nothing is left to sweep: if the balance (after debt
+    ///      repayment) does not exceed the reserve target, this call
+    ///      returns without reverting and sweeps nothing.
     function sweepFees(address recipient) external onlyOwner {
         require(recipient != address(0), "Recipient must not be zero");
 
@@ -388,7 +402,11 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
         }
 
         uint256 balance = tbtcToken.balanceOf(address(this));
-        require(balance > feeReserveTarget, "Nothing above the reserve target");
+        if (balance <= feeReserveTarget) {
+            // Debt repayment above, if any, already committed; nothing
+            // above the reserve target is left to sweep.
+            return;
+        }
 
         uint256 amount = balance - feeReserveTarget;
         IERC20(tbtcToken).safeTransfer(recipient, amount);
@@ -435,10 +453,13 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         reservation owner.
     /// @param reservationKey The key of the reservation to redeem.
     /// @param amountSat The redemption amount in satoshi.
-    /// @dev Reserved-redemption entry point. Milestone 1 unconditionally
-    ///      reverts; milestone 2 will add the body that drives the
-    ///      Bridge's `requestReservedRedemption` path. The amountSat parameter
-    ///      is accepted for milestone 2 ABI stability and ignored in milestone 1.
+    /// @dev Permanent-revert placeholder reserved for milestone-2 wiring:
+    ///      this function unconditionally reverts regardless of
+    ///      `redemptionsPaused` -- unpausing only changes which revert
+    ///      reason fires below. Milestone 2 will add the body that drives
+    ///      the Bridge's `requestReservedRedemption` path. The amountSat
+    ///      parameter is accepted for milestone 2 ABI stability and ignored
+    ///      in milestone 1.
     // solhint-disable-next-line no-unused-vars
     function redeemReservation(uint256 reservationKey, uint256 amountSat)
         external
@@ -457,7 +478,10 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     ///         fault. Caller must be the reservation owner.
     /// @param reservationKey The key of the reservation to retry.
     /// @param amountSat The redemption amount in satoshi.
-    /// @dev See `redeemReservation` for the same M1/M2 rationale. The
+    /// @dev Permanent-revert placeholder reserved for milestone-2 wiring,
+    ///      same M1/M2 rationale as `redeemReservation`: this function
+    ///      unconditionally reverts regardless of `redemptionsPaused` --
+    ///      unpausing only changes which revert reason fires below. The
     ///      amountSat parameter is accepted for milestone 2 ABI stability
     ///      and ignored in milestone 1.
     // solhint-disable-next-line no-unused-vars
@@ -475,9 +499,11 @@ contract ReservationVault is IVault, IReservationFeeFinancer, Ownable {
     /// @notice Renews the custody term of the caller's reservation by
     ///         exactly one current term. Caller must be the reservation owner.
     /// @param reservationKey The key of the reservation to renew.
-    /// @dev Reserved-custody-extension entry point. Milestone 1 unconditionally
-    ///      reverts; milestone 2 will wire the real renewal flow through the
-    ///      router's `extendReservation`.
+    /// @dev Permanent-revert placeholder reserved for milestone-2 wiring:
+    ///      this function unconditionally reverts regardless of
+    ///      `renewalsPaused` -- unpausing only changes which revert reason
+    ///      fires below. Milestone 2 will wire the real renewal flow
+    ///      through the router's `extendReservation`.
     function extendCustody(uint256 reservationKey)
         external
         whenRenewalsNotPaused
