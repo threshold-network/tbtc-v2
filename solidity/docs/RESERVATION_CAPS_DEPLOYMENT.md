@@ -23,6 +23,10 @@ Safe operational sequence:
 1. Call `updateReservationCaps(maxReservationsAmountPerWallet, reservationMaxSingleAmount, maxActiveReservations)` — sets the per-wallet amount cap, the single-reservation amount cap, and the global occupancy cap together. The Decision 1 check evaluates `0 <= maxActiveReservations * reservationMaxSingleAmount` (trivially true because `reservationMaxTotalAmount` is still 0).
 2. Call `updateReservationParameters(reservationVault, ...)` — sets `reservationMaxTotalAmount` and the other parameters. The Decision 1 check now evaluates `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` against the just-set storage values.
 
+**Production deploy scripts:** The two calls above are encoded by the following repository scripts:
+- `solidity/deploy/97_set_reservation_parameters.ts` — used for test and development networks. It contains the local-network bootstrap shortcut and uses default parameter values suitable for non-mainnet environments.
+- `solidity/deploy/98_generate_reservation_mainnet_calldata.ts` — used for mainnet. It has **no defaults**; all parameter values must be supplied explicitly via environment variables (see the script for the required `*_AMOUNT`, `*_CAP`, `*_TERM`, etc. vars). Running this script produces the calldata payloads for the two governance calls without executing them.
+
 If the two updates must land in the same block, an atomic multicall preserves the ordering guarantee.
 
 The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("bootstrap ordering")` group pins both the deploy-ordering hazard and the safe operational order; review it before any deployment.
@@ -33,7 +37,7 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 
 > ⚠️ **IRREVERSIBLE CONFIGURATION WARNING: MANDATORY GOVERNANCE SIGN-OFF**
 >
-> Once any reservation is accepted, `ReservationVault` can **never** be swapped, upgraded, or repointed to a patched version.
+> Once any reservation is accepted, `ReservationVault` **cannot be swapped while any reservation remains live**; reaching a swappable state again requires every custodying wallet to have been fully terminated, stranded, or timed out (see below) — not a normal operational path.
 >
 > The vault re-point gate in `Bridge.updateReservationParameters` requires:
 >
@@ -147,7 +151,7 @@ event ReservationReanchored(
 Off-chain tooling updates required:
 
 - Governance proposal builders (Defender, Safe Transaction Builder, Tenderly, custom multisend helpers) — regenerate the encoded calldata with the 3-argument signature for `updateReservationCaps`.
-- Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields for `ReservationCapsUpdated` and 6 fields for `ReservationReanchored` (appended `minerFee` field). Backward-compatible decoders will read the new fields as the next positional argument; forward-compatible decoders ignore unknown fields. Note that off-chain indexers watching the pre-PR `ReservationReanchored` event signature will silently stop matching events until updated.
+- Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields for `ReservationCapsUpdated` and 6 fields for `ReservationReanchored` (appended `minerFee` field). **This is a breaking change for pre-PR decoders:** the event topic0 and field count change, so off-chain indexers watching the pre-PR `ReservationReanchored` event signature will silently stop matching events until updated.
 - Monitoring alerts and circuit breakers keyed on `ReservationCapsUpdated` or `ReservationReanchored` — confirm the alerts still fire on the new signatures.
 
 `IReservationBridge` in this PR includes the updated 3-argument `updateReservationCaps` declaration; consumers that bind through it are forward-compatible automatically.
