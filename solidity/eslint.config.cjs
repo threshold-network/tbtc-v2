@@ -16,6 +16,13 @@ const {
 
 const root = __dirname
 
+// no-new-func handles direct Function calls; keep the inherited qualified forms.
+const qualifiedFunctionConstructor = {
+  selector:
+    ':matches(CallExpression, NewExpression)[callee.type="MemberExpression"][callee.object.type="Identifier"][callee.object.name=/^(global|globalThis|window)$/]:matches([callee.computed=false][callee.property.name="Function"], [callee.computed=true][callee.property.value="Function"])',
+  message: "The Function constructor is eval.",
+}
+
 module.exports = [
   {
     ignores: [
@@ -68,7 +75,13 @@ module.exports = [
   },
   {
     files: ["**/*.{js,cjs}"],
-    rules: jsRules,
+    rules: {
+      ...jsRules,
+      "no-restricted-syntax": [
+        ...coreRules["no-restricted-syntax"],
+        qualifiedFunctionConstructor,
+      ],
+    },
   },
   {
     files: ["**/*.cjs", "deploy-patches/**/*.js"],
@@ -80,6 +93,9 @@ module.exports = [
   },
   {
     files: ["deploy-patches/**/*.js"],
-    rules: deployPatchRules,
+    rules: {
+      ...deployPatchRules,
+      "no-restricted-syntax": ["error", qualifiedFunctionConstructor],
+    },
   },
 ]

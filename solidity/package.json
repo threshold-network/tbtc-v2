@@ -83,7 +83,7 @@
     "undici": "^5.29.0"
   },
   "resolutions": {
-    "@openzeppelin/upgrades-core": "patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch",
+    "@openzeppelin/upgrades-core": "patch:@openzeppelin/upgrades-core@npm%3A1.46.0#./.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-bytecode-matching.patch",
     "crypto-js": "4.2.0",
     "ethereumjs-abi": "0.6.8",
     "eth-sig-util/ethereumjs-abi": "0.6.8"

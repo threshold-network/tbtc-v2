@@ -393,10 +393,10 @@ Two things follow that are worth doing regardless of which way this goes:
 
 PR [#1067](https://github.com/threshold-network/tbtc-v2/pull/1067) was rebased onto
 `dev` on 2026-09-07. The completed migration has **0 TypeScript errors** in both
-the normal and export configurations, **3,067 passing / 33 pending / 1 failing**
-in the full suite, and **1 existing ESLint error**. The sole test failure remains
-the unchanged-dev `BTCDepositorWormhole` setup hook ("Bytecode is not a valid hex
-string"). Six added tests cover the contract-creation RPC compatibility layer;
+the normal and export configurations, **3,122 passing / 33 pending / 0 failing**
+in the full suite, and **0 ESLint/Solhint errors**. The CI follow-up unblocks
+47 existing `BTCDepositorWormhole` cases and adds eight regression/provenance
+checks. Six added tests cover the contract-creation RPC compatibility layer;
 ten more cover Etherscan V2 and full legacy proxy verification with mocked HTTP.
 OpenZeppelin upgrades 2.5.1 retains the shared-admin proxy behavior. Its Yarn patch
 backports the Etherscan V2 request transport from
@@ -410,6 +410,15 @@ tracks upgrading the OpenZeppelin stack, and
 rewrite. Those changes need an explicit decision about legacy shared admins,
 new per-proxy admins, existing governance operations and verification; that design
 decision is tracked in [#1130](https://github.com/threshold-network/tbtc-v2/issues/1130).
+
+The CI follow-up also patches upgrades-core 1.46.0's bytecode matching for
+[upstream issue #1227](https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/1227).
+Matching needs only the full bytecode hash; decoding metadata after applying an
+unrelated contract's library offsets can otherwise reject a valid contract.
+The patch retains malformed-input validation and covers source and compiled code.
+The two Slither reports on failed deferred-refund recovery are
+[triaged individually](./slither-triage.md), with tests that require re-review
+if the reviewed Solidity source changes. Detector and path settings are unchanged.
 
 The original whole-file export/deployment byte comparison still fails. The
 accepted criterion is a [reproducible compatibility check](./ethers-v6-parity.md)

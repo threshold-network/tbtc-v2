@@ -80,6 +80,47 @@ export default function current(value: number): number {
       })
     })
 
+    const functionConstructors = [
+      ["Function", "no-new-func"],
+      ...["global", "globalThis", "window"].flatMap((object) =>
+        [".Function", '["Function"]'].map((member) => [
+          `${object}${member}`,
+          "no-restricted-syntax",
+        ])
+      ),
+    ]
+    await Promise.all(
+      functionConstructors.flatMap(([constructor, rule]) =>
+        ["", "new "].map((prefix) =>
+          context.test(
+            `rejects JavaScript ${prefix}${constructor}`,
+            async () => {
+              const result =
+                await lintJavaScript(`module.exports = function deploy() {
+  return ${prefix}${constructor}("return 1")
+}
+`)
+              assert.ok(
+                result.messages.some(
+                  (message) => message.ruleId === rule && message.severity === 2
+                ),
+                JSON.stringify(result.messages)
+              )
+            }
+          )
+        )
+      )
+    )
+
+    await context.test("allows Function references without calls", async () => {
+      const result = await lintJavaScript(`module.exports = function deploy() {
+  return [Function, global.Function, typeof globalThis.Function, globalThis.Function.prototype]
+}
+`)
+      assert.equal(result.errorCount, 0, JSON.stringify(result.messages))
+      assert.equal(result.warningCount, 0, JSON.stringify(result.messages))
+    })
+
     const violations = {
       "no-array-constructor": `module.exports = function deploy() {
   return new Array(1, 2)
