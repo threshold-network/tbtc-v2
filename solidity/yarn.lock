@@ -2387,9 +2387,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch":
+"@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#./.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-bytecode-matching.patch::locator=%40keep-network%2Ftbtc-v2%40workspace%3A.":
   version: 1.46.0
-  resolution: "@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#~/.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-01c156666d.patch::version=1.46.0&hash=4fe69b"
+  resolution: "@openzeppelin/upgrades-core@patch:@openzeppelin/upgrades-core@npm%3A1.46.0#./.yarn/patches/@openzeppelin-upgrades-core-npm-1.46.0-bytecode-matching.patch::version=1.46.0&hash=56e134&locator=%40keep-network%2Ftbtc-v2%40workspace%3A."
   dependencies:
     "@nomicfoundation/slang": "npm:^0.18.3"
     bignumber.js: "npm:^9.1.2"
@@ -2404,7 +2404,7 @@ __metadata:
     solidity-ast: "npm:^0.4.60"
   bin:
     openzeppelin-upgrades-core: dist/cli/cli.js
-  checksum: 10c0/d508376eeffc844fb16c5cdd83ea82b254f9846ab255af1b8a2eee397fe863d989ab873871ba034169055598c1d6e22591d37ab5277cdf647153ca815aafb9cf
+  checksum: 10c0/85a580af3d46d8d1dbd6c8ed5be9dd2346d866330b44f022faccebdf5319d72c3901e8f679050505c1f453f4ce593ef48737348d4ad8b947028e09c20aed4547
   languageName: node
   linkType: hard
 

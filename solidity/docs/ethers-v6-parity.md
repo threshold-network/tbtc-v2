@@ -10,7 +10,10 @@ hardhat-deploy 0.11.15). The candidate uses ethers 6.17.0 and hardhat-deploy 1.0
 The [reviewed policy](../scripts/pr1067-parity-policy.json) pins both lockfiles,
 package/config hashes, three compiler overrides, 25 affected local deployment
 records, and the exact before/after hashes of 19 compiled deployment scripts.
-Updating that policy requires reviewing the new differences.
+Updating that policy requires reviewing the new differences. The CI follow-up
+patches upgrades-core 1.46.0 bytecode matching and updates the package/lockfile
+hashes. All 85 exported artifacts and 61 compiled deployment scripts retain
+their previous bytes; the two parity exceptions are unchanged.
 
 ## The two exceptions
 

@@ -411,18 +411,11 @@ describe("AbstractL1BTCDepositor", () => {
     )
 
     context("when the deferred reimbursement fails", () => {
+      let tx: ContractTransactionResponse
+      let deferredGasSpent: bigint
+
       before(async () => {
         await createSnapshot()
-      })
-
-      after(async () => {
-        await resetFakes()
-        await restoreSnapshot()
-      })
-
-      it("should retain the refund record while keeping the deposit finalized", async () => {
-        const { depositKey, fundingTx, reveal, destinationChainDepositOwner } =
-          initializeDepositFixture
         await reimbursementPool.maxGasPrice.returns(toBigInt(1000000000))
         await reimbursementPool.staticGas.returns(10000)
         await depositor
@@ -433,27 +426,61 @@ describe("AbstractL1BTCDepositor", () => {
           .updateReimbursementAuthorization(initializer.address, true)
         await depositor
           .connect(initializer)
-          .initializeDeposit(fundingTx, reveal, destinationChainDepositOwner)
-
-        const reimbursement = await depositor.gasReimbursements(depositKey)
-        expect(reimbursement.gasSpent).to.be.gt(0)
-        await depositor.setTrackedDepositKey(depositKey)
+          .initializeDeposit(
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+        deferredGasSpent = (
+          await depositor.gasReimbursements(initializeDepositFixture.depositKey)
+        ).gasSpent
+        expect(deferredGasSpent).to.be.gt(0)
+        await reimbursementPool.refund
+          .whenCalledWith(deferredGasSpent, initializer.address)
+          .reverts("Receiver unavailable")
+        await depositor.setTrackedDepositKey(
+          initializeDepositFixture.depositKey
+        )
         await allowFinalization()
-        await reimbursementPool.refund.reverts("Refund unavailable")
+        tx = await depositor
+          .connect(relayer)
+          .finalizeDeposit(initializeDepositFixture.depositKey)
+      })
 
-        const tx = await depositor.connect(relayer).finalizeDeposit(depositKey)
-        await expect(tx)
-          .to.emit(depositor, "DeferredReimbursementFailed")
-          .withArgs(depositKey, initializer.address, reimbursement.gasSpent)
+      after(async () => {
+        await resetFakes()
+        await restoreSnapshot()
+      })
+
+      it("keeps the deposit finalized and restores the original unpaid reimbursement", async () => {
+        expect(
+          await depositor.deposits(initializeDepositFixture.depositKey)
+        ).to.equal(2) // DepositState.Finalized
+        const reimbursement = await depositor.gasReimbursements(
+          initializeDepositFixture.depositKey
+        )
+        expect(reimbursement.receiver).to.equal(initializer.address)
+        expect(reimbursement.gasSpent).to.equal(deferredGasSpent)
         expect(await depositor.reimbursementClearedBeforeTransfer()).to.equal(
           true
         )
-        expect(await depositor.gasReimbursements(depositKey)).to.deep.equal(
-          reimbursement
-        )
-        expect(await depositor.deposits(depositKey)).to.equal(2) // Finalized
+      })
+
+      it("emits the failed refund's deposit key and original reimbursement", async () => {
+        await expect(tx)
+          .to.emit(depositor, "DeferredReimbursementFailed")
+          .withArgs(
+            initializeDepositFixture.depositKey,
+            initializer.address,
+            deferredGasSpent
+          )
+      })
+
+      it("prevents a second finalization from paying the restored reimbursement", async () => {
         await expect(
-          depositor.connect(relayer).finalizeDeposit(depositKey)
+          depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey)
         ).to.be.revertedWith("Wrong deposit state")
       })
     })
