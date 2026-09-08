@@ -76,6 +76,7 @@
     "typescript": "^6.0.3"
   },
   "resolutions": {
+    "@openzeppelin/upgrades-core": "1.46.0",
     "crypto-js": "4.2.0",
     "ethereumjs-abi": "0.6.8",
     "eth-sig-util/ethereumjs-abi": "0.6.8"

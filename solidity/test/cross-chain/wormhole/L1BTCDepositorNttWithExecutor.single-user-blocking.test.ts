@@ -77,7 +77,6 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
     // Set default parameters to match test fee args
     await depositor.setDefaultParameters(

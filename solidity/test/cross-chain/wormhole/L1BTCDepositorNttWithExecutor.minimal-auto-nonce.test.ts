@@ -83,7 +83,6 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
