@@ -391,7 +391,7 @@ Two things follow that are worth doing regardless of which way this goes:
 
 PR [#1067](https://github.com/threshold-network/tbtc-v2/pull/1067) was rebased onto
 `dev` on 2026-09-07. The completed migration has **0 TypeScript errors** in both
-the normal and export configurations, **3,122 passing / 33 pending / 0 failing**
+the normal and export configurations, **3,140 passing / 33 pending / 0 failing**
 in the full suite, and **0 ESLint/Solhint errors**. The CI follow-up unblocks
 47 existing `BTCDepositorWormhole` cases and adds eight regression/provenance
 checks. Six added tests cover the contract-creation RPC compatibility layer;
@@ -417,6 +417,20 @@ The patch retains malformed-input validation and covers source and compiled code
 The two Slither reports on failed deferred-refund recovery are
 [triaged individually](./slither-triage.md), with tests that require re-review
 if the reviewed Solidity source changes. Detector and path settings are unchanged.
+
+The existing-governance preflight converts hardhat-deploy's ethers v5 `BigNumber`
+delay through its decimal string before ethers v6 `toBigInt`. Its tests use the
+reader's real v5 value type and check Council Safe actions and pending-update
+ETAs; fresh local deployments do not exercise this branch.
+
+Explorer-tagged external deployments use transaction-response confirmation
+waits because the ethers v6 Hardhat provider does not implement
+`waitForTransaction`. Six random-beacon scripts are installed from checked-in
+copies, with a shared helper retaining two confirmations and the five-minute
+timeout before verification. Eighteen regression tests cover every installed
+caller, untagged networks, failed lookups/confirmations and the real local
+provider's confirmation counting. These checks use mocked explorer effects;
+they do not submit live deployments or explorer requests.
 
 The original whole-file export/deployment byte comparison still fails. The
 accepted criterion is a [reproducible compatibility check](./ethers-v6-parity.md)

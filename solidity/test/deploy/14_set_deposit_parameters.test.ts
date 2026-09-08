@@ -1,4 +1,5 @@
 import { toBigInt, ethers as utils } from "ethers"
+import { createRequire } from "module"
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { expect } from "chai"
@@ -7,6 +8,11 @@ import func, {
   buildDepositRevealAheadPeriodGovernanceActions,
   DEPOSIT_REVEAL_AHEAD_PERIOD,
 } from "../../deploy/14_set_deposit_parameters"
+
+// Match the uint256 value returned by hardhat-deploy's ethers v5 reader.
+const { BigNumber: DeployBigNumber } = createRequire(
+  require.resolve("hardhat-deploy/package.json")
+)("@ethersproject/bignumber")
 
 describe("Deploy Script 14: deposit parameters", () => {
   const deployer = "0x1000000000000000000000000000000000000001"
@@ -60,7 +66,7 @@ describe("Deploy Script 14: deposit parameters", () => {
           if (name === "BridgeGovernance" && method === "governanceDelays") {
             const index = args[0]
             if (toBigInt(index) === 0n) {
-              return governanceDelay
+              return DeployBigNumber.from(governanceDelay.toString())
             }
             throw new Error(`Unexpected read: ${name}.${method}(${index})`)
           }
@@ -236,7 +242,7 @@ describe("Deploy Script 14: deposit parameters", () => {
   })
 
   it("throws when a pending deposit reveal-ahead period update exists", async () => {
-    const { mockHre } = createMockHre({
+    const { executeCalls, logs, mockHre } = createMockHre({
       bridgeGovernance,
       depositRevealAheadPeriod: toBigInt("12960000") + 1n,
       pendingUpdate: {
@@ -255,10 +261,14 @@ describe("Deploy Script 14: deposit parameters", () => {
     expect(error?.message).to.equal(
       "Deposit reveal-ahead period update is already pending (pending value 100 does not match target 12960000)"
     )
+    expect(executeCalls).to.be.empty
+    expect(logs).to.deep.equal([
+      "Pending deposit reveal-ahead period update: new value 100, start timestamp 1000, ETA 173800",
+    ])
   })
 
   it("throws without warning when pending deposit reveal-ahead period update matches target", async () => {
-    const { mockHre } = createMockHre({
+    const { executeCalls, logs, mockHre } = createMockHre({
       bridgeGovernance,
       depositRevealAheadPeriod: toBigInt("12960000") + 1n,
       pendingUpdate: {
@@ -277,6 +287,10 @@ describe("Deploy Script 14: deposit parameters", () => {
     expect(error?.message).to.equal(
       "Deposit reveal-ahead period update is already pending"
     )
+    expect(executeCalls).to.be.empty
+    expect(logs).to.deep.equal([
+      "Pending deposit reveal-ahead period update: new value 12960000, start timestamp 1000, ETA 173800",
+    ])
   })
 
   it("runs only on mainnet", async () => {

@@ -10,10 +10,20 @@ hardhat-deploy 0.11.15). The candidate uses ethers 6.17.0 and hardhat-deploy 1.0
 The [reviewed policy](../scripts/pr1067-parity-policy.json) pins both lockfiles,
 package/config hashes, three compiler overrides, 25 affected local deployment
 records, and the exact before/after hashes of 19 compiled deployment scripts.
-Updating that policy requires reviewing the new differences. The CI follow-up
-patches upgrades-core 1.46.0 bytecode matching and updates the package/lockfile
-hashes. All 85 exported artifacts and 61 compiled deployment scripts retain
-their previous bytes; the two parity exceptions are unchanged.
+Updating that policy requires reviewing the new differences. The upgrades-core
+1.46.0 matching patch updates the package/lockfile hashes. The governance
+preflight fix converts hardhat-deploy's v5 `BigNumber` delay through a decimal
+string and updates the reviewed hash for compiled script 14. The two parity
+exceptions are unchanged; local deployment parity does not exercise this
+existing-governance branch, so its tests use the reader's real v5 return type.
+
+Six random-beacon external deployment scripts also use checked-in replacements
+for explorer-tagged confirmation waits. Postinstall copies these scripts and
+their shared helper into the dependency: `getTransaction(hash)` followed by
+`transaction.wait(2, 300000)` replaces the unsupported provider-level wait.
+This branch is tested separately with mocked deployment/verification effects;
+local parity does not enable the explorer tag. A local-provider test also checks
+the one-confirmation timeout and successful receipt after two confirmations.
 
 ## The two exceptions
 

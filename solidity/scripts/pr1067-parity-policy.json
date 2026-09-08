@@ -44,7 +44,7 @@
     },
     "export/deploy/14_set_deposit_parameters.js": {
       "baseline": "01c750d798fa5da0c702917e2bac76a413ebf709a2512b9bdc177985cf6cb461",
-      "candidate": "32a0650bd4457ed2696e7b5df6809bcb369d2f9c05d754109c751d130df11e22",
+      "candidate": "ef3f021815b3c30f75e9e15653d4ad84cda12336fd4bfcc5afdfcffa408dbd76",
       "executedLocally": true
     },
     "export/deploy/15_set_wallet_parameters.js": {
