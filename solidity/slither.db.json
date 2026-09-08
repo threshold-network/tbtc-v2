@@ -1,25 +1,25 @@
 [
   {
     "check": "reentrancy-no-eth",
-    "id": "a70a84611228b182b02b4110b15f9bdeadcfd4c3c7fcb6941cc43365b91bc677",
-    "description": "Reentrancy in AbstractL1BTCDepositor.finalizeDeposit(uint256) (contracts/cross-chain/AbstractL1BTCDepositor.sol#388-530):\n\tExternal calls:\n\t- (initialDepositAmount,tbtcAmount,destinationChainDepositOwner) = _finalizeDeposit(depositKey) (contracts/cross-chain/AbstractL1BTCDepositor.sol#398-404)\n\t\t- (finalizedAt) = tbtcVault.optimisticMintingRequests(depositKey) (contracts/integrator/AbstractBTCDepositor.sol#191-193)\n\t- reimbursementPool.refund((gasStart - gasleft()()) + msgValueOffset + finalizeDepositGasOffset,msg.sender) (contracts/cross-chain/AbstractL1BTCDepositor.sol#487-492)\n\t- (success) = address(reimbursementPool).call{gas: 2_000_000}(abi.encodeWithSelector(reimbursementPool.refund.selector,reimbursement.gasSpent,reimbursement.receiver)) (contracts/cross-chain/AbstractL1BTCDepositor.sol#509-517)\n\tState variables written after the call(s):\n\t- gasReimbursements[depositKey] = reimbursement (contracts/cross-chain/AbstractL1BTCDepositor.sol#521)\n",
+    "id": "5a1fd3c1459d96ab5e4706579baa23c21e0237ef6ad1fecc954670b8767c5e0b",
+    "description": "Reentrancy in AbstractL1BTCDepositor.finalizeDeposit(uint256) (contracts/cross-chain/AbstractL1BTCDepositor.sol#388-530):\n\tExternal calls:\n\t- (initialDepositAmount,tbtcAmount,destinationChainDepositOwner) = _finalizeDeposit(depositKey) (contracts/cross-chain/AbstractL1BTCDepositor.sol#398-404)\n\t\t- (finalizedAt) = tbtcVault.optimisticMintingRequests(depositKey) (contracts/integrator/AbstractBTCDepositor.sol#192-194)\n\t- reimbursementPool.refund((gasStart - gasleft()()) + msgValueOffset + finalizeDepositGasOffset,msg.sender) (contracts/cross-chain/AbstractL1BTCDepositor.sol#487-492)\n\t- (success) = address(reimbursementPool).call{gas: 2_000_000}(abi.encodeWithSelector(reimbursementPool.refund.selector,reimbursement.gasSpent,reimbursement.receiver)) (contracts/cross-chain/AbstractL1BTCDepositor.sol#509-517)\n\tState variables written after the call(s):\n\t- gasReimbursements[depositKey] = reimbursement (contracts/cross-chain/AbstractL1BTCDepositor.sol#521)\n",
     "review": {
       "disposition": "false-positive",
       "rationale": "The deposit is finalized and the deferred entry cleared before interactions. Restoration and the failure event occur only after a reverted reimbursement call; nested changes from that call have rolled back. See docs/slither-triage.md.",
       "sources": {
-        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "d79d8e1141652b7b203273f404419d0c6b046fa2125d71f565dbfb4b2fc4bcff"
+        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "9b5e20575929b30c6db3e7818463ed1f10a5205b2864a441da0f18e4dc88877c"
       }
     }
   },
   {
     "check": "reentrancy-events",
-    "id": "18c1d89a524718fddbef43cb9012eec1bd35225c65caf64aa813d07c1ef3e958",
-    "description": "Reentrancy in AbstractL1BTCDepositor.finalizeDeposit(uint256) (contracts/cross-chain/AbstractL1BTCDepositor.sol#388-530):\n\tExternal calls:\n\t- (initialDepositAmount,tbtcAmount,destinationChainDepositOwner) = _finalizeDeposit(depositKey) (contracts/cross-chain/AbstractL1BTCDepositor.sol#398-404)\n\t\t- (finalizedAt) = tbtcVault.optimisticMintingRequests(depositKey) (contracts/integrator/AbstractBTCDepositor.sol#191-193)\n\t- reimbursementPool.refund((gasStart - gasleft()()) + msgValueOffset + finalizeDepositGasOffset,msg.sender) (contracts/cross-chain/AbstractL1BTCDepositor.sol#487-492)\n\t- (success) = address(reimbursementPool).call{gas: 2_000_000}(abi.encodeWithSelector(reimbursementPool.refund.selector,reimbursement.gasSpent,reimbursement.receiver)) (contracts/cross-chain/AbstractL1BTCDepositor.sol#509-517)\n\tEvent emitted after the call(s):\n\t- DeferredReimbursementFailed(depositKey,reimbursement.receiver,reimbursement.gasSpent) (contracts/cross-chain/AbstractL1BTCDepositor.sol#522-526)\n",
+    "id": "e41bd7ad3ce6365eb846c99cd8f39e6b1a4262853f65c8c359c40a14a0e6f9a3",
+    "description": "Reentrancy in AbstractL1BTCDepositor.finalizeDeposit(uint256) (contracts/cross-chain/AbstractL1BTCDepositor.sol#388-530):\n\tExternal calls:\n\t- (initialDepositAmount,tbtcAmount,destinationChainDepositOwner) = _finalizeDeposit(depositKey) (contracts/cross-chain/AbstractL1BTCDepositor.sol#398-404)\n\t\t- (finalizedAt) = tbtcVault.optimisticMintingRequests(depositKey) (contracts/integrator/AbstractBTCDepositor.sol#192-194)\n\t- reimbursementPool.refund((gasStart - gasleft()()) + msgValueOffset + finalizeDepositGasOffset,msg.sender) (contracts/cross-chain/AbstractL1BTCDepositor.sol#487-492)\n\t- (success) = address(reimbursementPool).call{gas: 2_000_000}(abi.encodeWithSelector(reimbursementPool.refund.selector,reimbursement.gasSpent,reimbursement.receiver)) (contracts/cross-chain/AbstractL1BTCDepositor.sol#509-517)\n\tEvent emitted after the call(s):\n\t- DeferredReimbursementFailed(depositKey,reimbursement.receiver,reimbursement.gasSpent) (contracts/cross-chain/AbstractL1BTCDepositor.sol#522-526)\n",
     "review": {
       "disposition": "false-positive",
       "rationale": "The deposit is finalized and the deferred entry cleared before interactions. Restoration and the failure event occur only after a reverted reimbursement call; nested changes from that call have rolled back. See docs/slither-triage.md.",
       "sources": {
-        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "d79d8e1141652b7b203273f404419d0c6b046fa2125d71f565dbfb4b2fc4bcff"
+        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "9b5e20575929b30c6db3e7818463ed1f10a5205b2864a441da0f18e4dc88877c"
       }
     }
   }
