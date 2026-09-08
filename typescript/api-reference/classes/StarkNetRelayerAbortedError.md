@@ -49,7 +49,7 @@ Error.constructor
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:167](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L167)
+[src/lib/starknet/starknet-depositor.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L165)
 
 ## Properties
 

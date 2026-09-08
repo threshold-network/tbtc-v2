@@ -189,7 +189,7 @@ Payload ready for submission to the backend gasless-reveal endpoint.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:578](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L578)
+[src/services/deposits/deposits-service.ts:580](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L580)
 
 ___
 
@@ -211,7 +211,7 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:731](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L731)
+[src/services/deposits/deposits-service.ts:733](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L733)
 
 ___
 
@@ -445,7 +445,7 @@ Promise resolving to the GaslessDepositResult for the L2 deposit.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:490](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L490)
+[src/services/deposits/deposits-service.ts:492](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L492)
 
 ___
 
@@ -498,7 +498,7 @@ Typically, there is no need to use this method when DepositsService
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:809](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L809)
+[src/services/deposits/deposits-service.ts:811](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L811)
 
 ___
 
@@ -529,4 +529,4 @@ If the identifier is not a valid Ethereum address.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:715](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L715)
+[src/services/deposits/deposits-service.ts:717](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L717)

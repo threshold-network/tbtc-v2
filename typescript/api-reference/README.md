@@ -90,7 +90,6 @@
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
 - [EthersV5ProviderLike](interfaces/EthersV5ProviderLike.md)
 - [EthersV5SignerLike](interfaces/EthersV5SignerLike.md)
-- [EvmConnection](interfaces/EvmConnection.md)
 - [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
 - [GaslessDepositResult](interfaces/GaslessDepositResult.md)
 - [GaslessRevealPayload](interfaces/GaslessRevealPayload.md)
@@ -190,6 +189,7 @@
 - [extractBitcoinRawTxVectors](README.md#extractbitcoinrawtxvectors)
 - [getChainIdFromEncodedReceiver](README.md#getchainidfromencodedreceiver)
 - [getRecipientFromEncodedReceiver](README.md#getrecipientfromencodedreceiver)
+- [isEvmSigner](README.md#isevmsigner)
 - [isValidEncodedReceiver](README.md#isvalidencodedreceiver)
 - [loadArbitrumCrossChainContracts](README.md#loadarbitrumcrosschaincontracts)
 - [loadArbitrumCrossChainInterfaces](README.md#loadarbitrumcrosschaininterfaces)
@@ -696,9 +696,9 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L176)
+[src/lib/starknet/starknet-depositor.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L174)
 
-[src/lib/starknet/starknet-depositor.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L177)
+[src/lib/starknet/starknet-depositor.ts:175](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L175)
 
 ___
 
@@ -742,7 +742,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L199)
+[src/lib/starknet/starknet-depositor.ts:197](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L197)
 
 ___
 
@@ -1079,9 +1079,9 @@ Use StarkNetRelayerAbortedError instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L176)
+[src/lib/starknet/starknet-depositor.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L174)
 
-[src/lib/starknet/starknet-depositor.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L177)
+[src/lib/starknet/starknet-depositor.ts:175](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L175)
 
 ___
 
@@ -1348,7 +1348,7 @@ ___
 
 ### connectEvm
 
-▸ **connectEvm**(`signer`): `Promise`\<[`EvmConnection`](interfaces/EvmConnection.md)\>
+▸ **connectEvm**(`signer`): `Promise`\<`EvmConnection`\>
 
 Normalizes any accepted signer shape into viem clients using its current
 account and chain. Contract loaders share this snapshot within one SDK
@@ -1362,7 +1362,7 @@ initialization; a later initialization resolves provider state again.
 
 #### Returns
 
-`Promise`\<[`EvmConnection`](interfaces/EvmConnection.md)\>
+`Promise`\<`EvmConnection`\>
 
 Normalized SDK-internal connection.
 
@@ -1582,6 +1582,32 @@ The recipient address
 
 ___
 
+### isEvmSigner
+
+▸ **isEvmSigner**(`x`): `boolean`
+
+Determines whether a value is any shape the SDK's [EthereumSigner](README.md#ethereumsigner)
+union accepts: a viem client, an ethers v5 Signer/Provider (structural
+shim), or a raw EIP-1193 provider.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `x` | `unknown` | The candidate value to check. |
+
+#### Returns
+
+`boolean`
+
+True if `x` is a supported Ethereum signer/provider shape.
+
+#### Defined in
+
+[src/lib/ethereum/evm-connection.ts:336](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/evm-connection.ts#L336)
+
+___
+
 ### isValidEncodedReceiver
 
 ▸ **isValidEncodedReceiver**(`encodedReceiver`): `boolean`
@@ -1745,7 +1771,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L31)
+[src/lib/ethereum/index.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L40)
 
 ___
 

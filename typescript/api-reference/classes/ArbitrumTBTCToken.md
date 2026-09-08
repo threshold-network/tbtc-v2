@@ -49,7 +49,7 @@ for reference.
 
 | Name | Type |
 | :------ | :------ |
-| `config` | [`EthereumContractConfig`](../interfaces/EthereumContractConfig.md) |
+| `config` | `EvmContractHandleConfig` |
 | `chainId` | [`Arbitrum`](../enums/Chains.Arbitrum.md) |
 
 #### Returns
@@ -78,7 +78,7 @@ EvmContractHandle.\_abi
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:362](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L362)
+[src/lib/ethereum/adapter.ts:392](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L392)
 
 ___
 
@@ -94,7 +94,7 @@ EvmContractHandle.\_address
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L358)
+[src/lib/ethereum/adapter.ts:388](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L388)
 
 ___
 
@@ -112,7 +112,7 @@ EvmContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:368](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L368)
+[src/lib/ethereum/adapter.ts:398](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L398)
 
 ___
 
@@ -128,17 +128,17 @@ EvmContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:372](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L372)
+[src/lib/ethereum/adapter.ts:402](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L402)
 
 ## Methods
 
 ### \_connection
 
-▸ **_connection**(): `Promise`\<[`EvmConnection`](../interfaces/EvmConnection.md)\>
+▸ **_connection**(): `Promise`\<`EvmConnection`\>
 
 #### Returns
 
-`Promise`\<[`EvmConnection`](../interfaces/EvmConnection.md)\>
+`Promise`\<`EvmConnection`\>
 
 The normalized connection this handle operates on.
 
@@ -148,7 +148,7 @@ EvmContractHandle.\_connection
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L408)
+[src/lib/ethereum/adapter.ts:438](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L438)
 
 ___
 
@@ -184,7 +184,7 @@ EvmContractHandle.\_getEvents
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:529](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L529)
+[src/lib/ethereum/adapter.ts:568](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L568)
 
 ___
 
@@ -225,7 +225,7 @@ EvmContractHandle.\_read
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:421](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L421)
+[src/lib/ethereum/adapter.ts:451](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L451)
 
 ___
 
@@ -267,7 +267,7 @@ EvmContractHandle.\_write
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:469](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L469)
+[src/lib/ethereum/adapter.ts:499](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L499)
 
 ___
 
@@ -315,7 +315,7 @@ EvmContractHandle.getAddress
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:401](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L401)
+[src/lib/ethereum/adapter.ts:431](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L431)
 
 ___
 
