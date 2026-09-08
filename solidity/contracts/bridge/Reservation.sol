@@ -792,7 +792,7 @@ library Reservation {
         // reversing review finding [6] (which had dropped the `minAmount`
         // term; its rationale did not account for the cumulative exposure).
         require(
-            anchorAmount > txMaxFee + minAmount,
+            anchorAmount >= txMaxFee + minAmount,
             "Reanchor would fall below the minimum reservation amount"
         );
 
@@ -806,7 +806,6 @@ library Reservation {
                 targetCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
-        self.walletReservationInfo[targetWalletPubKeyHash].count = targetCount;
 
         uint64 targetAmount = self
             .walletReservationInfo[targetWalletPubKeyHash]
@@ -816,9 +815,11 @@ library Reservation {
                 targetAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self
-            .walletReservationInfo[targetWalletPubKeyHash]
-            .amount = targetAmount;
+        self.walletReservationInfo[targetWalletPubKeyHash] = BridgeState
+            .WalletReservationInfo({
+                amount: targetAmount,
+                count: targetCount
+            });
 
         reservation.state = ReservationState.ActionPending;
         uint64 requestNonce = ++reservation.requestNonce;
@@ -924,6 +925,24 @@ library Reservation {
                 self.activeReservationsCount < self.maxActiveReservations,
             "Active reservations cap exceeded"
         );
+        // Decision (roadmap.md section 6 item 2, RESOLVED 2026-09-07): re-validate
+        // maxActiveReservations against current slot capacity on every
+        // acceptance, not only at updateReservationCaps set-time, because
+        // liveWalletsCount shrinks as wallets terminate and a set-time-only
+        // check would go stale silently. This deliberately means a wallet
+        // retirement that pushes the product below the configured cap halts
+        // new acceptances until governance/operators react (raise wallet
+        // count, or an operator strands the retired wallet's positions) --
+        // the accepted "turn the saturation cliff into a revert" tradeoff
+        // this field exists for (see its own doc comment above). This checks
+        // the CAP against capacity, not current occupancy: activeReservationsCount
+        // is already bounded against maxActiveReservations by the check above.
+        require(
+            self.maxActiveReservations == 0 ||
+                self.maxActiveReservations <=
+                self.liveWalletsCount * self.maxReservationsPerWallet,
+            "Occupancy cap exceeds live wallet slot capacity"
+        );
         self.activeReservationsCount += 1;
         emit ReservationOccupancyChanged(self.activeReservationsCount);
 
@@ -943,7 +962,6 @@ library Reservation {
                 walletCount <= self.maxReservationsPerWallet,
             "Wallet reservations cap exceeded"
         );
-        self.walletReservationInfo[walletPubKeyHash].count = walletCount;
 
         uint64 walletAmount = self
             .walletReservationInfo[walletPubKeyHash]
@@ -953,7 +971,9 @@ library Reservation {
                 walletAmount <= self.maxReservationsAmountPerWallet,
             "Wallet reserved amount cap exceeded"
         );
-        self.walletReservationInfo[walletPubKeyHash].amount = walletAmount;
+
+        self.walletReservationInfo[walletPubKeyHash] = BridgeState
+            .WalletReservationInfo({amount: walletAmount, count: walletCount});
     }
 
     /// @notice Releases the global and per-wallet capacity allocated for an
@@ -963,8 +983,13 @@ library Reservation {
         bytes20 walletPubKeyHash,
         uint64 amount
     ) internal {
-        self.walletReservationInfo[walletPubKeyHash].count -= 1;
-        self.walletReservationInfo[walletPubKeyHash].amount -= amount;
+        BridgeState.WalletReservationInfo memory info = self
+            .walletReservationInfo[walletPubKeyHash];
+        self.walletReservationInfo[walletPubKeyHash] = BridgeState
+            .WalletReservationInfo({
+                amount: info.amount - amount,
+                count: info.count - 1
+            });
         self.reservationTotalAmount -= amount;
         self.activeReservationsCount -= 1;
         emit ReservationOccupancyChanged(self.activeReservationsCount);
@@ -977,8 +1002,13 @@ library Reservation {
         bytes20 targetWalletPubKeyHash,
         uint64 amount
     ) internal {
-        self.walletReservationInfo[targetWalletPubKeyHash].count -= 1;
-        self.walletReservationInfo[targetWalletPubKeyHash].amount -= amount;
+        BridgeState.WalletReservationInfo memory info = self
+            .walletReservationInfo[targetWalletPubKeyHash];
+        self.walletReservationInfo[targetWalletPubKeyHash] = BridgeState
+            .WalletReservationInfo({
+                amount: info.amount - amount,
+                count: info.count - 1
+            });
     }
 
     /// @notice Appends a reservation key to a wallet's enumeration list.
@@ -1106,17 +1136,13 @@ library Reservation {
     ///         cannot be stranded.
     /// @param reservationKey The key of the stranded reservation.
     /// @dev Requirements:
-    ///      - The custodying wallet must be in the Terminated or Closed state,
-    ///        or in the Closing state once the reservation's
-    ///        `dissolutionEligibleAt` has passed (i.e., `block.timestamp >=
-    ///        reservation.dissolutionEligibleAt`). Closing is excluded before
-    ///        that point: `requestReservationReanchor` accepts a Closing source
-    ///        wallet, so allowing a Closing wallet to also be stranded here
-    ///        would race a legitimate reanchor with a permissionless strand.
-    ///        Once `dissolutionEligibleAt` passes, `requestReservationReanchor`
-    ///        itself blocks reanchor (see `requestReservationReanchor` lines
-    ///        753-756), so no race remains and Closing becomes eligible for
-    ///        stranding, providing a milestone-1 release path.
+    ///      - The custodying wallet must be in the Terminated or Closed
+    ///        state. Closing is not accepted: `beginWalletClosing`
+    ///        unconditionally requires the wallet's reservation count to be
+    ///        zero, while this function's own Active-reservation
+    ///        precondition means the custodying wallet's reservation count
+    ///        is always at least 1, so an Active reservation and a Closing
+    ///        custodian can never co-occur.
     function notifyReservationStranded(
         BridgeState.Storage storage self,
         uint256 reservationKey
@@ -1134,11 +1160,8 @@ library Reservation {
             .state;
         require(
             walletState == Wallets.WalletState.Terminated ||
-                walletState == Wallets.WalletState.Closed ||
-                (walletState == Wallets.WalletState.Closing &&
-                    /* solhint-disable-next-line not-rely-on-time */
-                    block.timestamp >= reservation.dissolutionEligibleAt),
-            "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
+                walletState == Wallets.WalletState.Closed,
+            "Wallet is not terminated or closed"
         );
 
         strandReservation(self, reservation, reservationKey, true);

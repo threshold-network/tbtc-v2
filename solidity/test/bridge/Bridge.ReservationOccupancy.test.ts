@@ -176,7 +176,7 @@ describe("Reservation - occupancy tracking", () => {
     expect(await testReservation.activeReservationsCount()).to.equal(0)
   })
 
-  it("notifyReservationStranded reverts on a Closing wallet before dissolutionEligibleAt", async () => {
+  it("notifyReservationStranded reverts on a Closing wallet", async () => {
     await testReservation.setMaxActiveReservations(5)
     await testReservation.setActiveReservationsCount(1)
 
@@ -207,50 +207,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith(
-      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-    )
-  })
-
-  it("notifyReservationStranded succeeds on a Closing wallet once dissolutionEligibleAt has passed", async () => {
-    await testReservation.setMaxActiveReservations(5)
-    await testReservation.setActiveReservationsCount(1)
-
-    const walletPubKeyHash = `0x${"1".repeat(40)}`
-    await testReservation.setWalletReservationsCount(walletPubKeyHash, 1)
-    await testReservation.setWalletReservationsAmount(walletPubKeyHash, 100)
-    await testReservation.setReservationTotalAmount(100)
-    await testReservation.setWalletState(walletPubKeyHash, walletState.Closing)
-
-    const reservationKey = 1
-    const now = (await ethers.provider.getBlock("latest")).timestamp
-    await testReservation.setReservation(reservationKey, {
-      owner: ethers.constants.AddressZero,
-      mintedAmount: 100,
-      acceptedAt: 0,
-      walletPubKeyHash,
-      anchorAmount: 100,
-      expiresAt: 0,
-      anchorTxHash: ethers.constants.HashZero,
-      anchorTxOutputIndex: 0,
-      state: 1 /* Active */,
-      requestNonce: 1,
-      retryCredit: false,
-      dissolutionEligibleAt: now - 1,
-      cumulativeReanchorFee: 0,
-      reanchorCooldownUntil: 0,
-    })
-
-    await expect(testReservation.notifyReservationStranded(reservationKey))
-      .to.emit(testReservation, "ReservationStranded")
-      .withArgs(
-        reservationKey,
-        walletPubKeyHash,
-        ethers.constants.AddressZero,
-        100
-      )
-
-    expect(await testReservation.activeReservationsCount()).to.equal(0)
+    ).to.be.revertedWith("Wallet is not terminated or closed")
   })
 
   it("notifyReservationStranded reverts on a Live wallet", async () => {
@@ -275,9 +232,7 @@ describe("Reservation - occupancy tracking", () => {
 
     await expect(
       testReservation.notifyReservationStranded(reservationKey)
-    ).to.be.revertedWith(
-      "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-    )
+    ).to.be.revertedWith("Wallet is not terminated or closed")
   })
 
   it("prepareReservationForSettlement restores activeReservationsCount on late settlement of stranded reservation and emits ReservationOccupancyChanged", async () => {

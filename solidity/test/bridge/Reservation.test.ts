@@ -743,6 +743,12 @@ describe("Reservation", () => {
       it("should revert when activeReservationsCount reaches maxActiveReservations (Active reservations cap exceeded)", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
+        // Item-3 sizing-relation invariant: `liveWalletsCount *
+        // maxReservationsPerWallet` must cover `activeReservationsCount`.
+        // `setupValidDeposit` sets `maxReservationsPerWallet = 10`; give
+        // this wallet capacity so `maxActiveReservations` stays the
+        // binding constraint this test exercises.
+        await testReservation.setLiveWalletsCount(1)
 
         // First request fills the capacity
         await testReservation
@@ -777,6 +783,10 @@ describe("Reservation", () => {
       it("should allow a new request after strandReservation decrements activeReservationsCount", async () => {
         await setupValidDeposit(reservationKey1, walletPubKeyHash)
         await testReservation.setMaxActiveReservations(1)
+        // See sibling test above: satisfy the Item-3 sizing-relation
+        // invariant so `maxActiveReservations` remains the binding
+        // constraint.
+        await testReservation.setLiveWalletsCount(1)
 
         // First request fills the occupancy
         await testReservation

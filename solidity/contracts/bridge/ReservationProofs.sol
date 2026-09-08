@@ -126,12 +126,13 @@ library ReservationProofs {
     /// @param requestNonce The generation being settled. Late settlements
     ///        name an older, timed-out generation.
     /// @dev The `BitcoinTx.UTXO` parameter is retained in the signature
-    ///      without a name as it is reserved for the future router's use
-    ///      (see PR #B); it is unused by the current bridge-facing entry
-    ///      point. Unlike every other existing SPV proof entry point in
-    ///      this repo, this function has no caller-identity gate here --
-    ///      the future router (PR #B) must apply the equivalent
-    ///      maintainer-only gate when it wires this entry point up.
+    ///      without a name as it is reserved for a future milestone; it is
+    ///      unused by the current bridge-facing entry point. This internal
+    ///      library function has no caller-identity gate of its own --
+    ///      `ReservationRouter.submitReservationProof`, the bridge-facing
+    ///      entry point that calls it, applies the `onlySpvMaintainer`
+    ///      gate shared with every other SPV proof entry point in this
+    ///      repo.
     function submitReservationProof(
         BridgeState.Storage storage self,
         uint8 proofType,
@@ -214,16 +215,15 @@ library ReservationProofs {
     ///         newly settled anchor.
     /// @dev Live and MovingFunds wallets can still manage the anchor.
     ///      Closing, Closed, and Terminated wallets are stranded
-    ///      immediately: the permissionless cleanup path
-    ///      (`notifyReservationStranded`) lands with a later milestone PR
-    ///      and does not exist in this branch, so there is no other route
-    ///      to release a reservation settled against an already-terminated
-    ///      wallet. `evidenceAlreadyEmitted` supports the future
-    ///      `notifyReservationStranded` call site, which strands before any
-    ///      settlement proof exists: when a lineage was already stranded by
-    ///      that path before this proof arrives, restore the Stranded state
-    ///      latch before cleanup so the reconstructed accounting is
-    ///      released without emitting duplicate recovery evidence.
+    ///      immediately here rather than left to the permissionless
+    ///      cleanup path (`notifyReservationStranded`), since a settlement
+    ///      proof already committed the position to this wallet.
+    ///      `evidenceAlreadyEmitted` supports the `notifyReservationStranded`
+    ///      call site, which strands before any settlement proof exists:
+    ///      when a lineage was already stranded by that path before this
+    ///      proof arrives, restore the Stranded state latch before cleanup
+    ///      so the reconstructed accounting is released without emitting
+    ///      duplicate recovery evidence.
     function strandLateSettlementIfTargetWalletClosed(
         BridgeState.Storage storage self,
         Reservation.ReservationRequest storage reservation,
@@ -323,10 +323,14 @@ library ReservationProofs {
         );
 
         self.reservationTotalAmount += reservation.anchorAmount;
-        self.walletReservationInfo[reservation.walletPubKeyHash].count += 1;
-        self
-            .walletReservationInfo[reservation.walletPubKeyHash]
-            .amount += reservation.anchorAmount;
+        BridgeState.WalletReservationInfo memory info = self
+            .walletReservationInfo[reservation.walletPubKeyHash];
+        self.walletReservationInfo[
+            reservation.walletPubKeyHash
+        ] = BridgeState.WalletReservationInfo({
+            amount: info.amount + reservation.anchorAmount,
+            count: info.count + 1
+        });
         self.activeReservationsCount += 1;
         emit ReservationOccupancyChanged(self.activeReservationsCount);
     }
@@ -549,10 +553,14 @@ library ReservationProofs {
             // Deliberately no cap check: caps are request-time throttles
             // and the anchor is already confirmed on Bitcoin.
             self.reservationTotalAmount += anchorAmount;
-            self.walletReservationInfo[targetWalletPubKeyHash].count += 1;
-            self
-                .walletReservationInfo[targetWalletPubKeyHash]
-                .amount += anchorAmount;
+            BridgeState.WalletReservationInfo memory targetInfo = self
+                .walletReservationInfo[targetWalletPubKeyHash];
+            self.walletReservationInfo[
+                targetWalletPubKeyHash
+            ] = BridgeState.WalletReservationInfo({
+                amount: targetInfo.amount + anchorAmount,
+                count: targetInfo.count + 1
+            });
             // The timeout also released activeReservationsCount (see
             // `Reservation.notifyReservationAcceptanceTimedOut`); re-take it
             // so a late-settled acceptance is still counted against the cap
@@ -617,10 +625,11 @@ library ReservationProofs {
 
         // A timed-out authorization released the target wallet's reservation
         // count, so the wallet may have retired before this already-confirmed
-        // anchor is proven. Closing, Closed, and Terminated wallets have no
-        // cleanup path in this branch (`notifyReservationStranded` lands
-        // with a later milestone PR); strand the newly registered position
-        // immediately. This check runs unconditionally (not just for late
+        // anchor is proven. Strand the newly registered position immediately
+        // for Closing, Closed, and Terminated wallets rather than leaving it
+        // to the permissionless `notifyReservationStranded` cleanup path,
+        // since this settlement proof already committed the position to
+        // the wallet. This check runs unconditionally (not just for late
         // settlements): an on-time proof can equally race a wallet leaving
         // Live mid-flight.
         strandLateSettlementIfTargetWalletClosed(
@@ -732,10 +741,14 @@ library ReservationProofs {
             // The timeout released the target wallet's reserved count and
             // amount; re-take them. Deliberately no cap check (see
             // acceptance).
-            self.walletReservationInfo[newWalletPubKeyHash].count += 1;
-            self
-                .walletReservationInfo[newWalletPubKeyHash]
-                .amount += reservation.anchorAmount;
+            BridgeState.WalletReservationInfo memory newInfo = self
+                .walletReservationInfo[newWalletPubKeyHash];
+            self.walletReservationInfo[
+                newWalletPubKeyHash
+            ] = BridgeState.WalletReservationInfo({
+                amount: newInfo.amount + reservation.anchorAmount,
+                count: newInfo.count + 1
+            });
 
             // A newer pending generation references an anchor this
             // transaction just consumed; unwind it.
@@ -817,10 +830,13 @@ library ReservationProofs {
         uint64 oldAnchorAmount = reservation.anchorAmount;
         minerFee = oldAnchorAmount - newAnchorAmount;
 
-        self.walletReservationInfo[oldWalletPubKeyHash].count -= 1;
-        self
-            .walletReservationInfo[oldWalletPubKeyHash]
-            .amount -= oldAnchorAmount;
+        BridgeState.WalletReservationInfo memory oldInfo = self
+            .walletReservationInfo[oldWalletPubKeyHash];
+        self.walletReservationInfo[oldWalletPubKeyHash] = BridgeState
+            .WalletReservationInfo({
+                amount: oldInfo.amount - oldAnchorAmount,
+                count: oldInfo.count - 1
+            });
         self.walletReservationInfo[newWalletPubKeyHash].amount -= minerFee;
         self.reservationTotalAmount -= minerFee;
         reservation.cumulativeReanchorFee += minerFee;

@@ -14,9 +14,10 @@
  *     a previous call; Unknown after a reveal without an acceptance
  *     request).
  *   - Rejects when the wallet is not Terminated or Closed (Live,
- *     MovingFunds). Closing is deliberately excluded: it remains a valid
- *     `requestReservationReanchor` source state, so stranding it too would
- *     race a legitimate reanchor with a permissionless strand.
+ *     MovingFunds). Closing is excluded but unreachable in practice for an
+ *     Active reservation: `beginWalletClosing` unconditionally requires the
+ *     wallet's reservation count to be zero, while an Active reservation
+ *     always keeps its custodian's count at least 1.
  *   - `notifyStaleReservedDeposit` rejects immediately when
  *     `refundDeadlineValidated = false` (the disabled-validation path)
  *     but the reveal-captured refund deadline has not yet elapsed, and
@@ -86,6 +87,7 @@ import type {
 import bridgeFixture from "../fixtures/bridge"
 import type { Mock } from "../helpers/mock"
 import { walletState } from "../fixtures"
+import { ecdsaWalletTestData } from "../data/ecdsa"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -98,11 +100,12 @@ const RESERVATION_MIN_AMOUNT = 10000
 const RESERVATION_TX_MAX_FEE = 2000
 // `deploy/97_set_reservation_parameters.ts` already runs as part of
 // `deployments.fixture()` and sets real caps (reservationMaxSingleAmount
-// 100,000, maxActiveReservations 100), unlike a pristine caps-never-set
-// bridge. The relational check
+// 100,000, maxActiveReservations 5), unlike a pristine caps-never-set
+// bridge. This file immediately overrides both via its own
+// `updateReservationCaps` call below regardless. The relational check
 // (`reservationMaxTotalAmount <= maxActiveReservations *
 // reservationMaxSingleAmount`) is live from that deploy step onward, so
-// RESERVATION_MAX_TOTAL must fit under 100 * 100,000 = 10,000,000.
+// RESERVATION_MAX_TOTAL must fit under the caps set below.
 const RESERVATION_MAX_TOTAL = BigNumber.from("10000000")
 const MAX_RESERVATIONS_PER_WALLET = 10
 const RESERVATION_ACTION_TIMEOUT = 172800 // 48 hours
@@ -221,7 +224,7 @@ describe("Bridge - Reservation stranding", () => {
     // reservation.
     await reservationRouter
       .connect(bridgeGovernanceSigner)
-      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 100)
+      .updateReservationCaps(RESERVATION_MAX_TOTAL, RESERVATION_MAX_TOTAL, 10) // 10 = 1 wallet * MAX_RESERVATIONS_PER_WALLET, satisfying the Item-3 sizing relation (roadmap.md section 6 item 2) with this fixture's single default Live wallet
     await reservationRouter
       .connect(bridgeGovernanceSigner)
       .updateReservationParameters(
@@ -565,6 +568,85 @@ describe("Bridge - Reservation stranding", () => {
       expect(after.walletAmount).to.equal(before.walletAmount.sub(anchorAmount))
     })
 
+    it("strands an Active reservation on a wallet driven to Terminated by a real moving-funds-timeout call chain, not direct state injection", async () => {
+      // Every other test in this describe block installs Terminated via
+      // `terminatedWallet`'s direct storage write (`bridge.setWallet`).
+      // This test instead drives the wallet through the real
+      // Live -> MovingFunds -> Terminated transition
+      // (`__ecdsaWalletHeartbeatFailedCallback` then
+      // `notifyMovingFundsTimeout`, mirroring the coverage in
+      // `Bridge.MovingFunds.test.ts`'s "notifyMovingFundsTimeout"
+      // describe block) and only then exercises
+      // `notifyReservationStranded` against the resulting real
+      // Terminated wallet, asserting the same state/counter/event triple
+      // the injection-based test above asserts.
+      const custodian = ethers.utils.hexlify(ecdsaWalletTestData.pubKeyHash160)
+
+      await bridge.setWallet(custodian, {
+        ecdsaWalletID: ecdsaWalletTestData.walletID,
+        mainUtxoHash: ZERO_BYTES32,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ZERO_BYTES32,
+      })
+
+      const { reservationKey } = await makeAcceptedReservation(custodian)
+
+      const beforeCount = await reservationRouter.walletReservationsCount(
+        custodian
+      )
+      const beforeAmount = await reservationRouter.walletReservationsAmount(
+        custodian
+      )
+      const beforeActive = await reservationRouter.activeReservationsCount()
+      expect(beforeCount).to.equal(1)
+      expect(beforeAmount).to.equal(anchorAmount)
+
+      // Real Live -> MovingFunds transition. The wallet's active
+      // reservation (count == 1) routes `Wallets.moveFunds` to the
+      // MovingFunds branch even with a zero main UTXO.
+      await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletHeartbeatFailedCallback(
+          ecdsaWalletTestData.walletID,
+          ecdsaWalletTestData.publicKeyX,
+          ecdsaWalletTestData.publicKeyY
+        )
+      expect((await bridge.wallets(custodian)).state).to.equal(
+        walletState.MovingFunds
+      )
+
+      // Real MovingFunds -> Terminated transition.
+      const { movingFundsTimeout } = await bridge.movingFundsParameters()
+      await increaseTime(movingFundsTimeout + 1)
+      await bridge.notifyMovingFundsTimeout(custodian, [])
+      expect((await bridge.wallets(custodian)).state).to.equal(
+        walletState.Terminated
+      )
+
+      await expect(reservationRouter.notifyReservationStranded(reservationKey))
+        .to.emit(reservationRouter, "ReservationStranded")
+        .withArgs(reservationKey, custodian, thirdParty.address, anchorAmount)
+
+      const reservation = await reservationRouter.reservations(reservationKey)
+      expect(reservation.state).to.equal(ReservationState.Stranded)
+      expect(reservation.anchorAmount).to.equal(anchorAmount)
+
+      expect(
+        await reservationRouter.walletReservationsCount(custodian)
+      ).to.equal(beforeCount - 1)
+      expect(
+        await reservationRouter.walletReservationsAmount(custodian)
+      ).to.equal(beforeAmount.sub(anchorAmount))
+      expect(
+        (await reservationRouter.activeReservationsCount()).count
+      ).to.equal(beforeActive.count - 1)
+    })
+
     it("rejects a second stranding call after a successful strand (state is no longer Active)", async () => {
       const { reservationKey } = await makeAcceptedReservation()
       await terminatedWallet(walletPubKeyHash)
@@ -602,9 +684,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith(
-        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-      )
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("rejects when the wallet is in MovingFunds", async () => {
@@ -616,9 +696,7 @@ describe("Bridge - Reservation stranding", () => {
 
       await expect(
         reservationRouter.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith(
-        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-      )
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
   })
 

@@ -448,12 +448,12 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
     })
 
     it("rejects when the custodying wallet is Closing", async () => {
-      // Closing is no longer an accepted wallet state for stranding: it is
-      // also independently acceptable to `requestReservationReanchor`,
-      // and a wallet with `mainUtxoHash == 0` can be permissionlessly
-      // driven into `Closing` via `notifyWalletCloseable`, which would
-      // otherwise let a Closing-wallet strand front-run a legitimate
-      // reanchor in a deterministic two-transaction sequence.
+      // Closing is not an accepted wallet state for stranding. It is also
+      // unreachable for an Active reservation in practice:
+      // `beginWalletClosing` unconditionally requires the wallet's
+      // reservation count to be zero, while an Active reservation always
+      // keeps its custodian's count at least 1. This test exercises the
+      // require directly via seedWallet's test-only state injection.
       const walletPubKeyHash = `0x${"12".repeat(20)}` as `0x${string}`
       const reservationKey = `0x${"ab".repeat(32)}`
       const owner = ethers.Wallet.createRandom().address
@@ -478,9 +478,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith(
-        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-      )
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("strands an Active reservation on a Closed wallet", async () => {
@@ -615,9 +613,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith(
-        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-      )
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("rejects when the custodying wallet is in MovingFunds state", async () => {
@@ -645,9 +641,7 @@ describe("Bridge - Reservation Stranding (PR E library coverage)", () => {
 
       await expect(
         executor.notifyReservationStranded(reservationKey)
-      ).to.be.revertedWith(
-        "Wallet is not terminated, closed, or a dissolution-eligible closing wallet"
-      )
+      ).to.be.revertedWith("Wallet is not terminated or closed")
     })
 
     it("rejects when both the reservation and wallet conditions are wrong", async () => {
