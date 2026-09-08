@@ -3,6 +3,7 @@ import { expect } from "chai"
 import { BigNumber } from "ethers"
 import type {
   L1BTCDepositorNttWithExecutor,
+  MaliciousReentrantRefundReceiver,
   MockNttManager,
   MockNttManagerWithExecutor,
   MockTBTCBridgeWithSweep,
@@ -1014,6 +1015,167 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       ).to.be.revertedWith(
         "Platform fee recipient cannot be zero when platform fee is set"
       )
+    })
+  })
+
+  describe("Deposit Finalization & Checks-Effects-Interactions Security", () => {
+    // Reentrancy attack surface: the mock executor manager refunds unused
+    // executor value via a raw ETH transfer mid-`finalizeDeposit`. These
+    // tests confirm that refund cannot be used to re-enter `finalizeDeposit`
+    // and either double-finalize the same deposit or replay staged executor
+    // parameters against a second one.
+    const decodeRevertReason = (data: string): string => {
+      if (!data || data.length < 138) return ""
+      const reasonData = `0x${data.slice(10)}`
+      return ethers.utils.defaultAbiCoder.decode(["string"], reasonData)[0]
+    }
+
+    const signedQuote = `0x${"1".repeat(128)}`
+    const instructions = `0x${"2".repeat(64)}`
+    const executorValue = ethers.utils.parseEther("0.01")
+
+    // The depositor computes the real deposit key on-chain as
+    // `keccak256(hash256(fundingTx) | fundingOutputIndex)` (see
+    // `AbstractBTCDepositor._calculateDepositKey`); the mock bridge's
+    // `setNextDepositKey` must be primed with that same value so
+    // `bridge.deposits(depositKey)` resolves for `_finalizeDeposit`. These
+    // are precomputed for `fixture.fundingTx` at fundingOutputIndex 1 and 2
+    // (index 0 is already used by `fixture.expectedDepositKey` elsewhere in
+    // this file), keeping each deposit key here distinct from that one.
+    const DEPOSIT_KEY_OUTPUT_INDEX_1 =
+      "0x2edac88e52814978b282061d3d3fccb845ca402ead8ab9009be8ef8fe34f8e6f"
+    const DEPOSIT_KEY_OUTPUT_INDEX_2 =
+      "0x4d2c8826c99ea50c88057cd4e783bcf22f29f2dab1e7f5259c43e5a8d6302315"
+
+    const deployMaliciousReceiver = async () => {
+      const MaliciousFactory = await ethers.getContractFactory(
+        "MaliciousReentrantRefundReceiver"
+      )
+      const maliciousReceiver = (await MaliciousFactory.deploy(
+        depositor.address
+      )) as MaliciousReentrantRefundReceiver
+      await maliciousReceiver.deployed()
+      return maliciousReceiver
+    }
+
+    const quoteRequiredPayment = async (refundAddress: string) =>
+      nttManagerWithExecutor.quoteDeliveryPrice(
+        underlyingNttManager.address,
+        WORMHOLE_CHAIN_DESTINATION,
+        "0x",
+        { value: executorValue, refundAddress, signedQuote, instructions },
+        { dbps: 0, payee: ethers.constants.AddressZero }
+      )
+
+    const initializeAndFundDeposit = async (
+      fundingOutputIndex: number,
+      depositKey: string,
+      recipient = destinationChainDepositOwner
+    ) => {
+      const [, relayer] = await ethers.getSigners()
+      await bridge.setNextDepositKey(depositKey)
+      await depositor
+        .connect(relayer)
+        .initializeDeposit(
+          fixture.fundingTx,
+          { ...fixture.reveal, fundingOutputIndex },
+          recipient
+        )
+      await bridge.sweepDeposit(depositKey)
+      const tbtcAmount = await calculateTbtcAmount(bridge, depositKey)
+      await tbtcToken.mint(depositor.address, tbtcAmount)
+    }
+
+    it("should prevent reentrancy during ETH refund step when attacking same deposit", async () => {
+      const maliciousReceiver = await deployMaliciousReceiver()
+      const depositKey = DEPOSIT_KEY_OUTPUT_INDEX_1
+
+      await maliciousReceiver.stageExecutorParameters(
+        executorValue,
+        signedQuote,
+        instructions
+      )
+      const requiredPayment = await quoteRequiredPayment(
+        maliciousReceiver.address
+      )
+      await initializeAndFundDeposit(1, depositKey)
+
+      // Configure the malicious receiver to re-enter finalizeDeposit on the
+      // same depositKey during the refund it receives mid-finalization.
+      await maliciousReceiver.setAttackConfig(depositKey, 0, false)
+
+      await maliciousReceiver.finalize(depositKey, {
+        value: requiredPayment,
+        gasLimit: 2_000_000,
+      })
+
+      expect(await maliciousReceiver.attackAttempted()).to.be.true
+      expect(await maliciousReceiver.attackSucceeded()).to.be.false
+      const revertReason = decodeRevertReason(
+        await maliciousReceiver.lastRevertData()
+      )
+      expect(revertReason).to.equal("Wrong deposit state")
+    })
+
+    it("should prevent reentrancy parameter reuse during ETH refund step on second deposit", async () => {
+      const maliciousReceiver = await deployMaliciousReceiver()
+      const depositKey1 = DEPOSIT_KEY_OUTPUT_INDEX_1
+      const depositKey2 = DEPOSIT_KEY_OUTPUT_INDEX_2
+
+      await maliciousReceiver.stageExecutorParameters(
+        executorValue,
+        signedQuote,
+        instructions
+      )
+      const requiredPayment = await quoteRequiredPayment(
+        maliciousReceiver.address
+      )
+      await initializeAndFundDeposit(1, depositKey1)
+      await initializeAndFundDeposit(2, depositKey2)
+
+      // Configure the malicious receiver to attempt finalizing depositKey2
+      // during depositKey1's refund, replaying the same staged parameters.
+      await maliciousReceiver.setAttackConfig(depositKey2, 0, false)
+
+      await maliciousReceiver.finalize(depositKey1, {
+        value: requiredPayment,
+        gasLimit: 2_000_000,
+      })
+
+      // Blocked because the staged parameters are deleted before the
+      // external call that triggers the refund (checks-effects-interactions).
+      expect(await maliciousReceiver.attackAttempted()).to.be.true
+      expect(await maliciousReceiver.attackSucceeded()).to.be.false
+      const revertReason = decodeRevertReason(
+        await maliciousReceiver.lastRevertData()
+      )
+      expect(revertReason).to.equal("Executor parameters not set")
+    })
+
+    it("should revert top-level finalizeDeposit when reentrant call bubbles up revert on refund", async () => {
+      const maliciousReceiver = await deployMaliciousReceiver()
+      const depositKey = DEPOSIT_KEY_OUTPUT_INDEX_1
+
+      await maliciousReceiver.stageExecutorParameters(
+        executorValue,
+        signedQuote,
+        instructions
+      )
+      const requiredPayment = await quoteRequiredPayment(
+        maliciousReceiver.address
+      )
+      await initializeAndFundDeposit(1, depositKey)
+
+      // bubbleUp = true: the reentrant attempt's failure is re-thrown from
+      // `receive`, so the mock manager's refund call fails.
+      await maliciousReceiver.setAttackConfig(depositKey, 0, true)
+
+      await expect(
+        maliciousReceiver.finalize(depositKey, {
+          value: requiredPayment,
+          gasLimit: 2_000_000,
+        })
+      ).to.be.revertedWith("Refund failed")
     })
   })
 })
