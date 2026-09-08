@@ -1105,11 +1105,6 @@ contract WalletProposalValidator {
             "Reanchor cooldown in effect"
         );
         require(
-            /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp < reservation.dissolutionEligibleAt,
-            "Reservation is dissolution-eligible"
-        );
-        require(
             reservation.walletPubKeyHash == proposal.sourceWalletPubKeyHash,
             "Reservation custodied by different wallet"
         );
@@ -1138,7 +1133,7 @@ contract WalletProposalValidator {
             "Proposed transaction fee is too high"
         );
         require(
-            reservation.anchorAmount >
+            reservation.anchorAmount >=
                 reservationTxMaxFee + reservationMinAmount,
             "Reanchor would fall below the minimum reservation amount"
         );
