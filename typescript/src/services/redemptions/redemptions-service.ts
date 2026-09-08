@@ -26,6 +26,25 @@ import {
 } from "../../lib/utils/types"
 
 /**
+ * Parses a string into an unsigned bigint, validating the format first.
+ * Unlike a bare `BigInt(...)` call, this rejects empty or malformed strings
+ * instead of silently returning `0n` or trimming whitespace.
+ * @param value The string to parse.
+ * @param fieldName The name of the field being parsed, used in the error
+ *        message.
+ * @returns The parsed bigint value.
+ */
+function parseUnsignedBigInt(value: string, fieldName: string): bigint {
+  if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(value)) {
+    throw new Error(
+      `Invalid ${fieldName}: "${value}" is not a valid numeric string`
+    )
+  }
+
+  return BigInt(value)
+}
+
+/**
  * Service exposing features related to tBTC v2 redemptions.
  */
 export class RedemptionsService {
@@ -928,9 +947,12 @@ export class RedemptionsService {
           serialized.mainUtxo.transactionHash
         ),
         outputIndex: serialized.mainUtxo.outputIndex,
-        value: BigInt(serialized.mainUtxo.value),
+        value: parseUnsignedBigInt(serialized.mainUtxo.value, "mainUtxo.value"),
       },
-      walletBTCBalance: BigInt(serialized.walletBTCBalance),
+      walletBTCBalance: parseUnsignedBigInt(
+        serialized.walletBTCBalance,
+        "walletBTCBalance"
+      ),
     }
   }
 }
