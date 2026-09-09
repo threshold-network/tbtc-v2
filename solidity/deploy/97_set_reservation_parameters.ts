@@ -78,6 +78,14 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     "BridgeGovernance",
     { from: governance, log: true, waitConfirmations: 1 },
     "beginReservationCapsUpdate",
+    // NOTE: these local/test values (maxReservationsAmountPerWallet=1e6,
+    // maxActiveReservations=100) are an intentional divergence from the
+    // M1-decided mainnet launch values that
+    // 98_generate_reservation_mainnet_calldata.ts hard-enforces
+    // (maxReservationsPerWallet must be exactly 1; maxActiveReservations
+    // must not exceed the live-wallet floor). Larger local/test values give
+    // more throughput for exercising the reservation flow in tests and are
+    // deliberately NOT meant to mirror the mainnet configuration.
     // values per agent-docs/inventory/reservation-parameters.md
     ethers.BigNumber.from("1000000"), // maxReservationsAmountPerWallet
     ethers.BigNumber.from("100000"), // reservationMaxSingleAmount
@@ -115,6 +123,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     ethers.BigNumber.from("7776000"), // reservationTermSeconds (90 days = MIN_RESERVATION_TERM)
     ethers.BigNumber.from("86400"), // reservationDissolutionDelay (1 day)
     ethers.BigNumber.from("10000000"), // reservationMaxTotalAmount
+    // NOTE: 5, not the mainnet-required 1 (see the divergence note above
+    // Step 1) -- deliberately larger for local/test throughput.
     ethers.BigNumber.from("5"), // maxReservationsPerWallet
     ethers.BigNumber.from("86400"), // reservationActionTimeout
     ethers.BigNumber.from("86400") // reservationRenewalWindowSeconds
@@ -131,7 +141,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     deployments.log(
       `[PENDING FINALIZE] Network: ${network.name} | Function: finalizeReservationParametersUpdate | ` +
         `Args: () | Governance delay: ${delay.toString()}s | ` +
-        "Run separately after delay elapses"
+        "Run separately after delay elapses (do not run before " +
+        "finalizeReservationCapsUpdate has been executed and confirmed " +
+        "on-chain -- finalizing parameters before caps reverts on-chain)"
     )
   }
 
