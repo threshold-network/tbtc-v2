@@ -1713,13 +1713,17 @@ describe("RebateStaking", () => {
         "initializeV2_Deprecate"
       )
 
-      await proxyAdminWithUpgrade.upgradeAndCall(
+      const tx = await proxyAdminWithUpgrade.upgradeAndCall(
         rebateStaking.address,
         newImplementation.address,
         upgradeData
       )
 
       expect(await rebateStaking.deprecated()).to.be.equal(true)
+
+      await expect(tx).to.not.emit(rebateStaking, "RebateStakingDeprecated")
+      await expect(tx).to.not.emit(rebateStaking, "UnstakingPeriodUpdated")
+      await expect(tx).to.not.emit(rebateStaking, "RebatePerTokenUpdated")
     })
 
     it("should not allow deprecation twice", async () => {
