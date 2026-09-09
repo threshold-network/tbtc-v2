@@ -1,0 +1,470 @@
+// tBTC Bridge Peg Keeper Governance Migration Runbook
+//
+// Network: Ethereum Mainnet / Sepolia
+// Date: September 2026
+//
+// This runbook documents the complete on-chain migration sequence for
+// deploying BridgeGovernanceV2 and upgrading the Bridge to V6 with
+// protocol peg keeper support. It mirrors the structure and detail level
+// of the RebateStaking governance runbook (docs/bridge-rebate-governance-deployment.adoc).
+
+= tBTC Bridge Peg Keeper / Governance V2 – Migration Execution Plan
+
+== Overview
+
+This document describes the exact on-chain steps and payloads required to:
+
+1. Deploy a new `BridgeGovernanceV2` contract that adds peg keeper
+   management functions (`beginPegKeeperUpdate`, `finalizePegKeeperUpdate`,
+   `cancelPegKeeperUpdate`).
+2. Transfer Bridge governance ownership from the old `BridgeGovernance`
+   to the new `BridgeGovernanceV2` via the existing timelocked
+   `beginBridgeGovernanceTransfer` / `finalizeBridgeGovernanceTransfer`
+   flow.
+3. Upgrade the Bridge proxy to a new V6 implementation that supports
+   protocol peg keepers (via `initializeV6_ConfigurePegKeeper`), and
+   simultaneously deprecate the `RebateStaking` proxy.
+
+The Bridge V6 implementation enforces that the peg keeper allowlist is
+managed exclusively through the new governance functions on
+`BridgeGovernanceV2`. The RebateStaking proxy is deprecated in the same
+upgrade batch (via `initializeV2_Deprecate`) to permanently disable the
+legacy rebate hook wiring.
+
+== Key Contracts & Parameters
+
+* Network: Ethereum Mainnet (or Sepolia for test runs)
+* Bridge (Proxy):: `<BRIDGE_ADDRESS>` (from hardhat-deploy "Bridge" record)
+* Bridge Implementation (V6, new):: `<BRIDGE_V6_IMPL>` (deployed by 97_upgrade_bridge_v6_peg_keeper.ts)
+* BridgeGovernance (OLD):: `<OLD_BRIDGE_GOVERNANCE>` (hardhat-deploy "BridgeGovernance")
+* BridgeGovernanceV2 (NEW):: `<NEW_BRIDGE_GOVERNANCE>` (hardhat-deploy "BridgeGovernanceV2")
+* BridgeGovernanceParametersV2:: `<PARAMS_V2>` (hardhat-deploy "BridgeGovernanceParametersV2")
+* RebateStaking (Proxy):: `<REBATE_STAKING>` (hardhat-deploy "RebateStaking")
+* RebateStaking Implementation (V6, new):: `<REBATE_STAKING_V6_IMPL>` (deployed by 97_upgrade_bridge_v6_peg_keeper.ts)
+* ProxyAdmin:: Discovered on-chain via EIP-1967 admin slot of Bridge proxy
+* Governance / Council EOA (owner of BridgeGovernanceV2)::
+** `<GOVERNANCE_ADDRESS>` (from hardhat namedAccounts "governance")
+* Bridge governance delay (seconds)::
+** `60` on Sepolia, `172800` (48 hours) on Mainnet
+* Initial peg keeper address:: `<INITIAL_PEG_KEEPER>` (set via `INITIAL_PEG_KEEPER` env var)
+
+Use the following commands (with a configured `ETHEREUM_RPC_URL`)
+to confirm the current state on mainnet before starting:
+
+[,bash]
+----
+# Bridge governance should be OLD BridgeGovernance
+cast call <BRIDGE_ADDRESS> "governance()(address)"
+
+# Expected: <OLD_BRIDGE_GOVERNANCE>
+
+# OLD BridgeGovernance governance delay should be 48h (or 60 on Sepolia)
+cast call <OLD_BRIDGE_GOVERNANCE> "governanceDelays(uint256)(uint256)" 0
+
+# Expected: 172800 (or 60 on Sepolia)
+
+# Peg keeper allowlist should be empty
+cast call <BRIDGE_ADDRESS> "isPegKeeper(address)(bool)" <INITIAL_PEG_KEEPER>
+
+# Expected: false
+
+# RebateStaking should be active (not deprecated)
+cast call <REBATE_STAKING> "deprecated()(bool)"
+
+# Expected: false
+----
+
+== Pre-checks (read-only)
+
+* Bridge proxy implementation is the pre-V6 version (no peg keeper support).
+* Bridge `governance()` points to OLD `BridgeGovernance`:
+** `cast call <BRIDGE> "governance()(address)"` -> `<OLD_BRIDGE_GOVERNANCE>`
+* Peg keeper allowlist is empty:
+** `cast call <BRIDGE> "isPegKeeper(address)(bool)" <INITIAL_PEG_KEEPER>` -> `false`
+* RebateStaking is NOT deprecated:
+** `cast call <REBATE_STAKING> "deprecated()(bool)"` -> `false`
+* RebateStaking proxy points at the Bridge proxy:
+** `cast call <REBATE_STAKING> "bridge()(address)"` -> `<BRIDGE>`
+
+== High-Level Steps
+
+0. (Already executed) Bridge proxy is at pre-V6 implementation.
+1. Run `95_deploy_bridge_governance_v2.ts` – Deploy `BridgeGovernanceParametersV2`
+   and `BridgeGovernanceV2`, transfer ownership of the new governance
+   contract to the Council EOA.
+   Requires: `DEPLOY_BRIDGE_GOVERNANCE_V2=true`
+2. Run `96_transfer_bridge_governance_v2.ts` – Generate calldata for
+   `beginBridgeGovernanceTransfer` (call now) and
+   `finalizeBridgeGovernanceTransfer` (call after governance delay).
+   Requires: `DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true`
+   ***CRITICAL***: The `finalizeBridgeGovernanceTransfer` call MUST be
+   executed by the owner of OLD `BridgeGovernance` AFTER the governance
+   delay elapses. Only then does `Bridge.governance()` return
+   `BridgeGovernanceV2`.
+3. Run `97_upgrade_bridge_v6_peg_keeper.ts` – Deploy new implementation
+   contracts, update proxy deployment artifacts, and generate the
+   `upgradeAndCall` calldata batch (RebateStaking deprecation FIRST,
+   Bridge V6 upgrade SECOND).
+   Requires: `DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE=true`,
+   `INITIAL_PEG_KEEPER=<address>`
+   ***CRITICAL***: This script verifies on-chain that
+   `Bridge.governance() == BridgeGovernanceV2` before generating
+   calldata. If the governance transfer has not fully finalized, the
+   script throws unless `ALLOW_UNSAFE_ORDER=true` is set (dry-run only).
+4. Submit the two `upgradeAndCall` transactions as ONE ordered Timelock
+   batch (RebateStaking action [0] before Bridge action [1]) using the
+   ProxyAdmin owner (Timelock/Council).
+5. After the batch executes, the initial peg keeper is configured.
+   Governance can now use `beginPegKeeperUpdate` /
+   `finalizePegKeeperUpdate` / `cancelPegKeeperUpdate` on
+   `BridgeGovernanceV2` to manage the allowlist.
+6. Verify post-conditions on-chain and via the verification script
+   `98_verify_peg_keeper_deployment.ts`.
+
+All payloads below are given as raw calldata so they can be submitted
+through a multisig UI, a timelock, or directly by the Council,
+depending on operational setup.
+
+== Action 1 – Deploy BridgeGovernanceV2 + Transfer Ownership
+
+Script: `95_deploy_bridge_governance_v2.ts`
+
+This step deploys two contracts:
+
+* `BridgeGovernanceParametersV2` – library linked into `BridgeGovernanceV2`
+* `BridgeGovernanceV2` – new governance contract with constructor args:
+  `_bridge = <BRIDGE_ADDRESS>`, `_governanceDelay = 172800 (or 60 on Sepolia)`
+
+The script automatically transfers ownership of `BridgeGovernanceV2`
+from the deployer to the `governance` named account (Council EOA).
+
+.Environment variables required
+[env]
+----
+DEPLOY_BRIDGE_GOVERNANCE_V2=true
+----
+
+.Execution
+[source,bash]
+----
+cd solidity
+yarn deploy --tags BridgeGovernanceV2 --network <NETWORK>
+----
+
+.Post-condition checks
+[source,bash]
+----
+# BridgeGovernanceV2 deployed at new address
+cast call <NEW_BRIDGE_GOVERNANCE> "owner()(address)" --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: <GOVERNANCE_ADDRESS> (Council EOA)
+
+# BridgeGovernanceParametersV2 deployed and linked
+cast call <NEW_BRIDGE_GOVERNANCE> "governanceDelays(uint256)(uint256)" 0 --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: 172800 (or 60 on Sepolia)
+
+# Bridge still governed by OLD BridgeGovernance
+cast call <BRIDGE_ADDRESS> "governance()(address)" --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: <OLD_BRIDGE_GOVERNANCE>
+----
+
+== Action 2 – Begin Bridge Governance Transfer (OLD → NEW)
+
+Script: `96_transfer_bridge_governance_v2.ts`
+
+This script is read-only; it generates calldata for two transactions
+that must be submitted by the owner of the OLD `BridgeGovernance`
+(Council EOA). It also performs an on-chain check that
+`BridgeGovernanceV2.owner() == governance` before emitting the
+`finalizeBridgeGovernanceTransfer` calldata.
+
+.Environment variables required
+[env]
+----
+DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true
+----
+
+.Execution
+[source,bash]
+----
+cd solidity
+yarn deploy --tags TransferBridgeGovernanceV2 --network <NETWORK>
+----
+
+.Output: The script logs two calldata blobs:
+
+* Step 1 – `beginBridgeGovernanceTransfer(newBridgeGovernance)`:
+  Target: `<OLD_BRIDGE_GOVERNANCE>`
+  Calldata: `0x8b18a505...` (generated with actual NEW address)
+
+* Step 2 – `finalizeBridgeGovernanceTransfer()`:
+  Target: `<OLD_BRIDGE_GOVERNANCE>`
+  Calldata: `0x605da053`
+
+.Step 2a – Submit beginBridgeGovernanceTransfer (NOW)
+[source,bash]
+----
+cast send <OLD_BRIDGE_GOVERNANCE> <BEGIN_CALLDATA> --rpc-url $ETHEREUM_RPC_URL
+----
+
+.Post-condition check after Step 2a
+[source,bash]
+----
+cast call <OLD_BRIDGE_GOVERNANCE> "bridgeGovernanceTransferChangeInitiated()(uint256)" --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: non-zero timestamp (the block timestamp when begin was called)
+----
+
+.Step 2b – Wait for governance delay to elapse
+On Mainnet: 48 hours (172800 seconds)
+On Sepolia: 60 seconds
+
+.Step 2c – Submit finalizeBridgeGovernanceTransfer (AFTER delay)
+[source,bash]
+----
+cast send <OLD_BRIDGE_GOVERNANCE> 0x605da053 --rpc-url $ETHEREUM_RPC_URL
+----
+
+.Post-condition checks after Step 2c
+[source,bash]
+----
+# Bridge governance should now be NEW BridgeGovernanceV2
+cast call <BRIDGE_ADDRESS> "governance()(address)" --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: <NEW_BRIDGE_GOVERNANCE>
+
+# OLD BridgeGovernance should have reset its pending transfer state
+cast call <OLD_BRIDGE_GOVERNANCE> "bridgeGovernanceTransferChangeInitiated()(uint256)" --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: 0
+----
+
+== Action 3 – Deploy V6 Implementations & Generate Upgrade Calldata
+
+Script: `97_upgrade_bridge_v6_peg_keeper.ts`
+
+This script:
+
+1. Verifies on-chain that `Bridge.governance() == BridgeGovernanceV2`.
+   Throws if not, unless `ALLOW_UNSAFE_ORDER=true` (for dry runs only).
+2. Deploys updated `DepositV6PegKeeper` and `RedemptionV6PegKeeper`
+   libraries (new fee-waiver branches for peg keeper operations).
+3. Deploys `BridgeV6PegKeeperImplementation` (new Bridge logic).
+4. Deploys `RebateStakingV6Implementation` (new RebateStaking logic with `initializeV2_Deprecate`).
+5. Updates the hardhat-deploy proxy artifacts for `Bridge` and
+   `RebateStaking` to point at the new implementations.
+6. Discovers the `ProxyAdmin` address via the EIP-1967 admin slot.
+7. Generates calldata for TWO `upgradeAndCall` transactions that MUST
+   be submitted as ONE ordered Timelock batch:
+   [0] RebateStaking `upgradeAndCall(initializeV2_Deprecate)`
+   [1] Bridge `upgradeAndCall(initializeV6_ConfigurePegKeeper(initialPegKeeper))`
+
+.Environment variables required
+[env]
+----
+DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE=true
+INITIAL_PEG_KEEPER=<valid_ethereum_address>
+# Optional, for dry runs only when governance transfer not yet finalized:
+ALLOW_UNSAFE_ORDER=true
+----
+
+.Execution
+[source,bash]
+----
+cd solidity
+yarn deploy --tags UpgradeBridgeV6PegKeeper --network <NETWORK>
+----
+
+.Output: The script logs:
+
+* Deployed contract addresses:
+  - Bridge implementation: `<BRIDGE_V6_IMPL>`
+  - RebateStaking implementation: `<REBATE_STAKING_V6_IMPL>`
+  - DepositV6PegKeeper library: `<DEPOSIT_V6>`
+  - RedemptionV6PegKeeper library: `<REDEMPTION_V6>`
+* ProxyAdmin discovered: `<PROXY_ADMIN>`
+* Timelock batch (TWO actions, ORDER MATTERS):
+
+Action [0] – RebateStaking ProxyAdmin.upgradeAndCall(initializeV2_Deprecate)
+* Target: `<PROXY_ADMIN>`
+* Proxy: `<REBATE_STAKING>`
+* New impl: `<REBATE_STAKING_V6_IMPL>`
+* Calldata: `<REBATE_UPGRADE_CALLDATA>`
+
+Action [1] – Bridge ProxyAdmin.upgradeAndCall(initializeV6_ConfigurePegKeeper)
+* Target: `<PROXY_ADMIN>`
+* Proxy: `<BRIDGE_ADDRESS>`
+* New impl: `<BRIDGE_V6_IMPL>`
+* Initial peg keeper: `<INITIAL_PEG_KEEPER>`
+* Calldata: `<BRIDGE_UPGRADE_CALLDATA>`
+
+.Critical ordering requirement
+The RebateStaking deprecation MUST be action [0] and the Bridge upgrade
+MUST be action [1] in the same Timelock batch. This order matches the
+PR's Deployment notes: the RebateStaking proxy must be deprecated
+before the Bridge upgrade permanently disables the legacy rebate hook
+wiring to it.
+
+.Submission
+Submit the two calldata payloads as a single ordered batch through the
+ProxyAdmin owner (Timelock/Council). The exact submission method
+depends on your operational setup (e.g., `cast send` to Timelock
+contract, or via a multisig UI that schedules the batch).
+
+.Post-condition checks AFTER the batch is executed on-chain
+[source,bash]
+----
+# Bridge governance is BridgeGovernanceV2
+cast call <BRIDGE_ADDRESS> "governance()(address)" --rpc-url $ETHEREUM_RPC_URL
+# Expected: <NEW_BRIDGE_GOVERNANCE>
+
+# Bridge implementation is V6
+cast call <BRIDGE_ADDRESS> "implementation()(address)" --rpc-url $ETHEREUM_RPC_URL
+# (via EIP-1967 implementation slot)
+# Expected: <BRIDGE_V6_IMPL>
+
+# Initial peg keeper is allowlisted
+cast call <BRIDGE_ADDRESS> "isPegKeeper(address)(bool)" <INITIAL_PEG_KEEPER> --rpc-url $ETHEREUM_RPC_URL
+# Expected: true
+
+# RebateStaking is deprecated
+cast call <REBATE_STAKING> "deprecated()(bool)" --rpc-url $ETHEREUM_RPC_URL
+# Expected: true
+
+# RebateStaking implementation is V6
+cast call <REBATE_STAKING> "implementation()(address)" --rpc-url $ETHEREUM_RPC_URL
+# Expected: <REBATE_STAKING_V6_IMPL>
+
+# Bridge rebate hook is disabled (rebateStakingDisabled flag)
+cast call <BRIDGE_ADDRESS> "isRebateStakingDisabled()(bool)" --rpc-url $ETHEREUM_RPC_URL
+# Expected: true
+
+# Bridge getRebateStaking returns zero (legacy wiring removed)
+cast call <BRIDGE_ADDRESS> "getRebateStaking()(address)" --rpc-url $ETHEREUM_RPC_URL
+# Expected: 0x0000000000000000000000000000000000000000
+----
+
+== Rollback / Recovery Notes
+
+* Step 1 (95_deploy_bridge_governance_v2.ts) is idempotent and
+  re-runnable; it only deploys new contracts and transfers ownership.
+  No on-chain state of the live Bridge is modified.
+
+* Step 2 (governance transfer) is IRREVERSIBLE once
+  `finalizeBridgeGovernanceTransfer` is executed. There is no on-chain
+  rollback. If `beginBridgeGovernanceTransfer` was called by mistake
+  and the delay has NOT yet elapsed, the owner of OLD BridgeGovernance
+  can wait for the delay to elapse and then NOT call finalize – but
+  the pending transfer state (`bridgeGovernanceTransferChangeInitiated`)
+  will remain non-zero until finalized. There is no `cancelBridgeGovernanceTransfer`
+  function. The only recovery is to complete the transfer and then
+  (if absolutely necessary) deploy yet another governance contract and
+  repeat the process.
+
+* Step 3 (upgrade batch) – Once the Timelock batch executes:
+  - The RebateStaking proxy is deprecated (`deprecated == true`).
+    The `withdrawStake` function becomes the only callable function
+    for stakers to recover their stake. The legacy rebate logic is
+    permanently disabled.
+  - The Bridge proxy points at the V6 implementation. The initializer
+    `initializeV6_ConfigurePegKeeper(initialPegKeeper)` has run exactly
+    once. It sets the initial peg keeper in the allowlist and flips
+    `rebateStakingDisabled = true`. This initializer CANNOT be called
+    again (it has a `reinitializer(6)` modifier).
+  - **Recovery if the wrong `initialPegKeeper` was seeded**: The only
+    way to change the peg keeper allowlist after this point is through
+    `BridgeGovernanceV2.beginPegKeeperUpdate` /
+    `finalizePegKeeperUpdate` / `cancelPegKeeperUpdate`. This REQUIRES
+    that `BridgeGovernanceV2` is already the live governance contract
+    (Step 2 fully completed). If Step 2 was skipped or not finalized,
+    the peg keeper allowlist cannot be updated – the Bridge would
+    still recognize the OLD governance, which lacks the peg keeper
+    functions. This is why `97_upgrade_bridge_v6_peg_keeper.ts`
+    enforces the governance check and only allows bypass via
+    `ALLOW_UNSAFE_ORDER=true` for dry runs.
+
+* The `RebateStaking` deprecation is one-way. There is no
+  "undeprecate" function. To restore rebate staking would require a
+  new Bridge implementation upgrade that removes the
+  `rebateStakingDisabled` flag and re-enables the hook.
+
+* The `ProxyAdmin` upgrade is the standard OpenZeppelin
+  TransparentUpgradeableProxy pattern. If the wrong implementation
+  address was used in the batch, a subsequent `upgrade` call by the
+  ProxyAdmin owner can point the proxy at a correct implementation.
+  However, the initializer (`initializeV6_ConfigurePegKeeper` /
+  `initializeV2_Deprecate`) will NOT run again (already initialized),
+  so any state changes from a bad initializer persist.
+
+== Verification
+
+After the full migration (Steps 1–3 + Timelock batch execution), run
+the read-only verification script:
+
+[source,bash]
+----
+cd solidity
+VERIFY_PEG_KEEPER=true yarn deploy --tags VerifyPegKeeperDeployment --network <NETWORK>
+----
+
+This script performs all the post-condition checks listed in
+"Post-condition checks AFTER the batch is executed on-chain" above and
+reports a summary status.
+
+== Environment Variable Summary
+
+| Script | Required Env Vars | Optional Env Vars |
+|--------|-------------------|-------------------|
+| 95_deploy_bridge_governance_v2.ts | `DEPLOY_BRIDGE_GOVERNANCE_V2=true` | – |
+| 96_transfer_bridge_governance_v2.ts | `DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true` | – |
+| 97_upgrade_bridge_v6_peg_keeper.ts | `DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE=true`, `INITIAL_PEG_KEEPER=<addr>` | `ALLOW_UNSAFE_ORDER=true` (dry-run only) |
+| 98_verify_peg_keeper_deployment.ts | `VERIFY_PEG_KEEPER=true` | – |
+
+All scripts use the Hardhat named account `governance` for the Council
+EOA and `deployer` for the deployer EOA. Ensure these are configured
+in `hardhat.config.ts` for the target network.
+
+== Appendix: Raw Calldata Reference (for multisig/Timelock submission)
+
+=== 95_deploy_bridge_governance_v2.ts
+No on-chain calldata to submit – this script deploys contracts directly
+from the deployer EOA.
+
+=== 96_transfer_bridge_governance_v2.ts
+[source,bash]
+----
+# beginBridgeGovernanceTransfer (Step 2a)
+cast calldata "beginBridgeGovernanceTransfer(address)" <NEW_BRIDGE_GOVERNANCE>
+
+# finalizeBridgeGovernanceTransfer (Step 2c)
+cast calldata "finalizeBridgeGovernanceTransfer()"
+----
+
+=== 97_upgrade_bridge_v6_peg_keeper.ts
+The script outputs the exact `upgradeAndCall` calldata for both actions.
+Use the logged values directly.
+
+Action [0] RebateStaking:
+[source,json]
+----
+{
+  "to":   "<PROXY_ADMIN>",
+  "value": "0",
+  "data": "<REBATE_UPGRADE_CALLDATA>"
+}
+----
+
+Action [1] Bridge:
+[source,json]
+----
+{
+  "to":   "<PROXY_ADMIN>",
+  "value": "0",
+  "data": "<BRIDGE_UPGRADE_CALLDATA>"
+}
+----
+
+These two transactions MUST be submitted as an ordered batch
+(RebateStaking first, Bridge second) by the ProxyAdmin owner.
