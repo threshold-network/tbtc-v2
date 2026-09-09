@@ -1,6 +1,7 @@
 import { ethers } from "ethers"
 import { artifacts } from "hardhat"
 import { writeFile } from "fs/promises"
+import * as prettier from "prettier"
 
 /**
  * Reservation ABI surface snapshot fixture.
@@ -189,6 +190,15 @@ export async function writeReservationAbiSnapshot(
   snapshot: ReservationAbiSnapshot,
   outputPath: string
 ): Promise<void> {
-  const content = JSON.stringify(snapshot, null, 2)
+  const raw = JSON.stringify(snapshot, null, 2)
+  // Format through the project's own Prettier config so this checked-in
+  // fixture always matches what `contracts-format` (`prettier --check`)
+  // expects, regardless of how JSON.stringify happens to wrap short arrays.
+  const config = await prettier.resolveConfig(outputPath)
+  const content = prettier.format(raw, {
+    ...config,
+    filepath: outputPath,
+    parser: "json",
+  })
   await writeFile(outputPath, content, "utf8")
 }
