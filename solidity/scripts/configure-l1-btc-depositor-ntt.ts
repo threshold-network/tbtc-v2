@@ -30,6 +30,11 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
  * enforcement mechanism. Readiness is independently enforced by each spoke
  * chain's on-chain gates (e.g., Solana: dual-signer+guardian in
  * transfer_mint_authority; Sui: retire_gateway_for_ntt pause/balance checks).
+ *
+ * NOTE: This script only validates/configures L1BTCDepositorNtt and does NOT
+ * support L1BTCDepositorNttWithExecutor (which exposes nttManagerWithExecutor()/
+ * underlyingNttManager() instead of nttManager()). Running it against an
+ * executor-variant deployment will fail.
  */
 
 interface DestinationConfig {
@@ -41,7 +46,7 @@ interface DestinationConfig {
   outboundLimitAmount: string
 }
 
-interface NetworkConfiguration {
+export interface NetworkConfiguration {
   networkName: string
   destinations: Record<string, DestinationConfig>
 }
@@ -148,7 +153,7 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
   },
 }
 
-function selectDestination(
+export function selectDestination(
   config: NetworkConfiguration,
   destinationKey?: string
 ): [string, DestinationConfig] {
@@ -292,9 +297,11 @@ async function main() {
   console.log(`\nConfiguration validation completed for ${config.networkName}.`)
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error("Configuration failed:", error)
-    process.exit(1)
-  })
+if (require.main === module) {
+  main()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error("Configuration failed:", error)
+      process.exit(1)
+    })
+}
