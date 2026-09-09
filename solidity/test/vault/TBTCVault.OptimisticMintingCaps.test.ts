@@ -495,6 +495,70 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
           )
       ).to.be.revertedWith("Optimistic minting minter cap exceeded")
     })
+
+    it("should revert when the deposit was never the subject of an optimistic minting request", async () => {
+      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
+
+      await expect(
+        tbtcVault
+          .connect(thirdParty)
+          .releaseOptimisticMintForSweptDeposit(
+            deposit.fundingTxHash,
+            deposit.fundingOutputIndex
+          )
+      ).to.be.revertedWith("Optimistic minting not requested for the deposit")
+    })
+
+    it("should revert when the optimistic minting has already been finalized", async () => {
+      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
+      await tbtcVault
+        .connect(minter)
+        .requestOptimisticMint(
+          deposit.fundingTxHash,
+          deposit.fundingOutputIndex
+        )
+
+      const delay = await tbtcVault.optimisticMintingDelay()
+      await increaseTime(delay + 1)
+
+      await tbtcVault
+        .connect(minter)
+        .finalizeOptimisticMint(
+          deposit.fundingTxHash,
+          deposit.fundingOutputIndex
+        )
+
+      await expect(
+        tbtcVault
+          .connect(thirdParty)
+          .releaseOptimisticMintForSweptDeposit(
+            deposit.fundingTxHash,
+            deposit.fundingOutputIndex
+          )
+      ).to.be.revertedWith(
+        "Optimistic minting already finalized for the deposit"
+      )
+    })
+
+    it("should revert when the deposit is not swept yet", async () => {
+      const deposit = await fabricateDeposit(4 * BTC, tbtcVault.address)
+      await tbtcVault
+        .connect(minter)
+        .requestOptimisticMint(
+          deposit.fundingTxHash,
+          deposit.fundingOutputIndex
+        )
+
+      // fabricateDeposit's default mock leaves sweptAt at 0.
+      await expect(
+        tbtcVault
+          .connect(thirdParty)
+          .releaseOptimisticMintForSweptDeposit(
+            deposit.fundingTxHash,
+            deposit.fundingOutputIndex
+          )
+      ).to.be.revertedWith("The deposit is not swept yet")
+    })
   })
 
   describe("debt settlement", () => {
@@ -925,6 +989,43 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
             deposit.fundingOutputIndex
           )
       ).to.emit(tbtcVault, "OptimisticMintingRequested")
+    })
+
+    it("should measure a bucket's refill window from the moment of actual consumption, not the original full-bucket checkpoint", async () => {
+      await updateCaps(0, 0, 0, DEFAULT_REQUEST_LIMIT)
+
+      // minterTwo has not made any request under this limit yet, so its
+      // bucket is at a known full state (100 remaining) until first touched.
+      let allowance = await tbtcVault.getOptimisticMintingAllowance(
+        minterTwo.address
+      )
+      expect(allowance.minterRequestsRemaining).to.equal(DEFAULT_REQUEST_LIMIT)
+
+      // At 100 requests refilling per 24 hours, a single token takes 864
+      // seconds. Advance to 1 second short of that boundary; the untouched
+      // full bucket does not decay while idle.
+      await increaseTime(864 - 1)
+
+      // Consuming a request while the bucket is full re-stamps the refill
+      // checkpoint to this moment, leaving 99 remaining.
+      const deposit = await fabricateDeposit(0.1 * BTC, tbtcVault.address)
+      await tbtcVault
+        .connect(minterTwo)
+        .requestOptimisticMint(
+          deposit.fundingTxHash,
+          deposit.fundingOutputIndex
+        )
+
+      // Only 1 second has elapsed since the actual consumption, far short
+      // of the 864-second window a single token requires to refill. A
+      // checkpoint still anchored to the original full-bucket moment would
+      // erroneously report a full 864-second window having elapsed here.
+      await increaseTime(1)
+
+      allowance = await tbtcVault.getOptimisticMintingAllowance(
+        minterTwo.address
+      )
+      expect(allowance.minterRequestsRemaining).to.equal(99)
     })
   })
 
