@@ -68,7 +68,6 @@ contract L1BTCRedeemerWormhole is
     // Custom errors
     error CallerNotOwner();
     error SourceAddressNotAuthorized();
-    error WormholeTokenBridgeAlreadySet();
     error RecoveryAddressNotSet();
     error RecipientNotRecoveryAddress();
     error RedemptionWatchtowerNotSet();
