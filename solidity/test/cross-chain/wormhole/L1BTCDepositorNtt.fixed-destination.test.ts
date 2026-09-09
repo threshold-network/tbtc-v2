@@ -1,4 +1,4 @@
-import { ethers, helpers } from "hardhat"
+import { artifacts, ethers, helpers, run } from "hardhat"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
 import type {
@@ -428,6 +428,55 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
   })
+
+  describe("setDestinationChainId", () => {
+    it("reverts for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        l1BtcDepositorNtt
+          .connect(nonOwner)
+          .setDestinationChainId(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("reverts for a zero chain id", async () => {
+      await expect(
+        l1BtcDepositorNtt.setDestinationChainId(0)
+      ).to.be.revertedWith("Chain ID cannot be zero")
+    })
+
+    it("retargets the fixed destination chain before any deposit exists", async () => {
+      await expect(
+        l1BtcDepositorNtt.setDestinationChainId(
+          UPDATED_WORMHOLE_CHAIN_DESTINATION
+        )
+      )
+        .to.emit(l1BtcDepositorNtt, "DestinationChainUpdated")
+        .withArgs(
+          WORMHOLE_CHAIN_DESTINATION,
+          UPDATED_WORMHOLE_CHAIN_DESTINATION
+        )
+
+      expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    })
+
+    it("locks once the first deposit has been initialized", async () => {
+      await bridge.setNextDepositKey(fixture.expectedDepositKey)
+      await l1BtcDepositorNtt.initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+
+      await expect(
+        l1BtcDepositorNtt.setDestinationChainId(
+          UPDATED_WORMHOLE_CHAIN_DESTINATION
+        )
+      ).to.be.revertedWith("Deposits already initialized")
+    })
+  })
 })
 
 async function calculateTbtcAmount(
@@ -483,58 +532,96 @@ async function findStorageSlot(contractAddress: string, expectedValue: string) {
   throw new Error(`Storage slot not found for value ${expectedValue}`)
 }
 
+interface StorageLayoutEntry {
+  label: string
+  slot: string
+}
+
+interface CompilerOutputContractWithStorageLayout {
+  storageLayout?: { storage: StorageLayoutEntry[] }
+}
+
+async function getStorageSlotNumber(
+  contractName: string,
+  variableName: string
+): Promise<number> {
+  const sourceName = `contracts/cross-chain/wormhole/${contractName}.sol`
+  const buildInfo = await artifacts.getBuildInfo(
+    `${sourceName}:${contractName}`
+  )
+  if (!buildInfo) {
+    throw new Error(`Build info not found for ${contractName}`)
+  }
+
+  // Some contracts in this project use a per-file compiler override (e.g.
+  // to minimize bytecode size) that does not request `storageLayout`
+  // output. Recompile the exact same input (identical solc version and
+  // settings) with that output selection added, instead of guessing
+  // storage slots by brute-force scanning candidates.
+  const input = JSON.parse(JSON.stringify(buildInfo.input))
+  const existingSelection: string[] =
+    input.settings.outputSelection["*"]["*"] ?? []
+  input.settings.outputSelection["*"]["*"] = existingSelection.includes(
+    "storageLayout"
+  )
+    ? existingSelection
+    : [...existingSelection, "storageLayout"]
+
+  const solcBuild = await run("compile:solidity:solc:get-build", {
+    quiet: true,
+    solcVersion: buildInfo.solcVersion,
+  })
+  const output = solcBuild.isSolcJs
+    ? await run("compile:solidity:solcjs:run", {
+        input,
+        solcJsPath: solcBuild.compilerPath,
+      })
+    : await run("compile:solidity:solc:run", {
+        input,
+        solcPath: solcBuild.compilerPath,
+        solcVersion: buildInfo.solcVersion,
+      })
+
+  const contractOutput = output.contracts[sourceName][
+    contractName
+  ] as unknown as CompilerOutputContractWithStorageLayout
+  const entry = contractOutput.storageLayout?.storage.find(
+    ({ label }) => label === variableName
+  )
+  if (!entry) {
+    throw new Error(
+      `Storage variable ${variableName} not found in ${contractName}`
+    )
+  }
+
+  return Number(entry.slot)
+}
+
+// Computes the deterministic mapping-entry storage slot for
+// `fixedDestinationDeposits[depositKey]` from the contract's compiled
+// storage layout, instead of brute-force scanning candidate slots.
 async function clearFixedDestinationDepositMarker(
   contract: L1BTCDepositorNtt,
   depositKey: string
 ) {
   expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(true)
 
-  const encodedTrue = ethers.utils.hexZeroPad("0x01", 32)
-  const candidateSlots = await Promise.all(
-    Array.from({ length: 400 }, async (_, slot) => {
-      const slotKey = ethers.utils.keccak256(
-        ethers.utils.defaultAbiCoder.encode(
-          ["uint256", "uint256"],
-          [depositKey, slot]
-        )
-      )
-      const storageSlotKey = ethers.utils.hexStripZeros(slotKey)
-      const value = await ethers.provider.getStorageAt(
-        contract.address,
-        storageSlotKey
-      )
-
-      return { storageSlotKey, value }
-    })
+  const mappingSlot = await getStorageSlotNumber(
+    "L1BTCDepositorNtt",
+    "fixedDestinationDeposits"
   )
-  const matchingSlots = candidateSlots.filter(
-    ({ value }) => value.toLowerCase() === encodedTrue.toLowerCase()
+  const storageSlotKey = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["uint256", "uint256"],
+      [depositKey, mappingSlot]
+    )
   )
 
-  async function clearMatchingSlot(index: number): Promise<void> {
-    const matchingSlot = matchingSlots[index]
-    if (!matchingSlot) {
-      throw new Error("Fixed destination marker storage slot not found")
-    }
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contract.address,
+    storageSlotKey,
+    ethers.constants.HashZero,
+  ])
 
-    await ethers.provider.send("hardhat_setStorageAt", [
-      contract.address,
-      matchingSlot.storageSlotKey,
-      ethers.constants.HashZero,
-    ])
-
-    if (!(await contract.fixedDestinationDeposits(depositKey))) {
-      return
-    }
-
-    await ethers.provider.send("hardhat_setStorageAt", [
-      contract.address,
-      matchingSlot.storageSlotKey,
-      matchingSlot.value,
-    ])
-
-    await clearMatchingSlot(index + 1)
-  }
-
-  await clearMatchingSlot(0)
+  expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(false)
 }

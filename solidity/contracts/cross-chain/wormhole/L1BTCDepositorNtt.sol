@@ -96,14 +96,8 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
     /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
-    /// @dev Marks deposits initialized after the fixed-destination upgrade.
-    ///      Unmarked initialized deposits are treated as legacy NTT deposits
-    ///      whose extra data used `[2-byte chain id][30-byte recipient]`.
-    ///      This legacy-decode branch exists to backfill proxies upgraded
-    ///      from the pre-fixed-destination storage layout; as of this PR no
-    ///      such proxy has been deployed, so it currently ships as
-    ///      forward-compatibility infrastructure for a hypothetical future
-    ///      upgrade rather than an active migration path.
+    /// @dev The legacy-decode branch preserves deposits initialized before
+    ///      a proxy is upgraded from the packed-recipient layout.
     /// @dev A separate mapping (one extra cold SSTORE per deposit) was
     ///      chosen over folding this flag into the shared
     ///      `AbstractL1BTCDepositor.DepositState` enum. Reusing that enum
@@ -114,6 +108,12 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
     ///      keeps that shared, already-deployed state machine untouched at
     ///      the cost of one extra SSTORE per deposit on this contract only.
     mapping(uint256 => bool) public fixedDestinationDeposits;
+
+    /// @notice One-shot lock preventing further corrections to the fixed
+    ///         destination chain once the first deposit has been
+    ///         initialized.
+    /// @dev Set by `_lockDestinationChain` inside `_afterDepositInitialized`.
+    bool private destinationChainLocked;
 
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
     /// @param amount Amount of tBTC transferred and locked on L1
@@ -305,6 +305,14 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
         override
     {
         fixedDestinationDeposits[depositKey] = true;
+    }
+
+    function _lockDestinationChain() internal override {
+        destinationChainLocked = true;
+    }
+
+    function _destinationChainLocked() internal view override returns (bool) {
+        return destinationChainLocked;
     }
 
     function _destinationChainIdValue()

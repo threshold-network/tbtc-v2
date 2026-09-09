@@ -1,4 +1,4 @@
-import { ethers, helpers } from "hardhat"
+import { artifacts, ethers, helpers, run } from "hardhat"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
 import type {
@@ -221,37 +221,6 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
           destinationChainDepositOwner
         )
     ).to.be.revertedWith("Destination chain not configured")
-  })
-
-  it("uses the executor wrapper quote for the detailed total cost", async () => {
-    const [, relayer] = await ethers.getSigners()
-    const executorArgs = buildExecutorArgs(
-      BigNumber.from(70000),
-      relayer.address
-    )
-    const feeArgs = buildFeeArgs()
-
-    await depositor
-      .connect(relayer)
-      .setExecutorParameters(executorArgs, feeArgs)
-
-    const [nttDeliveryPrice, executorCost, totalCost] = await depositor
-      .connect(relayer)
-      .quoteFinalizeDepositBreakdown()
-    const wrapperQuote = await depositor.connect(relayer).quoteFinalizeDeposit()
-    const expectedNttDeliveryPrice = (
-      await underlyingNttManager.MOCK_DELIVERY_PRICE()
-    ).add(
-      await underlyingNttManager.chainSpecificPrices(WORMHOLE_CHAIN_DESTINATION)
-    )
-
-    expect(nttDeliveryPrice).to.equal(expectedNttDeliveryPrice)
-    expect(executorCost).to.equal(
-      executorArgs.value.add(
-        await nttManagerWithExecutor.MOCK_WRAPPER_SURCHARGE()
-      )
-    )
-    expect(totalCost).to.equal(wrapperQuote)
   })
 
   it("sets only active default parameters", async () => {
@@ -951,7 +920,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
 
       await expect(
         depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
-      ).to.be.revertedWith("Insufficient payment for executor service")
+      ).to.be.revertedWith("Quote below executor declared value")
     })
   })
 
@@ -1015,6 +984,139 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       ).to.be.revertedWith(
         "Platform fee recipient cannot be zero when platform fee is set"
       )
+    })
+  })
+
+  describe("setDestinationChainId", () => {
+    it("reverts for non-owner", async () => {
+      const [, , nonOwner] = await ethers.getSigners()
+      await expect(
+        depositor
+          .connect(nonOwner)
+          .setDestinationChainId(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("reverts for a zero chain id", async () => {
+      await expect(depositor.setDestinationChainId(0)).to.be.revertedWith(
+        "Chain ID cannot be zero"
+      )
+    })
+
+    it("retargets the fixed destination chain before any deposit exists", async () => {
+      await expect(
+        depositor.setDestinationChainId(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+      )
+        .to.emit(depositor, "DestinationChainUpdated")
+        .withArgs(
+          WORMHOLE_CHAIN_DESTINATION,
+          UPDATED_WORMHOLE_CHAIN_DESTINATION
+        )
+
+      expect(await depositor.destinationChainId()).to.equal(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    })
+
+    it("locks once the first deposit has been initialized", async () => {
+      const [, relayer] = await ethers.getSigners()
+
+      await bridge.setNextDepositKey(fixture.expectedDepositKey)
+      await depositor
+        .connect(relayer)
+        .initializeDeposit(
+          fixture.fundingTx,
+          fixture.reveal,
+          destinationChainDepositOwner
+        )
+
+      await expect(
+        depositor.setDestinationChainId(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+      ).to.be.revertedWith("Deposits already initialized")
+    })
+  })
+
+  describe("executor finalize path revalidation", () => {
+    it("reverts finalization when the destination chain was retargeted after staging", async () => {
+      const [, relayer] = await ethers.getSigners()
+      const executorValue = BigNumber.from(70000)
+      const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+      const feeArgs = buildFeeArgs()
+
+      await depositor
+        .connect(relayer)
+        .setExecutorParameters(executorArgs, feeArgs)
+
+      // Retarget the destination chain before any deposit has been
+      // initialized -- setDestinationChainId locks permanently once the
+      // first deposit exists.
+      await depositor.setDestinationChainId(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+
+      await bridge.setNextDepositKey(fixture.expectedDepositKey)
+      await depositor
+        .connect(relayer)
+        .initializeDeposit(
+          fixture.fundingTx,
+          fixture.reveal,
+          destinationChainDepositOwner
+        )
+      await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+      const tbtcAmount = await calculateTbtcAmount(
+        bridge,
+        fixture.expectedDepositKey
+      )
+      await tbtcToken.mint(depositor.address, tbtcAmount)
+
+      const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+      await expect(
+        depositor
+          .connect(relayer)
+          .finalizeDeposit(fixture.expectedDepositKey, { value: quote })
+      ).to.be.revertedWith(
+        "Executor parameters bound to a different destination chain"
+      )
+    })
+
+    it("reverts finalization when the default platform fee changed after staging", async () => {
+      const [owner, relayer, platformFeeRecipient] = await ethers.getSigners()
+      const executorValue = BigNumber.from(70000)
+      const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+      const feeArgs = buildFeeArgs()
+
+      await depositor
+        .connect(relayer)
+        .setExecutorParameters(executorArgs, feeArgs)
+
+      // Owner changes the live default platform fee after parameters were
+      // staged, so the staged fee no longer matches the current default.
+      await depositor
+        .connect(owner)
+        .setDefaultPlatformFeeRecipient(platformFeeRecipient.address)
+      await depositor.connect(owner).setDefaultPlatformFeeDbps(100)
+
+      await bridge.setNextDepositKey(fixture.expectedDepositKey)
+      await depositor
+        .connect(relayer)
+        .initializeDeposit(
+          fixture.fundingTx,
+          fixture.reveal,
+          destinationChainDepositOwner
+        )
+      await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+      const tbtcAmount = await calculateTbtcAmount(
+        bridge,
+        fixture.expectedDepositKey
+      )
+      await tbtcToken.mint(depositor.address, tbtcAmount)
+
+      const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+      await expect(
+        depositor
+          .connect(relayer)
+          .finalizeDeposit(fixture.expectedDepositKey, { value: quote })
+      ).to.be.revertedWith("Fee no longer matches current default")
     })
   })
 
@@ -1252,58 +1354,96 @@ async function findStorageSlot(contractAddress: string, expectedValue: string) {
   throw new Error(`Storage slot not found for value ${expectedValue}`)
 }
 
+interface StorageLayoutEntry {
+  label: string
+  slot: string
+}
+
+interface CompilerOutputContractWithStorageLayout {
+  storageLayout?: { storage: StorageLayoutEntry[] }
+}
+
+async function getStorageSlotNumber(
+  contractName: string,
+  variableName: string
+): Promise<number> {
+  const sourceName = `contracts/cross-chain/wormhole/${contractName}.sol`
+  const buildInfo = await artifacts.getBuildInfo(
+    `${sourceName}:${contractName}`
+  )
+  if (!buildInfo) {
+    throw new Error(`Build info not found for ${contractName}`)
+  }
+
+  // Some contracts in this project use a per-file compiler override (e.g.
+  // to minimize bytecode size) that does not request `storageLayout`
+  // output. Recompile the exact same input (identical solc version and
+  // settings) with that output selection added, instead of guessing
+  // storage slots by brute-force scanning candidates.
+  const input = JSON.parse(JSON.stringify(buildInfo.input))
+  const existingSelection: string[] =
+    input.settings.outputSelection["*"]["*"] ?? []
+  input.settings.outputSelection["*"]["*"] = existingSelection.includes(
+    "storageLayout"
+  )
+    ? existingSelection
+    : [...existingSelection, "storageLayout"]
+
+  const solcBuild = await run("compile:solidity:solc:get-build", {
+    quiet: true,
+    solcVersion: buildInfo.solcVersion,
+  })
+  const output = solcBuild.isSolcJs
+    ? await run("compile:solidity:solcjs:run", {
+        input,
+        solcJsPath: solcBuild.compilerPath,
+      })
+    : await run("compile:solidity:solc:run", {
+        input,
+        solcPath: solcBuild.compilerPath,
+        solcVersion: buildInfo.solcVersion,
+      })
+
+  const contractOutput = output.contracts[sourceName][
+    contractName
+  ] as unknown as CompilerOutputContractWithStorageLayout
+  const entry = contractOutput.storageLayout?.storage.find(
+    ({ label }) => label === variableName
+  )
+  if (!entry) {
+    throw new Error(
+      `Storage variable ${variableName} not found in ${contractName}`
+    )
+  }
+
+  return Number(entry.slot)
+}
+
+// Computes the deterministic mapping-entry storage slot for
+// `fixedDestinationDeposits[depositKey]` from the contract's compiled
+// storage layout, instead of brute-force scanning candidate slots.
 async function clearFixedDestinationDepositMarker(
   contract: L1BTCDepositorNttWithExecutor,
   depositKey: string
 ) {
   expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(true)
 
-  const encodedTrue = ethers.utils.hexZeroPad("0x01", 32)
-  const candidateSlots = await Promise.all(
-    Array.from({ length: 400 }, async (_, slot) => {
-      const slotKey = ethers.utils.keccak256(
-        ethers.utils.defaultAbiCoder.encode(
-          ["uint256", "uint256"],
-          [depositKey, slot]
-        )
-      )
-      const storageSlotKey = ethers.utils.hexStripZeros(slotKey)
-      const value = await ethers.provider.getStorageAt(
-        contract.address,
-        storageSlotKey
-      )
-
-      return { storageSlotKey, value }
-    })
+  const mappingSlot = await getStorageSlotNumber(
+    "L1BTCDepositorNttWithExecutor",
+    "fixedDestinationDeposits"
   )
-  const matchingSlots = candidateSlots.filter(
-    ({ value }) => value.toLowerCase() === encodedTrue.toLowerCase()
+  const storageSlotKey = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["uint256", "uint256"],
+      [depositKey, mappingSlot]
+    )
   )
 
-  async function clearMatchingSlot(index: number): Promise<void> {
-    const matchingSlot = matchingSlots[index]
-    if (!matchingSlot) {
-      throw new Error("Fixed destination marker storage slot not found")
-    }
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contract.address,
+    storageSlotKey,
+    ethers.constants.HashZero,
+  ])
 
-    await ethers.provider.send("hardhat_setStorageAt", [
-      contract.address,
-      matchingSlot.storageSlotKey,
-      ethers.constants.HashZero,
-    ])
-
-    if (!(await contract.fixedDestinationDeposits(depositKey))) {
-      return
-    }
-
-    await ethers.provider.send("hardhat_setStorageAt", [
-      contract.address,
-      matchingSlot.storageSlotKey,
-      matchingSlot.value,
-    ])
-
-    await clearMatchingSlot(index + 1)
-  }
-
-  await clearMatchingSlot(0)
+  expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(false)
 }

@@ -28,6 +28,11 @@ abstract contract AbstractFixedDestinationNttDepositor is
     ///      retarget in-flight deposits. Shared by both children so the two
     ///      copies cannot silently diverge (e.g. a guard tightened in one
     ///      but not the other).
+    /// @dev Pre-upgrade checklist: verify zero in-flight (`Initialized`,
+    ///      unfinalized) deposits exist on the proxy before applying this
+    ///      upgrade -- once any deposit is accepted, `setDestinationChainId`
+    ///      permanently locks (see below), so any storage-slot correction
+    ///      must happen before the first deposit.
     function initializeV2DestinationChain(uint16 _destinationChainId)
         external
         onlyOwner
@@ -49,10 +54,15 @@ abstract contract AbstractFixedDestinationNttDepositor is
     ///      field reuses from the pre-upgrade proxy -- without requiring a
     ///      second implementation upgrade to unblock
     ///      `initializeV2DestinationChain`.
+    /// @dev One-shot corrective window: this setter permanently locks once
+    ///      the first deposit is initialized (see the pre-upgrade checklist
+    ///      on `initializeV2DestinationChain`), so any correction must
+    ///      happen before this contract accepts its first deposit.
     function setDestinationChainId(uint16 _destinationChainId)
         external
         onlyOwner
     {
+        require(!_destinationChainLocked(), "Deposits already initialized");
         _updateDestinationChain(_destinationChainId);
     }
 
@@ -75,6 +85,7 @@ abstract contract AbstractFixedDestinationNttDepositor is
         bytes32 // destinationChainDepositOwner
     ) internal override {
         _markFixedDestinationDeposit(depositKey);
+        _lockDestinationChain();
     }
 
     function _setDestinationChainId(uint16 _destinationChainId)
@@ -82,6 +93,15 @@ abstract contract AbstractFixedDestinationNttDepositor is
         virtual;
 
     function _markFixedDestinationDeposit(uint256 depositKey) internal virtual;
+
+    /// @notice Permanently locks the fixed destination chain once the
+    ///         first deposit has been initialized.
+    function _lockDestinationChain() internal virtual;
+
+    /// @notice Returns whether the fixed destination chain is locked
+    ///         against further corrective updates via
+    ///         `setDestinationChainId`.
+    function _destinationChainLocked() internal view virtual returns (bool);
 
     /// @notice Requires destination configuration before deposit initialization.
     function _beforeDepositInitialized(
