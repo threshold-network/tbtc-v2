@@ -1,7 +1,8 @@
 import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
-import { ContractTransaction } from "ethers"
+import { Contract, ContractTransaction } from "ethers"
+import { Deployment } from "hardhat-deploy/types"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -15,10 +16,13 @@ describe("Bridge - Parameters", () => {
   let thirdParty: SignerWithAddress
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
+  let deployBridge: (
+    txProofDifficultyFactor: number
+  ) => Promise<[Contract, Deployment]>
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, bridge, bridgeGovernance } =
+    ;({ governance, thirdParty, bridge, bridgeGovernance, deployBridge } =
       await bridgeFixture())
   })
 
@@ -1998,6 +2002,143 @@ describe("Bridge - Parameters", () => {
             await expect(tx)
               .to.emit(bridge, "RebateStakingSet")
               .withArgs(testRebateStakingAddress)
+          })
+        })
+      })
+    })
+  })
+
+  describe("setReservationRouter", () => {
+    // No deployed code at this address; used only to exercise the
+    // deployed-code guard and the "must not be 0x0" guard, never as a
+    // value that is expected to be successfully stored.
+    const reservationRouterEOA = "0x0000000000000000000000000000000000002000"
+
+    context("when caller is not the contract guvnor", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge.connect(thirdParty).setReservationRouter(reservationRouterEOA)
+        ).to.be.revertedWith("Caller is not the governance")
+      })
+    })
+
+    context("when caller is the contract guvnor", () => {
+      // Bridge's `reservationRouter` is set once during the deployment
+      // pipeline (see `deploy/06a_deploy_reservation_router.ts`), so the
+      // shared `bridge` fixture instance already has it set and cannot
+      // exercise the write-once guard from an unset starting state. Deploy
+      // a fresh Bridge instance per scenario instead; a freshly
+      // initialized instance has its governance set to `deployer` (the
+      // default signer returned by `deployBridge`), so it can be called
+      // directly without the BridgeGovernance transfer dance used
+      // elsewhere in this file. The freshly deployed Bridge proxy's own
+      // address is reused as the router value in the happy-path scenarios
+      // below purely as a convenient, already-deployed contract address
+      // satisfying the deployed-code guard; it is not exercised through
+      // the fallback delegatecall in these tests.
+      context("when the reservation router address is already set", () => {
+        let freshBridge: BridgeStub
+
+        before(async () => {
+          await createSnapshot()
+
+          freshBridge = (await deployBridge(1))[0] as BridgeStub
+          await freshBridge.setReservationRouter(freshBridge.address)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should revert", async () => {
+          await expect(
+            freshBridge.setReservationRouter(thirdParty.address)
+          ).to.be.revertedWith("Reservation router already set")
+        })
+      })
+
+      context("when the reservation router address is not set yet", () => {
+        context("when the reservation router address is zero", () => {
+          let freshBridge: BridgeStub
+
+          before(async () => {
+            await createSnapshot()
+
+            freshBridge = (await deployBridge(1))[0] as BridgeStub
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should revert", async () => {
+            await expect(
+              freshBridge.setReservationRouter(ZERO_ADDRESS)
+            ).to.be.revertedWith("Reservation router address must not be 0x0")
+          })
+        })
+
+        context(
+          "when the reservation router address has no deployed code",
+          () => {
+            let freshBridge: BridgeStub
+
+            before(async () => {
+              await createSnapshot()
+
+              freshBridge = (await deployBridge(1))[0] as BridgeStub
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should revert", async () => {
+              await expect(
+                freshBridge.setReservationRouter(reservationRouterEOA)
+              ).to.be.revertedWith("Reservation router must be a contract")
+            })
+          }
+        )
+
+        context("when the reservation router address is non-zero", () => {
+          let freshBridge: BridgeStub
+          let tx: ContractTransaction
+
+          before(async () => {
+            await createSnapshot()
+
+            freshBridge = (await deployBridge(1))[0] as BridgeStub
+            tx = await freshBridge.setReservationRouter(freshBridge.address)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should set the reservation router address", async () => {
+            expect(await freshBridge.getReservationRouter()).to.equal(
+              freshBridge.address
+            )
+          })
+
+          it("should emit ReservationRouterSet event", async () => {
+            // `ReservationRouterSet` is declared and emitted in the
+            // `BridgeState` library (via the internal call inlined into
+            // `Bridge.setReservationRouter`), but solc 0.8.17 does not
+            // surface it in `Bridge`/`BridgeStub`'s own ABI — only in
+            // `BridgeState`'s. Decode the log against the freshly deployed
+            // instance's address using the event's standalone ABI
+            // fragment.
+            const reservationRouterSetEvent = new ethers.Contract(
+              freshBridge.address,
+              ["event ReservationRouterSet(address reservationRouter)"],
+              ethers.provider
+            )
+
+            await expect(tx)
+              .to.emit(reservationRouterSetEvent, "ReservationRouterSet")
+              .withArgs(freshBridge.address)
           })
         })
       })

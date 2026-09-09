@@ -21,6 +21,7 @@ import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 import "./IRelay.sol";
 import "./Deposit.sol";
 import "./Redemption.sol";
+import "./Reservation.sol";
 import "./Fraud.sol";
 import "./Wallets.sol";
 import "./MovingFunds.sol";
@@ -28,6 +29,40 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice Reveal-time facts for a deposit routed to the reservation
+    ///         vault. All fields fit in one storage word. `isReserved` is
+    ///         permanent; the remaining fields are used by the reservation
+    ///         action flow and may be cleared after acceptance or staleness.
+    struct PendingReservedDeposit {
+        // Immutable reveal-time reservation classification: set when a
+        // deposit is revealed to the reservation vault and never cleared.
+        // `notifyStaleReservedDeposit` wipes the three fields below but
+        // deliberately leaves this bit set, so the record stays recognizable
+        // as reservation-routed for the whole life of the deposit. The
+        // stale/acceptable partition is carried by `walletPubKeyHash`, not
+        // by this flag.
+        bool isReserved;
+        // Wallet committed by the deposit script and therefore the only
+        // wallet that can be authorized to anchor the deposit.
+        bytes20 walletPubKeyHash;
+        // Exact Bitcoin refund locktime decoded at reveal time. Reserved
+        // deposits retain it even when reveal-ahead validation is disabled,
+        // because acceptance must enforce the validator's refund margin.
+        uint32 refundDeadline;
+        // True if the global reveal-ahead policy validated the deadline at
+        // reveal time. Reveal-time provenance metadata only -- no
+        // production code path branches on it; `notifyStaleReservedDeposit`
+        // and `ReservationProofs` compare `block.timestamp` against
+        // `refundDeadline` unconditionally and only ever clear this flag.
+        bool refundDeadlineValidated;
+    }
+    /// @notice Per-wallet reservation custody exposure and position count,
+    ///         packed into a single storage slot.
+    struct WalletReservationInfo {
+        uint64 amount;
+        uint32 count;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -325,14 +360,146 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // The minimal anchor output amount in satoshi accepted for a
+        // reservation. Deposits revealed with `reservationVault` as their
+        // vault are treated as UTXO reservations: they are anchored by the
+        // wallet in a 1-input-1-output spend instead of being swept, and
+        // are redeemable in-kind. See the `Reservation` library for details.
+        uint64 reservationMinAmount;
+        // The custody term length in seconds applied to new and extended
+        // reservations. The term is a contract-layer fact only; anchor
+        // outputs carry no timelock.
+        uint32 reservationTermSeconds;
+        // Address of the reservation vault. Deposits revealed with this
+        // vault address are treated as UTXO reservations.
+        address reservationVault;
+        // Maximum amount of BTC transaction fee in satoshi that can be
+        // incurred by a single 1-in-1-out lifecycle transaction (anchor,
+        // re-anchor, reserved redemption).
+        uint64 reservationTxMaxFee;
+        // The dissolution delay in seconds after a reservation's custody
+        // term expires and before the reservation becomes dissolvable. The
+        // delay exists for orderly settlement and dissolution coordination;
+        // it is NOT an owner-action window — renewal and new redemptions
+        // stop strictly at expiry. Snapshotted per position as
+        // `dissolutionEligibleAt` when a term is granted.
+        uint32 reservationDissolutionDelay;
+        // Maximum total amount in satoshi that can be locked under active
+        // reservations at the same time. Zero disables the cap.
+        uint64 reservationMaxTotalAmount;
+        // Current total satoshi reserved by acceptance requests and locked
+        // by active reservations (reserved capacity of pending acceptance
+        // generations plus anchor output values of active reservations).
+        uint64 reservationTotalAmount;
+        // Maximum number of reservations (active or acceptance-pending) a
+        // single wallet can custody. Must be greater than zero once
+        // reservations are enabled (see
+        // `Reservation.updateReservationParameters`).
+        uint32 maxReservationsPerWallet;
+        // Address of the reservation router: the delegatecall extension of
+        // the Bridge holding the UTXO-reservation external surface. The
+        // Bridge's fallback function routes calls with unmatched selectors
+        // to this address. Set exactly once via governance; changing it
+        // afterwards requires a Bridge implementation upgrade, as pointing
+        // the fallback delegatecall at new code is equivalent to a Bridge
+        // implementation change.
+        address reservationRouter;
+        // Time in seconds after which a requested reservation action
+        // (acceptance anchor, re-anchor, dissolution) can be reported
+        // timed out. Reserved redemptions use `redemptionTimeout` instead.
+        // Must strictly exceed the wallet proposal validator's timeout
+        // safety margin; enforced on-chain by
+        // `Reservation.updateReservationParameters`'s
+        // `reservationActionTimeout > REQUEST_TIMEOUT_SAFETY_MARGIN`
+        // require. Snapshotted into each action record at request time.
+        uint32 reservationActionTimeout;
+        // Length in seconds of the renewal window: must be strictly shorter
+        // than the term so renewals cannot be stacked. Written for storage
+        // completeness, unread until renewal lands.
+        uint32 reservationRenewalWindowSeconds;
+        // Maximum total satoshi amount of reservation anchors a single
+        // wallet can custody. Zero disables the cap.
+        uint64 maxReservationsAmountPerWallet;
+        // Maximum satoshi amount of a single reservation. Zero disables
+        // the cap.
+        uint64 reservationMaxSingleAmount;
+        // Number of revealed reserved deposits that were neither accepted
+        // nor marked stale yet. The reservation vault cannot be changed
+        // while this is non-zero: revealed-but-unanchored deposits routed
+        // to the old vault would otherwise become pool-sweepable while
+        // still minting through the old vault's callback.
+        uint64 pendingReservedDeposits;
+        // Global count of open reservation positions. Distinct from the
+        // per-wallet `walletReservationInfo[wallet].count` and from the global amount
+        // `reservationTotalAmount`.
+        uint32 activeReservationsCount;
+        // Governance-time cap on `activeReservationsCount`, sized below the
+        // slot capacity `liveWalletsCount * maxReservationsPerWallet` at the
+        // time it is set so acceptance reverts before occupancy saturates.
+        // liveWalletsCount is mutable and falls whenever a Live wallet
+        // retires (an un-anchored one can retire freely), so this sizing
+        // must be re-evaluated by governance whenever liveWalletsCount
+        // falls - a cap correct at set-time can otherwise come to sit
+        // above the shrunk floor later and reopen the saturation cliff
+        // this field exists to prevent. At saturation a re-anchor has no
+        // target wallet and an anchored wallet cannot retire, because
+        // closing requires a zero reservation count - its MovingFunds
+        // clock then expires and the timeout seizes operator stake. This
+        // cap turns that silent cliff into a revert. Genuinely new in
+        // milestone 1.
+        // (The wallet-closing-requires-zero-reservation-count invariant
+        // this comment assumes is now enforced in Wallets.sol: `moveFunds`
+        // gates the immediate-vs-MovingFunds routing decision on a zero
+        // reservation count, and `notifyWalletClosingPeriodElapsed` hard-
+        // requires it before finalizing closure (`beginWalletClosing` and
+        // `finalizeWalletClosing` intentionally skip the check themselves;
+        // see their own docs). The permissionless release path
+        // `notifyReservationStranded` exists and is router-reachable as of
+        // this PR, giving operators a way to clear a wallet's count before
+        // it closes.)
+        uint32 maxActiveReservations;
+        // Collection of all reservations indexed by the deposit key of the
+        // underlying reserved deposit, i.e.
+        // `keccak256(fundingTxHash | fundingOutputIndex)`.
+        mapping(uint256 => Reservation.ReservationRequest) reservations;
+        // Maps the UTXO key of a reservation's current anchor outpoint,
+        // built as `keccak256(anchorTxHash | anchorTxOutputIndex)`, to the
+        // reservation key.
+        mapping(uint256 => uint256) reservationsByAnchorUtxo;
+        // Per-wallet reservation custody exposure and position count,
+        // packed into a single 12-byte struct (one storage slot).
+        mapping(bytes20 => WalletReservationInfo) walletReservationInfo;
+        // Reveal-time facts for deposits routed to the reservation vault.
+        // The permanent classification prevents later reservation-vault
+        // updates from changing an ordinary deposit into a reservation or
+        // making a reserved deposit eligible for an ordinary sweep.
+        mapping(uint256 => PendingReservedDeposit) pendingReservedDeposit;
+        // Collection of all reservation action generation records indexed
+        // by `keccak256(reservationKey | requestNonce)`. Each record
+        // snapshots every proof- and settlement-critical parameter of one
+        // requested action generation. Terminal records (TimedOut, Vetoed,
+        // Superseded, Settled) are never deleted: timed-out generations
+        // must keep accepting late proofs of their confirmed Bitcoin
+        // transactions.
+        mapping(uint256 => Reservation.ReservationAction) reservationActions;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+        // This milestone consumed 9 of the original 48 slots for the
+        // reservation feature (down from an initial 15 after this PR
+        // dropped `maxCumulativeReanchorFee`, `reservationDissolutionTxMaxFee`,
+        // `walletPendingDissolution`, `reservationRetryCreditActionNonce`,
+        // `reservationMaxBackingFractionBps`, `walletReservationKeys`, and
+        // `walletReservationKeyIndex`
+        // as unused/dead, freeing 6 slots via re-packing). The remaining 39
+        // slots are shared budget for all future Bridge upgrades, not
+        // reserved for reservations specifically - a later unrelated PR
+        // should not assume it can spend the rest.
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[39] __gap;
     }
 
     event DepositParametersUpdated(
@@ -392,6 +559,7 @@ library BridgeState {
     // used by the Bridge contract following the same pattern as other
     // parameter events.
     event RebateStakingSet(address rebateStaking);
+    event ReservationRouterSet(address reservationRouter);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -891,5 +1059,41 @@ library BridgeState {
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Sets the reservation router address. The router is the
+    ///         delegatecall extension of the Bridge holding the
+    ///         UTXO-reservation external surface; it is settable exactly
+    ///         once because replacing the address afterwards is
+    ///         equivalent to a Bridge implementation upgrade (the
+    ///         fallback delegatecall dispatches unknown selectors onto
+    ///         arbitrary code, so changing it requires the same ceremony
+    ///         as any other Bridge logic change).
+    /// @param _reservationRouter Address of the reservation router.
+    /// @dev Requirements:
+    ///      - Reservation router address must not be already set,
+    ///      - Reservation router address must not be 0x0,
+    ///      - Reservation router address must be a contract.
+    function setReservationRouter(
+        Storage storage self,
+        address _reservationRouter
+    ) internal {
+        require(
+            self.reservationRouter == address(0),
+            "Reservation router already set"
+        );
+
+        require(
+            _reservationRouter != address(0),
+            "Reservation router address must not be 0x0"
+        );
+
+        require(
+            _reservationRouter.code.length > 0,
+            "Reservation router must be a contract"
+        );
+
+        self.reservationRouter = _reservationRouter;
+        emit ReservationRouterSet(_reservationRouter);
     }
 }

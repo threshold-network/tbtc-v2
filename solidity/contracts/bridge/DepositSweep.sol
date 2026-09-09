@@ -428,6 +428,21 @@ library DepositSweep {
                 // If we entered here, that means the input was identified as
                 // a revealed deposit.
                 require(deposit.sweptAt == 0, "Deposit already swept");
+                require(
+                    !self
+                        .pendingReservedDeposit[
+                            uint256(
+                                keccak256(
+                                    abi.encodePacked(
+                                        outpointTxHash,
+                                        outpointIndex
+                                    )
+                                )
+                            )
+                        ]
+                        .isReserved,
+                    "Reserved deposits must not be swept"
+                );
 
                 require(
                     deposit.vault == processInfo.vault,

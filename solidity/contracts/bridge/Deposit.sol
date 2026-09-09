@@ -21,6 +21,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./RebateStaking.sol";
+import "./WalletProposalValidatorConstants.sol";
 import "./Wallets.sol";
 
 /// @title Bridge deposit
@@ -164,7 +165,11 @@ library Deposit {
     ///      - `reveal.refundLocktime` must be the refund locktime used in the
     ///        P2(W)SH BTC deposit transaction,
     ///      - BTC deposit for the given `fundingTxHash`, `fundingOutputIndex`
-    ///        can be revealed only one time.
+    ///        can be revealed only one time,
+    ///      - If `reveal.vault` is the reservation vault, `reveal.refundLocktime`
+    ///        must not decode to a timestamp further than
+    ///        `reservationTermSeconds` plus the deposit refund safety margin
+    ///        beyond the reveal time.
     ///
     ///      If any of these requirements is not met, the wallet _must_ refuse
     ///      to sweep the deposit and the depositor has to wait until the
@@ -207,8 +212,44 @@ library Deposit {
             "Vault is not trusted"
         );
 
+        bool isReserved = reveal.vault != address(0) &&
+            reveal.vault == self.reservationVault;
+        uint32 refundDeadline = 0;
+        bool refundDeadlineValidated = false;
         if (self.depositRevealAheadPeriod > 0) {
-            validateDepositRefundLocktime(self, reveal.refundLocktime);
+            refundDeadline = validateDepositRefundLocktime(
+                self,
+                reveal.refundLocktime
+            );
+            refundDeadlineValidated = true;
+        } else if (isReserved) {
+            // Ordinary deposits preserve the historical disabled-validation
+            // path. Reserved deposits still need the exact script deadline
+            // so a permissionless acceptance request cannot reserve capacity
+            // for an action the wallet validator can never sign.
+            refundDeadline = BTCUtils.reverseUint32(
+                uint32(reveal.refundLocktime)
+            );
+        }
+
+        if (isReserved) {
+            // Reserved deposits are accepted permissionlessly, without an
+            // SPV proof, and immediately increment `pendingReservedDeposits`,
+            // which blocks governance from changing `reservationVault` (see
+            // `Reservation.updateReservationParameters`) until every pending
+            // record clears. Cap the refund deadline so a reserved deposit
+            // that is never anchored is always able to self-clear via
+            // parking the guard indefinitely with a far-future locktime.
+            /* solhint-disable not-rely-on-time */
+            require(
+                refundDeadline <=
+                    block.timestamp +
+                        self.reservationTermSeconds +
+                        WalletProposalValidatorConstants
+                            .DEPOSIT_REFUND_SAFETY_MARGIN,
+                "Refund locktime too far in the future for a reservation"
+            );
+            /* solhint-enable not-rely-on-time */
         }
 
         bytes memory expectedScript;
@@ -317,13 +358,12 @@ library Deposit {
             )
             .hash256View();
 
-        DepositRequest storage deposit = self.deposits[
-            uint256(
-                keccak256(
-                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
-                )
+        uint256 depositKey = uint256(
+            keccak256(
+                abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
             )
-        ];
+        );
+        DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.revealedAt == 0, "Deposit already revealed");
 
         uint64 fundingOutputAmount = fundingOutput.extractValue();
@@ -343,7 +383,31 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
-        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+        if (isReserved) {
+            self.pendingReservedDeposit[depositKey] = BridgeState
+                .PendingReservedDeposit(
+                    true,
+                    reveal.walletPubKeyHash,
+                    refundDeadline,
+                    refundDeadlineValidated
+                );
+            self.pendingReservedDeposits += 1;
+        }
+
+        // Skip the rebate for reserved deposits: `deposit.treasuryFee` is
+        // never actually charged for a reservation (acceptance mints the
+        // gross anchored amount and ignores this field entirely -- see
+        // `Reservation.submitReservationAcceptanceProof`). Calling
+        // `applyForRebate` anyway would still permanently consume the
+        // depositor's limited rolling-window rebate budget for a fee that
+        // was never going to be charged, silently wasting it for zero
+        // benefit and reducing the budget available to the depositor's
+        // other (pooled) deposits.
+        if (
+            !isReserved &&
+            deposit.treasuryFee > 0 &&
+            self.rebateStaking != address(0)
+        ) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
                     deposit.depositor,
@@ -426,10 +490,10 @@ library Deposit {
     function validateDepositRefundLocktime(
         BridgeState.Storage storage self,
         bytes4 refundLocktime
-    ) internal view {
+    ) internal view returns (uint32 depositRefundableTimestamp) {
         // Convert the refund locktime byte array to a LE integer. This is
         // the moment in time when the deposit become refundable.
-        uint32 depositRefundableTimestamp = BTCUtils.reverseUint32(
+        depositRefundableTimestamp = BTCUtils.reverseUint32(
             uint32(refundLocktime)
         );
         // According to https://developer.bitcoin.org/devguide/transactions.html#locktime-and-sequence-number

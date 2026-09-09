@@ -70,7 +70,17 @@ const func: DeployFunction = async function deployBridge(
         // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.
         // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-        unsafeAllow: ["external-library-linking"],
+        //
+        // `delegatecall` is allowed for the reservation-router fallback facet
+        // (`Bridge.fallback()`). The Bridge delegatecalls exactly one address,
+        // `BridgeState.Storage.reservationRouter`, which is write-once via
+        // `Bridge.setReservationRouter` and therefore can never be pointed at
+        // attacker-controlled code. The router declares no storage of its own
+        // beyond the mirrored `BridgeState.Storage self` anchor and contains no
+        // `selfdestruct`, so both hazards this check guards against (arbitrary
+        // delegatecall targets and storage-layout divergence) are excluded by
+        // construction. See `ReservationRouter` invariants 1-4.
+        unsafeAllow: ["external-library-linking", "delegatecall"],
       },
     }
   )

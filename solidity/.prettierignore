@@ -9,3 +9,6 @@ typechain/
 docgen-templates/
 export.json
 contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol
+
+# gas reporter side artifact (regenerated on every test run)
+gasReporterOutput.json
