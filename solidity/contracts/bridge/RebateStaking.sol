@@ -20,6 +20,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/StorageSlotUpgradeable.sol";
 
 /// @title Contract for staking T token to get rebate on minting/redemption fees
 contract RebateStaking is Initializable, OwnableUpgradeable {
@@ -37,6 +38,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error NotAStaker();
     error WrongDelegatee();
     error AddressAlreadyTaken();
+    error ContractDeprecated();
+    error RebateStakingNotDeprecated();
+    error CallerNotProxyAdmin();
 
     enum RebateTreasuryFeeMode {
         Both,
@@ -48,6 +52,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         Deposit,
         Redemption
     }
+
+    bytes32 internal constant EIP_1967_ADMIN_SLOT =
+        0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
 
     struct Rebate {
         uint32 timestamp;
@@ -91,6 +98,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///         rebate accounting to a different staker rather than authorizing
     ///         a Bank balance owner).
     mapping(address => mapping(address => bool)) public rebateAuthorizations;
+    bool public deprecated;
 
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
@@ -98,10 +106,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // planned upgrades of the Bridge contract. If more entires are added to
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-    // Upgrade note: `rebateAuthorizations` consumed one reserved slot,
-    // reducing `__gap` from 49 to 48 for storage-layout compatibility.
+    // Upgrade note: `rebateAuthorizations` and `deprecated` consumed two
+    // reserved slots, reducing `__gap` from 49 to 47 for storage-layout
+    // compatibility.
     // slither-disable-next-line unused-state
-    uint256[48] private __gap;
+    uint256[47] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -115,8 +124,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event Staked(address staker, uint256 amount);
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
+    event StakeWithdrawn(address staker, address receiver, uint256 amount);
     event DelegateeSet(address staker, address delegatee);
     event TransferFinished(address oldStaker, address newStaker);
+    event RebateStakingDeprecated();
     event RebateAuthorizationSet(
         address indexed redeemer,
         address indexed balanceOwner,
@@ -130,6 +141,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     modifier onlyBridge() {
         if (msg.sender != address(bridge)) revert CallerNotBridge();
+        _;
+    }
+
+    modifier onlyWhenActive() {
+        if (deprecated) revert ContractDeprecated();
         _;
     }
 
@@ -155,12 +171,30 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         __Ownable_init();
     }
 
+    /// @notice Permanently deprecates rebate staking during a proxy upgrade.
+    /// @dev Intended for ProxyAdmin.upgradeAndCall so the upgrade and
+    ///      deprecation happen atomically through the timelock-controlled
+    ///      proxy admin. Can be called only by the proxy admin.
+    ///      If owner deprecation already occurred, the initializer consumes
+    ///      the version without changing state or re-emitting events.
+    // solhint-disable-next-line func-name-mixedcase
+    function initializeV2_Deprecate() external reinitializer(2) {
+        if (msg.sender != proxyAdmin()) revert CallerNotProxyAdmin();
+        if (deprecated) return;
+
+        _deprecate();
+    }
+
     /// @notice Updates the rolling window.
     /// @param _newRollingWindow Duration of the rolling window.
     /// @dev Requirements:
     ///      - The caller must be the contract owner,
     ///      - The new rolling window cannot be zero
-    function updateRollingWindow(uint256 _newRollingWindow) external onlyOwner {
+    function updateRollingWindow(uint256 _newRollingWindow)
+        external
+        onlyOwner
+        onlyWhenActive
+    {
         if (_newRollingWindow == 0) revert RollingWindowCannotBeZero();
         rollingWindow = _newRollingWindow;
         emit RollingWindowUpdated(rollingWindow);
@@ -173,6 +207,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function updateUnstakingPeriod(uint256 _newUnstakingPeriod)
         external
         onlyOwner
+        onlyWhenActive
     {
         unstakingPeriod = _newUnstakingPeriod;
         emit UnstakingPeriodUpdated(unstakingPeriod);
@@ -185,9 +220,18 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function updateRebatePerToken(uint256 _newRebatePerToken)
         external
         onlyOwner
+        onlyWhenActive
     {
         rebatePerToken = _newRebatePerToken;
         emit RebatePerTokenUpdated(rebatePerToken);
+    }
+
+    /// @notice Permanently deprecates rebate staking.
+    /// @dev Stops new rebates and staking, sets the unstaking period to zero
+    ///      so existing unstaking processes can finish immediately, and sets
+    ///      the rebate coefficient to zero so no rebate capacity remains.
+    function deprecate() external onlyOwner {
+        _deprecate();
     }
 
     /// @notice Sets the rebate treasury fee mode for caller.
@@ -373,6 +417,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint64 treasuryFee,
         TreasuryFeeType treasuryFeeType
     ) external onlyBridge returns (uint64) {
+        if (deprecated) {
+            return treasuryFee;
+        }
+
         user = getStaker(user);
         Stake storage stakeInfo = stakes[user];
 
@@ -479,7 +527,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     /// @notice Stake T token to be eligible for rebate
     /// @param amount Amount of tokens to stake
-    function stake(uint96 amount) external {
+    function stake(uint96 amount) external onlyWhenActive {
         if (amount == 0) revert AmountCannotBeZero();
 
         address otherStaker = delegates[msg.sender];
@@ -531,6 +579,45 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
         emit UnstakeFinished(msg.sender, amount);
         token.safeTransfer(receiver, amount);
+    }
+
+    /// @notice Withdraws the caller's entire stake after rebate staking is
+    ///         deprecated.
+    /// @param receiver Address of stake receiver.
+    function withdrawStake(address receiver) external {
+        if (!deprecated) revert RebateStakingNotDeprecated();
+        if (receiver == address(0)) revert ZeroAddress();
+
+        Stake storage stakeInfo = stakes[msg.sender];
+        uint96 amount = stakeInfo.stakedAmount;
+        if (amount == 0) revert NotAStaker();
+
+        stakeInfo.stakedAmount = 0;
+        stakeInfo.unstakingAmount = 0;
+        stakeInfo.unstakingTimestamp = 0;
+        if (stakeInfo.delegatee != address(0)) {
+            delegates[stakeInfo.delegatee] = address(0);
+            stakeInfo.delegatee = address(0);
+        }
+
+        emit StakeWithdrawn(msg.sender, receiver, amount);
+        token.safeTransfer(receiver, amount);
+    }
+
+    function _deprecate() internal {
+        if (deprecated) revert ContractDeprecated();
+
+        deprecated = true;
+        unstakingPeriod = 0;
+        rebatePerToken = 0;
+
+        emit RebateStakingDeprecated();
+        emit UnstakingPeriodUpdated(0);
+        emit RebatePerTokenUpdated(0);
+    }
+
+    function proxyAdmin() internal view returns (address admin) {
+        return StorageSlotUpgradeable.getAddressSlot(EIP_1967_ADMIN_SLOT).value;
     }
 
     /// @notice Returns size of rebate array

@@ -325,6 +325,11 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Permanently disables one-time rebate staking wiring.
+        bool rebateStakingDisabled;
+        // DAO-designated peg keepers. Exempt from deposit treasury fees and
+        // direct-redemption treasury fees (applies when balanceOwner == redeemer).
+        mapping(address => bool) pegKeepers;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +337,11 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        // Upgrade note: `rebateStakingDisabled` packs into the same slot as
+        // `rebateStaking`, the new `pegKeepers` mapping consumed the freed
+        // reserved slot, reducing `__gap` from 48 to 47 for storage-layout
+        // compatibility.
+        uint256[47] __gap;
     }
 
     event DepositParametersUpdated(
@@ -384,6 +393,8 @@ library BridgeState {
     );
 
     event TreasuryUpdated(address treasury);
+
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
@@ -846,6 +857,19 @@ library BridgeState {
         emit TreasuryUpdated(_treasury);
     }
 
+    /// @notice Updates eligibility for deposit and direct-redemption treasury-fee
+    ///         waivers. For redemptions, this only applies when balanceOwner == redeemer.
+    /// @param _pegKeeper Peg keeper address.
+    /// @param _allowed True if the address should be allowed, false otherwise.
+    function updatePegKeeper(
+        Storage storage self,
+        address _pegKeeper,
+        bool _allowed
+    ) internal {
+        self.pegKeepers[_pegKeeper] = _allowed;
+        emit PegKeeperUpdated(_pegKeeper, _allowed);
+    }
+
     /// @notice Sets the redemption watchtower address.
     /// @param _redemptionWatchtower Address of the redemption watchtower.
     /// @dev Requirements:
@@ -882,6 +906,8 @@ library BridgeState {
     function setRebateStaking(Storage storage self, address _rebateStaking)
         internal
     {
+        require(!self.rebateStakingDisabled, "Rebate staking disabled");
+
         require(self.rebateStaking == address(0), "Rebate staking already set");
 
         require(

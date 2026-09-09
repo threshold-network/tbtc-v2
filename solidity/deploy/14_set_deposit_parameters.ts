@@ -34,6 +34,9 @@ async function queryEventsInChunks(
     chunkStart <= toBlock;
     chunkStart += EVENT_QUERY_CHUNK_BLOCKS
   ) {
+    // Sequential (not parallel) to respect provider rate limits and
+    // preserve event order across chunks.
+    // eslint-disable-next-line no-await-in-loop
     const chunkEvents = await contract.queryFilter(
       filter,
       chunkStart,
