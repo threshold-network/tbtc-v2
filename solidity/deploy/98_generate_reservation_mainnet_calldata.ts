@@ -135,7 +135,8 @@ export function buildReservationActionDefinitions(params: {
         "Term (seconds)": params.termSeconds.toString(),
         "Dissolution delay": params.dissolutionDelay.toString(),
         "Max total amount": params.maxTotalAmount.toString(),
-        "Max reservations per wallet": params.maxReservationsPerWallet.toString(),
+        "Max reservations per wallet":
+          params.maxReservationsPerWallet.toString(),
         "Action timeout": params.actionTimeout.toString(),
         "Renewal window": params.renewalWindowSeconds.toString(),
         "Governance delay": "172800s (48h)",
@@ -313,7 +314,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         "proceeding."
     )
   }
-  console.log(`  ProxyAdmin (${proxyAdminAddress}) owner matches KNOWN_TIMELOCK`)
+  console.log(
+    `  ProxyAdmin (${proxyAdminAddress}) owner matches KNOWN_TIMELOCK`
+  )
 
   const bridgeGovernanceOwnerContract = await ethers.getContractAt(
     ["function owner() view returns (address)"],
@@ -321,7 +324,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   const bridgeGovernanceOwner: string =
     await bridgeGovernanceOwnerContract.owner()
-  if (bridgeGovernanceOwner.toLowerCase() !== KNOWN_COUNCIL_SAFE.toLowerCase()) {
+  if (
+    bridgeGovernanceOwner.toLowerCase() !== KNOWN_COUNCIL_SAFE.toLowerCase()
+  ) {
     throw new Error(
       `BridgeGovernance (${BridgeGovernance.address}) owner is ` +
         `${bridgeGovernanceOwner}, not the hardcoded KNOWN_COUNCIL_SAFE ` +
@@ -345,7 +350,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   if (currentReservationRouter !== constants.AddressZero) {
     throw new Error(
-      `Bridge.getReservationRouter() is already set to ` +
+      "Bridge.getReservationRouter() is already set to " +
         `${currentReservationRouter}; setReservationRouter is write-once ` +
         "and a second call reverts on-chain. Refusing to generate " +
         "duplicate-set calldata."
@@ -356,14 +361,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   if (routerOnChainCode !== ReservationRouter.deployedBytecode) {
     throw new Error(
-      `On-chain bytecode at ReservationRouter address ` +
+      "On-chain bytecode at ReservationRouter address " +
         `${ReservationRouter.address} does not match the compiled ` +
         "artifact's deployed bytecode; refusing to embed a mismatched " +
         "address in mainnet governance calldata."
     )
   }
   console.log(
-    `  Reservation router not yet set on Bridge (OK), and on-chain bytecode ` +
+    "  Reservation router not yet set on Bridge (OK), and on-chain bytecode " +
       `at ${ReservationRouter.address} matches the compiled artifact`
   )
 
@@ -422,16 +427,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (RES_TX_MAX_FEE <= BigInt(0)) {
     throw new Error(
       "RESERVATION_TX_MAX_FEE_SATS must be greater than zero (mirrors " +
-        'updateReservationParameters\'s "Reservation transaction max fee ' +
-        'must be greater than zero" require)'
+        "updateReservationParameters's 'Reservation transaction max fee " +
+        "must be greater than zero' require)"
     )
   }
   if (RES_MIN_AMOUNT <= RES_TX_MAX_FEE) {
     throw new Error(
       `RESERVATION_MIN_AMOUNT_SATS (${RES_MIN_AMOUNT}) must be greater than ` +
         `RESERVATION_TX_MAX_FEE_SATS (${RES_TX_MAX_FEE}) (mirrors ` +
-        'updateReservationParameters\'s "Reservation minimum amount must ' +
-        'be greater than the reservation TX max fee" require)'
+        "updateReservationParameters's 'Reservation minimum amount must " +
+        "be greater than the reservation TX max fee' require)"
     )
   }
   if (RES_TERM_SECONDS > MAX_RESERVATION_TERM) {
@@ -446,8 +451,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `RESERVATION_RENEWAL_WINDOW_SECONDS (${RES_RENEWAL_WINDOW}) must be ` +
         "greater than zero and strictly shorter than " +
         `RESERVATION_TERM_SECONDS (${RES_TERM_SECONDS}) (mirrors ` +
-        'updateReservationParameters\'s "Renewal window must be shorter ' +
-        'than the term" require)'
+        "updateReservationParameters's 'Renewal window must be shorter " +
+        "than the term' require)"
     )
   }
   if (RES_ACTION_TIMEOUT <= REQUEST_TIMEOUT_SAFETY_MARGIN) {
@@ -455,8 +460,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `RESERVATION_ACTION_TIMEOUT_SECONDS (${RES_ACTION_TIMEOUT}) must ` +
         "exceed the wallet validator's REQUEST_TIMEOUT_SAFETY_MARGIN " +
         `(${REQUEST_TIMEOUT_SAFETY_MARGIN}s / 2h) (mirrors ` +
-        'updateReservationParameters\'s "Reservation action timeout must ' +
-        'exceed the safety margin" require)'
+        "updateReservationParameters's 'Reservation action timeout must " +
+        "exceed the safety margin' require)"
     )
   }
 
@@ -501,7 +506,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         `${slotCapacityByWallets}); with maxReservationsPerWallet=1 this ` +
         "global cap can never be reached and becomes dead configuration " +
         "above the wallet count, while individual wallets saturate first " +
-        `via "Wallet reservations cap exceeded". Register more Live ` +
+        "via 'Wallet reservations cap exceeded'. Register more Live " +
         "wallets first, or lower RESERVATION_MAX_ACTIVE to at most the " +
         "current slot capacity."
     )

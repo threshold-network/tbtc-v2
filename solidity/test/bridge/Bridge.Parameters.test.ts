@@ -2017,9 +2017,7 @@ describe("Bridge - Parameters", () => {
     context("when caller is not the contract guvnor", () => {
       it("should revert", async () => {
         await expect(
-          bridge
-            .connect(thirdParty)
-            .setReservationRouter(reservationRouterEOA)
+          bridge.connect(thirdParty).setReservationRouter(reservationRouterEOA)
         ).to.be.revertedWith("Caller is not the governance")
       })
     })

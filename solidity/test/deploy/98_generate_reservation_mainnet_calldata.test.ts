@@ -34,10 +34,8 @@ async function expectRejection(
 describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   const DEPLOYER_ADDRESS = "0x1234567890123456789012345678901234567890"
   const BRIDGE_ADDRESS = "0x0000000000000000000000000000000000000001"
-  const BRIDGE_GOVERNANCE_ADDRESS =
-    "0x0000000000000000000000000000000000000002"
-  const RESERVATION_VAULT_ADDRESS =
-    "0x0000000000000000000000000000000000000003"
+  const BRIDGE_GOVERNANCE_ADDRESS = "0x0000000000000000000000000000000000000002"
+  const RESERVATION_VAULT_ADDRESS = "0x0000000000000000000000000000000000000003"
   const RESERVATION_ROUTER_ADDRESS =
     "0xAABbCcddEe00112233445566778899AaBbCCdDeE"
   const PROXY_ADMIN_ADDRESS = "0x1111111111111111111111111111111111111111"
@@ -53,7 +51,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     bridgeGovernanceArtifact = await hre.artifacts.readArtifact(
       "BridgeGovernance"
     )
-    bridgeGovInterface = new ethers.utils.Interface(bridgeGovernanceArtifact.abi)
+    bridgeGovInterface = new ethers.utils.Interface(
+      bridgeGovernanceArtifact.abi
+    )
   })
 
   // A complete set of env vars that satisfies every validation the script
@@ -483,7 +483,7 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
         await func(mockHre)
         expect.fail("expected func to throw")
       } catch (error) {
-        const message = (error as Error).message
+        const { message } = error as Error
         expect(message).to.not.include(
           "Occupancy cap exceeds live wallet slot capacity"
         )
@@ -493,7 +493,13 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
   })
 
   describe("deployment summary JSON", () => {
-    const deploymentsDir = path.join(__dirname, "..", "..", "deployments", "mainnet")
+    const deploymentsDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "deployments",
+      "mainnet"
+    )
 
     function findSummaryFiles(): string[] {
       if (!fs.existsSync(deploymentsDir)) return []
@@ -571,13 +577,9 @@ describe("Deploy Script 98: Reservation Mainnet Calldata Generation", () => {
     })
 
     it("should include ProxyAdmin, Timelock, and CouncilSafe in existingContracts", () => {
-      expect(summary.existingContracts.ProxyAdmin).to.equal(
-        PROXY_ADMIN_ADDRESS
-      )
+      expect(summary.existingContracts.ProxyAdmin).to.equal(PROXY_ADMIN_ADDRESS)
       expect(summary.existingContracts.Timelock).to.equal(KNOWN_TIMELOCK)
-      expect(summary.existingContracts.CouncilSafe).to.equal(
-        KNOWN_COUNCIL_SAFE
-      )
+      expect(summary.existingContracts.CouncilSafe).to.equal(KNOWN_COUNCIL_SAFE)
     })
   })
 })

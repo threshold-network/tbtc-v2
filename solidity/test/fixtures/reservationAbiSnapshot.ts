@@ -1,6 +1,6 @@
 import { ethers } from "ethers"
 import { artifacts } from "hardhat"
-import { writeFile } from 'fs/promises'
+import { writeFile } from "fs/promises"
 
 /**
  * Reservation ABI surface snapshot fixture.
@@ -35,7 +35,12 @@ export type ReservationAbiSnapshot = {
 
 type AbiParameter = { type: string; name?: string; components?: AbiParameter[] }
 type AbiFragment =
-  | { type: "function"; name: string; inputs: AbiParameter[]; outputs: AbiParameter[] }
+  | {
+      type: "function"
+      name: string
+      inputs: AbiParameter[]
+      outputs: AbiParameter[]
+    }
   | { type: "event"; name: string; inputs: AbiParameter[] }
   | { type: "constructor"; inputs: AbiParameter[] }
   | { type: "fallback"; stateMutability: string }
@@ -50,7 +55,7 @@ async function getContractAbi(contractName: string): Promise<AbiFragment[]> {
  * Compute the 4-byte selector for a function fragment.
  */
 function getSelector(func: Extract<AbiFragment, { type: "function" }>): string {
-  const signature = `${func.name}(${func.inputs.map(i => i.type).join(',')})`
+  const signature = `${func.name}(${func.inputs.map((i) => i.type).join(",")})`
   return ethers.utils.id(signature).slice(0, 10)
 }
 
@@ -61,27 +66,34 @@ function getStructFields(
   abi: AbiFragment[],
   contractName: string,
   functionName: string,
-  paramType: 'input' | 'output',
+  paramType: "input" | "output",
   paramIndex: number
 ): StructFieldInfo {
   const func = abi.find(
-    (f): f is Extract<AbiFragment, { type: "function" }> => f.type === 'function' && f.name === functionName
+    (f): f is Extract<AbiFragment, { type: "function" }> =>
+      f.type === "function" && f.name === functionName
   )
   if (!func) {
-    throw new Error(`Function ${functionName} not found in ABI of ${contractName}`)
+    throw new Error(
+      `Function ${functionName} not found in ABI of ${contractName}`
+    )
   }
-  const paramArray = paramType === 'input' ? func.inputs : func.outputs
+  const paramArray = paramType === "input" ? func.inputs : func.outputs
   if (!paramArray || paramIndex >= paramArray.length) {
-    throw new Error(`Parameter index ${paramIndex} out of bounds for ${functionName} in ${contractName}`)
+    throw new Error(
+      `Parameter index ${paramIndex} out of bounds for ${functionName} in ${contractName}`
+    )
   }
   const param = paramArray[paramIndex]
-  if (param.type !== 'tuple') {
+  if (param.type !== "tuple") {
     throw new Error(`Parameter ${paramIndex} of ${functionName} is not a tuple`)
   }
   if (!param.components) {
-    throw new Error(`Tuple parameter ${paramIndex} of ${functionName} has no components`)
+    throw new Error(
+      `Tuple parameter ${paramIndex} of ${functionName} has no components`
+    )
   }
-  return param.components.map(c => ({ name: c.name ?? '', type: c.type }))
+  return param.components.map((c) => ({ name: c.name ?? "", type: c.type }))
 }
 
 export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapshot> {
@@ -91,43 +103,55 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
 
   // Collect functions: all from IReservationBridge and the two validator entry points
   const bridgeFunctions = bridgeAbi
-    .filter((f): f is Extract<AbiFragment, { type: "function" }> => f.type === 'function')
-    .map(f => ({
+    .filter(
+      (f): f is Extract<AbiFragment, { type: "function" }> =>
+        f.type === "function"
+    )
+    .map((f) => ({
       name: f.name,
       selector: getSelector(f),
-      inputs: f.inputs.map(i => i.type),
-      outputs: f.outputs.map(o => o.type)
+      inputs: f.inputs.map((i) => i.type),
+      outputs: f.outputs.map((o) => o.type),
     }))
 
-  const validatorFunctions = ['validateReservationAnchorProposal', 'validateReservationReanchorProposal']
-    .map(name => {
-      const f = validatorAbi.find(
-        (f): f is Extract<AbiFragment, { type: "function" }> => f.type === 'function' && f.name === name
+  const validatorFunctions = [
+    "validateReservationAnchorProposal",
+    "validateReservationReanchorProposal",
+  ].map((name) => {
+    const fn = validatorAbi.find(
+      (candidate): candidate is Extract<AbiFragment, { type: "function" }> =>
+        candidate.type === "function" && candidate.name === name
+    )
+    if (!fn) {
+      throw new Error(
+        `Function ${name} not found in WalletProposalValidator ABI`
       )
-      if (!f) {
-        throw new Error(`Function ${name} not found in WalletProposalValidator ABI`)
-      }
-      return {
-        name: f.name,
-        selector: getSelector(f),
-        inputs: f.inputs.map(i => i.type),
-        outputs: f.outputs.map(o => o.type)
-      }
-    })
+    }
+    return {
+      name: fn.name,
+      selector: getSelector(fn),
+      inputs: fn.inputs.map((i) => i.type),
+      outputs: fn.outputs.map((o) => o.type),
+    }
+  })
 
   const functions = [...bridgeFunctions, ...validatorFunctions]
 
   // Collect events: all from IReservationBridge
   const events = bridgeAbi
-    .filter((e): e is Extract<AbiFragment, { type: "event" }> => e.type === 'event')
-    .map(e => ({
+    .filter(
+      (e): e is Extract<AbiFragment, { type: "event" }> => e.type === "event"
+    )
+    .map((e) => ({
       name: e.name,
-      topic0: ethers.utils.id(e.name + '(' + e.inputs.map(i => i.type).join(',') + ')'),
-      inputs: e.inputs.map(i => i.type)
+      topic0: ethers.utils.id(
+        `${e.name}(${e.inputs.map((i) => i.type).join(",")})`
+      ),
+      inputs: e.inputs.map((i) => i.type),
     }))
 
   // Collect structs from the relevant functions
-  const structs: ReservationAbiSnapshot['structs'] = {
+  const structs: ReservationAbiSnapshot["structs"] = {
     ReservationRequest: getStructFields(
       bridgeAbi,
       "IReservationBridge",
@@ -155,7 +179,7 @@ export async function getReservationAbiSnapshot(): Promise<ReservationAbiSnapsho
       "validateReservationReanchorProposal",
       "input",
       0
-    )
+    ),
   }
 
   return { functions, events, structs }
@@ -166,5 +190,5 @@ export async function writeReservationAbiSnapshot(
   outputPath: string
 ): Promise<void> {
   const content = JSON.stringify(snapshot, null, 2)
-  await writeFile(outputPath, content, 'utf8')
+  await writeFile(outputPath, content, "utf8")
 }

@@ -12,8 +12,10 @@ import type {
   ReservationActionStruct,
   ReservationRequestStruct,
 } from "../../typechain/IReservationBridge"
-import type { ReservationReanchorProposalStruct } from "../../typechain/WalletProposalValidator"
-import type { ReservationAnchorProposalStruct } from "../../typechain/WalletProposalValidator"
+import type {
+  ReservationReanchorProposalStruct,
+  ReservationAnchorProposalStruct,
+} from "../../typechain/WalletProposalValidator"
 import { walletState, movedFundsSweepRequestState } from "../fixtures"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { createMock } from "../helpers/mock"
@@ -3173,9 +3175,7 @@ describe("WalletProposalValidator", () => {
               buildProposal(),
               deposit.extraInfo
             )
-          ).to.be.revertedWith(
-            "Wallet does not match the authorized action"
-          )
+          ).to.be.revertedWith("Wallet does not match the authorized action")
         })
       }
     )
@@ -3595,9 +3595,7 @@ describe("WalletProposalValidator", () => {
             buildProposal(),
             deposit.extraInfo
           )
-        ).to.be.revertedWith(
-          "Deposit refund safety margin is not preserved"
-        )
+        ).to.be.revertedWith("Deposit refund safety margin is not preserved")
       })
     })
 

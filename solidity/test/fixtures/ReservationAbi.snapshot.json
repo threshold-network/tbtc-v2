@@ -4,108 +4,73 @@
       "name": "activeReservationsCount",
       "selector": "0x93fe5eab",
       "inputs": [],
-      "outputs": [
-        "uint32",
-        "uint32"
-      ]
+      "outputs": ["uint32", "uint32"]
     },
     {
       "name": "forceStaleReservedDeposit",
       "selector": "0x9fa3f062",
-      "inputs": [
-        "uint256"
-      ],
+      "inputs": ["uint256"],
       "outputs": []
     },
     {
       "name": "notifyReservationAcceptanceTimedOut",
       "selector": "0x6985237a",
-      "inputs": [
-        "uint256"
-      ],
+      "inputs": ["uint256"],
       "outputs": []
     },
     {
       "name": "notifyReservationActionTimeout",
       "selector": "0x626fd71a",
-      "inputs": [
-        "uint256"
-      ],
+      "inputs": ["uint256"],
       "outputs": []
     },
     {
       "name": "notifyReservationStranded",
       "selector": "0xf95ea36f",
-      "inputs": [
-        "uint256"
-      ],
+      "inputs": ["uint256"],
       "outputs": []
     },
     {
       "name": "notifyStaleReservedDeposit",
       "selector": "0x6ceb1b54",
-      "inputs": [
-        "uint256"
-      ],
+      "inputs": ["uint256"],
       "outputs": []
     },
     {
       "name": "pendingReservedDeposits",
       "selector": "0x34830fc8",
       "inputs": [],
-      "outputs": [
-        "uint64"
-      ]
+      "outputs": ["uint64"]
     },
     {
       "name": "requestReservationAcceptance",
       "selector": "0xbc78a18e",
-      "inputs": [
-        "uint256",
-        "bytes20"
-      ],
+      "inputs": ["uint256", "bytes20"],
       "outputs": []
     },
     {
       "name": "requestReservationReanchor",
       "selector": "0xf934beb5",
-      "inputs": [
-        "uint256",
-        "bytes20"
-      ],
+      "inputs": ["uint256", "bytes20"],
       "outputs": []
     },
     {
       "name": "reservationActions",
       "selector": "0xcec8c6e9",
-      "inputs": [
-        "uint256",
-        "uint64"
-      ],
-      "outputs": [
-        "tuple"
-      ]
+      "inputs": ["uint256", "uint64"],
+      "outputs": ["tuple"]
     },
     {
       "name": "reservationByAnchorUtxo",
       "selector": "0x79731f67",
-      "inputs": [
-        "bytes32",
-        "uint32"
-      ],
-      "outputs": [
-        "uint256"
-      ]
+      "inputs": ["bytes32", "uint32"],
+      "outputs": ["uint256"]
     },
     {
       "name": "reservationCaps",
       "selector": "0x63dfb29c",
       "inputs": [],
-      "outputs": [
-        "uint64",
-        "uint64",
-        "uint32"
-      ]
+      "outputs": ["uint64", "uint64", "uint32"]
     },
     {
       "name": "reservationParameters",
@@ -128,68 +93,42 @@
       "name": "reservationRouter",
       "selector": "0x06ca90d2",
       "inputs": [],
-      "outputs": [
-        "address"
-      ]
+      "outputs": ["address"]
     },
     {
       "name": "reservations",
       "selector": "0x067cf832",
-      "inputs": [
-        "uint256"
-      ],
-      "outputs": [
-        "tuple"
-      ]
+      "inputs": ["uint256"],
+      "outputs": ["tuple"]
     },
     {
       "name": "reservedDepositWallet",
       "selector": "0x56803b55",
-      "inputs": [
-        "uint256"
-      ],
-      "outputs": [
-        "bytes20"
-      ]
+      "inputs": ["uint256"],
+      "outputs": ["bytes20"]
     },
     {
       "name": "submitReservationAcceptanceProof",
       "selector": "0x903bb9bf",
-      "inputs": [
-        "tuple",
-        "tuple",
-        "uint256",
-        "uint64"
-      ],
+      "inputs": ["tuple", "tuple", "uint256", "uint64"],
       "outputs": []
     },
     {
       "name": "submitReservationReanchorProof",
       "selector": "0xf647aaab",
-      "inputs": [
-        "tuple",
-        "tuple",
-        "uint256",
-        "uint64"
-      ],
+      "inputs": ["tuple", "tuple", "uint256", "uint64"],
       "outputs": []
     },
     {
       "name": "treasury",
       "selector": "0x61d027b3",
       "inputs": [],
-      "outputs": [
-        "address"
-      ]
+      "outputs": ["address"]
     },
     {
       "name": "updateReservationCaps",
       "selector": "0x8308c2ca",
-      "inputs": [
-        "uint64",
-        "uint64",
-        "uint32"
-      ],
+      "inputs": ["uint64", "uint64", "uint32"],
       "outputs": []
     },
     {
@@ -211,65 +150,38 @@
     {
       "name": "walletReservationsAmount",
       "selector": "0x63481e98",
-      "inputs": [
-        "bytes20"
-      ],
-      "outputs": [
-        "uint64"
-      ]
+      "inputs": ["bytes20"],
+      "outputs": ["uint64"]
     },
     {
       "name": "walletReservationsCount",
       "selector": "0x1de0555a",
-      "inputs": [
-        "bytes20"
-      ],
-      "outputs": [
-        "uint32"
-      ]
+      "inputs": ["bytes20"],
+      "outputs": ["uint32"]
     },
     {
       "name": "validateReservationAnchorProposal",
       "selector": "0x675b4015",
-      "inputs": [
-        "tuple",
-        "tuple"
-      ],
-      "outputs": [
-        "bool"
-      ]
+      "inputs": ["tuple", "tuple"],
+      "outputs": ["bool"]
     },
     {
       "name": "validateReservationReanchorProposal",
       "selector": "0x08ecc320",
-      "inputs": [
-        "tuple"
-      ],
-      "outputs": [
-        "bool"
-      ]
+      "inputs": ["tuple"],
+      "outputs": ["bool"]
     }
   ],
   "events": [
     {
       "name": "ReservationAcceptanceRequested",
       "topic0": "0x1444a0a2e553520e4766f36c68368e10105489e52dc701d7fc9859c651475059",
-      "inputs": [
-        "uint256",
-        "uint64",
-        "bytes20",
-        "uint64",
-        "uint64",
-        "uint32"
-      ]
+      "inputs": ["uint256", "uint64", "bytes20", "uint64", "uint64", "uint32"]
     },
     {
       "name": "ReservationAcceptanceTimedOut",
       "topic0": "0xabb9ad55de7c942fc95bc485fc9af9854d1917197d5e458b4739590542cf53c3",
-      "inputs": [
-        "uint256",
-        "uint64"
-      ]
+      "inputs": ["uint256", "uint64"]
     },
     {
       "name": "ReservationAccepted",
@@ -287,35 +199,22 @@
     {
       "name": "ReservationActionSuperseded",
       "topic0": "0x64979c37b08d25f639dac3b74caf99840af5995eba8a493b29dc8599312ea252",
-      "inputs": [
-        "uint256",
-        "uint64"
-      ]
+      "inputs": ["uint256", "uint64"]
     },
     {
       "name": "ReservationCapsUpdated",
       "topic0": "0x846df5edb182147898ee0a522f03f78718544ce16b0f06e64fe2f593b1fb160d",
-      "inputs": [
-        "uint64",
-        "uint64",
-        "uint32"
-      ]
+      "inputs": ["uint64", "uint64", "uint32"]
     },
     {
       "name": "ReservationLateSettled",
       "topic0": "0x152c5b7b78a634931e032d1ab3d0c033e2e5d00e0e75f20252767746a1fa4f6d",
-      "inputs": [
-        "uint256",
-        "uint64",
-        "uint8"
-      ]
+      "inputs": ["uint256", "uint64", "uint8"]
     },
     {
       "name": "ReservationOccupancyChanged",
       "topic0": "0xb16e810047677a95f8b21f557051282ce59cccb89e551069aa254ffdfed8a001",
-      "inputs": [
-        "uint32"
-      ]
+      "inputs": ["uint32"]
     },
     {
       "name": "ReservationParametersUpdated",
@@ -334,64 +233,37 @@
     {
       "name": "ReservationReanchorRequested",
       "topic0": "0x90323e7ede1e7009754d91387f23522528e6356b2667952ff305a500ffaa9c6d",
-      "inputs": [
-        "uint256",
-        "uint64",
-        "bytes20",
-        "bytes20",
-        "uint64"
-      ]
+      "inputs": ["uint256", "uint64", "bytes20", "bytes20", "uint64"]
     },
     {
       "name": "ReservationReanchorTimedOut",
       "topic0": "0xaddda906af6f28651762b3b2dfea5990d1267c197c1b7d9ca1485c3f46d95626",
-      "inputs": [
-        "uint256",
-        "uint64"
-      ]
+      "inputs": ["uint256", "uint64"]
     },
     {
       "name": "ReservationReanchored",
       "topic0": "0x6abf29e547ef7d6337ebe840df4763ee22dded050e33407330f49472adf1f689",
-      "inputs": [
-        "uint256",
-        "uint64",
-        "bytes20",
-        "bytes32",
-        "uint64",
-        "uint64"
-      ]
+      "inputs": ["uint256", "uint64", "bytes20", "bytes32", "uint64", "uint64"]
     },
     {
       "name": "ReservationRetryCreditMinted",
       "topic0": "0x919795353bc408e11a0d5a133a9c6969367014ad975910a8b31d08b12597c4c2",
-      "inputs": [
-        "uint256"
-      ]
+      "inputs": ["uint256"]
     },
     {
       "name": "ReservationStranded",
       "topic0": "0x95a304fee209cd8169392534093ab2cb9ee3b8c7031cf873b2f0c40a03b44d4d",
-      "inputs": [
-        "uint256",
-        "bytes20",
-        "address",
-        "uint64"
-      ]
+      "inputs": ["uint256", "bytes20", "address", "uint64"]
     },
     {
       "name": "ReservationVaultUpdated",
       "topic0": "0x81b37784221191020714846b5fdcdfcbde796cfad2627d47dc81c2b7765b1910",
-      "inputs": [
-        "address"
-      ]
+      "inputs": ["address"]
     },
     {
       "name": "ReservedDepositMarkedStale",
       "topic0": "0xf4a10f7395c3a5e8165714c665ddb7f2e320f8bc2a21d9f8722f48f8d1d71eab",
-      "inputs": [
-        "uint256"
-      ]
+      "inputs": ["uint256"]
     }
   ],
   "structs": {
