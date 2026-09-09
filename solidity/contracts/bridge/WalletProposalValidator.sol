@@ -918,6 +918,8 @@ contract WalletProposalValidator {
         bytes20 walletPubKeyHash;
         // Key of the reserved deposit to anchor.
         DepositKey depositKey;
+        // Nonce of the pending Acceptance action authorizing this proposal.
+        uint64 requestNonce;
         // Proposed BTC fee for the anchor transaction.
         uint256 anchorTxFee;
     }
@@ -943,14 +945,21 @@ contract WalletProposalValidator {
     /// @param depositExtraInfo Deposit extra info required to perform the
     ///        validation.
     /// @return True if the proposal is valid. Reverts otherwise.
+    /// @dev A `true` return is not itself authorization to sign: it
+    ///      requires -- and this function enforces -- that the proposal is
+    ///      backed by a corresponding pending Acceptance action for the
+    ///      given `requestNonce`.
     /// @dev Requirements:
     ///      - Reservations must be enabled (reservation vault set),
     ///      - The wallet must be in the Live or MovingFunds state,
+    ///      - The deposit must have a pending Acceptance action, keyed by
+    ///        the given request nonce, targeting the proposal wallet, that
+    ///        has not timed out,
     ///      - The deposit must be revealed, old enough, not swept, and
     ///        routed to the reservation vault,
-    ///      - The proposed fee must be positive, within the reservation
-    ///        transaction max fee, and must leave an anchor amount above
-    ///        the reservation minimum,
+    ///      - The proposed fee must be positive, within the authorized
+    ///        action's snapshotted max fee, and must leave an anchor amount
+    ///        above the reservation minimum,
     ///      - The deposit extra info must be valid and preserve the refund
     ///        safety margin,
     ///      - The deposit must be controlled by the proposal wallet.
@@ -961,7 +970,7 @@ contract WalletProposalValidator {
         (
             address reservationVault,
             uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee
+
         ) = reservationVaultAndFees();
 
         require(reservationVault != address(0), "Reservations are disabled");
@@ -975,6 +984,31 @@ contract WalletProposalValidator {
                     proposal.depositKey.fundingOutputIndex
                 )
             )
+        );
+
+        Reservation.ReservationAction memory action = IReservationBridge(
+            address(bridge)
+        ).reservationActions(depositKeyUint, proposal.requestNonce);
+
+        require(
+            action.actionType == Reservation.ActionType.Acceptance,
+            "Not a pending acceptance action"
+        );
+        require(
+            action.state == Reservation.ActionState.Pending,
+            "Acceptance action is not pending"
+        );
+        require(
+            /* solhint-disable-next-line not-rely-on-time */
+            block.timestamp <
+                action.timeoutAt -
+                    WalletProposalValidatorConstants
+                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
+            "Acceptance action has timed out"
+        );
+        require(
+            action.targetWalletPubKeyHash == proposal.walletPubKeyHash,
+            "Wallet does not match the authorized action"
         );
 
         Deposit.DepositRequest memory depositRequest = bridge.deposits(
@@ -1006,7 +1040,7 @@ contract WalletProposalValidator {
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.anchorTxFee <= reservationTxMaxFee,
+            proposal.anchorTxFee <= action.txMaxFee,
             "Proposed transaction fee is too high"
         );
         // Addition-based formulation avoids `depositRequest.amount -
@@ -1085,11 +1119,23 @@ contract WalletProposalValidator {
     ///        have a Pending Reanchor action, keyed by the given request
     ///        nonce, targeting the given target wallet, that has not timed
     ///        out,
-    ///      - The re-anchor cooldown must have elapsed,
-    ///      - The target wallet must be in the Live state and differ from
-    ///        the source wallet,
-    ///      - The proposed fee must be positive and within the reservation
-    ///        transaction max fee.
+    ///      - The target wallet must be in the Live state, differ from the
+    ///        source wallet, and have spare reservation-count and
+    ///        reserved-amount capacity,
+    ///      - The proposed fee must be positive and within the authorized
+    ///        action's snapshotted max fee.
+    ///
+    ///      The re-anchor cooldown and the minimum post-reanchor anchor
+    ///      amount are enforced once, at request time
+    ///      (`Reservation.requestReservationReanchor`); re-litigating either
+    ///      here at signing time would conflict with that function's
+    ///      deliberate governance cooldown bypass, so neither is repeated.
+    ///      Likewise, the fee bound below is checked against the action's
+    ///      snapshotted `txMaxFee` rather than the live
+    ///      `reservationTxMaxFee` governance parameter, mirroring how
+    ///      `validateRedemptionProposal` checks a redemption's per-request
+    ///      fee share against the request's own stored
+    ///      `RedemptionRequest.txMaxFee` instead of a live Bridge parameter.
     ///
     ///      The source wallet state is deliberately not restricted, mirroring
     ///      `Reservation.submitReservationReanchorProof`: moving reservations
@@ -1115,7 +1161,10 @@ contract WalletProposalValidator {
         );
         require(
             /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp < action.timeoutAt,
+            block.timestamp <
+                action.timeoutAt -
+                    WalletProposalValidatorConstants
+                        .REQUEST_TIMEOUT_SAFETY_MARGIN,
             "Re-anchor action has timed out"
         );
         require(
@@ -1123,11 +1172,6 @@ contract WalletProposalValidator {
             "Target wallet does not match the authorized action"
         );
 
-        require(
-            /* solhint-disable-next-line not-rely-on-time */
-            block.timestamp >= reservation.reanchorCooldownUntil,
-            "Reanchor cooldown in effect"
-        );
         require(
             reservation.walletPubKeyHash == proposal.sourceWalletPubKeyHash,
             "Reservation custodied by different wallet"
@@ -1145,21 +1189,42 @@ contract WalletProposalValidator {
 
         (
             ,
-            uint64 reservationMinAmount,
-            uint64 reservationTxMaxFee
-        ) = reservationVaultAndFees();
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            uint32 maxReservationsPerWallet,
+            ,
+
+        ) = IReservationBridge(address(bridge)).reservationParameters();
+        require(
+            IReservationBridge(address(bridge)).walletReservationsCount(
+                proposal.targetWalletPubKeyHash
+            ) <= maxReservationsPerWallet,
+            "Wallet reservations cap exceeded"
+        );
+
+        (uint64 maxReservationsAmountPerWallet, , ) = IReservationBridge(
+            address(bridge)
+        ).reservationCaps();
+        require(
+            maxReservationsAmountPerWallet == 0 ||
+                IReservationBridge(address(bridge)).walletReservationsAmount(
+                    proposal.targetWalletPubKeyHash
+                ) <=
+                maxReservationsAmountPerWallet,
+            "Wallet reserved amount cap exceeded"
+        );
+
         require(
             proposal.reanchorTxFee > 0,
             "Proposed transaction fee cannot be zero"
         );
         require(
-            proposal.reanchorTxFee <= reservationTxMaxFee,
+            proposal.reanchorTxFee <= action.txMaxFee,
             "Proposed transaction fee is too high"
-        );
-        require(
-            reservation.anchorAmount >=
-                reservationTxMaxFee + reservationMinAmount,
-            "Reanchor would fall below the minimum reservation amount"
         );
 
         return true;
