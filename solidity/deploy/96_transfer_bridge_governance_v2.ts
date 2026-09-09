@@ -14,11 +14,35 @@ const BRIDGE_GOVERNANCE_ABI = [
 // here would also run this irreversible governance migration during
 // `yarn deploy:test` and any unit test that pulls in this deployment via
 // `deployments.fixture()`.
+//
+// Dependency note: this script depends on the "BridgeGovernanceV2" tag
+// (95_deploy_bridge_governance_v2.ts), but that script is independently
+// skip-gated behind DEPLOY_BRIDGE_GOVERNANCE_V2=true. hardhat-deploy checks
+// each script's own skip condition even when it's pulled in as a resolved
+// dependency, so declaring the dependency does NOT force 95 to run. If
+// BridgeGovernanceV2 was already deployed in a prior invocation, its
+// deployment record is read from disk and this still works standalone. On
+// a network where it has never been deployed, DEPLOY_BRIDGE_GOVERNANCE_V2=true
+// must be set alongside DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true in the same
+// invocation, or this script throws the actionable error below.
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, getNamedAccounts, ethers } = hre
 
   const OldBridgeGovernance = await deployments.get("BridgeGovernance")
-  const NewBridgeGovernance = await deployments.get("BridgeGovernanceV2")
+  let NewBridgeGovernance
+  try {
+    NewBridgeGovernance = await deployments.get("BridgeGovernanceV2")
+  } catch (error) {
+    throw new Error(
+      "BridgeGovernanceV2 has not been deployed on this network yet. " +
+        "Run this with DEPLOY_BRIDGE_GOVERNANCE_V2=true set alongside " +
+        "DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true (95_deploy_bridge_governance_v2.ts " +
+        "is skip-gated independently and will not run just because this " +
+        "script declares it as a dependency), or run " +
+        "`yarn deploy --tags BridgeGovernanceV2` on its own first if " +
+        "BridgeGovernanceV2 should already exist from a prior deployment."
+    )
+  }
 
   const bridgeGovernanceInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
 

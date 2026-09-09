@@ -418,7 +418,16 @@ describe("Bridge - Peg keeper", () => {
       ).to.be.revertedWith("Rebate staking disabled")
     })
   })
+
   describe("partial landing / upgrade ordering", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
     it("should not emit RebateStakingRepaired when rebateStaking is already address(0)", async () => {
       const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()

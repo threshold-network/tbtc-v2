@@ -186,6 +186,19 @@ that must be submitted by the owner of the OLD `BridgeGovernance`
 DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true
 ----
 
+IMPORTANT: This script depends on `BridgeGovernanceV2` already being
+deployed. If Action 1 was run in a *prior* invocation, its deployment
+record is already persisted to disk and this script works standalone.
+If running Action 1 and Action 2 back-to-back in the *same* session on a
+network where `BridgeGovernanceV2` does not exist yet, set
+`DEPLOY_BRIDGE_GOVERNANCE_V2=true` alongside
+`DEPLOY_BRIDGE_GOVERNANCE_TRANSFER=true` -- hardhat-deploy's tag
+dependency resolution pulls `95_deploy_bridge_governance_v2.ts` into the
+run, but that script is independently skip-gated and will not execute
+just because this script declares it as a dependency. Omitting the flag
+in a fresh environment throws an actionable error naming both
+prerequisites.
+
 .Execution
 [source,bash]
 ----
