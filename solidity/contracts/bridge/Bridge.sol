@@ -2040,10 +2040,17 @@ contract Bridge is
     }
 
     /// @notice Adds or removes a depositor contract from the sponsored
-    ///         depositor allowlist. When a depositor is on the list, reveals
-    ///         it submits route the `RebateStaking` rebate to the L1 address
-    ///         decoded from `extraData` rather than to the depositor contract
-    ///         itself. Intended for direct-L1-receiver relays such as
+    ///         depositor allowlist. When a depositor is on the list and a
+    ///         reveal it submits carries non-empty `extraData`, the
+    ///         `RebateStaking` rebate for that reveal routes to the L1
+    ///         address decoded from `extraData` instead of to the depositor
+    ///         contract itself -- but only if that decoded address has
+    ///         separately authorized the depositor via
+    ///         `RebateStaking.setSponsorConsent`. Activation therefore
+    ///         requires two independent steps: this governance allowlist
+    ///         call, and the L1 staker's own consent transaction. Without
+    ///         both, the rebate falls back to charging the depositor's own
+    ///         stake. Intended for direct-L1-receiver relays such as
     ///         `NativeBTCDepositor`. Must not be enabled for cross-chain
     ///         depositors whose `extraData` is an L2 user identifier rather
     ///         than an L1 staker.

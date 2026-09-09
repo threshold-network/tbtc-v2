@@ -1,6 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
+import crypto from "crypto"
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
@@ -476,12 +477,41 @@ describe("Bridge - Deposit", () => {
                   context(
                     "when depositor is on the sponsored depositor allowlist",
                     () => {
+                      const stakeAmount = to1e18(5)
+                      let depositorAvailableBefore: BigNumber
+
                       before(async () => {
                         await createSnapshot()
 
                         await bridgeGovernance
                           .connect(governance)
                           .setSponsoredDepositor(depositor.address, true)
+
+                        // `revealDeposit` never carries `extraData`, so the
+                        // sponsor-routing branch in `Deposit.sol` can never
+                        // trigger here; the allowlisted depositor always
+                        // falls back to charging its own stake. Stake T for
+                        // the depositor so the rebate consumption asserted
+                        // below is a real fallback, not an artifact of
+                        // rebate logic never engaging at all.
+                        await t
+                          .connect(deployer)
+                          .mint(depositor.address, stakeAmount)
+                        await t
+                          .connect(depositor)
+                          .approve(rebateStaking.address, stakeAmount)
+                        await rebateStaking
+                          .connect(depositor)
+                          .stake(stakeAmount)
+
+                        depositorAvailableBefore =
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+
+                        await bridge
+                          .connect(depositor)
+                          .revealDeposit(P2SHFundingTx, reveal)
                       })
 
                       after(async () => {
@@ -489,10 +519,6 @@ describe("Bridge - Deposit", () => {
                       })
 
                       it("should not revert and should charge the depositor's own rebate", async () => {
-                        await bridge
-                          .connect(depositor)
-                          .revealDeposit(P2SHFundingTx, reveal)
-
                         const depositKey = ethers.utils.solidityKeccak256(
                           ["bytes32", "uint32"],
                           [
@@ -503,7 +529,16 @@ describe("Bridge - Deposit", () => {
 
                         const deposit = await bridge.deposits(depositKey)
 
-                        expect(deposit.treasuryFee).to.be.equal(5)
+                        expect(deposit.treasuryFee).to.be.equal(0)
+
+                        const depositorAvailableAfter =
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+
+                        expect(depositorAvailableAfter).to.be.lt(
+                          depositorAvailableBefore
+                        )
                       })
                     }
                   )
@@ -1288,67 +1323,207 @@ describe("Bridge - Deposit", () => {
                     })
                   })
 
+                  // ──────────────────────────────────────────────────────────
+                  // Dedicated fixture for sponsored-rebate-routing tests.
+                  // Uses the SAME walletPubKeyHash already registered Live in
+                  // the enclosing describe scope, a ZERO_ADDRESS vault, and
+                  // constructs a P2SH funding tx + reveal matching the exact
+                  // script layout Deposit.sol expects for the extraData branch.
+                  // ──────────────────────────────────────────────────────────
+                  interface ExtraDataFundingFixture {
+                    fundingTx: BitcoinTxInfoStruct
+                    reveal: DepositRevealInfoStruct
+                    extraData: string
+                    receiverAddress: string
+                  }
+
+                  function buildExtraDataFundingTx(
+                    receiverAddress: string,
+                    canonical: boolean
+                  ): ExtraDataFundingFixture {
+                    // The depositor embedded in the script must match the
+                    // reveal caller (depositor.address).
+                    const depositorAddr = depositorAddress
+                    // Fields not inspected by the routing logic can be random.
+                    const blindingFactor = `0x${crypto
+                      .randomBytes(8)
+                      .toString("hex")}`
+                    const refundPubKeyHash = `0x${crypto
+                      .randomBytes(20)
+                      .toString("hex")}`
+                    const refundLocktime = `0x${crypto
+                      .randomBytes(4)
+                      .toString("hex")}`
+
+                    // extraData: canonically left-padded (high 12 bytes zero) or
+                    // deliberately dirty (flip bit 0 of byte 0). Lowercase the
+                    // address first so the resulting extraData matches the
+                    // lowercase bytes32 the chain returns for `deposit.extraData`.
+                    const lowerReceiver = receiverAddress.toLowerCase()
+                    let extraData: string
+                    if (canonical) {
+                      extraData = ethers.utils.hexZeroPad(lowerReceiver, 32)
+                    } else {
+                      const canonicalPad = ethers.utils.hexZeroPad(
+                        lowerReceiver,
+                        32
+                      )
+                      // Flip the high byte (byte 0) to make it non-canonical.
+                      const highByte =
+                        parseInt(canonicalPad.slice(2, 4), 16) ^ 0x01
+                      extraData = `0x${highByte
+                        .toString(16)
+                        .padStart(2, "0")}${canonicalPad.slice(4)}`
+                    }
+
+                    // Build the deposit script exactly as Deposit.sol does.
+                    const depositScript =
+                      `0x14${depositorAddr.slice(2)}75` +
+                      `20${extraData.slice(2)}75` +
+                      `08${blindingFactor.slice(2)}75` +
+                      `76a914${(reveal.walletPubKeyHash as string).slice(
+                        2
+                      )}87` +
+                      "63ac67" +
+                      `76a914${refundPubKeyHash.slice(2)}88` +
+                      `04${refundLocktime.slice(2)}b175` +
+                      "ac68"
+
+                    // P2SH script hash: RIPEMD160(SHA256(script))
+                    const sha256Hash = ethers.utils.sha256(depositScript)
+                    const ripemd160Hash = ethers.utils
+                      .ripemd160(sha256Hash)
+                      .slice(2)
+                    const depositScriptHash = `17a914${ripemd160Hash}87`
+
+                    // Funding transaction (inputVector can be random, irrelevant to validation).
+                    const fundingTx: BitcoinTxInfoStruct = {
+                      version: "0x01000000",
+                      inputVector: `0x01${crypto
+                        .randomBytes(32)
+                        .toString("hex")}0000000000ffffffff`,
+                      // 1 output, 10000 satoshi (0x1027000000000000 little-endian)
+                      outputVector: `0x011027000000000000${depositScriptHash}`,
+                      locktime: "0x00000000",
+                    }
+
+                    const revealObj: DepositRevealInfoStruct = {
+                      fundingOutputIndex: 0,
+                      blindingFactor,
+                      walletPubKeyHash: reveal.walletPubKeyHash,
+                      refundPubKeyHash,
+                      refundLocktime,
+                      vault: ZERO_ADDRESS,
+                    }
+
+                    return {
+                      fundingTx,
+                      reveal: revealObj,
+                      extraData,
+                      receiverAddress,
+                    }
+                  }
+                  // Stakes T from the L1 address encoded in `extraData`
+                  // (the "receiver"), optionally allowlists `depositor` as a
+                  // sponsored depositor and/or has the receiver authorize
+                  // `depositor` as a sponsor, then submits the
+                  // `revealDepositWithExtraData` reveal. Shared by the
+                  // sponsored/non-sponsored/unauthorized scenarios below,
+                  // which only differ in which of these two flags are set.
+                  async function stakeReceiverAndReveal(
+                    options: {
+                      allowlisted: boolean
+                      authorized: boolean
+                    },
+                    fixture?: ExtraDataFundingFixture
+                  ): Promise<{
+                    receiver: SignerWithAddress
+                    receiverAvailableBefore: BigNumber
+                  }> {
+                    // Use the provided fixture's extraData, or fall back to the
+                    // shared fixture's extraData for backward compatibility.
+                    const extraDataToUse = fixture?.extraData ?? extraData
+                    const receiverAddress = ethers.utils.getAddress(
+                      `0x${extraDataToUse.slice(-40)}`
+                    )
+                    const stakeAmount = to1e18(5)
+
+                    if (options.allowlisted) {
+                      // Allowlist the depositor that the existing fixture
+                      // already impersonates as the reveal caller. Goes
+                      // through `BridgeGovernance` because Bridge governance
+                      // is still held by that contract in this fixture.
+                      await bridgeGovernance
+                        .connect(governance)
+                        .setSponsoredDepositor(depositor.address, true)
+                    }
+
+                    // Fund the receiver-impersonating account with ETH so it
+                    // can pay gas, then mint and stake T from it.
+                    const receiver = await impersonateAccount(receiverAddress, {
+                      from: governance,
+                      value: 10,
+                    })
+                    await t
+                      .connect(deployer)
+                      .mint(receiver.address, stakeAmount)
+                    await t
+                      .connect(receiver)
+                      .approve(rebateStaking.address, stakeAmount)
+                    await rebateStaking.connect(receiver).stake(stakeAmount)
+
+                    if (options.authorized) {
+                      await rebateStaking
+                        .connect(receiver)
+                        .setSponsorConsent(depositor.address, true)
+                    }
+
+                    const receiverAvailableBefore =
+                      await rebateStaking.getAvailableRebate(receiver.address)
+
+                    await bridge
+                      .connect(depositor)
+                      .revealDepositWithExtraData(
+                        fixture?.fundingTx ?? P2SHFundingTx,
+                        fixture?.reveal ?? reveal,
+                        extraDataToUse
+                      )
+
+                    return { receiver, receiverAvailableBefore }
+                  }
+
                   context(
                     "when depositor is on the sponsored depositor allowlist",
                     () => {
-                      // The fixture's `extraData` is a fixed 32-byte value
-                      // embedded in the Bitcoin script; its low 20 bytes give
-                      // the L1 receiver address whose stake should be
-                      // honored when the depositor is on the allowlist.
-                      const receiverAddress = ethers.utils.getAddress(
-                        `0x${extraData.slice(-40)}`
-                      )
-                      const stakeAmount = to1e18(5)
-
                       let receiver: SignerWithAddress
                       let depositorAvailableBefore: BigNumber
                       let receiverAvailableBefore: BigNumber
+                      let canonicalFixture: ExtraDataFundingFixture
 
                       before(async () => {
                         await createSnapshot()
 
-                        // Allowlist the depositor that the existing fixture
-                        // already impersonates as the reveal caller. Goes
-                        // through `BridgeGovernance` because Bridge governance
-                        // is still held by that contract in this fixture.
-                        await bridgeGovernance
-                          .connect(governance)
-                          .setSponsoredDepositor(depositor.address, true)
-
-                        // Fund the receiver-impersonating account with ETH so
-                        // it can pay gas, then mint and stake T from it.
-                        receiver = await impersonateAccount(receiverAddress, {
-                          from: governance,
-                          value: 10,
-                        })
-                        await t
-                          .connect(deployer)
-                          .mint(receiver.address, stakeAmount)
-                        await t
-                          .connect(receiver)
-                          .approve(rebateStaking.address, stakeAmount)
-                        await rebateStaking.connect(receiver).stake(stakeAmount)
-
-                        await rebateStaking
-                          .connect(receiver)
-                          .setSponsorAuthorization(depositor.address, true)
+                        // Build a dedicated canonical-extraData fixture for this
+                        // test context so we don't touch the shared fixture.
+                        // Use a fresh receiver address from unnamed accounts.
+                        const unnamed = await getUnnamedAccounts()
+                        const freshReceiver = ethers.utils.getAddress(
+                          unnamed[0]
+                        )
+                        canonicalFixture = buildExtraDataFundingTx(
+                          freshReceiver,
+                          true // canonical: true
+                        )
 
                         depositorAvailableBefore =
                           await rebateStaking.getAvailableRebate(
                             depositor.address
                           )
-                        receiverAvailableBefore =
-                          await rebateStaking.getAvailableRebate(
-                            receiver.address
-                          )
-
-                        await bridge
-                          .connect(depositor)
-                          .revealDepositWithExtraData(
-                            P2SHFundingTx,
-                            reveal,
-                            extraData
-                          )
+                        ;({ receiver, receiverAvailableBefore } =
+                          await stakeReceiverAndReveal(
+                            { allowlisted: true, authorized: true },
+                            canonicalFixture
+                          ))
                       })
 
                       after(async () => {
@@ -1374,16 +1549,35 @@ describe("Bridge - Deposit", () => {
                       })
 
                       it("should still record deposit.depositor as the depositor contract", async () => {
+                        // Resulting TX hash is in native Bitcoin little-endian
+                        // format, computed the same way Deposit.sol does it.
+                        const fundingTxHash = ethers.utils.sha256(
+                          ethers.utils.sha256(
+                            (canonicalFixture.fundingTx.version as string) +
+                              (
+                                canonicalFixture.fundingTx.inputVector as string
+                              ).slice(2) +
+                              (
+                                canonicalFixture.fundingTx
+                                  .outputVector as string
+                              ).slice(2) +
+                              (
+                                canonicalFixture.fundingTx.locktime as string
+                              ).slice(2)
+                          )
+                        )
                         const depositKey = ethers.utils.solidityKeccak256(
                           ["bytes32", "uint32"],
                           [
-                            "0x6383cd1829260b6034cd12bad36171748e8c3c6a8d57fcb6463c62f96116dfbc",
-                            reveal.fundingOutputIndex,
+                            fundingTxHash,
+                            canonicalFixture.reveal.fundingOutputIndex,
                           ]
                         )
                         const deposit = await bridge.deposits(depositKey)
                         expect(deposit.depositor).to.equal(depositor.address)
-                        expect(deposit.extraData).to.equal(extraData)
+                        expect(deposit.extraData).to.equal(
+                          canonicalFixture.extraData
+                        )
                       })
                     }
                   )
@@ -1395,41 +1589,16 @@ describe("Bridge - Deposit", () => {
                       // allowlisting the depositor. The rebate should fall
                       // back to the depositor identity (unchanged behavior),
                       // and the L1 receiver's stake should be untouched.
-                      const receiverAddress = ethers.utils.getAddress(
-                        `0x${extraData.slice(-40)}`
-                      )
-                      const stakeAmount = to1e18(5)
-
                       let receiver: SignerWithAddress
                       let receiverAvailableBefore: BigNumber
 
                       before(async () => {
                         await createSnapshot()
-
-                        receiver = await impersonateAccount(receiverAddress, {
-                          from: governance,
-                          value: 10,
-                        })
-                        await t
-                          .connect(deployer)
-                          .mint(receiver.address, stakeAmount)
-                        await t
-                          .connect(receiver)
-                          .approve(rebateStaking.address, stakeAmount)
-                        await rebateStaking.connect(receiver).stake(stakeAmount)
-
-                        receiverAvailableBefore =
-                          await rebateStaking.getAvailableRebate(
-                            receiver.address
-                          )
-
-                        await bridge
-                          .connect(depositor)
-                          .revealDepositWithExtraData(
-                            P2SHFundingTx,
-                            reveal,
-                            extraData
-                          )
+                        ;({ receiver, receiverAvailableBefore } =
+                          await stakeReceiverAndReveal({
+                            allowlisted: false,
+                            authorized: false,
+                          }))
                       })
 
                       after(async () => {
@@ -1452,54 +1621,48 @@ describe("Bridge - Deposit", () => {
                       context(
                         "when extraData decodes to a staker who has not authorized the depositor",
                         () => {
-                          const receiverAddress = ethers.utils.getAddress(
-                            `0x${extraData.slice(-40)}`
-                          )
-                          const stakeAmount = to1e18(5)
+                          const depositorStakeAmount = to1e18(5)
 
                           let receiver: SignerWithAddress
+                          let depositorAvailableBefore: BigNumber
                           let receiverAvailableBefore: BigNumber
 
                           before(async () => {
                             await createSnapshot()
 
-                            await bridgeGovernance
-                              .connect(governance)
-                              .setSponsoredDepositor(depositor.address, true)
-
-                            // Stake T from the receiver-impersonating account
-                            // but never call `setSponsorAuthorization`, so
-                            // the depositor is allowlisted yet unauthorized
-                            // by the named staker.
-                            receiver = await impersonateAccount(
-                              receiverAddress,
-                              {
-                                from: governance,
-                                value: 10,
-                              }
-                            )
+                            // Stake T directly for the depositor itself:
+                            // since the sponsor authorization required to
+                            // route the rebate to the receiver is missing,
+                            // the reveal must fall back to consuming the
+                            // depositor's own stake rather than skipping
+                            // rebate application entirely.
                             await t
                               .connect(deployer)
-                              .mint(receiver.address, stakeAmount)
+                              .mint(depositor.address, depositorStakeAmount)
                             await t
-                              .connect(receiver)
-                              .approve(rebateStaking.address, stakeAmount)
-                            await rebateStaking
-                              .connect(receiver)
-                              .stake(stakeAmount)
-
-                            receiverAvailableBefore =
-                              await rebateStaking.getAvailableRebate(
-                                receiver.address
-                              )
-
-                            await bridge
                               .connect(depositor)
-                              .revealDepositWithExtraData(
-                                P2SHFundingTx,
-                                reveal,
-                                extraData
+                              .approve(
+                                rebateStaking.address,
+                                depositorStakeAmount
                               )
+                            await rebateStaking
+                              .connect(depositor)
+                              .stake(depositorStakeAmount)
+
+                            depositorAvailableBefore =
+                              await rebateStaking.getAvailableRebate(
+                                depositor.address
+                              )
+
+                            // Stake T from the receiver-impersonating account
+                            // but never call `setSponsorConsent`, so
+                            // the depositor is allowlisted yet unauthorized
+                            // by the named staker.
+                            ;({ receiver, receiverAvailableBefore } =
+                              await stakeReceiverAndReveal({
+                                allowlisted: true,
+                                authorized: false,
+                              }))
                           })
 
                           after(async () => {
@@ -1515,7 +1678,15 @@ describe("Bridge - Deposit", () => {
                               ]
                             )
                             const deposit = await bridge.deposits(depositKey)
-                            expect(deposit.treasuryFee).to.be.equal(5)
+                            expect(deposit.treasuryFee).to.be.equal(0)
+
+                            const depositorAvailableAfter =
+                              await rebateStaking.getAvailableRebate(
+                                depositor.address
+                              )
+                            expect(depositorAvailableAfter).to.be.lt(
+                              depositorAvailableBefore
+                            )
                           })
 
                           it("should leave the receiver's rebate untouched", async () => {
@@ -1531,7 +1702,7 @@ describe("Bridge - Deposit", () => {
                       // The symmetric "decodes to the zero address" edge
                       // case (the `decoded != address(0)` half of
                       // `Deposit.sol`'s single `if (decoded != address(0)
-                      // && isAuthorizedSponsor(...))` condition) is not
+                      // && isSponsorConsentGranted(...))` condition) is not
                       // covered by a dedicated test here. Exercising it
                       // would require an `extraData` value different from
                       // the fixture's committed `extraData`, but `extraData`
@@ -1540,11 +1711,128 @@ describe("Bridge - Deposit", () => {
                       // comment above), so swapping in a zero-decoding
                       // `extraData` would require regenerating a matching
                       // Bitcoin script fixture offline - disproportionate
-                      // for this narrow edge case. The `isAuthorizedSponsor`
+                      // for this narrow edge case. The `isSponsorConsentGranted`
                       // half of the same boolean AND is already covered by
                       // the sibling "when extraData decodes to a staker who
                       // has not authorized the depositor" test above, which
                       // correctly exercises the fail-open fallback.
+                    }
+                  )
+
+                  // ──────────────────────────────────────────────────────────
+                  // NEW: Fallback test for non-canonical extraData (dirty high byte).
+                  // Verifies that a non-canonical extraData payload is treated
+                  // as a missing precondition, causing the rebate to fall back
+                  // to charging the depositor (same as any other unmet condition).
+                  // ──────────────────────────────────────────────────────────
+                  context(
+                    "when depositor is on the sponsored depositor allowlist " +
+                      "and extraData has a dirty high byte (non-canonical)",
+                    () => {
+                      const depositorStakeAmount = to1e18(5)
+                      const receiverStakeAmount = to1e18(5)
+
+                      let receiver: SignerWithAddress
+                      let depositorAvailableBefore: BigNumber
+                      let receiverAvailableBefore: BigNumber
+                      let noncanonicalFixture: ExtraDataFundingFixture
+
+                      before(async () => {
+                        await createSnapshot()
+
+                        // Build a dedicated non-canonical-extraData fixture for
+                        // this test context; does not touch the shared fixture.
+                        const unnamed = await getUnnamedAccounts()
+                        const freshReceiver = ethers.utils.getAddress(
+                          unnamed[0]
+                        )
+                        noncanonicalFixture = buildExtraDataFundingTx(
+                          freshReceiver,
+                          false // canonical: false (dirty high byte)
+                        )
+
+                        await bridgeGovernance
+                          .connect(governance)
+                          .setSponsoredDepositor(depositor.address, true)
+
+                        // Stake T directly for the depositor itself: since the
+                        // canonical-encoding check makes the routing condition
+                        // unmet, the reveal must fall back to consuming the
+                        // depositor's own stake rather than skipping rebate
+                        // application entirely.
+                        await t
+                          .connect(deployer)
+                          .mint(depositor.address, depositorStakeAmount)
+                        await t
+                          .connect(depositor)
+                          .approve(rebateStaking.address, depositorStakeAmount)
+                        await rebateStaking
+                          .connect(depositor)
+                          .stake(depositorStakeAmount)
+
+                        // Fund the receiver-impersonating account with ETH so it
+                        // can pay gas, then mint and stake T from it, and grant
+                        // sponsor consent to the depositor. Consent is granted
+                        // despite the dirty extraData to isolate the canonical-
+                        // encoding check as the sole reason for the fallback.
+                        receiver = await impersonateAccount(
+                          noncanonicalFixture.receiverAddress,
+                          { from: governance, value: 10 }
+                        )
+                        await t
+                          .connect(deployer)
+                          .mint(receiver.address, receiverStakeAmount)
+                        await t
+                          .connect(receiver)
+                          .approve(rebateStaking.address, receiverStakeAmount)
+                        await rebateStaking
+                          .connect(receiver)
+                          .stake(receiverStakeAmount)
+                        await rebateStaking
+                          .connect(receiver)
+                          .setSponsorConsent(depositor.address, true)
+
+                        depositorAvailableBefore =
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        receiverAvailableBefore =
+                          await rebateStaking.getAvailableRebate(
+                            receiver.address
+                          )
+
+                        await bridge
+                          .connect(depositor)
+                          .revealDepositWithExtraData(
+                            noncanonicalFixture.fundingTx,
+                            noncanonicalFixture.reveal,
+                            noncanonicalFixture.extraData
+                          )
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should not revert and should charge the depositor's own rebate", async () => {
+                        const depositorAvailableAfter =
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        expect(depositorAvailableAfter).to.be.lt(
+                          depositorAvailableBefore
+                        )
+                      })
+
+                      it("should leave the receiver's rebate untouched", async () => {
+                        const receiverAvailableAfter =
+                          await rebateStaking.getAvailableRebate(
+                            receiver.address
+                          )
+                        expect(receiverAvailableAfter).to.equal(
+                          receiverAvailableBefore
+                        )
+                      })
                     }
                   )
 

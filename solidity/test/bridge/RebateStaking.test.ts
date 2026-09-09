@@ -489,32 +489,43 @@ describe("RebateStaking", () => {
     })
   })
 
-  describe("setSponsorAuthorization", () => {
+  describe("setSponsorConsent", () => {
+    const stakeAmount = defaultStakeAmount
+    let tx: ContractTransaction
+
     before(async () => {
       await createSnapshot()
+
+      await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+      await rebateStaking.connect(thirdParty).stake(stakeAmount)
     })
 
     after(async () => {
       await restoreSnapshot()
     })
 
-    it("should not revert when called by an address that is not a staker", async () => {
+    it("should revert when called by a non-staker", async () => {
       await expect(
         rebateStaking
-          .connect(thirdParty)
-          .setSponsorAuthorization(deployer.address, true)
-      ).to.not.be.reverted
+          .connect(governance)
+          .setSponsorConsent(deployer.address, true)
+      ).to.be.revertedWith("NotAStaker")
+    })
+
+    it("should revert when depositor is zero", async () => {
+      await expect(
+        rebateStaking.connect(thirdParty).setSponsorConsent(ZERO_ADDRESS, true)
+      ).to.be.revertedWith("ZeroAddress")
     })
 
     context("when a staker authorizes a sponsored depositor", () => {
-      let tx: ContractTransaction
-
       before(async () => {
         await createSnapshot()
 
         tx = await rebateStaking
           .connect(thirdParty)
-          .setSponsorAuthorization(deployer.address, true)
+          .setSponsorConsent(deployer.address, true)
       })
 
       after(async () => {
@@ -523,7 +534,7 @@ describe("RebateStaking", () => {
 
       it("should authorize the depositor for that staker", async () => {
         expect(
-          await rebateStaking.isAuthorizedSponsor(
+          await rebateStaking.isSponsorConsentGranted(
             thirdParty.address,
             deployer.address
           )
@@ -532,16 +543,16 @@ describe("RebateStaking", () => {
 
       it("should not authorize a different depositor for that staker", async () => {
         expect(
-          await rebateStaking.isAuthorizedSponsor(
+          await rebateStaking.isSponsorConsentGranted(
             thirdParty.address,
             governance.address
           )
         ).to.equal(false)
       })
 
-      it("should emit SponsorAuthorizationSet event", async () => {
+      it("should emit SponsorConsentSet event", async () => {
         await expect(tx)
-          .to.emit(rebateStaking, "SponsorAuthorizationSet")
+          .to.emit(rebateStaking, "SponsorConsentSet")
           .withArgs(thirdParty.address, deployer.address, true)
       })
 
@@ -553,7 +564,7 @@ describe("RebateStaking", () => {
 
           revokeTx = await rebateStaking
             .connect(thirdParty)
-            .setSponsorAuthorization(deployer.address, false)
+            .setSponsorConsent(deployer.address, false)
         })
 
         after(async () => {
@@ -562,16 +573,16 @@ describe("RebateStaking", () => {
 
         it("should revoke the depositor's authorization for that staker", async () => {
           expect(
-            await rebateStaking.isAuthorizedSponsor(
+            await rebateStaking.isSponsorConsentGranted(
               thirdParty.address,
               deployer.address
             )
           ).to.equal(false)
         })
 
-        it("should emit SponsorAuthorizationSet event", async () => {
+        it("should emit SponsorConsentSet event", async () => {
           await expect(revokeTx)
-            .to.emit(rebateStaking, "SponsorAuthorizationSet")
+            .to.emit(rebateStaking, "SponsorConsentSet")
             .withArgs(thirdParty.address, deployer.address, false)
         })
       })

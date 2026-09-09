@@ -81,7 +81,6 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     mapping(address => Stake) public stakes;
     mapping(address => address) public delegates;
-    mapping(address => mapping(address => bool)) public sponsorAuthorizations;
 
     /// @notice Per-redeemer authorization for callback-path rebate
     ///         application. A staker authorizes a specific Bank balance owner
@@ -92,6 +91,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///         rebate accounting to a different staker rather than authorizing
     ///         a Bank balance owner).
     mapping(address => mapping(address => bool)) public rebateAuthorizations;
+    mapping(address => mapping(address => bool)) public stakerSponsorConsent;
 
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
@@ -99,10 +99,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // planned upgrades of the Bridge contract. If more entires are added to
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-    // Upgrade note: `rebateAuthorizations` consumed one reserved slot,
-    // reducing `__gap` from 49 to 48 for storage-layout compatibility.
+    // Upgrade note: rebateAuthorizations and stakerSponsorConsent each
+    // consumed one reserved slot, reducing __gap from 49 to 47 for
+    // storage-layout compatibility.
     // slither-disable-next-line unused-state
-    uint256[48] private __gap;
+    uint256[47] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -117,7 +118,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
     event DelegateeSet(address staker, address delegatee);
-    event SponsorAuthorizationSet(
+    event SponsorConsentSet(
         address indexed staker,
         address indexed depositor,
         bool authorized
@@ -280,24 +281,45 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     /// @notice Authorizes or revokes a sponsored depositor contract's ability to have
     ///         Bridge deposit reveals route rebate consumption to the caller's stake via
-    ///         the depositor-submitted `extraData`.
+    ///         the depositor-submitted `extraData`. The caller must be a staker.
     /// @param depositor Address of a Bridge-allowlisted sponsored depositor contract.
+    ///        Must not be the zero address.
     /// @param authorized New authorization state.
-    function setSponsorAuthorization(address depositor, bool authorized)
-        external
-    {
-        sponsorAuthorizations[msg.sender][depositor] = authorized;
-        emit SponsorAuthorizationSet(msg.sender, depositor, authorized);
+    function setSponsorConsent(address depositor, bool authorized) external {
+        if (stakes[msg.sender].stakedAmount == 0) {
+            revert NotAStaker();
+        }
+        if (depositor == address(0)) revert ZeroAddress();
+        stakerSponsorConsent[msg.sender][depositor] = authorized;
+        emit SponsorConsentSet(msg.sender, depositor, authorized);
     }
 
-    /// @notice Returns whether `staker` has authorized `depositor` to route rebate
-    ///         consumption to their stake via `extraData` on Bridge deposit reveals.
-    function isAuthorizedSponsor(address staker, address depositor)
+    /// @notice Returns whether the staker resolved from `staker` (following
+    ///         delegation via `getStaker`) has consented to `depositor`
+    ///         routing rebate consumption to their stake via `extraData` on
+    ///         Bridge deposit reveals.
+    /// @dev Naming: "sponsor" here means the staker whose stake backs the
+    ///      rebate (the economic sponsor) -- the opposite convention from
+    ///      `BridgeState.sponsoredDepositors`, where the allowlisted party
+    ///      (the depositor contract) is the one called "sponsored".
+    /// @dev Intentionally diverges from the sibling `isRebateAuthorized`,
+    ///      which instead REJECTS a zero-stake querying address outright
+    ///      (`getStake(redeemer) == 0` short-circuits to `false`) rather
+    ///      than resolving it to a delegator. That path exists so a
+    ///      caller can trust `isRebateAuthorized`'s answer describes the
+    ///      resolved-`redeemer` themselves, without a second `getStaker`
+    ///      lookup. This path instead RESOLVES delegation, because
+    ///      `applyForRebate` -- the function whose outcome this view is
+    ///      meant to predict -- always resolves `getStaker` internally
+    ///      before charging. Rejecting here instead of resolving would
+    ///      make this view disagree with the charge it is checked
+    ///      against.
+    function isSponsorConsentGranted(address staker, address depositor)
         external
         view
         returns (bool)
     {
-        return sponsorAuthorizations[staker][depositor];
+        return stakerSponsorConsent[getStaker(staker)][depositor];
     }
 
     /// @notice Calculates cap for rebate for the specified user.

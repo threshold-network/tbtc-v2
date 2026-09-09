@@ -11,10 +11,10 @@ import { utils } from "ethers"
  *         `sponsoredDepositors` allowlist used by `NativeBTCDepositor` to
  *         route rebate consumption to a staker address decoded from deposit
  *         `extraData`. The RebateStaking upgrade enables the
- *         `sponsorAuthorizations` mapping stakers use to authorize a
+ *         `stakerSponsorConsent` mapping stakers use to authorize a
  *         sponsored depositor to route rebate consumption to their stake.
  *         Both proxies must be upgraded together: Deposit.sol's sponsored
- *         depositor routing calls `RebateStaking.isAuthorizedSponsor()`,
+ *         depositor routing calls `RebateStaking.isSponsorConsentGranted()`,
  *         which does not exist on the currently deployed implementation.
  *
  * @dev IMPORTANT DEPLOYMENT NOTES:
@@ -34,8 +34,8 @@ import { utils } from "ethers"
  * Context:
  * - PR #970 adds a `sponsoredDepositors` mapping to Bridge storage and a
  *   `setSponsoredDepositor` function on BridgeGovernance
- * - PR #970 also adds a `sponsorAuthorizations` mapping to RebateStaking
- *   storage and `setSponsorAuthorization` / `isAuthorizedSponsor` functions
+ * - PR #970 also adds a `stakerSponsorConsent` mapping to RebateStaking
+ *   storage and `setSponsorConsent` / `isSponsorConsentGranted` functions
  * - The `NativeBTCDepositor` proxy at KNOWN_NATIVE_BTC_DEPOSITOR must be
  *   added to the allowlist after the upgrade for rebate routing to work
  * - This script generates the calldata for both proxy upgrades and the
@@ -84,7 +84,7 @@ export const KNOWN_NATIVE_BTC_DEPOSITOR =
 
 // Known mainnet RebateStaking proxy address. This proxy must be upgraded
 // alongside the Bridge proxy: Deposit.sol's sponsored depositor routing
-// calls RebateStaking.isAuthorizedSponsor(), which does not exist on the
+// calls RebateStaking.isSponsorConsentGranted(), which does not exist on the
 // currently deployed RebateStaking implementation.
 export const KNOWN_REBATE_STAKING_PROXY =
   "0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45"
@@ -126,7 +126,7 @@ export function encodeBridgeUpgrade(
 
 /**
  * Encodes ProxyAdmin.upgrade() calldata for upgrading the RebateStaking
- * proxy to the new implementation. The new `sponsorAuthorizations` mapping
+ * proxy to the new implementation. The new `stakerSponsorConsent` mapping
  * added by this upgrade is a plain Solidity mapping and zero-defaults to
  * empty, so no post-upgrade initializer call is required.
  * @param rebateStakingProxy - Address of the RebateStaking proxy contract
@@ -193,7 +193,7 @@ function buildVerificationChecks(addresses: {
 }): VerificationCheck[] {
   return [
     {
-      command: `cast call ${addresses.bridgeProxy} "sponsoredDepositors(address)(bool)" ${KNOWN_NATIVE_BTC_DEPOSITOR}`,
+      command: `cast call ${addresses.bridgeProxy} "isSponsoredDepositor(address)(bool)" ${KNOWN_NATIVE_BTC_DEPOSITOR}`,
       expectedResult: "true",
       description:
         "After BridgeGovernance.setSponsoredDepositor call, NativeBTCDepositor should be on the allowlist",
@@ -218,10 +218,13 @@ function buildVerificationChecks(addresses: {
         `cast storage ${addresses.bridgeProxy} 81`,
       expectedResult:
         "Slot 79 = redemptionWatchtower address, " +
-        "slot 80 = rebate staking address, " +
-        "slots 81-128 = zero (__gap[48], gap size unchanged)",
+        "slot 80 = rebateStaking address, " +
+        "slot 81 = sponsoredDepositors mapping base (reads zero, mappings " +
+        "are unrepresented at their base slot), " +
+        "slots 82-128 = zero (__gap[47], reduced from 48 to make room for " +
+        "the new mapping)",
       description:
-        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slots 81-128=__gap[48] with gap size unchanged",
+        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebateStaking, slot 81=sponsoredDepositors mapping base, slots 82-128=__gap[47] (reduced from 48); total struct footprint unchanged",
     },
     {
       command: `cast storage ${addresses.rebateStakingProxy} ${EIP_1967_IMPLEMENTATION_SLOT}`,
@@ -231,11 +234,11 @@ function buildVerificationChecks(addresses: {
     },
     {
       command:
-        `cast call ${addresses.rebateStakingProxy} "isAuthorizedSponsor(address,address)(bool)" ` +
+        `cast call ${addresses.rebateStakingProxy} "isSponsorConsentGranted(address,address)(bool)" ` +
         `<sample_staker> ${KNOWN_NATIVE_BTC_DEPOSITOR}`,
       expectedResult: "false (no authorization set for un-configured stakers)",
       description:
-        "RebateStaking implementation should expose isAuthorizedSponsor() and preserve default false state after upgrade",
+        "RebateStaking implementation should expose isSponsorConsentGranted() and preserve default false state after upgrade",
     },
   ]
 }
@@ -271,19 +274,33 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Step 1: Resolve existing libraries ---
-  // These libraries have NOT changed since last deployment and are reused
-  // from existing deployment artifacts.
-  console.log("\n--- Resolving existing libraries ---")
-  const Deposit = await get("Deposit")
+  // --- Step 1: Deploy updated library, resolve unchanged libraries ---
+  // Deposit has the sponsored-depositor rebate routing changes (an
+  // external library the Bridge contract calls via
+  // `using Deposit for BridgeState.Storage` + DELEGATECALL) and requires a
+  // fresh deployment so the new behavior is linked into the Bridge
+  // implementation below. DepositSweep, Redemption, Wallets, Fraud, and
+  // MovingFunds have NOT changed since last deployment and are reused from
+  // existing deployment artifacts.
+  console.log(
+    "\n--- Deploying updated library / resolving unchanged libraries ---"
+  )
+  const previousDeposit = await get("Deposit")
+  const Deposit = await deploy("Deposit", deployOptions)
+  if (Deposit.address.toLowerCase() === previousDeposit.address.toLowerCase()) {
+    throw new Error(
+      "Deposit library address unchanged after redeploy - sponsored-routing behavior will not activate"
+    )
+  }
   const DepositSweep = await get("DepositSweep")
   const Redemption = await get("Redemption")
   const Wallets = await get("Wallets")
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
-  console.log("Existing library addresses:")
+  console.log("Newly deployed libraries:")
   console.log(`  Deposit:       ${Deposit.address}`)
+  console.log("Existing library addresses:")
   console.log(`  DepositSweep:  ${DepositSweep.address}`)
   console.log(`  Redemption:    ${Redemption.address}`)
   console.log(`  Wallets:       ${Wallets.address}`)
@@ -363,9 +380,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   //                    Timelock.execute() -> ProxyAdmin.upgrade (Bridge and
   //                    RebateStaking proxies must both be upgraded together,
   //                    since Deposit.sol calls
-  //                    RebateStaking.isAuthorizedSponsor())
+  //                    RebateStaking.isSponsorConsentGranted())
   //   Council route:   Council Safe -> BridgeGovernance.setSponsoredDepositor()
   //                    (direct onlyOwner, no begin/finalize)
+  //   Per-staker opt-in: after both proxy upgrades and the Council Safe
+  //                    allowlist call, the sponsored-routing rebate does NOT
+  //                    activate for any staker until that staker separately
+  //                    calls RebateStaking.setSponsorConsent(depositor,
+  //                    true) themselves. This script cannot automate or
+  //                    execute this on a staker's behalf; operators should
+  //                    communicate this to affected stakers (e.g.
+  //                    NativeBTCDepositor users) as part of the rollout.
   console.log("\n--- Generating governance calldata ---")
 
   const BridgeGovernance = await get("BridgeGovernance")
@@ -385,7 +410,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Timelock action [0]: RebateStaking upgrade. Ordered before the Bridge
   // upgrade so the RebateStaking proxy already exposes
-  // isAuthorizedSponsor() by the time the Bridge upgrade activates.
+  // isSponsorConsentGranted() by the time the Bridge upgrade activates.
   // Timelock minDelay = 86400s (24h)
   const rebateStakingUpgradeCalldata = encodeRebateStakingUpgrade(
     RebateStaking.address,
@@ -423,6 +448,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const setSponsoredCalldata = encodeSetSponsoredDepositor(
     KNOWN_NATIVE_BTC_DEPOSITOR,
     true
+  )
+  console.log(
+    "\nWARNING: Do not execute the Council Safe setSponsoredDepositor " +
+      "action until Timelock Action [0] (RebateStaking upgrade) has been " +
+      "scheduled AND executed on-chain. The two Timelock actions are NOT " +
+      "batched atomically; executing Council Safe's action first will make " +
+      "revealDepositWithExtraData calls through the allowlisted depositor " +
+      "revert (isSponsorConsentGranted selector does not exist on the " +
+      "not-yet-upgraded RebateStaking implementation)."
   )
   logCalldataAction(
     "Council Safe Action: setSponsoredDepositor",
@@ -481,6 +515,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         value: 0,
         description:
           "setSponsoredDepositor on BridgeGovernance (direct onlyOwner call)",
+        requiresPriorExecution: ["Timelock Action [0]: RebateStaking upgrade"],
       },
     ],
     libraries: bridgeLibraries,

@@ -330,7 +330,10 @@ library BridgeState {
         // behalf of an L1 receiver. Governance-managed; intended for direct
         // L1-receiver depositors (e.g. NativeBTCDepositor) and must not
         // include cross-chain depositors whose `extraData` is an L2 user
-        // identifier.
+        // identifier. Allowlisting alone does not activate rebate routing:
+        // the decoded L1 address must also separately authorize the
+        // depositor via `RebateStaking.setSponsorConsent`. Both this
+        // allowlist entry and that per-staker consent are required.
         mapping(address => bool) sponsoredDepositors;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
@@ -907,7 +910,11 @@ library BridgeState {
     /// @notice Adds or removes a depositor contract from the sponsored
     ///         depositor allowlist. Reveals submitted by an allowlisted
     ///         depositor have their rebate routed to the L1 address decoded
-    ///         from `extraData` instead of to the depositor contract.
+    ///         from `extraData` instead of to the depositor contract, but
+    ///         only once that decoded address has separately authorized the
+    ///         depositor via `RebateStaking.setSponsorConsent`. This
+    ///         allowlist call alone does not activate routing for any
+    ///         staker.
     /// @param _depositor Address of the depositor contract.
     /// @param _sponsored New allowlist membership.
     /// @dev Requirements:
