@@ -2009,12 +2009,17 @@ describe("Bridge - Parameters", () => {
   })
 
   describe("setReservationRouter", () => {
-    const reservationRouter = "0x0000000000000000000000000000000000002000"
+    // No deployed code at this address; used only to exercise the
+    // deployed-code guard and the "must not be 0x0" guard, never as a
+    // value that is expected to be successfully stored.
+    const reservationRouterEOA = "0x0000000000000000000000000000000000002000"
 
     context("when caller is not the contract guvnor", () => {
       it("should revert", async () => {
         await expect(
-          bridge.connect(thirdParty).setReservationRouter(reservationRouter)
+          bridge
+            .connect(thirdParty)
+            .setReservationRouter(reservationRouterEOA)
         ).to.be.revertedWith("Caller is not the governance")
       })
     })
@@ -2028,7 +2033,11 @@ describe("Bridge - Parameters", () => {
       // initialized instance has its governance set to `deployer` (the
       // default signer returned by `deployBridge`), so it can be called
       // directly without the BridgeGovernance transfer dance used
-      // elsewhere in this file.
+      // elsewhere in this file. The freshly deployed Bridge proxy's own
+      // address is reused as the router value in the happy-path scenarios
+      // below purely as a convenient, already-deployed contract address
+      // satisfying the deployed-code guard; it is not exercised through
+      // the fallback delegatecall in these tests.
       context("when the reservation router address is already set", () => {
         let freshBridge: BridgeStub
 
@@ -2036,7 +2045,7 @@ describe("Bridge - Parameters", () => {
           await createSnapshot()
 
           freshBridge = (await deployBridge(1))[0] as BridgeStub
-          await freshBridge.setReservationRouter(reservationRouter)
+          await freshBridge.setReservationRouter(freshBridge.address)
         })
 
         after(async () => {
@@ -2071,6 +2080,29 @@ describe("Bridge - Parameters", () => {
           })
         })
 
+        context(
+          "when the reservation router address has no deployed code",
+          () => {
+            let freshBridge: BridgeStub
+
+            before(async () => {
+              await createSnapshot()
+
+              freshBridge = (await deployBridge(1))[0] as BridgeStub
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should revert", async () => {
+              await expect(
+                freshBridge.setReservationRouter(reservationRouterEOA)
+              ).to.be.revertedWith("Reservation router must be a contract")
+            })
+          }
+        )
+
         context("when the reservation router address is non-zero", () => {
           let freshBridge: BridgeStub
           let tx: ContractTransaction
@@ -2079,7 +2111,7 @@ describe("Bridge - Parameters", () => {
             await createSnapshot()
 
             freshBridge = (await deployBridge(1))[0] as BridgeStub
-            tx = await freshBridge.setReservationRouter(reservationRouter)
+            tx = await freshBridge.setReservationRouter(freshBridge.address)
           })
 
           after(async () => {
@@ -2088,7 +2120,7 @@ describe("Bridge - Parameters", () => {
 
           it("should set the reservation router address", async () => {
             expect(await freshBridge.getReservationRouter()).to.equal(
-              reservationRouter
+              freshBridge.address
             )
           })
 
@@ -2108,7 +2140,7 @@ describe("Bridge - Parameters", () => {
 
             await expect(tx)
               .to.emit(reservationRouterSetEvent, "ReservationRouterSet")
-              .withArgs(reservationRouter)
+              .withArgs(freshBridge.address)
           })
         })
       })

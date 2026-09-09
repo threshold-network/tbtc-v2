@@ -332,6 +332,13 @@ library Reservation {
         // `settleAcceptance` to compute `dissolutionEligibleAt` from the
         // generation record instead of the live governance parameter.
         uint32 dissolutionDelay;
+        // Snapshotted minimum reservation amount at acceptance request
+        // time. Used by proof-time validation so a later governance
+        // increase of `reservationMinAmount` cannot revert an
+        // already-broadcast, Bitcoin-confirmed anchor transaction. Placed
+        // last in the struct to keep the storage layout upgrade
+        // append-only.
+        uint64 minAmount;
     }
 
     event ReservationAcceptanceRequested(
@@ -595,7 +602,8 @@ library Reservation {
         );
 
         // Occupancy: number of open reservation positions across all
-        // wallets. Zero disables the cap until governance sets it.
+        // wallets. Zero blocks all acceptances; updateReservationCaps
+        // requires a positive value before reservations can be enabled.
         // Reserve capacity using the deposit value as the upper bound of
         // the anchor value; the settlement releases the miner-fee delta.
         reserveAcceptanceCapacity(self, walletPubKeyHash, deposit.amount);
@@ -613,6 +621,7 @@ library Reservation {
         action.requestedAt = uint32(block.timestamp);
         action.timeoutAt = timeoutAt;
         action.txMaxFee = txMaxFee;
+        action.minAmount = minAmount;
         action.targetWalletPubKeyHash = walletPubKeyHash;
         action.amount = deposit.amount;
         action.termSeconds = self.reservationTermSeconds;

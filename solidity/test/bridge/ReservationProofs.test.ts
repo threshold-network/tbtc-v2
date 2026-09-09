@@ -87,6 +87,7 @@ describe("ReservationProofs", () => {
       requestedAt: 1000,
       timeoutAt: 5000,
       txMaxFee: 10000,
+      minAmount: 0,
       actionType: 1, // Acceptance
       state: 1, // Pending
       feePaid: false,

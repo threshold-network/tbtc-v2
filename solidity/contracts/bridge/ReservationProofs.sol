@@ -461,7 +461,7 @@ library ReservationProofs {
         // future caller or test harness mismatch that writes a smaller
         // `action.amount` cannot mint a below-minimum anchor silently.
         require(
-            anchorAmount >= self.reservationMinAmount,
+            anchorAmount >= action.minAmount,
             "Anchor below reservation minimum"
         );
     }

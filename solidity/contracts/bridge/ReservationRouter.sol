@@ -219,6 +219,13 @@ contract ReservationRouter is Governable, Initializable {
     ///         wallet: the authorization for the source wallet to move the
     ///         anchor during migration or a governance-approved rotation.
     ///         See `Reservation.requestReservationReanchor`.
+    /// @dev The privileged re-anchor path is discriminated by
+    ///      `msg.sender == governance`. This is safe only because Bridge
+    ///      governance is always a contract (`BridgeGovernance`) enforcing
+    ///      its own access control, never an EOA. If Bridge governance were
+    ///      ever transferred to an EOA (not the case today, and not a
+    ///      change made by this contract), the privileged path would
+    ///      broaden silently to that address.
     /// @param reservationKey The key of the reservation to re-anchor.
     /// @param targetWalletPubKeyHash 20-byte public key hash of the target
     ///        wallet.

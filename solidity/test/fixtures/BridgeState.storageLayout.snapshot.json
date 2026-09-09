@@ -817,6 +817,13 @@
         "offset": 4,
         "type": "uint32",
         "numberOfBytes": "4"
+      },
+      {
+        "label": "minAmount",
+        "slot": "5",
+        "offset": 8,
+        "type": "uint64",
+        "numberOfBytes": "8"
       }
     ],
     "WalletReservationInfo": [
