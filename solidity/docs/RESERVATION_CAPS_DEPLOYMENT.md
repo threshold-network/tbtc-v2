@@ -7,7 +7,7 @@ The milestone-1 reservation subsystem introduces two governance setters with a d
 Changes relative to #1094:
 
 - `updateReservationCaps` now takes a third argument `maxActiveReservations` (uint32, must be > 0). The 4-byte selector changes; existing Defender / Safe / Tenderly / multisend scripts that encode the 2-argument version will revert.
-- The `ReservationCapsUpdated` event gained a third field `maxActiveReservations`. Off-chain indexers and dashboards that decode the 2-field version will need a redeploy.
+- The `ReservationCapsUpdated` event gained a third field `maxActiveReservations`. Off-chain indexers and dashboards that decode the 2-field version will need to update their event ABI; consumers that only read a subset of fields and ignore unknown trailing fields may only need a rebind/restart.
 - `updateReservationParameters` enforces the Decision 1 on-chain relational check `reservationMaxTotalAmount <= maxActiveReservations * reservationMaxSingleAmount` by reading both `self.maxActiveReservations` and `self.reservationMaxSingleAmount` from storage. In the pristine pre-launch bootstrap state, both are zero, so the check short-circuits and any `reservationMaxTotalAmount` is accepted. Subsequent calls can revert with `Amount cap exceeds slot capacity` if governance sets `reservationMaxTotalAmount` first and the later `updateReservationCaps` operands cannot accommodate it.
 
 ---
@@ -33,15 +33,13 @@ The existing regression test `Bridge.ReservationCaps.test.ts` in the `describe("
 
 > ⚠️ **IRREVERSIBLE CONFIGURATION WARNING: MANDATORY GOVERNANCE SIGN-OFF**
 >
-> Once any reservation is accepted, `ReservationVault` can **never** be swapped, upgraded, or repointed to a patched version.
+> Once any reservation is accepted, `ReservationVault` can only be swapped, upgraded, or repointed if the bridge reaches `reservationTotalAmount == 0 && pendingReservedDeposits == 0` — under Milestone 1 (variant B), this state is reachable **only** via complete wallet termination / stranding / acceptance timeouts, because voluntary early exits (such as redemptions or dissolutions) are deferred to Milestone 2.
 >
 > The vault re-point gate in `Bridge.updateReservationParameters` requires:
 >
 > ```solidity
 > self.reservationTotalAmount == 0 && self.pendingReservedDeposits == 0
 > ```
->
-> Under Milestone 1 (variant B), this state is reachable **only** via complete wallet termination / stranding / acceptance timeouts, because voluntary early exits (such as redemptions or dissolutions) are deferred to Milestone 2.
 >
 > Setting a non-zero `reservationVault` in `updateReservationParameters` and accepting the first reservation permanently locks in that vault contract for the entire lifetime of live reservations. Explicit governance and deployer sign-off acknowledging this irreversibility is **required** prior to the activation ceremony.
 
@@ -71,6 +69,7 @@ To ensure proactive capacity management and safe operational oversight:
 - **Recommended Alert Thresholds:**
   - **Warning Alert (70% of capacity):** Triggered when `activeReservationsCount` reaches 70% of `maxActiveReservations` (or 70% of the live-wallet slot floor). Governance and operators should review current demand and prepare a cap increase transaction if needed.
   - **Critical / Page Alert (90% of capacity):** Triggered when `activeReservationsCount` reaches 90% of capacity. Immediate operator attention is required; new reservation acceptances will revert if the cap is reached before governance raises `maxActiveReservations`.
+- **Occupancy-Count Divergence During Pending Re-Anchors:** During any pending re-anchor (between `requestReservationReanchor` and its completion via proof or timeout), `activeReservationsCount` (global) and each wallet's per-wallet reservation count in `ReservationRouter.sol` can disagree, since re-anchor only moves the target wallet's per-wallet count and never touches the global count. At the launch value `maxReservationsPerWallet=1`, this means the occupancy-alert formula above (built on `activeReservationsCount`) can under-report true per-wallet slot pressure that a keep-core free-slot monitor tracking per-wallet counts would otherwise see; operators should not rely on `activeReservationsCount` alone to infer per-wallet slot availability during active re-anchor windows.
 
 ### Permissionless Re-Anchor Target Selection (Accepted Risk)
 
@@ -150,7 +149,25 @@ Off-chain tooling updates required:
 - Indexers and dashboards (The Graph subgraphs, Dune queries, custom event listeners) — update the event ABI to 3 fields for `ReservationCapsUpdated` and 6 fields for `ReservationReanchored` (appended `minerFee` field). Backward-compatible decoders will read the new fields as the next positional argument; forward-compatible decoders ignore unknown fields. Adding the `maxActiveReservations` field to `ReservationCapsUpdated` changes its event signature hash (topic0), so off-chain indexers watching the pre-PR `ReservationCapsUpdated` event signature will silently stop matching entirely until updated. Note that off-chain indexers watching the pre-PR `ReservationReanchored` event signature will likewise silently stop matching events until updated.
 - Monitoring alerts and circuit breakers keyed on `ReservationCapsUpdated` or `ReservationReanchored` — confirm the alerts still fire on the new signatures.
 
-`IReservationBridge` in this PR includes the updated 3-argument `updateReservationCaps` declaration; consumers that bind through it are forward-compatible automatically.
+**Note:** The `updateReservationCaps` selector change (3-arg vs 2-arg) means consumers MUST rebind/recompile against the new `IReservationBridge` interface. The interface in this PR declares the updated signature, but consumers that bind through it still need a recompile/rebind — the selector change (topic0 for events, 4-byte selector for functions) is not automatically absorbed by the interface binding alone.
+
+### m1 router ABI delta vs. inventory/router.md
+
+The `ReservationRouter` entry points that keep-core binds against have diverged from the frozen inventory keep-core#4274 was coded from. This is an intentional, already-decided divergence: keep-core will be updated via a separate follow-up (already filed). **Do not revert these selectors.**
+
+**Reshaped entry points (keep-core#4274 needs an update before mainnet activation):**
+
+- `submitReservationProof(...)` no longer exists at the Bridge address. It has been split into two typed entry points:
+  - `submitReservationAcceptanceProof(...)` — handles acceptance proofs.
+  - `submitReservationReanchorProof(...)` — handles re-anchor proofs.
+- `notifyReservationActionTimeout(...)` lost its `walletMembersIDs` argument. Old signature: `notifyReservationActionTimeout(uint256 reservationKey, uint32[] walletMembersIDs)`; new signature: `notifyReservationActionTimeout(uint256 reservationKey)`.
+
+keep-core#4274 must be updated to call the new selectors above before mainnet activation.
+
+**Additive entry points (non-breaking, but undocumented in any spec/inventory):**
+
+- `forceStaleReservedDeposit(...)` — new, `onlyGovernance`-gated, in `ReservationRouter.sol`. Additive; does not break any existing binding.
+- `notifyReservationAcceptanceTimedOut(...)` — keep-core-facing entry point not present in prior spec/inventory documents. Additive; does not break any existing binding.
 
 ---
 
@@ -175,13 +192,20 @@ After applying the upgrade on a live network:
 
 ```solidity
 // Spot-check the Decision 1 invariant via three views on the bridge.
-// reservationParameters() returns a 10-value tuple; the 6th value is reservationMaxTotalAmount.
-(, , , , , uint64 reservationMaxTotalAmount, , , , ) =
+// reservationParameters() returns a 10-value tuple; the 1st value is reservationVault, the 6th is reservationMaxTotalAmount.
+(address reservationVault, , , , , uint64 reservationMaxTotalAmount, , , , ) =
     IReservationBridge(bridgeAddress).reservationParameters();
-(, uint64 reservationMaxSingleAmount) =
+(, uint64 reservationMaxSingleAmount, ) =
     IReservationBridge(bridgeAddress).reservationCaps();
 (, uint32 maxActiveReservations) =
     IReservationBridge(bridgeAddress).activeReservationsCount();
+
+// Pre-activation sanity checks (run before/alongside setting a non-zero reservationVault):
+address router = IReservationBridge(bridgeAddress).reservationRouter();
+require(router != address(0) && router == expectedRouterAddress, "Router mismatch");
+require(reservationVault != address(0), "Vault not set");
+require(Ownable(reservationVault).owner() == expectedVaultOwner, "Vault ownership mismatch");
+require(Bridge(bridgeAddress).isVaultTrusted(reservationVault), "Vault not trusted");
 ```
 
 The three views together supply the three quantities the Decision 1 invariant is written in terms of:
