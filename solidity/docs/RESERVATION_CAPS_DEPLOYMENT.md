@@ -169,6 +169,10 @@ keep-core#4274 must be updated to call the new selectors above before mainnet ac
 - `forceStaleReservedDeposit(...)` — new, `onlyGovernance`-gated, in `ReservationRouter.sol`. Additive; does not break any existing binding.
 - `notifyReservationAcceptanceTimedOut(...)` — keep-core-facing entry point not present in prior spec/inventory documents. Additive; does not break any existing binding.
 
+**Reshaped return type (keep-core#4274 needs an update before mainnet activation):**
+
+- `reservationActions()`'s returned `ReservationAction` tuple has diverged from keep-core#4274's frozen 17-field Go binding. Current tbtc-v2 `Reservation.ReservationAction` has 20 fields: `actionDataHash`/`sourceAnchorUtxoHash` (bytes32) are inserted immediately after `redeemer` — ahead of `amount`, not after — and `termSeconds`, `dissolutionDelay`, `minAmount` are appended. From field 9 onward, every position's type diverges from keep-core's expectation. This is not cosmetic: keep-core#4274's maintainer loop calls `GetReservationAction(reservationKey, requestNonce)` (ABI-decoding this exact tuple) before every proof submission, on both the acceptance and reanchor paths — a tuple-arity mismatch at decode time fails that call outright. keep-core#4274 must regenerate its bindings against the final, stabilized shape of this struct (not an intermediate snapshot — the shape has moved multiple times during this epic's development) before mainnet activation.
+
 ---
 
 ## Tracked Follow-up: Quantify External-Router Alternative Bytecode Delta
