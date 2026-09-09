@@ -1,4 +1,4 @@
-import { artifacts, ethers, helpers, run } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
 import type {
@@ -7,6 +7,7 @@ import type {
   MockTBTCBridgeWithSweep,
   MockTBTCVault,
   TestERC20,
+  TestL1BTCDepositorNtt,
 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -50,6 +51,7 @@ describe("L1BTCDepositorNtt fixed destination", () => {
   let tbtcVault: MockTBTCVault
   let nttManager: MockNttManager
   let l1BtcDepositorNtt: L1BTCDepositorNtt
+  let l1BtcDepositorNttHarness: TestL1BTCDepositorNtt
   let fixture: ReturnType<typeof loadFixture>
 
   before(async () => {
@@ -73,10 +75,10 @@ describe("L1BTCDepositorNtt fixed destination", () => {
 
     fixture = loadFixture(tbtcVault.address)
 
-    const L1BTCDepositorNtt = await ethers.getContractFactory(
-      "L1BTCDepositorNtt"
+    const TestL1BTCDepositorNtt = await ethers.getContractFactory(
+      "TestL1BTCDepositorNtt"
     )
-    const implementation = await L1BTCDepositorNtt.deploy()
+    const implementation = await TestL1BTCDepositorNtt.deploy()
 
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = implementation.interface.encodeFunctionData("initialize", [
@@ -86,9 +88,15 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       WORMHOLE_CHAIN_DESTINATION,
     ])
     const proxy = await ProxyFactory.deploy(implementation.address, initData)
+    const L1BTCDepositorNtt = await ethers.getContractFactory(
+      "L1BTCDepositorNtt"
+    )
     l1BtcDepositorNtt = L1BTCDepositorNtt.attach(
       proxy.address
     ) as L1BTCDepositorNtt
+    l1BtcDepositorNttHarness = TestL1BTCDepositorNtt.attach(
+      proxy.address
+    ) as TestL1BTCDepositorNtt
   })
 
   beforeEach(async () => {
@@ -285,9 +293,9 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       fixture.reveal,
       chainLikePrefixedDestinationChainDepositOwner
     )
-    await clearFixedDestinationDepositMarker(
-      l1BtcDepositorNtt,
-      fixture.expectedDepositKey
+    await l1BtcDepositorNttHarness.setFixedDestinationDepositForTest(
+      fixture.expectedDepositKey,
+      false
     )
     await bridge.sweepDeposit(fixture.expectedDepositKey)
 
@@ -325,9 +333,9 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       fixture.reveal,
       wrongChainLegacyDestinationChainDepositOwner
     )
-    await clearFixedDestinationDepositMarker(
-      l1BtcDepositorNtt,
-      fixture.expectedDepositKey
+    await l1BtcDepositorNttHarness.setFixedDestinationDepositForTest(
+      fixture.expectedDepositKey,
+      false
     )
     await bridge.sweepDeposit(fixture.expectedDepositKey)
 
@@ -530,98 +538,4 @@ async function findStorageSlot(contractAddress: string, expectedValue: string) {
   }
 
   throw new Error(`Storage slot not found for value ${expectedValue}`)
-}
-
-interface StorageLayoutEntry {
-  label: string
-  slot: string
-}
-
-interface CompilerOutputContractWithStorageLayout {
-  storageLayout?: { storage: StorageLayoutEntry[] }
-}
-
-async function getStorageSlotNumber(
-  contractName: string,
-  variableName: string
-): Promise<number> {
-  const sourceName = `contracts/cross-chain/wormhole/${contractName}.sol`
-  const buildInfo = await artifacts.getBuildInfo(
-    `${sourceName}:${contractName}`
-  )
-  if (!buildInfo) {
-    throw new Error(`Build info not found for ${contractName}`)
-  }
-
-  // Some contracts in this project use a per-file compiler override (e.g.
-  // to minimize bytecode size) that does not request `storageLayout`
-  // output. Recompile the exact same input (identical solc version and
-  // settings) with that output selection added, instead of guessing
-  // storage slots by brute-force scanning candidates.
-  const input = JSON.parse(JSON.stringify(buildInfo.input))
-  const existingSelection: string[] =
-    input.settings.outputSelection["*"]["*"] ?? []
-  input.settings.outputSelection["*"]["*"] = existingSelection.includes(
-    "storageLayout"
-  )
-    ? existingSelection
-    : [...existingSelection, "storageLayout"]
-
-  const solcBuild = await run("compile:solidity:solc:get-build", {
-    quiet: true,
-    solcVersion: buildInfo.solcVersion,
-  })
-  const output = solcBuild.isSolcJs
-    ? await run("compile:solidity:solcjs:run", {
-        input,
-        solcJsPath: solcBuild.compilerPath,
-      })
-    : await run("compile:solidity:solc:run", {
-        input,
-        solcPath: solcBuild.compilerPath,
-        solcVersion: buildInfo.solcVersion,
-      })
-
-  const contractOutput = output.contracts[sourceName][
-    contractName
-  ] as unknown as CompilerOutputContractWithStorageLayout
-  const entry = contractOutput.storageLayout?.storage.find(
-    ({ label }) => label === variableName
-  )
-  if (!entry) {
-    throw new Error(
-      `Storage variable ${variableName} not found in ${contractName}`
-    )
-  }
-
-  return Number(entry.slot)
-}
-
-// Computes the deterministic mapping-entry storage slot for
-// `fixedDestinationDeposits[depositKey]` from the contract's compiled
-// storage layout, instead of brute-force scanning candidate slots.
-async function clearFixedDestinationDepositMarker(
-  contract: L1BTCDepositorNtt,
-  depositKey: string
-) {
-  expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(true)
-
-  const mappingSlot = await getStorageSlotNumber(
-    "L1BTCDepositorNtt",
-    "fixedDestinationDeposits"
-  )
-  const storageSlotKey = ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(
-      ["uint256", "uint256"],
-      [depositKey, mappingSlot]
-    )
-  )
-
-  await ethers.provider.send("hardhat_setStorageAt", [
-    contract.address,
-    storageSlotKey,
-    ethers.constants.HashZero,
-  ])
-
-  expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(false)
 }
