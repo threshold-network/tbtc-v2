@@ -34,6 +34,8 @@ module l2_tbtc::Gateway {
     const E_OUTSTANDING_MINTED_AMOUNT: u64 = 11;
     const E_TOKEN_NOT_PAUSED: u64 = 12;
     const E_OUTSTANDING_SUPPLY: u64 = 13;
+    const E_NOT_GUARDIAN: u64 = 14;
+    const E_GUARDIAN_IS_ADMIN: u64 = 15;
 
     // === Events ===
 
@@ -366,13 +368,21 @@ module l2_tbtc::Gateway {
     ///      gateway would leave the retiring admin free to mint canonical
     ///      tBTC directly (bypassing the gateway) in the window before the
     ///      treasury cap reaches the new NTT manager.
-    /// @dev Requires a `TBTC::GuardianCap` co-signer in addition to the
-    ///      gateway `AdminCap`, for on-chain parity with the Solana tBTC
-    ///      program's authority+guardian dual-signer requirement on its
-    ///      equivalent mint-authority transfer instruction.
+    /// @dev Requires a `TBTC::GuardianCap` in addition to the gateway
+    ///      `AdminCap`. The presented `GuardianCap` must belong to a
+    ///      currently-registered guardian (checked against
+    ///      `TBTC::TokenState.guardians`, not merely possession of a
+    ///      capability object, which may be stale if the guardian was later
+    ///      removed) and that guardian address must differ from the
+    ///      transaction sender (who must already hold the `AdminCap`). This
+    ///      is NOT full Solana-style dual-signing: Sui's owned-object
+    ///      transaction model requires both capabilities to be owned by the
+    ///      same transaction sender, so it does not provide independent
+    ///      authorization from two different signers the way Solana's
+    ///      equivalent mint-authority transfer instruction does.
     public entry fun retire_gateway_for_ntt(
         _: &AdminCap,
-        _guardian_cap: &TBTC::GuardianCap,
+        guardian_cap: &TBTC::GuardianCap,
         state: &mut GatewayState,
         token_state: &TBTC::TokenState,
         capabilities: GatewayCapabilities,
@@ -381,6 +391,9 @@ module l2_tbtc::Gateway {
         assert!(state.is_initialized, E_NOT_INITIALIZED);
         assert!(state.paused, E_NOT_PAUSED);
         assert!(TBTC::is_paused(token_state), E_TOKEN_NOT_PAUSED);
+        let guardian_addr = TBTC::guardian_address(guardian_cap);
+        assert!(TBTC::is_guardian(token_state, guardian_addr), E_NOT_GUARDIAN);
+        assert!(guardian_addr != tx_context::sender(ctx), E_GUARDIAN_IS_ADMIN);
         assert!(state.minted_amount == 0, E_OUTSTANDING_MINTED_AMOUNT);
         assert!(
             coin::total_supply(&capabilities.treasury_cap) == 0,

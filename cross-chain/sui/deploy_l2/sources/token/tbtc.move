@@ -332,6 +332,13 @@ module l2_tbtc::TBTC {
         vector::contains(&state.guardians, &addr)
     }
 
+    /// Get the guardian address from a GuardianCap
+    /// cap - The GuardianCap to extract the address from
+    /// Returns the guardian address
+    public fun guardian_address(cap: &GuardianCap): address {
+        cap.guardian
+    }
+
     /// Get all minters
     /// state - TokenState
     /// Returns a vector of all minters
