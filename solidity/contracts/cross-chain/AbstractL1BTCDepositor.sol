@@ -518,8 +518,24 @@ abstract contract AbstractL1BTCDepositor is
                 /* solhint-enable avoid-low-level-calls */
 
                 if (!success) {
+                    // False positive: `deposits[depositKey]` was already
+                    // set to `Finalized` above, before any external call in
+                    // this function, so a reentrant `initializeDeposit` or
+                    // `finalizeDeposit` call for this same `depositKey`
+                    // always reverts on the deposit-state guard before it
+                    // could reach `gasReimbursements[depositKey]`. This
+                    // line only restores the exact value already read out
+                    // of that mapping earlier in this call, before any
+                    // external call was made, so it can never race with or
+                    // clobber state changed by a reentrant call.
                     // slither-disable-next-line reentrancy-no-eth
                     gasReimbursements[depositKey] = reimbursement;
+                    // False positive: emitted only after the low-level call
+                    // above has already returned, so any reentrancy it
+                    // triggered has fully unwound by this point and its
+                    // own events are necessarily ordered before this one;
+                    // `ReimbursementPool.refund` is additionally guarded by
+                    // OpenZeppelin's `nonReentrant`.
                     // slither-disable-next-line reentrancy-events
                     emit DeferredReimbursementFailed(
                         depositKey,

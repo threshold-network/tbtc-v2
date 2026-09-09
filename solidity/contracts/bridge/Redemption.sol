@@ -486,7 +486,14 @@ library Redemption {
     ///        does not apply to the standard `TBTCVault` redemption callback
     ///        path; for the waiver to apply, a peg keeper must call
     ///        `TBTCVault.unmint()` then `Bridge.requestRedemption()` directly
-    ///        (two transactions).
+    ///        (two transactions). Once `Bridge.initializeV6_ConfigurePegKeeper`
+    ///        permanently disables the rebate-staking hook by zeroing
+    ///        `self.rebateStaking`, this exclusion becomes the permanent
+    ///        end-state, not a transitional limitation: the legacy rebate
+    ///        branch below becomes unreachable for every redeemer, so all
+    ///        `TBTCVault`-path redemptions receive zero fee relief forever,
+    ///        regardless of whether the underlying balance owner is a peg
+    ///        keeper.
     function requestRedemption(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -593,7 +600,11 @@ library Redemption {
         // Direct redemptions from allowlisted peg keepers waive the treasury
         // fee. Other redeemers retain the legacy rebate path, but callback
         // redemptions where `balanceOwner != redeemer` require the redeemer's
-        // explicit authorization for that balance owner.
+        // explicit authorization for that balance owner. Once
+        // `self.rebateStaking` is permanently zeroed by
+        // `Bridge.initializeV6_ConfigurePegKeeper`, the `else if` branch below
+        // is permanently unreachable, so no redeemer receives fee relief via
+        // the `TBTCVault` callback path anymore.
         if (treasuryFee > 0) {
             if (balanceOwner == redeemer && self.pegKeepers[redeemer]) {
                 treasuryFee = 0;
