@@ -6,13 +6,14 @@ const func: DeployFunction = async function runDeployment(
 ) {
   const { deployments, getNamedAccounts, helpers } = hre
   const { deploy } = deployments
-  const { deployer } = await getNamedAccounts()
+  const { deployer, governance } = await getNamedAccounts()
 
   const Bridge = await deployments.get("Bridge")
 
-  const bridgeGovernanceParameters = await deployments.deploy(
-    "BridgeGovernanceParameters",
+  const bridgeGovernanceParametersV2 = await deployments.deploy(
+    "BridgeGovernanceParametersV2",
     {
+      contract: "BridgeGovernanceParameters",
       from: deployer,
       log: true,
       waitConfirmations: 1,
@@ -24,10 +25,12 @@ const func: DeployFunction = async function runDeployment(
 
   // Deployed under a distinct name ("BridgeGovernanceV2") from the existing
   // "BridgeGovernance" deployment so both instances stay independently
-  // addressable. Reusing the "BridgeGovernance" name here would make
-  // hardhat-deploy treat this as a no-op redeploy of the existing contract
-  // (same constructor args -> same artifact), never producing a second
-  // instance to migrate governance to.
+  // addressable. Reusing the "BridgeGovernance" name here would overwrite
+  // the hardhat-deploy deployment record that
+  // 96_transfer_bridge_governance_v2.ts reads (via deployments.get) to
+  // resolve the old contract's address, even though the deployed bytecode
+  // itself differs (new peg-keeper functions, relinked library) rather
+  // than being a same-bytecode no-op.
   //
   // "BridgeGovernance" remains the currently-live governance contract until
   // 96_transfer_bridge_governance_v2.ts's calldata is executed by its owner;
@@ -38,13 +41,19 @@ const func: DeployFunction = async function runDeployment(
     args: [Bridge.address, GOVERNANCE_DELAY],
     log: true,
     libraries: {
-      BridgeGovernanceParameters: bridgeGovernanceParameters.address,
+      BridgeGovernanceParameters: bridgeGovernanceParametersV2.address,
     },
     waitConfirmations: 1,
   })
 
+  await helpers.ownable.transferOwnership(
+    "BridgeGovernanceV2",
+    governance,
+    deployer
+  )
+
   if (hre.network.tags.etherscan) {
-    await helpers.etherscan.verify(bridgeGovernanceParameters)
+    await helpers.etherscan.verify(bridgeGovernanceParametersV2)
     await helpers.etherscan.verify(bridgeGovernanceV2)
   }
 
@@ -60,3 +69,6 @@ export default func
 
 func.tags = ["BridgeGovernanceV2"]
 func.dependencies = ["Bridge"]
+// Set DEPLOY_BRIDGE_GOVERNANCE_V2=true when running the deployment.
+// yarn deploy --tags BridgeGovernanceV2 --network <NETWORK>
+func.skip = async () => process.env.DEPLOY_BRIDGE_GOVERNANCE_V2 !== "true"

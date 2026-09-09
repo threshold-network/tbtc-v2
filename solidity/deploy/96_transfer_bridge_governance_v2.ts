@@ -8,13 +8,14 @@ const BRIDGE_GOVERNANCE_ABI = [
 ]
 
 // This script only generates calldata; it never executes the transfer. The
-// deployer EOA that runs deploy scripts is not the BridgeGovernance owner on
-// mainnet/sepolia (that's the Council Safe), and unconditionally executing
-// beginBridgeGovernanceTransfer/finalizeBridgeGovernanceTransfer here would
-// also run this irreversible governance migration during `yarn deploy:test`
-// and any unit test that pulls in this deployment via `deployments.fixture()`.
+// calldata is meant to be submitted through whichever account currently
+// holds BridgeGovernance ownership on the target network. Unconditionally
+// executing beginBridgeGovernanceTransfer/finalizeBridgeGovernanceTransfer
+// here would also run this irreversible governance migration during
+// `yarn deploy:test` and any unit test that pulls in this deployment via
+// `deployments.fixture()`.
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { deployments } = hre
+  const { deployments, getNamedAccounts, ethers } = hre
 
   const OldBridgeGovernance = await deployments.get("BridgeGovernance")
   const NewBridgeGovernance = await deployments.get("BridgeGovernanceV2")
@@ -51,6 +52,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
   console.log(`  Target:   ${OldBridgeGovernance.address}`)
   console.log(`  Calldata: ${beginCalldata}`)
+
+  const { governance } = await getNamedAccounts()
+  const newBridgeGovernanceContract = await ethers.getContractAt(
+    "BridgeGovernance",
+    NewBridgeGovernance.address
+  )
+  const newBridgeGovernanceOwner = await newBridgeGovernanceContract.owner()
+  if (newBridgeGovernanceOwner.toLowerCase() !== governance.toLowerCase()) {
+    throw new Error(
+      `BridgeGovernanceV2 (${NewBridgeGovernance.address}) owner is ` +
+        `${newBridgeGovernanceOwner}, expected the governance account ` +
+        `${governance}. Run 95_deploy_bridge_governance_v2.ts's ownership ` +
+        "transfer step before generating the finalizeBridgeGovernanceTransfer calldata."
+    )
+  }
 
   console.log(
     "\nStep 2 - finalizeBridgeGovernanceTransfer (call after the governance delay elapses):"

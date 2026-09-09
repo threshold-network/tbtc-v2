@@ -13,6 +13,7 @@ const REBATE_STAKING_ABI = ["function initializeV2_Deprecate()"]
 
 const BRIDGE_ABI = [
   "function initializeV6_ConfigurePegKeeper(address initialPegKeeper)",
+  "function governance() view returns (address)",
 ]
 
 const PROXY_ADMIN_ABI = [
@@ -20,12 +21,14 @@ const PROXY_ADMIN_ABI = [
 ]
 
 // This script only deploys the new implementation contracts and generates
-// governance calldata; it never executes the upgrade. The deployer EOA is
-// not the ProxyAdmin owner, so the actual upgradeAndCall calls must be
-// submitted by the Timelock/Council from the logged calldata below.
+// governance calldata; it never executes the upgrade. The deployer EOA's
+// relationship to the ProxyAdmin owner varies by network (see
+// hardhat.config.ts namedAccounts) and is not assumed here - the actual
+// upgradeAndCall calls must be submitted by whichever account controls the
+// ProxyAdmin (Timelock/Council) using the logged calldata below.
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { deployments, getNamedAccounts, ethers } = hre
-  const { deploy, get } = deployments
+  const { deployments, getNamedAccounts, ethers, artifacts } = hre
+  const { deploy, get, save } = deployments
   const { deployer } = await getNamedAccounts()
 
   const initialPegKeeper = process.env.INITIAL_PEG_KEEPER
@@ -45,15 +48,68 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Resolve existing libraries ---
-  // Unchanged since last deployment; reused from existing artifacts.
-  console.log("\n--- Resolving existing libraries ---")
-  const Deposit = await get("Deposit")
+  // --- Verify BridgeGovernanceV2 is already live before generating calldata ---
+  // initializeV6_ConfigurePegKeeper and the beginPegKeeperUpdate /
+  // finalizePegKeeperUpdate / cancelPegKeeperUpdate flow it enables only
+  // exist on BridgeGovernanceV2. If 96_transfer_bridge_governance_v2.ts's
+  // migration has not fully finalized yet, Bridge still recognizes the old
+  // BridgeGovernance as its governance contract, and any calldata generated
+  // here would target a peg keeper flow governance cannot yet reach.
+  console.log("\n--- Verifying governance transfer is finalized ---")
+  const Bridge = await get("Bridge")
+  const BridgeGovernanceV2 = await get("BridgeGovernanceV2")
+  const bridgeReadOnly = await ethers.getContractAt(BRIDGE_ABI, Bridge.address)
+  const currentGovernance = await bridgeReadOnly.governance()
+  const allowUnsafeOrder = process.env.ALLOW_UNSAFE_ORDER === "true"
+  if (
+    currentGovernance.toLowerCase() !== BridgeGovernanceV2.address.toLowerCase()
+  ) {
+    if (!allowUnsafeOrder) {
+      throw new Error(
+        `Bridge.governance() is ${currentGovernance}, not ` +
+          `BridgeGovernanceV2 (${BridgeGovernanceV2.address}). ` +
+          "96_transfer_bridge_governance_v2.ts's governance transfer " +
+          "(beginBridgeGovernanceTransfer AND " +
+          "finalizeBridgeGovernanceTransfer, after the governance delay " +
+          "elapses) must fully finalize before this upgrade batch is " +
+          "generated. Set ALLOW_UNSAFE_ORDER=true to override for dry runs."
+      )
+    }
+    console.log(
+      "  WARNING: BridgeGovernanceV2 is not yet Bridge's live governance " +
+        "contract, but continuing because ALLOW_UNSAFE_ORDER=true."
+    )
+  } else {
+    console.log("  BridgeGovernanceV2 is Bridge's live governance contract.")
+  }
+
+  // --- Resolve unchanged libraries ---
+  // DepositSweep/Wallets/Fraud/MovingFunds are unchanged since last
+  // deployment; reused from existing artifacts.
+  console.log("\n--- Resolving unchanged libraries ---")
   const DepositSweep = await get("DepositSweep")
-  const Redemption = await get("Redemption")
   const Wallets = await get("Wallets")
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
+
+  // --- Deploy changed libraries ---
+  // Deposit and Redemption gained new fee-waiver branches in this PR (peg
+  // keeper deposits/redemptions bypass the treasury fee), so they must be
+  // redeployed here rather than reused via `get()`. Deployed under distinct
+  // artifact names so the existing Deposit/Redemption deployment records
+  // (still depended on by other, unrelated deploy scripts) are not
+  // overwritten.
+  console.log("\n--- Deploying updated Deposit/Redemption libraries ---")
+  const Deposit = await deploy("DepositV6PegKeeper", {
+    ...deployOptions,
+    contract: "Deposit",
+    skipIfAlreadyDeployed: false,
+  })
+  const Redemption = await deploy("RedemptionV6PegKeeper", {
+    ...deployOptions,
+    contract: "Redemption",
+    skipIfAlreadyDeployed: false,
+  })
 
   // --- Deploy new implementations ---
   // Deployed under distinct artifact names to avoid overwriting the existing
@@ -81,13 +137,39 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   })
 
   const RebateStaking = await get("RebateStaking")
-  const Bridge = await get("Bridge")
 
   console.log(`\n${"-".repeat(80)}`)
   console.log("Deployed contract addresses:")
   console.log(`  Bridge implementation:        ${bridgeImpl.address}`)
   console.log(`  RebateStaking implementation: ${rebateImpl.address}`)
   console.log("-".repeat(80))
+
+  // --- Update proxy deployment artifacts ---
+  // hardhat-deploy's `deploy()` above only stores the new implementation
+  // contracts under their own distinct artifact names; it never touches the
+  // Bridge/RebateStaking proxy deployment records. Without this,
+  // `deployments.get("Bridge").implementation` and
+  // `deployments.get("RebateStaking").implementation` would keep pointing at
+  // the pre-upgrade implementations even after the Timelock executes the
+  // upgradeAndCall calls below.
+  console.log("\n--- Updating proxy deployment artifacts ---")
+  const bridgeArtifact = artifacts.readArtifactSync("Bridge")
+  await save("Bridge", {
+    ...Bridge,
+    abi: bridgeArtifact.abi,
+    implementation: bridgeImpl.address,
+  })
+  console.log(`  Bridge proxy artifact updated (impl → ${bridgeImpl.address})`)
+
+  const rebateArtifact = artifacts.readArtifactSync("RebateStaking")
+  await save("RebateStaking", {
+    ...RebateStaking,
+    abi: rebateArtifact.abi,
+    implementation: rebateImpl.address,
+  })
+  console.log(
+    `  RebateStaking proxy artifact updated (impl → ${rebateImpl.address})`
+  )
 
   // --- Discover ProxyAdmin via EIP-1967 admin slot ---
   console.log("\n--- Discovering ProxyAdmin ---")
@@ -125,11 +207,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   console.log(`\n${"-".repeat(80)}`)
-  console.log("Timelock batch (ordered - RebateStaking FIRST, Bridge SECOND):")
+  console.log("Timelock batch (RebateStaking FIRST, Bridge SECOND):")
   console.log(
-    "This ordering matches the PR's Deployment notes and ensures the " +
-      "RebateStaking proxy is deprecated before the Bridge upgrade " +
-      "permanently disables the legacy rebate hook wiring to it."
+    "These two payloads must be submitted by the operator as ONE ordered " +
+      "Timelock batch - RebateStaking action [0] before Bridge action [1]. " +
+      "This script does not encode or enforce the batch or its ordering; " +
+      "the order matches the PR's Deployment notes: the RebateStaking proxy " +
+      "must be deprecated before the Bridge upgrade permanently disables " +
+      "the legacy rebate hook wiring to it."
   )
   console.log("-".repeat(80))
 
@@ -171,6 +256,7 @@ func.dependencies = [
   "Wallets",
   "Fraud",
   "MovingFunds",
+  "BridgeGovernanceV2",
 ]
 // Set DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE=true when running the deployment.
 // yarn deploy --tags UpgradeBridgeV6PegKeeper --network <NETWORK>

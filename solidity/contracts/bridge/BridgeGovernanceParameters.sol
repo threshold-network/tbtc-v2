@@ -1588,12 +1588,15 @@ library BridgeGovernanceParameters {
     /// @notice Begins the peg keeper status update process.
     /// @param _pegKeeper Peg keeper address.
     /// @param _allowed True if the address should be allowed, false otherwise.
-    /// @dev Reverts with "Peg keeper update already initiated" if a keeper update is already pending.
+    /// @dev Reverts with "Peg keeper address must not be 0x0" if the peg
+    ///      keeper address is zero. Reverts with "Peg keeper update already
+    ///      initiated" if a keeper update is already pending.
     function beginPegKeeperUpdate(
         PegKeeperData storage self,
         address _pegKeeper,
         bool _allowed
     ) external {
+        require(_pegKeeper != address(0), "Peg keeper address must not be 0x0");
         require(
             self.pegKeeperChangeInitiated == 0,
             "Peg keeper update already initiated"
