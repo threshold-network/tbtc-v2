@@ -523,6 +523,12 @@ describe("Bridge - Peg keeper", () => {
       // Now perform a deposit or redemption through the EXISTING (pre-V6) bridge instance
       // Reusing existing deposit/redemption test patterns from this file's "deposits"/"redemptions" blocks
 
+      // Register the wallet as Live and set its main UTXO, matching the
+      // "redemptions" describe block's own beforeEach setup -- this block's
+      // beforeEach only takes a snapshot and does not do this itself.
+      await setLiveWallet(walletPubKeyHash)
+      await bridge.setWalletMainUtxo(walletPubKeyHash, mainUtxo)
+
       // Set up a redemption allowance
       await makeRedemptionAllowance(thirdParty, requestedAmount)
 
