@@ -542,24 +542,28 @@ describe("Bridge - Peg keeper", () => {
           requestedAmount
         )
 
-      // Wait for the transaction to be mined
-      const receipt = await redeemTx.wait()
+      // Confirm redemption was accepted (already implied by not throwing
+      // above, since neither the call nor .wait() would resolve on a
+      // revert -- but the actual claim under test is the fee amount, not
+      // mere success).
+      await redeemTx.wait()
 
-      // The redemption should succeed (not revert). `redeemTx` here is
-      // already an awaited, mined TransactionResponse rather than a
-      // pending promise, so waffle's `.reverted` matcher (which needs an
-      // unresolved promise to catch a throw) does not apply; the mined
-      // receipt's status is the correct success check.
-      expect(receipt.status).to.equal(1)
+      // Since RebateStaking is deprecated, it returns early from its
+      // rebate hooks and does not waive the fee. Neither the peg-keeper
+      // waiver (peg keeper is not configured here) nor the (now
+      // early-returning) rebate applies, so the full, non-waived treasury
+      // fee must be recorded -- mirroring the "should not waive
+      // redemption treasury fee" assertion pattern above.
+      const redemptionKey = buildRedemptionKey(
+        walletPubKeyHash,
+        redeemerOutputScriptP2WPKH
+      )
+      const redemption = await bridge.pendingRedemptions(redemptionKey)
 
-      // Since RebateStaking is deprecated, it should return early and not apply any rebate
-      // Therefore, the full fee should be applied (fee is NOT waived)
-      // We can verify this by checking that the bridge still sent funds to the fee recipient
-      // However, for this test, the key assertion is that it does not revert and we can infer
-      // that full fee applies because neither the peg-keeper waiver nor the (now-deprecated,
-      // early-returning) rebate applies
-
-      // The test passes if the transaction doesn't revert, which we already checked
+      expect(redemption.redeemer).to.equal(thirdParty.address)
+      expect(redemption.treasuryFee).to.equal(
+        requestedAmount.div(constants.redemptionTreasuryFeeDivisor)
+      )
     })
 
     it("should disable rebate staking in Bridge when upgraded first, RebateStaking unaffected", async () => {
