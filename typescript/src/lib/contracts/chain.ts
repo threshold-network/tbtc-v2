@@ -19,6 +19,11 @@ export namespace Chains {
     ArbitrumSepolia = "421614",
   }
 
+  export enum Optimism {
+    Optimism = "10",
+    OptimismSepolia = "11155420",
+  }
+
   export enum Solana {
     Solana = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
     Devnet = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
@@ -59,9 +64,17 @@ export namespace Chains {
 
 /**
  * Destination chains supported by tBTC v2 contracts.
- * These are chains other than the main Ethereum L1 chain.
+ *
+ * Excluded:
+ * - Ethereum: The L1 hub, never a destination.
+ * - Optimism: Chain-ID mapping exists for NTT config purposes only; no SDK
+ *   contract-loader artifact exists yet, so it cannot be a valid runtime
+ *   destination.
  */
-export type DestinationChainName = Exclude<keyof typeof Chains, "Ethereum">
+export type DestinationChainName = Exclude<
+  keyof typeof Chains,
+  "Ethereum" | "Optimism"
+>
 
 /**
  * @deprecated Use DestinationChainName instead
@@ -87,6 +100,11 @@ export type ChainMapping = {
   arbitrum?: Chains.Arbitrum
 
   /**
+   * Identifier of the Optimism L2 chain.
+   */
+  optimism?: Chains.Optimism
+
+  /**
    * Identifier of the Solana chain.
    */
   solana?: Chains.Solana
@@ -108,6 +126,7 @@ export const ChainMappings: ChainMapping[] = [
     ethereum: Chains.Ethereum.Mainnet,
     base: Chains.Base.Base,
     arbitrum: Chains.Arbitrum.Arbitrum,
+    optimism: Chains.Optimism.Optimism,
     solana: Chains.Solana.Solana,
     starknet: Chains.StarkNet.Mainnet,
     sui: Chains.Sui.Mainnet,
@@ -116,6 +135,7 @@ export const ChainMappings: ChainMapping[] = [
     ethereum: Chains.Ethereum.Sepolia,
     base: Chains.Base.BaseSepolia,
     arbitrum: Chains.Arbitrum.ArbitrumSepolia,
+    optimism: Chains.Optimism.OptimismSepolia,
     solana: Chains.Solana.Devnet,
     starknet: Chains.StarkNet.Sepolia,
     sui: Chains.Sui.Testnet,

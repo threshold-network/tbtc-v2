@@ -70,6 +70,10 @@ pub mod tbtc {
         processor::unpause(ctx)
     }
 
+    pub fn transfer_mint_authority(ctx: Context<TransferMintAuthority>) -> Result<()> {
+        processor::transfer_mint_authority(ctx)
+    }
+
     pub fn mint(ctx: Context<Mint>, amount: u64) -> Result<()> {
         processor::mint(ctx, amount)
     }

@@ -145,6 +145,729 @@ module l2_tbtc::gateway_tests {
     }
 
     #[test]
+    fun test_retire_gateway_for_ntt_after_pause_and_drain() {
+        let (admin, coin_deployer) = two_people();
+        let guardian = @0xCAFE;
+        let mut scenario = test_scenario::begin(admin);
+
+        // Initialize TBTC
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        // Register a guardian address that is genuinely distinct from the
+        // admin (who holds the gateway's AdminCap), then have that guardian
+        // pause the TBTC token itself, per the pre-retirement ceremony
+        // documented in README.adoc. retire_gateway_for_ntt requires the
+        // presented GuardianCap to belong to a currently-registered guardian
+        // distinct from the admin.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                guardian,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            // Hand the TokenState to the guardian so it can call TBTC::pause
+            // as itself; TBTC::pause checks tx_context::sender, not the
+            // presented cap's internal address.
+            transfer::public_transfer(token_state, guardian);
+            test_scenario::return_to_sender(&scenario, admin_cap);
+        };
+
+        test_scenario::next_tx(&mut scenario, guardian);
+        {
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::pause(&guardian_cap, &mut token_state, test_scenario::ctx(&mut scenario));
+
+            // Hand the paused TokenState and the GuardianCap back to the
+            // admin, who presents both the AdminCap and GuardianCap together
+            // when calling retire_gateway_for_ntt (Sui's owned-object model
+            // requires both capabilities to be owned by the same
+            // transaction sender).
+            transfer::public_transfer(token_state, admin);
+            transfer::public_transfer(guardian_cap, admin);
+        };
+
+        // Initialize Wormhole
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        // Initialize Gateway
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        // Pause before migration.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        // Retire the gateway and recover token capabilities for NTT setup.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            assert!(Gateway::is_initialized(&gateway_state), 0);
+            assert!(Gateway::is_paused(&gateway_state), 1);
+            assert!(Gateway::get_minting_limit(&gateway_state) == 0, 2);
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_to_sender(&scenario, guardian_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        // The recovered capabilities are now owned by the admin and can be passed
+        // to the Wormhole NTT setup transaction.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let treasury_cap = test_scenario::take_from_sender<TreasuryCap<TBTC::TBTC>>(&scenario);
+            let minter_cap = test_scenario::take_from_sender<TBTC::MinterCap>(&scenario);
+            let emitter_cap = test_scenario::take_from_sender<EmitterCap>(&scenario);
+
+            transfer::public_transfer(treasury_cap, admin);
+            transfer::public_transfer(minter_cap, admin);
+            transfer::public_transfer(emitter_cap, admin);
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_NOT_PAUSED)]
+    fun test_retire_gateway_for_ntt_requires_pause() {
+        let (admin, coin_deployer) = two_people();
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                admin,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, admin_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_OUTSTANDING_MINTED_AMOUNT)]
+    fun test_retire_gateway_for_ntt_requires_zero_minted_amount() {
+        let (admin, coin_deployer) = two_people();
+        let guardian = @0xCAFE;
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                guardian,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            transfer::public_transfer(token_state, guardian);
+            test_scenario::return_to_sender(&scenario, admin_cap);
+        };
+
+        test_scenario::next_tx(&mut scenario, guardian);
+        {
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::pause(&guardian_cap, &mut token_state, test_scenario::ctx(&mut scenario));
+
+            transfer::public_transfer(token_state, admin);
+            transfer::public_transfer(guardian_cap, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+            Gateway::set_minted_amount(&mut gateway_state, 1);
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_NOT_GUARDIAN)]
+    fun test_retire_gateway_for_ntt_requires_registered_guardian() {
+        let (admin, coin_deployer) = two_people();
+        let guardian = @0xCAFE;
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        // Register a guardian, have it pause the token, then de-register
+        // it. Its GuardianCap object survives (capabilities are not
+        // destroyed on removal) but is no longer backed by a registered
+        // guardian.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                guardian,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            transfer::public_transfer(token_state, guardian);
+            test_scenario::return_to_sender(&scenario, admin_cap);
+        };
+
+        test_scenario::next_tx(&mut scenario, guardian);
+        {
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::pause(&guardian_cap, &mut token_state, test_scenario::ctx(&mut scenario));
+
+            transfer::public_transfer(token_state, admin);
+            transfer::public_transfer(guardian_cap, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::remove_guardian(
+                &admin_cap,
+                &mut token_state,
+                guardian,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, admin_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_GUARDIAN_IS_ADMIN)]
+    fun test_retire_gateway_for_ntt_requires_guardian_distinct_from_admin() {
+        let (admin, coin_deployer) = two_people();
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        // Register the admin itself as a guardian and pause the token
+        // with that same-address GuardianCap. retire_gateway_for_ntt must
+        // reject this even though the admin is a currently-registered
+        // guardian, because the guardian and the AdminCap holder must be
+        // distinct addresses.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                admin,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, admin_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::pause(&guardian_cap, &mut token_state, test_scenario::ctx(&mut scenario));
+
+            test_scenario::return_to_sender(&scenario, guardian_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_TOKEN_NOT_PAUSED)]
+    fun test_retire_gateway_for_ntt_requires_token_paused() {
+        let (admin, coin_deployer) = two_people();
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        // Register a guardian but never pause the TBTC token itself: only
+        // the gateway gets paused below, exercising the separate
+        // TBTC::TokenState.paused gate that retire_gateway_for_ntt also
+        // enforces (TBTC::mint gates on TokenState.paused, a different
+        // flag from GatewayState.paused).
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                admin,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, admin_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        // Pause only the gateway; TBTC::TokenState.paused remains false.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_OUTSTANDING_SUPPLY)]
+    fun test_retire_gateway_for_ntt_requires_zero_treasury_supply() {
+        let (admin, coin_deployer) = two_people();
+        let guardian = @0xCAFE;
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        // Mint tBTC directly (bypassing the gateway) so the treasury
+        // cap's total_supply is nonzero while the gateway's own
+        // minted_amount counter stays at zero. retire_gateway_for_ntt
+        // must catch this divergence and refuse to hand over a
+        // TreasuryCap<TBTC> backing live supply.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let minter_cap = test_scenario::take_from_sender<TBTC::MinterCap>(&scenario);
+            let mut treasury_cap = test_scenario::take_from_sender<TreasuryCap<TBTC::TBTC>>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::mint(
+                &minter_cap,
+                &mut treasury_cap,
+                &token_state,
+                1,
+                admin,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, minter_cap);
+            test_scenario::return_to_sender(&scenario, treasury_cap);
+            test_scenario::return_to_sender(&scenario, token_state);
+        };
+
+        // Register a guardian and pause the token as that guardian.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let admin_cap = test_scenario::take_from_sender<TBTC::AdminCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::add_guardian(
+                &admin_cap,
+                &mut token_state,
+                guardian,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            transfer::public_transfer(token_state, guardian);
+            test_scenario::return_to_sender(&scenario, admin_cap);
+        };
+
+        test_scenario::next_tx(&mut scenario, guardian);
+        {
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+
+            TBTC::pause(&guardian_cap, &mut token_state, test_scenario::ctx(&mut scenario));
+
+            transfer::public_transfer(token_state, admin);
+            transfer::public_transfer(guardian_cap, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let guardian_cap = test_scenario::take_from_sender<TBTC::GuardianCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let token_state = test_scenario::take_from_sender<TBTC::TokenState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &guardian_cap,
+                &mut gateway_state,
+                &token_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
     fun test_trusted_emitter_management() {
         let (admin, coin_deployer) = two_people();
         let mut scenario = test_scenario::begin(admin);

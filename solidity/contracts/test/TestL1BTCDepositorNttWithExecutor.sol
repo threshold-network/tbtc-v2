@@ -4,37 +4,17 @@ pragma solidity 0.8.17;
 
 import "../cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol";
 
+/// @notice Test harness for `L1BTCDepositorNttWithExecutor` that exposes a
+///         setter for `fixedDestinationDeposits`, so tests can construct
+///         legacy (pre-fixed-destination) deposit state deterministically
+///         instead of relying on internal, undocumented Hardhat compiler
+///         tasks to locate and mutate the mapping's storage slot directly.
+/// @dev Test-only: never deployed outside the test suite. `initialize` is
+///      inherited unchanged from `L1BTCDepositorNttWithExecutor`.
 contract TestL1BTCDepositorNttWithExecutor is L1BTCDepositorNttWithExecutor {
-    function transferTbtcWithExecutor(
-        uint256 amount,
-        bytes32 destinationChainReceiver,
-        ExecutorArgs memory executorArgs,
-        FeeArgs memory feeArgs,
-        bytes32 nonce,
-        uint16 stageChain
-    ) external payable {
-        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            stageChain,
-            "",
-            executorArgs,
-            feeArgs
-        );
-        _transferTbtcWithExecutor(
-            amount,
-            destinationChainReceiver,
-            ExecutorParameterSet({
-                executorArgs: executorArgs,
-                feeArgs: feeArgs,
-                user: msg.sender,
-                timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
-                exists: true,
-                cachedRequiredPayment: requiredPayment,
-                cachedDestinationChain: stageChain,
-                cachedFeeBps: feeArgs.dbps,
-                cachedFeeRecipient: feeArgs.payee
-            }),
-            nonce
-        );
+    function setFixedDestinationDepositForTest(uint256 depositKey, bool value)
+        external
+    {
+        fixedDestinationDeposits[depositKey] = value;
     }
 }

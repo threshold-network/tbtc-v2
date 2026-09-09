@@ -28,6 +28,7 @@ describe("tbtc", () => {
   const imposter = anchor.web3.Keypair.generate();
   const guardian = anchor.web3.Keypair.generate();
   const anotherGuardian = anchor.web3.Keypair.generate();
+  const nttMintAuthority = anchor.web3.Keypair.generate();
 
   const recipient = anchor.web3.Keypair.generate();
   const txPayer = anchor.web3.Keypair.generate();
@@ -403,6 +404,18 @@ describe("tbtc", () => {
         guardian: guardian.publicKey,
       });
       await expectIxFail([cannotAddIx], [imposter], "IsNotAuthority");
+    });
+
+    it("cannot add the authority as guardian", async () => {
+      const cannotAddIx = await tbtc.addGuardianIx({
+        authority: authority.publicKey,
+        guardian: authority.publicKey,
+      });
+      await expectIxFail(
+        [cannotAddIx],
+        [authority],
+        "GuardianCannotBeAuthority"
+      );
     });
 
     it("add guardian", async () => {
@@ -817,6 +830,147 @@ describe("tbtc", () => {
         supply: BigInt(2000),
         paused: false,
         pendingAuthority: null,
+      });
+    });
+  });
+
+  describe("NTT mint authority migration", () => {
+    it("cannot transfer mint authority while unpaused", async () => {
+      const addGuardianIx = await tbtc.addGuardianIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+      });
+      await expectIxSuccess([addGuardianIx], [authority]);
+
+      // transfer_mint_authority now requires at least two registered
+      // guardians (raising the bar on a single authority self-registering
+      // one puppet guardian and immediately co-signing with it). Register a
+      // second guardian here; it stays registered for the rest of this
+      // describe block.
+      const addSecondGuardianIx = await tbtc.addGuardianIx({
+        authority: authority.publicKey,
+        guardian: anotherGuardian.publicKey,
+      });
+      await expectIxSuccess([addSecondGuardianIx], [authority]);
+
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxFail([transferIx], [authority, guardian], "IsNotPaused");
+    });
+
+    it("cannot transfer mint authority without authority", async () => {
+      const pauseIx = await tbtc.pauseIx({
+        guardian: guardian.publicKey,
+      });
+      await expectIxSuccess([pauseIx], [txPayer, guardian]);
+
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: imposter.publicKey,
+        guardian: guardian.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxFail([transferIx], [imposter, guardian], "IsNotAuthority");
+    });
+
+    it("cannot transfer mint authority while minters remain configured", async () => {
+      const addMinterIx = await tbtc.addMinterIx({
+        authority: authority.publicKey,
+        minter: minter.publicKey,
+      });
+      await expectIxSuccess([addMinterIx], [authority]);
+
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxFail(
+        [transferIx],
+        [authority, guardian],
+        "MintersStillConfigured"
+      );
+
+      const removeMinterIx = await tbtc.removeMinterIx({
+        authority: authority.publicKey,
+        minter: minter.publicKey,
+      });
+      await expectIxSuccess([removeMinterIx], [authority]);
+    });
+
+    it("cannot transfer mint authority while supply remains", async () => {
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxFail(
+        [transferIx],
+        [authority, guardian],
+        "MintSupplyNotZero"
+      );
+    });
+
+    it("burns remaining supply before migration", async () => {
+      const recipientToken = spl.getAssociatedTokenAddressSync(
+        tbtc.getMintPDA(),
+        recipient.publicKey
+      );
+      const burnIx = spl.createBurnInstruction(
+        recipientToken,
+        tbtc.getMintPDA(),
+        recipient.publicKey,
+        BigInt(2000)
+      );
+
+      await expectIxSuccess([burnIx], [txPayer, recipient]);
+      await tbtc.checkConfig({
+        authority: authority.publicKey,
+        numMinters: 0,
+        numGuardians: 2,
+        supply: BigInt(0),
+        paused: true,
+        pendingAuthority: null,
+        mintAuthority: tbtc.getConfigPDA(),
+      });
+    });
+
+    it("cannot transfer mint authority to the default pubkey", async () => {
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+        newAuthority: anchor.web3.PublicKey.default,
+      });
+
+      await expectIxFail(
+        [transferIx],
+        [authority, guardian],
+        "NewMintAuthorityCannotBeDefault"
+      );
+    });
+
+    it("transfers mint authority to the NTT authority", async () => {
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxSuccess([transferIx], [authority, guardian]);
+      await tbtc.checkConfig({
+        authority: authority.publicKey,
+        numMinters: 0,
+        numGuardians: 2,
+        supply: BigInt(0),
+        paused: true,
+        pendingAuthority: null,
+        mintAuthority: nttMintAuthority.publicKey,
       });
     });
   });

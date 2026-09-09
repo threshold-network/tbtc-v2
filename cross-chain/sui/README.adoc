@@ -83,3 +83,35 @@ The BTCDepositorWormhole contract requires the following configuration:
 3. **Wormhole Core & Token Bridge**: Standard Wormhole infrastructure addresses
 
 These are configured during deployment and can be found in the deployment artifacts.
+
+=== NTT migration
+
+The existing Sui deployment uses a Wormhole Token Bridge lockbox gateway. The
+gateway stores `TreasuryCap<TBTC>` in `GatewayCapabilities` and mints canonical
+tBTC against wrapped Wormhole tBTC held in `WrappedTokenTreasury`.
+
+Before Sui can be configured as an L1 NTT peer:
+
+1. Drain or otherwise reconcile the wrapped-token treasury so the gateway has no
+   outstanding lockbox-backed minted amount and holds no wrapped-token balance,
+   and burn any outstanding `TreasuryCap<TBTC>` supply. This step MUST happen
+   before pausing: `Gateway::send_tokens`, `Gateway::send_tokens_standard`, and
+   `TBTC::burn` all require the gateway and the TBTC token to be unpaused to
+   execute, so `minted_amount` and `TreasuryCap<TBTC>` total supply cannot be
+   driven to zero once either is paused.
+2. Pause the existing Sui Wormhole gateway (`Gateway::pause`).
+3. Pause the TBTC token itself (`TBTC::pause`, via a `TBTC::GuardianCap`).
+   `TBTC::mint` gates on `TokenState.paused`, not `GatewayState.paused`, so
+   both must be paused or the retiring admin could still mint canonical tBTC
+   directly in the handoff window.
+4. Call `Gateway::retire_gateway_for_ntt` to consume `GatewayCapabilities` and
+   return `MinterCap`, `EmitterCap`, and `TreasuryCap<TBTC>` to the transaction
+   sender/admin. This call requires both the gateway `AdminCap` and a
+   `TBTC::GuardianCap` belonging to a currently-registered guardian distinct
+   from the admin. This is not full Solana-style dual-signing: Sui's
+   owned-object transaction model requires both capabilities to be owned by
+   the same transaction sender, so the check only guards against reusing the
+   admin's own address as its guardian, not independent authorization from
+   two different signers.
+5. Pass the recovered `TreasuryCap<TBTC>` to Wormhole NTT's
+   `setup::complete_burning<TBTC>` when initializing the Sui NTT manager.
