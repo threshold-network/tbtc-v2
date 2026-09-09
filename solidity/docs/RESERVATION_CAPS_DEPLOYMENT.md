@@ -171,7 +171,18 @@ keep-core#4274 must be updated to call the new selectors above before mainnet ac
 
 **Reshaped return type (keep-core#4274 needs an update before mainnet activation):**
 
-- `reservationActions()`'s returned `ReservationAction` tuple has diverged from keep-core#4274's frozen 17-field Go binding. Current tbtc-v2 `Reservation.ReservationAction` has 20 fields: `actionDataHash`/`sourceAnchorUtxoHash` (bytes32) are inserted immediately after `redeemer` — ahead of `amount`, not after — and `termSeconds`, `dissolutionDelay`, `minAmount` are appended. From field 9 onward, every position's type diverges from keep-core's expectation. This is not cosmetic: keep-core#4274's maintainer loop calls `GetReservationAction(reservationKey, requestNonce)` (ABI-decoding this exact tuple) before every proof submission, on both the acceptance and reanchor paths — a tuple-arity mismatch at decode time fails that call outright. keep-core#4274 must regenerate its bindings against the final, stabilized shape of this struct (not an intermediate snapshot — the shape has moved multiple times during this epic's development) before mainnet activation.
+`reservationActions()`'s returned `ReservationAction` tuple has diverged from keep-core#4274's frozen 17-field Go binding. Current tbtc-v2 shape (authoritative: `solidity/test/fixtures/ReservationAbi.snapshot.json`, `structs.ReservationAction`, extracted directly from the compiled ABI's tuple components — not hand-counted):
+
+```
+targetWalletPubKeyHash bytes20, requestedAt uint32, timeoutAt uint32, txMaxFee uint64,
+actionType uint8, state uint8, feePaid bool, redeemer address,
+actionDataHash bytes32, sourceAnchorUtxoHash bytes32, amount uint64, usedRetryCredit bool,
+watchtowerDefaultDelay uint32, watchtowerLevelOneDelay uint32, watchtowerLevelTwoDelay uint32,
+retryCreditSourceNonce uint64, isPartial bool, termSeconds uint32, dissolutionDelay uint32,
+minAmount uint64
+```
+
+20 fields vs. keep-core#4274's 17: `actionDataHash`/`sourceAnchorUtxoHash` (bytes32) are inserted immediately after `redeemer` — ahead of `amount`, not after — and `termSeconds`, `dissolutionDelay`, `minAmount` are appended. From field 9 onward, every position's type diverges from keep-core's expectation. This is not cosmetic: keep-core#4274's maintainer loop calls `GetReservationAction(reservationKey, requestNonce)` (ABI-decoding this exact tuple) before every proof submission, on both the acceptance and reanchor paths — a tuple-arity mismatch at decode time fails that call outright. keep-core#4274 must regenerate its bindings against this final, stabilized shape (not an intermediate snapshot — the shape has moved multiple times during this epic's development) before mainnet activation.
 
 ---
 
