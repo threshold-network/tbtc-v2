@@ -545,8 +545,12 @@ describe("Bridge - Peg keeper", () => {
       // Wait for the transaction to be mined
       const receipt = await redeemTx.wait()
 
-      // The redemption should succeed (not revert)
-      expect(redeemTx).to.not.be.reverted
+      // The redemption should succeed (not revert). `redeemTx` here is
+      // already an awaited, mined TransactionResponse rather than a
+      // pending promise, so waffle's `.reverted` matcher (which needs an
+      // unresolved promise to catch a throw) does not apply; the mined
+      // receipt's status is the correct success check.
+      expect(receipt.status).to.equal(1)
 
       // Since RebateStaking is deprecated, it should return early and not apply any rebate
       // Therefore, the full fee should be applied (fee is NOT waived)
