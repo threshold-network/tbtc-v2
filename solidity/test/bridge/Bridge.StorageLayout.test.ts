@@ -82,7 +82,7 @@ STORAGE_LAYOUT_TARGETS.forEach((target) => {
         assert.isAbove(
           originalLayout.storage.length,
           0,
-          `baseline mainnet deployment artifact ` +
+          "baseline mainnet deployment artifact " +
             `(${target.baselineArtifactPath}) is missing its storage layout`
         )
 

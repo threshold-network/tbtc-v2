@@ -1368,12 +1368,10 @@ describe("Bridge - Deposit", () => {
                         lowerReceiver,
                         32
                       )
-                      // Flip the high byte (byte 0) to make it non-canonical.
-                      const highByte =
-                        parseInt(canonicalPad.slice(2, 4), 16) ^ 0x01
-                      extraData = `0x${highByte
-                        .toString(16)
-                        .padStart(2, "0")}${canonicalPad.slice(4)}`
+                      // Byte 0 of a left-padded 20-byte address is always
+                      // zero; set it to a nonzero value to make the padding
+                      // non-canonical.
+                      extraData = `0x01${canonicalPad.slice(4)}`
                     }
 
                     // Build the deposit script exactly as Deposit.sol does.
