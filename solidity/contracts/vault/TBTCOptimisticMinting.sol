@@ -1029,12 +1029,8 @@ abstract contract TBTCOptimisticMinting is Ownable {
         view
         returns (uint256 updatedRemaining, uint64 updatedRefilledAt)
     {
-        if (limit == 0) {
-            return (remaining, refilledAt);
-        }
-
         // slither-disable-next-line incorrect-equality
-        if (refilledAt == 0) {
+        if (refilledAt == 0 || remaining >= limit) {
             /* solhint-disable-next-line not-rely-on-time */
             return (limit, uint64(block.timestamp));
         }
@@ -1087,9 +1083,6 @@ abstract contract TBTCOptimisticMinting is Ownable {
             );
             allowance.valueRemaining = uint64(valueRemaining);
             allowance.valueRefilledAt = valueRefilledAt;
-            if (allowance.valueRemaining > valueCap) {
-                allowance.valueRemaining = valueCap;
-            }
         }
 
         if (requestLimit != 0) {
@@ -1103,9 +1096,6 @@ abstract contract TBTCOptimisticMinting is Ownable {
                 );
             allowance.requestsRemaining = uint32(requestsRemaining);
             allowance.requestsRefilledAt = requestsRefilledAt;
-            if (allowance.requestsRemaining > requestLimit) {
-                allowance.requestsRemaining = requestLimit;
-            }
         }
 
         return allowance;
