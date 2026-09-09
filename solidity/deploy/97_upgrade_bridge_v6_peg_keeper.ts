@@ -57,7 +57,25 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // here would target a peg keeper flow governance cannot yet reach.
   console.log("\n--- Verifying governance transfer is finalized ---")
   const Bridge = await get("Bridge")
-  const BridgeGovernanceV2 = await get("BridgeGovernanceV2")
+  let BridgeGovernanceV2
+  try {
+    BridgeGovernanceV2 = await get("BridgeGovernanceV2")
+  } catch (error) {
+    throw new Error(
+      "BridgeGovernanceV2 has not been deployed on this network yet. " +
+        "hardhat-deploy's tag dependency resolution pulls " +
+        "95_deploy_bridge_governance_v2.ts into this run, but that " +
+        "script is independently skip-gated behind " +
+        "DEPLOY_BRIDGE_GOVERNANCE_V2=true and will not execute just " +
+        "because this script declares it as a dependency. If " +
+        "BridgeGovernanceV2 was already deployed in a prior invocation, " +
+        "its deployment record should already be on disk -- check the " +
+        "correct network/deployments directory is in scope. Otherwise, " +
+        "set DEPLOY_BRIDGE_GOVERNANCE_V2=true alongside " +
+        "DEPLOY_PROTOCOL_PEG_KEEPER_UPGRADE=true, or run " +
+        "`yarn deploy --tags BridgeGovernanceV2` on its own first."
+    )
+  }
   const bridgeReadOnly = await ethers.getContractAt(BRIDGE_ABI, Bridge.address)
   const currentGovernance = await bridgeReadOnly.governance()
   const allowUnsafeOrder = process.env.ALLOW_UNSAFE_ORDER === "true"
