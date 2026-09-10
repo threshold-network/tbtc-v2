@@ -35,7 +35,6 @@
     }
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
     "check:mainnet-deposit-parameters": "ts-node --files ./scripts/check-mainnet-deposit-parameters.ts",
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
@@ -52,9 +51,7 @@
   "files": [
     "dist/",
     "src/",
-    "typechain/",
-    "patches/",
-    "scripts/postinstall.js"
+    "typechain/"
   ],
   "config": {
     "contracts": "./src/lib/ethereum/artifacts/sepolia/L1BitcoinRedeemer.json ./src/lib/base/artifacts/baseSepolia/BaseL2BitcoinRedeemer.json ./src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumL2BitcoinRedeemer.json ./node_modules/@keep-network/ecdsa/artifacts/WalletRegistry.json ./node_modules/@keep-network/tbtc-v2/artifacts/{Bridge,TBTCVault,TBTC}.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L1BitcoinDepositor.sol/L1BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2BitcoinDepositor.sol/L2BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2TBTC.sol/L2TBTC.json"
@@ -82,9 +79,8 @@
     "bitcoinjs-lib": "^6.1.5",
     "bufio": "^1.0.6",
     "ecpair": "^2.1.0",
-    "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.2.0",
+    "electrum-client-js": "git+https://github.com/threshold-network/electrum-client-js.git#v0.2.1",
     "p-timeout": "^4.1.0",
-    "patch-package": "8.0.0",
     "starknet": "^6.24.1",
     "url-parse": "^1.5.10",
     "wif": "2.0.6"
