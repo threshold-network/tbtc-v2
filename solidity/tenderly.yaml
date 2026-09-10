@@ -3,6 +3,3 @@ projects:
   thesis/keep:
     networks:
       - "1" # mainnet
-  thesis/keep-test:
-    networks:
-      - "3" # ropsten
