@@ -52,8 +52,8 @@ chai.use(smock.matchers)
 //
 // The fork suite is gated on `FORKING_URL`; without it Hardhat runs an
 // in-memory chain where the real proxy does not exist, so that suite is
-// skipped rather than spuriously failing. There is no StarkNet CI
-// workflow, so the fork suite is expected to be run locally.
+// skipped rather than spuriously failing. CI runs the local suites; the
+// fork suite is run separately with an archival RPC endpoint.
 // -------------------------------------------------------------------
 
 const CONTRACT_NAME = "StarkNetBitcoinDepositor"

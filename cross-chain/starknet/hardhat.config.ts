@@ -16,28 +16,6 @@ import "solidity-docgen"
 
 dotenv.config()
 
-const ecdsaSolidityCompilerConfig = {
-  version: "0.8.17",
-  settings: {
-    optimizer: {
-      enabled: true,
-      runs: 200,
-    },
-  },
-}
-
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
-const bridgeGovernanceCompilerConfig = {
-  version: "0.8.17",
-  settings: {
-    optimizer: {
-      enabled: true,
-      runs: 200,
-    },
-  },
-}
-
 // Configuration for testing environment.
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
@@ -66,11 +44,6 @@ const config: HardhatUserConfig = {
         },
       },
     ],
-    overrides: {
-      "@keep-network/ecdsa/contracts/WalletRegistry.sol":
-        ecdsaSolidityCompilerConfig,
-      "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-    },
   },
 
   paths: {
@@ -115,7 +88,7 @@ const config: HardhatUserConfig = {
       tags: ["allowStubs"],
     },
     sepolia: {
-      url: process.env.L1_CHAIN_SEPOLIA_API_URL,
+      url: process.env.L1_CHAIN_SEPOLIA_API_URL || "",
       chainId: 11155111,
       deploy: ["deploy_l1"],
       accounts: process.env.L1_ACCOUNTS_PK_SEPOLIA
@@ -131,13 +104,13 @@ const config: HardhatUserConfig = {
       httpHeaders: {},
     },
     mainnet: {
-      url: process.env.L1_CHAIN_MAINNET_API_URL,
+      url: process.env.L1_CHAIN_MAINNET_API_URL || "",
       chainId: 1,
       deploy: ["deploy_l1"],
       accounts: process.env.L1_ACCOUNTS_PK_MAINNET
         ? process.env.L1_ACCOUNTS_PK_MAINNET.split(",").map((key) =>
-          key.startsWith("0x") ? key : `0x${key}`
-        )
+            key.startsWith("0x") ? key : `0x${key}`
+          )
         : undefined,
       tags: [
         "etherscan",
@@ -154,37 +127,9 @@ const config: HardhatUserConfig = {
   // },
 
   external: {
-    contracts:
-      process.env.USE_EXTERNAL_DEPLOY === "true"
-        ? [
-            {
-              artifacts: "node_modules/@keep-network/tbtc-v2/artifacts",
-            },
-            {
-              artifacts:
-                "node_modules/@threshold-network/solidity-contracts/export/artifacts",
-              deploy:
-                "node_modules/@threshold-network/solidity-contracts/export/deploy",
-            },
-            {
-              artifacts:
-                "node_modules/@keep-network/random-beacon/export/artifacts",
-              deploy: "node_modules/@keep-network/random-beacon/export/deploy",
-            },
-            {
-              artifacts: "node_modules/@keep-network/ecdsa/export/artifacts",
-              deploy: "node_modules/@keep-network/ecdsa/export/deploy",
-            },
-          ]
-        : undefined,
+    // Bridge and Vault are existing deployments, accessed through local
+    // interfaces. This integration does not deploy the core protocol stack.
     deployments: {
-      // For development environment we expect the local dependencies to be
-      // linked with `yarn link` command.
-      development: [
-        "node_modules/@threshold-network/solidity-contracts/deployments/development",
-        "node_modules/@keep-network/random-beacon/deployments/development",
-        "node_modules/@keep-network/ecdsa/deployments/development",
-      ],
       sepolia: ["./external/sepolia"],
       mainnet: ["./external/mainnet"],
     },
@@ -204,9 +149,6 @@ const config: HardhatUserConfig = {
     chaosnetOwner: {
       default: 3,
       sepolia: 0,
-      // Not used for mainnet deployment scripts of `@keepn-network/tbtc-v2`.
-      // Used by `@keep-network/random-beacon` and `@keep-network/ecdsa`
-      // when deploying `SortitionPool`s.
     },
     esdm: {
       default: 4,
@@ -248,16 +190,6 @@ const config: HardhatUserConfig = {
     paths: [
       "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol",
       "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol",
-      // WalletRegistry contract is deployed with @open-zeppelin/hardhat-upgrades
-      // plugin that doesn't work well with hardhat-deploy artifacts defined in
-      // external artifacts section, hence we have to compile the contracts from
-      // sources.
-      "@keep-network/ecdsa/contracts/WalletRegistry.sol",
-      "@keep-network/tbtc-v2/contracts/bridge/Bridge.sol",
-      "@keep-network/tbtc-v2/contracts/vault/TBTCVault.sol",
-      // Mintable ERC20 used by the depositor regression tests to back the
-      // SafeERC20 allowance/transfer plumbing with a real token.
-      "@keep-network/tbtc-v2/contracts/test/TestERC20.sol",
     ],
     keep: true,
   },
