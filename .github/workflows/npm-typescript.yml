@@ -15,9 +15,9 @@ jobs:
       run:
         working-directory: ./typescript
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "22.x"
           registry-url: "https://registry.npmjs.org"
@@ -45,7 +45,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: keep-network/npm-version-bump@v2
+        uses: threshold-network/ci/actions/npm-version-bump@4e5a710bc94d6abba62abbb6b8c70adfd10af83f
         with:
           work-dir: ./typescript
           environment: dev
