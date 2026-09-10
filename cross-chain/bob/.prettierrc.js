@@ -1,5 +1,5 @@
 module.exports = {
-  semi: false,
+  ...require("../../config/prettier-base"),
   overrides: [
     {
       files: "*.sol",

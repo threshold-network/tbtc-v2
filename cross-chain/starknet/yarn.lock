@@ -1491,9 +1491,9 @@
     hardhat-deploy "^0.11.10"
     js-yaml "^3.14.0"
 
-"@thesis-co/eslint-config@github:thesis/eslint-config":
+"@thesis-co/eslint-config@https://codeload.github.com/thesis/eslint-config/tar.gz/3b7128d0489ec49c3b290c32e5536281550cd1eb":
   version "0.8.0-pre"
-  resolved "https://codeload.github.com/thesis/eslint-config/tar.gz/3b7128d0489ec49c3b290c32e5536281550cd1eb"
+  resolved "https://codeload.github.com/thesis/eslint-config/tar.gz/3b7128d0489ec49c3b290c32e5536281550cd1eb#309110720ae7767e75e3faa4359bab48e3dddd9e"
   dependencies:
     "@thesis-co/prettier-config" "github:thesis/prettier-config"
     "@typescript-eslint/eslint-plugin" ">=6.4.1"
@@ -10204,6 +10204,9 @@ solc@^0.6.3:
     require-from-string "^2.0.0"
     semver "^5.5.0"
     tmp "0.0.33"
+
+"solhint-config-tbtc@file:../../config/solhint-config-tbtc":
+  version "1.0.0"
 
 solhint@^3.3.7:
   version "3.6.2"

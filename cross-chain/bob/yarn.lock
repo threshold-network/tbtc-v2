@@ -10219,6 +10219,9 @@ solc@^0.6.3:
     semver "^5.5.0"
     tmp "0.0.33"
 
+"solhint-config-tbtc@file:../../config/solhint-config-tbtc":
+  version "1.0.0"
+
 solhint@3.3.6:
   version "3.3.6"
   resolved "https://registry.yarnpkg.com/solhint/-/solhint-3.3.6.tgz#abe9af185a9a7defefba480047b3e42cbe9a1210"

@@ -1,4 +1,4 @@
 module.exports = {
-  semi: false,
+  ...require("./config/prettier-base"),
   plugins: ["prettier-plugin-sh"],
 }

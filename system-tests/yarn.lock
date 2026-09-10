@@ -2188,9 +2188,9 @@
   dependencies:
     defer-to-connect "^1.0.1"
 
-"@thesis-co/eslint-config@github:thesis/eslint-config":
+"@thesis-co/eslint-config@https://codeload.github.com/thesis/eslint-config/tar.gz/382331b5ba1ab79839eaf5d70407d059715cc285":
   version "0.1.0"
-  resolved "https://codeload.github.com/thesis/eslint-config/tar.gz/382331b5ba1ab79839eaf5d70407d059715cc285"
+  resolved "https://codeload.github.com/thesis/eslint-config/tar.gz/382331b5ba1ab79839eaf5d70407d059715cc285#1b8b65961b4a376c8eb06459481ed546bcf02586"
   dependencies:
     "@thesis-co/prettier-config" "github:thesis/prettier-config"
     "@typescript-eslint/eslint-plugin" "^4.32.0"
@@ -4517,7 +4517,7 @@ eslint-plugin-jsx-a11y@^6.4.1:
     language-tags "^1.0.5"
     minimatch "^3.0.4"
 
-eslint-plugin-no-only-tests@2.6.0:
+eslint-plugin-no-only-tests@2.6.0, eslint-plugin-no-only-tests@^2.6.0:
   version "2.6.0"
   resolved "https://registry.yarnpkg.com/eslint-plugin-no-only-tests/-/eslint-plugin-no-only-tests-2.6.0.tgz#19f6c9620bda02b9b9221b436c5f070e42628d76"
   integrity sha512-T9SmE/g6UV1uZo1oHAqOvL86XWl7Pl2EpRpnLI8g/bkJu+h7XBCB+1LnubRZ2CUQXj805vh4/CYZdnqtVaEo2Q==

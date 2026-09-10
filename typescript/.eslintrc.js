@@ -1,30 +1,14 @@
+const base = require("../config/eslint-base")
+
 module.exports = {
-  extends: ["google", "prettier"],
-  root: true,
-  parser: "@typescript-eslint/parser",
-  plugins: ["@typescript-eslint", "no-only-tests", "prettier"],
+  ...base,
   rules: {
-    "require-jsdoc": 0,
-    "no-only-tests/no-only-tests": "error",
-    "prettier/prettier": [
-      "error",
-      {
-        semi: false,
-      },
-    ],
+    ...base.rules,
     // ethers: BigNumber.from and contract filter factories (EventName) are not constructors
     "new-cap": [
       "error",
       {
         capIsNewExceptions: ["BN", "BigNumber", "DkgResultSubmitted"],
-      },
-    ],
-    "valid-jsdoc": [
-      "error",
-      {
-        prefer: { return: "returns" },
-        requireParamType: false,
-        requireReturnType: false,
       },
     ],
   },
