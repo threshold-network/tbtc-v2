@@ -48,7 +48,7 @@
     "@nomiclabs/hardhat-waffle": "^2.0.2",
     "@openzeppelin/hardhat-upgrades": "1.28.0",
     "@tenderly/hardhat-tenderly": ">=1.0.12 <1.2.0",
-    "@thesis-co/eslint-config": "github:thesis/eslint-config#commit=778365bbebb6b056bf973d25c57b8b466d21cbcf",
+    "@thesis-co/eslint-config": "https://codeload.github.com/thesis/eslint-config/tar.gz/778365bbebb6b056bf973d25c57b8b466d21cbcf",
     "@typechain/ethers-v5": "^8.0.5",
     "@typechain/hardhat": "^4.0.0",
     "@types/chai": "^4.3.0",
