@@ -10205,10 +10205,6 @@ solc@^0.6.3:
     semver "^5.5.0"
     tmp "0.0.33"
 
-"solhint-config-keep@github:keep-network/solhint-config-keep":
-  version "0.1.0"
-  resolved "https://codeload.github.com/keep-network/solhint-config-keep/tar.gz/5e1751e58c0f1c507305ffc8c7f6c58047657ada"
-
 solhint@^3.3.7:
   version "3.6.2"
   resolved "https://registry.yarnpkg.com/solhint/-/solhint-3.6.2.tgz#2b2acbec8fdc37b2c68206a71ba89c7f519943fe"

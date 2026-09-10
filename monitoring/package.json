@@ -20,7 +20,10 @@
     "node-json-db": "^2.1.4"
   },
   "devDependencies": {
-    "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
+    "eslint-config-google": "0.13.0",
+    "eslint-config-prettier": "6.15.0",
+    "eslint-plugin-no-only-tests": "2.6.0",
+    "eslint-plugin-prettier": "3.4.1",
     "@thesis-co/eslint-config": "github:thesis/eslint-config",
     "eslint": "8.22.0",
     "prettier": "^2.3.2",

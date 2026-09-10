@@ -2350,7 +2350,6 @@ __metadata:
     prettier-plugin-sh: "npm:^0.8.1"
     prettier-plugin-solidity: "npm:^1.0.0-beta.19"
     solhint: "npm:^3.3.7"
-    solhint-config-keep: "github:keep-network/solhint-config-keep"
     solidity-docgen: "npm:^0.6.0-beta.34"
     ts-node: "npm:^10.4.0"
     typechain: "npm:^6.1.0"
@@ -15540,15 +15539,6 @@ __metadata:
   bin:
     solcjs: solcjs
   checksum: 10c0/7803e011a2a5424e14fc0aa3d7e36eac90130bfe1498eff3298967faee212aa13ca7fb7b98db27de449f086fbf92e87c24483e84ea5faa6a50cbe24e2961d002
-  languageName: node
-  linkType: hard
-
-"solhint-config-keep@github:keep-network/solhint-config-keep":
-  version: 0.1.0
-  resolution: "solhint-config-keep@https://github.com/keep-network/solhint-config-keep.git#commit=5e1751e58c0f1c507305ffc8c7f6c58047657ada"
-  peerDependencies:
-    solhint: ">=3.3.4"
-  checksum: 10c0/a2d14a23080948b4dae5733deb818a23898f1a04dd18f3c15b32657bdbd87fb3ee7c5f493f68aa362a24d967fc44c4211a4dd5195ee3f344411309e667bbd194
   languageName: node
   linkType: hard
 

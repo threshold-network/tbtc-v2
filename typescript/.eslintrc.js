@@ -1,9 +1,17 @@
 module.exports = {
-  extends: ["eslint-config-keep"],
+  extends: ["google", "prettier"],
   root: true,
   parser: "@typescript-eslint/parser",
-  plugins: ["@typescript-eslint"],
+  plugins: ["@typescript-eslint", "no-only-tests", "prettier"],
   rules: {
+    "require-jsdoc": 0,
+    "no-only-tests/no-only-tests": "error",
+    "prettier/prettier": [
+      "error",
+      {
+        semi: false,
+      },
+    ],
     // ethers: BigNumber.from and contract filter factories (EventName) are not constructors
     "new-cap": [
       "error",

@@ -1,5 +1,5 @@
 module.exports = {
-  ...require("@keep-network/prettier-config-keep"),
+  semi: false,
   overrides: [
     {
       files: "*.sol",

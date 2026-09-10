@@ -1,4 +1,4 @@
 module.exports = {
-  ...require("@keep-network/prettier-config-keep"),
+  semi: false,
   plugins: ["prettier-plugin-sh"],
 }
