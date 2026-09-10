@@ -2309,7 +2309,7 @@ __metadata:
     "@openzeppelin/contracts-upgradeable": "npm:^4.8.1"
     "@openzeppelin/hardhat-upgrades": "npm:1.28.0"
     "@tenderly/hardhat-tenderly": "npm:>=1.0.12 <1.2.0"
-    "@thesis-co/eslint-config": "https://codeload.github.com/thesis/eslint-config/tar.gz/778365bbebb6b056bf973d25c57b8b466d21cbcf"
+    "@thesis-co/eslint-config": "github:thesis/eslint-config#commit=778365bbebb6b056bf973d25c57b8b466d21cbcf"
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
     "@typechain/ethers-v5": "npm:^8.0.5"
     "@typechain/hardhat": "npm:^4.0.0"
@@ -3353,9 +3353,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@thesis-co/eslint-config@https://codeload.github.com/thesis/eslint-config/tar.gz/778365bbebb6b056bf973d25c57b8b466d21cbcf":
+"@thesis-co/eslint-config@github:thesis/eslint-config#commit=778365bbebb6b056bf973d25c57b8b466d21cbcf":
   version: 0.1.0
-  resolution: "@thesis-co/eslint-config@https://codeload.github.com/thesis/eslint-config/tar.gz/778365bbebb6b056bf973d25c57b8b466d21cbcf"
+  resolution: "@thesis-co/eslint-config@https://github.com/thesis/eslint-config.git#commit=778365bbebb6b056bf973d25c57b8b466d21cbcf"
   dependencies:
     "@thesis-co/prettier-config": "github:thesis/prettier-config"
     "@typescript-eslint/eslint-plugin": "npm:^4.32.0"
@@ -3372,7 +3372,7 @@ __metadata:
   peerDependencies:
     eslint: ">=6.8.0"
     eslint-plugin-import: ^2.18.2
-  checksum: 10c0/3313cf7d0ad067b376bdb09d7243f1d7392e2b61e088318e68ee57beff5a0089da5512c995744f2183d67bd844bbe68ee2f14d989bdd47f660a351f4a3dcf429
+  checksum: 10c0/e6b3b51b0895e57a69254be3c38d339c9fcee9a2f7eba525049d948b00fcb31fc7cd6734dcf465bd617d342f70efdac910c88e45d87aa9eae2d2e723b5899158
   languageName: node
   linkType: hard
 
