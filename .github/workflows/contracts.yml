@@ -176,7 +176,6 @@ jobs:
         env:
           RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
-          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
@@ -314,7 +313,6 @@ jobs:
         env:
           RANDOM_BEACON_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.random-beacon-contracts-version }}
           ECDSA_CONTRACTS_VERSION: ${{ steps.upstream-builds-query.outputs.ecdsa-contracts-version }}
-          ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
           yarn up \
             "@keep-network/random-beacon@${RANDOM_BEACON_CONTRACTS_VERSION}" \
