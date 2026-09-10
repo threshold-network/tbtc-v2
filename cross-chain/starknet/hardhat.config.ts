@@ -3,7 +3,7 @@ import * as dotenv from "dotenv"
 import { HardhatUserConfig } from "hardhat/config"
 
 import "@keep-network/hardhat-helpers"
-import "@keep-network/hardhat-local-networks-config"
+import "./local-networks-config"
 import "@nomiclabs/hardhat-waffle"
 import "@nomiclabs/hardhat-etherscan"
 import "hardhat-gas-reporter"
