@@ -172,7 +172,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Get upstream packages versions
-        uses: threshold-network/ci/actions/upstream-builds-query@4e5a710bc94d6abba62abbb6b8c70adfd10af83f
+        uses: threshold-network/ci/actions/upstream-builds-query@20b35345d276a3c7365e3829b8078387a7c9dccb
         id: upstream-builds-query
         with:
           upstream-builds: ${{ github.event.inputs.upstream_builds }}
@@ -200,7 +200,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: threshold-network/ci/actions/npm-version-bump@4e5a710bc94d6abba62abbb6b8c70adfd10af83f
+        uses: threshold-network/ci/actions/npm-version-bump@20b35345d276a3c7365e3829b8078387a7c9dccb
         with:
           work-dir: solidity
           environment: ${{ github.event.inputs.environment }}
@@ -213,7 +213,7 @@ jobs:
         run: npm publish --access=public --tag ${{ github.event.inputs.environment }} --network=${{ github.event.inputs.environment }}
 
       - name: Notify CI about completion of the workflow
-        uses: threshold-network/ci/actions/notify-workflow-completed@4e5a710bc94d6abba62abbb6b8c70adfd10af83f
+        uses: threshold-network/ci/actions/notify-workflow-completed@20b35345d276a3c7365e3829b8078387a7c9dccb
         env:
           GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
         with:
@@ -325,7 +325,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Get upstream packages versions
-        uses: threshold-network/ci/actions/upstream-builds-query@4e5a710bc94d6abba62abbb6b8c70adfd10af83f
+        uses: threshold-network/ci/actions/upstream-builds-query@20b35345d276a3c7365e3829b8078387a7c9dccb
         id: upstream-builds-query
         with:
           upstream-builds: ${{ github.event.inputs.upstream_builds }}
@@ -348,7 +348,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: threshold-network/ci/actions/npm-version-bump@4e5a710bc94d6abba62abbb6b8c70adfd10af83f
+        uses: threshold-network/ci/actions/npm-version-bump@20b35345d276a3c7365e3829b8078387a7c9dccb
         with:
           work-dir: solidity
           environment: dapp-dev-${{ github.event.inputs.environment }}
