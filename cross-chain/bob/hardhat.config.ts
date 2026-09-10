@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "dotenv/config"
 import type { HardhatUserConfig } from "hardhat/config"
 
 import "@nomiclabs/hardhat-etherscan"
@@ -56,7 +56,7 @@ const config: HardhatUserConfig = {
       forking: {
         url: process.env.BOB_MAINNET_URL || "https://rpc.gobob.xyz/",
         blockNumber: 20191668,
-      }
+      },
     },
     sepolia: {
       url: process.env.L1_CHAIN_API_URL || "",
@@ -97,17 +97,14 @@ const config: HardhatUserConfig = {
   },
 
   deploymentArtifactsExport: {
-    goerli: "artifacts/l1",
     sepolia: "artifacts/l1",
     mainnet: "artifacts/l1",
-    arbitrumGoerli: "artifacts/l2",
     arbitrumSepolia: "artifacts/l2",
     arbitrumOne: "artifacts/l2",
   },
 
   etherscan: {
     apiKey: {
-      goerli: process.env.ETHERSCAN_API_KEY,
       sepolia: process.env.ETHERSCAN_API_KEY,
       mainnet: process.env.ETHERSCAN_API_KEY,
       bobMainnet: "empty",
@@ -119,40 +116,40 @@ const config: HardhatUserConfig = {
         chainId: 11155111,
         urls: {
           apiURL: "https://api.etherscan.io/v2/api?chainid=11155111",
-          browserURL: "https://sepolia.etherscan.io"
-        }
+          browserURL: "https://sepolia.etherscan.io",
+        },
       },
       {
         network: "mainnet",
         chainId: 1,
         urls: {
           apiURL: "https://api.etherscan.io/v2/api?chainid=1",
-          browserURL: "https://etherscan.io"
-        }
+          browserURL: "https://etherscan.io",
+        },
       },
       {
         network: "bobMainnet",
         chainId: 60808,
         urls: {
           apiURL: "https://explorer-bob-mainnet-0.t.conduit.xyz/api",
-          browserURL: "https://explorer-bob-mainnet-0.t.conduit.xyz:443"
-        }
+          browserURL: "https://explorer-bob-mainnet-0.t.conduit.xyz:443",
+        },
       },
       {
         network: "bobSepolia",
         chainId: 808813,
         urls: {
           apiURL: "https://explorer-bob-sepolia-dm6uw0yhh3.t.conduit.xyz/api",
-          browserURL: "https://explorer-bob-sepolia-dm6uw0yhh3.t.conduit.xyz:443"
-        }
-      }
+          browserURL:
+            "https://explorer-bob-sepolia-dm6uw0yhh3.t.conduit.xyz:443",
+        },
+      },
     ],
   },
 
   namedAccounts: {
     deployer: {
       default: 1,
-      goerli: 0,
       sepolia: 0,
       mainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
       bobMainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
@@ -160,7 +157,6 @@ const config: HardhatUserConfig = {
     },
     governance: {
       default: 2,
-      goerli: 0,
       sepolia: 0,
       mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
       bobMainnet: "0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C",

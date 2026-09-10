@@ -1,182 +1,20 @@
-:toc: macro
+::toc: macro
 
-= Yearn components for tBTC v2
+= Yearn components for tBTC v2 (moved)
 
-https://github.com/keep-network/tbtc-v2/actions/workflows/yearn.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/yearn.yml?branch=main&event=push&label=Yearn%20build[Yearn build status]]
+This package has moved to a standalone repository:
+https://github.com/threshold-network/tbtc-v2-yearn
 
-This package contains Yearn components (like strategies) intended to be used
-with Yearn vaults working on top of tBTC v2.
+The Yearn strategies and vault-integration components
+(`CurveVoterProxyStrategy`, `ConvexStrategy`, `SaddleStrategy`, and related
+deploy/test scaffolding) that used to live in this directory received no
+functional changes since 2021 and depended on `@keep-network/yearn-vaults`,
+an upstream package this monorepo no longer wants to carry in its own
+build/lint/test pipeline. The directory was extracted with its full git
+history preserved (via `git subtree split --prefix=yearn`) into
+https://github.com/threshold-network/tbtc-v2-yearn[`tbtc-v2-yearn`].
 
-toc::[]
-
-== Strategies
-
-=== `CurveVoterProxyStrategy` contract
-
-This strategy is meant to be used with the Curve tBTC v2 pool vault.
-The vault's underlying token (a.k.a. want token) should be the LP
-token of the Curve tBTC v2 pool. This strategy borrows the vault's
-underlying token up to the debt limit configured for this strategy
-in the vault. In order to make the profit, the strategy deposits
-the borrowed tokens into the gauge contract of the Curve tBTC v2 pool.
-Depositing tokens in the gauge generates regular CRV rewards and
-can provide additional rewards (denominated in another token)
-if the gauge stakes its deposits into the Synthetix staking
-rewards contract. The financial outcome is settled upon a call
-of the `harvest` method (`BaseStrategy.sol`). Once that call is made,
-the strategy harvests the CRV rewards from the pool's gauge. Then,
-it takes a small portion (defined by `keepCRV` param) and locks it
-into the Curve vote escrow (via `CurveYCRVVoter` contract) to gain CRV
-boost and increase future gains. The rest of CRV tokens is used to
-buy wBTC via a decentralized exchange. If the pool's gauge supports
-additional rewards from Synthetix staking, the strategy claims
-that reward too and uses obtained reward tokens to buy more wBTC.
-At the end, the strategy takes acquired wBTC and deposits them
-to the Curve tBTC v2 pool. This way it obtains new LP tokens
-the vault is interested for, and makes the profit in result.
-At this stage, the strategy may repay some debt back to the vault,
-if needed. The entire cycle repeats for the strategy lifetime so
-all gains are constantly reinvested. Worth to flag that current
-implementation uses wBTC as the intermediary token because
-of its liquidity and ubiquity in BTC-based Curve pools.
-
-=== `ConvexStrategy` contract
-
-This strategy is meant to be used with the Curve tBTC v2 pool vault.
-The vault's underlying token (a.k.a. want token) should be the LP
-token of the Curve tBTC v2 pool. This strategy borrows the vault's
-underlying token up to the debt limit configured for this strategy
-in the vault. In order to make the profit, the strategy deposits
-the borrowed tokens into the Convex reward pool via the Convex
-booster contract. Depositing tokens in the reward pool generates
-regular CRV and CVX rewards. It can also provide extra rewards
-(denominated in another token) if the Convex reward pool works on
-top of a Curve pool gauge which stakes its deposits into the
-Synthetix staking rewards contract. The financial outcome is settled
-upon a call of the `harvest` method (`BaseStrategy.sol`). Once that
-call is made, the strategy gets the CRV and CVX rewards from Convex
-reward pool, and claims extra rewards if applicable. Then, it takes
-a small portion of CRV (defined by `keepCRV` param) and locks it
-into the Curve vote escrow (via `CurveYCRVVoter` contract) to gain
-CRV boost and increase future gains. Remaining CRV, CVX, and
-optional extra reward tokens are used to buy wBTC via a
-decentralized exchange. At the end, the strategy takes acquired wBTC
-and deposits them to the Curve tBTC v2 pool. This way it obtains new
-LP tokens the vault is interested for, and makes the profit in
-result. At this stage, the strategy may repay some debt back to the
-vault, if needed. The entire cycle repeats for the strategy lifetime
-so all gains are constantly reinvested. Worth to flag that current
-implementation uses wBTC as the intermediary token because
-of its liquidity and ubiquity in BTC-based Curve pools.
-
-Long story short, this strategy is a more sophisticated version of the
-`CurveVoterProxyStrategy` because it uses Convex as intermediary instead
-of interacting with Curve directly. In result, it obtains CVX tokens which
-increase their profit. However, this strategy incurs additional fees and
-distributes extra rewards using a different model. This should be taken
-into account when comparing profitability of different strategies.
-
-=== `SaddleStrategy` contract
-
-This strategy is meant to be used with the Saddle tBTC v2 pool vault.
-The vault's underlying token (a.k.a. want token) should be the LP
-token of the tBTC v2 Saddle pool. This strategy borrows the vault's
-underlying token up to the debt limit configured for this strategy
-in the vault. In order to make the profit, the strategy deposits
-the borrowed tokens into the tBTC v2 Saddle reward pool. Depositing
-tokens in the reward pool generates KEEP token rewards.
-The financial outcome is settled upon a call of the `harvest` method
-(BaseStrategy.sol). Once that call is made, the strategy gets the
-KEEP token rewards from Saddle reward pool. These reward tokens are
-then used to buy wBTC via a decentralized exchange. At the end, the
-strategy takes acquired wBTC and deposits them to the Saddle tBTC v2
-pool. This way it obtains new LP tokens the vault is interested in,
-and makes the profit in result. At this stage, the strategy may
-repay some debt back to the vault, if needed. The entire cycle
-repeats for the strategy lifetime, so all gains are constantly
-reinvested. Worth to flag that the current implementation uses wBTC
-as the intermediary token because of its liquidity and ubiquity in
-BTC-based Curve pools.
-
-== Build, test and deploy
-
-Yearn components use https://hardhat.org/[*Hardhat*] development environment.
-To build and deploy these contracts, please follow the instructions presented
-below.
-
-=== Prerequisites
-
-Please make sure you have the following prerequisites installed on your machine:
-
-- https://nodejs.org[Node.js] >14.17.4
-- https://yarnpkg.com[Yarn] >1.22.10
-
-=== Build contracts
-
-To build the smart contracts, install node packages first:
-```
-yarn install
-```
-Once packages are installed, you can build the smart contracts using:
-```
-yarn build
-```
-Compiled contracts will land in the `build` directory.
-
-=== Test contracts
-
-There are multiple system test scenarios living in the `test/system` directory.
-They all leverage the Hardhat mainnet forking feature which allow to test
-contract using mainnet state.
-You can run them by doing:
-```
-FORKING_URL=<url> yarn test:system
-```
-where `FORKING_URL` is an URL of an Ethereum mainnet node with access to
-archival data (Alchemy recommended)
-
-=== Deploy contracts
-
-To deploy all contracts on the given network, please run:
-```
-yarn deploy --network <network>
-```
-If applicable, use environment variables listed in the
-<<deployment-parametrization>> section.
-
-To deploy a single contract, use the same command with the `--tags` option
-followed by the contract name:
-```
-yarn deploy --network development --tags ConvexStrategy
-```
-
-Deployment scripts can be tested on `hardhat` network with mainnet forking
-enabled. To run them, invoke:
-```
-FORKING_URL=<url> FORKING_BLOCK=12786839 yarn deploy --network hardhat
-```
-where `FORKING_URL` is an URL of an Ethereum mainnet node with access to
-archival data (Alchemy recommended). Bear in mind the `FORKING_BLOCK` variable
-must be set to block `12786839` to get a predictable state of the mainnet fork.
-
-If contracts haven't been built yet or changes occurred, the `deploy` task will
-build the contracts before running the deployment script. This command produces
-an `export.json` file containing contract deployment info.
-
-Please note that all strategies contracts make a call to their vault contract
-upon initialization. That means the deployment will fail if the vault address
-passed in the strategy constructor does not point to a contract compatible
-with the Yearn vault API.
-
-[[deployment-parametrization]]
-==== Deployment parametrization
-
-The following environment variables should be used for deployment parametrization.
-
-|===
-|Variable|Description
-
-| `GAS_LIMIT`
-| Custom gas limit for the deployment transaction. Can be useful in case when
-  the environment cannot estimate the gas limit itself.
-|===
+That repository is archived (read-only) as of its extraction; it remains
+available for historical reference and for any downstream integrator that
+still depends on its deployed contract addresses or ABI. No further
+development is planned on this component.
