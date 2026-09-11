@@ -1,0 +1,16 @@
+{
+  "defaultConfig": {
+    "gasPrice": 10000000000,
+    "tags": ["home-default-tag"],
+    "deploy": ["home-default-deploy"]
+  },
+  "networks": {
+    "homeOnly": {
+      "url": "http://homeOnly.example.invalid",
+      "accounts": ["0x4444444444444444444444444444444444444444444444444444444444444444"],
+      "gasPrice": 12000000000,
+      "tags": ["home-only-tag"],
+      "deploy": ["home-only-deploy"]
+    }
+  }
+}
