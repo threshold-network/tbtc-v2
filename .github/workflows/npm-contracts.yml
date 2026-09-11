@@ -33,20 +33,11 @@ jobs:
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      # We need this step because the `@keep-network/tbtc` which we update in
-      # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
-      # downloads one of its sub-dependencies via unathenticated `git://`
-      # protocol. That protocol is no longer supported. Thanks to this step
-      # `https://` is used instead of `git://`.
-      - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
-
       - name: Resolve latest contracts
         run: |
           yarn up --exact \
             '@keep-network/ecdsa@development' \
-            '@keep-network/random-beacon@development' \
-            '@keep-network/tbtc@development'
+            '@keep-network/random-beacon@development'
 
       # Deploy contracts to a local network to generate deployment artifacts that
       # are required by dashboard compilation.
