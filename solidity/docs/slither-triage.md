@@ -3,8 +3,8 @@
 The [triage database](../slither.db.json) contains two exact Slither 0.9.0
 report fingerprints for the deferred-refund recovery branch in
 `AbstractL1BTCDepositor.finalizeDeposit`. Existing detector and path settings
-are unchanged. Solidity sources are unchanged, preserving their bytecode and
-compiler metadata.
+are unchanged. The formatter migration changes source whitespace and compiler
+metadata while preserving the parsed code and reviewed control flow.
 
 ## Failed deferred refund: reentrancy-no-eth
 
@@ -29,6 +29,15 @@ is intentional. The failed call's nested logs have reverted, and the deposit
 remains finalized. The event does not signal an additional payment.
 
 ## Evidence and maintenance
+
+The Prettier 3 migration was reviewed against upstream commit `024363ec7`.
+Both `AbstractL1BTCDepositor.sol` and `AbstractBTCDepositor.sol` retain identical
+parsed Solidity syntax trees. The reviewed `finalizeDeposit` body is unchanged;
+formatting moves the nested `optimisticMintingRequests` call in
+`AbstractBTCDepositor.sol` from lines 191–193 to 192–194. Slither 0.9.0 includes
+those node locations in its report fingerprints, so the database records the
+reports for the formatted source. The dispositions, rationale and source-hash
+test remain unchanged.
 
 The tests in
 [AbstractL1BTCDepositor.test.ts](../test/cross-chain/AbstractL1BTCDepositor.test.ts)

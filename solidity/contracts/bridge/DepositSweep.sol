@@ -209,10 +209,10 @@ library DepositSweep {
         for (uint256 i = 0; i < inputsInfo.depositedAmounts.length; i++) {
             // The last deposit should incur the deposit transaction fee
             // remainder.
-            uint256 depositTxFeeIncurred = i ==
-                inputsInfo.depositedAmounts.length - 1
-                ? depositTxFee + depositTxFeeRemainder
-                : depositTxFee;
+            uint256 depositTxFeeIncurred =
+                i == inputsInfo.depositedAmounts.length - 1
+                    ? depositTxFee + depositTxFeeRemainder
+                    : depositTxFee;
 
             // There is no need to check whether
             // `inputsInfo.depositedAmounts[i] - inputsInfo.treasuryFees[i] - txFee > 0`

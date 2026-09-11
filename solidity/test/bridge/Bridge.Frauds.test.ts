@@ -125,9 +125,8 @@ describe("Bridge - Fraud", () => {
                   data.sighash
                 )
 
-                const fraudChallenge = await bridge.fraudChallenges(
-                  challengeKey
-                )
+                const fraudChallenge =
+                  await bridge.fraudChallenges(challengeKey)
 
                 expect(fraudChallenge.challenger).to.equal(
                   await thirdParty.getAddress()
@@ -892,9 +891,8 @@ describe("Bridge - Fraud", () => {
                       data.sighash
                     )
 
-                    const fraudChallenge = await bridge.fraudChallenges(
-                      challengeKey
-                    )
+                    const fraudChallenge =
+                      await bridge.fraudChallenges(challengeKey)
 
                     expect(fraudChallenge.resolved).to.equal(true)
                   })
@@ -1028,9 +1026,8 @@ describe("Bridge - Fraud", () => {
                       data.sighash
                     )
 
-                    const fraudChallenge = await bridge.fraudChallenges(
-                      challengeKey
-                    )
+                    const fraudChallenge =
+                      await bridge.fraudChallenges(challengeKey)
 
                     expect(fraudChallenge.resolved).to.equal(true)
                   })
@@ -1166,9 +1163,8 @@ describe("Bridge - Fraud", () => {
                       data.sighash
                     )
 
-                    const fraudChallenge = await bridge.fraudChallenges(
-                      challengeKey
-                    )
+                    const fraudChallenge =
+                      await bridge.fraudChallenges(challengeKey)
 
                     expect(fraudChallenge.resolved).to.equal(true)
                   })
@@ -1302,9 +1298,8 @@ describe("Bridge - Fraud", () => {
                       data.sighash
                     )
 
-                    const fraudChallenge = await bridge.fraudChallenges(
-                      challengeKey
-                    )
+                    const fraudChallenge =
+                      await bridge.fraudChallenges(challengeKey)
 
                     expect(fraudChallenge.resolved).to.equal(true)
                   })
@@ -1707,9 +1702,8 @@ describe("Bridge - Fraud", () => {
                       data.sighash
                     )
 
-                    const fraudChallenge = await bridge.fraudChallenges(
-                      challengeKey
-                    )
+                    const fraudChallenge =
+                      await bridge.fraudChallenges(challengeKey)
 
                     expect(fraudChallenge.resolved).to.be.true
                   })

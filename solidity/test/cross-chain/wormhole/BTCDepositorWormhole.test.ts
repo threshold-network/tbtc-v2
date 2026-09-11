@@ -53,9 +53,8 @@ describe("BTCDepositorWormhole", () => {
     const wormhole = await createMock<IWormhole>("IWormhole")
     await wormhole.chainId.returns(l1ChainId)
 
-    const wormholeRelayer = await createMock<IWormholeRelayer>(
-      "IWormholeRelayer"
-    )
+    const wormholeRelayer =
+      await createMock<IWormholeRelayer>("IWormholeRelayer")
     const wormholeTokenBridge = await createMock<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
@@ -67,9 +66,8 @@ describe("BTCDepositorWormhole", () => {
     // Just an arbitrary destination chain depositor address.
     const destinationChainBtcDepositor =
       "0xeE6F5f69860f310114185677D017576aed0dEC83"
-    const reimbursementPool = await createMock<ReimbursementPool>(
-      "ReimbursementPool"
-    )
+    const reimbursementPool =
+      await createMock<ReimbursementPool>("ReimbursementPool")
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times

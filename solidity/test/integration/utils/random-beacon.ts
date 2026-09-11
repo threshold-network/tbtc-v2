@@ -62,12 +62,10 @@ export async function selectGroup(
   const addresses = await sortitionPool.getIDOperators(identifiers)
 
   return Promise.all(
-    identifiers.map(
-      async (identifier, i): Promise<Operator> => ({
-        id: toNumber(identifier),
-        signer: await ethers.getSigner(addresses[i]),
-      })
-    )
+    identifiers.map(async (identifier, i): Promise<Operator> => ({
+      id: toNumber(identifier),
+      signer: await ethers.getSigner(addresses[i]),
+    }))
   )
 }
 

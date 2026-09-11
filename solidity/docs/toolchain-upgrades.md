@@ -117,3 +117,12 @@ increase. The baseline is 45 ordering, five function-name, three event-name and
 two state-count warnings. These warnings remain visible and should be removed
 with focused follow-ups. CLI update checks are disabled so lint does not depend
 on an external version check.
+
+Prettier 3 loads the Solidity 2.x and shell 0.19.x plugins explicitly. The
+configuration retains `semi: false`, Solidity's four-space indentation, and
+`trailingComma: "es5"` so upgrading does not silently adopt Prettier 3's new
+trailing-comma default. The formatting-only commit is separate from the
+dependency and configuration changes. Existing generated and deployment
+artifacts remain excluded. Formatting Solidity source changes its compiler
+metadata hash even when the parsed code is unchanged; this does not regenerate
+or replace historical deployment records.

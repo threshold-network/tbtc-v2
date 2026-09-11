@@ -4213,9 +4213,8 @@ describe("Bridge - Redemption", () => {
                   data.redemptionRequests[0].redeemerOutputScript
                 )
 
-                redemptionRequest = await bridge.pendingRedemptions(
-                  redemptionKey
-                )
+                redemptionRequest =
+                  await bridge.pendingRedemptions(redemptionKey)
 
                 tx = await bridge
                   .connect(thirdParty)
@@ -4433,9 +4432,8 @@ describe("Bridge - Redemption", () => {
                     data.redemptionRequests[0].redeemerOutputScript
                   )
 
-                  redemptionRequest = await bridge.pendingRedemptions(
-                    redemptionKey
-                  )
+                  redemptionRequest =
+                    await bridge.pendingRedemptions(redemptionKey)
 
                   tx = await bridge
                     .connect(thirdParty)

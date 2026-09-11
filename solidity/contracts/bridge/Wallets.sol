@@ -167,14 +167,16 @@ library Wallets {
             uint32 activeWalletCreatedAt = self
                 .registeredWallets[activeWalletPubKeyHash]
                 .createdAt;
-            /* solhint-disable-next-line not-rely-on-time */
-            bool activeWalletOldEnough = block.timestamp >=
-                activeWalletCreatedAt + self.walletCreationPeriod;
+            /* solhint-disable not-rely-on-time */
+            bool activeWalletOldEnough =
+                block.timestamp >=
+                    activeWalletCreatedAt + self.walletCreationPeriod;
+            /* solhint-enable not-rely-on-time */
 
             require(
                 (activeWalletOldEnough &&
                     activeWalletBtcBalance >=
-                    self.walletCreationMinBtcBalance) ||
+                        self.walletCreationMinBtcBalance) ||
                     activeWalletBtcBalance >= self.walletCreationMaxBtcBalance,
                 "Wallet creation conditions are not met"
             );
@@ -336,14 +338,15 @@ library Wallets {
             "Wallet must be in Live state"
         );
 
-        /* solhint-disable-next-line not-rely-on-time */
-        bool walletOldEnough = block.timestamp >=
-            wallet.createdAt + self.walletMaxAge;
+        /* solhint-disable not-rely-on-time */
+        bool walletOldEnough =
+            block.timestamp >= wallet.createdAt + self.walletMaxAge;
+        /* solhint-enable not-rely-on-time */
 
         require(
             walletOldEnough ||
                 getWalletBtcBalance(self, walletPubKeyHash, walletMainUtxo) <
-                self.walletClosureMinBtcBalance,
+                    self.walletClosureMinBtcBalance,
             "Wallet needs to be old enough or have too few satoshis"
         );
 

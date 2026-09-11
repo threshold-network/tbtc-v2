@@ -868,9 +868,8 @@ describe("VendingMachine", () => {
         before(async () => {
           await createSnapshot()
 
-          const VendingMachine = await ethers.getContractFactory(
-            "VendingMachine"
-          )
+          const VendingMachine =
+            await ethers.getContractFactory("VendingMachine")
           newVendingMachine = await VendingMachine.deploy(
             tbtcV1.target,
             tbtcV2.target,

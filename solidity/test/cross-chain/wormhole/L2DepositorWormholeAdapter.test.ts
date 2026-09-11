@@ -27,12 +27,10 @@ describe("L2BTCDepositorWormhole", () => {
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
 
-    const wormholeRelayer = await createMock<IWormholeRelayer>(
-      "IWormholeRelayer"
-    )
-    const l2WormholeGateway = await createMock<IWormholeGateway>(
-      "IWormholeGateway"
-    )
+    const wormholeRelayer =
+      await createMock<IWormholeRelayer>("IWormholeRelayer")
+    const l2WormholeGateway =
+      await createMock<IWormholeGateway>("IWormholeGateway")
     // Just an arbitrary chain ID.
     const l1ChainId = 2
     // Just an arbitrary L1BTCDepositorWormhole address.
