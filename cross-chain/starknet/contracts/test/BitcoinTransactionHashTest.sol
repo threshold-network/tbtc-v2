@@ -6,7 +6,7 @@ import "../integrator/AbstractBTCDepositor.sol";
 contract BitcoinTransactionHashTest is AbstractBTCDepositor {
     function calculateHash(
         IBridgeTypes.BitcoinTxInfo memory txInfo
-    ) external view returns (bytes32) {
+    ) external pure returns (bytes32) {
         return _calculateBitcoinTxHash(txInfo);
     }
 }

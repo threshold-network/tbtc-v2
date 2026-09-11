@@ -31,8 +31,7 @@ ETHERSCAN_API_KEY=your_etherscan_api_key
 ```bash
 yarn clean      # Clean build artifacts and cache
 yarn build      # Compile contracts
-yarn test       # Run tests with external deployments
-yarn test:integration  # Run integration tests
+yarn test       # Run local tests (fork tests require FORKING_URL)
 ```
 
 ### Deployment

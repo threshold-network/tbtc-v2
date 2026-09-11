@@ -20,15 +20,7 @@ dotenv.config()
 export const testConfig = {
   // How many accounts we expect to define for non-staking related signers, e.g.
   // deployer, thirdParty, governance.
-  // It is used as an offset for getting accounts for operators and stakes registration.
   nonStakingAccountsCount: 10,
-
-  // How many roles do we need to define for staking, i.e. stakeOwner, stakingProvider,
-  // operator, beneficiary, authorizer.
-  stakingRolesCount: 5,
-
-  // Number of operators to register. Should be at least the same as group size.
-  operatorsCount: 110,
 }
 
 const config: HardhatUserConfig = {
@@ -63,10 +55,7 @@ const config: HardhatUserConfig = {
           process.env.FORKING_BLOCK && parseInt(process.env.FORKING_BLOCK, 10),
       },
       accounts: {
-        // Number of accounts that should be predefined on the testing environment.
-        count:
-          testConfig.nonStakingAccountsCount +
-          testConfig.stakingRolesCount * testConfig.operatorsCount,
+        count: testConfig.nonStakingAccountsCount,
       },
       deploy: ["deploy_l1"],
       tags: ["allowStubs"],
@@ -146,45 +135,6 @@ const config: HardhatUserConfig = {
       sepolia: 0,
       mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f", // Threshold Council
     },
-    chaosnetOwner: {
-      default: 3,
-      sepolia: 0,
-    },
-    esdm: {
-      default: 4,
-      sepolia: 0,
-      mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f", // Threshold Council
-    },
-    keepTechnicalWalletTeam: {
-      default: 5,
-      sepolia: 0,
-      mainnet: "0xB3726E69Da808A689F2607939a2D9E958724FC2A",
-    },
-    keepCommunityMultiSig: {
-      default: 6,
-      sepolia: 0,
-      mainnet: "0x19FcB32347ff4656E4E6746b4584192D185d640d",
-    },
-    treasury: {
-      default: 7,
-      sepolia: 0,
-      mainnet: "0x87F005317692D05BAA4193AB0c961c69e175f45f", // Token Holder DAO
-    },
-    spvMaintainer: {
-      default: 8,
-      sepolia: 0,
-      // We are not setting SPV maintainer for mainnet in deployment scripts.
-    },
-    v1Redeemer: {
-      default: 10,
-      sepolia: 0,
-      mainnet: "0x8Bac178fA95Cb56D11A94d4f1b2B1F5Fc48A30eA",
-    },
-    redemptionWatchtowerManager: {
-      default: 11,
-      sepolia: 0,
-      mainnet: "0x87F005317692D05BAA4193AB0c961c69e175f45f", // Token Holder DAO
-    },
   },
   dependencyCompiler: {
     paths: [
@@ -201,7 +151,7 @@ const config: HardhatUserConfig = {
     disambiguatePaths: false,
     runOnCompile: true,
     strict: true,
-    except: ["BridgeStub$"],
+    except: [],
   },
   mocha: {
     timeout: 60_000,

@@ -1,0 +1,68 @@
+name: Cross-chain Starknet
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+    paths:
+      - "cross-chain/starknet/**"
+      - ".github/workflows/cross-chain-starknet.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      path-filter: ${{ steps.filter.outputs.path-filter }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            path-filter:
+              - './cross-chain/starknet/**'
+              - './.github/workflows/cross-chain-starknet.yml'
+
+  test:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cross-chain/starknet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.1"
+          cache: yarn
+          cache-dependency-path: cross-chain/starknet/yarn.lock
+      # Workaround for transitive dependencies that use the obsolete git://
+      # prefix instead of the recommended https:// (mirrors sibling workflows)
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+      # The prettier config at the repo root resolves @keep-network/* packages
+      # from the root node_modules; install root dependencies so the lint
+      # gates below can load it.
+      - name: Install root dependencies
+        working-directory: .
+        run: yarn install --frozen-lockfile
+      - run: yarn install --frozen-lockfile
+      # lint:eslint is broken package-wide (eslint 7.32.0 pinned while
+      # @thesis-co/eslint-config requires ^8.57) — pre-existing, shared with
+      # every sibling rail. The sol and config gates are the ones this PR's
+      # ignore-file changes protect.
+      - run: yarn lint:sol && yarn lint:config
+      - run: yarn build
+      - run: node scripts/verify-vendor.cjs
+      - run: yarn test
+      - run: yarn prepack
