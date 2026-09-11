@@ -1,4 +1,4 @@
-import "dotenv/config"
+import "dotenv/config";
 import type { HardhatUserConfig } from "hardhat/config"
 
 import "@nomiclabs/hardhat-etherscan"
@@ -56,7 +56,7 @@ const config: HardhatUserConfig = {
       forking: {
         url: process.env.BOB_MAINNET_URL || "https://rpc.gobob.xyz/",
         blockNumber: 20191668,
-      },
+      }
     },
     sepolia: {
       url: process.env.L1_CHAIN_API_URL || "",
@@ -99,8 +99,8 @@ const config: HardhatUserConfig = {
   deploymentArtifactsExport: {
     sepolia: "artifacts/l1",
     mainnet: "artifacts/l1",
-    arbitrumSepolia: "artifacts/l2",
-    arbitrumOne: "artifacts/l2",
+    bobSepolia: "artifacts/l2",
+    bobMainnet: "artifacts/l2",
   },
 
   etherscan: {
@@ -116,34 +116,33 @@ const config: HardhatUserConfig = {
         chainId: 11155111,
         urls: {
           apiURL: "https://api.etherscan.io/v2/api?chainid=11155111",
-          browserURL: "https://sepolia.etherscan.io",
-        },
+          browserURL: "https://sepolia.etherscan.io"
+        }
       },
       {
         network: "mainnet",
         chainId: 1,
         urls: {
           apiURL: "https://api.etherscan.io/v2/api?chainid=1",
-          browserURL: "https://etherscan.io",
-        },
+          browserURL: "https://etherscan.io"
+        }
       },
       {
         network: "bobMainnet",
         chainId: 60808,
         urls: {
           apiURL: "https://explorer-bob-mainnet-0.t.conduit.xyz/api",
-          browserURL: "https://explorer-bob-mainnet-0.t.conduit.xyz:443",
-        },
+          browserURL: "https://explorer-bob-mainnet-0.t.conduit.xyz:443"
+        }
       },
       {
         network: "bobSepolia",
         chainId: 808813,
         urls: {
           apiURL: "https://explorer-bob-sepolia-dm6uw0yhh3.t.conduit.xyz/api",
-          browserURL:
-            "https://explorer-bob-sepolia-dm6uw0yhh3.t.conduit.xyz:443",
-        },
-      },
+          browserURL: "https://explorer-bob-sepolia-dm6uw0yhh3.t.conduit.xyz:443"
+        }
+      }
     ],
   },
 
