@@ -2141,7 +2141,7 @@ __metadata:
     prettier-plugin-sh: "npm:^0.8.1"
     prettier-plugin-solidity: "npm:^1.0.0-beta.19"
     solhint: "npm:^3.3.7"
-    solhint-config-keep: "github:keep-network/solhint-config-keep"
+    solhint-config-tbtc: "file:../config/solhint-config-tbtc"
     solidity-docgen: "npm:^0.6.0-beta.34"
     ts-node: "npm:^10.4.0"
     typechain: "npm:^6.1.0"
@@ -14391,12 +14391,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"solhint-config-keep@github:keep-network/solhint-config-keep":
-  version: 0.1.0
-  resolution: "solhint-config-keep@https://github.com/keep-network/solhint-config-keep.git#commit=5e1751e58c0f1c507305ffc8c7f6c58047657ada"
-  peerDependencies:
-    solhint: ">=3.3.4"
-  checksum: 10c0/a2d14a23080948b4dae5733deb818a23898f1a04dd18f3c15b32657bdbd87fb3ee7c5f493f68aa362a24d967fc44c4211a4dd5195ee3f344411309e667bbd194
+"solhint-config-tbtc@file:../config/solhint-config-tbtc::locator=%40keep-network%2Ftbtc-v2%40workspace%3A.":
+  version: 1.0.0
+  resolution: "solhint-config-tbtc@file:../config/solhint-config-tbtc#../config/solhint-config-tbtc::hash=fd5d20&locator=%40keep-network%2Ftbtc-v2%40workspace%3A."
+  checksum: 10c0/251698fafefecdc109a2be00640c42d0ac9414063ea98209678a0fab0723723715ddffd3b2a645b9a414f5738ddbf10bdeb7a09624d71dec95eb64cb839964d5
   languageName: node
   linkType: hard
 

@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "solidity/**"
+      - "config/**"
       - ".github/workflows/contracts.yml"
   pull_request:
   # We intend to use `workflow dispatch` in two different situations/paths:
@@ -53,6 +54,7 @@ jobs:
           filters: |
             path-filter:
               - './solidity/**'
+              - './config/**'
               - './.github/workflows/contracts.yml'
 
   contracts-validate-inputs:
@@ -362,9 +364,10 @@ jobs:
       # wrong here. Same ordering applies elsewhere: root Classic first, then
       # Berry for `solidity/`.
       #
-      # Workaround rationale: ESLint run from `solidity/` resolves `.prettierrc.js`
-      # from the repo root and fails unless `@keep-network/prettier-config-keep`
-      # is installed at the root.
+      # Workaround rationale: ESLint/Prettier runs from subdirectories resolve the
+      # root `.prettierrc.js`, whose `plugins: ["prettier-plugin-sh"]` must be
+      # resolvable from the root install (config/prettier-base.js is repo-local,
+      # no install needed).
       - name: Install dependencies in the root directory
         run: |
           cd ..

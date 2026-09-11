@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "typescript/**"
+      - "config/**"
       - ".github/workflows/typescript.yml"
   pull_request:
   workflow_dispatch:
@@ -39,6 +40,7 @@ jobs:
           filters: |
             path-filter:
               - './typescript/**'
+              - './config/**'
               - './.github/workflows/typescript.yml'
 
   typescript-build-and-test:
