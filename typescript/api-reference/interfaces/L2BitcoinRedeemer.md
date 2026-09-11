@@ -24,7 +24,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:128](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L128)
+[src/lib/contracts/cross-chain.ts:126](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L126)
 
 ___
 
@@ -41,7 +41,7 @@ tBTC tokens and requests redemption.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `amount` | `BigNumber` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
+| `amount` | `bigint` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 | `redeemerOutputScript` | [`Hex`](../classes/Hex.md) | The output script that the redeemed funds will be locked to. Must not be prepended with length. |
 | `nonce` | `number` | - |
 
@@ -53,4 +53,4 @@ Transaction hash of the approve and call transaction.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L141)
+[src/lib/contracts/cross-chain.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L139)

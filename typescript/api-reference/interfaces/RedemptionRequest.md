@@ -23,7 +23,7 @@ On-chain identifier of the redeemer.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:359](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L359)
+[src/lib/contracts/bridge.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L358)
 
 ___
 
@@ -36,13 +36,13 @@ prepended with length.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:365](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L365)
+[src/lib/contracts/bridge.ts:364](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L364)
 
 ___
 
 ### requestedAmount
 
-• **requestedAmount**: `BigNumber`
+• **requestedAmount**: `bigint`
 
 The amount of Bitcoins in satoshis that is requested to be redeemed.
 The actual value of the output in the Bitcoin transaction will be decreased
@@ -50,7 +50,7 @@ by the sum of the fee share and the treasury fee for this particular output.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:372](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L372)
+[src/lib/contracts/bridge.ts:371](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L371)
 
 ___
 
@@ -62,13 +62,13 @@ UNIX timestamp the request was created at.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L391)
+[src/lib/contracts/bridge.ts:390](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
 
 ___
 
 ### treasuryFee
 
-• **treasuryFee**: `BigNumber`
+• **treasuryFee**: `bigint`
 
 The amount of Bitcoins in satoshis that is subtracted from the amount of
 the redemption request and used to pay the treasury fee.
@@ -77,17 +77,17 @@ on-chain contract at the time the redemption request was made.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:380](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L380)
+[src/lib/contracts/bridge.ts:379](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L379)
 
 ___
 
 ### txMaxFee
 
-• **txMaxFee**: `BigNumber`
+• **txMaxFee**: `bigint`
 
 The maximum amount of Bitcoins in satoshis that can be subtracted from the
 redemption's `requestedAmount` to pay the transaction network fee.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:386](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L386)
+[src/lib/contracts/bridge.ts:385](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L385)

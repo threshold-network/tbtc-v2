@@ -36,7 +36,7 @@ Implementation of the Solana Depositor Interface handle.
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L43)
+[src/lib/solana/solana-depositor-interface.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L48)
 
 ## Properties
 
@@ -46,7 +46,7 @@ Implementation of the Solana Depositor Interface handle.
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L41)
+[src/lib/solana/solana-depositor-interface.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L46)
 
 ___
 
@@ -56,7 +56,7 @@ ___
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L40)
+[src/lib/solana/solana-depositor-interface.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L45)
 
 ## Methods
 
@@ -77,7 +77,7 @@ encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L55)
+[src/lib/solana/solana-depositor-interface.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L60)
 
 ___
 
@@ -100,13 +100,13 @@ The identifier of the deposit owner or undefined if not set.
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L47)
+[src/lib/solana/solana-depositor-interface.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L52)
 
 ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<`TransactionReceipt`\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 Initializes a deposit by calling the external relayer service at
 `https://relayer.tbtcscan.com/api/reveal` to trigger the deposit transaction
@@ -123,7 +123,7 @@ via an off-chain relayer process.
 
 #### Returns
 
-`Promise`\<`TransactionReceipt`\>
+`Promise`\<[`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 The resulting transaction receipt containing the transaction hash.
 
@@ -133,7 +133,7 @@ The resulting transaction receipt containing the transaction hash.
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L70)
+[src/lib/solana/solana-depositor-interface.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L75)
 
 ___
 
@@ -160,4 +160,4 @@ issued by this contract.
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L51)
+[src/lib/solana/solana-depositor-interface.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L56)

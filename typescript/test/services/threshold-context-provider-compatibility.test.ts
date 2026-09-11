@@ -18,6 +18,32 @@ function createProviderWithAccount(address = STARKNET_ADDRESS): any {
   }
 }
 
+/**
+ * Builds a minimal object that is structurally an ethers v5 `Signer`
+ * (branded with `_isSigner` and exposing a synchronous `address`), without
+ * importing ethers. The SDK accepts such signers through its duck-typed
+ * ethers v5 compatibility shim; these tests assert that backward
+ * compatibility holds.
+ * @param chainId Chain ID the mock signer reports.
+ * @returns A structural ethers v5 signer object.
+ */
+function makeEthersV5Signer(chainId = 1): any {
+  const address = "0x1234567890123456789012345678901234567890"
+  return {
+    _isSigner: true,
+    address,
+    getAddress: async () => address,
+    getChainId: async () => chainId,
+    sendTransaction: async () => ({ hash: `0x${"00".repeat(32)}` }),
+    call: async () => "0x",
+    provider: {
+      _isProvider: true,
+      getNetwork: async () => ({ chainId }),
+      call: async () => "0x",
+    },
+  }
+}
+
 describe("ThresholdContext Provider Compatibility - T-009", () => {
   let tbtc: TBTC
   let mockTBTCContracts: MockTBTCContracts
@@ -58,9 +84,7 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
     })
 
     it("should reject EthereumSigner for StarkNet", async () => {
-      // Import ethers dynamically to avoid dependency issues
-      const { Wallet } = await import("ethers")
-      const ethereumSigner: EthereumSigner = Wallet.createRandom()
+      const ethereumSigner: EthereumSigner = makeEthersV5Signer()
 
       await expect(
         tbtc.initializeCrossChain("StarkNet", ethereumSigner)
@@ -141,8 +165,7 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
     })
 
     it("should reject Ethereum signer for address extraction", async () => {
-      const { Wallet } = await import("ethers")
-      const ethereumSigner = Wallet.createRandom()
+      const ethereumSigner = makeEthersV5Signer()
 
       await expect(
         tbtc.initializeCrossChain("StarkNet", ethereumSigner)

@@ -2,6 +2,12 @@
 
 Represents a config set required to connect an Ethereum contract.
 
+## Hierarchy
+
+- `Omit`\<`EvmContractHandleConfig`, ``"signerOrProvider"``\>
+
+  ↳ **`EthereumContractConfig`**
+
 ## Table of contents
 
 ### Properties
@@ -20,9 +26,13 @@ Address of the Ethereum contract as a 0x-prefixed hex string.
 Optional parameter, if not provided the value will be resolved from the
 contract artifact.
 
+#### Inherited from
+
+Omit.address
+
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L51)
+[src/lib/ethereum/adapter.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L87)
 
 ___
 
@@ -34,19 +44,24 @@ Number of a block in which the contract was deployed.
 Optional parameter, if not provided the value will be resolved from the
 contract artifact.
 
+#### Inherited from
+
+Omit.deployedAtBlockNumber
+
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L62)
+[src/lib/ethereum/adapter.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L102)
 
 ___
 
 ### signerOrProvider
 
-• **signerOrProvider**: `Signer` \| `Provider`
+• **signerOrProvider**: [`EthereumSigner`](../README.md#ethereumsigner)
 
-Signer - will return a Contract which will act on behalf of that signer. The signer will sign all contract transactions.
-Provider - will return a downgraded Contract which only has read-only access (i.e. constant calls)
+Signer - will allow the contract handle to send write transactions on
+behalf of that signer, besides read-only access.
+Provider - will give the contract handle read-only access.
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L56)
+[src/lib/ethereum/adapter.ts:115](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L115)

@@ -1,5 +1,4 @@
 import { expect } from "chai"
-import { BigNumber } from "ethers"
 import { StarkNetTBTCToken } from "../../../src/lib/starknet/starknet-tbtc-token"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 import { EthereumAddress } from "../../../src/lib/ethereum"
@@ -23,7 +22,7 @@ describe("StarkNetTBTCToken", () => {
         expect(typeof (token as any).getBalance).to.equal("function")
       })
 
-      it("should return balance as BigNumber", async () => {
+      it("should return balance as bigint", async () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
@@ -38,7 +37,7 @@ describe("StarkNetTBTCToken", () => {
         // but we're just checking the method exists for now
         try {
           const balance = await token.getBalance(address)
-          expect(balance).to.be.instanceOf(BigNumber)
+          expect(balance).to.be.a("bigint")
         } catch (error: any) {
           // The method exists but will fail without a real provider
           expect(error.message).to.not.equal("getBalance method should exist")

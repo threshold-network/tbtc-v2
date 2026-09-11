@@ -1,6 +1,5 @@
 import { ChainIdentifier, TBTCToken } from "../../src/lib/contracts"
 import { Hex } from "../../src/lib/utils"
-import { BigNumber } from "ethers"
 import { BitcoinUtxo } from "../../src/lib/bitcoin"
 import { EthereumAddress } from "../../src"
 
@@ -8,7 +7,7 @@ interface RequestRedemptionLog {
   walletPublicKey: Hex
   mainUtxo: BitcoinUtxo
   redeemerOutputScript: Hex
-  amount: BigNumber
+  amount: bigint
 }
 
 interface BuildRequestRedemptionLog {
@@ -30,7 +29,7 @@ export class MockTBTCToken implements TBTCToken {
     return this._buildRequestRedemptionLog
   }
 
-  totalSupply(blockNumber?: number | undefined): Promise<BigNumber> {
+  totalSupply(blockNumber?: number | undefined): Promise<bigint> {
     throw new Error("Method not implemented.")
   }
 
@@ -38,13 +37,13 @@ export class MockTBTCToken implements TBTCToken {
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex> {
     this._requestRedemptionLog.push({
       walletPublicKey,
       mainUtxo,
       redeemerOutputScript,
-      amount: amount.div(1e10), // Store amount in satoshi.
+      amount: amount / 10_000_000_000n, // Store amount in satoshi.
     })
 
     return Hex.from(

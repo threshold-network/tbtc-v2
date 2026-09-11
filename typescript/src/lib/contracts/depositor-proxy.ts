@@ -2,7 +2,7 @@ import { ChainIdentifier } from "./chain-identifier"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { DepositReceipt } from "./bridge"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
+import { ChainTransactionReceipt } from "./chain-event"
 
 /**
  * Interface representing a depositor proxy contract. A depositor proxy
@@ -34,5 +34,5 @@ export interface DepositorProxy {
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex | TransactionReceipt>
+  ): Promise<Hex | ChainTransactionReceipt>
 }

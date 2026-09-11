@@ -346,7 +346,7 @@ ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`, `signal?`): `Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`, `signal?`): `Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 Initializes a cross-chain deposit by calling the external relayer service.
 
@@ -384,7 +384,7 @@ cancel earlier.
 
 #### Returns
 
-`Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+`Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 The full transaction receipt from the relayer response
 

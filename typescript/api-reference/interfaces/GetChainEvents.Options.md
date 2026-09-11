@@ -24,7 +24,7 @@ Number of blocks for interval length in partial events pulls.
 
 #### Defined in
 
-[src/lib/contracts/chain-event.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L43)
+[src/lib/contracts/chain-event.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L63)
 
 ___
 
@@ -37,7 +37,7 @@ If not defined a block number of a contract deployment is used.
 
 #### Defined in
 
-[src/lib/contracts/chain-event.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L30)
+[src/lib/contracts/chain-event.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L50)
 
 ___
 
@@ -49,7 +49,7 @@ A logger function to pass execution messages.
 
 #### Defined in
 
-[src/lib/contracts/chain-event.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L47)
+[src/lib/contracts/chain-event.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L67)
 
 ___
 
@@ -61,7 +61,7 @@ Number of retries in case of an error getting the events.
 
 #### Defined in
 
-[src/lib/contracts/chain-event.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L39)
+[src/lib/contracts/chain-event.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L59)
 
 ___
 
@@ -74,4 +74,4 @@ If not defined the latest block number will be used.
 
 #### Defined in
 
-[src/lib/contracts/chain-event.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L35)
+[src/lib/contracts/chain-event.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L55)

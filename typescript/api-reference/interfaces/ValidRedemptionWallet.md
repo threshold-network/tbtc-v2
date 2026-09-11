@@ -47,7 +47,7 @@ ___
 
 ### walletBTCBalance
 
-• **walletBTCBalance**: `BigNumber`
+• **walletBTCBalance**: `bigint`
 
 Balance of the wallet in BTC.
 

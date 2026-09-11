@@ -4,16 +4,14 @@ import { Chains } from "../../../src/lib/contracts"
 import { StarkNetAddress } from "../../../src/lib/starknet"
 import { StarkNetExtraDataEncoder } from "../../../src/lib/starknet"
 import { Hex } from "../../../src/lib/utils"
-import { MockProvider } from "@ethereum-waffle/provider"
-import { Wallet } from "ethers"
+import { EthereumSigner } from "../../../src/lib/ethereum"
+import { MockEvm } from "../../utils/mock-evm"
 
 describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
-  let provider: MockProvider
-  let signer: Wallet
+  let signer: EthereumSigner
 
   beforeEach(async () => {
-    provider = new MockProvider()
-    ;[signer] = provider.getWallets()
+    signer = new MockEvm().asSigner()
   })
 
   describe("artifact loader", () => {

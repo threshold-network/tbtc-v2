@@ -16,8 +16,7 @@ import {
   BitcoinTxOutput,
   BitcoinUtxo,
 } from "../../lib/bitcoin"
-import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
-import { BytesLike } from "@ethersproject/bytes"
+
 import { amountToSatoshi, ApiUrl, endpointUrl, Hex } from "../../lib/utils"
 import { RedeemerProxy } from "./redeemer-proxy"
 import {
@@ -25,6 +24,25 @@ import {
   SerializableWallet,
   ValidRedemptionWallet,
 } from "../../lib/utils/types"
+
+/**
+ * Parses a string into an unsigned bigint, validating the format first.
+ * Unlike a bare `BigInt(...)` call, this rejects empty or malformed strings
+ * instead of silently returning `0n` or trimming whitespace.
+ * @param value The string to parse.
+ * @param fieldName The name of the field being parsed, used in the error
+ *        message.
+ * @returns The parsed bigint value.
+ */
+function parseUnsignedBigInt(value: string, fieldName: string): bigint {
+  if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(value)) {
+    throw new Error(
+      `Invalid ${fieldName}: "${value}" is not a valid numeric string`
+    )
+  }
+
+  return BigInt(value)
+}
 
 /**
  * Service exposing features related to tBTC v2 redemptions.
@@ -85,7 +103,7 @@ export class RedemptionsService {
    */
   async requestRedemption(
     bitcoinRedeemerAddress: string,
-    amount: BigNumber
+    amount: bigint
   ): Promise<{
     targetChainTxHash: Hex
     walletPublicKey: Hex
@@ -162,7 +180,7 @@ export class RedemptionsService {
    */
   async requestRedemptionWithProxy(
     bitcoinRedeemerAddress: string,
-    amount: BigNumberish,
+    amount: bigint,
     redeemerProxy: RedeemerProxy
   ): Promise<{
     targetChainTxHash: Hex
@@ -171,10 +189,7 @@ export class RedemptionsService {
     const chainRedeemerAddress = redeemerProxy.redeemerAddress()
 
     const { walletPublicKey, mainUtxo, redeemerOutputScript } =
-      await this.determineRedemptionData(
-        bitcoinRedeemerAddress,
-        BigNumber.from(amount)
-      )
+      await this.determineRedemptionData(bitcoinRedeemerAddress, amount)
 
     const redemptionData =
       this.tbtcContracts.tbtcToken.buildRequestRedemptionData(
@@ -206,7 +221,7 @@ export class RedemptionsService {
    */
   async requestCrossChainRedemption(
     bitcoinRedeemerAddress: string,
-    amount: BigNumber,
+    amount: bigint,
     l2ChainName: DestinationChainName
   ): Promise<{ targetChainTxHash: Hex }> {
     const crossChainContracts = this.#crossChainContracts(l2ChainName)
@@ -249,8 +264,8 @@ export class RedemptionsService {
    * @throws Throws an error if no wallet with sufficient funds can be found.
    */
   async relayRedemptionRequestToL1(
-    amount: BigNumber,
-    encodedVm: BytesLike,
+    amount: bigint,
+    encodedVm: Hex | Uint8Array,
     l2ChainName: DestinationChainName,
     redeemerOutputScript: string
   ): Promise<{
@@ -321,7 +336,7 @@ export class RedemptionsService {
    */
   protected async determineRedemptionData(
     bitcoinRedeemerAddress: string,
-    amount: BigNumber
+    amount: bigint
   ): Promise<{
     walletPublicKey: Hex
     mainUtxo: BitcoinUtxo
@@ -371,7 +386,7 @@ export class RedemptionsService {
    *         input parameters.
    */
   protected async determineValidRedemptionWallet(
-    amount: BigNumber,
+    amount: bigint,
     potentialCandidateWallets: Array<SerializableWallet>,
     redeemerAddressOrScript?: string
   ): Promise<RedemptionWallet> {
@@ -473,18 +488,16 @@ export class RedemptionsService {
         currentMainUtxo = resolvedMainUtxo
       }
 
-      const onChainCandidateBTCBalance = currentMainUtxo.value.gt(
-        currentWallet.pendingRedemptionsValue
-      )
-        ? currentMainUtxo.value.sub(currentWallet.pendingRedemptionsValue)
-        : BigNumber.from(0)
-      const candidateBTCBalance = onChainCandidateBTCBalance.lt(
-        apiCandidateBTCBalance
-      )
-        ? onChainCandidateBTCBalance
-        : apiCandidateBTCBalance
+      const onChainCandidateBTCBalance =
+        currentMainUtxo.value > currentWallet.pendingRedemptionsValue
+          ? currentMainUtxo.value - currentWallet.pendingRedemptionsValue
+          : 0n
+      const candidateBTCBalance =
+        onChainCandidateBTCBalance < apiCandidateBTCBalance
+          ? onChainCandidateBTCBalance
+          : apiCandidateBTCBalance
 
-      if (candidateBTCBalance.lt(amount)) {
+      if (candidateBTCBalance < amount) {
         console.debug(
           `The wallet (${candidatePublicKey.toString()}) ` +
             `cannot handle the redemption request. ` +
@@ -523,7 +536,7 @@ export class RedemptionsService {
    * @returns Promise with the wallet details needed to request a redemption.
    */
   protected async findWalletForRedemption(
-    amount: BigNumber,
+    amount: bigint,
     redeemerOutputScript?: Hex,
     concurrencyLimit: number = 50
   ): Promise<{
@@ -533,7 +546,7 @@ export class RedemptionsService {
     const allWalletEvents =
       await this.tbtcContracts.bridge.getNewWalletRegisteredEvents()
 
-    let maxAmount = BigNumber.from(0)
+    let maxAmount = 0n
 
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
 
@@ -600,13 +613,13 @@ export class RedemptionsService {
           return
         }
 
-        const walletBTCBalance = mainUtxo.value.sub(pendingRedemptionsValue)
+        const walletBTCBalance = mainUtxo.value - pendingRedemptionsValue
 
-        if (walletBTCBalance.gt(maxAmount)) {
+        if (walletBTCBalance > maxAmount) {
           maxAmount = walletBTCBalance
         }
 
-        if (walletBTCBalance.gte(amount)) {
+        if (walletBTCBalance >= amount) {
           candidateResults.push({
             index: globalIndex,
             walletPublicKey,
@@ -630,7 +643,7 @@ export class RedemptionsService {
     // If no wallet can handle it, check if maxAmount is zero =>
     // that might mean all have a pending redemption for that address.
     if (candidateResults.length === 0) {
-      if (maxAmount.eq(0)) {
+      if (maxAmount === 0n) {
         throw new Error(
           "All live wallets in the network have the pending redemption for a given Bitcoin address. " +
             "Please use another Bitcoin address."
@@ -640,7 +653,7 @@ export class RedemptionsService {
       throw new Error(
         `Could not find a wallet with enough funds. ` +
           `Maximum redemption amount is ${maxAmount.toString()} Satoshi ` +
-          `( ${maxAmount.div(BigNumber.from(1e8)).toString()} BTC )`
+          `( ${(maxAmount / 100_000_000n).toString()} BTC )`
       )
     }
 
@@ -934,9 +947,12 @@ export class RedemptionsService {
           serialized.mainUtxo.transactionHash
         ),
         outputIndex: serialized.mainUtxo.outputIndex,
-        value: BigNumber.from(serialized.mainUtxo.value),
+        value: parseUnsignedBigInt(serialized.mainUtxo.value, "mainUtxo.value"),
       },
-      walletBTCBalance: BigNumber.from(serialized.walletBTCBalance),
+      walletBTCBalance: parseUnsignedBigInt(
+        serialized.walletBTCBalance,
+        "walletBTCBalance"
+      ),
     }
   }
 }

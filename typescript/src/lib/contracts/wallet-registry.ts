@@ -1,6 +1,6 @@
 import { Hex } from "../utils"
 import { ChainEvent, GetChainEvents } from "./chain-event"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { ChainIdentifier } from "./chain-identifier"
 
 /**
@@ -107,7 +107,7 @@ type DkgResult = {
   /**
    * Claimed submitter candidate group member index. Is in range [1, groupSize].
    */
-  submitterMemberIndex: BigNumber
+  submitterMemberIndex: bigint
   /**
    * Generated group public key.
    */
@@ -129,7 +129,7 @@ type DkgResult = {
    * Indices of members corresponding to each signature. Indices are
    * in range [1, groupSize], unique, and sorted in ascending order.
    */
-  signingMembersIndices: BigNumber[]
+  signingMembersIndices: bigint[]
   /**
    * Identifiers of candidate group members as outputted by the group
    * selection protocol.

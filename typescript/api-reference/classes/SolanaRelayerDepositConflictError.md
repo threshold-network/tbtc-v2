@@ -53,7 +53,7 @@ Error.constructor
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L26)
+[src/lib/solana/solana-depositor-interface.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L31)
 
 ## Properties
 
@@ -61,9 +61,13 @@ Error.constructor
 
 • `Optional` `Readonly` **cause**: `unknown`
 
+#### Inherited from
+
+Error.cause
+
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L29)
+[src/lib/solana/solana-depositor-interface.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L34)
 
 ___
 
@@ -101,7 +105,7 @@ ___
 
 #### Defined in
 
-[src/lib/solana/solana-depositor-interface.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L28)
+[src/lib/solana/solana-depositor-interface.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/solana-depositor-interface.ts#L33)
 
 ___
 

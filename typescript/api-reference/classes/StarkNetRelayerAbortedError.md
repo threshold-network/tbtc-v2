@@ -16,6 +16,7 @@ Thrown when a relayer reveal operation is aborted via AbortSignal.
 
 ### Properties
 
+- [cause](StarkNetRelayerAbortedError.md#cause)
 - [message](StarkNetRelayerAbortedError.md#message)
 - [name](StarkNetRelayerAbortedError.md#name)
 - [stack](StarkNetRelayerAbortedError.md#stack)
@@ -48,9 +49,23 @@ Error.constructor
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:167](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L167)
+[src/lib/starknet/starknet-depositor.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L165)
 
 ## Properties
+
+### cause
+
+• `Optional` **cause**: `unknown`
+
+#### Inherited from
+
+Error.cause
+
+#### Defined in
+
+node_modules/typescript/lib/lib.es2022.error.d.ts:26
+
+___
 
 ### message
 

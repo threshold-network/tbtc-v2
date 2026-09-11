@@ -21,7 +21,6 @@ import {
   BitcoinRawTx,
   BitcoinTxMerkleBranch,
 } from "../../src"
-import { BigNumber } from "ethers"
 import { btcAddresses, btcAddressFromPublicKey } from "../data/bitcoin"
 import { depositSweepWithNoMainUtxoAndWitnessOutput } from "../data/deposit-sweep"
 import { networks } from "bitcoinjs-lib"
@@ -160,7 +159,7 @@ describe("Bitcoin", () => {
   })
 
   describe("BitcoinHashUtils", () => {
-    const { computeHash160, computeHash256, hashLEToBigNumber, computeSha256 } =
+    const { computeHash160, computeHash256, hashLEToBigInt, computeSha256 } =
       BitcoinHashUtils
 
     describe("computeHash160", () => {
@@ -191,15 +190,14 @@ describe("Bitcoin", () => {
       })
     })
 
-    describe("hashLEToBigNumber", () => {
+    describe("hashLEToBigInt", () => {
       it("calculates correct value", () => {
         const hash = Hex.from(
           "31552151fbef8e96a33f979e6253d29edf65ac31b04802319e00000000000000"
         )
-        const expectedBigNumber = BigNumber.from(
-          "992983769452983078390935942095592601503357651673709518345521"
-        )
-        expect(hashLEToBigNumber(hash)).to.equal(expectedBigNumber)
+        const expectedBigInt =
+          992983769452983078390935942095592601503357651673709518345521n
+        expect(hashLEToBigInt(hash)).to.equal(expectedBigInt)
       })
     })
 
@@ -750,35 +748,31 @@ describe("Bitcoin", () => {
     describe("bitsToTarget", () => {
       it("calculates correct value for random block header bits", () => {
         const difficultyBits = 436256810
-        const expectedDifficultyTarget = BigNumber.from(
-          "1206233370197704583969288378458116959663044038027202007138304"
-        )
+        const expectedDifficultyTarget =
+          1206233370197704583969288378458116959663044038027202007138304n
         expect(bitsToTarget(difficultyBits)).to.equal(expectedDifficultyTarget)
       })
 
       it("calculates correct value for block header with difficulty of 1", () => {
         const difficultyBits = 486604799
-        const expectedDifficultyTarget = BigNumber.from(
-          "26959535291011309493156476344723991336010898738574164086137773096960"
-        )
+        const expectedDifficultyTarget =
+          26959535291011309493156476344723991336010898738574164086137773096960n
         expect(bitsToTarget(difficultyBits)).to.equal(expectedDifficultyTarget)
       })
     })
 
     describe("targetToDifficulty", () => {
       it("calculates correct value for random block header bits", () => {
-        const target = BigNumber.from(
-          "1206233370197704583969288378458116959663044038027202007138304"
-        )
-        const expectedDifficulty = BigNumber.from("22350181")
+        const target =
+          1206233370197704583969288378458116959663044038027202007138304n
+        const expectedDifficulty = 22350181n
         expect(targetToDifficulty(target)).to.equal(expectedDifficulty)
       })
 
       it("calculates correct value for block header with difficulty of 1", () => {
-        const target = BigNumber.from(
-          "26959535291011309493156476344723991336010898738574164086137773096960"
-        )
-        const expectedDifficulty = BigNumber.from("1")
+        const target =
+          26959535291011309493156476344723991336010898738574164086137773096960n
+        const expectedDifficulty = 1n
         expect(targetToDifficulty(target)).to.equal(expectedDifficulty)
       })
     })
@@ -1299,9 +1293,8 @@ describe("Bitcoin", () => {
               bitcoinChainData: {
                 ...transactionConfirmationsInTwoEpochsData.bitcoinChainData,
                 currentDifficulty:
-                  transactionConfirmationsInTwoEpochsData.bitcoinChainData.currentDifficulty.add(
-                    1
-                  ),
+                  transactionConfirmationsInTwoEpochsData.bitcoinChainData
+                    .currentDifficulty + 1n,
               },
             }
 

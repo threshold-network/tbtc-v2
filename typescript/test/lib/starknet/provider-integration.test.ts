@@ -9,8 +9,6 @@ import {
 import { MockBitcoinClient } from "../../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../../utils/mock-tbtc-contracts"
 import { MockCrossChainContractsLoader } from "../../utils/mock-cross-chain-contracts-loader"
-import { BigNumber } from "ethers"
-
 const STARKNET_ADDRESS =
   "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
 
@@ -27,7 +25,6 @@ function createProviderWithAccount(address = STARKNET_ADDRESS): any {
     getChainId: async () => "SN_SEPOLIA",
   }
 }
-
 describe("StarkNet Provider Integration", () => {
   let tbtc: TBTC
   let mockBitcoinClient: MockBitcoinClient
@@ -158,7 +155,7 @@ describe("StarkNet Provider Integration", () => {
     it("should query balance with provider", async () => {
       // Arrange
       const address = StarkNetAddress.from("0x123456")
-      const expectedBalance = BigNumber.from("1000000000000000000") // 1 tBTC
+      const expectedBalance = 1000000000000000000n // 1 tBTC
 
       // Act
       const balance = await token.getBalance(address)

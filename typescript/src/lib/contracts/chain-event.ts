@@ -1,6 +1,26 @@
 import { ExecutionLoggerFn, Hex } from "../utils"
 
 /**
+ * Minimal chain-agnostic transaction receipt. Replaces the ethers
+ * `TransactionReceipt` type in public unions.
+ */
+export interface ChainTransactionReceipt {
+  /**
+   * 0x-prefixed transaction hash.
+   */
+  transactionHash: string
+  /**
+   * Number of the block the transaction was included in.
+   */
+  blockNumber?: number
+  /**
+   * Status of the transaction. The `number` variant is kept for relayer
+   * passthrough responses (e.g. StarkNet).
+   */
+  status?: "success" | "reverted" | number
+}
+
+/**
  * Represents a generic chain event.
  */
 export interface ChainEvent {

@@ -1,5 +1,5 @@
 import { ChainIdentifier } from "../contracts"
-import { getAddress } from "@ethersproject/address"
+import { getAddress } from "viem"
 
 /**
  * Represents an Ethereum address.
@@ -13,7 +13,20 @@ export class EthereumAddress implements ChainIdentifier {
     let validAddress: string
 
     try {
-      validAddress = getAddress(address)
+      const prefixedAddress = address.startsWith("0x")
+        ? address
+        : `0x${address}`
+      validAddress = getAddress(prefixedAddress)
+      const addressBody = prefixedAddress.substring(2)
+      // Unchecksummed addresses may use either uniform case. Mixed-case
+      // input must already match EIP-55, before normalizing it for storage.
+      if (
+        addressBody !== addressBody.toLowerCase() &&
+        addressBody !== addressBody.toUpperCase() &&
+        prefixedAddress !== validAddress
+      ) {
+        throw new Error("Invalid Ethereum address checksum")
+      }
     } catch (e) {
       throw new Error(`Invalid Ethereum address`)
     }

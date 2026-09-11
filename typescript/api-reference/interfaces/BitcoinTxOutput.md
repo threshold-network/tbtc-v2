@@ -38,7 +38,7 @@ ___
 
 ### value
 
-• **value**: `BigNumber`
+• **value**: `bigint`
 
 The value of the output in satoshis.
 

@@ -40,7 +40,7 @@ ___
 
 ### revealDeposit
 
-▸ **revealDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](../classes/Hex.md) \| `TransactionReceipt`\>
+▸ **revealDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](../classes/Hex.md) \| [`ChainTransactionReceipt`](ChainTransactionReceipt.md)\>
 
 Reveals a given deposit to the on-chain Bridge contract.
 
@@ -55,7 +55,7 @@ Reveals a given deposit to the on-chain Bridge contract.
 
 #### Returns
 
-`Promise`\<[`Hex`](../classes/Hex.md) \| `TransactionReceipt`\>
+`Promise`\<[`Hex`](../classes/Hex.md) \| [`ChainTransactionReceipt`](ChainTransactionReceipt.md)\>
 
 Transaction hash of the reveal deposit transaction.
 

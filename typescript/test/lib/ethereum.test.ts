@@ -14,15 +14,9 @@ import {
   EthereumL1BitcoinDepositor,
   EthereumExtraDataEncoder,
 } from "../../src"
-import {
-  deployMockContract,
-  MockContract,
-} from "@ethereum-waffle/mock-contract"
-import chai, { expect } from "chai"
-import { BigNumber, Wallet, constants, getDefaultProvider, utils } from "ethers"
-import { MockProvider } from "@ethereum-waffle/provider"
-import { waffleChai } from "@ethereum-waffle/chai"
-import { assertContractCalledWith } from "../utils/helpers"
+import { expect } from "chai"
+import { encodeAbiParameters, zeroAddress, type Abi, type Address } from "viem"
+import { expectContractWrite, MockEvm } from "../utils/mock-evm"
 
 // ABI imports.
 import { abi as BridgeABI } from "@keep-network/tbtc-v2/artifacts/Bridge.json"
@@ -31,37 +25,35 @@ import { abi as WalletRegistryABI } from "@keep-network/ecdsa/artifacts/WalletRe
 import { abi as BaseL1BitcoinDepositorABI } from "../../src/lib/ethereum/artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import { abi as ArbitrumL1BitcoinDepositorABI } from "../../src/lib/ethereum/artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
 
-chai.use(waffleChai)
+const bridgeAbi = BridgeABI as Abi
+const tbtcTokenAbi = TBTCTokenABI as Abi
+const walletRegistryAbi = WalletRegistryABI as Abi
+const baseL1BitcoinDepositorAbi = BaseL1BitcoinDepositorABI as Abi
+const arbitrumL1BitcoinDepositorAbi = ArbitrumL1BitcoinDepositorABI as Abi
 
 describe("Ethereum", () => {
   describe("EthereumBridge", () => {
-    let walletRegistry: MockContract
-    let bridgeContract: MockContract
+    const bridgeAddress: Address = "0x475a30f1baa1a004059b6ee19c40aada5f2e0d1b"
+    const walletRegistryAddress: Address =
+      "0x2125d9c8bbbdf1fdf82cd5972f74d4d10cccf776"
+
+    let mock: MockEvm
     let bridgeHandle: EthereumBridge
 
     beforeEach(async () => {
-      const [signer] = new MockProvider().getWallets()
+      mock = new MockEvm()
 
-      walletRegistry = await deployMockContract(
-        signer,
-        `${JSON.stringify(WalletRegistryABI)}`
-      )
-
-      bridgeContract = await deployMockContract(
-        signer,
-        `${JSON.stringify(BridgeABI)}`
-      )
-
-      await bridgeContract.mock.contractReferences.returns(
-        constants.AddressZero,
-        constants.AddressZero,
-        walletRegistry.address,
-        constants.AddressZero
+      mock.stubRead(
+        bridgeAddress,
+        bridgeAbi,
+        "contractReferences",
+        [],
+        [zeroAddress, zeroAddress, walletRegistryAddress, zeroAddress]
       )
 
       bridgeHandle = new EthereumBridge({
-        address: bridgeContract.address,
-        signerOrProvider: signer,
+        address: bridgeAddress,
+        signerOrProvider: mock.asSigner(),
       })
     })
 
@@ -71,17 +63,23 @@ describe("Ethereum", () => {
         // with the redemption key (built as keccak256(keccak256(redeemerOutputScript) | walletPublicKeyHash))
         // that matches the wallet PKH and redeemer output script used during
         // the test call.
-        await bridgeContract.mock.pendingRedemptions
-          .withArgs(
-            "0x4f5c364239f365622168b8fcb3f4556a8bbad22f5b5ae598757c4fe83b3a78d7"
-          )
-          .returns({
+        mock.stubRead(
+          bridgeAddress,
+          bridgeAbi,
+          "pendingRedemptions",
+          [
+            BigInt(
+              "0x4f5c364239f365622168b8fcb3f4556a8bbad22f5b5ae598757c4fe83b3a78d7"
+            ),
+          ],
+          {
             redeemer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            requestedAmount: BigNumber.from(10000),
-            treasuryFee: BigNumber.from(100),
-            txMaxFee: BigNumber.from(50),
-            requestedAt: BigNumber.from(1650623240),
-          } as any)
+            requestedAmount: 10000n,
+            treasuryFee: 100n,
+            txMaxFee: 50n,
+            requestedAt: 1650623240,
+          }
+        )
       })
 
       it("should return the pending redemption", async () => {
@@ -99,9 +97,9 @@ describe("Ethereum", () => {
           redeemerOutputScript: Hex.from(
             "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
           ),
-          requestedAmount: BigNumber.from(10000),
-          treasuryFee: BigNumber.from(100),
-          txMaxFee: BigNumber.from(50),
+          requestedAmount: 10000n,
+          treasuryFee: 100n,
+          txMaxFee: 50n,
           requestedAt: 1650623240,
         })
       })
@@ -113,17 +111,23 @@ describe("Ethereum", () => {
         // with the redemption key (built as keccak256(keccak256(redeemerOutputScript) | walletPublicKeyHash))
         // that matches the wallet PKH and redeemer output script used during
         // the test call.
-        await bridgeContract.mock.timedOutRedemptions
-          .withArgs(
-            "0x4f5c364239f365622168b8fcb3f4556a8bbad22f5b5ae598757c4fe83b3a78d7"
-          )
-          .returns({
+        mock.stubRead(
+          bridgeAddress,
+          bridgeAbi,
+          "timedOutRedemptions",
+          [
+            BigInt(
+              "0x4f5c364239f365622168b8fcb3f4556a8bbad22f5b5ae598757c4fe83b3a78d7"
+            ),
+          ],
+          {
             redeemer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            requestedAmount: BigNumber.from(10000),
-            treasuryFee: BigNumber.from(100),
-            txMaxFee: BigNumber.from(50),
-            requestedAt: BigNumber.from(1650623240),
-          } as any)
+            requestedAmount: 10000n,
+            treasuryFee: 100n,
+            txMaxFee: 50n,
+            requestedAt: 1650623240,
+          }
+        )
       })
 
       it("should return the timed-out redemption", async () => {
@@ -141,18 +145,39 @@ describe("Ethereum", () => {
           redeemerOutputScript: Hex.from(
             "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
           ),
-          requestedAmount: BigNumber.from(10000),
-          treasuryFee: BigNumber.from(100),
-          txMaxFee: BigNumber.from(50),
+          requestedAmount: 10000n,
+          treasuryFee: 100n,
+          txMaxFee: 50n,
           requestedAt: 1650623240,
         })
       })
     })
 
     describe("revealDeposit", () => {
+      const expectedFundingTx = {
+        version: "0x00000000",
+        inputVector: "0x11111111",
+        outputVector: "0x22222222",
+        locktime: "0x33333333",
+      }
+      const expectedReveal = {
+        fundingOutputIndex: 2,
+        blindingFactor: "0xf9f0c90d00039523",
+        walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+        refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+        refundLocktime: "0x60bcea61",
+        vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+      }
+
       context("when deposit does not have optional extra data", () => {
         beforeEach(async () => {
-          await bridgeContract.mock.revealDeposit.returns()
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "revealDeposit",
+            [expectedFundingTx, expectedReveal],
+            undefined
+          )
 
           await bridgeHandle.revealDeposit(
             // Just short byte strings for clarity.
@@ -181,28 +206,25 @@ describe("Ethereum", () => {
         })
 
         it("should reveal the deposit", async () => {
-          assertContractCalledWith(bridgeContract, "revealDeposit", [
-            {
-              version: "0x00000000",
-              inputVector: "0x11111111",
-              outputVector: "0x22222222",
-              locktime: "0x33333333",
-            },
-            {
-              fundingOutputIndex: 2,
-              blindingFactor: "0xf9f0c90d00039523",
-              walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-              refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
-              refundLocktime: "0x60bcea61",
-              vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
-            },
+          expectContractWrite(mock, bridgeAddress, bridgeAbi, "revealDeposit", [
+            expectedFundingTx,
+            expectedReveal,
           ])
         })
       })
 
       context("when deposit has optional extra data", () => {
+        const expectedExtraData =
+          "0xaebfb5afc9ee6432374ed39b58b8cf87797f9468eca40569b67ac8d59415c9c0"
+
         beforeEach(async () => {
-          await bridgeContract.mock.revealDepositWithExtraData.returns()
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "revealDepositWithExtraData",
+            [expectedFundingTx, expectedReveal, expectedExtraData],
+            undefined
+          )
 
           await bridgeHandle.revealDeposit(
             // Just short byte strings for clarity.
@@ -234,34 +256,54 @@ describe("Ethereum", () => {
         })
 
         it("should reveal the deposit", async () => {
-          assertContractCalledWith(
-            bridgeContract,
+          expectContractWrite(
+            mock,
+            bridgeAddress,
+            bridgeAbi,
             "revealDepositWithExtraData",
-            [
-              {
-                version: "0x00000000",
-                inputVector: "0x11111111",
-                outputVector: "0x22222222",
-                locktime: "0x33333333",
-              },
-              {
-                fundingOutputIndex: 2,
-                blindingFactor: "0xf9f0c90d00039523",
-                walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-                refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
-                refundLocktime: "0x60bcea61",
-                vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
-              },
-              "0xaebfb5afc9ee6432374ed39b58b8cf87797f9468eca40569b67ac8d59415c9c0",
-            ]
+            [expectedFundingTx, expectedReveal, expectedExtraData]
           )
         })
       })
     })
 
     describe("submitDepositSweepProof", () => {
+      const expectedSweepTx = {
+        version: "0x00000000",
+        inputVector: "0x11111111",
+        outputVector: "0x22222222",
+        locktime: "0x33333333",
+      }
+      const expectedSweepProof = {
+        merkleProof: "0x44444444",
+        txIndexInBlock: 5,
+        bitcoinHeaders: "0x66666666",
+        coinbasePreimage: BitcoinHashUtils.computeSha256(
+          Hex.from("77777777")
+        ).toPrefixedString(),
+        coinbaseProof: "0x88888888",
+      }
+      const expectedMainUtxo = {
+        txHash:
+          "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
+        txOutputIndex: 8,
+        txOutputValue: 9999n,
+      }
+      const expectedVault = "0x82883a4c7a8dd73ef165deb402d432613615ced4"
+
       beforeEach(async () => {
-        await bridgeContract.mock.submitDepositSweepProof.returns()
+        mock.stubRead(
+          bridgeAddress,
+          bridgeAbi,
+          "submitDepositSweepProof",
+          [
+            expectedSweepTx,
+            expectedSweepProof,
+            expectedMainUtxo,
+            expectedVault,
+          ],
+          undefined
+        )
 
         await bridgeHandle.submitDepositSweepProof(
           {
@@ -284,44 +326,31 @@ describe("Ethereum", () => {
               "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
             ),
             outputIndex: 8,
-            value: BigNumber.from(9999),
+            value: 9999n,
           },
           EthereumAddress.from("82883a4c7a8dd73ef165deb402d432613615ced4")
         )
       })
 
       it("should submit the deposit sweep proof", () => {
-        assertContractCalledWith(bridgeContract, "submitDepositSweepProof", [
-          {
-            version: "0x00000000",
-            inputVector: "0x11111111",
-            outputVector: "0x22222222",
-            locktime: "0x33333333",
-          },
-          {
-            merkleProof: "0x44444444",
-            txIndexInBlock: 5,
-            bitcoinHeaders: "0x66666666",
-            coinbasePreimage: BitcoinHashUtils.computeSha256(
-              Hex.from("77777777")
-            ).toPrefixedString(),
-            coinbaseProof: "0x88888888",
-          },
-          {
-            txHash:
-              "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
-            txOutputIndex: 8,
-            txOutputValue: BigNumber.from(9999),
-          },
-          "0x82883a4c7a8dd73ef165deb402d432613615ced4",
-        ])
+        expectContractWrite(
+          mock,
+          bridgeAddress,
+          bridgeAbi,
+          "submitDepositSweepProof",
+          [expectedSweepTx, expectedSweepProof, expectedMainUtxo, expectedVault]
+        )
       })
     })
 
     describe("txProofDifficultyFactor", () => {
       beforeEach(async () => {
-        await bridgeContract.mock.txProofDifficultyFactor.returns(
-          BigNumber.from(6)
+        mock.stubRead(
+          bridgeAddress,
+          bridgeAbi,
+          "txProofDifficultyFactor",
+          [],
+          6n
         )
       })
 
@@ -331,8 +360,30 @@ describe("Ethereum", () => {
     })
 
     describe("requestRedemption", () => {
+      const expectedWalletPublicKeyHash =
+        "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+      const expectedMainUtxo = {
+        txHash:
+          "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
+        txOutputIndex: 8,
+        txOutputValue: 9999n,
+      }
+      const expectedRedeemerOutputScript =
+        "0x17a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
+
       beforeEach(async () => {
-        await bridgeContract.mock.requestRedemption.returns()
+        mock.stubRead(
+          bridgeAddress,
+          bridgeAbi,
+          "requestRedemption",
+          [
+            expectedWalletPublicKeyHash,
+            expectedMainUtxo,
+            expectedRedeemerOutputScript,
+            10000n,
+          ],
+          undefined
+        )
 
         await bridgeHandle.requestRedemption(
           Hex.from(
@@ -343,31 +394,67 @@ describe("Ethereum", () => {
               "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
             ),
             outputIndex: 8,
-            value: BigNumber.from(9999),
+            value: 9999n,
           },
           Hex.from("a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"),
-          BigNumber.from(10000)
+          10000n
         )
       })
 
       it("should request the redemption", async () => {
-        assertContractCalledWith(bridgeContract, "requestRedemption", [
-          "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-          {
-            txHash:
-              "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
-            txOutputIndex: 8,
-            txOutputValue: BigNumber.from(9999),
-          },
-          "0x17a9143ec459d0f3c29286ae5df5fcc421e2786024277e87",
-          BigNumber.from(10000),
-        ])
+        expectContractWrite(
+          mock,
+          bridgeAddress,
+          bridgeAbi,
+          "requestRedemption",
+          [
+            expectedWalletPublicKeyHash,
+            expectedMainUtxo,
+            expectedRedeemerOutputScript,
+            10000n,
+          ]
+        )
       })
     })
 
     describe("submitRedemptionProof", () => {
+      const expectedRedemptionTx = {
+        version: "0x00000000",
+        inputVector: "0x11111111",
+        outputVector: "0x22222222",
+        locktime: "0x33333333",
+      }
+      const expectedRedemptionProof = {
+        merkleProof: "0x44444444",
+        txIndexInBlock: 5,
+        bitcoinHeaders: "0x66666666",
+        coinbasePreimage: BitcoinHashUtils.computeSha256(
+          Hex.from("77777777")
+        ).toPrefixedString(),
+        coinbaseProof: "0x88888888",
+      }
+      const expectedMainUtxo = {
+        txHash:
+          "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
+        txOutputIndex: 8,
+        txOutputValue: 9999n,
+      }
+      const expectedWalletPublicKeyHash =
+        "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+
       beforeEach(async () => {
-        await bridgeContract.mock.submitRedemptionProof.returns()
+        mock.stubRead(
+          bridgeAddress,
+          bridgeAbi,
+          "submitRedemptionProof",
+          [
+            expectedRedemptionTx,
+            expectedRedemptionProof,
+            expectedMainUtxo,
+            expectedWalletPublicKeyHash,
+          ],
+          undefined
+        )
 
         await bridgeHandle.submitRedemptionProof(
           {
@@ -390,7 +477,7 @@ describe("Ethereum", () => {
               "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
             ),
             outputIndex: 8,
-            value: BigNumber.from(9999),
+            value: 9999n,
           },
           Hex.from(
             "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
@@ -399,30 +486,18 @@ describe("Ethereum", () => {
       })
 
       it("should submit the redemption proof", () => {
-        assertContractCalledWith(bridgeContract, "submitRedemptionProof", [
-          {
-            version: "0x00000000",
-            inputVector: "0x11111111",
-            outputVector: "0x22222222",
-            locktime: "0x33333333",
-          },
-          {
-            merkleProof: "0x44444444",
-            txIndexInBlock: 5,
-            bitcoinHeaders: "0x66666666",
-            coinbasePreimage: BitcoinHashUtils.computeSha256(
-              Hex.from("77777777")
-            ).toPrefixedString(),
-            coinbaseProof: "0x88888888",
-          },
-          {
-            txHash:
-              "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
-            txOutputIndex: 8,
-            txOutputValue: BigNumber.from(9999),
-          },
-          "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-        ])
+        expectContractWrite(
+          mock,
+          bridgeAddress,
+          bridgeAbi,
+          "submitRedemptionProof",
+          [
+            expectedRedemptionTx,
+            expectedRedemptionProof,
+            expectedMainUtxo,
+            expectedWalletPublicKeyHash,
+          ]
+        )
       })
     })
 
@@ -433,20 +508,26 @@ describe("Ethereum", () => {
           // with the deposit key (built as keccak256(depositTxHash | depositOutputIndex)
           // that matches the deposit transaction hash and output index used during
           // the test call.
-          await bridgeContract.mock.deposits
-            .withArgs(
-              "0x01151be714c10edde62a310bf0604c01134450416a0bf8a7bfd43cef90644f0f"
-            )
-            .returns({
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "deposits",
+            [
+              BigInt(
+                "0x01151be714c10edde62a310bf0604c01134450416a0bf8a7bfd43cef90644f0f"
+              ),
+            ],
+            {
               depositor: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-              amount: BigNumber.from(10000),
+              amount: 10000n,
               vault: "0x014e1BFbe0f85F129749a8ae0fcB20175433741B",
               revealedAt: 1654774330,
               sweptAt: 1655033516,
-              treasuryFee: BigNumber.from(200),
+              treasuryFee: 200n,
               extraData:
                 "0x0000000000000000000000000000000000000000000000000000000000000000",
-            } as any)
+            }
+          )
         })
 
         it("should return the revealed deposit", async () => {
@@ -461,13 +542,13 @@ describe("Ethereum", () => {
             depositor: EthereumAddress.from(
               "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
             ),
-            amount: BigNumber.from(10000),
+            amount: 10000n,
             vault: EthereumAddress.from(
               "014e1bfbe0f85f129749a8ae0fcb20175433741b"
             ),
             revealedAt: 1654774330,
             sweptAt: 1655033516,
-            treasuryFee: BigNumber.from(200),
+            treasuryFee: 200n,
           })
         })
       })
@@ -478,20 +559,26 @@ describe("Ethereum", () => {
           // with the deposit key (built as keccak256(depositTxHash | depositOutputIndex)
           // that matches the deposit transaction hash and output index used during
           // the test call.
-          await bridgeContract.mock.deposits
-            .withArgs(
-              "0x01151be714c10edde62a310bf0604c01134450416a0bf8a7bfd43cef90644f0f"
-            )
-            .returns({
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "deposits",
+            [
+              BigInt(
+                "0x01151be714c10edde62a310bf0604c01134450416a0bf8a7bfd43cef90644f0f"
+              ),
+            ],
+            {
               depositor: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-              amount: BigNumber.from(10000),
-              vault: constants.AddressZero,
+              amount: 10000n,
+              vault: zeroAddress,
               revealedAt: 1654774330,
               sweptAt: 1655033516,
-              treasuryFee: BigNumber.from(200),
+              treasuryFee: 200n,
               extraData:
                 "0x0000000000000000000000000000000000000000000000000000000000000000",
-            } as any)
+            }
+          )
         })
 
         it("should return the revealed deposit", async () => {
@@ -506,11 +593,11 @@ describe("Ethereum", () => {
             depositor: EthereumAddress.from(
               "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
             ),
-            amount: BigNumber.from(10000),
+            amount: 10000n,
             vault: undefined,
             revealedAt: 1654774330,
             sweptAt: 1655033516,
-            treasuryFee: BigNumber.from(200),
+            treasuryFee: 200n,
           })
         })
       })
@@ -519,32 +606,44 @@ describe("Ethereum", () => {
     describe("activeWalletPublicKey", () => {
       context("when there is an active wallet", () => {
         beforeEach(async () => {
-          await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "activeWalletPubKeyHash",
+            [],
             "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
           )
 
-          await bridgeContract.mock.wallets
-            .withArgs("0x8db50eb52063ea9d98b3eac91489a90f738986f6")
-            .returns({
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "wallets",
+            ["0x8db50eb52063ea9d98b3eac91489a90f738986f6"],
+            {
               ecdsaWalletID:
                 "0x9ff37567d973e4d884bc42d2d1a6cb1ff22676ab64f82c62b58e2b0ffd3fff71",
-              mainUtxoHash: constants.HashZero,
-              pendingRedemptionsValue: BigNumber.from(0),
+              mainUtxoHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+              pendingRedemptionsValue: 0n,
               createdAt: 1654846075,
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: 1,
-              movingFundsTargetWalletsCommitmentHash: constants.HashZero,
-            } as any)
+              movingFundsTargetWalletsCommitmentHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+            }
+          )
 
-          await walletRegistry.mock.getWalletPublicKey
-            .withArgs(
-              "0x9ff37567d973e4d884bc42d2d1a6cb1ff22676ab64f82c62b58e2b0ffd3fff71"
-            )
-            .returns(
-              "0x989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9d218b65e7d91c752f7b22eaceb771a9af3a6f3d3f010a5d471a1aeef7d7713af" as any
-            )
+          mock.stubRead(
+            walletRegistryAddress,
+            walletRegistryAbi,
+            "getWalletPublicKey",
+            [
+              "0x9ff37567d973e4d884bc42d2d1a6cb1ff22676ab64f82c62b58e2b0ffd3fff71",
+            ],
+            "0x989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9d218b65e7d91c752f7b22eaceb771a9af3a6f3d3f010a5d471a1aeef7d7713af"
+          )
         })
 
         it("should return the active wallet's public key", async () => {
@@ -558,7 +657,11 @@ describe("Ethereum", () => {
 
       context("when there is no active wallet", () => {
         beforeEach(async () => {
-          await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          mock.stubRead(
+            bridgeAddress,
+            bridgeAbi,
+            "activeWalletPubKeyHash",
+            [],
             "0x0000000000000000000000000000000000000000"
           )
         })
@@ -575,7 +678,7 @@ describe("Ethereum", () => {
             "c1082c460527079a84e39ec6481666db72e5a22e473a78db03b996d26fd1dc83"
           ),
           outputIndex: 0,
-          value: BigNumber.from(10000),
+          value: 10000n,
         }
 
         expect(bridgeHandle.buildUtxoHash(utxo).toPrefixedString()).to.be.equal(
@@ -586,19 +689,17 @@ describe("Ethereum", () => {
   })
 
   describe("EthereumTBTCToken", () => {
-    let tbtcToken: MockContract
+    const tokenAddress: Address = "0x2f9d861a1e8f4cd5c80cd93b303c02bba90e83d0"
+
+    let mock: MockEvm
     let tokenHandle: EthereumTBTCToken
-    const signer: Wallet = new MockProvider().getWallets()[0]
 
     beforeEach(async () => {
-      tbtcToken = await deployMockContract(
-        signer,
-        `${JSON.stringify(TBTCTokenABI)}`
-      )
+      mock = new MockEvm()
 
       tokenHandle = new EthereumTBTCToken({
-        address: tbtcToken.address,
-        signerOrProvider: signer,
+        address: tokenAddress,
+        signerOrProvider: mock.asSigner(),
       })
     })
 
@@ -615,10 +716,9 @@ describe("Ethereum", () => {
             "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
           ),
           outputIndex: 8,
-          value: BigNumber.from(9999),
+          value: 9999n,
         },
-        redeemer: EthereumAddress.from(signer.address),
-        amount: BigNumber.from(10000),
+        amount: 10000n,
         redeemerOutputScript: {
           unprefixed: Hex.from(
             "0020cdbf909e935c855d3e8d1b61aeb9c5e3c03ae8021b286839b1a72f2e48fdba70"
@@ -629,9 +729,53 @@ describe("Ethereum", () => {
         },
       }
 
+      // The redeemer is resolved from the account of the connected signer -
+      // the fixed MockEvm test account.
+      const expectedExtraData = (redeemer: EthereumAddress): `0x${string}` =>
+        encodeAbiParameters(
+          [
+            { type: "address" },
+            { type: "bytes20" },
+            { type: "bytes32" },
+            { type: "uint32" },
+            { type: "uint64" },
+            { type: "bytes" },
+          ],
+          [
+            `0x${redeemer.identifierHex}` as `0x${string}`,
+            BitcoinHashUtils.computeHash160(
+              data.walletPublicKey
+            ).toPrefixedString() as `0x${string}`,
+            data.mainUtxo.transactionHash
+              .reverse()
+              .toPrefixedString() as `0x${string}`,
+            data.mainUtxo.outputIndex,
+            data.mainUtxo.value,
+            data.redeemerOutputScript.prefixed.toPrefixedString() as `0x${string}`,
+          ]
+        )
+
       beforeEach(async () => {
-        await tbtcToken.mock.owner.returns(data.vault.identifierHex)
-        await tbtcToken.mock.approveAndCall.returns(true)
+        const redeemer = EthereumAddress.from(mock.account)
+
+        mock.stubRead(
+          tokenAddress,
+          tbtcTokenAbi,
+          "owner",
+          [],
+          `0x${data.vault.identifierHex}`
+        )
+        mock.stubRead(
+          tokenAddress,
+          tbtcTokenAbi,
+          "approveAndCall",
+          [
+            `0x${data.vault.identifierHex}`,
+            data.amount,
+            expectedExtraData(redeemer),
+          ],
+          true
+        )
 
         await tokenHandle.requestRedemption(
           data.walletPublicKey,
@@ -642,54 +786,40 @@ describe("Ethereum", () => {
       })
 
       it("should request the redemption", async () => {
-        const {
-          walletPublicKey,
-          mainUtxo,
-          redeemerOutputScript,
-          redeemer,
-          vault,
-          amount,
-        } = data
-        const expectedExtraData = utils.defaultAbiCoder.encode(
-          ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+        const redeemer = EthereumAddress.from(mock.account)
+
+        expectContractWrite(
+          mock,
+          tokenAddress,
+          tbtcTokenAbi,
+          "approveAndCall",
           [
-            redeemer.identifierHex,
-            BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString(),
-            mainUtxo.transactionHash.reverse().toPrefixedString(),
-            mainUtxo.outputIndex,
-            mainUtxo.value,
-            redeemerOutputScript.prefixed.toPrefixedString(),
+            `0x${data.vault.identifierHex}`,
+            data.amount,
+            expectedExtraData(redeemer),
           ]
         )
-
-        assertContractCalledWith(tbtcToken, "approveAndCall", [
-          vault.identifierHex,
-          amount,
-          expectedExtraData,
-        ])
       })
     })
   })
 
   describe("EthereumL1BitcoinDepositor - BASE", () => {
-    let depositorContract: MockContract
+    const depositorAddress: Address =
+      "0x8bdb63ef8281c5c2eae1979ee7cd2c00d4451ecc"
+
+    let mock: MockEvm
     let depositorHandle: EthereumL1BitcoinDepositor
 
     beforeEach(async () => {
-      const [signer] = new MockProvider().getWallets()
-
-      depositorContract = await deployMockContract(
-        signer,
-        // Use Base for testing but this can be any supported L2 chain.
-        `${JSON.stringify(BaseL1BitcoinDepositorABI)}`
-      )
+      mock = new MockEvm()
 
       depositorHandle = new EthereumL1BitcoinDepositor(
         {
-          address: depositorContract.address,
-          signerOrProvider: signer,
+          address: depositorAddress,
+          signerOrProvider: mock.asSigner(),
         },
         Chains.Ethereum.Sepolia,
+        // Use Base for testing but this can be any supported L2 chain.
         "Base"
       )
     })
@@ -723,11 +853,36 @@ describe("Ethereum", () => {
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
 
+      const expectedFundingTx = {
+        version: "0x00000000",
+        inputVector: "0x11111111",
+        outputVector: "0x22222222",
+        locktime: "0x33333333",
+      }
+      const expectedReveal = {
+        fundingOutputIndex: 2,
+        blindingFactor: "0xf9f0c90d00039523",
+        walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+        refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+        refundLocktime: "0x60bcea61",
+        vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+      }
+      // The full 32-byte extra data (the L2 deposit owner left-padded with
+      // 12 zero bytes) as sent on chain.
+      const expectedExtraData =
+        "0x00000000000000000000000091fe5b7027c0ca767270bb1a474ba1338ba2a4d2"
+
       context(
         "when L2 deposit owner is properly encoded in the extra data",
         () => {
           beforeEach(async () => {
-            await depositorContract.mock.initializeDeposit.returns()
+            mock.stubRead(
+              depositorAddress,
+              baseL1BitcoinDepositorAbi,
+              "initializeDeposit",
+              [expectedFundingTx, expectedReveal, expectedExtraData],
+              undefined
+            )
 
             await depositorHandle.initializeDeposit(
               depositTx,
@@ -738,23 +893,13 @@ describe("Ethereum", () => {
           })
 
           it("should initialize the deposit", async () => {
-            assertContractCalledWith(depositorContract, "initializeDeposit", [
-              {
-                version: "0x00000000",
-                inputVector: "0x11111111",
-                outputVector: "0x22222222",
-                locktime: "0x33333333",
-              },
-              {
-                fundingOutputIndex: 2,
-                blindingFactor: "0xf9f0c90d00039523",
-                walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-                refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
-                refundLocktime: "0x60bcea61",
-                vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
-              },
-              "0x91fe5b7027c0cA767270bB1A474bA1338BA2A4d2",
-            ])
+            expectContractWrite(
+              mock,
+              depositorAddress,
+              baseL1BitcoinDepositorAbi,
+              "initializeDeposit",
+              [expectedFundingTx, expectedReveal, expectedExtraData]
+            )
           })
         }
       )
@@ -763,8 +908,9 @@ describe("Ethereum", () => {
         "when L2 deposit owner is not properly encoded in the extra data",
         () => {
           it("should throw", async () => {
-            await expect(
-              depositorHandle.initializeDeposit(
+            let error: unknown
+            try {
+              await depositorHandle.initializeDeposit(
                 depositTx,
                 depositOutputIndex,
                 {
@@ -773,7 +919,11 @@ describe("Ethereum", () => {
                 },
                 vault
               )
-            ).to.be.rejectedWith("Extra data is required")
+            } catch (e) {
+              error = e
+            }
+
+            expect((error as Error).message).to.equal("Extra data is required")
           })
         }
       )
@@ -781,24 +931,22 @@ describe("Ethereum", () => {
   })
 
   describe("EthereumL1BitcoinDepositor - ARBITRUM", () => {
-    let depositorContract: MockContract
+    const depositorAddress: Address =
+      "0x494954f2db6cdbd2098c0af2b1e8d5e0c9c30da5"
+
+    let mock: MockEvm
     let depositorHandle: EthereumL1BitcoinDepositor
 
     beforeEach(async () => {
-      const [signer] = new MockProvider().getWallets()
-
-      depositorContract = await deployMockContract(
-        signer,
-        // Use Arbitrum for testing but this can be any supported L2 chain.
-        `${JSON.stringify(ArbitrumL1BitcoinDepositorABI)}`
-      )
+      mock = new MockEvm()
 
       depositorHandle = new EthereumL1BitcoinDepositor(
         {
-          address: depositorContract.address,
-          signerOrProvider: signer,
+          address: depositorAddress,
+          signerOrProvider: mock.asSigner(),
         },
         Chains.Ethereum.Sepolia,
+        // Use Arbitrum for testing but this can be any supported L2 chain.
         "Arbitrum"
       )
     })
@@ -832,11 +980,36 @@ describe("Ethereum", () => {
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
 
+      const expectedFundingTx = {
+        version: "0x00000000",
+        inputVector: "0x11111111",
+        outputVector: "0x22222222",
+        locktime: "0x33333333",
+      }
+      const expectedReveal = {
+        fundingOutputIndex: 2,
+        blindingFactor: "0xf9f0c90d00039523",
+        walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+        refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+        refundLocktime: "0x60bcea61",
+        vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+      }
+      // The full 32-byte extra data (the L2 deposit owner left-padded with
+      // 12 zero bytes) as sent on chain.
+      const expectedExtraData =
+        "0x00000000000000000000000091fe5b7027c0ca767270bb1a474ba1338ba2a4d2"
+
       context(
         "when L2 deposit owner is properly encoded in the extra data",
         () => {
           beforeEach(async () => {
-            await depositorContract.mock.initializeDeposit.returns()
+            mock.stubRead(
+              depositorAddress,
+              arbitrumL1BitcoinDepositorAbi,
+              "initializeDeposit",
+              [expectedFundingTx, expectedReveal, expectedExtraData],
+              undefined
+            )
 
             await depositorHandle.initializeDeposit(
               depositTx,
@@ -847,23 +1020,13 @@ describe("Ethereum", () => {
           })
 
           it("should initialize the deposit", async () => {
-            assertContractCalledWith(depositorContract, "initializeDeposit", [
-              {
-                version: "0x00000000",
-                inputVector: "0x11111111",
-                outputVector: "0x22222222",
-                locktime: "0x33333333",
-              },
-              {
-                fundingOutputIndex: 2,
-                blindingFactor: "0xf9f0c90d00039523",
-                walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-                refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
-                refundLocktime: "0x60bcea61",
-                vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
-              },
-              "0x91fe5b7027c0cA767270bB1A474bA1338BA2A4d2",
-            ])
+            expectContractWrite(
+              mock,
+              depositorAddress,
+              arbitrumL1BitcoinDepositorAbi,
+              "initializeDeposit",
+              [expectedFundingTx, expectedReveal, expectedExtraData]
+            )
           })
         }
       )
@@ -872,8 +1035,9 @@ describe("Ethereum", () => {
         "when L2 deposit owner is not properly encoded in the extra data",
         () => {
           it("should throw", async () => {
-            await expect(
-              depositorHandle.initializeDeposit(
+            let error: unknown
+            try {
+              await depositorHandle.initializeDeposit(
                 depositTx,
                 depositOutputIndex,
                 {
@@ -882,7 +1046,11 @@ describe("Ethereum", () => {
                 },
                 vault
               )
-            ).to.be.rejectedWith("Extra data is required")
+            } catch (e) {
+              error = e
+            }
+
+            expect((error as Error).message).to.equal("Extra data is required")
           })
         }
       )
@@ -958,35 +1126,42 @@ describe("Ethereum", () => {
   })
 
   describe("ethereumAddressFromSigner", () => {
-    context("when the signer is a wallet", () => {
-      const [mockSigner] = new MockProvider().getWallets()
+    context("when the signer can sign transactions", () => {
       it("should return the signer's address", async () => {
-        expect(await ethereumAddressFromSigner(mockSigner)).to.be.eql(
-          EthereumAddress.from(mockSigner.address)
+        const mock = new MockEvm()
+
+        expect(await ethereumAddressFromSigner(mock.asSigner())).to.be.eql(
+          EthereumAddress.from(mock.account)
         )
       })
     })
 
-    context("when the signer is a provider", () => {
-      const mockProvider = getDefaultProvider()
+    context("when the signer is a read-only provider", () => {
       it("should return undefined", async () => {
-        expect(await ethereumAddressFromSigner(mockProvider)).to.be.undefined
+        const mock = new MockEvm()
+        mock.accounts = []
+
+        expect(await ethereumAddressFromSigner(mock.asSigner())).to.be.undefined
       })
     })
   })
 
   describe("chainIdFromSigner", () => {
-    context("when the signer is a wallet", () => {
-      const [mockSigner] = new MockProvider().getWallets()
+    context("when the signer can sign transactions", () => {
       it("should return the signer's network", async () => {
-        expect(await chainIdFromSigner(mockSigner)).to.be.eql("1337")
+        const mock = new MockEvm()
+        mock.chainId = 1337
+
+        expect(await chainIdFromSigner(mock.asSigner())).to.be.eql("1337")
       })
     })
 
-    context("when the signer is a provider", () => {
-      const mockProvider = getDefaultProvider()
+    context("when the signer is a read-only provider", () => {
       it("should return the signer's network", async () => {
-        expect(await chainIdFromSigner(mockProvider)).to.be.eql("1")
+        const mock = new MockEvm()
+        mock.accounts = []
+
+        expect(await chainIdFromSigner(mock.asSigner())).to.be.eql("1")
       })
     })
   })

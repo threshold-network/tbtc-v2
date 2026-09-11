@@ -6,7 +6,6 @@ import sinon from "sinon"
 chai.use(chaiAsPromised)
 import { SuiTBTCToken, SuiAddress, SuiError } from "../../../src/lib/sui"
 import { Chains } from "../../../src/lib/contracts"
-import { BigNumber } from "ethers"
 
 describe("SUI tBTC Token", () => {
   let token: SuiTBTCToken
@@ -47,9 +46,7 @@ describe("SUI tBTC Token", () => {
       const balance = await token.balanceOf(userAddress)
 
       // Should scale from 8 to 18 decimals (multiply by 10^10)
-      const expectedBalance = BigNumber.from(suiBalance).mul(
-        BigNumber.from(10).pow(10)
-      )
+      const expectedBalance = BigInt(suiBalance) * 10n ** 10n
       expect(balance.toString()).to.equal(expectedBalance.toString())
       expect(balance.toString()).to.equal("123456780000000000") // 0.12345678 * 10^18
 
@@ -89,9 +86,7 @@ describe("SUI tBTC Token", () => {
 
       const balance = await token.balanceOf(userAddress)
 
-      const expectedBalance = BigNumber.from(largeBalance).mul(
-        BigNumber.from(10).pow(10)
-      )
+      const expectedBalance = BigInt(largeBalance) * 10n ** 10n
       expect(balance.toString()).to.equal(expectedBalance.toString())
     })
 

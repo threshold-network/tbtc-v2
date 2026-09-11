@@ -14,7 +14,7 @@ import {
   BitcoinHashUtils,
 } from "../bitcoin"
 import Electrum from "electrum-client-js"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { URL as nodeURL } from "url"
 import URLParse from "url-parse"
 import { backoffRetrier, Hex, RetrierFn } from "../utils"
@@ -365,7 +365,7 @@ export class ElectrumClient implements BitcoinClient {
       return unspentTransactions.reverse().map((tx: UnspentOutput) => ({
         transactionHash: BitcoinTxHash.from(tx.tx_hash),
         outputIndex: tx.tx_pos,
-        value: BigNumber.from(tx.value),
+        value: BigInt(tx.value),
       }))
     })
   }
@@ -461,7 +461,7 @@ export class ElectrumClient implements BitcoinClient {
       const outputs = transaction.outs.map(
         (output: TxOutput, i: number): BitcoinTxOutput => ({
           outputIndex: i,
-          value: BigNumber.from(output.value),
+          value: BigInt(output.value),
           scriptPubKey: Hex.from(output.script),
         })
       )

@@ -44,7 +44,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L37)
+[src/services/deposits/refund.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L36)
 
 ## Properties
 
@@ -54,7 +54,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L35)
+[src/services/deposits/refund.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L34)
 
 ## Methods
 
@@ -69,8 +69,8 @@ Assembles a Bitcoin P2(W)PKH deposit refund transaction.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | The target Bitcoin network. |
-| `fee` | `BigNumber` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
-| `utxo` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `BigNumber`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md) | UTXO that was created during depositing that needs be refunded. |
+| `fee` | `bigint` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
+| `utxo` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `bigint`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md) | UTXO that was created during depositing that needs be refunded. |
 | `refunderAddress` | `string` | Recipient Bitcoin wallet address of the refunded deposit. |
 | `refunderPrivateKey` | `string` | Bitcoin wallet private key of the refunder. It must correspond to the `refundPublicKeyHash` of the deposit script. |
 
@@ -84,7 +84,7 @@ The outcome consisting of:
 
 #### Defined in
 
-[src/services/deposits/refund.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L111)
+[src/services/deposits/refund.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L110)
 
 ___
 
@@ -113,7 +113,7 @@ Error if there are discrepancies in values or key formats.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L191)
+[src/services/deposits/refund.ts:190](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L190)
 
 ___
 
@@ -139,7 +139,7 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L219)
+[src/services/deposits/refund.ts:218](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L218)
 
 ___
 
@@ -166,7 +166,7 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:256](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L256)
+[src/services/deposits/refund.ts:255](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L255)
 
 ___
 
@@ -182,7 +182,7 @@ deposit refund transaction.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) | Bitcoin client used to interact with the network. |
-| `fee` | `BigNumber` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
+| `fee` | `bigint` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
 | `utxo` | [`BitcoinUtxo`](../README.md#bitcoinutxo) | UTXO that was created during depositing that needs be refunded. |
 | `refunderAddress` | `string` | Recipient Bitcoin wallet address of the refunded deposit. |
 | `refunderPrivateKey` | `string` | Bitcoin wallet private key of the refunder. It must correspond to the `refundPublicKeyHash` of the deposit script. |
@@ -203,7 +203,7 @@ This function should be called by the refunder after `refundLocktime`
 
 #### Defined in
 
-[src/services/deposits/refund.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L63)
+[src/services/deposits/refund.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L62)
 
 ___
 
@@ -223,4 +223,4 @@ ___
 
 #### Defined in
 
-[src/services/deposits/refund.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L41)
+[src/services/deposits/refund.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L40)
