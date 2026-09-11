@@ -18,29 +18,45 @@ const HARDHAT_CLI = join(
 const STARKNET_ROOT = join(__dirname, "..")
 const OUT_DIR = join(FIXTURE_DIR, "out")
 
-const scenarios = [
+interface Scenario {
+  name: string
+  homeDir: string
+  description: string
+  config: string
+  expectFailure: boolean
+}
+
+const scenarios: Scenario[] = [
   {
     name: "scenario1",
     homeDir: join(FIXTURE_DIR, "home-files", "scenario1"),
     description:
       "network declared in hardhat.config.ts merges home/project-local defaults",
+    config: HARDHAT_CONFIG,
+    expectFailure: false,
   },
   {
     name: "scenario2",
     homeDir: join(FIXTURE_DIR, "home-files", "scenario2"),
     description:
       "network only in project-local config is added; matching home entry dropped (#1146)",
+    config: HARDHAT_CONFIG,
+    expectFailure: false,
   },
   {
     name: "scenario3",
     homeDir: join(FIXTURE_DIR, "home-files", "scenario3"),
     description: "network only in ~/.hardhat/networks.json is added",
+    config: HARDHAT_CONFIG,
+    expectFailure: false,
   },
   {
     name: "scenario4",
     homeDir: join(FIXTURE_DIR, "home-files", "scenario4"),
     description:
       "network in both project-local and home config keeps project-local values, home dropped (#1146)",
+    config: HARDHAT_CONFIG,
+    expectFailure: false,
   },
   {
     name: "scenario5",
@@ -52,7 +68,7 @@ const scenarios = [
   },
 ]
 
-function runHardhatRun(scenario: (typeof scenarios)[0]): void {
+function runHardhatRun(scenario: Scenario): void {
   const outFile = join(OUT_DIR, `${scenario.name}.json`)
   rmSync(outFile, { force: true })
 
@@ -65,13 +81,7 @@ function runHardhatRun(scenario: (typeof scenarios)[0]): void {
 
   const result = spawnSync(
     process.execPath,
-    [
-      HARDHAT_CLI,
-      "--config",
-      scenario.config || HARDHAT_CONFIG,
-      "run",
-      ASSERT_SCRIPT,
-    ],
+    [HARDHAT_CLI, "--config", scenario.config, "run", ASSERT_SCRIPT],
     { cwd: STARKNET_ROOT, env, encoding: "utf8", timeout: 180000 }
   )
 

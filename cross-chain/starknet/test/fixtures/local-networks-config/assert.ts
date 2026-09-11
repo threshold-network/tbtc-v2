@@ -34,26 +34,40 @@ function run(): void {
       // sepolia is declared in the fixture hardhat.config.ts, so the
       // user-declared loop merges [resolved, homeDefault, homeSepolia,
       // localDefault, userConfig, localSepolia].
-      const sepolia = networks.sepolia
+      const sepolia = networks.sepolia as unknown as
+        | Record<string, unknown>
+        | undefined
       if (!sepolia) throw new Error("sepolia network not found")
       // deepmerge concatenates arrays: resolved + userConfig carry the same
       // accounts list, so the deployer accounts array is duplicated (quirk).
-      expect(sepolia.accounts, [
-        "0x1111111111111111111111111111111111111111111111111111111111111111",
-        "0x1111111111111111111111111111111111111111111111111111111111111111",
-      ], "scenario1 accounts")
-      expect(sepolia.tags, [
-        "home-default-tag",
-        "home-sepolia-tag",
-        "project-local-tag",
-        "project-local-sepolia-tag",
-      ], "scenario1 tags")
-      expect(sepolia.deploy, [
-        "home-default-deploy",
-        "home-sepolia-deploy",
-        "project-local-deploy-script",
-        "project-local-sepolia-deploy",
-      ], "scenario1 deploy")
+      expect(
+        sepolia.accounts,
+        [
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+        ],
+        "scenario1 accounts"
+      )
+      expect(
+        sepolia.tags,
+        [
+          "home-default-tag",
+          "home-sepolia-tag",
+          "project-local-tag",
+          "project-local-sepolia-tag",
+        ],
+        "scenario1 tags"
+      )
+      expect(
+        sepolia.deploy,
+        [
+          "home-default-deploy",
+          "home-sepolia-deploy",
+          "project-local-deploy-script",
+          "project-local-sepolia-deploy",
+        ],
+        "scenario1 deploy"
+      )
       expect(sepolia.gasPrice, 30000000000, "scenario1 gasPrice")
       expect(sepolia.from, "0xprojectlocalfrom", "scenario1 from")
       expect(sepolia.url, "https://sepolia.example.invalid", "scenario1 url")
@@ -66,21 +80,29 @@ function run(): void {
       // local-only loop merges [{}, homeDefault, localDefault, localNetwork].
       // The matching home per-network entry is intentionally NOT merged —
       // the home-drop quirk, deliberately preserved (#1146).
-      const localOnly = networks.localOnly
+      const localOnly = networks.localOnly as unknown as
+        | Record<string, unknown>
+        | undefined
       if (!localOnly) throw new Error("localOnly network not found")
-      expect(localOnly.accounts, [
-        "0x2222222222222222222222222222222222222222222222222222222222222222",
-      ], "scenario2 accounts")
-      expect(localOnly.tags, [
-        "home-default-tag",
-        "project-local-tag",
-        "project-local-only-tag",
-      ], "scenario2 tags")
-      expect(localOnly.deploy, [
-        "home-default-deploy",
-        "project-local-deploy-script",
-        "project-local-only-deploy",
-      ], "scenario2 deploy")
+      expect(
+        localOnly.accounts,
+        ["0x2222222222222222222222222222222222222222222222222222222222222222"],
+        "scenario2 accounts"
+      )
+      expect(
+        localOnly.tags,
+        ["home-default-tag", "project-local-tag", "project-local-only-tag"],
+        "scenario2 tags"
+      )
+      expect(
+        localOnly.deploy,
+        [
+          "home-default-deploy",
+          "project-local-deploy-script",
+          "project-local-only-deploy",
+        ],
+        "scenario2 deploy"
+      )
       expect(localOnly.gasPrice, 40000000000, "scenario2 gasPrice")
       expect(localOnly.url, "http://localOnly.example.invalid", "scenario2 url")
       break
@@ -91,21 +113,29 @@ function run(): void {
       // loop merges [{}, homeDefault, localDefault, homeNetwork]; the home
       // per-network entry is merged last and wins over the project-local
       // default (precedence quirk, #1146).
-      const homeOnly = networks.homeOnly
+      const homeOnly = networks.homeOnly as unknown as
+        | Record<string, unknown>
+        | undefined
       if (!homeOnly) throw new Error("homeOnly network not found")
-      expect(homeOnly.accounts, [
-        "0x4444444444444444444444444444444444444444444444444444444444444444",
-      ], "scenario3 accounts")
-      expect(homeOnly.tags, [
-        "home-default-tag",
-        "project-local-tag",
-        "home-only-tag",
-      ], "scenario3 tags")
-      expect(homeOnly.deploy, [
-        "home-default-deploy",
-        "project-local-deploy-script",
-        "home-only-deploy",
-      ], "scenario3 deploy")
+      expect(
+        homeOnly.accounts,
+        ["0x4444444444444444444444444444444444444444444444444444444444444444"],
+        "scenario3 accounts"
+      )
+      expect(
+        homeOnly.tags,
+        ["home-default-tag", "project-local-tag", "home-only-tag"],
+        "scenario3 tags"
+      )
+      expect(
+        homeOnly.deploy,
+        [
+          "home-default-deploy",
+          "project-local-deploy-script",
+          "home-only-deploy",
+        ],
+        "scenario3 deploy"
+      )
       expect(homeOnly.gasPrice, 12000000000, "scenario3 gasPrice")
       expect(homeOnly.url, "http://homeOnly.example.invalid", "scenario3 url")
       break
@@ -118,23 +148,35 @@ function run(): void {
       // entry, so the home overrides (0x555 accounts, gasPrice 6e10,
       // home-both-tag/deploy) are silently dropped — the home-drop quirk,
       // deliberately preserved (#1146).
-      const both = networks.bothLocalAndHome
+      const both = networks.bothLocalAndHome as unknown as
+        | Record<string, unknown>
+        | undefined
       if (!both) throw new Error("bothLocalAndHome network not found")
-      expect(both.accounts, [
-        "0x3333333333333333333333333333333333333333333333333333333333333333",
-      ], "scenario4 accounts")
-      expect(both.tags, [
-        "home-default-tag",
-        "project-local-tag",
-        "project-local-both-tag",
-      ], "scenario4 tags")
-      expect(both.deploy, [
-        "home-default-deploy",
-        "project-local-deploy-script",
-        "project-local-both-deploy",
-      ], "scenario4 deploy")
+      expect(
+        both.accounts,
+        ["0x3333333333333333333333333333333333333333333333333333333333333333"],
+        "scenario4 accounts"
+      )
+      expect(
+        both.tags,
+        ["home-default-tag", "project-local-tag", "project-local-both-tag"],
+        "scenario4 tags"
+      )
+      expect(
+        both.deploy,
+        [
+          "home-default-deploy",
+          "project-local-deploy-script",
+          "project-local-both-deploy",
+        ],
+        "scenario4 deploy"
+      )
       expect(both.gasPrice, 50000000000, "scenario4 gasPrice")
-      expect(both.url, "http://bothLocalAndHome.example.invalid", "scenario4 url")
+      expect(
+        both.url,
+        "http://bothLocalAndHome.example.invalid",
+        "scenario4 url"
+      )
       break
     }
 
