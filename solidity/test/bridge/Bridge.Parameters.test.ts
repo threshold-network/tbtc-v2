@@ -2003,4 +2003,87 @@ describe("Bridge - Parameters", () => {
       })
     })
   })
+
+  describe("setSponsoredDepositor", () => {
+    const sponsoredDepositor = "0x1111111111111111111111111111111111111111"
+
+    context("when caller is not the contract guvnor", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .setSponsoredDepositor(sponsoredDepositor, true)
+        ).to.be.revertedWith("Caller is not the governance")
+      })
+    })
+
+    context("when caller is the contract guvnor", () => {
+      before(async () => {
+        await createSnapshot()
+
+        // Mirror the pattern used by `setRebateStaking`: transfer Bridge
+        // governance to a simple EOA so we can call the Bridge entrypoint
+        // directly in the rest of the suite.
+        await bridgeGovernance
+          .connect(governance)
+          .beginBridgeGovernanceTransfer(governance.address)
+        await helpers.time.increaseTime(constants.governanceDelay)
+        await bridgeGovernance
+          .connect(governance)
+          .finalizeBridgeGovernanceTransfer()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      context("when the depositor address is zero", () => {
+        it("should revert", async () => {
+          await expect(
+            bridge.connect(governance).setSponsoredDepositor(ZERO_ADDRESS, true)
+          ).to.be.revertedWith("Depositor address must not be 0x0")
+        })
+      })
+
+      context("when the depositor address is non-zero", () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+
+          tx = await bridge
+            .connect(governance)
+            .setSponsoredDepositor(sponsoredDepositor, true)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should add the depositor to the allowlist", async () => {
+          expect(await bridge.isSponsoredDepositor(sponsoredDepositor)).to.be
+            .true
+        })
+
+        it("should emit SponsoredDepositorSet event", async () => {
+          await expect(tx)
+            .to.emit(bridge, "SponsoredDepositorSet")
+            .withArgs(sponsoredDepositor, true)
+        })
+
+        it("should allow toggling the allowlist off again", async () => {
+          await expect(
+            bridge
+              .connect(governance)
+              .setSponsoredDepositor(sponsoredDepositor, false)
+          )
+            .to.emit(bridge, "SponsoredDepositorSet")
+            .withArgs(sponsoredDepositor, false)
+
+          expect(await bridge.isSponsoredDepositor(sponsoredDepositor)).to.be
+            .false
+        })
+      })
+    })
+  })
 })

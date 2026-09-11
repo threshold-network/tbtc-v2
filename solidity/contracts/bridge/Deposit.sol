@@ -344,9 +344,44 @@ library Deposit {
         deposit.extraData = extraData;
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+            // By default the rebate is keyed off the depositor (msg.sender).
+            // When the depositor is an allowlisted "sponsored" relay (e.g.
+            // NativeBTCDepositor), an `extraData` payload is present, the
+            // payload decodes to a non-zero address, and that address has
+            // explicitly authorized the depositor via
+            // `RebateStaking.setSponsorConsent`, route the rebate to
+            // the L1 staker encoded in `extraData` instead of to the relay
+            // contract, which has no stake of its own. `deposit.depositor`
+            // itself stays as the relay so refund and finalize accounting
+            // are unchanged. Any missing precondition falls back to
+            // charging the depositor's own (possibly empty) stake instead
+            // of reverting, consistent with every other rebate path.
+            // The low-20-byte address must be canonically left-padded
+            // (high 12 bytes zero, matching `NativeBTCDepositor`'s
+            // `CrosschainUtils.addressToBytes32` convention); a
+            // non-canonical payload is treated as a missing precondition
+            // and falls back to the depositor's own stake, same as any
+            // other unmet condition here.
+            address rebateStaker = deposit.depositor;
+            if (
+                self.sponsoredDepositors[msg.sender] && extraData != bytes32(0)
+            ) {
+                address decoded = address(uint160(uint256(extraData)));
+                if (
+                    decoded != address(0) &&
+                    uint256(extraData) >> 160 == 0 &&
+                    RebateStaking(self.rebateStaking).isSponsorConsentGranted(
+                        decoded,
+                        msg.sender
+                    )
+                ) {
+                    rebateStaker = decoded;
+                }
+            }
+
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
-                    deposit.depositor,
+                    rebateStaker,
                     deposit.treasuryFee,
                     RebateStaking.TreasuryFeeType.Deposit
                 );

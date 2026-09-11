@@ -4533,6 +4533,45 @@ describe("Bridge - Governance", () => {
     })
   })
 
+  describe("setSponsoredDepositor", () => {
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setSponsoredDepositor(thirdParty.address, true)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await bridgeGovernance
+          .connect(governance)
+          .setSponsoredDepositor(thirdParty.address, true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should mark the depositor as sponsored", async () => {
+        await expect(await bridge.isSponsoredDepositor(thirdParty.address)).to
+          .be.true
+      })
+
+      it("should emit SponsoredDepositorSet event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "SponsoredDepositorSet")
+          .withArgs(thirdParty.address, true)
+      })
+    })
+  })
+
   describe("rebate staking governance workflow", () => {
     let newBridgeGovernance: BridgeGovernance
 
