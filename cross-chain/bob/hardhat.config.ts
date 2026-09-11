@@ -99,8 +99,8 @@ const config: HardhatUserConfig = {
   deploymentArtifactsExport: {
     sepolia: "artifacts/l1",
     mainnet: "artifacts/l1",
-    arbitrumSepolia: "artifacts/l2",
-    arbitrumOne: "artifacts/l2",
+    bobSepolia: "artifacts/l2",
+    bobMainnet: "artifacts/l2",
   },
 
   etherscan: {
