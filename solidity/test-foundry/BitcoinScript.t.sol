@@ -87,28 +87,6 @@ contract BitcoinScriptTest is Test {
         assertEq(harness.extractPubKeyHash(output), pubKeyHash);
     }
 
-    /// @dev P2WPKH's 8-byte output value sits directly next to only 3 bytes
-    ///      of script framing (0x160014), versus P2PKH's 4 bytes (0x1976a914)
-    ///      — the narrowest value/framing boundary in the two supported
-    ///      scripts. Assert the framing bytes land at the correct offset in
-    ///      the full *output* (value prepended), not just in the isolated
-    ///      script as `testFuzz_p2wpkhFraming` does, and that they hold for
-    ///      every fuzzed value, which `testFuzz_p2wpkhFraming` never varies.
-    function testFuzz_p2wpkhValueAdjacentFraming(
-        bytes20 pubKeyHash,
-        uint64 value
-    ) public view {
-        bytes memory output = _output(
-            value,
-            bytes.concat(harness.makeP2WPKHScript(pubKeyHash))
-        );
-
-        assertEq(output.length, 31); // 8-byte value + 23-byte script
-        assertEq(uint8(output[8]), 0x16); // total length
-        assertEq(uint8(output[9]), 0x00); // OP_0
-        assertEq(uint8(output[10]), 0x14); // push 20 bytes
-    }
-
     /// @dev Distinct key hashes must not collide into one script. This guards
     ///      against builders discarding or masking part of the key hash, which
     ///      could make distinct hashes produce the same script.

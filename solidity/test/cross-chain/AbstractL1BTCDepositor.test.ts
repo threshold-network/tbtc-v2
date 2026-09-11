@@ -483,6 +483,8 @@ describe("AbstractL1BTCDepositor", () => {
 
         let realReimbursementPool: ReimbursementPool
         let reentrantReceiver: Contract
+        let deferredReimbursementGasSpent: BigNumber
+        let tx: ContractTransaction
 
         before(async () => {
           await createSnapshot()
@@ -526,6 +528,7 @@ describe("AbstractL1BTCDepositor", () => {
             reentrantReceiver.address
           )
           expect(deferredReimbursement.gasSpent).to.be.gt(0)
+          deferredReimbursementGasSpent = deferredReimbursement.gasSpent
 
           await allowFinalization()
 
@@ -533,7 +536,7 @@ describe("AbstractL1BTCDepositor", () => {
           // here, so this call only exercises the deferred-reimbursement
           // leg (the one that pays `reentrantReceiver`).
           //
-          // The outer call below is expected to succeed, not revert.
+          // This outer call is expected to succeed, not revert.
           // `finalizeDeposit` flips `deposits[depositKey]` to `Finalized`
           // before making any external call (checks-effects-interactions),
           // so by the time `ReimbursementPool.refund` forwards ETH to
@@ -545,10 +548,8 @@ describe("AbstractL1BTCDepositor", () => {
           // ever `require`-ing it, and `refund` itself still returns
           // normally. The depositor's own low-level call into `refund`
           // therefore also reports success, so this outer transaction does
-          // not revert. The only observable effect of the reentrant
-          // call's revert is that the ETH transfer that triggered it never
-          // completes, which is what the assertion below checks.
-          await depositor
+          // not revert.
+          tx = await depositor
             .connect(relayer)
             .finalizeDeposit(initializeDepositFixture.depositKey)
         })
@@ -568,6 +569,29 @@ describe("AbstractL1BTCDepositor", () => {
           expect(
             await ethers.provider.getBalance(reentrantReceiver.address)
           ).to.equal(0)
+        })
+
+        it("should have actually attempted and rejected the reentrant payout", async () => {
+          // The balance-zero assertion above is also satisfiable if the
+          // deferred refund were never attempted at all (e.g. an
+          // unauthorized pool, or a zero gasSpent/wrong receiver record).
+          // Assert `SendingEtherFailed` was emitted with the exact expected
+          // refund amount too, proving the pool genuinely tried to pay
+          // `reentrantReceiver` and observed the send fail - the specific,
+          // causal signal that the reentrant call reverted, not just an
+          // absence of payment for some unrelated reason.
+          const staticGas = await realReimbursementPool.staticGas()
+          const maxGasPrice = await realReimbursementPool.maxGasPrice()
+          const effectiveGasPrice = tx.gasPrice.lt(maxGasPrice)
+            ? tx.gasPrice
+            : maxGasPrice
+          const refundAmount = deferredReimbursementGasSpent
+            .add(staticGas)
+            .mul(effectiveGasPrice)
+
+          await expect(tx)
+            .to.emit(realReimbursementPool, "SendingEtherFailed")
+            .withArgs(refundAmount, reentrantReceiver.address)
         })
       }
     )

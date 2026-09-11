@@ -17,10 +17,9 @@ and deployment migration work. This pilot can run alongside that work.
 ## What this adds
 
 `test-foundry/BitcoinScript.t.sol` exercises the existing `BitcoinTx` script
-builders and parser through a small harness. Eight fuzz tests check:
+builders and parser through a small harness. Seven fuzz tests check:
 
 - P2PKH and P2WPKH scripts round-trip to the original key hash.
-- The output value does not affect the extracted P2PKH key hash.
 - Distinct key hashes produce distinct scripts for both formats.
 - Each format preserves its length and framing bytes.
 - Appending unsupported trailing lengths to a P2PKH script is rejected.

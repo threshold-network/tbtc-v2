@@ -116,6 +116,20 @@ function main() {
     )
   }
 
+  // hardhat.config.ts sets no explicit evmVersion, so it inherits solc
+  // 0.8.17's own default target (london, per solc's release-time default at
+  // that version). foundry.toml's evm_version has no hardhat.config.ts
+  // counterpart to diff against directly, so pin it against that known
+  // implicit default instead of leaving it unchecked.
+  if (foundry.evmVersion !== "london") {
+    mismatches.push(
+      "evm_version: foundry.toml [profile.default].evm_version = " +
+        `"${foundry.evmVersion}", but hardhat.config.ts sets no explicit ` +
+        "evmVersion so it relies on solc 0.8.17's own default target " +
+        "of london - update this check if the pinned solc version changes."
+    )
+  }
+
   if (!hardhat.optimizerEnabled) {
     mismatches.push(
       "optimizer disabled: hardhat.config.ts " +
