@@ -344,14 +344,12 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // 3. Send cross-chain message via configured transceivers
         // 4. Spoke chain receives attested message and mints native tokens to actual recipient
         uint64 sequence = nttManager.transfer{value: msg.value}(
-            // slither-disable-line reentrancy-vulnerabilities-3
             amount,
             destinationChain,
             actualRecipient // Use cleaned recipient address
         );
 
         emit TokensTransferredNTT(
-            // slither-disable-line reentrancy-vulnerabilities-3
             amount,
             destinationChain,
             actualRecipient,
