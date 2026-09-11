@@ -58,7 +58,7 @@ jobs:
         run: yarn install --frozen-lockfile
       - run: yarn install --frozen-lockfile
       # lint:eslint is broken package-wide (eslint 7.32.0 pinned while
-      # @thesis-co/eslint-config requires ^8.57) — pre-existing, shared with
+      # @thesis-co/eslint-config requires ^8.57) - pre-existing, shared with
       # every sibling rail. The sol and config gates are the ones this PR's
       # ignore-file changes protect.
       - run: yarn lint:sol && yarn lint:config
