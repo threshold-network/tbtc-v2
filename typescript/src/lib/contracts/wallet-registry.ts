@@ -1,6 +1,6 @@
 import { Hex } from "../utils"
 import { ChainEvent, GetChainEvents } from "./chain-event"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { ChainIdentifier } from "./chain-identifier"
 
 /**

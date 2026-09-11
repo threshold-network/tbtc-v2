@@ -1,13 +1,13 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 
 import { ContractTransaction, Signature, Wallet } from "ethers"
+import { loadFixture } from "../helpers/fixture"
 import type { Bank, IVault } from "../../typechain"
 import { to1e18, toSatoshis } from "../helpers/contract-test-helpers"
-
-chai.use(smock.matchers)
+import { createMock, expectCalledOnceWith } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -47,8 +47,9 @@ describe("Bank", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, governance, bridge, thirdParty, bank } =
-      await waffle.loadFixture(fixture))
+    ;({ deployer, governance, bridge, thirdParty, bank } = await loadFixture(
+      fixture
+    ))
   })
 
   describe("PERMIT_TYPEHASH", () => {
@@ -272,12 +273,12 @@ describe("Bank", () => {
 
     let owner: SignerWithAddress
 
-    let mockVault: FakeContract<IVault>
+    let mockVault: Mock<IVault>
 
     before(async () => {
       const accounts = await getUnnamedAccounts()
       owner = await ethers.getSigner(accounts[0])
-      mockVault = await smock.fake<IVault>("IVault")
+      mockVault = await createMock<IVault>("IVault")
     })
 
     context("when the spender is the zero address", () => {
@@ -294,7 +295,7 @@ describe("Bank", () => {
       })
 
       after(async () => {
-        mockVault.receiveBalanceApproval.reset()
+        await mockVault.receiveBalanceApproval.reset()
       })
 
       it("should revert", async () => {
@@ -318,7 +319,7 @@ describe("Bank", () => {
 
       after(async () => {
         await restoreSnapshot()
-        mockVault.receiveBalanceApproval.reset()
+        await mockVault.receiveBalanceApproval.reset()
       })
 
       it("should approve the requested amount", async () => {
@@ -334,11 +335,11 @@ describe("Bank", () => {
       })
 
       it("should call receiveBalanceApproval", async () => {
-        expect(mockVault.receiveBalanceApproval).to.have.been.calledOnceWith(
+        await expectCalledOnceWith(mockVault.receiveBalanceApproval, [
           owner.address,
           amount,
-          "0x11"
-        )
+          "0x11",
+        ])
       })
     })
 
@@ -356,7 +357,7 @@ describe("Bank", () => {
 
       after(async () => {
         await restoreSnapshot()
-        mockVault.receiveBalanceApproval.reset()
+        await mockVault.receiveBalanceApproval.reset()
       })
 
       it("should replace the previous allowance", async () => {
@@ -366,11 +367,11 @@ describe("Bank", () => {
       })
 
       it("should call receiveBalanceApproval", async () => {
-        expect(mockVault.receiveBalanceApproval).to.have.been.calledOnceWith(
+        await expectCalledOnceWith(mockVault.receiveBalanceApproval, [
           owner.address,
           amount,
-          "0x02"
-        )
+          "0x02",
+        ])
       })
     })
   })

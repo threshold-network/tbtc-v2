@@ -191,4 +191,13 @@ contract MockBridgeForStarkNet is IBridge {
     {
         return (0, 0, 1000000, 0); // 0.01 BTC max fee
     }
+
+    function getRedemptionWatchtower()
+        external
+        pure
+        override
+        returns (address)
+    {
+        return address(0);
+    }
 }

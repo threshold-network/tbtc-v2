@@ -29,7 +29,9 @@ contract MockNttManagerWithExecutor {
 
     mapping(uint16 => bool) public supportedChains;
 
-    // Mock storage for testing signed quote validation
+    // For triggering stage-time floor validation
+    bool public undervalueQuote;
+
     mapping(bytes => bool) public validSignedQuotes;
 
     // Mock events to match real implementation
@@ -102,6 +104,9 @@ contract MockNttManagerWithExecutor {
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata /* feeArgs */
     ) external view returns (uint256 totalCost) {
+        if (undervalueQuote) {
+            return MOCK_DELIVERY_PRICE - 1; // Underpriced
+        }
         require(supportedChains[recipientChain], "Chain not supported");
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
@@ -118,6 +123,10 @@ contract MockNttManagerWithExecutor {
         totalCost = baseCost + executorArgs.value;
 
         return totalCost;
+    }
+
+    function setUndervalueQuote(bool _undervalue) external {
+        undervalueQuote = _undervalue;
     }
 
     /// @notice Add support for a chain (for testing)

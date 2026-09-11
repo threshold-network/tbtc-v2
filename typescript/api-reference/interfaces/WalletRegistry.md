@@ -33,7 +33,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L41)
+[src/lib/contracts/wallet-registry.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L41)
 
 ___
 
@@ -49,7 +49,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L47)
+[src/lib/contracts/wallet-registry.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L47)
 
 ___
 
@@ -65,7 +65,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L35)
+[src/lib/contracts/wallet-registry.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L35)
 
 ## Methods
 
@@ -81,7 +81,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L13)
+[src/lib/contracts/wallet-registry.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L13)
 
 ___
 
@@ -106,4 +106,4 @@ Uncompressed public key without the 04 prefix.
 
 #### Defined in
 
-[lib/contracts/wallet-registry.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L26)
+[src/lib/contracts/wallet-registry.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/wallet-registry.ts#L26)

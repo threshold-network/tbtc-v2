@@ -5,7 +5,7 @@
   },
   "devDependencies": {
     "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
-    "prettier": "^2.3.2",
+    "prettier": "^2.8.8",
     "prettier-plugin-sh": "^0.7.1",
     "prettier-plugin-solidity": "^1.0.0-beta.14"
   }

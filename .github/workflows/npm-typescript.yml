@@ -7,6 +7,11 @@ on:
     paths:
       - "typescript/**"
   workflow_dispatch:
+    inputs:
+      skip_governance_check:
+        description: "Skip the mainnet deposit reveal-ahead governance verification step (emergency publish only)"
+        type: boolean
+        default: false
 
 jobs:
   npm-compile-publish:
@@ -24,7 +29,9 @@ jobs:
           cache-dependency-path: typescript/yarn.lock
 
       - name: Enable Corepack
-        run: corepack enable
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
       # next step has an indirect dependency to `@summa-tx/relay-sol@2.0.2`
@@ -36,12 +43,18 @@ jobs:
 
       - name: Resolve latest contracts
         run: |
-          yarn upgrade --exact \
-            @keep-network/ecdsa \
-            @keep-network/tbtc-v2
+          yarn up --exact \
+            '@keep-network/ecdsa@development' \
+            '@keep-network/tbtc-v2@development'
 
       - name: Compile
         run: yarn build
+
+      - name: Verify mainnet deposit reveal-ahead period
+        if: (github.event_name != 'workflow_dispatch' || inputs.skip_governance_check != true) && vars.SKIP_GOVERNANCE_CHECK != 'true'
+        env:
+          CHAIN_API_URL: ${{ secrets.ETHEREUM_MAINNET_RPC_URL }}
+        run: yarn check:mainnet-deposit-parameters
 
       - name: Bump up package version
         id: npm-version-bump

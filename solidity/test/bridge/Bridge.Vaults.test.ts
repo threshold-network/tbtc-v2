@@ -1,6 +1,6 @@
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import { helpers, waffle } from "hardhat"
+import { helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import bridgeFixture from "../fixtures/bridge"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
@@ -16,7 +16,7 @@ describe("Bridge - Vaults", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+      await bridgeFixture())
   })
 
   describe("isVaultTrusted", () => {

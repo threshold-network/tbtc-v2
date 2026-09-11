@@ -1,9 +1,10 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import { ContractTransaction } from "ethers"
 import type { Bank, DonationVault } from "../../typechain"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -38,9 +39,7 @@ describe("DonationVault", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, account1, account2, bank, vault } = await waffle.loadFixture(
-      fixture
-    ))
+    ;({ bridge, account1, account2, bank, vault } = await loadFixture(fixture))
   })
 
   describe("constructor", () => {

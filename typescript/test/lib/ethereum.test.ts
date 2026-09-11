@@ -568,6 +568,21 @@ describe("Ethereum", () => {
         })
       })
     })
+    describe("buildUtxoHash", () => {
+      it("should build the correct UTXO hash", () => {
+        const utxo = {
+          transactionHash: BitcoinTxHash.from(
+            "c1082c460527079a84e39ec6481666db72e5a22e473a78db03b996d26fd1dc83"
+          ),
+          outputIndex: 0,
+          value: BigNumber.from(10000),
+        }
+
+        expect(bridgeHandle.buildUtxoHash(utxo).toPrefixedString()).to.be.equal(
+          "0xa2db1627c2c3b268f52368e1c9ecd0cba47af6c9939b3a5a5b191db641346f7c"
+        )
+      })
+    })
   })
 
   describe("EthereumTBTCToken", () => {

@@ -192,11 +192,16 @@ async function main() {
   console.log(`   NTT Manager: ${nttManagerAddress || "Not available"}`)
 
   console.log("\n   Supported Chains:")
+  const enabledChainIds: number[] = []
+
   // eslint-disable-next-line no-restricted-syntax
   for (const chain of config.supportedChains) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const isSupported = await l1BtcDepositorNtt.supportedChains(chain.chainId)
+      if (isSupported) {
+        enabledChainIds.push(chain.chainId)
+      }
       console.log(
         `   - ${chain.name} (${chain.chainId}): ${
           isSupported ? "✅ Enabled" : "❌ Disabled"
@@ -207,17 +212,15 @@ async function main() {
     }
   }
 
-  // Get list of all supported chains
-  try {
-    const supportedChainsList = await l1BtcDepositorNtt.getSupportedChains()
-    console.log(
-      `\n   All Supported Chain IDs: [${supportedChainsList.join(", ")}]`
-    )
-  } catch (error) {
-    console.log(
-      `\n   ⚠️  Could not retrieve supported chains list: ${error.message}`
-    )
-  }
+  // This used to call a `getSupportedChains()` that the contract does not have
+  // -- `supportedChains` is a `mapping(uint16 => bool)`, which cannot be
+  // enumerated on-chain -- so the call always threw and the catch below it
+  // always printed a warning. The summary is built from the loop above
+  // instead, which means it covers the configured chains rather than every
+  // chain ever enabled.
+  console.log(
+    `\n   Enabled among configured chains: [${enabledChainIds.join(", ")}]`
+  )
 
   // Instructions for NTT Manager configuration
   if (

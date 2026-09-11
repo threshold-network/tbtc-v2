@@ -64,6 +64,15 @@ describe("StarkNet address extraction", () => {
       ).to.be.rejectedWith("Invalid StarkNet address format")
     })
 
+    it("should reject Ethereum signers", async () => {
+      const { Wallet } = await import("ethers")
+      const ethereumSigner = Wallet.createRandom()
+
+      await expect(
+        TBTC.extractStarkNetAddress(ethereumSigner as any)
+      ).to.be.rejectedWith("Expected a StarkNet provider or account")
+    })
+
     it("should handle null or undefined provider", async () => {
       // Act & Assert
       await expect(TBTC.extractStarkNetAddress(null)).to.be.rejectedWith(

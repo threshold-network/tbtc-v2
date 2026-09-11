@@ -1,12 +1,36 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
-import type {
-  MockBridge,
-  MockTBTCVault,
-  TestBTCDepositor,
-} from "../../typechain"
+import type { BigNumberish } from "ethers"
+import type { MockBridge, TestBTCDepositor } from "../../typechain"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
+
+/**
+ * `MockTBTCVault` is declared twice in this tree -- once in
+ * `contracts/test/MockTBTCVault.sol` and once inside
+ * `contracts/test/TestBTCDepositor.sol` -- so typechain emits a single
+ * `MockTBTCVault` binding for the clashing name and it is not the one this
+ * suite deploys. The fully qualified name on the factory below picks the right
+ * contract at runtime; there is simply no generated type that matches it.
+ * Renaming one of the two contracts is the durable fix and is deliberately not
+ * done here, since it changes compiled artifact names.
+ *
+ * Rather than fall back to `Contract` -- whose string index signature would
+ * type every call below as `any` -- this declares the four members the suite
+ * actually touches, so typos in them are still caught.
+ */
+type TestBTCDepositorMockTBTCVault = {
+  address: string
+  createOptimisticMintingRequest(
+    depositKey: BigNumberish
+  ): Promise<ContractTransaction>
+  finalizeOptimisticMintingRequest(
+    depositKey: BigNumberish
+  ): Promise<ContractTransaction>
+  setOptimisticMintingFeeDivisor(
+    divisor: BigNumberish
+  ): Promise<ContractTransaction>
+}
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -38,7 +62,7 @@ const loadFixture = (vault: string) => ({
 
 describe("AbstractBTCDepositor", () => {
   let bridge: MockBridge
-  let tbtcVault: MockTBTCVault
+  let tbtcVault: TestBTCDepositorMockTBTCVault
   let depositor: TestBTCDepositor
 
   let fixture
@@ -50,7 +74,11 @@ describe("AbstractBTCDepositor", () => {
     const MockTBTCVault = await ethers.getContractFactory(
       "contracts/test/TestBTCDepositor.sol:MockTBTCVault"
     )
-    tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
+    // `deploy()` is typed `Contract`, which declares none of the members below,
+    // so the assertion has to go through `unknown`. The fully qualified name
+    // above is what actually selects the right contract.
+    tbtcVault =
+      (await MockTBTCVault.deploy()) as unknown as TestBTCDepositorMockTBTCVault
 
     fixture = loadFixture(tbtcVault.address)
 

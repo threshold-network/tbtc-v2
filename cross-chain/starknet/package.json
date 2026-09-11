@@ -43,15 +43,15 @@
   },
   "dependencies": {
     "@keep-network/bitcoin-spv-sol": "3.4.0-solc-0.8",
-    "@keep-network/ecdsa": "development",
-    "@keep-network/random-beacon": "development",
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/ecdsa": "2.1.0-dev.19",
+    "@keep-network/random-beacon": "2.1.0-dev.18",
+    "@keep-network/tbtc-v2": "1.8.0-dev.1",
     "@openzeppelin/contracts": "^4.8.1",
     "@openzeppelin/contracts-upgradeable": "^4.8.1",
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
   },
   "devDependencies": {
-    "@defi-wonderland/smock": "^2.3.4",
+    "@defi-wonderland/smock": "2.4.1",
     "@keep-network/hardhat-helpers": "^0.6.0-pre.20",
     "@keep-network/hardhat-local-networks-config": "^0.1.0-pre.4",
     "@nomiclabs/hardhat-ethers": "^2.0.6",

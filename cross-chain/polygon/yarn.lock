@@ -773,7 +773,7 @@
     "@openzeppelin/contracts" "^4.3.2"
     "@thesis/solidity-contracts" "github:thesis/solidity-contracts#4985bcf"
 
-"@keep-network/tbtc-v2@development":
+"@keep-network/tbtc-v2@1.4.0-dev.0":
   version "1.4.0-dev.0"
   resolved "https://registry.yarnpkg.com/@keep-network/tbtc-v2/-/tbtc-v2-1.4.0-dev.0.tgz#3c3b40d36917ad3e35a4f64d4b45f64e6ce46b8a"
   integrity sha512-aOoo+WxgV8eR03z0vjstG7lX0q9B5K4VAi7GYT8lVO0uLErXpHawveNZKNnt+DBh4Sp1c3IZuF21EYJKKCLEyw==

@@ -19,7 +19,7 @@ Use THRESHOLD_API.
 
 #### Defined in
 
-[lib/utils/api.ts:7](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/api.ts#L7)
+[src/lib/utils/api.ts:7](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/api.ts#L7)
 
 ___
 
@@ -29,4 +29,4 @@ ___
 
 #### Defined in
 
-[lib/utils/api.ts:3](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/api.ts#L3)
+[src/lib/utils/api.ts:3](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/api.ts#L3)

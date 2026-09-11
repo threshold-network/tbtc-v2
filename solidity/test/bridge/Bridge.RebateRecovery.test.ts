@@ -1,4 +1,4 @@
-import { ethers, helpers, upgrades, waffle } from "hardhat"
+import { ethers, helpers, upgrades } from "hardhat"
 import { expect } from "chai"
 
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
@@ -26,9 +26,7 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, esdm } = await helpers.signers.getNamedSigners())
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, bridgeGovernance, rebateStaking } = await waffle.loadFixture(
-      bridgeFixture
-    ))
+    ;({ bridge, bridgeGovernance, rebateStaking } = await bridgeFixture())
   })
 
   it("repairs rebate staking during an upgrade", async () => {

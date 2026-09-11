@@ -9,7 +9,6 @@ import {
   loadEthereumCoreContracts,
 } from "../lib/ethereum"
 import { ElectrumClient } from "../lib/electrum"
-import { providers } from "ethers"
 
 /**
  * Entrypoint component of the tBTC v2 SDK.
@@ -65,7 +64,7 @@ export class TBTC {
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider
+    ethereumSignerOrProvider: EthereumSigner
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
@@ -92,7 +91,7 @@ export class TBTC {
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider
+    ethereumSignerOrProvider: EthereumSigner
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
@@ -113,7 +112,7 @@ export class TBTC {
    *         other than the given Ethereum network.
    */
   protected static async initializeEthereum(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    ethereumSignerOrProvider: EthereumSigner,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork
   ): Promise<TBTC> {

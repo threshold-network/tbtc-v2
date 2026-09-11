@@ -351,11 +351,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("  Method: beginGovernanceUpdate")
   console.log("  Will call Bridge.setRebateStaking with:")
   console.log("    rebateStaking:", rebateStaking.address)
-  console.log(
-    "\nNOTE: Governance action has a",
-    hre.network.name === "sepolia" ? "60 second" : "48-hour",
-    "timelock"
-  )
+  // The guard at the top of this script throws unless the network is
+  // "hardhat", so the old `=== "sepolia" ? "60 second" : ...` ternary could
+  // never take its first branch. TypeScript proved that; the ternary is gone
+  // rather than cast away.
+  console.log("\nNOTE: Governance action has a 48-hour timelock")
 
   console.log("\n================================================")
   console.log("Deployment summary saved to:", summaryPath)

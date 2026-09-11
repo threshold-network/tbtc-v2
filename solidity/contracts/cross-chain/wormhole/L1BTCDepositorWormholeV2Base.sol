@@ -460,26 +460,44 @@ contract L1BTCDepositorWormholeV2Base is
             tbtcAmount
         );
 
+        // Following the checks-effects-interactions pattern, the deferred
+        // gas reimbursement is read and deleted from storage before the
+        // external `_transferTbtc` call. The actual reimbursement payout
+        // happens after that call, as the last step of the deposit
+        // finalization.
+        // slither-disable-next-line uninitialized-local
+        GasReimbursement memory reimbursement;
+        if (address(reimbursementPool) != address(0)) {
+            reimbursement = gasReimbursements[depositKey];
+
+            if (reimbursement.receiver != address(0)) {
+                // slither-disable-next-line reentrancy-benign
+                delete gasReimbursements[depositKey];
+            }
+        }
+
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
-        // `ReimbursementPool.refund` is a non-reentrant function and executing
-        // reimbursements as the last step of the deposit finalization.
+        // `ReimbursementPool.refund` is a non-reentrant function, by deleting
+        // the deferred reimbursement from storage before the external
+        // `_transferTbtc` call (checks-effects-interactions), and by
+        // executing reimbursements as the last step of the deposit
+        // finalization.
         if (address(reimbursementPool) != address(0)) {
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
-            if (reimbursement.receiver != address(0)) {
-                // slither-disable-next-line reentrancy-benign
-                delete gasReimbursements[depositKey];
-
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
-                );
-            }
-
+            // Calculate and pay the finalization reimbursement before calling
+            // the untrusted initialization reimbursement receiver. Otherwise,
+            // gas consumed by that receiver would be reimbursed a second time.
+            //
+            // Two consequences of this order worth knowing:
+            // - The deferred call's own execution cost (previously inside
+            //   the finalizer's gas window) is no longer reimbursed to
+            //   anyone; `finalizeDepositGasOffset` may need retuning to
+            //   account for it.
+            // - If `reimbursementPool`'s balance cannot cover both refunds,
+            //   the finalizer now has first claim on it; the deferred
+            //   receiver absorbs the shortfall instead.
             if (reimbursementAuthorizations[msg.sender]) {
                 uint256 msgValueOffset = _refundToGasSpent(msg.value);
                 reimbursementPool.refund(
@@ -488,6 +506,22 @@ contract L1BTCDepositorWormholeV2Base is
                         finalizeDepositGasOffset,
                     msg.sender
                 );
+            }
+
+            if (reimbursement.receiver != address(0)) {
+                // Best-effort: a deferred receiver that cannot be
+                // reimbursed within the gas stipend must not block this
+                // deposit's finalization for everyone.
+                /* solhint-disable avoid-low-level-calls */
+                // slither-disable-next-line unchecked-lowlevel,low-level-calls
+                address(reimbursementPool).call{gas: 2_000_000}(
+                    abi.encodeWithSelector(
+                        reimbursementPool.refund.selector,
+                        reimbursement.gasSpent,
+                        reimbursement.receiver
+                    )
+                );
+                /* solhint-enable avoid-low-level-calls */
             }
         }
     }

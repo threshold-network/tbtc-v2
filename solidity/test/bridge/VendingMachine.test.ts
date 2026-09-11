@@ -43,7 +43,7 @@ describe("VendingMachine", () => {
       thirdParty,
     ] = await helpers.signers.getUnnamedSigners()
 
-    await waffle.loadFixture(bridgeFixture)
+    await bridgeFixture()
     tbtcV1 = await helpers.contracts.getContract("TBTCToken")
     tbtcV2 = await helpers.contracts.getContract("TBTC")
     vendingMachine = await helpers.contracts.getContract("VendingMachine")

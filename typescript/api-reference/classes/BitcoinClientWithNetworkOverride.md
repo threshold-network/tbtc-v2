@@ -53,7 +53,7 @@ and Electrum may be unreachable for the initial address-generation step.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L13)
+[src/lib/bitcoin/client-with-network-override.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L13)
 
 ## Properties
 
@@ -63,7 +63,7 @@ and Electrum may be unreachable for the initial address-generation step.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L14)
+[src/lib/bitcoin/client-with-network-override.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L14)
 
 ___
 
@@ -73,7 +73,7 @@ ___
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:15](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L15)
+[src/lib/bitcoin/client-with-network-override.ts:15](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L15)
 
 ## Methods
 
@@ -99,7 +99,7 @@ Broadcasts the given transaction over the network.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L61)
+[src/lib/bitcoin/client-with-network-override.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L61)
 
 ___
 
@@ -129,7 +129,7 @@ List of UTXOs.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L22)
+[src/lib/bitcoin/client-with-network-override.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L22)
 
 ___
 
@@ -155,7 +155,7 @@ Gets the hash of the coinbase transaction for the given block height.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L65)
+[src/lib/bitcoin/client-with-network-override.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L65)
 
 ___
 
@@ -184,7 +184,7 @@ Concatenation of block headers in a hexadecimal format.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L50)
+[src/lib/bitcoin/client-with-network-override.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L50)
 
 ___
 
@@ -206,7 +206,7 @@ Bitcoin network.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L18)
+[src/lib/bitcoin/client-with-network-override.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L18)
 
 ___
 
@@ -234,7 +234,7 @@ Raw transaction.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L34)
+[src/lib/bitcoin/client-with-network-override.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L34)
 
 ___
 
@@ -262,7 +262,7 @@ Transaction object.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L30)
+[src/lib/bitcoin/client-with-network-override.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L30)
 
 ___
 
@@ -291,7 +291,7 @@ The number of confirmations.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L38)
+[src/lib/bitcoin/client-with-network-override.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L38)
 
 ___
 
@@ -321,7 +321,7 @@ at the moment of request.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L26)
+[src/lib/bitcoin/client-with-network-override.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L26)
 
 ___
 
@@ -350,7 +350,7 @@ Merkle branch.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L54)
+[src/lib/bitcoin/client-with-network-override.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L54)
 
 ___
 
@@ -384,7 +384,7 @@ Array of confirmed transaction hashes related to the provided
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L42)
+[src/lib/bitcoin/client-with-network-override.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L42)
 
 ___
 
@@ -406,4 +406,4 @@ Height of the last mined block.
 
 #### Defined in
 
-[lib/bitcoin/client-with-network-override.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L46)
+[src/lib/bitcoin/client-with-network-override.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/client-with-network-override.ts#L46)

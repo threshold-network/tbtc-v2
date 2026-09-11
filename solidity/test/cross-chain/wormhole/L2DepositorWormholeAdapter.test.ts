@@ -1,9 +1,9 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { ContractTransaction } from "ethers"
+import { loadFixture } from "../../helpers/fixture"
 import {
   IWormholeGateway,
   IWormholeRelayer,
@@ -13,8 +13,8 @@ import {
   initializeDepositFixture,
   toWormholeAddress,
 } from "./L1BTCDepositorWormhole.test"
-
-chai.use(smock.matchers)
+import { createMock, expectCalledOnceWith } from "../../helpers/mock"
+import type { Mock } from "../../helpers/mock"
 
 const { impersonateAccount } = helpers.account
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -26,10 +26,10 @@ describe("L2BTCDepositorWormhole", () => {
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
 
-    const wormholeRelayer = await smock.fake<IWormholeRelayer>(
+    const wormholeRelayer = await createMock<IWormholeRelayer>(
       "IWormholeRelayer"
     )
-    const l2WormholeGateway = await smock.fake<IWormholeGateway>(
+    const l2WormholeGateway = await createMock<IWormholeGateway>(
       "IWormholeGateway"
     )
     // Just an arbitrary chain ID.
@@ -72,8 +72,8 @@ describe("L2BTCDepositorWormhole", () => {
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
 
-  let wormholeRelayer: FakeContract<IWormholeRelayer>
-  let l2WormholeGateway: FakeContract<IWormholeGateway>
+  let wormholeRelayer: Mock<IWormholeRelayer>
+  let l2WormholeGateway: Mock<IWormholeGateway>
   let l1BtcDepositor: string
   let l2BtcDepositor: L2BTCDepositorWormhole
 
@@ -86,7 +86,7 @@ describe("L2BTCDepositorWormhole", () => {
       l2WormholeGateway,
       l1BtcDepositor,
       l2BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("attachL1BtcDepositor", () => {
@@ -325,7 +325,7 @@ describe("L2BTCDepositorWormhole", () => {
             before(async () => {
               await createSnapshot()
 
-              l2WormholeGateway.receiveTbtc.returns()
+              await l2WormholeGateway.receiveTbtc.returns()
 
               await l2BtcDepositor
                 .connect(wormholeRelayerSigner)
@@ -339,15 +339,15 @@ describe("L2BTCDepositorWormhole", () => {
             })
 
             after(async () => {
-              l2WormholeGateway.receiveTbtc.reset()
+              await l2WormholeGateway.receiveTbtc.reset()
 
               await restoreSnapshot()
             })
 
             it("should pass the VAA to the L2WormholeGateway", async () => {
-              expect(l2WormholeGateway.receiveTbtc).to.have.been.calledOnceWith(
-                "0x1234"
-              )
+              await expectCalledOnceWith(l2WormholeGateway.receiveTbtc, [
+                "0x1234",
+              ])
             })
           })
         })
