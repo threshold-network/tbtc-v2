@@ -4,6 +4,7 @@
     "declaration": true,
     "outDir": "export"
   },
+  "files": [],
   "include": ["./deploy_l1"],
   "exclude": ["./test"]
 }
