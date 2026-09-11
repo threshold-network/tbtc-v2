@@ -49,6 +49,9 @@ Currently, this module does not deploy any contracts on L1. All the existing
 Wormhole contract addresses that are used in this module are stored under 
 `external/<network>` dir.
 
+Historical Goerli-era deployment records are retained in `external/` for
+reference; those networks are no longer configured for deployment.
+
 If contracts haven't been built yet or changes occurred, `deploy` task will build
 the contracts before running the deployment script. This command produces
 an `export.json` file containing contract deployment info. Note that for the
