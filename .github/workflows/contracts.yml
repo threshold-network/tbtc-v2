@@ -43,10 +43,10 @@ jobs:
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
 
-      - uses: dorny/paths-filter@v2
+      - uses: dorny/paths-filter@v3
         if: github.event_name == 'pull_request'
         id: filter
         with:
@@ -65,7 +65,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -110,7 +110,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -146,7 +146,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -172,13 +172,13 @@ jobs:
         run: yarn install --immutable
 
       - name: Get upstream packages versions
-        uses: keep-network/ci/actions/upstream-builds-query@v2
+        uses: threshold-network/ci/actions/upstream-builds-query@20b35345d276a3c7365e3829b8078387a7c9dccb
         id: upstream-builds-query
         with:
           upstream-builds: ${{ github.event.inputs.upstream_builds }}
           query: |
-            random-beacon-contracts-version = github.com/keep-network/keep-core/random-beacon#version
-            ecdsa-contracts-version = github.com/keep-network/keep-core/ecdsa#version
+            random-beacon-contracts-version = github.com/threshold-network/keep-core/random-beacon#version
+            ecdsa-contracts-version = github.com/threshold-network/keep-core/ecdsa#version
 
       - name: Resolve latest contracts
         run: |
@@ -200,7 +200,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: keep-network/npm-version-bump@v2
+        uses: threshold-network/ci/actions/npm-version-bump@20b35345d276a3c7365e3829b8078387a7c9dccb
         with:
           work-dir: solidity
           environment: ${{ github.event.inputs.environment }}
@@ -213,11 +213,11 @@ jobs:
         run: npm publish --access=public --tag ${{ github.event.inputs.environment }} --network=${{ github.event.inputs.environment }}
 
       - name: Notify CI about completion of the workflow
-        uses: keep-network/ci/actions/notify-workflow-completed@v2
+        uses: threshold-network/ci/actions/notify-workflow-completed@20b35345d276a3c7365e3829b8078387a7c9dccb
         env:
           GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
         with:
-          module: "github.com/keep-network/tbtc-v2"
+          module: "github.com/threshold-network/tbtc-v2"
           url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           environment: ${{ github.event.inputs.environment }}
           upstream_builds: ${{ github.event.inputs.upstream_builds }}
@@ -225,8 +225,9 @@ jobs:
           version: ${{ steps.npm-version-bump.outputs.version }}
 
       - name: Upload files needed for etherscan verification
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          include-hidden-files: true
           name: Artifacts for etherscan verification
           path: |
             ./solidity/deployments
@@ -240,10 +241,10 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download files needed for etherscan verification
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: Artifacts for etherscan verification
           path: ./solidity
@@ -298,7 +299,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -324,13 +325,13 @@ jobs:
         run: yarn install --immutable
 
       - name: Get upstream packages versions
-        uses: keep-network/ci/actions/upstream-builds-query@v2
+        uses: threshold-network/ci/actions/upstream-builds-query@20b35345d276a3c7365e3829b8078387a7c9dccb
         id: upstream-builds-query
         with:
           upstream-builds: ${{ github.event.inputs.upstream_builds }}
           query: |
-            random-beacon-contracts-version = github.com/keep-network/keep-core/random-beacon#version
-            ecdsa-contracts-version = github.com/keep-network/keep-core/ecdsa#version
+            random-beacon-contracts-version = github.com/threshold-network/keep-core/random-beacon#version
+            ecdsa-contracts-version = github.com/threshold-network/keep-core/ecdsa#version
 
       - name: Resolve latest contracts
         run: |
@@ -347,7 +348,7 @@ jobs:
 
       - name: Bump up package version
         id: npm-version-bump
-        uses: keep-network/npm-version-bump@v2
+        uses: threshold-network/ci/actions/npm-version-bump@20b35345d276a3c7365e3829b8078387a7c9dccb
         with:
           work-dir: solidity
           environment: dapp-dev-${{ github.event.inputs.environment }}
@@ -369,7 +370,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -421,7 +422,7 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -432,7 +433,7 @@ jobs:
           corepack enable
           corepack prepare yarn@4.12.0 --activate
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.10.8
 
