@@ -15545,8 +15545,8 @@ __metadata:
 
 "solhint-config-tbtc@file:../config/solhint-config-tbtc::locator=%40keep-network%2Ftbtc-v2%40workspace%3A.":
   version: 1.0.0
-  resolution: "solhint-config-tbtc@file:../config/solhint-config-tbtc#../config/solhint-config-tbtc::hash=3e221d&locator=%40keep-network%2Ftbtc-v2%40workspace%3A."
-  checksum: 10c0/f137d1c5f6b9776217edbec4f20d4ae5b2eaaf13320504834357d537ca9d07f37fe9e171aa845069c6cf2f709d90cc01254ba4c49c439dc8eae05861590d7b5a
+  resolution: "solhint-config-tbtc@file:../config/solhint-config-tbtc#../config/solhint-config-tbtc::hash=fd5d20&locator=%40keep-network%2Ftbtc-v2%40workspace%3A."
+  checksum: 10c0/251698fafefecdc109a2be00640c42d0ac9414063ea98209678a0fab0723723715ddffd3b2a645b9a414f5738ddbf10bdeb7a09624d71dec95eb64cb839964d5
   languageName: node
   linkType: hard
 
