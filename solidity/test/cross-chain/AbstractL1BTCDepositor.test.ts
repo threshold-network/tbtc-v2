@@ -551,7 +551,9 @@ describe("AbstractL1BTCDepositor", () => {
           // not revert.
           tx = await depositor
             .connect(relayer)
-            .finalizeDeposit(initializeDepositFixture.depositKey)
+            .finalizeDeposit(initializeDepositFixture.depositKey, {
+              gasPrice,
+            })
         })
 
         after(async () => {
@@ -580,14 +582,17 @@ describe("AbstractL1BTCDepositor", () => {
           // `reentrantReceiver` and observed the send fail - the specific,
           // causal signal that the reentrant call reverted, not just an
           // absence of payment for some unrelated reason.
+          //
+          // `finalizeDeposit` was called above with an explicit `gasPrice`
+          // equal to the pool's own `maxGasPrice`, so `refund`'s
+          // `tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice` always
+          // resolves to that same known value - no need to read it back
+          // from the mined tx (which can be unreliable for `.gasPrice` on
+          // networks that default to EIP-1559 type-2 transactions).
           const staticGas = await realReimbursementPool.staticGas()
-          const maxGasPrice = await realReimbursementPool.maxGasPrice()
-          const effectiveGasPrice = tx.gasPrice.lt(maxGasPrice)
-            ? tx.gasPrice
-            : maxGasPrice
           const refundAmount = deferredReimbursementGasSpent
             .add(staticGas)
-            .mul(effectiveGasPrice)
+            .mul(gasPrice)
 
           await expect(tx)
             .to.emit(realReimbursementPool, "SendingEtherFailed")
