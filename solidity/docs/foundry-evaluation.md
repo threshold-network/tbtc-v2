@@ -7,7 +7,8 @@ run the existing TypeScript tests and deployment scripts.
 
 The original evaluation began while smock blocked a Hardhat upgrade. That
 work is complete: smock has been replaced by Solidity mocks and TypeScript
-helpers, `yarn.lock` resolves Hardhat 2.29.0, and CI uses Node 24.11.1. Foundry
+helpers, `yarn.lock` resolves Hardhat 2.29.0, and CI uses the Node version
+pinned in the workflow. Foundry
 is no longer proposed as a way to unblock mocking or the Node upgrade.
 
 The [Hardhat 3 assessment](hardhat-3-migration.md) tracks the remaining plugin
@@ -16,13 +17,15 @@ and deployment migration work. This pilot can run alongside that work.
 ## What this adds
 
 `test-foundry/BitcoinScript.t.sol` exercises the existing `BitcoinTx` script
-builders and parser through a small harness. Seven fuzz tests check:
+builders and parser through a small harness. Eight fuzz tests check:
 
 - P2PKH and P2WPKH scripts round-trip to the original key hash.
 - The output value does not affect the extracted P2PKH key hash.
 - Distinct key hashes produce distinct scripts for both formats.
 - Each format preserves its length and framing bytes.
 - Appending unsupported trailing lengths to a P2PKH script is rejected.
+- A P2SH-tagged output (the `0x17a914` prefix) is rejected as neither valid
+  P2PKH nor P2WPKH.
 
 Generated inputs complement the existing fixed-vector tests. The default
 profile runs 256 cases per test; CI runs 1,000. A failing run reports a seed
@@ -31,10 +34,11 @@ that can be replayed locally.
 ## Reproducible execution
 
 The `contracts-foundry` job in `.github/workflows/contracts.yml` runs on
-Solidity PR changes and the workflow's other triggers. It installs Node
-24.11.1, Yarn 4.12.0, Foundry v1.5.1, and the exact forge-std v1.11.0 commit
-pinned by `yarn foundry:install`. JavaScript dependencies use the existing
-lockfile with `yarn install --immutable`.
+Solidity PR changes and the workflow's other triggers. It installs the Node
+and Yarn versions declared in that workflow, the Foundry release pinned
+there, and the forge-std commit pinned by `yarn foundry:install` (sourced
+from `package.json`). JavaScript dependencies use the existing lockfile with
+`yarn install --immutable`.
 
 See [the test README](../test-foundry/README.md) for installation, execution,
 and seed replay commands. The toolchain and forge-std revisions should be

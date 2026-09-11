@@ -26,4 +26,4 @@ target/*
 # Foundry dependencies, artifacts, and cache
 solidity/lib/
 solidity/forge-artifacts/
-cache_forge/
+solidity/cache_forge/

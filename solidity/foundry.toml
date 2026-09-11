@@ -6,6 +6,10 @@ test = "test-foundry"
 out = "forge-artifacts"
 cache_path = "cache_forge"
 libs = ["node_modules", "lib"]
+solc = "0.8.17"
+evm_version = "london"
+optimizer = true
+optimizer_runs = 1000
 # Match Hardhat's compiler settings, including solc 0.8.17's default EVM target.
 # Context-scoped remappings for nested @openzeppelin/contracts(-upgradeable) versions that
 # genuinely differ from the workspace's top-level 4.8.1: @keep-network/ecdsa pins 4.9.1
@@ -19,6 +23,25 @@ libs = ["node_modules", "lib"]
 # in the same compilation unit. Without the ecdsa/random-beacon entries below, Foundry's
 # global remapping would silently use the wrong (top-level) version for these two packages,
 # diverging from Hardhat's Node-resolution, which honors each package's own node_modules.
+#
+# Two more nested-version cases exist and are intentionally left unremapped:
+# @thesis/solidity-contracts pins 4.2.0 (reached via TBTC.sol -> ERC20WithPermit.sol/
+# MisfundRecovery.sol -> access/Ownable.sol, which genuinely diverges from top-level:
+# renamed internal _setOwner vs _transferOwnership, restructured onlyOwner modifier), and
+# @keep-network/sortition-pools pins 4.9.1 (reached via Wallets.sol -> EcdsaDkg.sol ->
+# SortitionPool.sol -> access/Ownable.sol, which differs from top-level only in comment
+# text). Unlike ecdsa/random-beacon above, remapping either one is not safely possible
+# here: access/Ownable.sol relatively imports "../utils/Context.sol", so remapping just
+# Ownable.sol transitively resolves that package's OWN Context.sol too - and
+# contracts/bridge/VendingMachine.sol (via TBTC.sol) and node_modules/@keep-network/
+# ecdsa/contracts/WalletRegistry.sol (via random-beacon's Reimbursable.sol combined with
+# sortition-pools' chain) each import both that nested Context/Ownable pair AND the
+# unremapped top-level pair in the same file scope, producing the exact "Identifier
+# already declared" collision described above (confirmed empirically: `forge build`
+# fails on both files with either remap applied). Both packages therefore currently
+# compile under Foundry against the top-level 4.8.1 OpenZeppelin instead of their own
+# pinned versions - a real, accepted divergence from Hardhat's Node-resolution, unlike
+# the ecdsa/random-beacon cases below, which fully honor each package's own pin.
 remappings = [
     "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts/",
     "node_modules/@keep-network/ecdsa/:@openzeppelin/contracts-upgradeable/=node_modules/@keep-network/ecdsa/node_modules/@openzeppelin/contracts-upgradeable/",

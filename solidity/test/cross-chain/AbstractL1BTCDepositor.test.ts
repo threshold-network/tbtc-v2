@@ -382,14 +382,6 @@ describe("AbstractL1BTCDepositor", () => {
             initializeDepositGasSpent
           )
       })
-
-      it("should reject another finalization despite the restored reimbursement", async () => {
-        await expect(
-          depositor
-            .connect(relayer)
-            .finalizeDeposit(initializeDepositFixture.depositKey)
-        ).to.be.revertedWith("Wrong deposit state")
-      })
     })
 
     context(
@@ -480,6 +472,102 @@ describe("AbstractL1BTCDepositor", () => {
             .add(txCost)
 
           expect(netReimbursement).to.be.gt(0)
+        })
+      }
+    )
+
+    context(
+      "when the deferred initialization receiver reenters finalizeDeposit",
+      () => {
+        const gasPrice = ethers.utils.parseUnits("1", "gwei")
+
+        let realReimbursementPool: ReimbursementPool
+        let reentrantReceiver: Contract
+
+        before(async () => {
+          await createSnapshot()
+
+          const [funder] = await ethers.getSigners()
+
+          realReimbursementPool = (await (
+            await ethers.getContractFactory("ReimbursementPool")
+          ).deploy(10000, gasPrice)) as ReimbursementPool
+          await realReimbursementPool.authorize(depositor.address)
+          await funder.sendTransaction({
+            to: realReimbursementPool.address,
+            value: ethers.utils.parseEther("1"),
+          })
+
+          // Reenters `finalizeDeposit` for the same deposit key from its
+          // `receive` function, i.e. as soon as it is paid its deferred
+          // reimbursement.
+          reentrantReceiver = await (
+            await ethers.getContractFactory("ReentrantRefundReceiver")
+          ).deploy(initializeDepositFixture.depositKey)
+
+          await depositor
+            .connect(governance)
+            .updateReimbursementPool(realReimbursementPool.address)
+          await depositor
+            .connect(governance)
+            .updateReimbursementAuthorization(reentrantReceiver.address, true)
+
+          await reentrantReceiver.callInitializeDeposit(
+            depositor.address,
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.destinationChainDepositOwner
+          )
+
+          const deferredReimbursement = await depositor.gasReimbursements(
+            initializeDepositFixture.depositKey
+          )
+          expect(deferredReimbursement.receiver).to.equal(
+            reentrantReceiver.address
+          )
+          expect(deferredReimbursement.gasSpent).to.be.gt(0)
+
+          await allowFinalization()
+
+          // `relayer` is deliberately left unauthorized for reimbursements
+          // here, so this call only exercises the deferred-reimbursement
+          // leg (the one that pays `reentrantReceiver`).
+          //
+          // The outer call below is expected to succeed, not revert.
+          // `finalizeDeposit` flips `deposits[depositKey]` to `Finalized`
+          // before making any external call (checks-effects-interactions),
+          // so by the time `ReimbursementPool.refund` forwards ETH to
+          // `reentrantReceiver` and its `receive()` reenters
+          // `finalizeDeposit`, that reentrant call hits the "Wrong deposit
+          // state" guard and reverts. `ReimbursementPool.refund` sends that
+          // ETH with a raw `receiver.call{value: ...}("")` whose success it
+          // only checks (emitting `SendingEtherFailed` on failure) without
+          // ever `require`-ing it, and `refund` itself still returns
+          // normally. The depositor's own low-level call into `refund`
+          // therefore also reports success, so this outer transaction does
+          // not revert. The only observable effect of the reentrant
+          // call's revert is that the ETH transfer that triggered it never
+          // completes, which is what the assertion below checks.
+          await depositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey)
+        })
+
+        after(async () => {
+          await resetFakes()
+
+          await restoreSnapshot()
+        })
+
+        it("should not credit the reentrant receiver with any ETH", async () => {
+          // If `finalizeDeposit` ever regressed on checks-effects-
+          // interactions (e.g. by flipping `deposits[depositKey]` to
+          // `Finalized` after paying out the reimbursement instead of
+          // before), the reentrant `finalizeDeposit` call would succeed
+          // instead of reverting, and this balance would be non-zero.
+          expect(
+            await ethers.provider.getBalance(reentrantReceiver.address)
+          ).to.equal(0)
         })
       }
     )

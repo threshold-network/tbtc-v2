@@ -53,6 +53,20 @@
         "global-require": "off",
         "no-console": "off"
       }
+    },
+    {
+      "files": ["scripts/*.js"],
+      "parserOptions": {
+        "sourceType": "script"
+      },
+      "env": {
+        "node": true
+      },
+      "rules": {
+        "@typescript-eslint/no-var-requires": "off",
+        "global-require": "off",
+        "no-console": "off"
+      }
     }
   ]
 }

@@ -58,9 +58,9 @@ describe("OpenZeppelin upgrade bytecode matching", () => {
     const [, bridgeGovernanceContract] = bridgeGovernanceEntry
     const { linkReferences } = bridgeGovernanceContract
 
+    const unlinked = unlinkBytecode(depositorBytecode, linkReferences)
     let throwsWhenUnlinked = false
     try {
-      const unlinked = unlinkBytecode(depositorBytecode, linkReferences)
       getVersion(unlinked) // This should throw if metadata is corrupted
     } catch (e) {
       throwsWhenUnlinked = true
@@ -103,10 +103,17 @@ describe("OpenZeppelin upgrade bytecode matching", () => {
     ).to.throw(ContractSourceNotFoundError)
   })
 
-  it("should reject malformed bytecode", () => {
+  it("should reject malformed bytecode in getUnlinkedBytecode", () => {
     const malformedBytecode = `0xzz${depositorBytecode.slice(4)}`
-    expect(() =>
-      getVersion(getUnlinkedBytecode(validations, malformedBytecode))
-    ).to.throw("Bytecode is not a valid hex string")
+    expect(() => getUnlinkedBytecode(validations, malformedBytecode)).to.throw(
+      "Bytecode is not a valid hex string"
+    )
+  })
+
+  it("should reject malformed bytecode in getVersion", () => {
+    const malformedBytecode = `0xzz${depositorBytecode.slice(4)}`
+    expect(() => getVersion(malformedBytecode)).to.throw(
+      "Bytecode is not a valid hex string"
+    )
   })
 })

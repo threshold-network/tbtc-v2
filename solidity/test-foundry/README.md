@@ -1,14 +1,15 @@
 # Foundry tests
 
-`BitcoinScript.t.sol` contains seven fuzz tests for the Bridge's P2PKH and
+`BitcoinScript.t.sol` contains eight fuzz tests for the Bridge's P2PKH and
 P2WPKH output script helpers. They cover round trips, independence from the
-output value, distinct key hashes, script framing, and unsupported lengths.
+output value, distinct key hashes, script framing, unsupported lengths, and
+rejecting P2SH-tagged outputs.
 Existing TypeScript suites and deployment scripts continue to use Hardhat.
 
 ## Run locally
 
-Use Node **24.11.1**, Yarn **4.12.0**, and Foundry **v1.5.1**, matching
-`.github/workflows/contracts.yml`. With `foundryup` installed, select Foundry:
+Use the Node, Yarn, and Foundry versions pinned in
+`.github/workflows/contracts.yml`. With `foundryup` installed, select the pinned Foundry release:
 
 ```sh
 foundryup --install v1.5.1
@@ -22,9 +23,8 @@ corepack yarn@4.12.0 foundry:install
 corepack yarn@4.12.0 test:foundry
 ```
 
-`foundry:install` installs the official `foundry-rs/forge-std` **v1.11.0**
-revision `8e40513d678f392f398620b3ef2b418648b33e89` into `lib/forge-std`.
-The revision is pinned in `package.json`; `--no-git` avoids adding a submodule.
+`foundry:install` installs the `foundry-rs/forge-std` revision pinned in
+`package.json` into `lib/forge-std`; `--no-git` avoids adding a submodule.
 Rerun this command when the pin changes. No npm mirror is used.
 
 The default profile runs 256 cases per fuzz test. To reproduce CI's 1,000

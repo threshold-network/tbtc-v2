@@ -30,3 +30,6 @@ patch other dependencies in place (`apply-solidity-contracts-export-deploy-patch
 dependency patch, prefer this Yarn `patch:` protocol: it is lockfile-checksummed
 and fails loudly if the patch no longer applies, where the shell scripts silently
 skip on a pattern mismatch. Treat the shell scripts as legacy.
+
+A third legacy postinstall script, `patch-upgrades-core-unlinked-bytecode.sh`,
+was removed because this Yarn patch fully supersedes it.
