@@ -45,6 +45,3 @@ coverage.json
 # Generated docs
 /generated-docs/
 contracts/hardhat-dependency-compiler/
-
-# hardhat-gas-reporter output
-/gasReporterOutput.json
