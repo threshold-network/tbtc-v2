@@ -2,6 +2,6 @@
   "name": "solhint-config-tbtc",
   "version": "1.0.0",
   "private": true,
-  "description": "Shared solhint ruleset (formerly solhint-config-keep) referenced via a file: devDependency by every consumer that used to paste this ruleset verbatim into its own .solhint.json.",
+  "description": "Repository-local Solhint shareable configuration used by the migrated tBTC Solidity workspaces.",
   "main": "index.json"
 }
