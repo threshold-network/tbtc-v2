@@ -1,0 +1,37 @@
+= Shared Lint Configuration
+
+This directory contains repository-owned shared lint configuration files, formerly vendored from keep-network packages.
+
+== Files and Consumers
+
+| File | Consumers |
+|------|-----------|
+| `config/eslint-base.js` | cross-chain/bob, typescript (via `require("../../config/eslint-base")` spread) |
+| `config/prettier-base.js` | root `.prettierrc.js`, cross-chain/bob/.prettierrc.js, monitoring/.prettierrc.js, typescript/.prettierrc.js (via `require` of config/prettier-base) |
+| `config/solhint-config-tbtc/index.json` | 8 Solhint workspaces via `extends: "tbtc"` + file: devDependency: cross-chain/arbitrum, cross-chain/base, cross-chain/bob, cross-chain/optimism, cross-chain/polygon, cross-chain/starknet, cross-chain/sui, solidity |
+
+NOTE: `yearn/` intentionally remains on the external keep-network packages (solium-config-keep, eslint-config-keep) until it is extracted.
+
+== Vendored From
+
+The content was vendored from the following upstream commits (these repos are effectively unmaintained — no significant activity since 2021-2022):
+
+* `solhint-config-keep@5e1751e58c0f1c507305ffc8c7f6c58047657ada`
+* `eslint-config-keep@0c27ade54e725f980e971c3d91ea88bab76b2330`
+* `prettier-config-keep@a1a333e7ac49928a0f6ed39421906dd1e46ab0f3`
+
+The content is kept as in-repo source so it stays available even if the upstream repo disappears (kept as in-repo source instead of being repinned like `@thesis-co/*`).
+
+== Update Workflow
+
+Same as documented in CONTRIBUTING.adoc:
+
+1. Edit `config/solhint-config-tbtc/index.json` for Solidity rule changes.
+2. Bump the version in `config/solhint-config-tbtc/package.json`.
+3. Run `yarn install` in each of the 8 Solidity consumers (cross-chain/arbitrum, cross-chain/base, cross-chain/bob, cross-chain/optimism, cross-chain/polygon, cross-chain/starknet, cross-chain/sui, solidity) and commit their lockfiles.
+
+Failure to bump the version and reinstall in all consumers causes:
+- solidity's Yarn-Berry immutable installs to fail in CI
+- Yarn-Classic consumers to silently keep stale copied rules (Yarn v1 copies file: deps)
+
+For JavaScript and Prettier changes, edit `config/eslint-base.js` and `config/prettier-base.js` respectively; no version bump or reinstall is required because they are consumed via direct `require`.
