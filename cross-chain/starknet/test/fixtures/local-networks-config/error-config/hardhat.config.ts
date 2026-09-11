@@ -1,5 +1,5 @@
 import { HardhatUserConfig } from "hardhat/config"
-import "../../../../local-networks-config"
+import "@keep-network/hardhat-local-networks-config"
 
 const config: HardhatUserConfig = {
   solidity: "0.8.17",

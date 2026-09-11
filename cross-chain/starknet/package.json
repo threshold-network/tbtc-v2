@@ -50,6 +50,7 @@
   "devDependencies": {
     "@defi-wonderland/smock": "2.4.1",
     "@keep-network/hardhat-helpers": "^0.6.0-pre.20",
+    "@keep-network/hardhat-local-networks-config": "github:threshold-network/hardhat-local-networks-config#b8423e102710be537a874b002cf9052ffc2bd93e",
     "@nomiclabs/hardhat-ethers": "^2.0.6",
     "@nomiclabs/hardhat-etherscan": "^3.1.0",
     "@nomiclabs/hardhat-waffle": "^2.0.2",
@@ -63,7 +64,6 @@
     "@types/node": "^17.0.10",
     "chai": "^4.3.4",
     "chai-as-promised": "^7.1.1",
-    "deepmerge": "^4.2.2",
     "dotenv": "^16.3.1",
     "eslint": "^7.32.0",
     "ethereum-waffle": "^3.4.0",
@@ -81,8 +81,7 @@
     "solidity-docgen": "^0.6.0-beta.34",
     "ts-node": "^10.4.0",
     "typechain": "^6.1.0",
-    "typescript": "^4.5.4",
-    "untildify": "^4.0.0"
+    "typescript": "^4.5.4"
   },
   "resolutions": {
     "crypto-js": "4.2.0"

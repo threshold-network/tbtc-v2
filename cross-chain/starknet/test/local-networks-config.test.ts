@@ -39,7 +39,7 @@ const scenarios: Scenario[] = [
     name: "scenario2",
     homeDir: join(FIXTURE_DIR, "home-files", "scenario2"),
     description:
-      "network only in project-local config is added; matching home entry dropped (#1146)",
+      "network only in project-local config is added; matching home entry merges at lower precedence",
     config: HARDHAT_CONFIG,
     expectFailure: false,
   },
@@ -54,7 +54,7 @@ const scenarios: Scenario[] = [
     name: "scenario4",
     homeDir: join(FIXTURE_DIR, "home-files", "scenario4"),
     description:
-      "network in both project-local and home config keeps project-local values, home dropped (#1146)",
+      "network in both project-local and home config keeps project-local precedence; home per-network values merge in (fix)",
     config: HARDHAT_CONFIG,
     expectFailure: false,
   },

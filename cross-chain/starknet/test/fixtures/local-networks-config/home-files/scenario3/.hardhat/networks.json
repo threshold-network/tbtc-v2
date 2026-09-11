@@ -7,7 +7,9 @@
   "networks": {
     "homeOnly": {
       "url": "http://homeOnly.example.invalid",
-      "accounts": ["0x4444444444444444444444444444444444444444444444444444444444444444"],
+      "accounts": [
+        "0x4444444444444444444444444444444444444444444444444444444444444444"
+      ],
       "gasPrice": 12000000000,
       "tags": ["home-only-tag"],
       "deploy": ["home-only-deploy"]

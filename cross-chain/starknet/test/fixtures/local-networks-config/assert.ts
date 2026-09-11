@@ -4,10 +4,12 @@
 // to hardhat, which exits non-zero — the mocha driver treats non-zero
 // exit + stderr as the failure signal. On success the resolved network
 // summary is written to OUT_FILE for the driver.
-// Expected values pin the CURRENT behavior of the frozen vendored plugin
-// (deepmerge array concat, home-entry precedence quirks) — see the
-// known-quirks notes in local-networks-config/index.ts and
-// threshold-network/tbtc-v2#1146.
+// Expected values pin the merge behavior of the threshold-network fork of
+// @keep-network/hardhat-local-networks-config: the deepmerge array-concat
+// quirk is kept, and the home per-network override now merges at lower
+// precedence in the local-only path (the fork's recorded deviation (a),
+// replacing the upstream home-drop quirk; remaining quirks tracked in
+// threshold-network/tbtc-v2#1146).
 import { writeFileSync } from "fs"
 
 declare const hre: import("hardhat/types").HardhatRuntimeEnvironment
@@ -77,9 +79,10 @@ function run(): void {
 
     case "scenario2": {
       // localOnly exists only in the project-local config, so the
-      // local-only loop merges [{}, homeDefault, localDefault, localNetwork].
-      // The matching home per-network entry is intentionally NOT merged —
-      // the home-drop quirk, deliberately preserved (#1146).
+      // local-only loop merges [{}, homeDefault, homeLocalOnly,
+      // localDefault, localNetwork]. The matching home per-network entry
+      // merges at lower precedence than the project-local values (fork
+      // deviation (a): the upstream home-drop quirk is fixed).
       const localOnly = networks.localOnly as unknown as
         | Record<string, unknown>
         | undefined
@@ -91,13 +94,14 @@ function run(): void {
       )
       expect(
         localOnly.tags,
-        ["home-default-tag", "project-local-tag", "project-local-only-tag"],
+        ["home-default-tag", "home-localOnly-tag", "project-local-tag", "project-local-only-tag"],
         "scenario2 tags"
       )
       expect(
         localOnly.deploy,
         [
           "home-default-deploy",
+          "home-localOnly-deploy",
           "project-local-deploy-script",
           "project-local-only-deploy",
         ],
@@ -144,28 +148,30 @@ function run(): void {
     case "scenario4": {
       // bothLocalAndHome exists in BOTH the project-local config and
       // ~/.hardhat/networks.json (absent from hardhat.config.ts). The
-      // local-only loop runs first and its merge omits the home per-network
-      // entry, so the home overrides (0x555 accounts, gasPrice 6e10,
-      // home-both-tag/deploy) are silently dropped — the home-drop quirk,
-      // deliberately preserved (#1146).
+      // local-only loop merges the home per-network entry at lower
+      // precedence, so the home overrides (0x555 accounts, gasPrice 6e10,
+      // home-both-tag/deploy) merge in but the project-local per-network
+      // values still win (fork deviation (a); upstream silently dropped the
+      // home entry — the home-drop quirk, now fixed).
       const both = networks.bothLocalAndHome as unknown as
         | Record<string, unknown>
         | undefined
       if (!both) throw new Error("bothLocalAndHome network not found")
       expect(
         both.accounts,
-        ["0x3333333333333333333333333333333333333333333333333333333333333333"],
+        ["0x5555555555555555555555555555555555555555555555555555555555555555", "0x3333333333333333333333333333333333333333333333333333333333333333"],
         "scenario4 accounts"
       )
       expect(
         both.tags,
-        ["home-default-tag", "project-local-tag", "project-local-both-tag"],
+        ["home-default-tag", "home-both-tag", "project-local-tag", "project-local-both-tag"],
         "scenario4 tags"
       )
       expect(
         both.deploy,
         [
           "home-default-deploy",
+          "home-both-deploy",
           "project-local-deploy-script",
           "project-local-both-deploy",
         ],
@@ -187,4 +193,9 @@ function run(): void {
   writeFileSync(outFile, JSON.stringify({ scenario, status: "passed" }))
 }
 
-run()
+// Guard: when the full suite runs (`hardhat test` without a path), mocha
+// collects this file as a spec alongside the driver; only execute when
+// spawned via `hardhat run` with the driver's env.
+if (scenario && outFile) {
+  run()
+}

@@ -13,7 +13,9 @@
     },
     "bothLocalAndHome": {
       "url": "http://bothLocalAndHomeHome.example.invalid",
-      "accounts": ["0x5555555555555555555555555555555555555555555555555555555555555555"],
+      "accounts": [
+        "0x5555555555555555555555555555555555555555555555555555555555555555"
+      ],
       "gasPrice": 60000000000,
       "tags": ["home-both-tag"],
       "deploy": ["home-both-deploy"]
