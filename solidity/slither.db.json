@@ -7,7 +7,8 @@
       "disposition": "false-positive",
       "rationale": "The deposit is finalized and the deferred entry cleared before interactions. Restoration and the failure event occur only after a reverted reimbursement call; nested changes from that call have rolled back. See docs/slither-triage.md.",
       "sources": {
-        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "9b5e20575929b30c6db3e7818463ed1f10a5205b2864a441da0f18e4dc88877c"
+        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "9b5e20575929b30c6db3e7818463ed1f10a5205b2864a441da0f18e4dc88877c",
+        "contracts/integrator/AbstractBTCDepositor.sol": "5169a38dca48889ab9b6e67102a3a976f83ecea26ce1750354543775aa9e968a"
       }
     }
   },
@@ -19,7 +20,8 @@
       "disposition": "false-positive",
       "rationale": "The deposit is finalized and the deferred entry cleared before interactions. Restoration and the failure event occur only after a reverted reimbursement call; nested changes from that call have rolled back. See docs/slither-triage.md.",
       "sources": {
-        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "9b5e20575929b30c6db3e7818463ed1f10a5205b2864a441da0f18e4dc88877c"
+        "contracts/cross-chain/AbstractL1BTCDepositor.sol": "9b5e20575929b30c6db3e7818463ed1f10a5205b2864a441da0f18e4dc88877c",
+        "contracts/integrator/AbstractBTCDepositor.sol": "5169a38dca48889ab9b6e67102a3a976f83ecea26ce1750354543775aa9e968a"
       }
     }
   }
