@@ -6,13 +6,14 @@
   "files": [
     "artifacts/",
     "export/",
-    "deploy_l1/"
+    "deploy_l1/",
+    "contracts/vendor/"
   ],
   "scripts": {
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "deploy": "hardhat deploy --export export.json",
-    "deploy:test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat deploy",
+    "deploy:test": "TEST_USE_STUBS_TBTC=true hardhat deploy",
     "test": "hardhat test",
     "format": "npm run lint",
     "format:fix": "npm run lint:fix:sol && npm run lint:config:fix",
@@ -39,16 +40,12 @@
     "transfer-ownership:sepolia": "hardhat deploy --network sepolia --tags TransferStarkNetBitcoinDepositorOwnership",
     "transfer-ownership:mainnet": "hardhat deploy --network mainnet --tags TransferStarkNetBitcoinDepositorOwnership",
     "prepublishOnly": "./scripts/pre-publish-check.sh && ./scripts/prepare-artifacts.sh --network $npm_config_network",
-    "verify": "hardhat etherscan-verify --network"
+    "verify": "hardhat etherscan-verify --network",
+    "verify:vendor": "node scripts/verify-vendor.cjs"
   },
   "dependencies": {
-    "@keep-network/bitcoin-spv-sol": "3.4.0-solc-0.8",
-    "@keep-network/ecdsa": "2.1.0-dev.19",
-    "@keep-network/random-beacon": "2.1.0-dev.18",
-    "@keep-network/tbtc-v2": "1.8.0-dev.1",
     "@openzeppelin/contracts": "^4.8.1",
-    "@openzeppelin/contracts-upgradeable": "^4.8.1",
-    "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
+    "@openzeppelin/contracts-upgradeable": "^4.8.1"
   },
   "devDependencies": {
     "@defi-wonderland/smock": "2.4.1",
