@@ -59,7 +59,7 @@ See `config/README.adoc` for an overview of all shared lint configs and their co
 Solhint ruleset update workflow:
 Editing `config/solhint-config-tbtc/index.json` also requires bumping the version in `config/solhint-config-tbtc/package.json` and re-running `yarn install` in each of the 8 Solidity consumers (cross-chain/arbitrum, cross-chain/base, cross-chain/bob, cross-chain/optimism, cross-chain/polygon, cross-chain/starknet, cross-chain/sui, solidity) and committing their lockfiles. Otherwise, solidity's Yarn-Berry immutable installs fail in CI and Yarn-Classic consumers silently keep stale copied rules (Yarn v1 copies file: deps).
 
-Note: `yearn/` intentionally still uses the external keep-network packages (solium-config-keep, eslint-config-keep) until it is extracted.
+Note: `yearn/` intentionally still uses the external keep-network packages (`eslint-config-keep`, `solhint-config-keep`) until it is extracted.
 
 Note: The `@thesis-co/eslint-config` pins are codeload tarball URLs with content-SHA1 integrity fragments that Yarn v1 enforces (`fetchBadHashOnMismatch`). GitHub codeload tarballs are not contractually byte-stable, so treat a tarball-hash install failure as a known risk to re-resolve rather than a regression.
 
