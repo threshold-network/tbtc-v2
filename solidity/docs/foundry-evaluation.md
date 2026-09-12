@@ -64,8 +64,9 @@ Both runners compile `contracts/` with solc 0.8.17. Foundry explicitly selects
 London, the default target of that compiler version, and 1,000 optimizer
 runs. Additional compiler profiles mirror the Hardhat overrides: 200 runs
 for `WalletRegistry` and `BridgeGovernance`, and 1 run for
-`L1BTCDepositorNttWithExecutor`. Keep these settings synchronized when either
-configuration changes.
+`L1BTCDepositorNttWithExecutor`. `check:foundry-hardhat-parity` now enforces
+that these per-contract overrides stay synchronized, the same way it already
+enforced the base compiler settings.
 
 Foundry's [compilation restrictions](https://getfoundry.sh/reference/config/solidity-compiler#compilation-restrictions)
 also propagate to importing contracts.
