@@ -9,6 +9,12 @@ const root = path.resolve(__dirname, "..")
 // Real files are required: import/no-cycle traverses the imported export maps.
 // Keep them inside the lint tsconfig, and remove them even when a check fails.
 test("the repository ESLint policy rejects regressions", async (context) => {
+  const testDir = path.join(root, "test")
+  fs.readdirSync(testDir).forEach((entry) => {
+    if (entry.startsWith("eslint-policy-")) {
+      fs.rmSync(path.join(testDir, entry), { recursive: true, force: true })
+    }
+  })
   const directory = fs.mkdtempSync(path.join(root, "test/eslint-policy-"))
   const sources = {
     "cycle-a.ts": `import next from "./cycle-b"
@@ -33,6 +39,8 @@ export default function current(value: number): number {
   return value + 1
 }
 `,
+    "example.test.ts": `describe.only("x", () => {})
+`,
   }
 
   try {
@@ -50,6 +58,15 @@ export default function current(value: number): number {
       })
       return result
     }
+    // example.test.ts is written into the temp directory up front (with the
+    // other .ts fixtures), before the typescript-eslint parser builds its
+    // program, so it is covered by tsconfig.eslint.json's include glob.
+    const lintTestTypescript = async () => {
+      const [result] = await eslint.lintFiles([
+        path.join(directory, "example.test.ts"),
+      ])
+      return result
+    }
 
     await context.test(
       "detects a cycle through TypeScript exports",
@@ -58,6 +75,7 @@ export default function current(value: number): number {
           path.join(directory, "cycle-a.ts"),
           path.join(directory, "cycle-b.ts"),
         ])
+        assert.equal(results.length, 2, "expected two files to be linted")
         results.forEach((result) => {
           assert.ok(
             result.messages.some(
@@ -75,6 +93,7 @@ export default function current(value: number): number {
         path.join(directory, "acyclic-a.ts"),
         path.join(directory, "acyclic-b.ts"),
       ])
+      assert.equal(results.length, 2, "expected two files to be linted")
       results.forEach((result) => {
         assert.equal(result.errorCount, 0, JSON.stringify(result.messages))
       })
@@ -98,8 +117,7 @@ export default function current(value: number): number {
               const result =
                 await lintJavaScript(`module.exports = function deploy() {
   return ${prefix}${constructor}("return 1")
-}
-`)
+}`)
               assert.ok(
                 result.messages.some(
                   (message) => message.ruleId === rule && message.severity === 2
@@ -115,8 +133,7 @@ export default function current(value: number): number {
     await context.test("allows Function references without calls", async () => {
       const result = await lintJavaScript(`module.exports = function deploy() {
   return [Function, global.Function, typeof globalThis.Function, globalThis.Function.prototype]
-}
-`)
+}`)
       assert.equal(result.errorCount, 0, JSON.stringify(result.messages))
       assert.equal(result.warningCount, 0, JSON.stringify(result.messages))
     })
@@ -148,7 +165,7 @@ export default function current(value: number): number {
   return value
 }
 `,
-      "no-useless-constructor": `module.exports = class Deployment {
+      "no-useless-constructor": `module.exports = class Foo {
   constructor() {}
 }
 `,
@@ -197,8 +214,7 @@ module.exports.value = value
           await lintJavaScript(`module.exports = function deploy(value) {
   const unused = value + 1
   return value
-}
-`)
+}`)
         assert.ok(
           result.messages.some(
             (message) =>
@@ -215,8 +231,7 @@ module.exports.value = value
         const result =
           await lintJavaScript(`module.exports = function deploy({ removed, ...rest }) {
   return rest
-}
-`)
+}`)
         assert.equal(result.errorCount, 0, JSON.stringify(result.messages))
         assert.equal(result.warningCount, 0, JSON.stringify(result.messages))
       }
@@ -233,10 +248,53 @@ module.exports.value = value
     await Promise.resolve(entry)
     console.log(path.basename(entry))
   }
-}
-`)
+}`)
         assert.equal(result.errorCount, 0, JSON.stringify(result.messages))
         assert.equal(result.warningCount, 0, JSON.stringify(result.messages))
+      }
+    )
+
+    // NEW TEST CASES
+    await context.test(
+      "flags waffle.loadFixture as restricted property",
+      async () => {
+        const result = await lintJavaScript(`module.exports = function deploy() {
+  return waffle.loadFixture(fixture)
+}`)
+        assert.ok(
+          result.messages.some(
+            (message) => message.ruleId === "no-restricted-properties" && message.severity === 2
+          ),
+          JSON.stringify(result.messages)
+        )
+      }
+    )
+
+    await context.test(
+      "flags describe.only in test files",
+      async () => {
+        const result = await lintTestTypescript()
+        assert.ok(
+          result.messages.some(
+            (message) => message.ruleId === "no-only-tests/no-only-tests" && message.severity === 2
+          ),
+          JSON.stringify(result.messages)
+        )
+      }
+    )
+
+    await context.test(
+      "reports unused eslint-disable directive",
+      async () => {
+        const result = await lintJavaScript(`// eslint-disable-next-line no-console
+module.exports = function deploy() {
+  return 1
+}`)
+        // The message may have ruleId null or contain the text
+        const unusedMsg = result.messages.find(
+          (m) => m.ruleId === null || (m.message && m.message.includes("Unused eslint-disable directive"))
+        )
+        assert.ok(unusedMsg, `Expected unused eslint-disable directive message. Got: ${JSON.stringify(result.messages)}`)
       }
     )
   } finally {
