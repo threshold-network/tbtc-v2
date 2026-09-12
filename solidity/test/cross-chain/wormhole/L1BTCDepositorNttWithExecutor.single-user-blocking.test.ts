@@ -28,7 +28,6 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
   let user1: HardhatEthersSigner
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[owner, user1] = await ethers.getSigners()
 
     // Deploy mock contracts following the working pattern

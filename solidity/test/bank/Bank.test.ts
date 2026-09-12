@@ -51,7 +51,6 @@ describe("Bank", () => {
   let bank: Bank
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, bridge, thirdParty, bank } = await loadFixture(
       fixture
     ))

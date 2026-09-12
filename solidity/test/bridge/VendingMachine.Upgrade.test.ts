@@ -46,7 +46,6 @@ describe("VendingMachine - Upgrade", () => {
   let relay: Mock<IRelay>
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -54,11 +53,7 @@ describe("VendingMachine - Upgrade", () => {
       keepTechnicalWalletTeam,
       keepCommunityMultiSig,
     } = await helpers.signers.getNamedSigners())
-
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[account1, account2] = await helpers.signers.getUnnamedSigners()
-
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ tbtcVault, tbtc, vendingMachine, bank, bridge, relay } =
       await bridgeFixture())
 

@@ -1,6 +1,3 @@
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
@@ -130,7 +127,6 @@ describe("LightRelay", () => {
   let relay: LightRelayStub
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, relay } = await loadFixture(fixture))
   })
 

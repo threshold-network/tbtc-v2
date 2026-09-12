@@ -34,7 +34,6 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
   let underlyingNttManager: MockNttManager
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[owner] = await ethers.getSigners()
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
     tbtcToken = await TestERC20Factory.deploy()

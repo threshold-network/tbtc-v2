@@ -1,5 +1,5 @@
 import { toNumber, Contract, ContractTransactionResponse } from "ethers"
-/* eslint-disable no-underscore-dangle */
+
 import { ethers, helpers } from "hardhat"
 import chai, { assert, expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -68,7 +68,6 @@ describe("Bridge - Moving funds", () => {
   let movedFundsSweepTimeoutNotifierRewardMultiplier: bigint
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,
@@ -1102,7 +1101,6 @@ describe("Bridge - Moving funds", () => {
                                                       ]
                                                     )
 
-                                                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                                   expect(
                                                     await bridge.spentMainUTXOs(
                                                       key
@@ -2182,7 +2180,6 @@ describe("Bridge - Moving funds", () => {
         })
 
         it("should call ECDSA Wallet Registry's closeWallet function", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           await expectCalledOnceWith(walletRegistry.closeWallet, [
             ecdsaWalletTestData.walletID,
           ])
@@ -2537,7 +2534,6 @@ describe("Bridge - Moving funds", () => {
                                     ]
                                   )
 
-                                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                   expect(
                                     (await bridge.movedFundsSweepRequests(key))
                                       .state
@@ -2797,7 +2793,6 @@ describe("Bridge - Moving funds", () => {
                                     ]
                                   )
 
-                                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                   expect(
                                     (await bridge.movedFundsSweepRequests(key))
                                       .state
@@ -2857,7 +2852,6 @@ describe("Bridge - Moving funds", () => {
                                     ]
                                   )
 
-                                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                                   expect(await bridge.spentMainUTXOs(key)).to.be
                                     .true
                                 })
@@ -3890,7 +3884,6 @@ describe("Bridge - Moving funds", () => {
                 })
 
                 it("should call ECDSA Wallet Registry's closeWallet function", async () => {
-                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   await expectCalledOnceWith(walletRegistry.closeWallet, [
                     walletDraft.ecdsaWalletID,
                   ])

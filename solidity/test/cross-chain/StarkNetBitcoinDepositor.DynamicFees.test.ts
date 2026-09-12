@@ -25,7 +25,6 @@ describe("StarkNetBitcoinDepositor - Dynamic Fee Estimation", () => {
   const INITIAL_MESSAGE_FEE = ethers.parseEther("0.002")
 
   beforeEach(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[deployer, depositorAccount] = await ethers.getSigners()
 
     // Deploy mock contracts

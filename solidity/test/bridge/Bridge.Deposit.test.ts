@@ -1,6 +1,3 @@
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { Contract, ContractTransactionResponse } from "ethers"
@@ -66,7 +63,6 @@ describe("Bridge - Deposit", () => {
   let deployer: HardhatEthersSigner
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       deployer,
       governance,

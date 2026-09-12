@@ -14,7 +14,6 @@ describe("Bridge - Vaults", () => {
   let bridgeGovernance: BridgeGovernance
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridge, bridgeGovernance } =
       await bridgeFixture())
   })
@@ -23,7 +22,6 @@ describe("Bridge - Vaults", () => {
     const vault = "0x2553E09f832c9f5C656808bb7A24793818877732"
 
     it("should not trust a vault by default", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       expect(await bridge.isVaultTrusted(vault)).to.be.false
     })
   })
@@ -61,7 +59,6 @@ describe("Bridge - Vaults", () => {
         })
 
         it("should correctly update vault status", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await bridge.isVaultTrusted(vault)).to.be.true
         })
 
@@ -86,7 +83,6 @@ describe("Bridge - Vaults", () => {
         })
 
         it("should correctly update vault status", async () => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           expect(await bridge.isVaultTrusted(vault)).to.be.false
         })
 

@@ -250,7 +250,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       // Perform multiple rapid updates
-      // eslint-disable-next-line no-plusplus
+
       for (let i = 0; i < 3; i++) {
         const executorArgs = {
           value: ethers.parseEther(`${i + 1}`),

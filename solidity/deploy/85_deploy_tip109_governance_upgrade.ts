@@ -661,7 +661,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           },
         ]
 
-        // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
+        // eslint-disable-next-line no-restricted-syntax
         for (const contract of contractsToVerify) {
           console.log(`Verifying ${contract.label} at ${contract.address}...`)
           try {

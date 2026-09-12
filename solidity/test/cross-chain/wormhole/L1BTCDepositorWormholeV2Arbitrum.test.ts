@@ -319,7 +319,6 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
   let l1BtcDepositor: L1BTCDepositorWormholeV2Arbitrum
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       relayer,
@@ -861,7 +860,6 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       })
 
       it("should call transferTokensWithPayload with correct args", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         await expectCalledOnce(wormholeTokenBridge.transferTokensWithPayload)
 
         const call =
@@ -904,7 +902,6 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
       })
 
       it("should NOT call sendVaasToEvm", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         await expectNotCalled(wormholeRelayer.sendVaasToEvm)
       })
 

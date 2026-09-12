@@ -84,3 +84,56 @@ deploy scripts. Before replacing that loader, validate all those scripts and
 both published formats (`export/` and `export.json`) against an explicit
 consumer compatibility contract. Keep these three issues open until their
 runtime migrations and acceptance checks are complete.
+
+## Lint policy
+
+The ESLint 10 flat configuration uses typescript-eslint 8 and import-x.
+`eslint.rules.cjs` preserves the active non-formatting rules resolved from
+`@thesis-co/eslint-config` 0.1.0; removed TypeScript rules use their current
+replacements. Prettier owns formatting, and unused React/JSX configuration is
+omitted. JavaScript keeps both the correctness rules provided by TypeScript's
+compiler and the applicable core counterparts of the inherited TypeScript
+extension rules, including unused expressions, shadowing and loop closures.
+Core `no-implied-eval` covers timers; `no-new-func` also rejects calls to the
+`Function` constructor, with or without `new`. A syntax restriction covers
+qualified calls through `global`, `globalThis` and `window`, including bracket
+access. References to `Function` without invoking it remain allowed.
+The existing deployment overrides still apply to JavaScript deployment patches.
+The import-x TypeScript preset supplies export-map traversal settings as well
+as module resolution, so dependency-cycle analysis follows TypeScript imports.
+`tsconfig.eslint.json` is checked in so fresh
+installs do not depend on the old shared package generating one.
+
+The existing test overrides and the prohibition on `waffle.loadFixture` remain.
+Focused tests (`describe.only` / `it.only`) are errors. Unused disable comments
+are errors, including the obsolete `no-extra-semi` suppressions removed in this
+migration. `npm run test:lint-policy` checks actual cyclic and acyclic TypeScript
+modules, JavaScript correctness violations and accepted deployment overrides.
+It runs as part of `lint:eslint`, including the existing formatting CI job.
+This package requires Node ^22.13.0 or >=24.0.0, matching its own
+`engines` declaration in package.json - a narrower floor than ESLint 10
+itself imposes, chosen for this repo's CI/runtime policy.
+
+The existing warning debt stays visible with a ceiling of 324 in both ESLint
+commands: 263 console uses, 31 unnamed functions, 19 unused variables, six
+explicit `any` types and five non-null assertions. Reduce the ceiling when
+fixing these warnings; do not increase it to accommodate new warnings. This
+records the warning baseline for the migration without disabling those checks.
+The increase from the originally recorded 308 pre-existing warnings (issue #1077)
+to the 321 baseline reported here most likely reflects this PR's flat-config
+`files: ["**/*.{ts,js,cjs}"]` (in `eslint.config.cjs`) linting a substantially
+larger file surface than the old `.eslintrc`. That config's only file-type
+overrides were for `**/*.test.ts`, `**/*.spec.ts`, and `deploy-patches/**/*.js`;
+with ESLint 7's bare `eslint .` invocation and no other file-type configuration,
+`deploy/`, `scripts/`, `tasks/`, `helpers/`, and `hardhat.config.ts` were not
+linted at all before this PR. This is the most plausible explanation for the
+308->321 delta predating this PR's own +1 warning, not a confirmed
+reconciliation - the exact historical count on the base commit was not
+re-measured.
+
+The increase from 321 to 322 is the inherited parity checker's explicit
+JSON evidence boundary (`Json`), added in the updated #1067 prerequisite.
+The increase from 322 to 324 is two more non-null assertions the same
+parity checker gained after this branch was rebased onto a later `dev`.
+Neither increase, nor the earlier 308->321 delta, comes from this PR's own
+lint-policy fixes.

@@ -25,7 +25,6 @@ describe("VendingMachineV2", () => {
   const initialV1Balance = to1e18(51)
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer } = await bridgeFixture())
     tbtcV1 = await helpers.contracts.getContract("TBTCToken")
     tbtcV2 = await helpers.contracts.getContract("TBTC")

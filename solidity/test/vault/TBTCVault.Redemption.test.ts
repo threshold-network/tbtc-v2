@@ -45,7 +45,6 @@ describe("TBTCVault - Redemption", () => {
   let account2: HardhatEthersSigner
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, bridge, bank, tbtcVault, tbtc } = await bridgeFixture())
 
     // TBTC token ownership transfer is not performed in deployment scripts.

@@ -4,7 +4,6 @@ import type { IRandomBeacon, WalletRegistry } from "../../../typechain"
 import { createMock } from "../../helpers/mock"
 import type { Mock } from "../../helpers/mock"
 
-// eslint-disable-next-line import/prefer-default-export
 export async function fakeRandomBeacon(
   walletRegistry: WalletRegistry
 ): Promise<Mock<IRandomBeacon>> {

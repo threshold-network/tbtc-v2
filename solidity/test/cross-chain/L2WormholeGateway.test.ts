@@ -120,7 +120,6 @@ describe("L2WormholeGateway", () => {
   let gateway: L2WormholeGateway
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
       governance,
       depositor1,

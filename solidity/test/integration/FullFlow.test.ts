@@ -1,5 +1,3 @@
-/* eslint-disable no-await-in-loop */
-/* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers } from "hardhat"
 import type { BigNumberish } from "ethers"
 import { ethers as utils } from "ethers"
