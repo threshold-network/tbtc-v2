@@ -4,6 +4,7 @@ import { expect } from "chai"
 
 import type { ContractTransactionResponse } from "ethers"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
 import type { Mock } from "../helpers/mock"
 import type { Bridge, IRandomBeacon, WalletRegistry } from "../../typechain"
 
@@ -69,7 +70,10 @@ describeFn("Integration Test - Wallet Creation", async () => {
       await randomBeacon.setRecording(false)
 
       requestNewWalletTx = await bridge.requestNewWallet(NO_MAIN_UTXO)
-      const startBlock = requestNewWalletTx.blockNumber
+      const startBlock = requireValue(
+        await requestNewWalletTx.wait(),
+        "Wallet creation receipt"
+      ).blockNumber
 
       await produceRelayEntry(walletRegistry, randomBeacon)
       ;({ approveDkgResultTx: walletRegistrationTx } = await performEcdsaDkg(
@@ -79,7 +83,10 @@ describeFn("Integration Test - Wallet Creation", async () => {
         startBlock
       ))
 
-      await walletRegistrationTx.wait()
+      requireValue(
+        await walletRegistrationTx.wait(),
+        "Wallet registration receipt"
+      )
     })
 
     it("should register a new wallet in the WalletRegistry", async () => {
@@ -97,12 +104,14 @@ describeFn("Integration Test - Wallet Creation", async () => {
       expect(storedWallet.state).to.be.equal(walletState.Live)
 
       expect(storedWallet.createdAt).to.be.equal(
-        (
+        requireValue(
           await ethers.provider.getBlock(
-            (
-              await walletRegistrationTx.wait()
+            requireValue(
+              await walletRegistrationTx.wait(),
+              "Wallet registration receipt"
             ).blockNumber
-          )
+          ),
+          "Block"
         ).timestamp
       )
     })

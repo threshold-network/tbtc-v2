@@ -4,6 +4,7 @@ import { expect } from "chai"
 
 import { randomBytes } from "crypto"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../../helpers/require-value"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -1444,7 +1445,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const depositKey = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -1465,7 +1466,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const tx2 = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal2, receiver)
-      const receipt2 = await tx2.wait()
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
       const depositKey2 = receipt2.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -1519,7 +1520,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const depositKey = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -1574,7 +1575,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const depositKey = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey

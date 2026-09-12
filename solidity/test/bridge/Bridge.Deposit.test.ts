@@ -147,7 +147,9 @@ describe("Bridge - Deposit", () => {
   }
 
   // Fixture used for revealDepositWithExtraData test scenario.
-  const revealDepositWithExtraDataFixture: RevealDepositFixture = {
+  const revealDepositWithExtraDataFixture: RevealDepositFixture & {
+    extraData: string
+  } = {
     // Data of a proper P2SH deposit funding transaction embedding some
     // extra data. Little-endian hash is:
     // 0x6383cd1829260b6034cd12bad36171748e8c3c6a8d57fcb6463c62f96116dfbc.
@@ -577,8 +579,7 @@ describe("Bridge - Deposit", () => {
                 })
 
                 context("when deposit is routed to a non-trusted vault", () => {
-                  let nonTrustedVaultReveal
-
+                  let nonTrustedVaultReveal: DepositRevealInfoStruct
                   before(async () => {
                     await createSnapshot()
 
@@ -796,8 +797,7 @@ describe("Bridge - Deposit", () => {
               })
 
               context("when deposit is routed to a non-trusted vault", () => {
-                let nonTrustedVaultReveal
-
+                let nonTrustedVaultReveal: DepositRevealInfoStruct
                 before(async () => {
                   await createSnapshot()
 
@@ -892,7 +892,7 @@ describe("Bridge - Deposit", () => {
             const walletPubKeyHash =
               "0x7abdee3c88cba8a890537e8d1417df87a7271f9d"
             const vault = "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD"
-            let depositorLocal
+            let depositorLocal: HardhatEthersSigner
 
             before(async () => {
               await createSnapshot()
@@ -1358,8 +1358,7 @@ describe("Bridge - Deposit", () => {
                   context(
                     "when deposit is routed to a non-trusted vault",
                     () => {
-                      let nonTrustedVaultReveal
-
+                      let nonTrustedVaultReveal: DepositRevealInfoStruct
                       before(async () => {
                         await createSnapshot()
 
@@ -1635,8 +1634,7 @@ describe("Bridge - Deposit", () => {
                 })
 
                 context("when deposit is routed to a non-trusted vault", () => {
-                  let nonTrustedVaultReveal
-
+                  let nonTrustedVaultReveal: DepositRevealInfoStruct
                   before(async () => {
                     await createSnapshot()
 

@@ -241,9 +241,8 @@ describe("WalletProposalValidator", () => {
               context("when deposit extra info length matches", () => {
                 context("when proposed sweep tx fee is invalid", () => {
                   context("when proposed sweep tx fee is zero", () => {
-                    let depositOne
-                    let depositTwo
-
+                    let depositOne: ReturnType<typeof createTestDeposit>
+                    let depositTwo: ReturnType<typeof createTestDeposit>
                     before(async () => {
                       await createSnapshot()
 
@@ -310,9 +309,8 @@ describe("WalletProposalValidator", () => {
                   context(
                     "when proposed sweep tx fee is greater than the allowed",
                     () => {
-                      let depositOne
-                      let depositTwo
-
+                      let depositOne: ReturnType<typeof createTestDeposit>
+                      let depositTwo: ReturnType<typeof createTestDeposit>
                       before(async () => {
                         await createSnapshot()
 
@@ -383,9 +381,8 @@ describe("WalletProposalValidator", () => {
                   const sweepTxFee = 5000
 
                   context("when there is a non-revealed deposit", () => {
-                    let depositOne
-                    let depositTwo
-
+                    let depositOne: ReturnType<typeof createTestDeposit>
+                    let depositTwo: ReturnType<typeof createTestDeposit>
                     before(async () => {
                       await createSnapshot()
 
@@ -454,9 +451,8 @@ describe("WalletProposalValidator", () => {
 
                   context("when all deposits are revealed", () => {
                     context("when there is an immature deposit", () => {
-                      let depositOne
-                      let depositTwo
-
+                      let depositOne: ReturnType<typeof createTestDeposit>
+                      let depositTwo: ReturnType<typeof createTestDeposit>
                       before(async () => {
                         await createSnapshot()
 
@@ -526,9 +522,8 @@ describe("WalletProposalValidator", () => {
 
                     context("when all deposits achieved the min age", () => {
                       context("when there is an already swept deposit", () => {
-                        let depositOne
-                        let depositTwo
-
+                        let depositOne: ReturnType<typeof createTestDeposit>
+                        let depositTwo: ReturnType<typeof createTestDeposit>
                         before(async () => {
                           await createSnapshot()
 
@@ -602,8 +597,9 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when funding tx hashes don't match",
                               () => {
-                                let deposit
-
+                                let deposit: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -664,8 +660,9 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when 20-byte funding output hash does not match",
                               () => {
-                                let deposit
-
+                                let deposit: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -730,8 +727,9 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when 32-byte funding output hash does not match",
                               () => {
-                                let deposit
-
+                                let deposit: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -801,9 +799,12 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when there is a deposit that violates the refund safety margin",
                               () => {
-                                let depositOne
-                                let depositTwo
-
+                                let depositOne: ReturnType<
+                                  typeof createTestDeposit
+                                >
+                                let depositTwo: ReturnType<
+                                  typeof createTestDeposit
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -894,9 +895,12 @@ describe("WalletProposalValidator", () => {
                                 context(
                                   "when there is a deposit controlled by a different wallet",
                                   () => {
-                                    let depositOne
-                                    let depositTwo
-
+                                    let depositOne: ReturnType<
+                                      typeof createTestDeposit
+                                    >
+                                    let depositTwo: ReturnType<
+                                      typeof createTestDeposit
+                                    >
                                     before(async () => {
                                       await createSnapshot()
 
@@ -978,9 +982,12 @@ describe("WalletProposalValidator", () => {
                                     context(
                                       "when there is a deposit targeting a different vault",
                                       () => {
-                                        let depositOne
-                                        let depositTwo
-
+                                        let depositOne: ReturnType<
+                                          typeof createTestDeposit
+                                        >
+                                        let depositTwo: ReturnType<
+                                          typeof createTestDeposit
+                                        >
                                         before(async () => {
                                           await createSnapshot()
 
@@ -1064,10 +1071,15 @@ describe("WalletProposalValidator", () => {
                                         context(
                                           "when there are duplicated deposits",
                                           () => {
-                                            let depositOne
-                                            let depositTwo
-                                            let depositThree
-
+                                            let depositOne: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositTwo: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositThree: ReturnType<
+                                              typeof createTestDeposit
+                                            >
                                             before(async () => {
                                               await createSnapshot()
 
@@ -1164,10 +1176,15 @@ describe("WalletProposalValidator", () => {
                                         context(
                                           "when all deposits are unique",
                                           () => {
-                                            let depositOne
-                                            let depositTwo
-                                            let depositThree
-
+                                            let depositOne: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositTwo: ReturnType<
+                                              typeof createTestDeposit
+                                            >
+                                            let depositThree: ReturnType<
+                                              typeof createTestDeposit
+                                            >
                                             before(async () => {
                                               await createSnapshot()
 
@@ -1490,9 +1507,8 @@ describe("WalletProposalValidator", () => {
                 const redemptionTxFee = 9000
 
                 context("when there is a non-pending request", () => {
-                  let requestOne
-                  let requestTwo
-
+                  let requestOne: ReturnType<typeof createTestRedemptionRequest>
+                  let requestTwo: ReturnType<typeof createTestRedemptionRequest>
                   before(async () => {
                     await createSnapshot()
 
@@ -1555,9 +1571,12 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when immaturity is caused by REDEMPTION_REQUEST_MIN_AGE violation",
                       () => {
-                        let requestOne
-                        let requestTwo
-
+                        let requestOne: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
+                        let requestTwo: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
                         before(async () => {
                           await createSnapshot()
 
@@ -1624,9 +1643,12 @@ describe("WalletProposalValidator", () => {
                       "when immaturity is caused by watchtower's delay violation",
                       () => {
                         let watchtower: Mock<IRedemptionWatchtower>
-                        let requestOne
-                        let requestTwo
-
+                        let requestOne: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
+                        let requestTwo: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
                         before(async () => {
                           await createSnapshot()
 
@@ -1728,9 +1750,12 @@ describe("WalletProposalValidator", () => {
                     context(
                       "when there is a request that violates the timeout safety margin",
                       () => {
-                        let requestOne
-                        let requestTwo
-
+                        let requestOne: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
+                        let requestTwo: ReturnType<
+                          typeof createTestRedemptionRequest
+                        >
                         before(async () => {
                           await createSnapshot()
 
@@ -1812,9 +1837,12 @@ describe("WalletProposalValidator", () => {
                           "when there is a request that incurs an unacceptable tx fee share",
                           () => {
                             context("when there is no fee remainder", () => {
-                              let requestOne
-                              let requestTwo
-
+                              let requestOne: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
+                              let requestTwo: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
                               before(async () => {
                                 await createSnapshot()
 
@@ -1881,9 +1909,12 @@ describe("WalletProposalValidator", () => {
                             })
 
                             context("when there is a fee remainder", () => {
-                              let requestOne
-                              let requestTwo
-
+                              let requestOne: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
+                              let requestTwo: ReturnType<
+                                typeof createTestRedemptionRequest
+                              >
                               before(async () => {
                                 await createSnapshot()
 
@@ -1958,10 +1989,15 @@ describe("WalletProposalValidator", () => {
                             context(
                               "when there are duplicated requests",
                               () => {
-                                let requestOne
-                                let requestTwo
-                                let requestThree
-
+                                let requestOne: ReturnType<
+                                  typeof createTestRedemptionRequest
+                                >
+                                let requestTwo: ReturnType<
+                                  typeof createTestRedemptionRequest
+                                >
+                                let requestThree: ReturnType<
+                                  typeof createTestRedemptionRequest
+                                >
                                 before(async () => {
                                   await createSnapshot()
 
@@ -2053,9 +2089,12 @@ describe("WalletProposalValidator", () => {
                               requestTestData.forEach((requestTest) => {
                                 context(requestTest.testName, () => {
                                   let watchtower: Mock<IRedemptionWatchtower>
-                                  let requestOne
-                                  let requestTwo
-
+                                  let requestOne: ReturnType<
+                                    typeof createTestRedemptionRequest
+                                  >
+                                  let requestTwo: ReturnType<
+                                    typeof createTestRedemptionRequest
+                                  >
                                   before(async () => {
                                     await createSnapshot()
 

@@ -4,6 +4,7 @@ import { ProviderWrapper } from "hardhat/internal/core/providers/wrapper"
 import type {
   HardhatNetworkConfig,
   HardhatRuntimeEnvironment,
+  RequestArguments,
 } from "hardhat/types"
 import hardhatPackage from "hardhat/package.json"
 import deployPackage from "hardhat-deploy/package.json"
@@ -51,6 +52,9 @@ if (optionalDeployFlags.some((name) => process.env[name] === "true")) {
   throw new Error("Optional deployment/upgrade flags must be unset for parity")
 }
 config.paths = { ...config.paths, root: projectRoot }
+if (!config.networks?.hardhat) {
+  throw new Error("Parity requires a Hardhat network configuration")
+}
 config.networks.hardhat.initialDate = new NativeDate(fixedTime).toISOString()
 globalThis.Date = new Proxy(NativeDate, {
   construct(target, args) {
@@ -67,7 +71,7 @@ extendProvider(async (provider, _config, networkName) => {
   return new (class extends ProviderWrapper {
     private readonly delegate = provider
 
-    async request(args) {
+    async request(args: RequestArguments) {
       if (
         ["eth_sendTransaction", "eth_sendRawTransaction"].includes(args.method)
       ) {

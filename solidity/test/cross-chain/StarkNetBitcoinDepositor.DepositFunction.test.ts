@@ -1,5 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { requireValue } from "../../helpers/require-value"
 import type {
   StarkNetBitcoinDepositor,
   MockBridgeForStarkNet,
@@ -242,7 +243,7 @@ describe("StarkNetBitcoinDepositor - deposit() Implementation", () => {
       const tx = await depositor.finalizeDeposit(depositKey, {
         value: INITIAL_MESSAGE_FEE,
       })
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const { gasUsed } = receipt
 
       // This is the gas used with the new deposit() function

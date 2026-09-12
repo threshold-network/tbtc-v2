@@ -5,6 +5,7 @@ import type { BigNumberish } from "ethers"
 import { ethers as utils } from "ethers"
 import type { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
+import { requireValue } from "../../helpers/require-value"
 import type { Mock } from "../helpers/mock"
 import type {
   TBTC,
@@ -115,7 +116,10 @@ describeFn("Integration Test - Full flow", async () => {
           hre,
           walletRegistry,
           walletPublicKey,
-          requestNewWalletTx.blockNumber
+          requireValue(
+            await requestNewWalletTx.wait(),
+            "Wallet creation receipt"
+          ).blockNumber
         )
       })
 

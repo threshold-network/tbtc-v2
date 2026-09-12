@@ -1,5 +1,6 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { requireValue } from "../../helpers/require-value"
 import type { MockStarkGateBridge, MockTBTCToken } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -51,7 +52,7 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
         { value: MESSAGE_FEE }
       )
 
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const gasUsedWithMessage = receipt.gasUsed
 
       // console.log(

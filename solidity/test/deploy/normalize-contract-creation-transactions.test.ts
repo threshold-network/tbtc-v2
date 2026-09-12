@@ -2,6 +2,7 @@ import { expect } from "chai"
 import { ethers, network } from "hardhat"
 import type { EthereumProvider } from "hardhat/types"
 import { HardhatEthersProvider } from "@nomicfoundation/hardhat-ethers/internal/hardhat-ethers-provider"
+import { requireValue } from "../../helpers/require-value"
 import normalizeContractCreationTransactions from "../../helpers/provider"
 
 describe("contract-creation RPC normalization", () => {
@@ -61,7 +62,6 @@ describe("contract-creation RPC normalization", () => {
       input: "0x6000",
     })
   })
-
   it("preserves valid transaction results and missing transactions", async () => {
     await Promise.all(
       [null, { to: null }, { to: "0x1234" }].map(async (result) => {
@@ -121,7 +121,9 @@ describe("contract-creation RPC normalization", () => {
       provider as unknown as EthereumProvider,
       "hardhat"
     )
-    expect((await reader.getTransaction(tx.hash)).to).to.equal(null)
+    expect(
+      requireValue(await reader.getTransaction(tx.hash), "Transaction").to
+    ).to.equal(null)
   })
 
   it("normalizes EIP-1193 requests and preserves their arguments and errors", async () => {

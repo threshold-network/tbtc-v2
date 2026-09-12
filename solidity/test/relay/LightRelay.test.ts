@@ -5,6 +5,7 @@ import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransactionResponse } from "ethers"
+import { requireValue } from "../../helpers/require-value"
 
 import type { LightRelayStub } from "../../typechain"
 
@@ -1025,7 +1026,7 @@ describe("LightRelay", () => {
           const proofHeaders = concatenateHexStrings(headerHex.slice(5, 11))
           await relay.connect(governance).setProofLength(6)
           const tx = await relay.validateChainGasReport(proofHeaders)
-          const txr = await tx.wait()
+          const txr = requireValue(await tx.wait(), "Transaction receipt")
 
           expect(txr.status).to.equal(1)
         })
@@ -1036,7 +1037,7 @@ describe("LightRelay", () => {
           const proofHeaders = concatenateHexStrings(headerHex)
           await relay.connect(governance).setProofLength(18)
           const tx = await relay.validateChainGasReport(proofHeaders)
-          const txr = await tx.wait()
+          const txr = requireValue(await tx.wait(), "Transaction receipt")
 
           expect(txr.status).to.equal(1)
         })

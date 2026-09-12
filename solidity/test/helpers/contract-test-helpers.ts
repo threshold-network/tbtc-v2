@@ -1,5 +1,6 @@
 import { toBigInt } from "ethers"
 import { ethers } from "hardhat"
+import { requireValue } from "../../helpers/require-value"
 
 // TODO: It is deprecated and `to1ePrecision` from the
 // https://github.com/keep-network/hardhat-helpers/blob/main/src/number.ts should
@@ -19,7 +20,8 @@ export function toSatoshis(amountInBtc: number): bigint {
 }
 
 export async function getBlockTime(blockNumber: number): Promise<number> {
-  return (await ethers.provider.getBlock(blockNumber)).timestamp
+  return requireValue(await ethers.provider.getBlock(blockNumber), "Block")
+    .timestamp
 }
 
 export function strip0xPrefix(hexString: string): string {

@@ -7,6 +7,7 @@ import {
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../helpers/require-value"
 import type { GasBurningReceiver } from "../../typechain"
 import { loadFixture } from "../helpers/fixture"
 import {
@@ -380,7 +381,7 @@ describe("AbstractL1BTCDepositor", () => {
               // out of gas. This case requires the successful payment path.
               gasLimit: 2_000_000,
             })
-          receipt = await tx.wait()
+          receipt = requireValue(await tx.wait(), "Transaction receipt")
 
           relayerBalanceAfter = await ethers.provider.getBalance(
             relayer.address

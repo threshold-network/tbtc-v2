@@ -116,8 +116,9 @@ const config: HardhatUserConfig = {
         // URL should point to a node with archival data (Alchemy recommended)
         url: process.env.FORKING_URL || "",
         // latest block is taken if FORKING_BLOCK env is not provided
-        blockNumber:
-          process.env.FORKING_BLOCK && parseInt(process.env.FORKING_BLOCK, 10),
+        blockNumber: process.env.FORKING_BLOCK
+          ? parseInt(process.env.FORKING_BLOCK, 10)
+          : undefined,
       },
       accounts: {
         // Number of accounts that should be predefined on the testing environment.

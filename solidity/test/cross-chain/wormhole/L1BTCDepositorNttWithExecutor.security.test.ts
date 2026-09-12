@@ -1,6 +1,7 @@
 import { EventLog } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
+import { requireValue } from "../../../helpers/require-value"
 
 import type {
   L1BTCDepositorNttWithExecutor,
@@ -661,7 +662,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const tx = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal, receiver)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const depositKey = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -708,7 +709,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const tx2 = await depositor
         .connect(user)
         .initializeDeposit(fundingTx, reveal2, receiver)
-      const receipt2 = await tx2.wait()
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
       const depositKey2 = receipt2.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -777,7 +778,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const tx = await depositor
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal, receiver)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const depositKey = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -863,7 +864,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const tx1 = await depositor
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal1, receiver)
-      const receipt1 = await tx1.wait()
+      const receipt1 = requireValue(await tx1.wait(), "Transaction receipt")
       const depositKey1 = receipt1.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -879,7 +880,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const tx2 = await depositor
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal2, receiver)
-      const receipt2 = await tx2.wait()
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
       const depositKey2 = receipt2.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey
@@ -965,7 +966,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const tx = await depositor
         .connect(attackerSigner)
         .initializeDeposit(fundingTx, reveal, receiver)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
       const depositKey = receipt.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "DepositInitialized")?.args?.depositKey

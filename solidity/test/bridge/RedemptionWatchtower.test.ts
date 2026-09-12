@@ -2052,7 +2052,10 @@ describe("RedemptionWatchtower", () => {
             before(async () => {
               await createSnapshot()
 
-              const assignValue = (optionalValue, defaultValue) =>
+              const assignValue = <T>(
+                optionalValue: T | undefined,
+                defaultValue: T
+              ): T =>
                 typeof optionalValue !== "undefined"
                   ? optionalValue
                   : defaultValue

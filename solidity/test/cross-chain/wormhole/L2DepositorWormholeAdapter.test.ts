@@ -3,6 +3,7 @@ import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { ContractTransactionResponse } from "ethers"
+import { requireValue } from "../../../helpers/require-value"
 import { loadFixture } from "../../helpers/fixture"
 import {
   IWormholeGateway,
@@ -190,28 +191,34 @@ describe("L2BTCDepositorWormhole", () => {
       // underneath. To overcome that problem, we manually get event's
       // arguments and check it against the expected ones using deep
       // equality assertion (eql).
-      const receipt = await ethers.provider.getTransactionReceipt(tx.hash)
-      expect(receipt.logs.length).to.be.equal(1)
-      expect(l2BtcDepositor.interface.parseLog(receipt.logs[0]).args).to.be.eql(
-        [
-          [
-            fundingTx.version,
-            fundingTx.inputVector,
-            fundingTx.outputVector,
-            fundingTx.locktime,
-          ],
-          [
-            ethers.toBigInt(reveal.fundingOutputIndex),
-            reveal.blindingFactor,
-            reveal.walletPubKeyHash,
-            reveal.refundPubKeyHash,
-            reveal.refundLocktime,
-            reveal.vault,
-          ],
-          ethers.getAddress(l2DepositOwnerInEthereumAddress),
-          relayer.address,
-        ]
+      const receipt = requireValue(
+        await ethers.provider.getTransactionReceipt(tx.hash),
+        "Transaction receipt"
       )
+      expect(receipt.logs.length).to.be.equal(1)
+      expect(
+        requireValue(
+          l2BtcDepositor.interface.parseLog(receipt.logs[0]),
+          "DepositInitialized log"
+        ).args
+      ).to.be.eql([
+        [
+          fundingTx.version,
+          fundingTx.inputVector,
+          fundingTx.outputVector,
+          fundingTx.locktime,
+        ],
+        [
+          ethers.toBigInt(reveal.fundingOutputIndex),
+          reveal.blindingFactor,
+          reveal.walletPubKeyHash,
+          reveal.refundPubKeyHash,
+          reveal.refundLocktime,
+          reveal.vault,
+        ],
+        ethers.getAddress(l2DepositOwnerInEthereumAddress),
+        relayer.address,
+      ])
     })
   })
 

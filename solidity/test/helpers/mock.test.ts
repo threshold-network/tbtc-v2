@@ -1,5 +1,6 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
+import { requireValue } from "../../helpers/require-value"
 
 import { createMock } from "./mock"
 
@@ -200,7 +201,7 @@ describe("MockContract", () => {
       await other.waitForDeployment()
 
       const tx = await other.connect(target.wallet).noReturn(1)
-      const receipt = await tx.wait()
+      const receipt = requireValue(await tx.wait(), "Transaction receipt")
 
       expect(receipt.from).to.equal(target.address)
     })

@@ -18,6 +18,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, Deployment } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
+import { requireValue } from "../helpers/require-value"
 import type { RebateStaking } from "../typechain"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
@@ -249,8 +250,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   // Prepare governance proposal
-  const functionSelector =
-    bridgeInterface.getFunction("setRebateStaking").selector
+  const functionSelector = requireValue(
+    bridgeInterface.getFunction("setRebateStaking"),
+    "setRebateStaking ABI fragment"
+  ).selector
   const governanceCalldata = bridgeGovernanceInterface.encodeFunctionData(
     "beginGovernanceUpdate",
     [
@@ -392,7 +395,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     } catch (error) {
       console.log(
         "Bridge implementation verification may have failed:",
-        error.message
+        error instanceof Error ? error.message : String(error)
       )
     }
   }

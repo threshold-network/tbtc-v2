@@ -17,6 +17,7 @@ import type {
   Interface,
   ParamType,
 } from "ethers"
+import { requireValue } from "../../helpers/require-value"
 
 /**
  * Programmable contract mock, replacing `@defi-wonderland/smock`.
@@ -63,7 +64,10 @@ import type {
  * the machine happens to be.
  */
 async function withoutAdvancingTime<T>(write: () => Promise<T>): Promise<T> {
-  const { timestamp } = await ethers.provider.getBlock("latest")
+  const { timestamp } = requireValue(
+    await ethers.provider.getBlock("latest"),
+    "Block"
+  )
   await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp])
   return write()
 }
@@ -252,7 +256,7 @@ function resolveFragment(
  * layout.
  */
 function zeroValueFor(type: ParamType): unknown {
-  if (type.baseType === "array") {
+  if (type.isArray()) {
     if (type.arrayLength === -1) {
       return []
     }
@@ -261,7 +265,7 @@ function zeroValueFor(type: ParamType): unknown {
     )
   }
 
-  if (type.baseType === "tuple") {
+  if (type.isTuple()) {
     return type.components.map((component) => zeroValueFor(component))
   }
 

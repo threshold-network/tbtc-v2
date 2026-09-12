@@ -1,16 +1,47 @@
 import { expect } from "chai"
+import { createRequire } from "module"
+import type { Provider, TransactionReceipt } from "ethers"
 import { ethers, network } from "hardhat"
 import { mine, takeSnapshot } from "@nomicfoundation/hardhat-network-helpers"
 import type { HardhatRuntimeEnvironment, EthereumProvider } from "hardhat/types"
 import { HardhatEthersProvider } from "@nomicfoundation/hardhat-ethers/internal/hardhat-ethers-provider"
 import type { DeployFunction } from "hardhat-deploy/types"
-import deployReimbursementPool from "@keep-network/random-beacon/export/deploy/01_deploy_reimbursement_pool"
-import deployBeaconSortitionPool from "@keep-network/random-beacon/export/deploy/02_deploy_beacon_sortition_pool"
-import deployBeaconDkgValidator from "@keep-network/random-beacon/export/deploy/03_deploy_beacon_dkg_validator"
-import deployRandomBeacon from "@keep-network/random-beacon/export/deploy/04_deploy_random_beacon"
-import deployRandomBeaconGovernance from "@keep-network/random-beacon/export/deploy/07_deploy_random_beacon_governance"
-import deployRandomBeaconChaosnet from "@keep-network/random-beacon/export/deploy/09_deploy_random_beacon_chaosnet"
-import waitForConfirmations from "../../helpers/wait-for-confirmations"
+
+// Type the untyped CommonJS fixtures at their loader boundary.
+const loadCommonJs = createRequire(__filename)
+const deployReimbursementPool: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/01_deploy_reimbursement_pool"
+)
+const deployBeaconSortitionPool: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/02_deploy_beacon_sortition_pool"
+)
+const deployBeaconDkgValidator: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/03_deploy_beacon_dkg_validator"
+)
+const deployRandomBeacon: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/04_deploy_random_beacon"
+)
+const deployRandomBeaconGovernance: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/07_deploy_random_beacon_governance"
+)
+const deployRandomBeaconChaosnet: DeployFunction = loadCommonJs(
+  "@keep-network/random-beacon/export/deploy/09_deploy_random_beacon_chaosnet"
+)
+// waitForConfirmations now takes an hre-shaped object (helpers/wait-for-confirmations.js
+// also installs contract-creation-transaction normalization on hre.network.provider), not
+// a bare ethers provider; this is the minimal shape both the real hre and the hand-rolled
+// fakeHre below satisfy.
+const waitForConfirmations: (
+  hre: {
+    ethers: { provider: Pick<Provider, "getTransaction"> }
+    network: { provider: Pick<EthereumProvider, "send"> }
+  },
+  transactionHash: string,
+  confirmations: number,
+  timeout: number
+) => Promise<TransactionReceipt> = loadCommonJs(
+  "../../helpers/wait-for-confirmations"
+)
 
 const scripts: [string, string[], DeployFunction][] = [
   [
@@ -51,6 +82,12 @@ const scripts: [string, string[], DeployFunction][] = [
   ],
 ]
 
+type MockConfirmationTransaction = {
+  wait: (
+    confirmations: number,
+    timeout: number
+  ) => Promise<{ hash: string; status: number } | null>
+}
 function createMockHre(missingTransactionHash = false) {
   const deployer = "0x1000000000000000000000000000000000000001"
   const verified: string[] = []
@@ -60,8 +97,9 @@ function createMockHre(missingTransactionHash = false) {
     transactionHash: missingTransactionHash ? undefined : ethers.id(name),
     name,
   })
-  let release: () => void
-  let entered: () => void
+  // Promise executors assign these callbacks synchronously before use.
+  let release!: () => void
+  let entered!: () => void
   const confirmed = new Promise<void>((resolve) => {
     release = resolve
   })
@@ -74,7 +112,9 @@ function createMockHre(missingTransactionHash = false) {
     waitForTransaction: ethers.provider.waitForTransaction.bind(
       ethers.provider
     ),
-    getTransaction: async (hash: string) => {
+    getTransaction: async (
+      hash: string
+    ): Promise<MockConfirmationTransaction | null> => {
       effects.push(`getTransaction:${hash}`)
       return {
         wait: async (confirmations: number, timeout: number) => {

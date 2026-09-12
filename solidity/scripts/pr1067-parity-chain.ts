@@ -117,7 +117,9 @@ function validateChain(
         },
       })
       same(signed.hash, tx.hash, `${location}: signed hash`)
-      same(signed.from.toLowerCase(), tx.from, `${location}: recovered sender`)
+      const sender = signed.from
+      check(sender !== null, `${location}: missing recovered sender`)
+      same(sender.toLowerCase(), tx.from, `${location}: recovered sender`)
       same(tx.blockHash, block.hash, `${location}: block hash`)
       same(tx.blockNumber, block.number, `${location}: block number`)
       same(tx.transactionIndex, "0x0", `${location}: transaction index`)
@@ -272,9 +274,9 @@ function validateChain(
     `${label}: runtime code inventory`
   )
   same(created.length, 53, `${label}: creation count`)
-  Object.values(chain.code).forEach((code: string) =>
+  Object.values(chain.code).forEach((code) =>
     check(
-      /^0x(?:[a-f0-9]{2})+$/.test(code),
+      typeof code === "string" && /^0x(?:[a-f0-9]{2})+$/.test(code),
       `${label}: empty/invalid runtime code`
     )
   )

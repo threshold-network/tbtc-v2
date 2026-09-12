@@ -10,6 +10,7 @@ import {
 import ProxyAdmin from "@openzeppelin/upgrades-core/artifacts/@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol/ProxyAdmin.json"
 import TransparentProxy from "@openzeppelin/upgrades-core/artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json"
 import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from "undici"
+import { requireValue } from "../../helpers/require-value"
 import transferProxyAdminOwnership from "../../deploy/26_transfer_proxy_admin_ownership"
 import { loadFixture } from "../helpers/fixture"
 
@@ -215,7 +216,10 @@ describe("OpenZeppelin Etherscan V2 compatibility", () => {
               result = [{ SourceCode: "" }]
               break
             case "getLogs": {
-              const address = params.get("address")
+              const address = requireValue(
+                params.get("address"),
+                "Explorer address"
+              )
               discoveries.push(address.toLowerCase())
               result = logs.filter(
                 (log) =>
@@ -225,13 +229,24 @@ describe("OpenZeppelin Etherscan V2 compatibility", () => {
               break
             }
             case "verifysourcecode": {
-              const address = params.get("contractaddress").toLowerCase()
+              const address = requireValue(
+                params.get("contractaddress"),
+                "Explorer contract address"
+              ).toLowerCase()
               submissions.push(address)
               expect(params.get("codeformat")).to.equal(
                 "solidity-standard-json-input"
               )
-              expect(Object.keys(JSON.parse(params.get("sourceCode")).sources))
-                .not.to.be.empty
+              expect(
+                Object.keys(
+                  JSON.parse(
+                    requireValue(
+                      params.get("sourceCode"),
+                      "Verification source code"
+                    )
+                  ).sources
+                )
+              ).not.to.be.empty
               if (address === proxy.toLowerCase()) {
                 expect(params.get("constructorArguements")).to.equal(
                   ethers.AbiCoder.defaultAbiCoder()
@@ -249,7 +264,9 @@ describe("OpenZeppelin Etherscan V2 compatibility", () => {
               result = "Pass - Verified"
               break
             case "verifyproxycontract":
-              expect(params.get("address")).to.equal(proxy)
+              expect(
+                requireValue(params.get("address"), "Explorer address")
+              ).to.equal(proxy)
               expect(params.get("expectedimplementation")).to.equal(
                 implementation
               )

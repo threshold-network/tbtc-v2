@@ -82,6 +82,18 @@ that file or a checkout `.env`. Do not change your home configuration for this
 check. Effective Hardhat settings and an account-settings hash are recorded
 without exporting account secrets.
 
+This reproduce procedure succeeds only against #1067's immutable revision
+(`5b65585459f461b52f685588a80d6c1057da5bad` as the baseline, its own head as
+the candidate) or an equivalent revision that changes none of
+`pr1067-parity.config.ts`, `package.json`, `yarn.lock`, or the export
+compiler target. Branches stacked on top of #1067 that raise
+`tsconfig.export.json`'s target (e.g. to ES2020) or update `@types/*`
+versions change the pinned candidate hashes this checker enforces; running
+the candidate side of this procedure from such a branch's HEAD does not
+reproduce the #1067 result and is expected to fail for reasons unrelated to
+compatibility. See [toolchain-upgrades.md](toolchain-upgrades.md) for the
+specific pins affected.
+
 From a checkout of the candidate revision:
 
 ```sh

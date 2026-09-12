@@ -1391,8 +1391,8 @@ __metadata:
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
     "@typechain/ethers-v6": "patch:@typechain/ethers-v6@npm%3A0.5.1#~/.yarn/patches/@typechain-ethers-v6-npm-0.5.1-e825560376.patch"
     "@typechain/hardhat": "npm:^9.1.0"
-    "@types/chai": "npm:^4.3.0"
-    "@types/mocha": "npm:^9.1.0"
+    "@types/chai": "npm:^4.3.20"
+    "@types/mocha": "npm:^10.0.10"
     "@types/node": "npm:^24.11.1"
     chai: "npm:^4.3.4"
     chai-as-promised: "npm:^7.1.1"
@@ -2501,10 +2501,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/chai@npm:^4.3.0":
-  version: 4.3.0
-  resolution: "@types/chai@npm:4.3.0"
-  checksum: 10c0/d8107f1916e552633cb98509129241bf2576084b65726e9e03c5194e69e704af5c64b52e4a23b51060eaf2914c588fdf260a6fc49bf63e51808e7d78944e238c
+"@types/chai@npm:^4.3.20":
+  version: 4.3.20
+  resolution: "@types/chai@npm:4.3.20"
+  checksum: 10c0/4601189d611752e65018f1ecadac82e94eed29f348e1d5430e5681a60b01e1ecf855d9bcc74ae43b07394751f184f6970fac2b5561fc57a1f36e93a0f5ffb6e8
   languageName: node
   linkType: hard
 
@@ -2531,10 +2531,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/mocha@npm:^9.1.0":
-  version: 9.1.0
-  resolution: "@types/mocha@npm:9.1.0"
-  checksum: 10c0/67c4662437ffbac955e8de0fa3e60860913201e46ac9a86305347b79dabe47c5f0a03b3b11c19f7aa8855c13de3337dc1bbd227ca8178f14e7688eab13bbe5af
+"@types/mocha@npm:^10.0.10":
+  version: 10.0.10
+  resolution: "@types/mocha@npm:10.0.10"
+  checksum: 10c0/d2b8c48138cde6923493e42b38e839695eb42edd04629abe480a8f34c0e3f50dd82a55832c2e8d2b6e6f9e4deb492d7d733e600fbbdd5a0ceccbcfc6844ff9d5
   languageName: node
   linkType: hard
 

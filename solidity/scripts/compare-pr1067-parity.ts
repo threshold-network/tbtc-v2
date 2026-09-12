@@ -12,8 +12,10 @@ import {
 } from "./pr1067-parity-chain"
 
 export type Snapshot = Map<string, Buffer>
-const hasOwn = (value: Record<string, unknown>, key: string) =>
-  Object.prototype.hasOwnProperty.call(value, key)
+const hasOwn = <T extends Record<string, unknown>>(
+  value: T,
+  key: string
+): key is keyof T & string => Object.prototype.hasOwnProperty.call(value, key)
 export interface RawGroup {
   baselineFiles: number
   candidateFiles: number
@@ -71,9 +73,10 @@ export function readSnapshot(directory: string): Snapshot {
   return result
 }
 
-function bytes(snapshot: Snapshot, name: string): Buffer {
-  check(snapshot.has(name), `Missing snapshot file: ${name}`)
-  return snapshot.get(name)
+export function bytes(snapshot: Snapshot, name: string): Buffer {
+  const value = snapshot.get(name)
+  check(value !== undefined, `Missing snapshot file: ${name}`)
+  return value
 }
 
 function json(snapshot: Snapshot, name: string): Json {
@@ -103,7 +106,7 @@ export function rawReport(baseline: Snapshot, candidate: Snapshot): RawReport {
           (name) =>
             !baseline.has(name) ||
             !candidate.has(name) ||
-            !baseline.get(name).equals(candidate.get(name))
+            !bytes(baseline, name).equals(bytes(candidate, name))
         )
       return [
         group,
@@ -113,7 +116,7 @@ export function rawReport(baseline: Snapshot, candidate: Snapshot): RawReport {
           identical: before.filter(
             (name) =>
               candidate.has(name) &&
-              baseline.get(name).equals(candidate.get(name))
+              bytes(baseline, name).equals(bytes(candidate, name))
           ).length,
           different,
         },
@@ -452,7 +455,8 @@ export function compareSnapshots(
       )
       return
     }
-    if (layouts.has(name)) {
+    const layout = layouts.get(name)
+    if (layout !== undefined) {
       const before = canonicalJson(baseline, name)
       const after = canonicalJson(candidate, name)
       check(
@@ -461,7 +465,7 @@ export function compareSnapshots(
       )
       same(
         after.storageLayout,
-        compiler[layouts.get(name)].output.storageLayout,
+        compiler[layout].output.storageLayout,
         `${name}: compiler storage layout`
       )
       delete after.storageLayout

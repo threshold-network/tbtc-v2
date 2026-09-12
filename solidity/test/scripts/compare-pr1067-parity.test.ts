@@ -1,12 +1,13 @@
 import assert from "assert"
 import {
+  bytes,
   checkRawInventory,
   compareSnapshots,
   rawReport,
   readSnapshot,
   Snapshot,
 } from "../../scripts/compare-pr1067-parity"
-import type { Json } from "../../scripts/pr1067-parity-chain"
+import { check, type Json } from "../../scripts/pr1067-parity-chain"
 
 const test = it
 
@@ -35,7 +36,7 @@ const hasParityEnv = process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
       value: unknown
     ): Snapshot {
       const result = new Map(candidate)
-      const document: Json = JSON.parse(candidate.get(file).toString())
+      const document: Json = JSON.parse(bytes(candidate, file).toString())
       const parent = keys
         .slice(0, -1)
         .reduce((object, key) => object[key], document)
@@ -116,7 +117,7 @@ const hasParityEnv = process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
         const altered = new Map(candidate)
         altered.set(
           artifact,
-          Buffer.concat([candidate.get(artifact), Buffer.from("\n")])
+          Buffer.concat([bytes(candidate, artifact), Buffer.from("\n")])
         )
         return altered
       },
@@ -251,7 +252,10 @@ const hasParityEnv = process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
         const name = "export/deploy/26_transfer_proxy_admin_ownership.js"
         altered.set(
           name,
-          Buffer.concat([candidate.get(name), Buffer.from("\n// unexpected")])
+          Buffer.concat([
+            bytes(candidate, name),
+            Buffer.from("\n// unexpected"),
+          ])
         )
         return altered
       },
@@ -264,6 +268,7 @@ const hasParityEnv = process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
           (key) =>
             key.startsWith("deployments/mainnet/") && key.endsWith(".json")
         )
+        check(name !== undefined, "Missing mainnet deployment fixture")
         return changedJson(name, ["unreviewed"], true)
       },
       /Unlisted byte difference/
@@ -271,7 +276,7 @@ const hasParityEnv = process.env.PARITY_BASELINE && process.env.PARITY_CANDIDATE
     rejects(
       "rejects changed deployed runtime code",
       () => {
-        const chain = JSON.parse(candidate.get("chain.json").toString())
+        const chain = JSON.parse(bytes(candidate, "chain.json").toString())
         const admin = `0x${chain.proxies.Bridge.admin.slice(-40)}`
         return changedJson("chain.json", ["code", admin], "0x00")
       },

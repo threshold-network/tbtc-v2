@@ -1601,8 +1601,8 @@ describe("Bridge - Fraud", () => {
               const testData: {
                 testName: string
                 walletState: number
-                additionalSetup?: () => Promise<void>
-                additionalAssertions?: () => Promise<void>
+                additionalSetup: () => Promise<void>
+                additionalAssertions: () => Promise<void>
               }[] = [
                 {
                   testName:

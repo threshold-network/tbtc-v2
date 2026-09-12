@@ -3,6 +3,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
+import { requireValue } from "../../../helpers/require-value"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -160,7 +161,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt1 = await tx1.wait()
+      const receipt1 = requireValue(await tx1.wait(), "Transaction receipt")
       const event1 = receipt1.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersSet")
@@ -174,7 +175,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt2 = await tx2.wait()
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
       const event2 = receipt2.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersRefreshed")
@@ -408,7 +409,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt1 = await tx1.wait()
+      const receipt1 = requireValue(await tx1.wait(), "Transaction receipt")
       const event1 = receipt1.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersSet")
@@ -422,7 +423,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
           feeArgs,
           WORMHOLE_CHAIN_DESTINATION
         )
-      const receipt2 = await tx2.wait()
+      const receipt2 = requireValue(await tx2.wait(), "Transaction receipt")
       const event2 = receipt2.logs
         .filter((log): log is EventLog => log instanceof EventLog)
         ?.find((e) => e.eventName === "ExecutorParametersRefreshed")

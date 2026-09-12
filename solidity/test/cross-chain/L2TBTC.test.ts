@@ -1061,7 +1061,7 @@ describe("L2TBTC", () => {
 
     let tx: ContractTransactionResponse
 
-    const getApproval = async (amount, spender) => {
+    const getApproval = async (amount: bigint, spender: string) => {
       // We use ethers.SigningKey for a Wallet instead of
       // Signer.signMessage to do not add '\x19Ethereum Signed Message:\n'
       // prefix to the signed message. The '\x19` protection (see EIP191 for
