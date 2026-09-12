@@ -1,7 +1,8 @@
 import { expect } from "chai"
-import { ethers } from "hardhat"
+import { ethers, network } from "hardhat"
 import { mine, takeSnapshot } from "@nomicfoundation/hardhat-network-helpers"
-import type { HardhatRuntimeEnvironment } from "hardhat/types"
+import type { HardhatRuntimeEnvironment, EthereumProvider } from "hardhat/types"
+import { HardhatEthersProvider } from "@nomicfoundation/hardhat-ethers/internal/hardhat-ethers-provider"
 import type { DeployFunction } from "hardhat-deploy/types"
 import deployReimbursementPool from "@keep-network/random-beacon/export/deploy/01_deploy_reimbursement_pool"
 import deployBeaconSortitionPool from "@keep-network/random-beacon/export/deploy/02_deploy_beacon_sortition_pool"
@@ -119,7 +120,15 @@ function createMockHre(missingTransactionHash = false) {
       },
     },
     ethers: { provider },
-    network: { name: "mainnet", tags: { etherscan: true, tenderly: true } },
+    network: {
+      name: "mainnet",
+      tags: { etherscan: true, tenderly: true },
+      // Not wired to `provider.getTransaction` above (that mock is
+      // hand-rolled for confirmation-wait sequencing); present only so
+      // waitForConfirmations's installContractCreationNormalization call
+      // has a real .send to wrap without throwing.
+      provider: { send: async () => undefined },
+    },
     tenderly: { verify: async () => effects.push("tenderly") },
   } as unknown as HardhatRuntimeEnvironment
 
@@ -228,11 +237,11 @@ describe("external deployment confirmations", () => {
       })
       await tx.wait()
       await expect(
-        waitForConfirmations(ethers.provider, tx.hash, 2, 25)
+        waitForConfirmations({ ethers, network }, tx.hash, 2, 25)
       ).to.be.rejectedWith("wait for transaction timeout")
       await mine()
       const receipt = await waitForConfirmations(
-        ethers.provider,
+        { ethers, network },
         tx.hash,
         2,
         1000
@@ -242,5 +251,39 @@ describe("external deployment confirmations", () => {
     } finally {
       await snapshot.restore()
     }
+  })
+
+  it("normalizes an empty-recipient transaction through the real Hardhat provider chain", async () => {
+    const [sender, receiver] = await ethers.getSigners()
+    const tx = await sender.sendTransaction({ to: receiver.address, value: 0 })
+    await tx.wait()
+
+    // Simulate the real-world quirk this normalization exists for: some RPC
+    // providers return an empty-string `to` for contract-creation
+    // transactions/receipts instead of omitting it or returning null.
+    // Forcing it here on an ordinary transaction isolates the normalization
+    // behavior from needing a real contract-creation transaction. Each
+    // method is passed through to the real network provider first so the
+    // transaction and receipt responses keep their own correct shape.
+    const rawProvider = {
+      send: async (method: string, params: unknown[]) => {
+        const result = await network.provider.send(method, params)
+        return result !== null && typeof result === "object"
+          ? { ...result, to: "" }
+          : result
+      },
+    }
+    const fakeHre = {
+      ethers: {
+        provider: new HardhatEthersProvider(
+          rawProvider as unknown as EthereumProvider,
+          "hardhat"
+        ),
+      },
+      network: { provider: rawProvider },
+    }
+
+    const receipt = await waitForConfirmations(fakeHre, tx.hash, 1, 1000)
+    expect(receipt.hash).to.equal(tx.hash)
   })
 })

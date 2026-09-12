@@ -96,12 +96,7 @@ const func = async function (hre) {
   }
 
   if (hre.network.tags.etherscan) {
-    await waitForConfirmations(
-      hre.ethers.provider,
-      RandomBeacon.transactionHash,
-      2,
-      300000
-    )
+    await waitForConfirmations(hre, RandomBeacon.transactionHash, 2, 300000)
     await helpers.etherscan.verify(BLS)
     await helpers.etherscan.verify(BeaconAuthorization)
     await helpers.etherscan.verify(BeaconDkg)

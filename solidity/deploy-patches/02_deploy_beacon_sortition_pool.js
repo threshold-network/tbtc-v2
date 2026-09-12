@@ -31,7 +31,7 @@ const func = async (hre) => {
 
   if (hre.network.tags.etherscan) {
     await waitForConfirmations(
-      hre.ethers.provider,
+      hre,
       BeaconSortitionPool.transactionHash,
       2,
       300000

@@ -23,7 +23,7 @@ const func = async (hre) => {
 
   if (hre.network.tags.etherscan) {
     await waitForConfirmations(
-      hre.ethers.provider,
+      hre,
       RandomBeaconChaosnet.transactionHash,
       2,
       300000
